@@ -9,6 +9,7 @@ import 'package:map_app/tile_providers.dart';
 import 'package:provider/provider.dart';
 import 'location_edit_sheet.dart';
 import 'location_provider.dart';
+import 'map/map_layer_button.dart';
 
 
 class MapControllerPage extends StatefulWidget {
@@ -21,9 +22,9 @@ class MapControllerPage extends StatefulWidget {
 }
 
 class MapControllerPageState extends State<MapControllerPage> {
-  final CacheStore _cacheStore = MemCacheStore();
-  final _dio = Dio();
   late final MapController _mapController = MapController();
+  String _globalLayer = 'nothing';
+  String _norwayLayer = 'topo';
 
   @override
   void initState() {
@@ -52,8 +53,10 @@ class MapControllerPageState extends State<MapControllerPage> {
                       onTap: (tapPosition, point) => _handleMapTap(context, point),
                     ),
                     children: [
-                      openStreetMapTileLayer,
-                      norgesKart,
+                      // Use conditional rendering for layers
+                      if (_globalLayer == 'osm') openStreetMapTileLayer,
+                      if (_norwayLayer == 'topo') norgesKart,
+                      if (_norwayLayer == 'satellite') norgesKartSatelitt,
                       LocationMarkers(onMarkerTap: (location) => _showEditSheet(context, location)),
                       const MapCompass.cupertino()
                     ],
@@ -62,9 +65,28 @@ class MapControllerPageState extends State<MapControllerPage> {
               ],
           );
         },
+    ),
+      floatingActionButton: MapLayerButton(
+        currentGlobalLayer: _globalLayer,
+        currentNorwayLayer: _norwayLayer,
+        onBaseLayerChanged: _handleBaseLayerChanged,
+        onNorwayLayerChanged: _handleNorwayLayerChanged,
       ),
     );
   }
+
+  void _handleBaseLayerChanged(String layer) {
+    setState(() {
+      _globalLayer = layer;
+    });
+  }
+
+  void _handleNorwayLayerChanged(String layer) {
+    setState(() {
+      _norwayLayer = layer;
+    });
+  }
+
 
   void _handleMapTap(BuildContext context, LatLng point) {
     _showEditSheet(context, null, newLocation: point);
