@@ -32,7 +32,7 @@ class CustomNorwayTileProvider extends TileProvider {
   ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
     final url = '$baseUrl?'
         'layer=Nibcache_web_mercator_v2'
-        '&gkt=318F5FCE232B94955C071B618FBA7DD1E891FAC3C07DBF000D7733B79E21E0BBC1AD0D4B4F2857DAE7C1F3CF9034009318B855F07FC2AB828D018F0853CD0DA1'
+        '&gkt=318F5FCE232B94954B1329985CB33E700322D0E71099F30E0D7733B79E21E0BBC1AD0D4B4F2857DAE7C1F3CF9034009318B855F07FC2AB828D018F0853CD0DA1'
         '&style=default'
         '&tilematrixset=GoogleMapsCompatible'
         '&Service=WMTS'
