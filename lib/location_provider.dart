@@ -1,28 +1,29 @@
 import 'package:flutter/foundation.dart';
-import 'database_helper.dart';
+import 'data/datastore/factory.dart';
+import 'data/model/marker.dart';
 
 class LocationProvider extends ChangeNotifier {
-  List<Map<String, dynamic>> _locations = [];
+  List<Marker> _locations = [];
 
-  List<Map<String, dynamic>> get locations => _locations;
+  List<Marker> get locations => _locations;
 
   Future<void> loadLocations() async {
-    _locations = await DatabaseHelper.queryAllLocations();
+    _locations = await MarkerDataStoreFactory.getDataStore().getAll();
     notifyListeners();
   }
 
-  Future<void> addLocation(Map<String, dynamic> location) async {
-    await DatabaseHelper.insertLocation(location);
+  Future<void> addLocation(Marker location) async {
+    await MarkerDataStoreFactory.getDataStore().insert(location);
     await loadLocations();
   }
 
-  Future<void> updateLocation(Map<String, dynamic> location) async {
-    await DatabaseHelper.updateLocation(location);
+  Future<void> updateLocation(Marker location) async {
+    await MarkerDataStoreFactory.getDataStore().update(location);
     await loadLocations();
   }
 
-  Future<void> deleteLocation(int id) async {
-    await DatabaseHelper.deleteLocation(id);
+  Future<void> deleteLocation(String id) async {
+    await MarkerDataStoreFactory.getDataStore().delete(id);
     await loadLocations();
   }
 }
