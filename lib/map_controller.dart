@@ -22,6 +22,7 @@ class MapControllerPage extends StatefulWidget {
 }
 
 class MapControllerPageState extends State<MapControllerPage> {
+  final GktManager _gktManager = GktManager();
   late final MapController _mapController = MapController();
   String _globalLayer = 'nothing';
   String _norwayLayer = 'topo';
@@ -37,7 +38,7 @@ class MapControllerPageState extends State<MapControllerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('MapController')),
+      appBar: AppBar(title: const Text('Turbo')),
       body: Consumer<LocationProvider>(
         builder: (context, locationProvider, child){
           return Column(
@@ -46,7 +47,7 @@ class MapControllerPageState extends State<MapControllerPage> {
                   child: FlutterMap(
                     mapController: _mapController,
                     options: MapOptions(
-                      initialCenter: const  LatLng(65.0, 13.0), // Center of Norway
+                      initialCenter: const LatLng(65.0, 13.0), // Center of Norway
                       initialZoom: 5,
                       maxZoom: 20,
                       minZoom: 3,
@@ -56,7 +57,7 @@ class MapControllerPageState extends State<MapControllerPage> {
                       // Use conditional rendering for layers
                       if (_globalLayer == 'osm') openStreetMapTileLayer,
                       if (_norwayLayer == 'topo') norgesKart,
-                      if (_norwayLayer == 'satellite') norgesKartSatelitt,
+                      if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
                       LocationMarkers(onMarkerTap: (location) => _showEditSheet(context, location)),
                       const MapCompass.cupertino()
                     ],
@@ -72,6 +73,34 @@ class MapControllerPageState extends State<MapControllerPage> {
         onBaseLayerChanged: _handleBaseLayerChanged,
         onNorwayLayerChanged: _handleNorwayLayerChanged,
       ),
+    );
+  }
+
+  Widget _buildNorgesKartSatelitt() {
+    return FutureBuilder<String>(
+      future: _gktManager.getGkt(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.example.app',
+          );
+        } else if (snapshot.hasError) {
+          return TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.example.app',
+          );
+        } else if (snapshot.hasData) {
+          return TileLayer(
+            tileProvider: CustomNorwayTileProvider(snapshot.data!),
+          );
+        } else {
+          return TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.example.app',
+          );
+        }
+      },
     );
   }
 
