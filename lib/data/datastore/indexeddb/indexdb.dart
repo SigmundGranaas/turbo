@@ -48,9 +48,16 @@ class IndexedDBMarkerDataStore implements MarkerDataStore {
   Future<List<Marker>> getAll() async {
     final Transaction txn = _db.transaction(storeName, 'readonly');
     final ObjectStore store = txn.objectStore(storeName);
-    final List<Map<String, dynamic>> allData = await store.getAll() as List<Map<String, dynamic>>;
+
+    List<Object?> rawData = await store.getAll();
     await txn.completed;
-    return allData.map((data) => Marker.fromMap(data)).toList();
+
+    return rawData.map((object) {
+      if (object is! Map<String, dynamic>) {
+        throw FormatException('Invalid data in store: $object');
+      }
+      return Marker.fromMap(object);
+    }).toList();
   }
 
   @override
