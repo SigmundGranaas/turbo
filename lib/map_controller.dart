@@ -1,5 +1,3 @@
-import 'package:dio/dio.dart';
-import 'package:dio_cache_interceptor/dio_cache_interceptor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_compass/flutter_map_compass.dart';
@@ -10,6 +8,8 @@ import 'package:provider/provider.dart';
 import 'location_edit_sheet.dart';
 import 'location_provider.dart';
 import 'map/map_layer_button.dart';
+import 'package:map_app/data/model/marker.dart' as marker_model;
+
 
 
 class MapControllerPage extends StatefulWidget {
@@ -92,12 +92,12 @@ class MapControllerPageState extends State<MapControllerPage> {
     _showEditSheet(context, null, newLocation: point);
   }
 
-  void _showEditSheet(BuildContext context, Map<String, dynamic>? location, {LatLng? newLocation}) {
+  void _showEditSheet(BuildContext context, marker_model.Marker? marker, {LatLng? newLocation}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => LocationEditSheet(location: location, newLocation: newLocation),
+      builder: (context) => LocationEditSheet(location: marker, newLocation: newLocation),
     );
   }
 }

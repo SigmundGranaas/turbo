@@ -2,10 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
+import 'data/model/marker.dart';
 import 'location_provider.dart';
 
 class LocationEditSheet extends StatefulWidget {
-  final Map<String, dynamic>? location;
+  final Marker? location;
   final LatLng? newLocation;
 
   const LocationEditSheet({super.key, this.location, this.newLocation});
@@ -22,8 +23,8 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.location?['name'] ?? '');
-    _descriptionController = TextEditingController(text: widget.location?['description'] ?? '');
+    _nameController = TextEditingController(text: widget.location?.title ?? '');
+    _descriptionController = TextEditingController(text: widget.location?.description ?? '');
   }
 
   @override
@@ -113,18 +114,17 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
   Future<void> _saveLocation(BuildContext context) async {
     if (_formKey.currentState!.validate()) {
       final locationProvider = context.read<LocationProvider>();
-      final newLocation = {
-        'name': _nameController.text,
+      final newMarker = Marker.fromMap( {
+        'title': _nameController.text,
         'description': _descriptionController.text,
-        'latitude': widget.location?['latitude'] ?? widget.newLocation!.latitude,
-        'longitude': widget.location?['longitude'] ?? widget.newLocation!.longitude,
-      };
+        'latitude': widget.location?.position.latitude ?? widget.newLocation!.latitude,
+        'longitude': widget.location?.position.longitude ?? widget.newLocation!.longitude,
+      });
 
       if (widget.location != null) {
-        newLocation['id'] = widget.location!['id'];
-        await locationProvider.updateLocation(newLocation);
+        await locationProvider.updateLocation(newMarker);
       } else {
-        await locationProvider.addLocation(newLocation);
+        await locationProvider.addLocation(newMarker);
       }
       if (!context.mounted) return;
       Navigator.of(context).pop();
@@ -152,7 +152,7 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
 
     if (confirm) {
       if (!context.mounted) return;
-      await context.read<LocationProvider>().deleteLocation(widget.location!['id']);
+      await context.read<LocationProvider>().deleteLocation(widget.location!.uuid);
       if (!context.mounted) return;
       Navigator.of(context).pop();
     }

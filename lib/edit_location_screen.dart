@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:map_app/data/model/marker.dart';
 import 'package:provider/provider.dart';
 import 'location_provider.dart';
 
@@ -74,13 +75,14 @@ class _EditLocationScreenState extends State<EditLocationScreen> {
 
   Future<void> _updateLocation(BuildContext context) async {
     if (_formKey.currentState!.validate()) {
-      await context.read<LocationProvider>().updateLocation({
+      var marker = Marker.fromMap({
         'id': widget.location['id'],
-        'name': _nameController.text,
+        'title': _nameController.text,
         'description': _descriptionController.text,
         'latitude': widget.location['latitude'],
         'longitude': widget.location['longitude'],
       });
+      await context.read<LocationProvider>().updateLocation(marker);
       if (!context.mounted) return;
       Navigator.of(context).pop();
     }
