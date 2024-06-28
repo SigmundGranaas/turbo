@@ -10,7 +10,7 @@ class MarkerDataStoreFactory {
   static Future<MarkerDataStore> init() async {
     final MarkerDataStore dataStore;
     if (kIsWeb) {
-      dataStore = IndexedDBMarkerDataStore();
+      dataStore = ShimDBMarkerDataStore();
     } else {
       dataStore = SQLiteMarkerDataStore();
     }
