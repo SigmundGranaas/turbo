@@ -51,12 +51,14 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(padding: const EdgeInsets.only(bottom: 32.0),
+            Padding(padding: const EdgeInsets.only(bottom: 16.0),
               child:  Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Rediger markering', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[600]),),
-                  const Icon(Icons.close)
+                 IconButton(onPressed: () => {
+                  Navigator.pop(context)
+                 }, icon:  const Icon(Icons.close))
                 ],
               ),
             ),
@@ -82,12 +84,6 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
                   border: OutlineInputBorder(),
                   labelText: 'Beskrivelse',
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Legg til en beskrivelse!';
-                  }
-                  return null;
-                },
               ),
             ),
             const SizedBox(height: 16),
