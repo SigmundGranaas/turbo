@@ -20,7 +20,6 @@ class IconService {
     'Vandring': const NamedIcon(title: 'Vandring', icon: Icons.hiking),
     'Kajakk': const NamedIcon(title: 'Kajakk', icon: Icons.kayaking),
     'Sykkel': const NamedIcon(title: 'Sykkel', icon: Icons.directions_bike),
-    'Teltplass': const NamedIcon(title: 'Teltplass', icon: Icons.camping),
     'Hytte': const NamedIcon(title: 'Hytte', icon: Icons.cabin),
     'Parkering': const NamedIcon(title: 'Parkering', icon: Icons.local_parking),
     'Camping Spot': const NamedIcon(title: 'Camping Spot', icon: Icons.airport_shuttle),
