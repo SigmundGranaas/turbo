@@ -1,5 +1,7 @@
 // location_edit_sheet.dart
 import 'package:flutter/material.dart';
+import 'package:map_app/data/model/named_icon.dart';
+import 'package:map_app/pages/icon_selection_page.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import 'data/model/marker.dart';
@@ -17,6 +19,7 @@ class LocationEditSheet extends StatefulWidget {
 
 class _LocationEditSheetState extends State<LocationEditSheet> {
   final _formKey = GlobalKey<FormState>();
+  NamedIcon selectedIcon =  const NamedIcon(title: 'Fjell', icon: Icons.landscape);
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
 
@@ -62,11 +65,11 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
                 controller: _nameController,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  labelText: 'Enter a name',
+                  labelText: 'Navn',
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter a name';
+                    return 'Skriv inn et navn';
                   }
                   return null;
                 },
@@ -81,30 +84,58 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter a name';
+                    return 'Legg til en beskrivelse!';
                   }
                   return null;
                 },
               ),
             ),
-            Padding(padding: const  EdgeInsets.only(bottom: 16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  ElevatedButton(
-                    onPressed: () => _saveLocation(context),
-                    child: Text(widget.location != null ? 'Update' : 'Save'),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Ikon', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[600]),)
+              ],
+            ),
+            const SizedBox(height: 4),
+            ListTile(
+              leading: Icon(selectedIcon.icon),
+              title: Text(selectedIcon.title),
+              tileColor: Colors.blue.withOpacity(0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8), // Rounded corners
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios),
+              onTap: () async {
+                final NamedIcon? result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const IconSelectionPage()),
+                );
+                if (result != null) {
+                  setState(() {
+                    selectedIcon = result;
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.save, color: Colors.white),
+                label: const Text('Lagre', style: TextStyle(color: Colors.white)),
+                onPressed: () => _saveLocation(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20), // Adjust the radius as needed
                   ),
-                  if (widget.location != null) ...[
-                    ElevatedButton(
-                      onPressed: () => _deleteLocation(context),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                      child: const Text('Slett', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),),
-    ),
-                  ],
-                ],
+                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                ),
               ),
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -117,6 +148,7 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
       final newMarker = Marker.fromMap( {
         'title': _nameController.text,
         'description': _descriptionController.text,
+        'icon': selectedIcon.title,
         'latitude': widget.location?.position.latitude ?? widget.newLocation!.latitude,
         'longitude': widget.location?.position.longitude ?? widget.newLocation!.longitude,
       });
