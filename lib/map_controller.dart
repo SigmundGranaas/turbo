@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_compass/flutter_map_compass.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_app/saved_markers_layer.dart';
+import 'package:map_app/search/search.dart';
 import 'package:map_app/tile_providers.dart';
 import 'package:provider/provider.dart';
 import 'location_edit_sheet.dart';
@@ -59,7 +60,10 @@ class MapControllerPageState extends State<MapControllerPage> {
                       if (_norwayLayer == 'topo') norgesKart,
                       if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
                       LocationMarkers(onMarkerTap: (location) => _showEditSheet(context, location)),
-                      const MapCompass.cupertino()
+                      const MapCompass.cupertino(),
+                      SearchWidget(
+                        onLocationSelected: _moveToLocation,
+                      ),
                     ],
                   ),
                 ),
@@ -128,5 +132,11 @@ class MapControllerPageState extends State<MapControllerPage> {
       showDragHandle: true,
       builder: (context) => LocationEditSheet(location: marker, newLocation: newLocation),
     );
+  }
+
+  void _moveToLocation(double east, double north) {
+    // You might need to convert the coordinates from the API's system to LatLng
+    // This is a simplified example
+    _mapController.move(LatLng(north, east), 13.0);
   }
 }
