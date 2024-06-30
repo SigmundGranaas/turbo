@@ -4,6 +4,7 @@ import 'package:map_app/data/model/named_icon.dart';
 import 'package:map_app/pages/icon_selection_page.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
+import 'data/icon_service.dart';
 import 'data/model/marker.dart';
 import 'location_provider.dart';
 
@@ -103,10 +104,7 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
               ),
               trailing: const Icon(Icons.arrow_forward_ios),
               onTap: () async {
-                final NamedIcon? result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const IconSelectionPage()),
-                );
+                final NamedIcon? result = await IconSelectionPage.show(context, IconService());
                 if (result != null) {
                   setState(() {
                     selectedIcon = result;

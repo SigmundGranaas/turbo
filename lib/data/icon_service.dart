@@ -4,13 +4,7 @@ import 'model/named_icon.dart';
 
 
 class IconService {
-  static final IconService _instance = IconService._internal();
-
-  factory IconService() {
-    return _instance;
-  }
-
-  IconService._internal();
+  IconService();
 
   final Map<String, NamedIcon> _icons = {
     'Fjell': const NamedIcon(title: 'Fjell', icon: Icons.landscape),

@@ -3,7 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:provider/provider.dart';
 import 'package:map_app/data/model/marker.dart' as marker_model;
 
-import 'data/icon.dart';
+import 'data/icon_service.dart';
 import 'data/model/named_icon.dart';
 import 'location_provider.dart';
 
