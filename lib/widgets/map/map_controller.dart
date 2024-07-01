@@ -140,21 +140,20 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
     }
 
   void _animatedMapMove(LatLng destLocation, double destZoom) {
-    // Create a new camera position
+    // Tween attributes
     final latTween = Tween<double>(
         begin: _mapController.camera.center.latitude, end: destLocation.latitude);
     final lngTween = Tween<double>(
         begin: _mapController.camera.center.longitude, end: destLocation.longitude);
     final zoomTween = Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
 
-    // Create an animation controller
     var controller = AnimationController(
         duration: const Duration(milliseconds: 500), vsync: this);
 
-    // Create a curved animation
     Animation<double> animation =
     CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
 
+    // This will make sure the mapController is moved on every tick
     controller.addListener(() {
       _mapController.move(
           LatLng(latTween.evaluate(animation), lngTween.evaluate(animation)),
