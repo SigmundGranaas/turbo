@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:map_app/data/model/named_icon.dart';
-import '../data/icon_service.dart';
+
+import '../../data/icon_service.dart';
 
 class IconSelectionPage extends StatefulWidget {
   final IconService iconService;

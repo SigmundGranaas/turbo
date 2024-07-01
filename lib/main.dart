@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'data/datastore/factory.dart';
 import 'location_provider.dart';
-import 'map_controller.dart';
+import 'widgets/map/map_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
