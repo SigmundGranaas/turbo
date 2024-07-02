@@ -74,7 +74,7 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            'Rediger markering',
+            'Ny markering',
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[600]),
           ),
           IconButton(
@@ -194,10 +194,8 @@ class _LocationEditSheetState extends State<LocationEditSheet> {
         // Handle the error
         if (!context.mounted) return;
 
-        // Hide loading indicator
         Navigator.of(context).pop();
 
-        // Show error message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(_getErrorMessage(e)),
