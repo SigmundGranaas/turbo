@@ -3,21 +3,23 @@ import 'package:idb_shim/idb_shim.dart';
 import '../../model/marker.dart';
 import '../marker_data_store.dart';
 
-class IndexedDBMarkerDataStore implements MarkerDataStore {
+class ShimDBMarkerDataStore implements MarkerDataStore {
   late Database _db;
+  late final IdbFactory? _idbFactory;
   static const String dbName = 'MarkersDatabase';
   static const int dbVersion = 1;
   static const String storeName = 'markers';
 
+  ShimDBMarkerDataStore({IdbFactory? idbFactory})
+      : _idbFactory = idbFactory ?? getIdbFactory()!;
+
   @override
   Future<void> init() async {
-    final factory = getIdbFactory();
-
-    if(factory == null){
+    if(_idbFactory == null){
       return Future.error("Unable to init factory for IDB_SHIM");
     }
 
-    _db = await factory.open(dbName, version: dbVersion, onUpgradeNeeded: _onUpgradeNeeded);
+    _db = await _idbFactory.open(dbName, version: dbVersion, onUpgradeNeeded: _onUpgradeNeeded);
   }
 
   void _onUpgradeNeeded(VersionChangeEvent event) {

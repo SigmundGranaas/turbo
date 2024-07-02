@@ -81,24 +81,15 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
       future: _gktManager.getGkt(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.example.app',
-          );
+          return openStreetMapTileLayer;
         } else if (snapshot.hasError) {
-          return TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.example.app',
-          );
+          return openStreetMapTileLayer;
         } else if (snapshot.hasData) {
           return TileLayer(
             tileProvider: CustomNorwayTileProvider(snapshot.data!),
           );
         } else {
-          return TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.example.app',
-          );
+          return openStreetMapTileLayer;
         }
       },
     );
