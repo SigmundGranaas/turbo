@@ -19,9 +19,6 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
-    if (_db == null) return; // Skip initialization if a database was injected
-
-
     _db = await openDatabase(
       join(await getDatabasesPath(), 'markers.db'),
       onCreate: (db, version) async {

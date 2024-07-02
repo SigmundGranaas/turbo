@@ -55,7 +55,6 @@ class _CreateLocationSheetState extends State<CreateLocationSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             _buildHeader(),
-            _buildNameField(),
             LocationFormFields(
               nameController: _nameController,
               descriptionController: _descriptionController,
@@ -88,74 +87,6 @@ class _CreateLocationSheetState extends State<CreateLocationSheet> {
         ],
       ),
     );
-  }
-
-  Widget _buildNameField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
-      child: TextFormField(
-        controller: _nameController,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          labelText: 'Navn',
-        ),
-        validator: (value) {
-          if (value == null || value.isEmpty) {
-            return 'Skriv inn et navn';
-          }
-          return null;
-        },
-      ),
-    );
-  }
-
-  Widget _buildDescriptionField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
-      child: TextFormField(
-        controller: _descriptionController,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          labelText: 'Beskrivelse',
-        ),
-      ),
-    );
-  }
-
-  Widget _buildIconSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Ikon',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[600]),
-        ),
-        const SizedBox(height: 4),
-        _buildIconSelector(),
-      ],
-    );
-  }
-
-  Widget _buildIconSelector() {
-    return ListTile(
-      leading: Icon(_selectedIcon.icon),
-      title: Text(_selectedIcon.title),
-      tileColor: Colors.blue.withOpacity(0.1),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-      ),
-      trailing: const Icon(Icons.arrow_forward_ios),
-      onTap: _selectIcon,
-    );
-  }
-
-  Future<void> _selectIcon() async {
-    final NamedIcon? result = await IconSelectionPage.show(context, IconService());
-    if (result != null) {
-      setState(() {
-        _selectedIcon = result;
-      });
-    }
   }
 
   Widget _buildSaveButton() {
