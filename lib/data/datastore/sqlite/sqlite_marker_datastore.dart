@@ -7,29 +7,40 @@ import '../../model/marker.dart';
 import '../marker_data_store.dart';
 
 class SQLiteMarkerDataStore implements MarkerDataStore {
-  late Database _db;
+  Database? _db;
+
+  void injectDatabase(Database database) {
+    _db = database;
+  }
 
   @override
   Future<void> init() async {
     if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-      // Initialize FFI for desktop platforms
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
+    if (_db == null) return; // Skip initialization if a database was injected
+
+
     _db = await openDatabase(
       join(await getDatabasesPath(), 'markers.db'),
-      onCreate: (db, version) {
-        return db.execute(
-          'CREATE TABLE markers(uuid TEXT PRIMARY KEY, latitude REAL, longitude REAL, title TEXT, description TEXT, icon TEXT)',
-        );
+      onCreate: (db, version) async {
+        await createTable(db);
       },
       version: 1,
     );
   }
 
+  Future<void> createTable(Database db) async {
+    return _db?.execute(
+      'CREATE TABLE markers(uuid TEXT PRIMARY KEY, latitude REAL, longitude REAL, title TEXT, description TEXT, icon TEXT)',
+    );
+  }
+
+
   @override
   Future<void> insert(Marker marker) async {
-    await _db.insert(
+    await _db!.insert(
       'markers',
       marker.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -38,7 +49,7 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<Marker?> getByUuid(String uuid) async {
-    final List<Map<String, dynamic>> maps = await _db.query(
+    final List<Map<String, dynamic>> maps = await _db!.query(
       'markers',
       where: 'uuid = ?',
       whereArgs: [uuid],
@@ -52,13 +63,13 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<List<Marker>> getAll() async {
-    final List<Map<String, dynamic>> maps = await _db.query('markers');
+    final List<Map<String, dynamic>> maps = await _db!.query('markers');
     return List.generate(maps.length, (i) => Marker.fromMap(maps[i]));
   }
 
   @override
   Future<void> update(Marker marker) async {
-    await _db.update(
+    await _db!.update(
       'markers',
       marker.toMap(),
       where: 'uuid = ?',
@@ -68,7 +79,7 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<void> delete(String uuid) async {
-    await _db.delete(
+    await _db!.delete(
       'markers',
       where: 'uuid = ?',
       whereArgs: [uuid],
