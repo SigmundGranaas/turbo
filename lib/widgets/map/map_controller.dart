@@ -39,7 +39,6 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Turbo')),
       body: Consumer<LocationProvider>(
         builder: (context, locationProvider, child){
           return Column(
@@ -147,7 +146,7 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
         begin: _mapController.camera.center.longitude, end: destLocation.longitude);
     final zoomTween = Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
 
-    var controller = AnimationController(
+    final controller = AnimationController(
         duration: const Duration(milliseconds: 500), vsync: this);
 
     Animation<double> animation =
