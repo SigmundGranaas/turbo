@@ -39,7 +39,7 @@ void main() {
       home: Scaffold(
         body: ChangeNotifierProvider<LocationProvider>.value(
           value: locationProvider,
-          child: LocationEditSheet(newLocation: newLocation),
+          child: CreateLocationSheet(newLocation: newLocation),
         ),
       ),
     );
@@ -63,7 +63,7 @@ void main() {
     expect(locationProvider.markers.length, 1);
     expect(locationProvider.markers.first.title, 'Test Location');
     expect(locationProvider.markers.first.description, 'Test Description');
-    expect(find.byType(LocationEditSheet), findsNothing);
+    expect(find.byType(CreateLocationSheet), findsNothing);
   });
 
   testWidgets('Success test: Create a marker with only name', (WidgetTester tester) async {
@@ -76,7 +76,7 @@ void main() {
     expect(locationProvider.markers.length, 1);
     expect(locationProvider.markers.first.title, 'Test Location');
     expect(locationProvider.markers.first.description, '');
-    expect(find.byType(LocationEditSheet), findsNothing);
+    expect(find.byType(CreateLocationSheet), findsNothing);
   });
 
   testWidgets('Close sheet when clicking X button', (WidgetTester tester) async {
@@ -85,7 +85,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.close));
     await tester.pumpAndSettle();
 
-    expect(find.byType(LocationEditSheet), findsNothing);
+    expect(find.byType(CreateLocationSheet), findsNothing);
   });
 
   testWidgets('Show error when trying to save without a name', (WidgetTester tester) async {

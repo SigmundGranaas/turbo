@@ -133,7 +133,7 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
         context: context,
         isScrollControlled: true,
         builder: (BuildContext context) {
-          return LocationEditSheet(newLocation: newLocation);
+          return CreateLocationSheet(newLocation: newLocation);
         },
       );
     }

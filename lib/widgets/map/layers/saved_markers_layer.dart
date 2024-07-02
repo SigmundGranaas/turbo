@@ -6,6 +6,7 @@ import 'package:map_app/data/model/marker.dart' as marker_model;
 import '../../../data/icon_service.dart';
 import '../../../data/model/named_icon.dart';
 import '../../../location_provider.dart';
+import '../../marker/edit_location_sheet.dart';
 
 class LocationMarkers extends StatelessWidget {
   final Function(marker_model.Marker) onMarkerTap;
@@ -29,6 +30,7 @@ class LocationMarkers extends StatelessWidget {
                 namedIcon: namedIcon,
                 title: location.title,
                 onTap: () {
+                  _showEditSheet(context, location);
                 },
               )
             );
@@ -37,7 +39,17 @@ class LocationMarkers extends StatelessWidget {
       },
     );
   }
+  void _showEditSheet(BuildContext context, marker_model.Marker marker) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        return LocationEditSheet(location: marker);
+      },
+    );
+  }
 }
+
 
 class MapIcon extends StatefulWidget {
   final NamedIcon namedIcon;
