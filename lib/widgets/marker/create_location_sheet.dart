@@ -3,10 +3,8 @@ import 'package:idb_shim/idb.dart';
 import 'package:map_app/data/model/named_icon.dart';
 import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
-import '../../data/icon_service.dart';
 import '../../data/model/marker.dart';
 import '../../location_provider.dart';
-import '../pages/icon_selection_page.dart';
 import 'location_base_sheet.dart';
 
 class CreateLocationSheet extends StatefulWidget {

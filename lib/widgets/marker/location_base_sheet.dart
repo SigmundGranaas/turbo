@@ -214,10 +214,10 @@ class IconSelector extends StatelessWidget {
   final Function(NamedIcon) onIconSelected;
 
   const IconSelector({
-    Key? key,
+    super.key,
     required this.selectedIcon,
     required this.onIconSelected,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
