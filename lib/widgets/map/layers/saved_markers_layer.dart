@@ -44,7 +44,7 @@ class LocationMarkers extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       builder: (BuildContext context) {
-        return LocationEditSheet(location: marker);
+        return EditLocationSheet(location: marker);
       },
     );
   }

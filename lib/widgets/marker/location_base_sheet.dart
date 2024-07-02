@@ -159,3 +159,83 @@ class _LocationSheetBaseState extends State<LocationSheetBase> {
     }
   }
 }
+
+class LocationFormFields extends StatelessWidget {
+  final TextEditingController nameController;
+  final TextEditingController descriptionController;
+  final NamedIcon selectedIcon;
+  final Function(NamedIcon) onIconSelected;
+
+  const LocationFormFields({
+    super.key,
+    required this.nameController,
+    required this.descriptionController,
+    required this.selectedIcon,
+    required this.onIconSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextFormField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'Navn',
+            border: OutlineInputBorder(),
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) {
+              return 'Skriv inn et navn';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: descriptionController,
+          decoration: const InputDecoration(
+            labelText: 'Beskrivelse',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 16),
+        IconSelector(
+          selectedIcon: selectedIcon,
+          onIconSelected: onIconSelected,
+        ),
+      ],
+    );
+  }
+}
+
+class IconSelector extends StatelessWidget {
+  final NamedIcon selectedIcon;
+  final Function(NamedIcon) onIconSelected;
+
+  const IconSelector({
+    Key? key,
+    required this.selectedIcon,
+    required this.onIconSelected,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(selectedIcon.icon),
+      title: Text(selectedIcon.title),
+      tileColor: Colors.blue.withOpacity(0.1),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+      trailing: const Icon(Icons.arrow_forward_ios),
+      onTap: () async {
+        final NamedIcon? result = await IconSelectionPage.show(context, IconService());
+        if (result != null) {
+          onIconSelected(result);
+        }
+      },
+    );
+  }
+}
+

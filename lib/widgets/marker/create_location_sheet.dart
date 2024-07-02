@@ -7,6 +7,7 @@ import '../../data/icon_service.dart';
 import '../../data/model/marker.dart';
 import '../../location_provider.dart';
 import '../pages/icon_selection_page.dart';
+import 'location_base_sheet.dart';
 
 class CreateLocationSheet extends StatefulWidget {
   final Marker? location;
@@ -55,9 +56,12 @@ class _CreateLocationSheetState extends State<CreateLocationSheet> {
           children: [
             _buildHeader(),
             _buildNameField(),
-            _buildDescriptionField(),
-            const SizedBox(height: 16),
-            _buildIconSection(),
+            LocationFormFields(
+              nameController: _nameController,
+              descriptionController: _descriptionController,
+              selectedIcon: _selectedIcon,
+              onIconSelected: (icon) => setState(() => _selectedIcon = icon),
+            ),
             const SizedBox(height: 32),
             _buildSaveButton(),
             const SizedBox(height: 16),
