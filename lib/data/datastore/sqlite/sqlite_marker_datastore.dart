@@ -24,13 +24,17 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
       onCreate: (db, version) async {
         await createTable(db);
       },
+      onOpen: (db) async {
+        // Ensure the table exists even if the database was already created
+        await createTable(db);
+      },
       version: 1,
     );
   }
 
   Future<void> createTable(Database db) async {
-    return _db?.execute(
-      'CREATE TABLE markers(uuid TEXT PRIMARY KEY, latitude REAL, longitude REAL, title TEXT, description TEXT, icon TEXT)',
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS markers(uuid TEXT PRIMARY KEY, latitude REAL, longitude REAL, title TEXT, description TEXT, icon TEXT)',
     );
   }
 

@@ -145,7 +145,7 @@ class _CreateLocationSheetState extends State<CreateLocationSheet> {
   if (error is DatabaseException) {
       return 'Database error. Please try again later.';
     } else {
-      return 'An unexpected error occurred. Please try again.';
+      return 'An unexpected error occurred. Please try again. ${error.toString()}';
     }
   }
 }
