@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_compass/flutter_map_compass.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:map_app/saved_markers_layer.dart';
-import 'package:map_app/tile_providers.dart';
+import 'package:map_app/widgets/map/layers/saved_markers_layer.dart';
 import 'package:provider/provider.dart';
-import 'location_edit_sheet.dart';
-import 'location_provider.dart';
-import 'map/map_layer_button.dart';
+import '../marker/create_location_sheet.dart';
+import '../../location_provider.dart';
+import '../../map/map_layer_button.dart';
 import 'package:map_app/data/model/marker.dart' as marker_model;
+
+import 'layers/tile_providers.dart';
 
 
 
@@ -21,7 +22,7 @@ class MapControllerPage extends StatefulWidget {
   MapControllerPageState createState() => MapControllerPageState();
 }
 
-class MapControllerPageState extends State<MapControllerPage> {
+class MapControllerPageState extends State<MapControllerPage> with TickerProviderStateMixin {
   final GktManager _gktManager = GktManager();
   late final MapController _mapController = MapController();
   String _globalLayer = 'nothing';
@@ -38,7 +39,6 @@ class MapControllerPageState extends State<MapControllerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Turbo')),
       body: Consumer<LocationProvider>(
         builder: (context, locationProvider, child){
           return Column(
@@ -112,12 +112,52 @@ class MapControllerPageState extends State<MapControllerPage> {
     _showEditSheet(context, null, newLocation: point);
   }
 
-  void _showEditSheet(BuildContext context, marker_model.Marker? marker, {LatLng? newLocation}) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => LocationEditSheet(location: marker, newLocation: newLocation),
-    );
+  void _showEditSheet(BuildContext context, marker_model.Marker? marker, {LatLng? newLocation}) async {
+    if (newLocation != null) {
+      _animatedMapMove(
+        newLocation,
+          _mapController.camera.zoom,
+      );
+    }
+
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        builder: (BuildContext context) {
+          return CreateLocationSheet(newLocation: newLocation);
+        },
+      );
+    }
+
+  void _animatedMapMove(LatLng destLocation, double destZoom) {
+    // Tween attributes
+    final latTween = Tween<double>(
+        begin: _mapController.camera.center.latitude, end: destLocation.latitude);
+    final lngTween = Tween<double>(
+        begin: _mapController.camera.center.longitude, end: destLocation.longitude);
+    final zoomTween = Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
+
+    final controller = AnimationController(
+        duration: const Duration(milliseconds: 500), vsync: this);
+
+    Animation<double> animation =
+    CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
+
+    // This will make sure the mapController is moved on every tick
+    controller.addListener(() {
+      _mapController.move(
+          LatLng(latTween.evaluate(animation), lngTween.evaluate(animation)),
+          zoomTween.evaluate(animation));
+    });
+
+    animation.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        controller.dispose();
+      } else if (status == AnimationStatus.dismissed) {
+        controller.dispose();
+      }
+    });
+
+    controller.forward();
   }
 }
