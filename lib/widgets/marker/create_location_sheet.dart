@@ -89,13 +89,13 @@ class _CreateLocationSheetState extends State<CreateLocationSheet> {
 
   Widget _buildSaveButton() {
     return SizedBox(
-      width: double.infinity,
+      width: 128,
       child: ElevatedButton.icon(
         icon: const Icon(Icons.save, color: Colors.white),
         label: const Text('Lagre', style: TextStyle(color: Colors.white)),
         onPressed: () => _saveLocation(context),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blueAccent,
+          backgroundColor: Colors.blueGrey,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),

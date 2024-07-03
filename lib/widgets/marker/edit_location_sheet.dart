@@ -25,8 +25,9 @@ class EditLocationSheetState extends State<EditLocationSheet> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.location.title);
-    _descriptionController = TextEditingController(text: widget.location.description);
-    _selectedIcon =  IconService().getIcon(widget.location.icon);
+    _descriptionController =
+        TextEditingController(text: widget.location.description);
+    _selectedIcon = IconService().getIcon(widget.location.icon);
   }
 
   @override
@@ -51,21 +52,22 @@ class EditLocationSheetState extends State<EditLocationSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Ny markering',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[600]),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    )
-                  ],
-                ),
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Ny markering',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.grey[600]),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  )
+                ],
               ),
+            ),
             const SizedBox(height: 16),
             LocationFormFields(
               nameController: _nameController,
@@ -75,20 +77,42 @@ class EditLocationSheetState extends State<EditLocationSheet> {
             ),
             const SizedBox(height: 32),
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
-                  child: ElevatedButton(
+                SizedBox(
+                  width: 128,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.delete, color: Colors.white),
+                    label: const Text('Slett',
+                        style: TextStyle(color: Colors.white)),
                     onPressed: _deleteLocation,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    child: const Text('Slett', style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 16, horizontal: 12),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton(
+                SizedBox(
+                  width: 128,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.save, color: Colors.white),
+                    label: const Text('Lagre',
+                        style: TextStyle(color: Colors.white)),
                     onPressed: _updateLocation,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
-                    child: const Text('Oppdater', style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueGrey,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 16, horizontal: 12),
+                    ),
                   ),
                 ),
               ],
@@ -102,7 +126,8 @@ class EditLocationSheetState extends State<EditLocationSheet> {
 
   void _updateLocation() {
     if (_formKey.currentState!.validate()) {
-      final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+      final locationProvider =
+          Provider.of<LocationProvider>(context, listen: false);
       final updatedMarker = Marker.fromMap({
         ...widget.location.toMap(),
         'title': _nameController.text,
@@ -121,7 +146,8 @@ class EditLocationSheetState extends State<EditLocationSheet> {
   }
 
   void _deleteLocation() {
-    final locationProvider = Provider.of<LocationProvider>(context, listen: false);
+    final locationProvider =
+        Provider.of<LocationProvider>(context, listen: false);
     locationProvider.deleteLocation(widget.location.uuid).then((_) {
       Navigator.of(context).pop();
     }).catchError((error) {
