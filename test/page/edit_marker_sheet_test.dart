@@ -72,7 +72,7 @@ void main() {
     await tester.tap(find.byType(IconGridItem).first);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Oppdater'));
+    await tester.tap(find.text('Lagre'));
     await tester.pumpAndSettle();
 
     expect(locationProvider.markers.length, 1);
@@ -85,7 +85,7 @@ void main() {
     await tester.pumpWidget(createWidgetUnderTest());
 
     await tester.enterText(find.byType(TextFormField).first, 'Updated Location');
-    await tester.tap(find.text('Oppdater'));
+    await tester.tap(find.text('Lagre'));
     await tester.pumpAndSettle();
 
     expect(locationProvider.markers.length, 1);
@@ -117,7 +117,7 @@ void main() {
     await tester.pumpWidget(createWidgetUnderTest());
 
     await tester.enterText(find.byType(TextFormField).first, '');
-    await tester.tap(find.text('Oppdater'));
+    await tester.tap(find.text('Lagre'));
     await tester.pumpAndSettle();
 
     expect(find.text('Skriv inn et navn'), findsOneWidget);
