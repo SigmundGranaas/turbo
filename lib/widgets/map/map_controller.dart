@@ -10,9 +10,8 @@ import '../../map/map_layer_button.dart';
 import 'package:map_app/data/model/marker.dart' as marker_model;
 
 import '../search.dart';
+import 'compass.dart';
 import 'layers/tile_providers.dart';
-
-
 
 class MapControllerPage extends StatefulWidget {
   static const String route = 'map_controller';
@@ -23,7 +22,8 @@ class MapControllerPage extends StatefulWidget {
   MapControllerPageState createState() => MapControllerPageState();
 }
 
-class MapControllerPageState extends State<MapControllerPage> with TickerProviderStateMixin {
+class MapControllerPageState extends State<MapControllerPage>
+    with TickerProviderStateMixin {
   final GktManager _gktManager = GktManager();
   late final MapController _mapController = MapController();
   String _globalLayer = 'nothing';
@@ -41,51 +41,91 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
   Widget build(BuildContext context) {
     return Scaffold(
       body: Consumer<LocationProvider>(
-        builder: (context, locationProvider, child){
+        builder: (context, locationProvider, child) {
           return Stack(
-              children: [
-                Flexible(
-                  child: FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: const LatLng(65.0, 13.0), // Center of Norway
-                      initialZoom: 5,
-                      maxZoom: 20,
-                      minZoom: 3,
-                      onTap: (tapPosition, point) => _handleMapTap(context, point),
+            children: [
+               FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: const LatLng(65.0, 13.0), // Center of Norway
+                    initialZoom: 5,
+                    maxZoom: 20,
+                    minZoom: 3,
+                    onTap: (tapPosition, point) =>
+                        _handleMapTap(context, point),
+                  ),
+                  children: [
+                    // Use conditional rendering for layers
+                    if (_globalLayer == 'osm') openStreetMapTileLayer,
+                    if (_norwayLayer == 'topo') norgesKart,
+                    if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
+                    LocationMarkers(
+                        onMarkerTap: (location) =>
+                            _showEditSheet(context, location)),
+                  ],
+                ),
+              Positioned(
+                top: 80,
+                right: 16,
+                child: Column(
+                  children: [
+                    MapLayerButton(
+                      currentGlobalLayer: _globalLayer,
+                      currentNorwayLayer: _norwayLayer,
+                      onBaseLayerChanged: _handleBaseLayerChanged,
+                      onNorwayLayerChanged: _handleNorwayLayerChanged,
                     ),
-                    children: [
-                      // Use conditional rendering for layers
-                      if (_globalLayer == 'osm') openStreetMapTileLayer,
-                      if (_norwayLayer == 'topo') norgesKart,
-                      if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
-                      LocationMarkers(onMarkerTap: (location) => _showEditSheet(context, location)),
-                      const MapCompass.cupertino()
-                    ],
-
+                    const SizedBox(height: 16),
+                    CustomCompass(mapController: _mapController),
+                    const SizedBox(height: 16),
+                    Card(
+                      elevation: 4,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 8),
+                            IconButton(
+                              icon: const Icon(Icons.add),
+                              onPressed: () {
+                                _animatedMapMove(
+                                  _mapController.camera.center,
+                                  _mapController.camera.zoom + 1,
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                            IconButton(
+                              icon: const Icon(Icons.remove),
+                              onPressed: () {
+                                _animatedMapMove(
+                                  _mapController.camera.center,
+                                  _mapController.camera.zoom - 1,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                top: 20,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: SearchWidget(
+                    onLocationSelected: (double east, double north) {
+                      _animatedMapMove(LatLng(north, east), 13);
+                    },
                   ),
                 ),
-                Positioned(
-                  top: 20,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: SearchWidget(
-                      onLocationSelected: (double east, double north) {
-                        _animatedMapMove(LatLng(north, east), 13);
-                      },
-                    ),
-                  ),
-                ),
-              ],
+              ),
+            ],
           );
         },
-    ),
-      floatingActionButton: MapLayerButton(
-        currentGlobalLayer: _globalLayer,
-        currentNorwayLayer: _norwayLayer,
-        onBaseLayerChanged: _handleBaseLayerChanged,
-        onNorwayLayerChanged: _handleNorwayLayerChanged,
       ),
     );
   }
@@ -121,41 +161,44 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
     });
   }
 
-
   void _handleMapTap(BuildContext context, LatLng point) {
     _showEditSheet(context, null, newLocation: point);
   }
 
-  void _showEditSheet(BuildContext context, marker_model.Marker? marker, {LatLng? newLocation}) async {
+  void _showEditSheet(BuildContext context, marker_model.Marker? marker,
+      {LatLng? newLocation}) async {
     if (newLocation != null) {
       _animatedMapMove(
         newLocation,
-          _mapController.camera.zoom,
+        _mapController.camera.zoom,
       );
     }
 
-      await showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        builder: (BuildContext context) {
-          return CreateLocationSheet(newLocation: newLocation);
-        },
-      );
-    }
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        return CreateLocationSheet(newLocation: newLocation);
+      },
+    );
+  }
 
   void _animatedMapMove(LatLng destLocation, double destZoom) {
     // Tween attributes
     final latTween = Tween<double>(
-        begin: _mapController.camera.center.latitude, end: destLocation.latitude);
+        begin: _mapController.camera.center.latitude,
+        end: destLocation.latitude);
     final lngTween = Tween<double>(
-        begin: _mapController.camera.center.longitude, end: destLocation.longitude);
-    final zoomTween = Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
+        begin: _mapController.camera.center.longitude,
+        end: destLocation.longitude);
+    final zoomTween =
+        Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
 
     final controller = AnimationController(
         duration: const Duration(milliseconds: 500), vsync: this);
 
     Animation<double> animation =
-    CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
+        CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
 
     // This will make sure the mapController is moved on every tick
     controller.addListener(() {
