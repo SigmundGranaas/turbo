@@ -9,6 +9,7 @@ import '../../location_provider.dart';
 import '../../map/map_layer_button.dart';
 import 'package:map_app/data/model/marker.dart' as marker_model;
 
+import '../search.dart';
 import 'layers/tile_providers.dart';
 
 
@@ -41,7 +42,7 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
     return Scaffold(
       body: Consumer<LocationProvider>(
         builder: (context, locationProvider, child){
-          return Column(
+          return Stack(
               children: [
                 Flexible(
                   child: FlutterMap(
@@ -61,6 +62,19 @@ class MapControllerPageState extends State<MapControllerPage> with TickerProvide
                       LocationMarkers(onMarkerTap: (location) => _showEditSheet(context, location)),
                       const MapCompass.cupertino()
                     ],
+
+                  ),
+                ),
+                Positioned(
+                  top: 20,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: SearchWidget(
+                      onLocationSelected: (double east, double north) {
+                        _animatedMapMove(LatLng(north, east), 13);
+                      },
+                    ),
                   ),
                 ),
               ],
