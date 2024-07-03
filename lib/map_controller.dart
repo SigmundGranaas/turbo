@@ -26,6 +26,7 @@ class MapControllerPageState extends State<MapControllerPage> {
   late final MapController _mapController = MapController();
   String _globalLayer = 'nothing';
   String _norwayLayer = 'topo';
+  bool isMapMoving = false;
 
   @override
   void initState() {
@@ -52,13 +53,25 @@ class MapControllerPageState extends State<MapControllerPage> {
                       maxZoom: 20,
                       minZoom: 3,
                       onTap: (tapPosition, point) => _handleMapTap(context, point),
+                      onMapEvent: (event) {
+                        if (event is MapEventMove || event is MapEventRotate) {
+                          setState(() {
+                            isMapMoving = true;
+                          });
+                        } else if (event is MapEventMoveEnd || event is MapEventRotateEnd) {
+                          setState(() {
+                            isMapMoving = false;
+                          });
+                        }
+                      },
                     ),
+
                     children: [
                       // Use conditional rendering for layers
                       if (_globalLayer == 'osm') openStreetMapTileLayer,
                       if (_norwayLayer == 'topo') norgesKart,
                       if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
-                      LocationMarkers(onMarkerTap: (location) => _showEditSheet(context, location)),
+                      if (!isMapMoving) LocationMarkers(onMarkerTap: (location) => _showEditSheet(context, location)),
                       const MapCompass.cupertino()
                     ],
                   ),
