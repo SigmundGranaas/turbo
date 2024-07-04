@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_compass/flutter_map_compass.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:map_app/widgets/map/compass.dart';
 import 'package:map_app/widgets/map/layers/saved_markers_layer.dart';
 import 'package:map_app/widgets/map/plus_minus_buttons.dart';
 import 'package:provider/provider.dart';
@@ -60,7 +60,6 @@ class MapControllerPageState extends State<MapControllerPage>
                   LocationMarkers(
                       onMarkerTap: (location) =>
                           _showEditSheet(context, location)),
-                  const MapCompass.cupertino()
                 ],
               ),
               Positioned(
@@ -75,6 +74,7 @@ class MapControllerPageState extends State<MapControllerPage>
                       onNorwayLayerChanged: _handleNorwayLayerChanged,
                     ),
                     const SizedBox(height: 16),
+                    CustomMapCompass(mapController: _mapController),
                     PlusMinusButtons(onZoomIn: _onZoomIn, onZoomOut: _onZoomOut)
                   ],
                 ),
@@ -152,26 +152,30 @@ class MapControllerPageState extends State<MapControllerPage>
     );
   }
 
-  void _animatedMapMove(LatLng destLocation, double destZoom) {
+   void _animatedMapMove(LatLng destLocation, double destZoom) {
+     animatedMapMove(destLocation, destZoom, _mapController, this);
+   }
+
+    static void animatedMapMove(LatLng destLocation, double destZoom, MapController mapController, TickerProvider provider) {
     // Tween attributes
     final latTween = Tween<double>(
-        begin: _mapController.camera.center.latitude,
+        begin: mapController.camera.center.latitude,
         end: destLocation.latitude);
     final lngTween = Tween<double>(
-        begin: _mapController.camera.center.longitude,
+        begin: mapController.camera.center.longitude,
         end: destLocation.longitude);
     final zoomTween =
-        Tween<double>(begin: _mapController.camera.zoom, end: destZoom);
+        Tween<double>(begin: mapController.camera.zoom, end: destZoom);
 
     final controller = AnimationController(
-        duration: const Duration(milliseconds: 500), vsync: this);
+        duration: const Duration(milliseconds: 500), vsync: provider);
 
     Animation<double> animation =
         CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
 
     // This will make sure the mapController is moved on every tick
     controller.addListener(() {
-      _mapController.move(
+      mapController.move(
           LatLng(latTween.evaluate(animation), lngTween.evaluate(animation)),
           zoomTween.evaluate(animation));
     });
