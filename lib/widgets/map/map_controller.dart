@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_compass/flutter_map_compass.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_app/widgets/map/layers/saved_markers_layer.dart';
 import 'package:provider/provider.dart';
@@ -46,11 +45,19 @@ class MapControllerPageState extends State<MapControllerPage>
             children: [
                FlutterMap(
                   mapController: _mapController,
+
                   options: MapOptions(
                     initialCenter: const LatLng(65.0, 13.0), // Center of Norway
                     initialZoom: 5,
                     maxZoom: 20,
                     minZoom: 3,
+                    interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.all,
+                      enableMultiFingerGestureRace: true,
+                      pinchZoomThreshold: 0.2,
+                      pinchMoveThreshold: 40,
+                      rotationThreshold: 10.0,
+                    ),
                     onTap: (tapPosition, point) =>
                         _handleMapTap(context, point),
                   ),
@@ -65,7 +72,7 @@ class MapControllerPageState extends State<MapControllerPage>
                   ],
                 ),
               Positioned(
-                top: 80,
+                top: 120,
                 right: 16,
                 child: Column(
                   children: [
@@ -112,7 +119,7 @@ class MapControllerPageState extends State<MapControllerPage>
                 ),
               ),
               Positioned(
-                top: 20,
+                top: 40,
                 left: 0,
                 right: 0,
                 child: Center(

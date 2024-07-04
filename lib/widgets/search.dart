@@ -29,12 +29,12 @@ class _SearchWidgetState extends State<SearchWidget> {
             width: widgetWidth,
             child: Card(
               elevation: 6,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     child: Row(
                       children: [
                         Icon(Icons.search, color: Colors.grey[600]),
@@ -114,8 +114,10 @@ class _SearchWidgetState extends State<SearchWidget> {
     widget.onLocationSelected(east, north);
     setState(() {
       _suggestions = [];
+      _isFocused = false;
     });
     _controller.clear();
+    FocusScope.of(context).unfocus();
   }
 
   Widget _buildSuggestionItem(dynamic suggestion) {
