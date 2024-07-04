@@ -34,24 +34,21 @@ class _CustomMapCompassState extends State<CustomMapCompass> with TickerProvider
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _resetRotation,
-      child: Card(
+    return Card(
         elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        child: Container(
+        child: Padding(
           padding: const EdgeInsets.all(8),
           child: Transform.rotate(
             angle: -_rotation * (pi / 180),
-            child: SvgPicture.asset(
+            child: IconButton(icon: SvgPicture.asset(
               widget.svgAssetPath,
-              width: 40,
-              height: 40,
+              width: 24,
+              height: 24,
             ),
+            onPressed: _resetRotation)
           ),
         ),
-      ),
-    );
+      );
   }
 
   void _resetRotation() {

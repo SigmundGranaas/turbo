@@ -15,7 +15,6 @@ class PlusMinusButtons extends StatelessWidget {
         padding: const EdgeInsets.all(8.0),
         child: Column(
           children: [
-            const SizedBox(height: 8),
             IconButton(
               icon: const Icon(Icons.add),
               onPressed: onZoomIn
