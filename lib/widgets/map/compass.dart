@@ -37,13 +37,13 @@ class _CustomMapCompassState extends State<CustomMapCompass> with TickerProvider
     return Card(
         elevation: 4,
         child: Padding(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(2),
           child: Transform.rotate(
             angle: -_rotation * (pi / 180),
             child: IconButton(icon: SvgPicture.asset(
               widget.svgAssetPath,
-              width: 24,
-              height: 24,
+              width: 32,
+              height: 32,
             ),
             onPressed: _resetRotation)
           ),

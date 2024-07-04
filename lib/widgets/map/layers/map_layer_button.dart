@@ -16,60 +16,69 @@ class MapLayerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton(
-      child: const Icon(Icons.layers),
-      onPressed: () {
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            String tempGlobalLayer = currentGlobalLayer;
-            String tempNorwayLayer = currentNorwayLayer;
-            return StatefulBuilder(
-              builder: (context, setState) {
-                return AlertDialog(
-                  title: const Text('Select Map Layers'),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Global:', style: TextStyle(fontWeight: FontWeight.bold)),
-                      DropdownButton<String>(
-                        value: tempGlobalLayer,
-                        items: const [
-                          DropdownMenuItem(value: 'nothing', child: Text('Nothing')),
-                          DropdownMenuItem(value: 'osm', child: Text('OpenStreetMap')),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            tempGlobalLayer = value!;
-                            onBaseLayerChanged(tempGlobalLayer);
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      const Text('Norway base layer:', style: TextStyle(fontWeight: FontWeight.bold)),
-                      DropdownButton<String>(
-                        value: tempNorwayLayer,
-                        items: const [
-                          DropdownMenuItem(value: 'nothing', child: Text('Nothing')),
-                          DropdownMenuItem(value: 'topo', child: Text('Topo')),
-                          DropdownMenuItem(value: 'satellite', child: Text('Satellite')),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            tempNorwayLayer = value!;
-                            onNorwayLayerChanged(tempNorwayLayer);
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
+    return Card(
+      elevation: 4,
+      child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: IconButton(
+              icon: const Icon(Icons.layers),
+              onPressed: () {
+                showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return _showWidget(context);
+                    });
+              }
+              )
+      ),
     );
+  }
+
+  Widget _showWidget(context) {
+    String tempGlobalLayer = currentGlobalLayer;
+    String tempNorwayLayer = currentNorwayLayer;
+    return StatefulBuilder(builder: (context, setState) {
+      return AlertDialog(
+        title: const Text('Select Map Layers'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Global:',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            DropdownButton<String>(
+              value: tempGlobalLayer,
+              items: const [
+                DropdownMenuItem(value: 'nothing', child: Text('Nothing')),
+                DropdownMenuItem(value: 'osm', child: Text('OpenStreetMap')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  tempGlobalLayer = value!;
+                  onBaseLayerChanged(tempGlobalLayer);
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            const Text('Norway base layer:',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            DropdownButton<String>(
+              value: tempNorwayLayer,
+              items: const [
+                DropdownMenuItem(value: 'nothing', child: Text('Nothing')),
+                DropdownMenuItem(value: 'topo', child: Text('Topo')),
+                DropdownMenuItem(value: 'satellite', child: Text('Satellite')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  tempNorwayLayer = value!;
+                  onNorwayLayerChanged(tempNorwayLayer);
+                });
+              },
+            ),
+          ],
+        ),
+      );
+    });
   }
 }
