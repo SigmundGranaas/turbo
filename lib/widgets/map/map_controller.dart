@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_app/widgets/map/compass.dart';
+import 'package:map_app/widgets/map/layers/current_location_layer.dart';
 import 'package:map_app/widgets/map/layers/saved_markers_layer.dart';
 import 'package:map_app/widgets/map/plus_minus_buttons.dart';
 import 'package:provider/provider.dart';
@@ -58,6 +59,7 @@ class MapControllerPageState extends State<MapControllerPage>
                   if (_globalLayer == 'osm') openStreetMapTileLayer,
                   if (_norwayLayer == 'topo') norgesKart,
                   if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
+                  const CurrentLocationLayer(),
                   LocationMarkers(
                       onMarkerTap: (location) =>
                           _showEditSheet(context, location)),

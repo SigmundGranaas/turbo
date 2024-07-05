@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,7 +12,7 @@ class LocationButton extends StatelessWidget {
   const LocationButton({super.key, required this.mapController});
 
   Future<void> _getCurrentLocation(BuildContext context) async {
-    if (Platform.isLinux) {
+    if (!kIsWeb && Platform.isLinux) {
       // Display a prompt for Linux users
       showDialog(
         context: context,
