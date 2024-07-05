@@ -58,9 +58,7 @@ class LocationButton extends StatelessWidget {
       );
 
       mapController.move(LatLng(position.latitude, position.longitude), 15.0);
-    } catch (e) {
-      print("Error getting location: $e");
-    }
+    } catch (_) {}
   }
 
   @override

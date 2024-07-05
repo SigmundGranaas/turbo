@@ -28,7 +28,6 @@ class _CurrentLocationLayerState extends State<CurrentLocationLayer> {
 
   void _initLocationTracking() async {
     if (!kIsWeb && Platform.isLinux) {
-      print("Location tracking is not supported on Linux.");
       return;
     }
 
@@ -37,7 +36,6 @@ class _CurrentLocationLayerState extends State<CurrentLocationLayer> {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      print('Location services are disabled.');
       return;
     }
 
@@ -45,13 +43,11 @@ class _CurrentLocationLayerState extends State<CurrentLocationLayer> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        print('Location permissions are denied');
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      print('Location permissions are permanently denied');
       return;
     }
 
