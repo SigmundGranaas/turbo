@@ -102,17 +102,17 @@ class CurrentLocationMarker extends StatelessWidget {
       children: [
         // Outer circle (blue shadow)
         Container(
-          width: 16,
-          height: 16,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.blue.withOpacity(0.1),
+            color: Colors.white.withOpacity(0.5),
           ),
         ),
         // Blue dot
         Container(
-          width: 8,
-          height: 8,
+          width: 16,
+          height: 16,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
             color: Colors.lightBlue,
