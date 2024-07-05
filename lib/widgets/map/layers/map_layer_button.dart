@@ -96,12 +96,19 @@ class _LayerSelectionSheetState extends State<_LayerSelectionSheet> {
           const SizedBox(height: 16),
           const Text('Globalt', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          _buildLayerCard('Open Street map', 'osm', tempGlobalLayer, (value) {
-            setState(() {
-              tempGlobalLayer = value ? 'osm' : 'nothing';
-              widget.onBaseLayerChanged(tempGlobalLayer);
-            });
-          }),
+
+          Row(
+            children: [
+              Container(
+                child: _buildLayerCard('OSM', 'osm', tempGlobalLayer, (value) {
+                  setState(() {
+                    tempGlobalLayer = value ? 'osm' : 'nothing';
+                    widget.onBaseLayerChanged(tempGlobalLayer);
+                  });
+                }),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           const Text('Norge', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
@@ -136,16 +143,14 @@ class _LayerSelectionSheetState extends State<_LayerSelectionSheet> {
   Widget _buildLayerCard(String label, String value, String currentValue,
       Function(bool) onChanged) {
     bool isSelected = currentValue == value;
-    return GestureDetector(
-      onTap: () => onChanged(!isSelected),
-      child: Column(
+    return  Column(
         children: [
           Card(
             elevation: 2,
             color: isSelected ? Colors.blue.shade100 : Colors.white,
-            child: const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Icon(Icons.layers),
+            child:  Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: IconButton(onPressed: () => onChanged(!isSelected), icon: const Icon(Icons.layers)),
             ),
           ),
           Padding(
@@ -154,7 +159,6 @@ class _LayerSelectionSheetState extends State<_LayerSelectionSheet> {
                 style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
-      ),
     );
   }
 }
