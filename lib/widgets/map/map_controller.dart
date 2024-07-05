@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_app/widgets/map/compass.dart';
+import 'package:map_app/widgets/map/layers/current_location_layer.dart';
 import 'package:map_app/widgets/map/layers/saved_markers_layer.dart';
 import 'package:map_app/widgets/map/plus_minus_buttons.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +12,7 @@ import 'layers/map_layer_button.dart';
 import 'package:map_app/data/model/marker.dart' as marker_model;
 
 import 'layers/tile_providers.dart';
+import 'location_button.dart';
 
 class MapControllerPage extends StatefulWidget {
   static const String route = 'map_controller';
@@ -57,6 +59,7 @@ class MapControllerPageState extends State<MapControllerPage>
                   if (_globalLayer == 'osm') openStreetMapTileLayer,
                   if (_norwayLayer == 'topo') norgesKart,
                   if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
+                  const CurrentLocationLayer(),
                   LocationMarkers(
                       onMarkerTap: (location) =>
                           _showEditSheet(context, location)),
@@ -73,7 +76,7 @@ class MapControllerPageState extends State<MapControllerPage>
                       onBaseLayerChanged: _handleBaseLayerChanged,
                       onNorwayLayerChanged: _handleNorwayLayerChanged,
                     ),
-                    const SizedBox(height: 16),
+                    LocationButton(mapController: _mapController),
                     CustomMapCompass(mapController: _mapController),
                     PlusMinusButtons(onZoomIn: _onZoomIn, onZoomOut: _onZoomOut)
                   ],
