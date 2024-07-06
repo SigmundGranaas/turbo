@@ -53,6 +53,13 @@ class MapControllerPageState extends State<MapControllerPage>
                   maxZoom: 20,
                   minZoom: 3,
                   onTap: (tapPosition, point) => _handleMapTap(context, point),
+                  interactionOptions: const InteractionOptions(
+                    flags: InteractiveFlag.all,
+                    enableMultiFingerGestureRace: true,
+                    pinchZoomThreshold: 0.2,
+                    pinchMoveThreshold: 40,
+                    rotationThreshold: 5.0,
+                  ),
                 ),
                 children: [
                   // Use conditional rendering for layers
