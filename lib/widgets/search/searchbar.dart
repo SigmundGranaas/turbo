@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:map_app/data/search/location_service.dart';
-import 'dart:convert';
 
 import '../../data/icon_service.dart';
 
@@ -17,7 +16,7 @@ class SearchWidget extends StatefulWidget {
 
 class _SearchWidgetState extends State<SearchWidget> {
   final TextEditingController _controller = TextEditingController();
-  List<dynamic> _suggestions = [];
+  List<LocationSearchResult> _suggestions = [];
   bool _isFocused = false;
   final IconService _iconService = IconService();
 
@@ -96,23 +95,16 @@ class _SearchWidgetState extends State<SearchWidget> {
   }
 
   void _fetchSuggestions(String query) async {
-    final url = Uri.parse('https://api.kartverket.no/stedsnavn/v1/navn?sok=${Uri.encodeComponent(query)}*&fuzzy=true&treffPerSide=5');
     try {
-      final response = await http.get(url);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() => _suggestions = data['navn']);
-      }
+      final data = await widget.service.findLocationsBy(query);
+      setState(() => _suggestions = data);
     } catch (e) {
       print('Error fetching suggestions: $e');
     }
   }
 
-  void _onSuggestionSelected(dynamic suggestion) {
-    final point = suggestion['representasjonspunkt'];
-    final east = point['øst'];
-    final north = point['nord'];
-    widget.onLocationSelected(east, north);
+  void _onSuggestionSelected(LocationSearchResult suggestion) {
+    widget.onLocationSelected(suggestion.position.latitude, suggestion.position.longitude);
     setState(() {
       _suggestions = [];
       _isFocused = false;
@@ -121,40 +113,25 @@ class _SearchWidgetState extends State<SearchWidget> {
     FocusScope.of(context).unfocus();
   }
 
-  Widget _buildSuggestionItem(dynamic suggestion) {
-    final name = suggestion['skrivemåte'];
-    final type = suggestion['navneobjekttype'];
-    final municipality = suggestion['kommuner'][0]['kommunenavn'] + " kommune";
-
-    Widget leadingWidget;
-    switch (type.toLowerCase()) {
-      case 'fjelltopp':
-      case 'fjell':
-        leadingWidget = Icon(_iconService.getIcon('Fjell').icon, color: Colors.purple[900]);
-        break;
-      case 'park':
-        leadingWidget = Icon(_iconService.getIcon('Park').icon, color: Colors.purple[900]);
-        break;
-      case 'strand':
-        leadingWidget = Icon(_iconService.getIcon('Strand').icon, color: Colors.purple[900]);
-        break;
-      case 'skog':
-        leadingWidget = Icon(_iconService.getIcon('Skog').icon, color: Colors.purple[900]);
-        break;
-      default:
-        leadingWidget = Text(
-          name[0].toUpperCase(),
-          style: TextStyle(color: Colors.purple[900], fontWeight: FontWeight.bold),
-        );
+  Widget _leadingWidget(LocationSearchResult suggestion){
+    if(suggestion.icon != null){
+      return Icon(_iconService.getIcon(suggestion.icon).icon);
+    }else{
+      return Text(
+        suggestion.title[0].toUpperCase(),
+        style: TextStyle(color: Colors.purple[900], fontWeight: FontWeight.bold),
+      );
     }
+  }
 
+  Widget _buildSuggestionItem(LocationSearchResult suggestion) {
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: Colors.purple[100],
-        child: leadingWidget,
+        child: _leadingWidget(suggestion),
       ),
-      title: Text(name),
-      subtitle: Text('$type i $municipality'),
+      title: Text(suggestion.title),
+      subtitle: Text(suggestion.description ?? ''),
       onTap: () => _onSuggestionSelected(suggestion),
     );
   }

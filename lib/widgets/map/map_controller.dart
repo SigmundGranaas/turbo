@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:map_app/data/search/kartverket_location_service.dart';
 import 'package:map_app/widgets/map/compass.dart';
 import 'package:map_app/widgets/map/layers/current_location_layer.dart';
 import 'package:map_app/widgets/map/layers/saved_markers_layer.dart';
@@ -8,6 +9,7 @@ import 'package:map_app/widgets/map/plus_minus_buttons.dart';
 import 'package:provider/provider.dart';
 import '../marker/create_location_sheet.dart';
 import '../../location_provider.dart';
+import '../search/searchbar.dart';
 import 'layers/map_layer_button.dart';
 import 'package:map_app/data/model/marker.dart' as marker_model;
 
@@ -73,7 +75,7 @@ class MapControllerPageState extends State<MapControllerPage>
                 ],
               ),
               Positioned(
-                top: 80,
+                top: 120,
                 right: 16,
                 child: Column(
                   children: [
@@ -89,6 +91,18 @@ class MapControllerPageState extends State<MapControllerPage>
                   ],
                 ),
               ),
+              Positioned(
+                top: 40,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: SearchWidget(
+                      onLocationSelected: (double east, double north) {
+                        _animatedMapMove(LatLng(north, east), 13);
+                      },
+                      service: KartverketLocationService()),
+                ),
+              ),
             ],
           );
         },
@@ -96,13 +110,14 @@ class MapControllerPageState extends State<MapControllerPage>
     );
   }
 
-  void _onZoomIn(){
+  void _onZoomIn() {
     _animatedMapMove(
       _mapController.camera.center,
       _mapController.camera.zoom + 1,
     );
   }
-  void _onZoomOut(){
+
+  void _onZoomOut() {
     _animatedMapMove(
       _mapController.camera.center,
       _mapController.camera.zoom - 1,
@@ -162,11 +177,12 @@ class MapControllerPageState extends State<MapControllerPage>
     );
   }
 
-   void _animatedMapMove(LatLng destLocation, double destZoom) {
-     animatedMapMove(destLocation, destZoom, _mapController, this);
-   }
+  void _animatedMapMove(LatLng destLocation, double destZoom) {
+    animatedMapMove(destLocation, destZoom, _mapController, this);
+  }
 
-    static void animatedMapMove(LatLng destLocation, double destZoom, MapController mapController, TickerProvider provider) {
+  static void animatedMapMove(LatLng destLocation, double destZoom,
+      MapController mapController, TickerProvider provider) {
     // Tween attributes
     final latTween = Tween<double>(
         begin: mapController.camera.center.latitude,
