@@ -63,8 +63,8 @@ class MapControllerPageState extends State<MapControllerPage>
                 ),
                 children: [
                   // Use conditional rendering for layers
-                  if (_globalLayer == 'osm') openStreetMapTileLayer,
-                  if (_norwayLayer == 'topo') norgesKart,
+                  if (_globalLayer == 'osm') _buildOsm(),
+                  if (_norwayLayer == 'topo') _buildTopo(),
                   if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
                   const CurrentLocationLayer(),
                   LocationMarkers(
@@ -109,23 +109,50 @@ class MapControllerPageState extends State<MapControllerPage>
     );
   }
 
-  Widget _buildNorgesKartSatelitt() {
-    return FutureBuilder<String>(
-      future: _gktManager.getGkt(),
+  Widget _buildTopo() {
+    return FutureBuilder<String?>(
+      future: getPath(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return openStreetMapTileLayer;
-        } else if (snapshot.hasError) {
-          return openStreetMapTileLayer;
-        } else if (snapshot.hasData) {
-          return TileLayer(
-            tileProvider: CustomNorwayTileProvider(snapshot.data!),
-          );
+          if(snapshot.connectionState == ConnectionState.done){
+            return norgesKart(snapshot.data);
+          } else {
+            return _buildOsm();
+          }
+        },
+    );
+  }
+  Widget _buildOsm() {
+    return FutureBuilder<String?>(
+      future: getPath(),
+      builder: (context, snapshot) {
+        if(snapshot.connectionState == ConnectionState.done){
+          return openStreetMap(snapshot.data);
         } else {
-          return openStreetMapTileLayer;
+          return const Stack();
         }
       },
     );
+  }
+
+  Widget _buildNorgesKartSatelitt() {
+    return FutureBuilder<(String, String?)>(
+      future: getPathAndGkt(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildOsm();
+        } else if (snapshot.hasError) {
+          return _buildOsm();
+        } else if (snapshot.hasData) {
+          return norgeSatelitt(snapshot.data!);
+        } else {
+          return _buildOsm();
+        }
+      },
+    );
+  }
+
+  Future<(String, String?)> getPathAndGkt(){
+    return _gktManager.getGkt().then((gkt) => getPath().then((path) => Future.value((gkt, path))));
   }
 
   void _handleBaseLayerChanged(String layer) {

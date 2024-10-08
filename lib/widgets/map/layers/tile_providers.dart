@@ -1,56 +1,71 @@
 
-import 'package:flutter/cupertino.dart';
+import 'package:dio_cache_interceptor_hive_store/dio_cache_interceptor_hive_store.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_cache/flutter_map_cache.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
-import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 
 
-TileLayer get openStreetMapTileLayer => TileLayer(
+Future<String?> getPath() async {
+  if (kIsWeb) {
+    return Future.value(null);
+  } else {
+    final cacheDirectory = await getTemporaryDirectory();
+    return cacheDirectory.path;
+  }
+
+}
+
+TileLayer openStreetMap(path) => TileLayer(
   urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   // Use the recommended flutter_map_cancellable_tile_provider package to
   // support the cancellation of loading tiles.
-  tileProvider: CancellableNetworkTileProvider(),
+  tileProvider: CancellableNetworkTileProvider()
 );
 
-TileLayer get norgesKart => TileLayer(
+TileLayer norgesKart(path) => TileLayer(
   urlTemplate: 'https://cache.kartverket.no/topo/v1/wmts/1.0.0/default/googlemaps/{z}/{y}/{x}.png',
-  // Use the recommended flutter_map_cancellable_tile_provider package to
-  // support the cancellation of loading tiles.
-  tileProvider: CancellableNetworkTileProvider(),
+  tileProvider: CachedTileProvider(
+    // maxStale keeps the tile cached for the given Duration and
+    // tries to revalidate the next time it gets requested
+    maxStale: const Duration(days: 30),
+    store: HiveCacheStore(
+      path,
+      hiveBoxName: 'HiveCacheStore',
+    ),
+  ),
 );
 
-TileLayer norgesKartSatelitt(String gkt) => TileLayer(
-  tileProvider: CustomNorwayTileProvider(gkt),
+
+const String baseUrl = 'https://gatekeeper1.geonorge.no/BaatGatekeeper/gk/gk.nib_web_mercator_wmts_v2';
+ url (gkt) => '$baseUrl?'
+    'layer=Nibcache_web_mercator_v2'
+    '&gkt=$gkt'
+    '&style=default'
+    '&tilematrixset=GoogleMapsCompatible'
+    '&Service=WMTS'
+    '&Request=GetTile'
+    '&Version=1.0.0'
+    '&Format=image/png'
+    '&TileMatrix={z}'
+    '&TileCol={x}'
+    '&TileRow={y}';
+
+TileLayer norgeSatelitt((String, String?) input) => TileLayer(
+  urlTemplate: url(input.$1),
+  tileProvider: CachedTileProvider(
+    // maxStale keeps the tile cached for the given Duration and
+    // tries to revalidate the next time it gets requested
+    maxStale: const Duration(days: 30),
+    store: HiveCacheStore(
+      input.$2,
+      hiveBoxName: 'HiveCacheStore',
+    ),
+  ),
 );
-
-
-class CustomNorwayTileProvider extends TileProvider {
-  final String baseUrl = 'https://gatekeeper1.geonorge.no/BaatGatekeeper/gk/gk.nib_web_mercator_wmts_v2';
-
-  final String gkt;
-
-  CustomNorwayTileProvider(this.gkt);
-
-
-  @override
-  ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
-    final url = '$baseUrl?'
-        'layer=Nibcache_web_mercator_v2'
-        '&gkt=$gkt'
-        '&style=default'
-        '&tilematrixset=GoogleMapsCompatible'
-        '&Service=WMTS'
-        '&Request=GetTile'
-        '&Version=1.0.0'
-        '&Format=image/png'
-        '&TileMatrix=${coordinates.z}'
-        '&TileCol=${coordinates.x}'
-        '&TileRow=${coordinates.y}';
-    return NetworkImage(url, headers: {'User-Agent': 'app/1.0'});
-  }
-}
 
 class GktManager {
   static final GktManager _instance = GktManager._internal();
