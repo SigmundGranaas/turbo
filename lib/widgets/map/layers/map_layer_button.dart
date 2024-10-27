@@ -107,6 +107,14 @@ class _LayerSelectionSheetState extends State<_LayerSelectionSheet> {
                   });
                 }),
               ),
+              Container(
+                child: _buildLayerCard('Google Satellite', 'gs', tempGlobalLayer, (value) {
+                  setState(() {
+                    tempGlobalLayer = value ? 'gs' : 'nothing';
+                    widget.onBaseLayerChanged(tempGlobalLayer);
+                  });
+                }),
+              ),
             ],
           ),
           const SizedBox(height: 16),
