@@ -64,9 +64,41 @@ class MapControllerPageState extends State<MapControllerPage>
                 children: [
                   // Use conditional rendering for layers
                   if (_globalLayer == 'osm') _buildOsm(),
+                  if (_globalLayer == 'osm')  const RichAttributionWidget(
+                    animationConfig: ScaleRAWA(),
+                    attributions: [
+                      TextSourceAttribution(
+                        'OpenStreetMap contributors'
+                      ),
+                    ],
+                  ),
                   if (_globalLayer == 'gs') _buildGoogleSatellite(),
+                  if (_globalLayer == 'osm')  const RichAttributionWidget(
+                    animationConfig: ScaleRAWA(),
+                    attributions: [
+                      TextSourceAttribution(
+                          'Google'
+                      ),
+                    ],
+                  ),
                   if (_norwayLayer == 'topo') _buildTopo(),
+                  if (_globalLayer == 'topo')  const RichAttributionWidget(
+                    animationConfig: ScaleRAWA(),
+                    attributions: [
+                      TextSourceAttribution(
+                          'Norgeskart'
+                      ),
+                    ],
+                  ),
                   if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
+                  if (_globalLayer == 'satellite')  const RichAttributionWidget(
+                    animationConfig: ScaleRAWA(),
+                    attributions: [
+                      TextSourceAttribution(
+                          'Norgeskart'
+                      ),
+                    ],
+                  ),
                   const CurrentLocationLayer(),
                   LocationMarkers(
                       onMarkerTap: (location) =>
