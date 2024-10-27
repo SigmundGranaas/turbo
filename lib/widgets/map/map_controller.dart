@@ -64,6 +64,7 @@ class MapControllerPageState extends State<MapControllerPage>
                 children: [
                   // Use conditional rendering for layers
                   if (_globalLayer == 'osm') _buildOsm(),
+                  if (_globalLayer == 'gs') _buildGoogleSatellite(),
                   if (_norwayLayer == 'topo') _buildTopo(),
                   if (_norwayLayer == 'satellite') _buildNorgesKartSatelitt(),
                   const CurrentLocationLayer(),
@@ -127,6 +128,19 @@ class MapControllerPageState extends State<MapControllerPage>
       builder: (context, snapshot) {
         if(snapshot.connectionState == ConnectionState.done){
           return openStreetMap(snapshot.data);
+        } else {
+          return const Stack();
+        }
+      },
+    );
+  }
+
+  Widget _buildGoogleSatellite() {
+    return FutureBuilder<String?>(
+      future: getPath(),
+      builder: (context, snapshot) {
+        if(snapshot.connectionState == ConnectionState.done){
+          return googleSatellite(snapshot.data);
         } else {
           return const Stack();
         }

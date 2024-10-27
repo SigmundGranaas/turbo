@@ -26,6 +26,13 @@ TileLayer openStreetMap(path) => TileLayer(
   tileProvider: CancellableNetworkTileProvider()
 );
 
+TileLayer googleSatellite(path) => TileLayer(
+    urlTemplate: 'http://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}',
+    // Use the recommended flutter_map_cancellable_tile_provider package to
+    // support the cancellation of loading tiles.
+    tileProvider: CancellableNetworkTileProvider()
+);
+
 TileLayer norgesKart(path) => TileLayer(
   urlTemplate: 'https://cache.kartverket.no/topo/v1/wmts/1.0.0/default/googlemaps/{z}/{y}/{x}.png',
   tileProvider: CachedTileProvider(
