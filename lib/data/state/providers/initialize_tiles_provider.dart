@@ -17,4 +17,6 @@ Future<void> initializeTiles(InitializeTilesRef ref) async {
     ..registerProvider(NorgeskartProvider(cachePath: cachePath))
     ..registerProvider(OSMProvider(cachePath: cachePath))
     ..registerProvider(GoogleSatellite(cachePath: cachePath));
+
+  registry.toggleLocalLayer('topo');
 }

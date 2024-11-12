@@ -1,7 +1,7 @@
 import 'tile_provider.dart';
 
 class TileRegistryState {
-  final  List<String> activeGlobalIds;
+  final List<String> activeGlobalIds;
   final List<String> activeLocalIds;
   final List<String> activeOverlayIds;
   final Map<String, TileProviderWrapper> availableProviders;

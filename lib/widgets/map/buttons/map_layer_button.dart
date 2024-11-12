@@ -97,9 +97,9 @@ class LayerSelectionSheet extends ConsumerWidget {
                   height: 140,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    itemCount: localLayers.length,
+                    itemCount: globalLayers.length,
                     itemBuilder: (context, index) {
-                      final layer = localLayers[index];
+                      final layer = globalLayers[index];
                       return _buildLayerCard(
                         context: context,
                         label: layer.name,
@@ -108,7 +108,7 @@ class LayerSelectionSheet extends ConsumerWidget {
                         icon: _getLayerIcon(layer.id),
                         onToggle: () {
                           ref.read(tileRegistryProvider.notifier)
-                              .toggleLocalLayer(layer.id);
+                              .toggleGlobalLayer(layer.id);
                         },
                       );
                     },

@@ -45,7 +45,7 @@ class TileRegistry extends _$TileRegistry {
     }
 
     state = state.copyWith(
-      activeLocalIds: state.activeGlobalIds.contains(providerId)
+      activeGlobalIds: state.activeGlobalIds.contains(providerId)
           ? state.activeGlobalIds.where((id) => id != providerId).toList()
           : [...state.activeGlobalIds, providerId],
     );
