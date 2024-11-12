@@ -53,8 +53,8 @@ class _CustomMapCompassState extends State<CustomMapCompass> with TickerProvider
             angle: -_rotation * (pi / 180),
             child: IconButton(icon: SvgPicture.string(
               widget._svg,
-              width: 36,
-              height: 36,
+              width: 32,
+              height: 32,
             ),
             onPressed: _resetRotation)
           ),
