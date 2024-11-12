@@ -128,11 +128,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
     );
   }
 
-
-
   void _handleMapTap(BuildContext context, LatLng point) {
     _showEditSheet(context, null, newLocation: point);
   }
-
-
 }
