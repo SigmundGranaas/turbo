@@ -16,7 +16,6 @@ import 'layers/tiles/tile_registry/tile_registry.dart';
 import 'buttons/location_button.dart';
 
 class MapControllerPage extends ConsumerStatefulWidget {
-
   const MapControllerPage({super.key});
 
   @override
@@ -26,6 +25,7 @@ class MapControllerPage extends ConsumerStatefulWidget {
 class MapControllerPageState extends ConsumerState<MapControllerPage>
     with TickerProviderStateMixin {
   late MapController _mapController;
+  Marker? _temporaryPin;
 
   @override
   void initState() {
@@ -48,7 +48,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
               initialZoom: 5,
               maxZoom: 20,
               minZoom: 3,
-              onTap: (tapPosition, point) => _handleMapTap(context, point),
+              onLongPress: (tapPosition, point) => _handleLongPress(context, point),
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all,
                 enableMultiFingerGestureRace: true,
@@ -86,6 +86,10 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
               LocationMarkers(
                 onMarkerTap: (location) => _showEditSheet(context, location),
               ),
+
+              // Show temporary pin if it exists
+              if (_temporaryPin != null)
+                MarkerLayer(markers: [_temporaryPin!]),
             ],
           ),
           Positioned(
@@ -108,14 +112,54 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
     );
   }
 
+  void _handleLongPress(BuildContext context, LatLng point) {
+    setState(() {
+      _temporaryPin = Marker(
+        point: point,
+        child: const Icon(Icons.location_pin, color: Colors.red, size: 30),
+      );
+    });
+
+    _showPinOptionsSheet(context, point);
+  }
+
+  void _showPinOptionsSheet(BuildContext context, LatLng point) {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.save),
+                title: const Text('Save Location'),
+                onTap: () {
+                  Navigator.pop(context); // Close the options sheet
+                  _showEditSheet(context, null, newLocation: point);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    ).whenComplete(() {
+      // Clear temporary pin when sheet is closed
+      setState(() {
+        _temporaryPin = null;
+      });
+    });
+  }
+
   void _showEditSheet(BuildContext context, marker_model.Marker? marker,
       {LatLng? newLocation}) async {
     if (newLocation != null) {
       animatedMapMove(
-        newLocation,
-        _mapController.camera.zoom,
-        _mapController,
-        this
+          newLocation,
+          _mapController.camera.zoom,
+          _mapController,
+          this
       );
     }
 
@@ -124,13 +168,9 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
       isScrollControlled: true,
       builder: (BuildContext context) {
         return CreateLocationSheet(
-          location: marker,
-          newLocation: newLocation);
+            location: marker,
+            newLocation: newLocation);
       },
     );
-  }
-
-  void _handleMapTap(BuildContext context, LatLng point) {
-    _showEditSheet(context, null, newLocation: point);
   }
 }
