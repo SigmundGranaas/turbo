@@ -5,7 +5,7 @@ import 'package:map_app/data/model/marker.dart' as marker_model;
 
 import '../../../data/icon_service.dart';
 import '../../../data/model/named_icon.dart';
-import '../../../location_provider.dart';
+import '../../../data/state/providers/location_provider.dart';
 import '../../marker/edit_location_sheet.dart';
 
 class LocationMarkers extends ConsumerWidget {

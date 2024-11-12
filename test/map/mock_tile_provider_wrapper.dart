@@ -1,7 +1,7 @@
 import 'package:flutter_map/flutter_map.dart';
 import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_provider.dart';
 
-class MockTileProviderWrapper implements TileProviderWrapper {
+class MockTileProviderWrapper extends TileProviderWrapper {
   @override
   final String id;
 
@@ -31,8 +31,6 @@ class MockTileProviderWrapper implements TileProviderWrapper {
     );
   }
 
-  @override
-  double get opacity => 1.0;
 
   @override
   double get minZoom => 1.0;

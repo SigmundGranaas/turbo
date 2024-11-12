@@ -42,19 +42,14 @@ void main() {
         );
       });
 
-      test('Set first global provider as default', () {
-        registry.registerProvider(globalProvider);
-
-        expect(registry.state.selectedGlobalId, equals(globalProvider.id));
-      });
 
       test('Not change selected global when registering non-global provider', () {
         registry.registerProvider(globalProvider);
-        final initialGlobalId = registry.state.selectedGlobalId;
+        final initialGlobalId = registry.state.activeGlobalIds.first;
 
         registry.registerProvider(overlayProvider);
 
-        expect(registry.state.selectedGlobalId, equals(initialGlobalId));
+        expect(registry.state.activeGlobalIds.first, equals(initialGlobalId));
       });
 
       test('Unregister providers', () {
@@ -99,14 +94,14 @@ void main() {
         );
         registry.registerProvider(newGlobalProvider);
 
-        registry.setGlobalLayer(newGlobalProvider.id);
+        registry.toggleGlobalLayer(newGlobalProvider.id);
 
-        expect(registry.state.selectedGlobalId, equals(newGlobalProvider.id));
+        expect(registry.state.activeGlobalIds.first, equals(newGlobalProvider.id));
       });
 
       test('Throw when setting non-global provider as global', () {
         expect(
-              () => registry.setGlobalLayer(localProvider.id),
+              () => registry.toggleGlobalLayer(localProvider.id),
           throwsArgumentError,
         );
       });

@@ -4,7 +4,7 @@ import 'package:idb_shim/idb.dart';
 import 'package:map_app/data/model/named_icon.dart';
 import 'package:latlong2/latlong.dart';
 import '../../data/model/marker.dart';
-import '../../location_provider.dart';
+import '../../data/state/providers/location_provider.dart';
 import 'location_base_sheet.dart';
 
 class CreateLocationSheet extends ConsumerStatefulWidget {

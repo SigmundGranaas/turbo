@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/icon_service.dart';
 import '../../data/model/marker.dart';
 import '../../data/model/named_icon.dart';
-import '../../location_provider.dart';
+import '../../data/state/providers/location_provider.dart';
 import 'location_base_sheet.dart';
 
 class EditLocationSheet extends ConsumerStatefulWidget {

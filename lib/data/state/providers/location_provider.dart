@@ -1,7 +1,6 @@
-import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'data/datastore/factory.dart';
-import 'data/model/marker.dart';
+import '../../datastore/factory.dart';
+import '../../model/marker.dart';
 
 part 'location_provider.g.dart';
 

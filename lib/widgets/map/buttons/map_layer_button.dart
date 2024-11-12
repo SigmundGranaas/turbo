@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-
 class MapLayerButton extends ConsumerWidget {
   const MapLayerButton({super.key});
 
@@ -177,7 +176,7 @@ class LayerSelectionSheet extends ConsumerWidget {
           width: 120,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isSelected ? colorScheme.primaryContainer : colorScheme.surfaceVariant,
+            color: isSelected ? colorScheme.primaryContainer : colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: isSelected ? colorScheme.primary : Colors.transparent,
