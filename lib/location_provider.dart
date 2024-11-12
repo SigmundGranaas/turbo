@@ -1,29 +1,43 @@
 import 'package:flutter/foundation.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'data/datastore/factory.dart';
 import 'data/model/marker.dart';
 
-class LocationProvider extends ChangeNotifier {
-  List<Marker> _locations = [];
+part 'location_provider.g.dart';
 
-  List<Marker> get locations => _locations;
 
-  Future<void> loadLocations() async {
-    _locations = await MarkerDataStoreFactory.getDataStore().getAll();
-    notifyListeners();
+@riverpod
+class LocationNotifier extends _$LocationNotifier {
+  @override
+  FutureOr<List<Marker>> build() async {
+    return _loadLocations();
+  }
+
+  Future<List<Marker>> _loadLocations() async {
+    return await MarkerDataStoreFactory.getDataStore().getAll();
   }
 
   Future<void> addLocation(Marker location) async {
-    await MarkerDataStoreFactory.getDataStore().insert(location);
-    await loadLocations();
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      await MarkerDataStoreFactory.getDataStore().insert(location);
+      return _loadLocations();
+    });
   }
 
   Future<void> updateLocation(Marker location) async {
-    await MarkerDataStoreFactory.getDataStore().update(location);
-    await loadLocations();
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      await MarkerDataStoreFactory.getDataStore().update(location);
+      return _loadLocations();
+    });
   }
 
   Future<void> deleteLocation(String id) async {
-    await MarkerDataStoreFactory.getDataStore().delete(id);
-    await loadLocations();
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      await MarkerDataStoreFactory.getDataStore().delete(id);
+      return _loadLocations();
+    });
   }
 }

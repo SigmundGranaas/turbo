@@ -1,21 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:map_app/widgets/map/layers/tiles/providers/initialize_tiles_provider.dart';
+import 'package:map_app/widgets/map/layers/tiles/registry/tile_registry.dart';
 
-class MapLayerButton extends StatelessWidget {
-  final String currentGlobalLayer;
-  final String currentNorwayLayer;
-  final Function(String) onBaseLayerChanged;
-  final Function(String) onNorwayLayerChanged;
-
-  const MapLayerButton({
-    super.key,
-    required this.currentGlobalLayer,
-    required this.currentNorwayLayer,
-    required this.onBaseLayerChanged,
-    required this.onNorwayLayerChanged,
-  });
+class MapLayerButton extends ConsumerWidget {
+  const MapLayerButton({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       elevation: 4,
       child: Padding(
@@ -35,47 +27,21 @@ class MapLayerButton extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (BuildContext context) {
-        return _LayerSelectionSheet(
-          currentGlobalLayer: currentGlobalLayer,
-          currentNorwayLayer: currentNorwayLayer,
-          onBaseLayerChanged: onBaseLayerChanged,
-          onNorwayLayerChanged: onNorwayLayerChanged,
-        );
+        return const LayerSelectionSheet();
       },
     );
   }
 }
 
-class _LayerSelectionSheet extends StatefulWidget {
-  final String currentGlobalLayer;
-  final String currentNorwayLayer;
-  final Function(String) onBaseLayerChanged;
-  final Function(String) onNorwayLayerChanged;
-
-  const _LayerSelectionSheet({
-    required this.currentGlobalLayer,
-    required this.currentNorwayLayer,
-    required this.onBaseLayerChanged,
-    required this.onNorwayLayerChanged,
-  });
+class LayerSelectionSheet extends ConsumerWidget {
+  const LayerSelectionSheet({super.key});
 
   @override
-  _LayerSelectionSheetState createState() => _LayerSelectionSheetState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final registry = ref.watch(tileRegistryProvider);
+    final globalLayers = ref.watch(globalLayersProvider);
+    final localLayers = ref.watch(localLayersProvider);
 
-class _LayerSelectionSheetState extends State<_LayerSelectionSheet> {
-  late String tempGlobalLayer;
-  late String tempNorwayLayer;
-
-  @override
-  void initState() {
-    super.initState();
-    tempGlobalLayer = widget.currentGlobalLayer;
-    tempNorwayLayer = widget.currentNorwayLayer;
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -85,8 +51,10 @@ class _LayerSelectionSheetState extends State<_LayerSelectionSheet> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Velg kartlag',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                  'Velg kartlag',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+              ),
               IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: () => Navigator.of(context).pop(),
@@ -94,79 +62,87 @@ class _LayerSelectionSheetState extends State<_LayerSelectionSheet> {
             ],
           ),
           const SizedBox(height: 16),
-          const Text('Globalt', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+              'Globalt',
+              style: TextStyle(fontWeight: FontWeight.bold)
+          ),
           const SizedBox(height: 8),
-
-          Row(
-            children: [
-              Container(
-                child: _buildLayerCard('OSM', 'osm', tempGlobalLayer, (value) {
-                  setState(() {
-                    tempGlobalLayer = value ? 'osm' : 'nothing';
-                    widget.onBaseLayerChanged(tempGlobalLayer);
-                  });
-                }),
-              ),
-              Container(
-                child: _buildLayerCard('Google Satellite', 'gs', tempGlobalLayer, (value) {
-                  setState(() {
-                    tempGlobalLayer = value ? 'gs' : 'nothing';
-                    widget.onBaseLayerChanged(tempGlobalLayer);
-                  });
-                }),
-              ),
-            ],
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final layer in globalLayers)
+                  _buildLayerCard(
+                    label: layer.name,
+                    value: layer.id,
+                    isSelected: registry.selectedGlobalId == layer.id,
+                    onToggle: () {
+                      final notifier = ref.read(tileRegistryProvider.notifier);
+                      if (registry.selectedGlobalId == layer.id) {
+                        notifier.setGlobalLayer('');  // Deselect
+                      } else {
+                        notifier.setGlobalLayer(layer.id);
+                      }
+                    },
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
-          const Text('Norge', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+              'Norge',
+              style: TextStyle(fontWeight: FontWeight.bold)
+          ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Container(
-                child: _buildLayerCard('Topografisk', 'topo', tempNorwayLayer,
-                    (value) {
-                  setState(() {
-                    tempNorwayLayer = value ? 'topo' : 'nothing';
-                    widget.onNorwayLayerChanged(tempNorwayLayer);
-                  });
-                }),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                child: _buildLayerCard('Satelitt', 'satellite', tempNorwayLayer,
-                    (value) {
-                  setState(() {
-                    tempNorwayLayer = value ? 'satellite' : 'nothing';
-                    widget.onNorwayLayerChanged(tempNorwayLayer);
-                  });
-                }),
-              ),
-            ],
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final layer in localLayers)
+                  _buildLayerCard(
+                    label: layer.name,
+                    value: layer.id,
+                    isSelected: registry.activeLocalIds.contains(layer.id),
+                    onToggle: () {
+                      ref.read(tileRegistryProvider.notifier)
+                          .toggleLocalLayer(layer.id);
+                    },
+                  ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLayerCard(String label, String value, String currentValue,
-      Function(bool) onChanged) {
-    bool isSelected = currentValue == value;
-    return  Column(
-        children: [
-          Card(
-            elevation: 2,
-            color: isSelected ? Colors.blue.shade100 : Colors.white,
-            child:  Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: IconButton(onPressed: () => onChanged(!isSelected), icon: const Icon(Icons.layers)),
+  Widget _buildLayerCard({
+    required String label,
+    required String value,
+    required bool isSelected,
+    required VoidCallback onToggle,
+  }) {
+    return Column(
+      children: [
+        Card(
+          elevation: 2,
+          color: isSelected ? Colors.blue.shade100 : Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: IconButton(
+              onPressed: onToggle,
+              icon: const Icon(Icons.layers),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Text(label,
-                style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-        ],
+        ),
+      ],
     );
   }
 }

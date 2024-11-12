@@ -1,21 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../data/icon_service.dart';
 import '../../data/model/marker.dart';
 import '../../data/model/named_icon.dart';
-import '../../data/icon_service.dart';
 import '../../location_provider.dart';
 import 'location_base_sheet.dart';
 
-class EditLocationSheet extends StatefulWidget {
+class EditLocationSheet extends ConsumerStatefulWidget {
   final Marker location;
 
   const EditLocationSheet({super.key, required this.location});
 
   @override
-  EditLocationSheetState createState() => EditLocationSheetState();
+  ConsumerState<EditLocationSheet> createState() => EditLocationSheetState();
 }
 
-class EditLocationSheetState extends State<EditLocationSheet> {
+class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
@@ -124,36 +125,46 @@ class EditLocationSheetState extends State<EditLocationSheet> {
     );
   }
 
-  void _updateLocation() {
+  Future<void> _updateLocation() async {
     if (_formKey.currentState!.validate()) {
-      final locationProvider =
-          Provider.of<LocationProvider>(context, listen: false);
-      final updatedMarker = Marker.fromMap({
-        ...widget.location.toMap(),
-        'title': _nameController.text,
-        'description': _descriptionController.text,
-        'icon': _selectedIcon.title,
-      });
+      try {
+        final updatedMarker = Marker.fromMap({
+          ...widget.location.toMap(),
+          'title': _nameController.text,
+          'description': _descriptionController.text,
+          'icon': _selectedIcon.title,
+        });
 
-      locationProvider.updateLocation(updatedMarker).then((_) {
-        Navigator.of(context).pop();
-      }).catchError((error) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating location: $error')),
-        );
-      });
+        await ref.read(locationNotifierProvider.notifier)
+            .updateLocation(updatedMarker);
+
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error updating location: $error')),
+          );
+        }
+      }
     }
   }
 
-  void _deleteLocation() {
-    final locationProvider =
-        Provider.of<LocationProvider>(context, listen: false);
-    locationProvider.deleteLocation(widget.location.uuid).then((_) {
-      Navigator.of(context).pop();
-    }).catchError((error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error deleting location: $error')),
-      );
-    });
+  Future<void> _deleteLocation() async {
+    try {
+      await ref.read(locationNotifierProvider.notifier)
+          .deleteLocation(widget.location.uuid);
+
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting location: $error')),
+        );
+      }
+    }
   }
 }
