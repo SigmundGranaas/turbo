@@ -60,15 +60,17 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
             children: [
               ...layers,
 
-              if (registry.selectedGlobalId != null)
-                RichAttributionWidget(
-                  animationConfig: const ScaleRAWA(),
-                  attributions: [
-                    TextSourceAttribution(
-                        registry.availableProviders[registry.selectedGlobalId]!.attributions
-                    ),
-                  ],
-                ),
+              ...registry.activeGlobalIds.map((id) =>
+                  RichAttributionWidget(
+                    animationConfig: const ScaleRAWA(),
+                    attributions: [
+                      TextSourceAttribution(
+                          registry.availableProviders[id]!.attributions
+                      ),
+                    ],
+                  ),
+              ),
+
               ...registry.activeLocalIds.map((id) =>
                   RichAttributionWidget(
                     animationConfig: const ScaleRAWA(),

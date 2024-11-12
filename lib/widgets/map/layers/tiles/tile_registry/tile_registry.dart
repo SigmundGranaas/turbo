@@ -11,7 +11,7 @@ class TileRegistry extends _$TileRegistry {
   @override
   TileRegistryState build() {
     return const TileRegistryState(
-      selectedGlobalId: null,
+      activeGlobalIds: [],
       activeLocalIds: [],
       activeOverlayIds: [],
       availableProviders: {},
@@ -24,9 +24,6 @@ class TileRegistry extends _$TileRegistry {
 
     state = state.copyWith(
       availableProviders: updatedProviders,
-      // Set as default global if none selected
-      selectedGlobalId: state.selectedGlobalId ??
-          (provider.category == TileCategory.global ? provider.id : null),
     );
   }
 
@@ -36,17 +33,22 @@ class TileRegistry extends _$TileRegistry {
 
     state = state.copyWith(
       availableProviders: updatedProviders,
-      selectedGlobalId: state.selectedGlobalId == providerId ? null : state.selectedGlobalId,
+      activeGlobalIds:  state.activeGlobalIds.where((id) => id != providerId).toList(),
       activeLocalIds: state.activeLocalIds.where((id) => id != providerId).toList(),
       activeOverlayIds: state.activeOverlayIds.where((id) => id != providerId).toList(),
     );
   }
 
-  void setGlobalLayer(String providerId) {
+  void toggleGlobalLayer(String providerId) {
     if (state.availableProviders[providerId]?.category != TileCategory.global) {
       throw ArgumentError('Provider must be a global layer');
     }
-    state = state.copyWith(selectedGlobalId: providerId);
+
+    state = state.copyWith(
+      activeLocalIds: state.activeGlobalIds.contains(providerId)
+          ? state.activeGlobalIds.where((id) => id != providerId).toList()
+          : [...state.activeGlobalIds, providerId],
+    );
   }
 
   void toggleLocalLayer(String providerId) {
@@ -76,13 +78,12 @@ class TileRegistry extends _$TileRegistry {
   List<TileLayer> getActiveLayers() {
     final layers = <TileLayer>[];
 
-    // Add global base layer
-    if (state.selectedGlobalId != null) {
-      final provider = state.availableProviders[state.selectedGlobalId];
-      if (provider != null) {
-        layers.add(provider.createTileLayer());
-      }
-    }
+    // Add local layers
+    layers.addAll(
+        state.activeGlobalIds
+            .map((id) => state.availableProviders[id]?.createTileLayer())
+            .whereType<TileLayer>()
+    );
 
     // Add local layers
     layers.addAll(

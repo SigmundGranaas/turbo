@@ -10,7 +10,7 @@ class OSMProvider extends TileProviderWrapper {
   OSMProvider({required this.cachePath});
 
   @override String get id => 'osm';
-  @override String get name => 'OpenStreetMap';
+  @override String get name => 'Open Street Map';
   @override String get description => 'OpenStreetMap Standard';
   @override String get attributions => 'OpenStreetMap contributors';
   @override TileCategory get category => TileCategory.global;
