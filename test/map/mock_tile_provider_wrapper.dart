@@ -1,5 +1,5 @@
 import 'package:flutter_map/flutter_map.dart';
-import 'package:map_app/widgets/map/layers/tiles/providers/tile_provider.dart';
+import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_provider.dart';
 
 class MockTileProviderWrapper implements TileProviderWrapper {
   @override
@@ -42,4 +42,7 @@ class MockTileProviderWrapper implements TileProviderWrapper {
 
   @override
   Map<String, String>? get headers => null;
+
+  @override
+  String get attributions => throw UnimplementedError();
 }

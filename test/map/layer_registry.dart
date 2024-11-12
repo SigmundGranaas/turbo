@@ -1,8 +1,8 @@
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:map_app/widgets/map/layers/tiles/registry/tile_registry.dart';
-import 'package:map_app/widgets/map/layers/tiles/providers/tile_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_provider.dart';
+import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
 import 'mock_tile_provider_wrapper.dart';
 
 void main() {

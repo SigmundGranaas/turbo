@@ -1,4 +1,4 @@
-import '../providers/tile_provider.dart';
+import 'tile_provider.dart';
 
 class TileRegistryState {
   final String? selectedGlobalId;

@@ -1,8 +1,8 @@
 import 'package:flutter_map/flutter_map.dart';
-import 'package:map_app/widgets/map/layers/tiles/registry/tile_registry_state.dart';
+import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_registry_state.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../providers/tile_provider.dart';
+import 'tile_provider.dart';
 
 part 'tile_registry.g.dart';
 
@@ -100,4 +100,28 @@ class TileRegistry extends _$TileRegistry {
 
     return layers;
   }
+}
+
+@riverpod
+List<TileProviderWrapper> globalLayers(GlobalLayersRef ref) {
+  final registry = ref.watch(tileRegistryProvider);
+  return registry.availableProviders.values
+      .where((provider) => provider.category == TileCategory.global)
+      .toList();
+}
+
+@riverpod
+List<TileProviderWrapper> localLayers(LocalLayersRef ref) {
+  final registry = ref.watch(tileRegistryProvider);
+  return registry.availableProviders.values
+      .where((provider) => provider.category == TileCategory.local)
+      .toList();
+}
+
+@riverpod
+List<TileProviderWrapper> overlayLayers(OverlayLayersRef ref) {
+  final registry = ref.watch(tileRegistryProvider);
+  return registry.availableProviders.values
+      .where((provider) => provider.category == TileCategory.overlay)
+      .toList();
 }

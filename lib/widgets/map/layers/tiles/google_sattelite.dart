@@ -2,7 +2,8 @@ import 'package:dio_cache_interceptor_hive_store/dio_cache_interceptor_hive_stor
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cache/flutter_map_cache.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
-import 'package:map_app/widgets/map/layers/tiles/providers/tile_provider.dart';
+
+import 'tile_registry/tile_provider.dart';
 
 class GoogleSatellite extends TileProviderWrapper {
   final String? cachePath;
