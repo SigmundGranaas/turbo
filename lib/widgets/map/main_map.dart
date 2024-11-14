@@ -12,6 +12,7 @@ import 'buttons/map_layer_button.dart';
 import 'buttons/plus_minus_buttons.dart';
 import 'controller/map_utility.dart';
 import 'controller/provider/map_controller.dart';
+import 'controls/default_map_controls.dart';
 import 'controls/map_controls.dart';
 import 'layers/current_location_layer.dart';
 import 'layers/saved_markers_layer.dart';
@@ -61,15 +62,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
       if (_temporaryPin != null) MarkerLayer(markers: [_temporaryPin!]),
     ];
 
-    final controls = [
-      const MapLayerButton(),
-      const LocationButton(),
-      CustomMapCompass(mapController: _mapController),
-      PlusMinusButtons(
-        onZoomIn: () => zoomIn(_mapController, this),
-        onZoomOut: () => zoomOut(_mapController, this),
-      ),
-    ];
+    final controls = defaultMapControls(_mapController, this);
 
     return Scaffold(
       body: MapBase(

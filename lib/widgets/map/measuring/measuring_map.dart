@@ -10,6 +10,7 @@ import '../buttons/compass.dart';
 import '../buttons/location_button.dart';
 import '../buttons/map_layer_button.dart';
 import '../buttons/plus_minus_buttons.dart';
+import '../controls/default_map_controls.dart';
 import '../layers/tiles/tile_registry/tile_registry.dart';
 import '../map_base.dart';
 import 'measure_point.dart';
@@ -61,16 +62,7 @@ class MeasuringControllerPageState extends ConsumerState<MeasuringControllerPage
     final layers = ref.watch(tileRegistryProvider.notifier).getActiveLayers();
     final registry = ref.watch(tileRegistryProvider);
 
-    final controls = [
-      const MapLayerButton(),
-      const LocationButton(),
-      CustomMapCompass(mapController: _mapController),
-      PlusMinusButtons(
-        onZoomIn: () => zoomIn(_mapController, this),
-        onZoomOut: () => zoomOut(_mapController, this),
-      ),
-    ];
-
+    final controls = defaultMapControls(_mapController, this);
 
     if (!_isMapReady) {
       return const Scaffold(
