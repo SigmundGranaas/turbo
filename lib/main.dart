@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:map_app/widgets/map/main_map.dart';
 import 'data/datastore/factory.dart';
 import 'data/state/providers/initialize_tiles_provider.dart';
-import 'widgets/map/map_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
