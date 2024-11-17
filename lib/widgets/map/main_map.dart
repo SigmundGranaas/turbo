@@ -6,10 +6,6 @@ import 'package:map_app/widgets/map/measuring/measuring_map.dart';
 
 import '../../data/model/marker.dart' as marker_model;
 import '../marker/create_location_sheet.dart';
-import 'buttons/compass.dart';
-import 'buttons/location_button.dart';
-import 'buttons/map_layer_button.dart';
-import 'buttons/plus_minus_buttons.dart';
 import 'controller/map_utility.dart';
 import 'controller/provider/map_controller.dart';
 import 'controls/default_map_controls.dart';

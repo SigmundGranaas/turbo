@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_app/widgets/map/controller/map_utility.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../../../data/state/providers/location_state.dart';
 import '../controller/provider/map_controller.dart';
