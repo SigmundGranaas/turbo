@@ -1,55 +1,56 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/data/model/marker.dart' as marker_model;
 
 import '../../../data/icon_service.dart';
 import '../../../data/model/named_icon.dart';
-import '../../../location_provider.dart';
+import '../../../data/state/providers/location_provider.dart';
 import '../../marker/edit_location_sheet.dart';
 
-class LocationMarkers extends StatelessWidget {
+class LocationMarkers extends ConsumerWidget {
   final Function(marker_model.Marker) onMarkerTap;
 
   const LocationMarkers({super.key, required this.onMarkerTap});
 
   @override
-  Widget build(BuildContext context) {
-    final iconService = IconService();  // Create an instance of IconService
+  Widget build(BuildContext context, WidgetRef ref) {
+    final locationsAsync = ref.watch(locationNotifierProvider);
+    final iconService = IconService();
 
-    return Consumer<LocationProvider>(
-      builder: (context, locationProvider, child) {
-        return MarkerLayer(
-          markers: locationProvider.locations.map((location) {
-            final namedIcon = iconService.getIcon(location.icon);  // Get the NamedIcon
-            return Marker(
-              width: 80.0,
-              height: 80.0,
-              point: location.position,
-              child: MapIcon(
-                namedIcon: namedIcon,
-                title: location.title,
-                onTap: () {
-                  _showEditSheet(context, location);
-                },
-              )
-            );
-          }).toList(),
-        );
-      },
+    return locationsAsync.when(
+      data: (locations) => MarkerLayer(
+        markers: locations.map((location) {
+          final namedIcon = iconService.getIcon(location.icon);
+          return Marker(
+            width: 80.0,
+            height: 80.0,
+            point: location.position,
+            child: MapIcon(
+              namedIcon: namedIcon,
+              title: location.title,
+              onTap: () => _showEditSheet(context, ref, location),
+            ),
+          );
+        }).toList(),
+      ),
+      loading: () => const MarkerLayer(markers: []),
+      error: (error, stack) => const MarkerLayer(markers: []),
     );
   }
-  void _showEditSheet(BuildContext context, marker_model.Marker marker) async {
+
+  void _showEditSheet(BuildContext context, WidgetRef ref, marker_model.Marker marker) async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (BuildContext context) {
-        return EditLocationSheet(location: marker);
+        return EditLocationSheet(
+          location: marker,
+        );
       },
     );
   }
 }
-
 
 class MapIcon extends StatefulWidget {
   final NamedIcon namedIcon;

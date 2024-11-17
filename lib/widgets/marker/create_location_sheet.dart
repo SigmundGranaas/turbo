@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:idb_shim/idb.dart';
 import 'package:map_app/data/model/named_icon.dart';
-import 'package:provider/provider.dart';
 import 'package:latlong2/latlong.dart';
 import '../../data/model/marker.dart';
-import '../../location_provider.dart';
+import '../../data/state/providers/location_provider.dart';
 import 'location_base_sheet.dart';
 
-class CreateLocationSheet extends StatefulWidget {
+class CreateLocationSheet extends ConsumerStatefulWidget {
   final Marker? location;
   final LatLng? newLocation;
 
   const CreateLocationSheet({super.key, this.location, this.newLocation});
 
   @override
-  State<CreateLocationSheet> createState() => _CreateLocationSheetState();
+  ConsumerState<CreateLocationSheet> createState() => CreateLocationSheetState();
 }
 
-class _CreateLocationSheetState extends State<CreateLocationSheet> {
+class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   final _formKey = GlobalKey<FormState>();
   late NamedIcon _selectedIcon;
   late TextEditingController _nameController;
@@ -108,7 +108,8 @@ class _CreateLocationSheetState extends State<CreateLocationSheet> {
 
   Future<void> _saveLocation(BuildContext context) async {
     if (_formKey.currentState!.validate()) {
-      final locationProvider = context.read<LocationProvider>();
+      final locationProvider = ref.read(locationNotifierProvider.notifier);
+
       final newMarker = Marker.fromMap({
         'title': _nameController.text,
         'description': _descriptionController.text,
