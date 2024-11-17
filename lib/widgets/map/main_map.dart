@@ -5,7 +5,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:map_app/widgets/map/measuring/measuring_map.dart';
 
 import '../../data/model/marker.dart' as marker_model;
+import '../../data/search/kartverket_location_service.dart';
 import '../marker/create_location_sheet.dart';
+import '../search/searchbar.dart';
 import 'controller/map_utility.dart';
 import 'controller/provider/map_controller.dart';
 import 'controls/default_map_controls.dart';
@@ -73,6 +75,18 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
         mapController: _mapController,
         mapLayers: mapLayers,
         overlayWidgets: [
+          Positioned(
+            top: 20,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: SearchWidget(
+                  onLocationSelected: (double east, double north) {
+                    animatedMapMove(LatLng(north, east), 13, _mapController, this);
+                  },
+                  service: KartverketLocationService()),
+            ),
+          ),
           MapControls(controls: controls),
         ],
         onLongPress: (tapPosition, point) => _handleLongPress(context, point),

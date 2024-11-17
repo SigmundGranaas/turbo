@@ -13,7 +13,6 @@ class SearchWidget extends StatefulWidget {
   State<SearchWidget> createState() => _SearchWidgetState();
 }
 
-
 class _SearchWidgetState extends State<SearchWidget> {
   final TextEditingController _controller = TextEditingController();
   List<LocationSearchResult> _suggestions = [];
@@ -22,19 +21,25 @@ class _SearchWidgetState extends State<SearchWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isMobile = width < 600;
+
+    final horizontal = isMobile ? 12.0 : 16.0;
+    final vertical = isMobile ? 0.0 : 4.0;
+
     return LayoutBuilder(
         builder: (context, constraints) {
           double widgetWidth = constraints.maxWidth > 632 ? 600 : constraints.maxWidth - 32;
           return SizedBox(
             width: widgetWidth,
             child: Card(
-              elevation: 6,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    padding: EdgeInsets.symmetric(horizontal: horizontal, vertical: vertical),
                     child: Row(
                       children: [
                         Icon(Icons.search, color: Colors.grey[600]),
