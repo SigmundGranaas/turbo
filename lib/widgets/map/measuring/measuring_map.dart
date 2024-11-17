@@ -51,7 +51,15 @@ class MeasuringControllerPageState extends ConsumerState<MeasuringControllerPage
     final layers = ref.watch(tileRegistryProvider.notifier).getActiveLayers();
     final registry = ref.watch(tileRegistryProvider);
 
-    final controls = defaultMapControls(_mapController, this);
+    final width = MediaQuery.of(context).size.width;
+    final isMobile = width < 600;
+    final List<Widget> controls;
+
+    if(isMobile){
+      controls = defaultMobileMapControls(_mapController, this);
+    }else{
+      controls = defaultMapControls(_mapController, this);
+    }
 
     return Scaffold(
       body: MapBase(
