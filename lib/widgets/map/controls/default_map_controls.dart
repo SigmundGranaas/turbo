@@ -19,3 +19,13 @@ List<Widget> defaultMapControls(MapController controller, TickerProvider ticker)
   ];
   return controls;
 }
+
+List<Widget> defaultMobileMapControls(MapController controller, TickerProvider ticker) {
+  final controls = [
+    const MapLayerButton(),
+    const LocationButton(),
+    CustomMapCompass(mapController: controller),
+  ];
+  return controls;
+}
+

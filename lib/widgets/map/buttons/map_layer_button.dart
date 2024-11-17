@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:map_app/widgets/map/buttons/map_control_button_base.dart';
 import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -8,17 +9,7 @@ class MapLayerButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: IconButton(
-          icon:  const Icon(Icons.layers_outlined),
-          onPressed: () => _showBottomSheet(context),
-          tooltip: 'Select Map Layer',
-        ),
-      )
-    );
+    return MapControlButtonBase(child: Icon(Icons.layers, color:  Colors.blueGrey[800]!), onPressed: () => _showBottomSheet(context));
   }
 
   void _showBottomSheet(BuildContext context) {

@@ -25,7 +25,7 @@ class MyApp extends ConsumerWidget {
     return MaterialApp(
       title: 'Turbo',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.grey),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color.fromRGBO(0, 95, 126, 100)),
         useMaterial3: true,
       ),
       home: const MapControllerPage(),

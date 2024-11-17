@@ -8,6 +8,7 @@ class GoBackButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
         elevation: 4,
+        shape: const CircleBorder(),
         child: Padding(
           padding: const EdgeInsets.all(8.0),
           child: IconButton(
