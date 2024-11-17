@@ -104,7 +104,7 @@ class _SearchWidgetState extends State<SearchWidget> {
       final data = await widget.service.findLocationsBy(query);
       setState(() => _suggestions = data);
     } catch (e) {
-      print('Error fetching suggestions: $e');
+      // print('Error fetching suggestions: $e');
     }
   }
 
