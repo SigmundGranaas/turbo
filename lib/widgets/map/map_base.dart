@@ -7,16 +7,24 @@ class MapBase extends ConsumerWidget {
   final MapController mapController;
   final List<Widget> mapLayers;
   final List<Widget> overlayWidgets;
+  final double initialZoom;
+  final LatLng initialCenter;
   final Function(TapPosition, LatLng)? onLongPress;
   final Function(TapPosition, LatLng)? onTap;
+  final Function()? onMapReady;
+
 
   const MapBase({
     super.key,
     required this.mapController,
     required this.mapLayers,
     required this.overlayWidgets,
+    this.initialZoom = 5,
+    this.initialCenter =  const LatLng(65.0, 13.0),
     this.onLongPress,
     this.onTap,
+    this.onMapReady,
+
   });
 
   @override
@@ -26,12 +34,13 @@ class MapBase extends ConsumerWidget {
         FlutterMap(
           mapController: mapController,
           options: MapOptions(
-            initialCenter: const LatLng(65.0, 13.0),
-            initialZoom: 5,
+            initialCenter: initialCenter,
+            initialZoom: initialZoom,
             maxZoom: 20,
             minZoom: 3,
             onLongPress: onLongPress,
             onTap: onTap,
+            onMapReady: onMapReady,
             interactionOptions: const InteractionOptions(
               flags: InteractiveFlag.all,
               enableMultiFingerGestureRace: true,
