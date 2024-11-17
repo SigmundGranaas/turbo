@@ -4,15 +4,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:map_app/widgets/map/controller/map_utility.dart';
 
 import '../../../data/state/providers/location_state.dart';
 import '../controller/provider/map_controller.dart';
 
-class LocationButton extends ConsumerWidget {
+class LocationButton extends ConsumerStatefulWidget {
   const LocationButton({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LocationButton> createState() => LocationButtonState();
+}
+
+class LocationButtonState extends ConsumerState<LocationButton> with TickerProviderStateMixin {
+
+  @override
+  Widget build(BuildContext context) {
     return Card(
       elevation: 4,
       child: Padding(
@@ -35,10 +42,7 @@ class LocationButton extends ConsumerWidget {
       final position = await _getCurrentPosition(context, ref);
       if(position != null){
         final controller = ref.read(mapControllerProvProvider.notifier).controller();
-        controller.move(
-          LatLng(position.latitude, position.longitude),
-          15.0,
-        );
+        animatedMapMove(LatLng(position.latitude, position.longitude), 15, controller, this);
       }
 
         } catch (error) {
