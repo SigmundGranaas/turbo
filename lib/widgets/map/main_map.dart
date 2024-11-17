@@ -58,7 +58,15 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
       if (_temporaryPin != null) MarkerLayer(markers: [_temporaryPin!]),
     ];
 
-    final controls = defaultMapControls(_mapController, this);
+    final width = MediaQuery.of(context).size.width;
+    final isMobile = width < 600;
+    final List<Widget> controls;
+
+    if(isMobile){
+      controls = defaultMobileMapControls(_mapController, this);
+    }else{
+      controls = defaultMapControls(_mapController, this);
+    }
 
     return Scaffold(
       body: MapBase(

@@ -8,6 +8,7 @@ import 'package:map_app/widgets/map/controller/map_utility.dart';
 
 import '../../../data/state/providers/location_state.dart';
 import '../controller/provider/map_controller.dart';
+import 'map_control_button_base.dart';
 
 class LocationButton extends ConsumerStatefulWidget {
   const LocationButton({super.key});
@@ -17,18 +18,11 @@ class LocationButton extends ConsumerStatefulWidget {
 }
 
 class LocationButtonState extends ConsumerState<LocationButton> with TickerProviderStateMixin {
-
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: IconButton(
-          icon: const Icon(Icons.location_on),
-          onPressed: () => _moveToCurrentLocation(context, ref),
-        ),
-      ),
+    return MapControlButtonBase(
+      onPressed: () => _moveToCurrentLocation(context, ref),
+      child: Icon(Icons.location_on, color: Colors.blueGrey[800]!),
     );
   }
 
