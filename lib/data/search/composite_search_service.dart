@@ -1,9 +1,4 @@
-import 'package:map_app/data/datastore/marker_data_store.dart';
-import 'package:map_app/data/search/kartverket_location_service.dart';
 import 'package:map_app/data/search/location_service.dart';
-import 'package:map_app/data/search/marker_search_service.dart';
-
-import '../model/marker.dart';
 
 class CompositeSearchService extends LocationService {
 
