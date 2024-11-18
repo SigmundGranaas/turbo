@@ -47,6 +47,34 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
   }
 
   @override
+  Future<List<Marker>> findByName(String name) async {
+    final searchTerm = name.toLowerCase().trim();
+    if (searchTerm.isEmpty) {
+      return List.empty();
+    }
+
+    final Transaction txn = _db.transaction(storeName, 'readonly');
+    final ObjectStore store = txn.objectStore(storeName);
+
+    try {
+      final List<Object> allRecords = await store.getAll();
+      await txn.completed;
+
+      final List<Map<String, dynamic>> filteredData = allRecords
+          .map((el) => el as Map<String, dynamic>)
+          .where((record) {
+        final recordName = (record['title'] as String?)?.toLowerCase() ?? '';
+        return recordName.contains(searchTerm);
+      })
+          .toList();
+
+      return filteredData.map((el) => Marker.fromMap(el)).toList();
+    } catch (e) {
+      return List.empty();
+    }
+  }
+
+  @override
   Future<List<Marker>> getAll() async {
     final Transaction txn = _db.transaction(storeName, 'readonly');
     final ObjectStore store = txn.objectStore(storeName);

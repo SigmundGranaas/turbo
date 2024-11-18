@@ -109,7 +109,7 @@ class _SearchWidgetState extends State<SearchWidget> {
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
-    widget.onLocationSelected(suggestion.position.latitude, suggestion.position.longitude);
+    widget.onLocationSelected(suggestion.position.longitude, suggestion.position.latitude);
     setState(() {
       _suggestions = [];
       _isFocused = false;
