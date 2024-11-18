@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:map_app/data/search/marker_search_service.dart';
 import 'package:map_app/widgets/map/measuring/measuring_map.dart';
 
+import '../../data/datastore/factory.dart';
 import '../../data/model/marker.dart' as marker_model;
+import '../../data/search/composite_search_service.dart';
 import '../../data/search/kartverket_location_service.dart';
 import '../marker/create_location_sheet.dart';
 import '../search/searchbar.dart';
@@ -75,6 +78,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
         mapController: _mapController,
         mapLayers: mapLayers,
         overlayWidgets: [
+          MapControls(controls: controls),
           Positioned(
             top: 20,
             left: 0,
@@ -84,10 +88,9 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
                   onLocationSelected: (double east, double north) {
                     animatedMapMove(LatLng(north, east), 13, _mapController, this);
                   },
-                  service: KartverketLocationService()),
+                  service: CompositeSearchService(KartverketLocationService(), MarkerSearchService(MarkerDataStoreFactory.getDataStore()))),
             ),
           ),
-          MapControls(controls: controls),
         ],
         onLongPress: (tapPosition, point) => _handleLongPress(context, point),
       ),

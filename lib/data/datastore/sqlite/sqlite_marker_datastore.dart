@@ -63,6 +63,20 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
   }
 
   @override
+  Future<List<Marker>> findByName(String name) async {
+    final List<Map<String, dynamic>> maps = await _db!.query(
+      'markers',
+      where: 'name LIKE ?',
+      whereArgs: [name],
+    );
+
+    if (maps.isNotEmpty) {
+      return maps.map((el) => Marker.fromMap(el)).toList();
+    }
+    return List.empty();
+  }
+
+  @override
   Future<List<Marker>> getAll() async {
     final List<Map<String, dynamic>> maps = await _db!.query('markers');
     return List.generate(maps.length, (i) => Marker.fromMap(maps[i]));
