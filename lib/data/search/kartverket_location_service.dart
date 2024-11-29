@@ -31,7 +31,7 @@ class KartverketLocationService extends LocationService {
     final municipality = "${data.kommuner[0].kommunenavn} kommune";
     final description = '$type i $municipality';
     final icon = _findIconFromType(type);
-    final latlng = LatLng(data.representasjonspunkt.ost, data.representasjonspunkt.nord);
+    final latlng = LatLng(data.representasjonspunkt.nord, data.representasjonspunkt.ost);
 
     return LocationSearchResult(
         title: name, description: description, position: latlng, icon: icon);
