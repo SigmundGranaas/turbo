@@ -1,4 +1,5 @@
 import 'package:map_app/data/state/providers/tile_cache_path_provider.dart';
+import 'package:map_app/widgets/map/layers/tiles/avalanche_overlay.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../widgets/map/layers/tiles/osm_tiles.dart';
@@ -16,7 +17,8 @@ Future<void> initializeTiles(InitializeTilesRef ref) async {
   registry
     ..registerProvider(NorgeskartProvider(cachePath: cachePath))
     ..registerProvider(OSMProvider(cachePath: cachePath))
-    ..registerProvider(GoogleSatellite(cachePath: cachePath));
+    ..registerProvider(GoogleSatellite(cachePath: cachePath))
+    ..registerProvider(AvalancheOverlay(cachePath: cachePath));
 
   registry.toggleLocalLayer('topo');
 }
