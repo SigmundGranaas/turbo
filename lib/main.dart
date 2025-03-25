@@ -75,12 +75,6 @@ class _HomeWrapperState extends ConsumerState<HomeWrapper> {
       if (kDebugMode) {
         print('Auth initialization error: $e');
       }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isInitializing = false;
-        });
-      }
     }
   }
 
