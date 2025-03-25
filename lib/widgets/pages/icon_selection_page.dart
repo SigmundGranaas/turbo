@@ -178,7 +178,7 @@ class IconGridItem extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             onTap: onTap,
-            hoverColor: Colors.blue.withOpacity(0.1),
+            hoverColor: Colors.blue.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(10),
             child: Container(
               width: itemSize,

@@ -15,7 +15,7 @@ class MeasurePolyline extends StatelessWidget {
         Polyline(
           points: points.map((p) => p.point).toList(),
           strokeWidth: 3,
-          color: Theme.of(context).primaryColor.withOpacity(0.8),
+          color: Theme.of(context).primaryColor.withValues(alpha: 0.8),
           strokeCap: StrokeCap.round,
           strokeJoin: StrokeJoin.round,
         ),

@@ -2,14 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/widgets/map/buttons/map_control_button_base.dart';
 import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class MapLayerButton extends ConsumerWidget {
   const MapLayerButton({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return MapControlButtonBase(child: Icon(Icons.layers, color:  Colors.blueGrey[800]!), onPressed: () => _showBottomSheet(context));
+    return MapControlButtonBase(
+      child: Icon(
+        Icons.layers,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      onPressed: () => _showBottomSheet(context),
+    );
   }
 
   void _showBottomSheet(BuildContext context) {
@@ -33,117 +38,129 @@ class LayerSelectionSheet extends ConsumerWidget {
     final globalLayers = ref.watch(globalLayersProvider);
     final localLayers = ref.watch(localLayersProvider);
     final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return Container(
       decoration: BoxDecoration(
         color: colorScheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 12),
-          // Drag Handle
-          Center(
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            // Drag Handle
+            Center(
+              child: Container(
+                width: 32,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Map Layers',
-                      style: GoogleFonts.roboto(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w500,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(context).pop(),
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.grey[100],
-                        padding: const EdgeInsets.all(8),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                _buildSectionHeader(context, 'Global Maps'),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 140,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: globalLayers.length,
-                    itemBuilder: (context, index) {
-                      final layer = globalLayers[index];
-                      return _buildLayerCard(
-                        context: context,
-                        label: layer.name,
-                        value: layer.id,
-                        isSelected: registry.activeGlobalIds.contains(layer.id),
-                        icon: _getLayerIcon(layer.id),
-                        onToggle: () {
-                          ref.read(tileRegistryProvider.notifier)
-                              .toggleGlobalLayer(layer.id);
-                        },
-                      );
-                    },
+            // Header Section
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Map Layers',
+                    style: textTheme.headlineSmall,
                   ),
-                ),
-                const SizedBox(height: 24),
-                _buildSectionHeader(context, 'Norwegian Maps'),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 140,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: localLayers.length,
-                    itemBuilder: (context, index) {
-                      final layer = localLayers[index];
-                      return _buildLayerCard(
-                        context: context,
-                        label: layer.name,
-                        value: layer.id,
-                        isSelected: registry.activeLocalIds.contains(layer.id),
-                        icon: _getLayerIcon(layer.id),
-                        onToggle: () {
-                          ref.read(tileRegistryProvider.notifier)
-                              .toggleLocalLayer(layer.id);
-                        },
-                      );
-                    },
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: IconButton.styleFrom(
+                      foregroundColor: colorScheme.onSurfaceVariant,
+                      backgroundColor: colorScheme.surfaceContainerHighest,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+
+            // Global Maps Section
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _buildSectionHeader(context, 'Global Maps'),
+            ),
+            const SizedBox(height: 16),
+
+            SizedBox(
+              height: 160,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                scrollDirection: Axis.horizontal,
+                itemCount: globalLayers.length,
+                itemBuilder: (context, index) {
+                  final layer = globalLayers[index];
+                  final isSelected = registry.activeGlobalIds.contains(layer.id);
+                  return _buildLayerCard(
+                    context: context,
+                    label: layer.name,
+                    value: layer.id,
+                    isSelected: isSelected,
+                    icon: _getLayerIcon(layer.id),
+                    onToggle: () {
+                      ref.read(tileRegistryProvider.notifier)
+                          .toggleGlobalLayer(layer.id);
+                    },
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Norwegian Maps Section
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _buildSectionHeader(context, 'Norwegian Maps'),
+            ),
+            const SizedBox(height: 16),
+
+            SizedBox(
+              height: 160,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                scrollDirection: Axis.horizontal,
+                itemCount: localLayers.length,
+                itemBuilder: (context, index) {
+                  final layer = localLayers[index];
+                  final isSelected = registry.activeLocalIds.contains(layer.id);
+                  return _buildLayerCard(
+                    context: context,
+                    label: layer.name,
+                    value: layer.id,
+                    isSelected: isSelected,
+                    icon: _getLayerIcon(layer.id),
+                    onToggle: () {
+                      ref.read(tileRegistryProvider.notifier)
+                          .toggleLocalLayer(layer.id);
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildSectionHeader(BuildContext context, String title) {
-    return Text(
-      title,
-      style: GoogleFonts.roboto(
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
     );
   }
@@ -157,44 +174,54 @@ class LayerSelectionSheet extends ConsumerWidget {
     required IconData icon,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: InkWell(
-        onTap: onToggle,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: 120,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isSelected ? colorScheme.primaryContainer : colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isSelected ? colorScheme.primary : Colors.transparent,
-              width: 2,
-            ),
+      padding: const EdgeInsets.only(right: 16),
+      child: Card(
+        elevation: 0,
+        color: isSelected ? colorScheme.secondaryContainer : colorScheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: isSelected ? colorScheme.outline : Colors.transparent,
+            width: isSelected ? 1 : 0,
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 32,
-                color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: GoogleFonts.roboto(
-                  fontSize: 14,
-                  fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
-                  color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onToggle,
+          splashColor: colorScheme.secondaryContainer.withValues(alpha: 0.3),
+          child: Container(
+            width: 120,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Spacer(),
+                Icon(
+                  icon,
+                  size: 36,
+                  color: isSelected
+                      ? colorScheme.onSecondaryContainer
+                      : colorScheme.onSurfaceVariant,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+                const SizedBox(height: 16),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: textTheme.labelLarge?.copyWith(
+                    fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
+                    color: isSelected
+                        ? colorScheme.onSecondaryContainer
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const Spacer(),
+              ],
+            ),
           ),
         ),
       ),

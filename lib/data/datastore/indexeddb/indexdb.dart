@@ -1,5 +1,4 @@
 import 'package:idb_shim/idb_browser.dart';
-import 'package:idb_shim/idb_shim.dart';
 import '../../model/marker.dart';
 import '../marker_data_store.dart';
 

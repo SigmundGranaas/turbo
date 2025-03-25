@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.4.3 <4.0.0'
+  sdk: '>=3.5.5 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -56,6 +56,17 @@ dependencies:
   flutter_riverpod: ^3.0.0-dev.3
   riverpod_annotation: ^3.0.0-dev.3
   google_fonts: ^6.2.1
+  shared_preferences: ^2.5.2
+
+  # Added for Google Sign-In
+  google_sign_in: ^6.1.4
+  url_launcher: ^6.1.12
+
+  # For web platform specifically
+  google_sign_in_web: ^0.12.0
+
+  # For handling deep links - useful for OAuth flow
+  uni_links: ^0.5.1
 
 dev_dependencies:
   flutter_test:
@@ -84,7 +95,9 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-# assets:
+  assets:
+    - assets/images/map.png
+    - assets/images/google_icon.webp
   # - assets/svg/
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

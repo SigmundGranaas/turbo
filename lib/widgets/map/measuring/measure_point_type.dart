@@ -36,7 +36,7 @@ enum MeasurePointType {
       case MeasurePointType.start:
         return primary;
       case MeasurePointType.middle:
-        return primary.withOpacity(0.7);
+        return primary.withValues(alpha: 0.7);
       case MeasurePointType.end:
         return primary;
     }

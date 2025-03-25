@@ -81,8 +81,8 @@ void main() {
       expect(results.length, 2);
       expect(results[0].title, 'Heggmoen');
       expect(results[0].description, 'Bruk i Hemnes kommune');
-      expect(results[0].position.latitude, 14.26984);
-      expect(results[0].position.longitude, 65.90951);
+      expect(results[0].position.longitude, 14.26984);
+      expect(results[0].position.latitude, 65.90951);
     });
   });
 }

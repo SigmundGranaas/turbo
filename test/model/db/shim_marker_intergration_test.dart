@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:idb_shim/idb.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:idb_shim/idb_client_memory.dart';
 import 'package:map_app/data/datastore/indexeddb/indexdb.dart';

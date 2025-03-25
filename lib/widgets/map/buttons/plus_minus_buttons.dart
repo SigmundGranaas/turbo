@@ -24,12 +24,12 @@ class PlusMinusButtons extends StatelessWidget {
         child: Column(
           children: [
             IconButton(
-              icon: Icon(Icons.add, color:  Colors.blueGrey[800]!),
+              icon: Icon(Icons.add, color: Theme.of(context).colorScheme.primary),
               onPressed: onZoomIn,
             ),
             SizedBox(height: spacingHeight),
             IconButton(
-              icon: Icon(Icons.remove, color: Colors.blueGrey[800]!),
+              icon: Icon(Icons.remove, color: Theme.of(context).colorScheme.primary),
               onPressed: onZoomOut
             ),
           ],

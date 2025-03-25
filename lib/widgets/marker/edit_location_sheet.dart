@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import '../../data/icon_service.dart';
 import '../../data/model/marker.dart';
 import '../../data/model/named_icon.dart';
 import '../../data/state/providers/location_provider.dart';
 import 'location_base_sheet.dart';
 
-
+// Import the shared button components
+import '../auth/primary_button.dart';
 
 class EditLocationSheet extends ConsumerStatefulWidget {
   final Marker location;
@@ -23,13 +23,14 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
   late NamedIcon _selectedIcon;
+  bool _isLoading = false;
+  bool _isDeleting = false;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.location.title);
-    _descriptionController =
-        TextEditingController(text: widget.location.description);
+    _descriptionController = TextEditingController(text: widget.location.description);
     _selectedIcon = IconService().getIcon(widget.location.icon);
   }
 
@@ -42,36 +43,59 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-        left: 16,
-        right: 16,
-        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        left: 24,
+        right: 24,
+        top: 12,
       ),
       child: Form(
         key: _formKey,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Ny markering',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: Colors.grey[600]),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  )
-                ],
+            // Drag handle
+            Center(
+              child: Container(
+                width: 32,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
             const SizedBox(height: 16),
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Edit Marker',
+                  style: textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                  style: IconButton.styleFrom(
+                    foregroundColor: colorScheme.onSurfaceVariant,
+                    backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            // Form fields
             LocationFormFields(
               nameController: _nameController,
               descriptionController: _descriptionController,
@@ -79,57 +103,120 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
               onIconSelected: (icon) => setState(() => _selectedIcon = icon),
             ),
             const SizedBox(height: 32),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                SizedBox(
-                  width: 128,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.delete, color: Colors.white),
-                    label: const Text('Slett',
-                        style: TextStyle(color: Colors.white)),
-                    onPressed: _deleteLocation,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.redAccent,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 16, horizontal: 12),
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 128,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.save, color: Colors.white),
-                    label: const Text('Lagre',
-                        style: TextStyle(color: Colors.white)),
+            // Action buttons
+            SizedBox(
+              width: double.infinity,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Save button
+                  PrimaryButton(
+                    text: 'Save Changes',
                     onPressed: _updateLocation,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueGrey,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+                    isLoading: _isLoading,
+                  ),
+                  const SizedBox(height: 16),
+                  // Delete button (custom styled)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: _isDeleting
+                          ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(colorScheme.error),
+                        ),
+                      )
+                          : Icon(Icons.delete_outline, color: colorScheme.error),
+                      label: Text('Delete Marker',
+                        style: textTheme.labelLarge?.copyWith(
+                          color: colorScheme.error,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 16, horizontal: 12),
+                      onPressed: _isDeleting ? null : _confirmDelete,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: colorScheme.error,
+                        side: BorderSide(color: colorScheme.error),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
 
+  void _confirmDelete() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Delete Marker',
+            style: textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'Are you sure you want to delete this marker? This action cannot be undone.',
+            style: textTheme.bodyMedium,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          icon: Icon(Icons.warning_amber_rounded, color: colorScheme.error, size: 28),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cancel',
+                style: textTheme.labelLarge?.copyWith(
+                  color: colorScheme.primary,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _deleteLocation();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colorScheme.errorContainer,
+                foregroundColor: colorScheme.onErrorContainer,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text('Delete',
+                style: textTheme.labelLarge?.copyWith(
+                  color: colorScheme.onErrorContainer,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _updateLocation() async {
     if (_formKey.currentState!.validate()) {
       try {
+        setState(() => _isLoading = true);
+
         final updatedMarker = Marker.fromMap({
           ...widget.location.toMap(),
           'title': _nameController.text,
@@ -145,9 +232,8 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
         }
       } catch (error) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error updating location: $error')),
-          );
+          _showErrorSnackBar(context, 'Error updating location: $error');
+          setState(() => _isLoading = false);
         }
       }
     }
@@ -155,6 +241,8 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
 
   Future<void> _deleteLocation() async {
     try {
+      setState(() => _isDeleting = true);
+
       await ref.read(locationNotifierProvider.notifier)
           .deleteLocation(widget.location.uuid);
 
@@ -163,10 +251,31 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error deleting location: $error')),
-        );
+        _showErrorSnackBar(context, 'Error deleting location: $error');
+        setState(() => _isDeleting = false);
       }
     }
+  }
+
+  void _showErrorSnackBar(BuildContext context, String message) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.error_outline, color: colorScheme.onErrorContainer),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(message),
+            ),
+          ],
+        ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: colorScheme.errorContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
   }
 }
