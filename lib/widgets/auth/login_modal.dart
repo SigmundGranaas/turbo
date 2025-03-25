@@ -12,28 +12,40 @@ import 'primary_button.dart';
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
-  // Method to show the screen - as a modal on desktop, full screen on mobile
+  // Method to show the screen - as a modal on desktop, full page on mobile
   static Future<void> show(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final isDesktop = size.width > 768;
 
+    if (isDesktop) {
       // Show as modal dialog on desktop
       return showDialog(
         context: context,
         barrierDismissible: true,
         builder: (BuildContext context) {
-          return Dialog(
+          return const Dialog(
             backgroundColor: Colors.transparent,
             elevation: 0,
-            insetPadding: const EdgeInsets.all(16),
+            insetPadding: EdgeInsets.all(16),
             child: SizedBox(
               width: 500,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: const LoginScreen(),
+                borderRadius: BorderRadius.all(Radius.circular(28)),
+                child: LoginScreen(),
               ),
             ),
           );
         },
       );
+    } else {
+      // Show as full page on mobile
+      return Navigator.of(context).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (context) => const LoginScreen(),
+        ),
+      );
+    }
   }
 
   @override
@@ -118,81 +130,100 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final errorMessage = ref.watch(authStateProvider).errorMessage;
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 768;
+    final viewInsets = MediaQuery.of(context).viewInsets;
 
     // Get theme colors from the app's theme
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Card(
-                  margin: EdgeInsets.symmetric(
-                    horizontal: isDesktop ? 0 : 16,
-                    vertical: 24,
-                  ),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                  color: colorScheme.surface,
-                  child: SizedBox(
-                    width: isDesktop ? 500 : double.infinity,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Header section with app branding
-                          Container(
-                            width: double.infinity,
-                            margin: const EdgeInsets.fromLTRB(24, 36, 24, 24),
-                            decoration: BoxDecoration(
-                              color: colorScheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Logo/App name
-                                Text(
-                                  'Turbo',
-                                  style: GoogleFonts.libreBaskerville(
-                                    fontSize: 36,
-                                    fontWeight: FontWeight.bold,
-                                    color: colorScheme.onPrimaryContainer,
-                                  ),
-                                ),
-                                const SizedBox(height: 24),
-
-                                // Welcome text
-                                Text(
-                                  'Sign in',
-                                  style: textTheme.titleLarge?.copyWith(
-                                    color: colorScheme.onPrimaryContainer,
-                                  ),
-                                ),
-                                Text(
-                                  'To get started',
-                                  style: textTheme.bodyMedium?.copyWith(
-                                    color: colorScheme.onPrimaryContainer,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          // Form content
-                          Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: isDesktop ? 32 : 24,
-                            ),
-                            child: _buildLoginForm(errorMessage, isDesktop),
-                          ),
-                        ],
-                      ),
+    Widget content = Card(
+      margin: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 0 : 16,
+        vertical: isDesktop ? 24 : 0,
+      ),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(28),
+      ),
+      color: colorScheme.surface,
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        padding: EdgeInsets.only(
+          bottom: viewInsets.bottom > 0 ? viewInsets.bottom : 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header section with app branding
+            Container(
+              width: double.infinity,
+              margin: EdgeInsets.fromLTRB(24, isDesktop ? 36 : 0, 24, 24),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Turbo',
+                    style: GoogleFonts.libreBaskerville(
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onPrimaryContainer,
                     ),
                   ),
-                );
+                  const SizedBox(height: 12),
+                  Text(
+                    'Sign in',
+                    style: textTheme.titleLarge?.copyWith(
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Form content
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 32 : 24,
+              ),
+              child: _buildLoginForm(errorMessage, isDesktop),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // For desktop, return just the card content for the dialog
+    if (isDesktop) {
+      return content;
+    }
+
+    // For mobile, wrap in a Scaffold for full page view
+    return Scaffold(
+      backgroundColor: colorScheme.surface,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.close, color: colorScheme.onSurface),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: SafeArea(
+        minimum: const EdgeInsets.symmetric(horizontal: 16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: content,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildLoginForm(String? errorMessage, bool isDesktop) {
