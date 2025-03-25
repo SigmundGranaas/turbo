@@ -13,7 +13,12 @@ class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
   static Future<void> show(BuildContext context) {
-    return showDialog(
+    final size = MediaQuery.of(context).size;
+    final isDesktop = size.width > 768;
+
+    if (isDesktop) {
+      // Show as modal dialog on desktop
+      return showDialog(
         context: context,
         barrierDismissible: true,
         builder: (BuildContext context) {
@@ -31,6 +36,15 @@ class RegisterScreen extends ConsumerStatefulWidget {
           );
         },
       );
+    } else {
+      // Show as full page on mobile
+      return Navigator.of(context).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (context) => const RegisterScreen(),
+        ),
+      );
+    }
   }
 
   @override
@@ -118,77 +132,105 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final errorMessage = ref.watch(authStateProvider).errorMessage;
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 768;
+    final viewInsets = MediaQuery.of(context).viewInsets;
 
     // Get theme colors from the app's theme
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Card(
+    Widget content = Card(
       margin: EdgeInsets.symmetric(
         horizontal: isDesktop ? 0 : 16,
-        vertical: 24,
+        vertical: isDesktop ? 24 : 0,
       ),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(28),
       ),
       color: colorScheme.surface,
-      child: SizedBox(
-        width: isDesktop ? 500 : double.infinity,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Header section with app branding
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(24, 36, 24, 24),
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Logo/App name
-                    Text(
-                      'Turbo',
-                      style: GoogleFonts.libreBaskerville(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Welcome text
-                    Text(
-                      'Create account',
-                      style: textTheme.titleLarge?.copyWith(
-                        color: colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                    Text(
-                      'To start using Turbo',
-                      style: textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ],
-                ),
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        padding: EdgeInsets.only(
+          bottom: viewInsets.bottom > 0 ? viewInsets.bottom : 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header section with app branding
+            Container(
+              width: double.infinity,
+              margin: EdgeInsets.fromLTRB(24, isDesktop ? 36 : 0, 24, 24),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(24),
               ),
+              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Logo/App name
+                  Text(
+                    'Turbo',
+                    style: GoogleFonts.libreBaskerville(
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
 
-              // Form content
-              Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: isDesktop ? 32 : 24,
-                ),
-                child: _buildRegisterForm(errorMessage, isDesktop),
+                  // Welcome text
+                  Text(
+                    'Create account',
+                    style: textTheme.titleLarge?.copyWith(
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  Text(
+                    'To start using Turbo',
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
+
+            // Form content
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: isDesktop ? 32 : 24,
+              ),
+              child: _buildRegisterForm(errorMessage, isDesktop),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // For desktop, return just the card content for the dialog
+    if (isDesktop) {
+      return content;
+    }
+
+    // For mobile, wrap in a Scaffold for full page view
+    return Scaffold(
+      backgroundColor: colorScheme.background,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.close, color: colorScheme.onBackground),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: SafeArea(
+        minimum: const EdgeInsets.symmetric(horizontal: 16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: content,
           ),
         ),
       ),
@@ -285,7 +327,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               },
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height:
+          24),
 
           // Register button - using theme primary color
           PrimaryButton(
@@ -298,7 +341,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
           Row(
             children: [
-              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
+              Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
@@ -308,7 +351,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   ),
                 ),
               ),
-              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
+              Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
             ],
           ),
           const SizedBox(height: 24),
