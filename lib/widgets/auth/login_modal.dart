@@ -14,8 +14,6 @@ class LoginScreen extends ConsumerStatefulWidget {
 
   // Method to show the screen - as a modal on desktop, full screen on mobile
   static Future<void> show(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width > 768;
-
 
       // Show as modal dialog on desktop
       return showDialog(
@@ -120,7 +118,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final errorMessage = ref.watch(authStateProvider).errorMessage;
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 768;
-    final isMobile = !isDesktop;
 
     // Get theme colors from the app's theme
     final colorScheme = Theme.of(context).colorScheme;
@@ -285,7 +282,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
           Row(
             children: [
-              Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
+              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
@@ -295,7 +292,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
               ),
-              Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
+              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
             ],
           ),
           const SizedBox(height: 24),

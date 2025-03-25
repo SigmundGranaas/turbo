@@ -17,10 +17,10 @@ class AuthErrorMessage extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.error.withOpacity(0.1),
+        color: colorScheme.error.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: colorScheme.error.withOpacity(0.3),
+          color: colorScheme.error.withValues(alpha: 0.3),
         ),
       ),
       child: Row(

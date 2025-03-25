@@ -33,9 +33,6 @@ class MyApp extends ConsumerWidget {
     if (kDebugMode) {
       print("Building MyApp");
     }
-
-    final brightness = View.of(context).platformDispatcher.platformBrightness;
-    // Create custom text theme
     TextTheme textTheme = createTextTheme(context, "Roboto", "Libre Baskerville");
     MaterialTheme theme = MaterialTheme(textTheme);
 
@@ -62,7 +59,6 @@ class HomeWrapper extends ConsumerStatefulWidget {
 }
 
 class _HomeWrapperState extends ConsumerState<HomeWrapper> {
-  bool _isInitializing = true;
 
   @override
   void initState() {

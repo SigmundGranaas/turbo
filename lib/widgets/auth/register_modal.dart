@@ -118,7 +118,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final errorMessage = ref.watch(authStateProvider).errorMessage;
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 768;
-    final isMobile = !isDesktop;
 
     // Get theme colors from the app's theme
     final colorScheme = Theme.of(context).colorScheme;
@@ -299,7 +298,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
           Row(
             children: [
-              Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
+              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
@@ -309,7 +308,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   ),
                 ),
               ),
-              Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
+              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
             ],
           ),
           const SizedBox(height: 24),

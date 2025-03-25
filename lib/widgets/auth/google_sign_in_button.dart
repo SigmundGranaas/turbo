@@ -35,7 +35,7 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
           foregroundColor: colorScheme.onSurface,
           backgroundColor: colorScheme.surface,
           elevation: 0,
-          side: BorderSide(color: colorScheme.outline.withOpacity(0.5)),
+          side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.5)),
           padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(28),

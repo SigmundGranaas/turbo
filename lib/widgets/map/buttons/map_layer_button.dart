@@ -191,7 +191,7 @@ class LayerSelectionSheet extends ConsumerWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onToggle,
-          splashColor: colorScheme.secondaryContainer.withOpacity(0.3),
+          splashColor: colorScheme.secondaryContainer.withValues(alpha: 0.3),
           child: Container(
             width: 120,
             padding: const EdgeInsets.all(16),
