@@ -37,6 +37,7 @@ class LayerSelectionSheet extends ConsumerWidget {
     final registry = ref.watch(tileRegistryProvider);
     final globalLayers = ref.watch(globalLayersProvider);
     final localLayers = ref.watch(localLayersProvider);
+    final overlayLayers = ref.watch(overlayLayersProvider);
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -147,6 +148,34 @@ class LayerSelectionSheet extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _buildSectionHeader(context, 'Overlays')
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 160,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                itemCount: overlayLayers.length,
+                itemBuilder: (context, index) {
+                  final layer = overlayLayers[index];
+                  return _buildLayerCard(
+                    context: context,
+                    label: layer.name,
+                    value: layer.id,
+                    isSelected: registry.activeOverlayIds.contains(layer.id),
+                    icon: _getLayerIcon(layer.id),
+                    onToggle: () {
+                      ref.read(tileRegistryProvider.notifier)
+                          .toggleOverlay(layer.id);
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
