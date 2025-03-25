@@ -148,12 +148,16 @@ class LayerSelectionSheet extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 24),
-            _buildSectionHeader(context, 'Overlays'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _buildSectionHeader(context, 'Overlays')
+            ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 140,
+              height: 160,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 itemCount: overlayLayers.length,
                 itemBuilder: (context, index) {
                   final layer = overlayLayers[index];
