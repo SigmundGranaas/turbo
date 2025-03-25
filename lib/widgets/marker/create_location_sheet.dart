@@ -90,7 +90,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
                   icon: const Icon(Icons.close),
                   style: IconButton.styleFrom(
                     foregroundColor: colorScheme.onSurfaceVariant,
-                    backgroundColor: colorScheme.surfaceVariant.withOpacity(0.3),
+                    backgroundColor: colorScheme.surfaceContainerHighest.withOpacity(0.3),
                   ),
                 ),
               ],

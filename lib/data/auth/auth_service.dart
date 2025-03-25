@@ -214,10 +214,8 @@ class AuthService {
           'Content-Type': 'application/json',
         };
 
-        if (accessToken != null) {
-          headers['Authorization'] = 'Bearer $accessToken';
-        }
-
+        headers['Authorization'] = 'Bearer $accessToken';
+      
         // For mobile
         await http.post(
           Uri.parse('$baseUrl/api/auth/logout'),

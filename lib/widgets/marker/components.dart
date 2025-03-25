@@ -71,7 +71,7 @@ class LocationFormFields extends StatelessWidget {
                   borderSide: BorderSide(color: colorScheme.error, width: 2),
                 ),
                 filled: true,
-                fillColor: colorScheme.surfaceVariant.withOpacity(0.3),
+                fillColor: colorScheme.surfaceContainerHighest.withOpacity(0.3),
               ),
               style: textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurface,
@@ -134,7 +134,7 @@ class LocationFormFields extends StatelessWidget {
                   borderSide: BorderSide(color: colorScheme.error, width: 2),
                 ),
                 filled: true,
-                fillColor: colorScheme.surfaceVariant.withOpacity(0.3),
+                fillColor: colorScheme.surfaceContainerHighest.withOpacity(0.3),
               ),
               style: textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurface,
@@ -196,7 +196,7 @@ class IconSelector extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: colorScheme.surfaceVariant.withOpacity(0.3),
+          color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: colorScheme.outline),
         ),

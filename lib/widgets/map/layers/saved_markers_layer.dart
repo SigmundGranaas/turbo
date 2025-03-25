@@ -35,7 +35,7 @@ class LocationMarkers extends ConsumerWidget {
             // Offset the marker up by half its height so the point is at the exact location
             rotate: false,
             child: Transform.translate(
-              offset: Offset(0, -verticalOffset),
+              offset: const Offset(0, -verticalOffset),
               child: MapMarker(
                 namedIcon: namedIcon,
                 title: location.title,
