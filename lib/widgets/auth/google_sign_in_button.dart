@@ -86,13 +86,15 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
         print('Google sign-in error: $e');
       }
 
-      if (context.mounted) {
+      if(mounted){
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Sign in failed: ${e.toString()}')),
         );
       }
 
-      widget.onSignInCompleted(); // Ensure loading state gets reset
+
+
+      widget.onSignInCompleted();
     }
   }
 

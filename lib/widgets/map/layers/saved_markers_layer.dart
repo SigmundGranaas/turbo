@@ -125,7 +125,7 @@ class _MapMarkerState extends State<MapMarker> {
                     color: colorScheme.surface, // Surface color for the base
                     isPressed: _isPressed,
                     isHovered: _isHovering,
-                    outlineColor: colorScheme.outline.withOpacity(0.5),
+                    outlineColor: colorScheme.outline.withValues(alpha: 0.5),
                     scale: widget.scale,
                   ),
                 ),
@@ -169,7 +169,7 @@ class _MapMarkerState extends State<MapMarker> {
               borderRadius: BorderRadius.circular(4.0 * widget.scale),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 2.0 * widget.scale,
                   offset: Offset(0, 1.0 * widget.scale),
                 ),
@@ -241,7 +241,7 @@ class DropletPainter extends CustomPainter {
     path.quadraticBezierTo(width, height * 0.6, width / 2, height);
 
     // Draw the fill and stroke
-    canvas.drawShadow(path, Colors.black.withOpacity(0.2), 2.0 * scale, true);
+    canvas.drawShadow(path, Colors.black.withValues(alpha: 0.2), 2.0 * scale, true);
     canvas.drawPath(path, paintFill);
     canvas.drawPath(path, paintStroke);
   }
