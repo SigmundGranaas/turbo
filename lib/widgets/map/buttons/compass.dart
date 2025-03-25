@@ -48,6 +48,7 @@ class _CustomMapCompassState extends State<CustomMapCompass> with TickerProvider
   @override
   Widget build(BuildContext context) {
     final IconThemeData iconTheme = IconTheme.of(context);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return MapControlButtonBase(
       onPressed: _resetRotation,
@@ -59,7 +60,7 @@ class _CustomMapCompassState extends State<CustomMapCompass> with TickerProvider
           height: iconTheme.size,
           // Use the current theme's icon color
           colorFilter: ColorFilter.mode(
-            Colors.blueGrey[800]!,
+            colorScheme.primary,
             BlendMode.srcIn,
           ),
         ),

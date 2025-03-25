@@ -22,7 +22,7 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
   Widget build(BuildContext context) {
     return MapControlButtonBase(
       onPressed: () => _moveToCurrentLocation(context, ref),
-      child: Icon(Icons.location_on, color: Colors.blueGrey[800]!),
+      child: Icon(Icons.location_on, color: Theme.of(context).colorScheme.primary),
     );
   }
 

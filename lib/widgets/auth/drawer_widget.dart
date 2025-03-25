@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/widgets/auth/user_profile_screen.dart';
 
 import '../../data/auth/auth_providers.dart';
-import 'login_screen.dart';
+import 'login_modal.dart';
 
 class AppDrawer extends ConsumerWidget {
   const AppDrawer({super.key});
@@ -15,111 +15,161 @@ class AppDrawer extends ConsumerWidget {
     final isAuthenticated = authState.status == AuthStatus.authenticated;
     final email = authState.email;
     final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
-    return Drawer(
-      child: Column(
-        children: [
-          UserAccountsDrawerHeader(
-            accountName: Text(isAuthenticated ? 'Turbo User' : 'Guest User'),
-            accountEmail: Text(isAuthenticated ? (email ?? '') : 'Not signed in'),
-            currentAccountPicture: CircleAvatar(
-              backgroundColor: colorScheme.inversePrimary,
-              child: Text(
-                isAuthenticated && email != null && email.isNotEmpty
-                    ? email[0].toUpperCase()
-                    : '?',
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-            ),
-            decoration: BoxDecoration(
-              color: colorScheme.primary,
-            ),
+    return NavigationDrawer(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(28, 16, 16, 10),
+          child: Text(
+            'Turbo',
+            style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
-          ListTile(
-            leading: const Icon(Icons.map),
-            title: const Text('Map'),
-            onTap: () {
-              Navigator.pop(context);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.bookmark_border),
-            title: const Text('Saved Locations'),
-            onTap: () {
-              Navigator.pop(context);
-              // Navigate to saved locations
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.history),
-            title: const Text('History'),
-            onTap: () {
-              Navigator.pop(context);
-              // Navigate to history
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.settings),
-            title: const Text('Settings'),
-            onTap: () {
-              Navigator.pop(context);
-              // Navigate to settings
-            },
-          ),
-          const Divider(),
+        ),
 
-          // Show different options based on authentication status
-          if (isAuthenticated) ...[
-            // Show profile option for authenticated users
-            ListTile(
-              leading: const Icon(Icons.account_circle),
-              title: const Text('Profile'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const UserProfileScreen(),
+        // User account section - made smaller and clickable
+        GestureDetector(
+          onTap: () {
+            if (isAuthenticated) {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const UserProfileScreen(),
+                ),
+              );
+            } else {
+              Navigator.pop(context);
+              LoginScreen.show(context);
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: colorScheme.surface,
+                  child: Text(
+                    isAuthenticated && email != null && email.isNotEmpty
+                        ? email[0].toUpperCase()
+                        : '?',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Logout'),
-              onTap: () {
-                Navigator.pop(context); // Close the drawer first
-                _showLogoutDialog(context, ref);
-              },
-            ),
-          ] else
-            // Show login option for unauthenticated users
-            ListTile(
-              leading: const Icon(Icons.login),
-              title: const Text('Login'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const LoginScreen(),
-                    fullscreenDialog: true,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isAuthenticated ? 'Turbo User' : 'Guest User',
+                        style: textTheme.bodyLarge,
+                      ),
+                      Text(
+                        isAuthenticated ? (email ?? '') : 'Not signed in',
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                );
-              },
-            ),
-
-
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Version 1.0.0',
-              style: TextStyle(color: colorScheme.onSurfaceVariant),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // Original destination items
+        const NavigationDrawerDestination(
+          icon: Icon(Icons.map_outlined),
+          selectedIcon: Icon(Icons.map),
+          label: Text('Map'),
+        ),
+        const NavigationDrawerDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings),
+          label: Text('Settings'),
+        ),
+
+        const Divider(indent: 28, endIndent: 28),
+
+        // Conditionally show profile option if logged in
+        if (isAuthenticated)
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.account_circle_outlined),
+            selectedIcon: Icon(Icons.account_circle),
+            label: Text('Profile'),
+          ),
+
+        // Authentication actions moved to a separate section
+        if (isAuthenticated)
+        const Divider(indent: 28, endIndent: 28),
+
+        // Conditionally show login or logout based on auth status
+        if (isAuthenticated)
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.logout),
+            label: Text('Logout'),
+          )
+        else
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.login),
+            label: Text('Login'),
+          ),
+
+        const SizedBox(height: 12),
+
+        // SizedBox with flexible height to push version to bottom
+        SizedBox(height: MediaQuery.of(context).size.height * 0.3),
+
+        // App version at absolute bottom
+        Padding(
+          padding: const EdgeInsets.fromLTRB(28, 0, 28, 20),
+          child: Text(
+            'Version 1.0.0',
+            style: textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+      onDestinationSelected: (index) {
+        Navigator.pop(context);
+
+        // Handle navigation based on index
+        int baseItems = 2; // Map, Settings
+        int authOffset = isAuthenticated ? 1 : 0; // Profile adds 1 if authenticated
+
+        if (index == 0) {
+          // Map item - just close drawer as it's already the main screen
+          // Add any specific navigation if needed
+        } else if (index == 1) {
+          // Settings item
+          // Add your settings navigation logic here
+        } else if (isAuthenticated && index == 2) {
+          // Profile item (only for authenticated users)
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const UserProfileScreen(),
+            ),
+          );
+        } else if (index == baseItems + authOffset) {
+          // Last item is login/logout
+          if (isAuthenticated) {
+            _showLogoutDialog(context, ref);
+          } else {
+            LoginScreen.show(context);
+          }
+        }
+      },
     );
   }
 

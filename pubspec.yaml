@@ -58,6 +58,16 @@ dependencies:
   google_fonts: ^6.2.1
   shared_preferences: ^2.5.2
 
+  # Added for Google Sign-In
+  google_sign_in: ^6.1.4
+  url_launcher: ^6.1.12
+
+  # For web platform specifically
+  google_sign_in_web: ^0.12.0
+
+  # For handling deep links - useful for OAuth flow
+  uni_links: ^0.5.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

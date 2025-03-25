@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_app/widgets/auth/drawer_widget.dart';
 import 'package:map_app/data/search/marker_search_service.dart';
@@ -78,6 +77,8 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
       controls = defaultMapControls(_mapController, this);
     }
 
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       key: _scaffoldKey,
       drawer: const AppDrawer(), // The drawer remains
@@ -115,14 +116,14 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
                   shape: const CircleBorder(),
                   child: ClipOval(
                     child: Material(
-                      color: Theme.of(context).cardColor,
+                      color: Theme.of(context).colorScheme.surface,
                       child: InkWell(
                         onTap: () {
                           _scaffoldKey.currentState?.openDrawer();
                         },
-                        child: const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Icon(Icons.menu),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(Icons.menu, color: colorScheme.primary),
                         ),
                       ),
                     ),
@@ -285,6 +286,7 @@ class _CustomSearchWidgetState extends State<CustomSearchWidget> {
       width: widget.width,
       child: Card(
         elevation: 4,
+        color: Theme.of(context).colorScheme.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -295,7 +297,7 @@ class _CustomSearchWidgetState extends State<CustomSearchWidget> {
                 children: [
                   // Menu icon inside the search bar
                   IconButton(
-                    icon: Icon(Icons.menu, color: Colors.grey[600]),
+                    icon: Icon(Icons.menu, color: Theme.of(context).colorScheme.primary),
                     onPressed: widget.onMenuPressed,
                   ),
                   // Search icon
