@@ -205,12 +205,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     // For mobile, wrap in a Scaffold for full page view
     return Scaffold(
-      backgroundColor: colorScheme.background,
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.close, color: colorScheme.onBackground),
+          icon: Icon(Icons.close, color: colorScheme.onSurface),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -313,7 +313,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
           Row(
             children: [
-              Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
+              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
@@ -323,7 +323,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
               ),
-              Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
+              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
             ],
           ),
           const SizedBox(height: 24),
