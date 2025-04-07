@@ -12,7 +12,7 @@ final authServiceProvider = Provider<AuthService>((ref) {
     baseUrl = 'http://localhost:5000';
   } else {
     // For mobile/desktop, use absolute URL
-    baseUrl = 'http://10.0.2.2:5000';  // Android emulator localhost
+    baseUrl = 'http://localhost:5000';  // Android emulator localhost
   }
 
   return AuthService(baseUrl: baseUrl);
