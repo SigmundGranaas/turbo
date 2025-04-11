@@ -1,51 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:map_app/widgets/auth/register_modal.dart';
 import '../../data/auth/auth_providers.dart';
+import 'auth_base_screen.dart';
+import 'auth_divider.dart';
 import 'auth_error_message.dart';
+import 'auth_footer_link.dart';
 import 'auth_text_field.dart';
 import 'google_sign_in_button.dart';
+import 'password_field.dart'; // Optional: Use the new component
 import 'primary_button.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
-  // Method to show the screen - as a modal on desktop, full page on mobile
   static Future<void> show(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isDesktop = size.width > 768;
-
-    if (isDesktop) {
-      // Show as modal dialog on desktop
-      return showDialog(
-        context: context,
-        barrierDismissible: true,
-        builder: (BuildContext context) {
-          return const Dialog(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            insetPadding: EdgeInsets.all(16),
-            child: SizedBox(
-              width: 500,
-              child: ClipRRect(
-                borderRadius: BorderRadius.all(Radius.circular(28)),
-                child: LoginScreen(),
-              ),
-            ),
-          );
-        },
-      );
-    } else {
-      // Show as full page on mobile
-      return Navigator.of(context).push(
-        MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (context) => const LoginScreen(),
-        ),
-      );
-    }
+    return AuthBaseScreen.showResponsive(
+      context: context,
+      child: const LoginScreen(),
+    );
   }
 
   @override
@@ -56,7 +30,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _obscurePassword = true;
   bool _isLoading = false;
   bool _isGoogleLoading = false;
 
@@ -127,106 +100,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final errorMessage = ref.watch(authStateProvider).errorMessage;
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 768;
-    final viewInsets = MediaQuery.of(context).viewInsets;
 
-    // Get theme colors from the app's theme
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    Widget content = Card(
-      margin: EdgeInsets.symmetric(
-        horizontal: isDesktop ? 0 : 16,
-        vertical: isDesktop ? 24 : 0,
-      ),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(28),
-      ),
-      color: colorScheme.surface,
-      child: SingleChildScrollView(
-        physics: const ClampingScrollPhysics(),
-        padding: EdgeInsets.only(
-          bottom: viewInsets.bottom > 0 ? viewInsets.bottom : 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header section with app branding
-            Container(
-              width: double.infinity,
-              margin: EdgeInsets.fromLTRB(24, isDesktop ? 36 : 0, 24, 24),
-              decoration: BoxDecoration(
-                color: colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Turbo',
-                    style: GoogleFonts.libreBaskerville(
-                      fontSize: 36,
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Sign in',
-                    style: textTheme.titleLarge?.copyWith(
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Form content
-            Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: isDesktop ? 32 : 24,
-              ),
-              child: _buildLoginForm(errorMessage, isDesktop),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    // For desktop, return just the card content for the dialog
-    if (isDesktop) {
-      return content;
-    }
-
-    // For mobile, wrap in a Scaffold for full page view
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.close, color: colorScheme.onSurface),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: SafeArea(
-        minimum: const EdgeInsets.symmetric(horizontal: 16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 500),
-            child: content,
-          ),
-        ),
-      ),
+    return AuthBaseScreen(
+      title: 'Sign in',
+      formContent: _buildLoginForm(isDesktop),
+      isDesktopView: isDesktop,
     );
   }
 
-  Widget _buildLoginForm(String? errorMessage, bool isDesktop) {
+  Widget _buildLoginForm(bool isDesktop) {
+    final errorMessage = ref.watch(authStateProvider).errorMessage;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -242,7 +127,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             const SizedBox(height: 24),
           ],
 
-          // Email field - using theme colors
+          // Email field
           AuthTextField(
             controller: _emailController,
             label: 'Email',
@@ -260,29 +145,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Password field - using theme colors
-          AuthTextField(
+          // Using the PasswordField component (optional)
+          PasswordField(
             controller: _passwordController,
             label: 'Password',
-            obscureText: _obscurePassword,
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Please enter your password';
               }
               return null;
             },
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                color: colorScheme.onSurfaceVariant,
-                size: 20,
-              ),
-              onPressed: () {
-                setState(() {
-                  _obscurePassword = !_obscurePassword;
-                });
-              },
-            ),
           ),
 
           // Forgot password link
@@ -302,7 +174,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Login button - using theme primary color
+          // Login button
           PrimaryButton(
             text: 'Sign in',
             onPressed: _login,
@@ -311,21 +183,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
           const SizedBox(height: 24),
 
-          Row(
-            children: [
-              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'or',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
-            ],
-          ),
+          // Divider
+          const AuthDivider(text: 'or'),
+
           const SizedBox(height: 24),
 
           // Google sign-in button
@@ -337,29 +197,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
           const SizedBox(height: 24),
 
-          // Create account option
-          Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Don\'t have an account?',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                TextButton(
-                  onPressed: _navigateToRegister,
-                  style: TextButton.styleFrom(
-                    foregroundColor: colorScheme.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    textStyle: textTheme.labelMedium,
-                  ),
-                  child: const Text('Create account'),
-                ),
-              ],
-            ),
+          // Register link
+          AuthFooterLink(
+            message: 'Don\'t have an account?',
+            linkText: 'Create account',
+            onPressed: _navigateToRegister,
           ),
         ],
       ),
