@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../data/auth/auth_providers.dart';
 import 'auth_error_message.dart';
 import 'auth_text_field.dart';
+import 'google_sign_in_button.dart';
 import 'login_modal.dart';
 import 'primary_button.dart';
 
@@ -53,17 +54,68 @@ class RegisterScreen extends ConsumerStatefulWidget {
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _isLoading = false;
+  bool _isGoogleLoading = false;
   bool _isNotifyMeLoading = false;
 
   // Environment check - only show full form in development
   bool get _isDevelopment => kDebugMode;
 
   @override
+  void initState() {
+    super.initState();
+
+    // Only set up auth state listener in development mode
+    if (_isDevelopment) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.listenManual(authStateProvider, (previous, next) {
+          if (next.status == AuthStatus.authenticated) {
+            if (kDebugMode) {
+              print("Registration successful, closing screen");
+            }
+            // Close the screen when authenticated
+            Navigator.of(context).pop();
+          }
+        });
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
+  // Regular registration function for development mode
+  Future<void> _register() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        await ref.read(authStateProvider.notifier).register(
+          _emailController.text.trim(),
+          _passwordController.text,
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    }
+  }
+
+  // Waitlist subscription for production mode
   Future<void> _submitNotifyMe() async {
     if (_formKey.currentState!.validate()) {
       setState(() {
@@ -81,15 +133,29 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               behavior: SnackBarBehavior.floating,
             ),
           );
+          _emailController.clear();
         }
       } finally {
         if (mounted) {
           setState(() {
             _isNotifyMeLoading = false;
-            _emailController.clear();
           });
         }
       }
+    }
+  }
+
+  void _startGoogleSignIn() {
+    setState(() {
+      _isGoogleLoading = true;
+    });
+  }
+
+  void _completeGoogleSignIn() {
+    if (mounted) {
+      setState(() {
+        _isGoogleLoading = false;
+      });
     }
   }
 
@@ -150,7 +216,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Show different text based on environment
+                  // Different text based on environment
                   Text(
                     _isDevelopment ? 'Create account' : 'Public signups coming soon!',
                     style: textTheme.titleLarge?.copyWith(
@@ -175,8 +241,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 horizontal: isDesktop ? 32 : 24,
               ),
               child: _isDevelopment
-                  ? _buildRegisterForm(isDesktop)
-                  : _buildComingSoonContent(isDesktop),
+                  ? _buildRegistrationForm(isDesktop)
+                  : _buildComingSoonForm(isDesktop),
             ),
           ],
         ),
@@ -211,9 +277,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     );
   }
 
-  // This method builds the full registration form for development mode
-  Widget _buildRegisterForm(bool isDesktop) {
-    // Access the existing auth error message
+  // Development mode: Full registration form
+  Widget _buildRegistrationForm(bool isDesktop) {
     final errorMessage = ref.watch(authStateProvider).errorMessage;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -224,7 +289,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Show debugging notice
+          // Development mode notice
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -255,14 +320,124 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             const SizedBox(height: 24),
           ],
 
-          // Include the rest of your original registration form here...
-          // ...
+          // Email field
+          AuthTextField(
+            controller: _emailController,
+            label: 'Email',
+            hintText: 'Enter your email',
+            keyboardType: TextInputType.emailAddress,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter your email';
+              }
+              if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                return 'Please enter a valid email';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 24),
 
-          // This is a placeholder for the original registration form fields
+          // Password field
+          AuthTextField(
+            controller: _passwordController,
+            label: 'Password',
+            obscureText: _obscurePassword,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter a password';
+              }
+              if (value.length < 8) {
+                return 'Password must be at least 8 characters';
+              }
+              return null;
+            },
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                color: colorScheme.onSurfaceVariant,
+                size: 20,
+              ),
+              onPressed: () {
+                setState(() {
+                  _obscurePassword = !_obscurePassword;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Confirm Password field
+          AuthTextField(
+            controller: _confirmPasswordController,
+            label: 'Confirm Password',
+            obscureText: _obscureConfirmPassword,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please confirm your password';
+              }
+              if (value != _passwordController.text) {
+                return 'Passwords do not match';
+              }
+              return null;
+            },
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                color: colorScheme.onSurfaceVariant,
+                size: 20,
+              ),
+              onPressed: () {
+                setState(() {
+                  _obscureConfirmPassword = !_obscureConfirmPassword;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Register button
+          PrimaryButton(
+            text: 'Create account',
+            onPressed: _register,
+            isLoading: _isLoading,
+          ),
+
+          const SizedBox(height: 24),
+
+          Row(
+            children: [
+              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'or',
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Google sign-in button
+          GoogleSignInButton(
+            isLoading: _isGoogleLoading,
+            onSignInStarted: _startGoogleSignIn,
+            onSignInCompleted: _completeGoogleSignIn,
+          ),
+
+          const SizedBox(height: 24),
+
+          // Terms of service text
           Text(
-            'Full registration form is available in development mode',
-            style: textTheme.bodyMedium,
+            'By creating an account, you agree to our Terms of Service and Privacy Policy',
             textAlign: TextAlign.center,
+            style: textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 24),
 
@@ -295,8 +470,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     );
   }
 
-  // This method builds the coming soon content for production
-  Widget _buildComingSoonContent(bool isDesktop) {
+  // Production mode: Coming soon form
+  Widget _buildComingSoonForm(bool isDesktop) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
