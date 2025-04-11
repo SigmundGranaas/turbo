@@ -1,50 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../data/auth/auth_providers.dart';
+import 'auth_base_screen.dart';
+import 'auth_divider.dart';
 import 'auth_error_message.dart';
+import 'auth_footer_link.dart';
 import 'auth_text_field.dart';
+import 'dev_banner.dart';
 import 'google_sign_in_button.dart';
 import 'login_modal.dart';
+import 'password_field.dart'; // Optional: Use the new component
 import 'primary_button.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
   static Future<void> show(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final isDesktop = size.width > 768;
-
-    if (isDesktop) {
-      // Show as modal dialog on desktop
-      return showDialog(
-        context: context,
-        barrierDismissible: true,
-        builder: (BuildContext context) {
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            insetPadding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: 500,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: const RegisterScreen(),
-              ),
-            ),
-          );
-        },
-      );
-    } else {
-      // Show as full page on mobile
-      return Navigator.of(context).push(
-        MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (context) => const RegisterScreen(),
-        ),
-      );
-    }
+    return AuthBaseScreen.showResponsive(
+      context: context,
+      child: const RegisterScreen(),
+    );
   }
 
   @override
@@ -56,27 +32,31 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  bool _obscurePassword = true;
-  bool _obscureConfirmPassword = true;
   bool _isLoading = false;
   bool _isGoogleLoading = false;
+  bool _isNotifyMeLoading = false;
+
+  // Environment check - only show full form in development
+  bool get _isDevelopment => kDebugMode;
 
   @override
   void initState() {
     super.initState();
 
-    // Listen for auth state changes
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.listenManual(authStateProvider, (previous, next) {
-        if (next.status == AuthStatus.authenticated) {
-          if (kDebugMode) {
-            print("Registration successful, closing screen");
+    // Only set up auth state listener in development mode
+    if (_isDevelopment) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.listenManual(authStateProvider, (previous, next) {
+          if (next.status == AuthStatus.authenticated) {
+            if (kDebugMode) {
+              print("Registration successful, closing screen");
+            }
+            // Close the screen when authenticated
+            Navigator.of(context).pop();
           }
-          // Close the screen when authenticated
-          Navigator.of(context).pop();
-        }
+        });
       });
-    });
+    }
   }
 
   @override
@@ -87,6 +67,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     super.dispose();
   }
 
+  // Regular registration function for development mode
   Future<void> _register() async {
     if (_formKey.currentState!.validate()) {
       setState(() {
@@ -95,13 +76,43 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
       try {
         await ref.read(authStateProvider.notifier).register(
-            _emailController.text.trim(),
-            _passwordController.text
+          _emailController.text.trim(),
+          _passwordController.text,
         );
       } finally {
         if (mounted) {
           setState(() {
             _isLoading = false;
+          });
+        }
+      }
+    }
+  }
+
+  // Waitlist subscription for production mode
+  Future<void> _submitNotifyMe() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isNotifyMeLoading = true;
+      });
+
+      try {
+        // Here you would implement email collection for waitlist
+        // For now we'll just simulate a delay
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Thanks! We\'ll notify you when public signups open.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          _emailController.clear();
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isNotifyMeLoading = false;
           });
         }
       }
@@ -129,115 +140,24 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final errorMessage = ref.watch(authStateProvider).errorMessage;
     final size = MediaQuery.of(context).size;
     final isDesktop = size.width > 768;
-    final viewInsets = MediaQuery.of(context).viewInsets;
 
-    // Get theme colors from the app's theme
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    Widget content = Card(
-      margin: EdgeInsets.symmetric(
-        horizontal: isDesktop ? 0 : 16,
-        vertical: isDesktop ? 24 : 0,
-      ),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(28),
-      ),
-      color: colorScheme.surface,
-      child: SingleChildScrollView(
-        physics: const ClampingScrollPhysics(),
-        padding: EdgeInsets.only(
-          bottom: viewInsets.bottom > 0 ? viewInsets.bottom : 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header section with app branding
-            Container(
-              width: double.infinity,
-              margin: EdgeInsets.fromLTRB(24, isDesktop ? 36 : 0, 24, 24),
-              decoration: BoxDecoration(
-                color: colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Logo/App name
-                  Text(
-                    'Turbo',
-                    style: GoogleFonts.libreBaskerville(
-                      fontSize: 36,
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Welcome text
-                  Text(
-                    'Create account',
-                    style: textTheme.titleLarge?.copyWith(
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  Text(
-                    'To start using Turbo',
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Form content
-            Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: isDesktop ? 32 : 24,
-              ),
-              child: _buildRegisterForm(errorMessage, isDesktop),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    // For desktop, return just the card content for the dialog
-    if (isDesktop) {
-      return content;
-    }
-
-    // For mobile, wrap in a Scaffold for full page view
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.close, color: colorScheme.onSurface),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: SafeArea(
-        minimum: const EdgeInsets.symmetric(horizontal: 16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 500),
-            child: content,
-          ),
-        ),
-      ),
+    return AuthBaseScreen(
+      title: _isDevelopment ? 'Create account' : 'Public signups coming soon!',
+      subtitle: _isDevelopment
+          ? 'To start using Turbo'
+          : 'Join our waitlist to be notified when we launch',
+      formContent: _isDevelopment
+          ? _buildRegistrationForm(isDesktop)
+          : _buildComingSoonForm(isDesktop),
+      isDesktopView: isDesktop,
     );
   }
 
-  Widget _buildRegisterForm(String? errorMessage, bool isDesktop) {
+  // Development mode: Full registration form
+  Widget _buildRegistrationForm(bool isDesktop) {
+    final errorMessage = ref.watch(authStateProvider).errorMessage;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -247,13 +167,19 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Development mode notice
+          const DevModeBanner(
+            message: 'Development mode: Full registration enabled',
+          ),
+          const SizedBox(height: 24),
+
           // Error message if any
           if (errorMessage != null) ...[
             AuthErrorMessage(message: errorMessage),
             const SizedBox(height: 24),
           ],
 
-          // Email field - using theme colors
+          // Email field
           AuthTextField(
             controller: _emailController,
             label: 'Email',
@@ -271,11 +197,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Password field - using theme colors
-          AuthTextField(
+          // Using the PasswordField component (optional)
+          PasswordField(
             controller: _passwordController,
             label: 'Password',
-            obscureText: _obscurePassword,
+            hintText: 'Enter your password',
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Please enter a password';
@@ -285,26 +211,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               }
               return null;
             },
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                color: colorScheme.onSurfaceVariant,
-                size: 20,
-              ),
-              onPressed: () {
-                setState(() {
-                  _obscurePassword = !_obscurePassword;
-                });
-              },
-            ),
           ),
           const SizedBox(height: 24),
 
-          // Confirm Password field - using theme colors
-          AuthTextField(
+          // Using the PasswordField component (optional)
+          PasswordField(
             controller: _confirmPasswordController,
             label: 'Confirm Password',
-            obscureText: _obscureConfirmPassword,
+            hintText: 'Confirm your password',
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Please confirm your password';
@@ -314,23 +228,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               }
               return null;
             },
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscureConfirmPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                color: colorScheme.onSurfaceVariant,
-                size: 20,
-              ),
-              onPressed: () {
-                setState(() {
-                  _obscureConfirmPassword = !_obscureConfirmPassword;
-                });
-              },
-            ),
           ),
-          const SizedBox(height:
-          24),
+          const SizedBox(height: 24),
 
-          // Register button - using theme primary color
+          // Register button
           PrimaryButton(
             text: 'Create account',
             onPressed: _register,
@@ -339,21 +240,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
           const SizedBox(height: 24),
 
-          Row(
-            children: [
-              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'or',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
-            ],
-          ),
+          // Divider
+          const AuthDivider(text: 'or'),
+
           const SizedBox(height: 24),
 
           // Google sign-in button
@@ -375,29 +264,95 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Login option
-          Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Already have an account?',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                TextButton(
-                  onPressed: _navigateToLogin,
-                  style: TextButton.styleFrom(
-                    foregroundColor: colorScheme.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    textStyle: textTheme.labelMedium,
-                  ),
-                  child: const Text('Sign in'),
-                ),
-              ],
+          // Login link
+          AuthFooterLink(
+            message: 'Already have an account?',
+            linkText: 'Sign in',
+            onPressed: _navigateToLogin,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Production mode: Coming soon form
+  Widget _buildComingSoonForm(bool isDesktop) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Coming soon illustration
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: colorScheme.secondaryContainer.withValues(alpha:0.5),
+              borderRadius: BorderRadius.circular(20),
             ),
+            child: Icon(
+              Icons.rocket_launch_rounded,
+              size: 80,
+              color: colorScheme.secondary,
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          // Explanatory text
+          Text(
+            'We\'re preparing for launch!',
+            style: textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: colorScheme.onSurface,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+
+          Text(
+            'Public registration will be available soon. Join our waitlist to be notified when we launch.',
+            style: textTheme.bodyLarge?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+
+          // Email notification form
+          AuthTextField(
+            controller: _emailController,
+            label: 'Email',
+            hintText: 'Enter your email for updates',
+            keyboardType: TextInputType.emailAddress,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter your email';
+              }
+              if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                return 'Please enter a valid email';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 24),
+
+          // Notify me button
+          PrimaryButton(
+            text: 'Notify me when available',
+            onPressed: _submitNotifyMe,
+            isLoading: _isNotifyMeLoading,
+          ),
+
+          const SizedBox(height: 32),
+
+          // Login link
+          AuthFooterLink(
+            message: 'Already have access?',
+            linkText: 'Sign in',
+            onPressed: _navigateToLogin,
           ),
         ],
       ),
