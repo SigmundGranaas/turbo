@@ -16,7 +16,7 @@ class AuthDivider extends StatelessWidget {
 
     return Row(
       children: [
-        Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
+        Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Text(
@@ -26,7 +26,7 @@ class AuthDivider extends StatelessWidget {
             ),
           ),
         ),
-        Expanded(child: Divider(color: colorScheme.outline.withOpacity(0.5))),
+        Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
       ],
     );
   }
