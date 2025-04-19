@@ -37,26 +37,22 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _isNotifyMeLoading = false;
 
   // Environment check - only show full form in development
-  bool get _isDevelopment => kDebugMode;
+  bool get _isDevelopment => true;
 
   @override
   void initState() {
     super.initState();
-
-    // Only set up auth state listener in development mode
-    if (_isDevelopment) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.listenManual(authStateProvider, (previous, next) {
-          if (next.status == AuthStatus.authenticated) {
-            if (kDebugMode) {
-              print("Registration successful, closing screen");
-            }
-            // Close the screen when authenticated
-            Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.listenManual(authStateProvider, (previous, next) {
+        if (next.status == AuthStatus.authenticated) {
+          if (kDebugMode) {
+            print("Registration successful, closing screen");
           }
-        });
+          // Close the screen when authenticated
+          Navigator.of(context).pop();
+        }
       });
-    }
+    });
   }
 
   @override
