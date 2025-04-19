@@ -33,8 +33,9 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
   }
 
   Future<void> createTable(Database db) async {
+    //await db.execute('DROP TABLE markers');
     await db.execute(
-      'CREATE TABLE IF NOT EXISTS markers(uuid TEXT PRIMARY KEY, latitude REAL, longitude REAL, title TEXT, description TEXT, icon TEXT)',
+      'CREATE TABLE IF NOT EXISTS markers(uuid TEXT PRIMARY KEY, latitude REAL, longitude REAL, title TEXT, description TEXT, icon TEXT, synced INTEGER)',
     );
   }
 
@@ -78,8 +79,28 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<List<Marker>> getAll() async {
+    // First, debug what's in the database
     final List<Map<String, dynamic>> maps = await _db!.query('markers');
-    return List.generate(maps.length, (i) => Marker.fromMap(maps[i]));
+
+    if (maps.isNotEmpty) {
+      print("Database contains ${maps.length} markers");
+      print("First marker: ${maps.first}");
+    }
+
+    // Convert to Marker objects
+    final markers = List.generate(maps.length, (i) {
+      try {
+        return Marker.fromMap(maps[i]);
+      } catch (e) {
+        print("Error converting marker at index $i: $e");
+        print("Data: ${maps[i]}");
+        // Return a default marker or null to be filtered later
+        return null;
+      }
+    }).whereType<Marker>().toList(); // Filter out nulls
+
+    print("Converted ${markers.length} valid markers");
+    return markers;
   }
 
   @override
