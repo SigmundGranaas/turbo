@@ -4,14 +4,13 @@ import 'package:map_app/data/datastore/synced_marker_data_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 
-
 import 'api_location_service.dart';
 import 'indexeddb/indexdb.dart';
 import 'marker_data_store.dart';
 
 class MarkerDataStoreFactory {
   static MarkerDataStore? _db;
-  static const String baseUrl = 'http://localhost:5000';
+  static const String baseUrl = 'https://kart-api.sandring.no';
 
   static Future<MarkerDataStore> init() async {
     // Create the appropriate local data store based on platform
@@ -38,8 +37,6 @@ class MarkerDataStoreFactory {
         baseUrl: baseUrl,
         tokenProvider: tokenProvider,
       );
-
-
 
       final syncedStore = ServerMarkerDataStore(
         localStore: localStore,

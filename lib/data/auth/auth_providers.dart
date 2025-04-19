@@ -5,15 +5,8 @@ import 'dart:convert';
 import 'auth_service.dart';
 
 final authServiceProvider = Provider<AuthService>((ref) {
-  // Change this URL based on your environment
-  String baseUrl;
-
-  if (kIsWeb) {
-    baseUrl = 'http://localhost:5000';
-  } else {
-    // For mobile/desktop, use absolute URL
-    baseUrl = 'http://localhost:5000';  // Android emulator localhost
-  }
+  // Use production URL for all environments
+  const String baseUrl = 'https://kart-api.sandring.no';
 
   return AuthService(baseUrl: baseUrl);
 });
