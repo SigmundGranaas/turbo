@@ -6,8 +6,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
   final String baseUrl;
+  late Dio _dio;
 
-  AuthService({required this.baseUrl});
+  AuthService({required this.baseUrl}) {
+    _dio = Dio();
+    _dio.options.baseUrl = baseUrl;
+    _dio.options.validateStatus = (status) => true;
+    _dio.options.receiveDataWhenStatusError = true;
+    _dio.options.followRedirects = false;
+    _dio.options.extra['withCredentials'] = true;
+  }
 
   Future<bool> register(String email, String password, String confirmPassword) async {
     try {
@@ -15,33 +23,61 @@ class AuthService {
         print("Attempting to register with email: $email");
       }
 
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/register'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-          'confirmPassword': confirmPassword
-        }),
-      );
+      if (kIsWeb) {
+        final response = await _dio.post(
+          '/api/auth/register',
+          data: {
+            'email': email,
+            'password': password,
+            'confirmPassword': confirmPassword
+          },
+          options: Options(
+              headers: {'Content-Type': 'application/json'},
+              extra: {'withCredentials': true}
+          ),
+        );
 
-      if (kDebugMode) {
-        print("Register response: ${response.statusCode} - ${response.body}");
-      }
+        if (kDebugMode) {
+          print("Register response: ${response.statusCode}");
+        }
 
-      final data = jsonDecode(response.body);
-      if (data['success'] == true) {
-        // Store tokens
-        if (data['accessToken'] != null && data['refreshToken'] != null) {
+        final data = response.data;
+        if (data['success'] == true) {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool('isLoggedIn', true);
           await prefs.setString('userEmail', email);
-          await prefs.setString('accessToken', data['accessToken']);
-          await prefs.setString('refreshToken', data['refreshToken']);
+          return true;
         }
-        return true;
+        throw Exception(data['error'] ?? 'Registration failed');
+      } else {
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/auth/register'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email': email,
+            'password': password,
+            'confirmPassword': confirmPassword
+          }),
+        );
+
+        if (kDebugMode) {
+          print("Register response: ${response.statusCode} - ${response.body}");
+        }
+
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          // Store tokens
+          if (data['accessToken'] != null && data['refreshToken'] != null) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('isLoggedIn', true);
+            await prefs.setString('userEmail', email);
+            await prefs.setString('accessToken', data['accessToken']);
+            await prefs.setString('refreshToken', data['refreshToken']);
+          }
+          return true;
+        }
+        throw Exception(data['error'] ?? 'Registration failed');
       }
-      throw Exception(data['error'] ?? 'Registration failed');
     } catch (e) {
       if (kDebugMode) {
         print("Registration error: $e");
@@ -56,34 +92,62 @@ class AuthService {
         print("Attempting to login with email: $email");
       }
 
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'password': password
-        }),
-      );
+      if (kIsWeb) {
+        final response = await _dio.post(
+          '/api/auth/login',
+          data: {
+            'email': email,
+            'password': password
+          },
+          options: Options(
+              headers: {'Content-Type': 'application/json'},
+              extra: {'withCredentials': true}
+          ),
+        );
 
-      if (kDebugMode) {
-        print("Login response: ${response.statusCode} - ${response.body}");
-      }
-
-      final data = jsonDecode(response.body);
-      if (data['success'] == true) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-        await prefs.setString('userEmail', email);
-
-        // Store tokens if they're provided
-        if (data['accessToken'] != null && data['refreshToken'] != null) {
-          await prefs.setString('accessToken', data['accessToken']);
-          await prefs.setString('refreshToken', data['refreshToken']);
+        if (kDebugMode) {
+          print("Login response: ${response.statusCode}");
+          print("Cookies: ${response.headers['set-cookie']}");
         }
 
-        return true;
+        final data = response.data;
+        if (data['success'] == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isLoggedIn', true);
+          await prefs.setString('userEmail', email);
+          return true;
+        }
+        throw Exception(data['error'] ?? 'Login failed');
+      } else {
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/auth/login'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email': email,
+            'password': password
+          }),
+        );
+
+        if (kDebugMode) {
+          print("Login response: ${response.statusCode} - ${response.body}");
+        }
+
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isLoggedIn', true);
+          await prefs.setString('userEmail', email);
+
+          // Store tokens if they're provided
+          if (data['accessToken'] != null && data['refreshToken'] != null) {
+            await prefs.setString('accessToken', data['accessToken']);
+            await prefs.setString('refreshToken', data['refreshToken']);
+          }
+
+          return true;
+        }
+        throw Exception(data['error'] ?? 'Login failed');
       }
-      throw Exception(data['error'] ?? 'Login failed');
     } catch (e) {
       if (kDebugMode) {
         print("Login error: $e");
@@ -98,37 +162,68 @@ class AuthService {
         print("Attempting to login with Google ID token");
       }
 
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/google/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'idToken': idToken
-        }),
-      );
+      if (kIsWeb) {
+        final response = await _dio.post(
+          '/api/auth/google/login',
+          data: {
+            'idToken': idToken
+          },
+          options: Options(
+              headers: {'Content-Type': 'application/json'},
+              extra: {'withCredentials': true}
+          ),
+        );
 
-      if (kDebugMode) {
-        print("Google login response: ${response.statusCode} - ${response.body}");
-      }
-
-      final data = jsonDecode(response.body);
-      if (data['success'] == true) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-
-        // Store tokens
-        if (data['accessToken'] != null && data['refreshToken'] != null) {
-          await prefs.setString('accessToken', data['accessToken']);
-          await prefs.setString('refreshToken', data['refreshToken']);
+        if (kDebugMode) {
+          print("Google login response: ${response.statusCode}");
         }
 
-        // Store email if provided in response, otherwise mark as Google user
-        final email = data['email'] ?? 'google_user';
-        await prefs.setString('userEmail', email);
-        await prefs.setBool('isGoogleUser', true);
+        final data = response.data;
+        if (data['success'] == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isLoggedIn', true);
 
-        return true;
+          // Store email if provided in response, otherwise mark as Google user
+          final email = data['email'] ?? 'google_user';
+          await prefs.setString('userEmail', email);
+          await prefs.setBool('isGoogleUser', true);
+
+          return true;
+        }
+        throw Exception(data['error'] ?? 'Google login failed');
+      } else {
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/auth/google/login'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'idToken': idToken
+          }),
+        );
+
+        if (kDebugMode) {
+          print("Google login response: ${response.statusCode} - ${response.body}");
+        }
+
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isLoggedIn', true);
+
+          // Store tokens
+          if (data['accessToken'] != null && data['refreshToken'] != null) {
+            await prefs.setString('accessToken', data['accessToken']);
+            await prefs.setString('refreshToken', data['refreshToken']);
+          }
+
+          // Store email if provided in response, otherwise mark as Google user
+          final email = data['email'] ?? 'google_user';
+          await prefs.setString('userEmail', email);
+          await prefs.setBool('isGoogleUser', true);
+
+          return true;
+        }
+        throw Exception(data['error'] ?? 'Google login failed');
       }
-      throw Exception(data['error'] ?? 'Google login failed');
     } catch (e) {
       if (kDebugMode) {
         print("Google login error: $e");
@@ -143,20 +238,45 @@ class AuthService {
         print("Getting Google auth URL");
       }
 
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/auth/google/url'),
-        headers: {'Content-Type': 'application/json'},
-      );
+      if (kIsWeb) {
+        final response = await _dio.get(
+          '/api/auth/google/url',
+          options: Options(
+              headers: {'Content-Type': 'application/json'},
+              extra: {'withCredentials': true}
+          ),
+        );
 
-      if (kDebugMode) {
-        print("Google auth URL response: ${response.statusCode} - ${response.body}");
-      }
+        if (kDebugMode) {
+          print("Google auth URL response: ${response.statusCode}");
+        }
 
-      if (response.statusCode == 200) {
-        // Remove quotes if the URL is returned as a JSON string
-        return response.body.replaceAll('"', '');
+        if (response.statusCode == 200) {
+          // Handle different response formats
+          if (response.data is String) {
+            return response.data.replaceAll('"', '');
+          } else if (response.data is Map) {
+            return response.data['url'] ?? '';
+          }
+          return response.data.toString();
+        }
+        throw Exception('Failed to get Google auth URL');
+      } else {
+        final response = await http.get(
+          Uri.parse('$baseUrl/api/auth/google/url'),
+          headers: {'Content-Type': 'application/json'},
+        );
+
+        if (kDebugMode) {
+          print("Google auth URL response: ${response.statusCode} - ${response.body}");
+        }
+
+        if (response.statusCode == 200) {
+          // Remove quotes if the URL is returned as a JSON string
+          return response.body.replaceAll('"', '');
+        }
+        throw Exception('Failed to get Google auth URL');
       }
-      throw Exception('Failed to get Google auth URL');
     } catch (e) {
       if (kDebugMode) {
         print("Error getting Google auth URL: $e");
@@ -171,21 +291,28 @@ class AuthService {
         print("Checking OAuth success status");
       }
 
-      // For web, check for auth session cookie first (quicker)
+      // For web, check auth status directly
       if (kIsWeb) {
-        // Check for the session cookie using JS (would require flutter_js)
-        // Alternatively, make a lightweight API call:
-        final response = await http.get(
-          Uri.parse('$baseUrl/api/auth/status'),
-          headers: {'X-Requested-With': 'XMLHttpRequest'},
+        final response = await _dio.get(
+          '/api/auth/status',
+          options: Options(
+              headers: {'X-Requested-With': 'XMLHttpRequest'},
+              extra: {'withCredentials': true}
+          ),
         );
 
         if (response.statusCode == 200) {
           if (kDebugMode) {
             print("Auth session confirmed");
           }
+
+          // Store successful login state
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isLoggedIn', true);
+
           return true;
         }
+        return false;
       }
 
       // Fall back to regular auth check
@@ -204,31 +331,42 @@ class AuthService {
         print("Attempting to logout");
       }
 
-      // Get tokens for API call
-      final prefs = await SharedPreferences.getInstance();
-      final accessToken = prefs.getString('accessToken') ?? "invalid-token";
-
-      try {
-        // Include access token if available
-        final headers = {
-          'Content-Type': 'application/json',
-        };
-
-        headers['Authorization'] = 'Bearer $accessToken';
-      
-        // For mobile
-        await http.post(
-          Uri.parse('$baseUrl/api/auth/logout'),
-          headers: headers,
+      if (kIsWeb) {
+        // For web, we need to call the logout endpoint with credentials
+        await _dio.post(
+          '/api/auth/logout',
+          options: Options(
+              headers: {'Content-Type': 'application/json'},
+              extra: {'withCredentials': true}
+          ),
         );
+      } else {
+        // Get tokens for API call
+        final prefs = await SharedPreferences.getInstance();
+        final accessToken = prefs.getString('accessToken') ?? "invalid-token";
 
-      } catch (e) {
-        if (kDebugMode) {
-          print("API logout error (will still clear local session): $e");
+        try {
+          // Include access token if available
+          final headers = {
+            'Content-Type': 'application/json',
+          };
+
+          headers['Authorization'] = 'Bearer $accessToken';
+
+          // For mobile
+          await http.post(
+            Uri.parse('$baseUrl/api/auth/logout'),
+            headers: headers,
+          );
+        } catch (e) {
+          if (kDebugMode) {
+            print("API logout error (will still clear local session): $e");
+          }
         }
       }
 
       // Clear all auth-related data
+      final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', false);
       await prefs.remove('userEmail');
       await prefs.remove('accessToken');
@@ -252,30 +390,46 @@ class AuthService {
         print("Attempting to refresh token");
       }
 
-      final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString('refreshToken');
+      if (kIsWeb) {
+        // For web, use the /refresh endpoint with credentials
+        final response = await _dio.post(
+          '/api/auth/refresh',
+          options: Options(
+              headers: {'Content-Type': 'application/json'},
+              extra: {'withCredentials': true}
+          ),
+        );
 
-      if (refreshToken == null) {
-        if (kDebugMode) {
-          print("No refresh token found");
+        if (response.statusCode == 200) {
+          return true;
+        }
+        return false;
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final refreshToken = prefs.getString('refreshToken');
+
+        if (refreshToken == null) {
+          if (kDebugMode) {
+            print("No refresh token found");
+          }
+          return false;
+        }
+
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/auth/refresh'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'refreshToken': refreshToken}),
+        );
+
+        final data = jsonDecode(response.body);
+        if (data['success'] == true && data['accessToken'] != null && data['refreshToken'] != null) {
+          // Update tokens
+          await prefs.setString('accessToken', data['accessToken']);
+          await prefs.setString('refreshToken', data['refreshToken']);
+          return true;
         }
         return false;
       }
-
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/refresh'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'refreshToken': refreshToken}),
-      );
-
-      final data = jsonDecode(response.body);
-      if (data['success'] == true && data['accessToken'] != null && data['refreshToken'] != null) {
-        // Update tokens
-        await prefs.setString('accessToken', data['accessToken']);
-        await prefs.setString('refreshToken', data['refreshToken']);
-        return true;
-      }
-      return false;
     } catch (e) {
       if (kDebugMode) {
         print("Token refresh error: $e");
@@ -285,21 +439,14 @@ class AuthService {
   }
 
   Future<bool> isLoggedIn() async {
-    final dio = Dio();
-    dio.options.baseUrl = baseUrl;
-
-    dio.options.validateStatus = (status) => true;
-    dio.options.receiveDataWhenStatusError = true;
-    dio.options.followRedirects = false;
-    dio.options.extra['withCredentials'] = true;
-
     try {
       // For web, check authentication with server
       if (kIsWeb) {
-        final response = await dio.get(
+        final response = await _dio.get(
           '/api/auth/validate',
           options: Options(
-            headers: {'X-Requested-With': 'XMLHttpRequest'},
+              headers: {'X-Requested-With': 'XMLHttpRequest'},
+              extra: {'withCredentials': true}
           ),
         );
 
@@ -368,5 +515,20 @@ class AuthService {
   Future<String?> getAccessToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('accessToken');
+  }
+
+  // Create a method to get Dio instance with auth for other services to use
+  Dio getDioWithAuth() {
+    var dio = Dio();
+    dio.options.baseUrl = baseUrl;
+    dio.options.validateStatus = (status) => true;
+    dio.options.receiveDataWhenStatusError = true;
+    dio.options.followRedirects = false;
+
+    if (kIsWeb) {
+      dio.options.extra['withCredentials'] = true;
+    }
+
+    return dio;
   }
 }

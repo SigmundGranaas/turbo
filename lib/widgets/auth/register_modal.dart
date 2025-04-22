@@ -10,7 +10,7 @@ import 'auth_text_field.dart';
 import 'dev_banner.dart';
 import 'google_sign_in_button.dart';
 import 'login_modal.dart';
-import 'password_field.dart'; // Optional: Use the new component
+import 'password_field.dart';
 import 'primary_button.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
