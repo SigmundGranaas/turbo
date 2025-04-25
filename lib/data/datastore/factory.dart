@@ -1,13 +1,62 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/data/datastore/sqlite/sqlite_marker_datastore.dart';
 import 'package:map_app/data/datastore/synced_marker_data_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io';
 
+import '../api_client.dart';
+import '../auth/auth_providers.dart';
 import 'api_location_service.dart';
 import 'indexeddb/indexdb.dart';
 import 'marker_data_store.dart';
 
+// Provider for the marker data store
+final markerDataStoreProvider = Provider<MarkerDataStore>((ref) {
+  // This is a placeholder that will be overridden during initialization
+  throw UnimplementedError('markerDataStoreProvider has not been initialized');
+});
+
+// Provider to initialize and get the marker data store
+final markerDataStoreInitProvider = FutureProvider<MarkerDataStore>((ref) async {
+  // Listen to auth state changes
+  final authState = ref.watch(authStateProvider);
+
+  // Get the authenticated API client
+  final apiClient = ref.watch(authenticatedApiClientProvider);
+
+  // Create local data store based on platform
+  final MarkerDataStore localStore;
+  if (kIsWeb) {
+    localStore = ShimDBMarkerDataStore();
+  } else {
+    localStore = SQLiteMarkerDataStore();
+  }
+
+  // Initialize the local store
+  await localStore.init();
+
+  // If authenticated, create a synced data store
+  if (authState.status == AuthStatus.authenticated) {
+    // Create the API location service with the authenticated client
+    final apiService = ApiLocationService(apiClient: apiClient);
+
+    final syncedStore = ServerMarkerDataStore(
+      localStore: localStore,
+      apiService: apiService,
+      isOnline: await MarkerDataStoreFactory._checkConnectivity(),
+    );
+
+    // Initialize the synced store
+    await syncedStore.init();
+    return syncedStore;
+  } else {
+    // If not authenticated, just use the local store
+    return localStore;
+  }
+});
+
+// For legacy code that doesn't use Riverpod
 class MarkerDataStoreFactory {
   static MarkerDataStore? _db;
   static const String baseUrl = 'https://kart-api.sandring.no';
@@ -27,16 +76,12 @@ class MarkerDataStoreFactory {
     // Check if we're authenticated
     final authState = await _checkAuthState();
 
-    if (authState.$1 && authState.$2 != null) {
-      Future<String?> tokenProvider() async {
-        final prefs = await SharedPreferences.getInstance();
-        return prefs.getString('accessToken');
-      }
-      // If authenticated, create a synced data store
-      final apiService = ApiLocationService(
-        baseUrl: baseUrl,
-        tokenProvider: tokenProvider,
-      );
+    if (authState.$1) {
+      // Create API client
+      final apiClient = ApiClient(baseUrl: baseUrl);
+
+      // Create API location service
+      final apiService = ApiLocationService(apiClient: apiClient);
 
       final syncedStore = ServerMarkerDataStore(
         localStore: localStore,

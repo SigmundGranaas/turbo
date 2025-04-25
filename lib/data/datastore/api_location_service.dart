@@ -1,29 +1,23 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
+import '../api_client.dart';
 import '../model/marker.dart';
 
 class ApiLocationService {
-  final String baseUrl;
-  final Future<String?> Function() tokenProvider;
+  final ApiClient _apiClient;
 
-  ApiLocationService({required this.baseUrl, required this.tokenProvider});
+  ApiLocationService({required ApiClient apiClient})
+      : _apiClient = apiClient;
 
   Future<Marker?> createLocation(Marker marker) async {
     try {
       if (kDebugMode) {
         print("Creating location via API: ${marker.title}");
       }
-      var token = await tokenProvider();
 
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/geo/locations'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
+      final response = await _apiClient.post(
+        '/api/geo/locations',
+        data: {
           'location': {
             'longitude': marker.position.longitude,
             'latitude': marker.position.latitude,
@@ -33,21 +27,23 @@ class ApiLocationService {
             'description': marker.description,
             'icon': marker.icon,
           },
-        }),
+        },
       );
 
       if (kDebugMode) {
-        print("Create location response: ${response.statusCode} - ${response.body}");
+        print("Create location response: ${response.statusCode} - ${response.data}");
       }
 
       if (response.statusCode == 201) {
-        final data = jsonDecode(response.body);
+        final data = response.data;
+
         if (kDebugMode) {
           print("Create location response data: ${marker.copyWith(
             uuid: data['id'],
             synced: true,
           ).toMap()}");
         }
+
         // Create a new marker with the server-assigned ID
         return marker.copyWith(
           uuid: data['id'],
@@ -69,15 +65,10 @@ class ApiLocationService {
       if (kDebugMode) {
         print("Updating location position via API: ${marker.uuid}");
       }
-      var token = await tokenProvider();
 
-      final response = await http.put(
-        Uri.parse('$baseUrl/api/geo/locations/${marker.uuid}/position'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
+      final response = await _apiClient.put(
+        '/api/geo/locations/${marker.uuid}/position',
+        data: {
           'Location': {
             'Longitude': marker.position.longitude,
             'Latitude': marker.position.latitude,
@@ -85,7 +76,7 @@ class ApiLocationService {
           'Name': marker.title,
           'Description': marker.description,
           'Icon': marker.icon
-        }),
+        },
       );
 
       if (kDebugMode) {
@@ -107,13 +98,9 @@ class ApiLocationService {
       if (kDebugMode) {
         print("Deleting location via API: $id");
       }
-      var token = await tokenProvider();
 
-      final response = await http.delete(
-        Uri.parse('$baseUrl/api/geo/locations/$id'),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
+      final response = await _apiClient.delete(
+        '/api/geo/locations/$id',
       );
 
       if (kDebugMode) {
@@ -135,12 +122,14 @@ class ApiLocationService {
       if (kDebugMode) {
         print("Getting locations in extent via API");
       }
-      var token = await tokenProvider();
 
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/geo/locations?minLon=$minLon&minLat=$minLat&maxLon=$maxLon&maxLat=$maxLat'),
-        headers: {
-          'Authorization': 'Bearer $token',
+      final response = await _apiClient.get(
+        '/api/geo/locations',
+        queryParameters: {
+          'minLon': minLon.toString(),
+          'minLat': minLat.toString(),
+          'maxLon': maxLon.toString(),
+          'maxLat': maxLat.toString(),
         },
       );
 
@@ -149,7 +138,8 @@ class ApiLocationService {
       }
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final List<dynamic> data = response.data;
+
         if (kDebugMode) {
           print("api id: ${data.map((item) => item['id'])}");
         }
@@ -199,9 +189,6 @@ class ApiLocationService {
 
           if (kDebugMode) {
             print("Converting marker: ID=${item['id']}, lat=$latitude, lng=$longitude, title=$title");
-          }
-
-          if (kDebugMode) {
             print("From data=$item");
           }
 
@@ -232,14 +219,8 @@ class ApiLocationService {
         print("Getting location by ID via API: $id");
       }
 
-      var token = await tokenProvider();
-
-
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/geo/locations/$id'),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
+      final response = await _apiClient.get(
+        '/api/geo/locations/$id',
       );
 
       if (kDebugMode) {
@@ -247,7 +228,7 @@ class ApiLocationService {
       }
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = response.data;
 
         if (kDebugMode) {
           print("API response data: $data");

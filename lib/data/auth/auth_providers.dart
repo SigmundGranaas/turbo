@@ -2,15 +2,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../api_client.dart';
 import 'auth_service.dart';
 
-final authServiceProvider = Provider<AuthService>((ref) {
-  // Use production URL for all environments
-  const String baseUrl = 'https://kart-api.sandring.no';
+// Base URL for API services
+const String apiBaseUrl = 'https://kart-api.sandring.no';
 
-  return AuthService(baseUrl: baseUrl);
+// Provider for the auth service
+final authServiceProvider = Provider<AuthService>((ref) {
+  return AuthService(baseUrl: apiBaseUrl);
 });
 
+// Provider for the authenticated API client from the auth service
+final authenticatedApiClientProvider = Provider<ApiClient>((ref) {
+  final authService = ref.watch(authServiceProvider);
+  return authService.client;
+});
+
+// Auth state provider for managing authentication state
 final authStateProvider = StateNotifierProvider<AuthStateNotifier, AuthState>((ref) {
   return AuthStateNotifier(ref.watch(authServiceProvider));
 });
@@ -237,10 +246,8 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
 
     try {
       // For Flutter, we need to make a direct API call to exchange the code
-      final baseUrl = _authService.baseUrl;
       final response = await http.get(
-        Uri.parse('$baseUrl/api/auth/google/callback?code=$code'),
-        // Use this instead for browser-based apps
+        Uri.parse('$apiBaseUrl/api/auth/google/callback?code=$code'),
         headers: {'Accept': 'application/json'},
       );
 
@@ -319,9 +326,16 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Refreshes the authentication token
+  /// Returns true if successful, false otherwise
   Future<void> refreshToken() async {
+    // Only needed for non-web platforms as web uses cookies
+    if (kIsWeb) return;
+
     try {
+      // Call the refreshToken method on the AuthService
       final success = await _authService.refreshToken();
+
       if (!success) {
         await logout();
       } else {
