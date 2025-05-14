@@ -1,24 +1,31 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/data/datastore/marker_data_store.dart';
 import 'package:map_app/data/search/location_service.dart';
+import 'package:map_app/data/state/providers/location_repository.dart';
 
 import '../model/marker.dart';
 
-class MarkerSearchService extends LocationService {
-  MarkerDataStore? store;
-  
-  MarkerSearchService(this.store);
+final markerSearchServiceProvider = Provider<MarkerSearchService>((ref) {
+  return MarkerSearchService(ref);
+});
 
-  void injectDatabase(MarkerDataStore database) {
-    store = database;
-  }
+class MarkerSearchService extends LocationService {
+  final Ref _ref;
+
+  MarkerSearchService(this._ref);
+
+  MarkerDataStore get _store => _ref.read(localMarkerDataStoreProvider);
 
   @override
   Future<List<LocationSearchResult>> findLocationsBy(String name) async {
-    if(store == null){
-      throw Exception("Cannot search with no initialized db.");
-    }
+    // findByName is not part of MarkerDataStore, so we fetch all and filter.
+    // This assumes the local store is already initialized by LocationRepository.
+    final allMarkers = await _store.getAll();
+    final searchTerm = name.toLowerCase();
+    final List<Marker> res = allMarkers
+        .where((marker) => marker.title.toLowerCase().contains(searchTerm))
+        .toList();
 
-    final res = await store!.findByName(name);
     final List<LocationSearchResult> mapped = res.map((el) => from(el)).toList();
     return mapped;
   }

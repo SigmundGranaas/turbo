@@ -1,20 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:idb_shim/idb.dart';
-import 'package:map_app/data/model/named_icon.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:map_app/data/icon_service.dart';
+import 'package:map_app/data/model/named_icon.dart';
 import '../../data/model/marker.dart';
-import '../../data/state/providers/location_provider.dart';
-import 'location_base_sheet.dart';
-
-// Import the shared button components
-import '../auth/primary_button.dart';
+import '../../data/state/providers/location_repository.dart';
+import 'components.dart'; // Assuming LocationFormFields is here
+import '../auth/primary_button.dart'; // For PrimaryButton
 
 class CreateLocationSheet extends ConsumerStatefulWidget {
-  final Marker? location;
-  final LatLng? newLocation;
+  final LatLng? newLocation; // Marker is not passed for creation, only LatLng
 
-  const CreateLocationSheet({super.key, this.location, this.newLocation});
+  const CreateLocationSheet({super.key, this.newLocation});
 
   @override
   ConsumerState<CreateLocationSheet> createState() => CreateLocationSheetState();
@@ -30,9 +27,10 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   @override
   void initState() {
     super.initState();
-    _selectedIcon = const NamedIcon(title: 'Fjell', icon: Icons.landscape);
-    _nameController = TextEditingController(text: widget.location?.title ?? '');
-    _descriptionController = TextEditingController(text: widget.location?.description ?? '');
+    // Initialize with a default icon or the first from IconService
+    _selectedIcon = IconService().getAllIcons().firstOrNull ?? const NamedIcon(title: 'Default', icon: Icons.help_outline);
+    _nameController = TextEditingController();
+    _descriptionController = TextEditingController();
   }
 
   @override
@@ -60,109 +58,103 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
       ),
       child: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Drag handle
-            Center(
-              child: Container(
-                width: 32,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'New Marker',
-                  style: textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 32,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  style: IconButton.styleFrom(
-                    foregroundColor: colorScheme.onSurfaceVariant,
-                    backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            // Form fields
-            LocationFormFields(
-              nameController: _nameController,
-              descriptionController: _descriptionController,
-              selectedIcon: _selectedIcon,
-              onIconSelected: (icon) => setState(() => _selectedIcon = icon),
-            ),
-            const SizedBox(height: 32),
-            // Save button
-            SizedBox(
-              width: double.infinity,
-              child: PrimaryButton(
-                text: 'Save Marker',
-                onPressed: _saveLocation,
-                isLoading: _isLoading,
               ),
-            ),
-            const SizedBox(height: 8),
-          ],
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'New Marker',
+                    style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    style: IconButton.styleFrom(
+                      foregroundColor: colorScheme.onSurfaceVariant,
+                      backgroundColor: colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              LocationFormFields(
+                nameController: _nameController,
+                descriptionController: _descriptionController,
+                selectedIcon: _selectedIcon,
+                onIconSelected: (icon) => setState(() => _selectedIcon = icon),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: PrimaryButton(
+                  text: 'Save Marker',
+                  onPressed: _isLoading ? null : _saveLocation,
+                  isLoading: _isLoading,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
   }
 
   void _saveLocation() async {
-    if (_formKey.currentState!.validate()) {
+    if (_formKey.currentState!.validate() && widget.newLocation != null) {
       setState(() => _isLoading = true);
 
       try {
-        final locationProvider = ref.read(locationNotifierProvider.notifier);
+        final locationNotifier = ref.read(locationRepositoryProvider.notifier);
 
-        final newMarker = Marker.fromMap({
-          'title': _nameController.text,
-          'description': _descriptionController.text,
-          'icon': _selectedIcon.title,
-          'latitude': widget.location?.position.latitude ?? widget.newLocation!.latitude,
-          'longitude': widget.location?.position.longitude ?? widget.newLocation!.longitude,
-        });
+        final newMarker = Marker(
+          title: _nameController.text,
+          description: _descriptionController.text.isEmpty ? null : _descriptionController.text,
+          icon: _selectedIcon.title,
+          position: widget.newLocation!,
+          // `synced` will be handled by the repository
+        );
 
-        await locationProvider.addLocation(newMarker);
+        await locationNotifier.addMarker(newMarker);
 
         if (!mounted) return;
-        Navigator.of(context).pop(newMarker);
+        Navigator.of(context).pop(newMarker); // Pass back the created marker
       } catch (e) {
         if (!mounted) return;
-        Navigator.of(context).pop();
-        _showErrorSnackBar(context, e);
+        _showErrorSnackBar(context, e.toString());
       } finally {
         if (mounted) {
           setState(() => _isLoading = false);
         }
       }
+    } else if (widget.newLocation == null) {
+      _showErrorSnackBar(context, "Location not specified for new marker.");
     }
   }
 
-  void _showErrorSnackBar(BuildContext context, dynamic error) {
+  void _showErrorSnackBar(BuildContext context, String message) {
     final colorScheme = Theme.of(context).colorScheme;
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
             Icon(Icons.error_outline, color: colorScheme.onErrorContainer),
             const SizedBox(width: 16),
-            Expanded(
-              child: Text(_getErrorMessage(error)),
-            ),
+            Expanded(child: Text(message)),
           ],
         ),
         behavior: SnackBarBehavior.floating,
@@ -171,13 +163,5 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
         margin: const EdgeInsets.all(16),
       ),
     );
-  }
-
-  String _getErrorMessage(dynamic error) {
-    if (error is DatabaseException) {
-      return 'Database error. Please try again later.';
-    } else {
-      return 'An unexpected error occurred. Please try again.';
-    }
   }
 }

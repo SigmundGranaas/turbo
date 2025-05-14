@@ -1,113 +1,97 @@
 import 'dart:io';
-
+import 'package:flutter/foundation.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-
 import '../../model/marker.dart';
 import '../marker_data_store.dart';
 
 class SQLiteMarkerDataStore implements MarkerDataStore {
   Database? _db;
+  static const String _tableName = 'markers';
 
-  void injectDatabase(Database database) {
-    _db = database;
+  Future<Database> get database async {
+    if (_db != null) return _db!;
+    _db = await _initDB();
+    return _db!;
+  }
+
+  Future<Database> _initDB() async {
+    if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
+    return openDatabase(
+      join(await getDatabasesPath(), 'markers_v2.db'),
+      version: 1,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE $_tableName(
+            uuid TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT,
+            icon TEXT,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            synced INTEGER NOT NULL DEFAULT 0
+          )
+        ''');
+        await db.execute('CREATE INDEX idx_markers_coords ON $_tableName(latitude, longitude)');
+        await db.execute('CREATE INDEX idx_markers_synced ON $_tableName(synced)');
+      },
+    );
   }
 
   @override
   Future<void> init() async {
-    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    }
-    _db = await openDatabase(
-      join(await getDatabasesPath(), 'markers.db'),
-      onCreate: (db, version) async {
-        await createTable(db);
-      },
-      onOpen: (db) async {
-        // Ensure the table exists even if the database was already created
-        await createTable(db);
-      },
-      version: 1,
-    );
+    await database; // Ensures DB is initialized
   }
-
-  Future<void> createTable(Database db) async {
-    //await db.execute('DROP TABLE markers');
-    await db.execute(
-      'CREATE TABLE IF NOT EXISTS markers(uuid TEXT PRIMARY KEY, latitude REAL, longitude REAL, title TEXT, description TEXT, icon TEXT, synced INTEGER)',
-    );
-  }
-
 
   @override
   Future<void> insert(Marker marker) async {
-    await _db!.insert(
-      'markers',
-      marker.toMap(),
+    final db = await database;
+    await db.insert(
+      _tableName,
+      marker.toLocalMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
   @override
   Future<Marker?> getByUuid(String uuid) async {
-    final List<Map<String, dynamic>> maps = await _db!.query(
-      'markers',
+    final db = await database;
+    final maps = await db.query(
+      _tableName,
       where: 'uuid = ?',
       whereArgs: [uuid],
+      limit: 1,
     );
-
     if (maps.isNotEmpty) {
-      return Marker.fromMap(maps.first);
+      return Marker.fromLocalMap(maps.first);
     }
     return null;
   }
 
   @override
-  Future<List<Marker>> findByName(String name) async {
-    final List<Map<String, dynamic>> maps = await _db!.query(
-      'markers',
-      where: 'name LIKE ?',
-      whereArgs: [name],
-    );
-
-    if (maps.isNotEmpty) {
-      return maps.map((el) => Marker.fromMap(el)).toList();
-    }
-    return List.empty();
+  Future<List<Marker>> getAll() async {
+    final db = await database;
+    final maps = await db.query(_tableName);
+    return maps.map((map) => Marker.fromLocalMap(map)).toList();
   }
 
   @override
-  Future<List<Marker>> getAll() async {
-    // First, debug what's in the database
-    final List<Map<String, dynamic>> maps = await _db!.query('markers');
-
-    if (maps.isNotEmpty) {
-      print("Database contains ${maps.length} markers");
-      print("First marker: ${maps.first}");
-    }
-
-    // Convert to Marker objects
-    final markers = List.generate(maps.length, (i) {
-      try {
-        return Marker.fromMap(maps[i]);
-      } catch (e) {
-        print("Error converting marker at index $i: $e");
-        print("Data: ${maps[i]}");
-        // Return a default marker or null to be filtered later
-        return null;
-      }
-    }).whereType<Marker>().toList(); // Filter out nulls
-
-    print("Converted ${markers.length} valid markers");
-    return markers;
+  Future<List<Marker>> getUnsynced() async {
+    final db = await database;
+    final maps = await db.query(_tableName, where: 'synced = ?', whereArgs: [0]);
+    return maps.map((map) => Marker.fromLocalMap(map)).toList();
   }
 
   @override
   Future<void> update(Marker marker) async {
-    await _db!.update(
-      'markers',
-      marker.toMap(),
+    final db = await database;
+    await db.update(
+      _tableName,
+      marker.toLocalMap(),
       where: 'uuid = ?',
       whereArgs: [marker.uuid],
     );
@@ -115,10 +99,45 @@ class SQLiteMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<void> delete(String uuid) async {
-    await _db!.delete(
-      'markers',
+    final db = await database;
+    await db.delete(
+      _tableName,
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
+  }
+
+  @override
+  Future<void> deleteAll(List<String> uuids) async {
+    if (uuids.isEmpty) return;
+    final db = await database;
+    final batch = db.batch();
+    for (final uuid in uuids) {
+      batch.delete(_tableName, where: 'uuid = ?', whereArgs: [uuid]);
+    }
+    await batch.commit(noResult: true);
+  }
+
+
+  @override
+  Future<void> clearAll() async {
+    final db = await database;
+    await db.delete(_tableName);
+  }
+
+  @override
+  Future<List<Marker>> findInBounds(LatLng southwest, LatLng northeast) async {
+    final db = await database;
+    final maps = await db.query(
+      _tableName,
+      where: 'latitude >= ? AND latitude <= ? AND longitude >= ? AND longitude <= ?',
+      whereArgs: [
+        southwest.latitude,
+        northeast.latitude,
+        southwest.longitude,
+        northeast.longitude,
+      ],
+    );
+    return maps.map((map) => Marker.fromLocalMap(map)).toList();
   }
 }
