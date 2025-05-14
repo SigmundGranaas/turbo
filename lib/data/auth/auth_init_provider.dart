@@ -1,67 +1,44 @@
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uni_links/uni_links.dart';
 
 import 'auth_providers.dart';
 
-/// Provider that handles initialization of auth state and deep links
-final authInitializationProvider = FutureProvider<void>((ref) async {
-  // First check if we have stored tokens
-  await ref.read(authStateProvider.notifier).initialize();
+// This provider is responsible for handling SUBSEQUENT deep links after app is running.
+// The initial deep link is handled by AuthStateNotifier.initializeAndHandleInitialLink().
+final linkStreamHandlerProvider = Provider<void>((ref) {
+  // Skip setting up link stream on web platform
+  if (kIsWeb) return;
 
-  if (kIsWeb) {
-    // For web, check if we're on a callback URL
-    final uri = Uri.base;
-    if (uri.path.contains('/login/callback')) {
-      if (kDebugMode) {
-        print('Detected callback URL: $uri');
-      }
+  final authNotifier = ref.read(authStateProvider.notifier);
 
-      // Extract any query parameters
-      final code = uri.queryParameters['code'];
+  // Listen for subsequent links (if app is already running)
+  try {
+    final sub = uriLinkStream.listen((uri) {
+      if (uri != null) {
+        handleDeepLinkForProvider(uri.toString(), authNotifier);
+      }
+    });
 
-      if (code != null) {
-        // Process the OAuth callback
-        await ref.read(authStateProvider.notifier).processOAuthCallback(code);
-      }
-    }
-  } else {
-    // For mobile, listen for deep links
-    try {
-      final initialLink = await getInitialLink();
-      if (initialLink != null) {
-        _handleDeepLink(initialLink, ref);
-      }
-
-      // Listen for subsequent links (if app is already running)
-      uriLinkStream.listen((uri) {
-        if (uri != null) {
-          _handleDeepLink(uri.toString(), ref);
-        }
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error handling deep links: $e');
-      }
+    // Cancel the subscription when the provider is disposed
+    ref.onDispose(() => sub.cancel());
+  } catch (e) {
+    if (kDebugMode) {
+      print('Error setting up link stream: $e');
     }
   }
 });
 
-void _handleDeepLink(String link, Ref ref) {
+void handleDeepLinkForProvider(String link, AuthStateNotifier authNotifier) {
   if (kDebugMode) {
-    print('Got deep link: $link');
+    print('Deep Link Handler: Got deep link: $link');
   }
-
   final uri = Uri.parse(link);
-
-  // Check if this is our OAuth callback
+  // Check if this is our OAuth callback for mobile
   if (uri.path.contains('/oauth2callback')) {
     final code = uri.queryParameters['code'];
-
     if (code != null) {
-      // Process the OAuth callback
-      ref.read(authStateProvider.notifier).processOAuthCallback(code);
+      authNotifier.processOAuthCallback(code);
     }
   }
 }

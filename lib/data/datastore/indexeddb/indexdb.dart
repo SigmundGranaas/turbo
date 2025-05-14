@@ -1,107 +1,110 @@
 import 'package:idb_shim/idb_browser.dart';
+import 'package:latlong2/latlong.dart';
 import '../../model/marker.dart';
 import '../marker_data_store.dart';
 
 class ShimDBMarkerDataStore implements MarkerDataStore {
   late Database _db;
-  late final IdbFactory? _idbFactory;
-  static const String dbName = 'MarkersDatabase';
-  static const int dbVersion = 1;
-  static const String storeName = 'markers';
+  final IdbFactory _idbFactory;
+  static const String _dbName = 'MarkersDatabaseV2';
+  static const String _storeName = 'markers';
+  static const int _dbVersion = 1;
 
   ShimDBMarkerDataStore({IdbFactory? idbFactory})
       : _idbFactory = idbFactory ?? getIdbFactory()!;
 
   @override
   Future<void> init() async {
-    if(_idbFactory == null){
-      return Future.error("Unable to init factory for IDB_SHIM");
-    }
-
-    _db = await _idbFactory.open(dbName, version: dbVersion, onUpgradeNeeded: _onUpgradeNeeded);
+    _db = await _idbFactory.open(_dbName, version: _dbVersion, onUpgradeNeeded: _onUpgradeNeeded);
   }
 
   void _onUpgradeNeeded(VersionChangeEvent event) {
-    final Database db = event.database;
-    if (!db.objectStoreNames.contains(storeName)) {
-      db.createObjectStore(storeName, keyPath: 'uuid');
+    final db = event.database;
+    if (!db.objectStoreNames.contains(_storeName)) {
+      final store = db.createObjectStore(_storeName, keyPath: 'uuid');
+      store.createIndex('coords', ['latitude', 'longitude'], unique: false);
+      store.createIndex('synced', 'synced', unique: false);
     }
   }
 
   @override
   Future<void> insert(Marker marker) async {
-    final Transaction txn = _db.transaction(storeName, 'readwrite');
-    final ObjectStore store = txn.objectStore(storeName);
-    await store.put(marker.toMap());
+    final txn = _db.transaction(_storeName, 'readwrite');
+    final store = txn.objectStore(_storeName);
+    await store.put(marker.toLocalMap());
     await txn.completed;
   }
 
   @override
   Future<Marker?> getByUuid(String uuid) async {
-    final Transaction txn = _db.transaction(storeName, 'readonly');
-    final ObjectStore store = txn.objectStore(storeName);
-    final Map<String, dynamic>? data = (await store.getObject(uuid)) as Map<String, dynamic>?;
+    final txn = _db.transaction(_storeName, 'readonly');
+    final store = txn.objectStore(_storeName);
+    final data = await store.getObject(uuid) as Map<String, dynamic>?;
     await txn.completed;
-    return data != null ? Marker.fromMap(data) : null;
-  }
-
-  @override
-  Future<List<Marker>> findByName(String name) async {
-    final searchTerm = name.toLowerCase().trim();
-    if (searchTerm.isEmpty) {
-      return List.empty();
-    }
-
-    final Transaction txn = _db.transaction(storeName, 'readonly');
-    final ObjectStore store = txn.objectStore(storeName);
-
-    try {
-      final List<Object> allRecords = await store.getAll();
-      await txn.completed;
-
-      final List<Map<String, dynamic>> filteredData = allRecords
-          .map((el) => el as Map<String, dynamic>)
-          .where((record) {
-        final recordName = (record['title'] as String?)?.toLowerCase() ?? '';
-        return recordName.contains(searchTerm);
-      })
-          .toList();
-
-      return filteredData.map((el) => Marker.fromMap(el)).toList();
-    } catch (e) {
-      return List.empty();
-    }
+    return data != null ? Marker.fromLocalMap(data) : null;
   }
 
   @override
   Future<List<Marker>> getAll() async {
-    final Transaction txn = _db.transaction(storeName, 'readonly');
-    final ObjectStore store = txn.objectStore(storeName);
-
-    List<Object?> rawData = await store.getAll();
+    final txn = _db.transaction(_storeName, 'readonly');
+    final store = txn.objectStore(_storeName);
+    final records = await store.getAll();
     await txn.completed;
+    return records.map((record) => Marker.fromLocalMap(record as Map<String, dynamic>)).toList();
+  }
 
-    return rawData.map((object) {
-      if (object is! Map<String, dynamic>) {
-        throw FormatException('Invalid data in store: $object');
-      }
-      return Marker.fromMap(object);
-    }).toList();
+  @override
+  Future<List<Marker>> getUnsynced() async {
+    final txn = _db.transaction(_storeName, 'readonly');
+    final store = txn.objectStore(_storeName);
+    final index = store.index('synced');
+    final records = await index.getAll(0); // 0 for false
+    await txn.completed;
+    return records.map((record) => Marker.fromLocalMap(record as Map<String, dynamic>)).toList();
   }
 
   @override
   Future<void> update(Marker marker) async {
-    final Transaction txn = _db.transaction(storeName, 'readwrite');
-    final ObjectStore store = txn.objectStore(storeName);
-    await store.put(marker.toMap());
-    await txn.completed;
+    await insert(marker); // put handles insert or update
   }
 
   @override
   Future<void> delete(String uuid) async {
-    final Transaction txn = _db.transaction(storeName, 'readwrite');
-    final ObjectStore store = txn.objectStore(storeName);
+    final txn = _db.transaction(_storeName, 'readwrite');
+    final store = txn.objectStore(_storeName);
     await store.delete(uuid);
     await txn.completed;
+  }
+
+  @override
+  Future<void>deleteAll(List<String> uuids) async {
+    if (uuids.isEmpty) return;
+    final txn = _db.transaction(_storeName, 'readwrite');
+    final store = txn.objectStore(_storeName);
+    for (final uuid in uuids) {
+      await store.delete(uuid);
+    }
+    await txn.completed;
+  }
+
+  @override
+  Future<void> clearAll() async {
+    final txn = _db.transaction(_storeName, 'readwrite');
+    final store = txn.objectStore(_storeName);
+    await store.clear();
+    await txn.completed;
+  }
+
+  @override
+  Future<List<Marker>> findInBounds(LatLng southwest, LatLng northeast) async {
+    final allMarkers = await getAll();
+    return allMarkers.where((marker) {
+      final lat = marker.position.latitude;
+      final lng = marker.position.longitude;
+      return lat >= southwest.latitude &&
+          lat <= northeast.latitude &&
+          lng >= southwest.longitude &&
+          lng <= northeast.longitude;
+    }).toList();
   }
 }

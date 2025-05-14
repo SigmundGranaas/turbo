@@ -27,13 +27,17 @@ class MapBase extends ConsumerWidget {
 
   });
 
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Stack(
       children: [
         FlutterMap(
           mapController: mapController,
           options: MapOptions(
+            backgroundColor: colorScheme.surfaceBright,
             initialCenter: initialCenter,
             initialZoom: initialZoom,
             maxZoom: 20,
