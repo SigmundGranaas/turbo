@@ -17,8 +17,7 @@ class NorgeskartProvider extends TileProviderWrapper {
 
   @override
   TileLayer createTileLayer() => TileLayer(
-    urlTemplate: 'https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png',
-    tileProvider: cachePath != null
+      urlTemplate: 'https://cache.atgcp1-prod.kartverket.cloud/v1/service?layer=topo&style=default&tilematrixset=webmercator&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/png&TileMatrix={z}&TileCol={x}&TileRow={y}',    tileProvider: cachePath != null
         ? CachedTileProvider(
       maxStale: const Duration(days: 30),
       store: HiveCacheStore(
