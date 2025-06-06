@@ -4,7 +4,7 @@ import '../../model/marker.dart';
 import '../marker_data_store.dart';
 
 class ShimDBMarkerDataStore implements MarkerDataStore {
-  late Database _db;
+  Database? _database;
   final IdbFactory _idbFactory;
   static const String _dbName = 'MarkersDatabaseV2';
   static const String _storeName = 'markers';
@@ -13,9 +13,15 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
   ShimDBMarkerDataStore({IdbFactory? idbFactory})
       : _idbFactory = idbFactory ?? getIdbFactory()!;
 
+  Future<Database> get _db async {
+    if (_database != null) return _database!;
+    _database = await _idbFactory.open(_dbName, version: _dbVersion, onUpgradeNeeded: _onUpgradeNeeded);
+    return _database!;
+  }
+
   @override
   Future<void> init() async {
-    _db = await _idbFactory.open(_dbName, version: _dbVersion, onUpgradeNeeded: _onUpgradeNeeded);
+    await _db; // Ensures the database is initialized
   }
 
   void _onUpgradeNeeded(VersionChangeEvent event) {
@@ -29,7 +35,8 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<void> insert(Marker marker) async {
-    final txn = _db.transaction(_storeName, 'readwrite');
+    final db = await _db;
+    final txn = db.transaction(_storeName, 'readwrite');
     final store = txn.objectStore(_storeName);
     await store.put(marker.toLocalMap());
     await txn.completed;
@@ -37,7 +44,8 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<Marker?> getByUuid(String uuid) async {
-    final txn = _db.transaction(_storeName, 'readonly');
+    final db = await _db;
+    final txn = db.transaction(_storeName, 'readonly');
     final store = txn.objectStore(_storeName);
     final data = await store.getObject(uuid) as Map<String, dynamic>?;
     await txn.completed;
@@ -46,7 +54,8 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<List<Marker>> getAll() async {
-    final txn = _db.transaction(_storeName, 'readonly');
+    final db = await _db;
+    final txn = db.transaction(_storeName, 'readonly');
     final store = txn.objectStore(_storeName);
     final records = await store.getAll();
     await txn.completed;
@@ -55,7 +64,8 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<List<Marker>> getUnsynced() async {
-    final txn = _db.transaction(_storeName, 'readonly');
+    final db = await _db;
+    final txn = db.transaction(_storeName, 'readonly');
     final store = txn.objectStore(_storeName);
     final index = store.index('synced');
     final records = await index.getAll(0); // 0 for false
@@ -70,7 +80,8 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<void> delete(String uuid) async {
-    final txn = _db.transaction(_storeName, 'readwrite');
+    final db = await _db;
+    final txn = db.transaction(_storeName, 'readwrite');
     final store = txn.objectStore(_storeName);
     await store.delete(uuid);
     await txn.completed;
@@ -79,7 +90,8 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
   @override
   Future<void>deleteAll(List<String> uuids) async {
     if (uuids.isEmpty) return;
-    final txn = _db.transaction(_storeName, 'readwrite');
+    final db = await _db;
+    final txn = db.transaction(_storeName, 'readwrite');
     final store = txn.objectStore(_storeName);
     for (final uuid in uuids) {
       await store.delete(uuid);
@@ -89,7 +101,8 @@ class ShimDBMarkerDataStore implements MarkerDataStore {
 
   @override
   Future<void> clearAll() async {
-    final txn = _db.transaction(_storeName, 'readwrite');
+    final db = await _db;
+    final txn = db.transaction(_storeName, 'readwrite');
     final store = txn.objectStore(_storeName);
     await store.clear();
     await txn.completed;

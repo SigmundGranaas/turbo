@@ -20,7 +20,7 @@ class EnvironmentConfig {
         return 'http://localhost:5000';
       } else {
         // For mobile emulators
-        return 'http://10.0.2.2:5000';  // Android emulator localhost
+        return 'http://10.0.2.2:5000';
       }
     } else {
       // Production environment

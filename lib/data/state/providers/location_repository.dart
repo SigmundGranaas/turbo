@@ -35,45 +35,34 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
 
   MarkerDataStore get _localStore => _ref.read(localMarkerDataStoreProvider);
   ApiLocationService get _apiService => _ref.read(apiLocationServiceProvider);
-  AuthStatus get _authStatus => _ref.watch(authStateProvider).status;
 
   Future<void> _initState() async {
     await _localStore.init();
-    await _loadData();
-
-    // Don't cast the result to StreamSubscription
-    _authSubscription = null; // Initialize with null
+    await _loadData(authStatus: _ref.read(authStateProvider).status);
 
     final listener = _ref.listen<AuthState>(authStateProvider, (previous, next) {
       final prevStatus = previous?.status;
       if (prevStatus != next.status) {
         if ((prevStatus == AuthStatus.unauthenticated || prevStatus == AuthStatus.initial || prevStatus == AuthStatus.error) &&
             next.status == AuthStatus.authenticated) {
-          _syncLocalDataOnLogin().then((_) => _loadData());
+          _syncLocalDataOnLogin(authStatus: next.status).then((_) => _loadData(authStatus: next.status));
         } else {
-          _loadData();
+          _loadData(authStatus: next.status);
         }
       }
     });
 
-    // If we're on a platform that supports StreamSubscription, try to cast
     if (!kIsWeb) {
-      try {
-        _authSubscription = listener as StreamSubscription?;
-      } catch (e) {
-        if (kDebugMode) {
-          print("Warning: Could not cast listener to StreamSubscription: $e");
-        }
-      }
+      _authSubscription = listener as StreamSubscription?;
     }
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({required AuthStatus authStatus}) async {
     if (!mounted) return;
     state = const AsyncValue.loading();
     try {
       List<Marker> markers;
-      if (_authStatus == AuthStatus.authenticated) {
+      if (authStatus == AuthStatus.authenticated) {
         markers = await _fetchAndCacheAllUserMarkersFromServer();
       } else {
         markers = await _localStore.getAll();
@@ -85,38 +74,33 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
     }
   }
 
-  Future<void> _syncLocalDataOnLogin() async {
-    if (_authStatus != AuthStatus.authenticated) return;
-    final localMarkers = await _localStore.getAll(); // Get all, not just unsynced, to handle potential conflicts
+  Future<void> _syncLocalDataOnLogin({required AuthStatus authStatus}) async {
+    if (authStatus != AuthStatus.authenticated) return;
+    final localMarkers = await _localStore.getAll();
 
     List<Future<void>> syncFutures = [];
     for (final localMarker in localMarkers) {
-      if (!localMarker.synced) { // Only try to upload markers that were explicitly local/unsynced
+      if (!localMarker.synced) {
         syncFutures.add(() async {
           try {
-            final serverMarker = await _apiService.createLocation(localMarker.copyWith(synced: false)); // Ensure it's sent as new
+            final serverMarker = await _apiService.createLocation(localMarker.copyWith(synced: false));
             if (serverMarker != null) {
-              await _localStore.delete(localMarker.uuid); // Delete old local
-              await _localStore.insert(serverMarker.copyWith(synced: true)); // Insert new synced from server
+              await _localStore.delete(localMarker.uuid);
+              await _localStore.insert(serverMarker.copyWith(synced: true));
             }
           } catch (e) {
             if (kDebugMode) print("Error syncing local marker ${localMarker.uuid} on login: $e");
-            // Marker remains local and unsynced if API call fails
           }
         }());
       }
     }
     await Future.wait(syncFutures);
-    // After attempting to sync up local changes, a full fetch from server ensures consistency.
-    // _loadData() will do this if called after this method.
   }
 
 
   Future<List<Marker>> _fetchAndCacheAllUserMarkersFromServer() async {
     try {
       final serverMarkers = await _apiService.getAllUserLocations();
-      // Simple strategy: clear local and replace with server data.
-      // More complex merging could be done here if needed.
       await _localStore.clearAll();
       for (final marker in serverMarkers) {
         await _localStore.insert(marker.copyWith(synced: true));
@@ -124,98 +108,82 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       return serverMarkers;
     } catch (e) {
       if (kDebugMode) print("Error fetching from server, returning local: $e");
-      // Fallback to local data if server fetch fails
       return _localStore.getAll();
     }
   }
 
   Future<void> addMarker(Marker marker) async {
     if (!mounted) return;
+    final currentAuthStatus = _ref.read(authStateProvider).status;
 
-    final previousState = state;
-    state = const AsyncValue.loading(); // Indicate loading
+    state = const AsyncValue.loading();
 
     try {
-      Marker markerToSave = marker.copyWith(synced: false); // Assume unsynced initially
-      if (_authStatus == AuthStatus.authenticated) {
+      Marker markerToSave = marker.copyWith(synced: false);
+      if (currentAuthStatus == AuthStatus.authenticated) {
         final serverMarker = await _apiService.createLocation(marker);
         if (serverMarker != null) {
           markerToSave = serverMarker.copyWith(synced: true);
-          // If server assigns a new UUID, we need to remove the old local one if it was optimistically added
           if (marker.uuid != serverMarker.uuid) {
             await _localStore.delete(marker.uuid);
           }
-          await _localStore.insert(markerToSave);
-        } else {
-          // API failed, save locally as unsynced
-          await _localStore.insert(markerToSave);
         }
-      } else {
-        // Unauthenticated, save locally as unsynced
-        await _localStore.insert(markerToSave);
       }
-      await _loadData(); // Refresh the full list
+      await _localStore.insert(markerToSave);
+      await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
       if (kDebugMode) print("Error adding marker: $e");
-      // Revert to previous state on error or handle specific error display
       if (mounted) state = AsyncValue.error(e, st);
-      // Ensure it's saved locally as unsynced even if API call within auth block failed
       await _localStore.insert(marker.copyWith(synced: false));
-      await _loadData(); // Try to reload, might show the locally saved one
+      await _loadData(authStatus: currentAuthStatus);
     }
   }
 
   Future<void> updateMarker(Marker marker) async {
     if (!mounted) return;
+    final currentAuthStatus = _ref.read(authStateProvider).status;
     state = const AsyncValue.loading();
     try {
-      Marker markerToUpdate = marker.copyWith(synced: false); // Assume unsynced on update attempt
-      if (_authStatus == AuthStatus.authenticated) {
+      Marker markerToUpdate = marker.copyWith(synced: false);
+      if (currentAuthStatus == AuthStatus.authenticated) {
         final updatedServerMarker = await _apiService.updateLocation(marker);
         if (updatedServerMarker != null) {
           markerToUpdate = updatedServerMarker.copyWith(synced: true);
-          await _localStore.update(markerToUpdate);
-        } else {
-          // API failed (e.g. 404 or other), mark as unsynced and update locally
-          await _localStore.update(markerToUpdate);
         }
-      } else {
-        // Unauthenticated, update locally as unsynced
-        await _localStore.update(markerToUpdate);
       }
-      await _loadData();
+      await _localStore.update(markerToUpdate);
+      await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
       if (kDebugMode) print("Error updating marker: $e");
       if (mounted) state = AsyncValue.error(e, st);
       await _localStore.update(marker.copyWith(synced: false));
-      await _loadData();
+      await _loadData(authStatus: currentAuthStatus);
     }
   }
 
   Future<void> deleteMarker(String uuid) async {
     if (!mounted) return;
+    final currentAuthStatus = _ref.read(authStateProvider).status;
     state = const AsyncValue.loading();
     try {
-      if (_authStatus == AuthStatus.authenticated) {
+      if (currentAuthStatus == AuthStatus.authenticated) {
         await _apiService.deleteLocation(uuid);
-        // If API fails (e.g. 404), it's fine, local delete will proceed.
       }
       await _localStore.delete(uuid);
-      await _loadData();
+      await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
       if (kDebugMode) print("Error deleting marker: $e");
-      // Ensure local delete even on API error during auth
       await _localStore.delete(uuid);
-      await _loadData(); // Try to reload
+      await _loadData(authStatus: currentAuthStatus);
       if (mounted) state = AsyncValue.error(e, st);
     }
   }
 
   Future<void> triggerManualSync() async {
-    if (_authStatus != AuthStatus.authenticated || !mounted) return;
+    final currentAuthStatus = _ref.read(authStateProvider).status;
+    if (currentAuthStatus != AuthStatus.authenticated || !mounted) return;
     state = const AsyncValue.loading();
     try {
-      // 1. Upload local unsynced changes
       final localUnsynced = await _localStore.getUnsynced();
       for (final localMarker in localUnsynced) {
         try {
@@ -229,41 +197,33 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
         }
       }
 
-      // 2. Fetch all from server and reconcile (server is source of truth for synced items)
       final serverMarkers = await _apiService.getAllUserLocations();
       final serverMarkerMap = {for (var m in serverMarkers) m.uuid: m};
-
       final allLocalMarkers = await _localStore.getAll();
       List<String> localUuidsToDelete = [];
 
-      // Update local store with server data or mark for deletion if not on server but was synced
       for (final localMarker in allLocalMarkers) {
         final serverVersion = serverMarkerMap[localMarker.uuid];
         if (serverVersion != null) {
-          // Exists on server, ensure local is identical and synced
           if (localMarker != serverVersion.copyWith(synced: true)) {
             await _localStore.update(serverVersion.copyWith(synced: true));
           }
-          serverMarkerMap.remove(localMarker.uuid); // Handled
+          serverMarkerMap.remove(localMarker.uuid);
         } else {
-          // Not on server
           if (localMarker.synced) {
-            // Was synced, but server doesn't have it -> delete locally
             localUuidsToDelete.add(localMarker.uuid);
           }
-          // If !localMarker.synced, it was handled by the upload step or will remain local.
         }
       }
       if(localUuidsToDelete.isNotEmpty) {
         await _localStore.deleteAll(localUuidsToDelete);
       }
 
-      // Add new markers from server that were not local
       for (final newServerMarker in serverMarkerMap.values) {
         await _localStore.insert(newServerMarker.copyWith(synced: true));
       }
 
-      await _loadData(); // Reload everything
+      await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
       if (kDebugMode) print("Error during manual sync: $e");
       if (mounted) state = AsyncValue.error(e, st);
@@ -271,6 +231,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
   }
 
   Future<Marker?> getMarkerByUuid(String uuid) async {
+    final currentAuthStatus = _ref.read(authStateProvider).status;
     final currentStateValue = state.asData?.value;
     if (currentStateValue != null) {
       try {
@@ -279,23 +240,22 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
     }
 
     final local = await _localStore.getByUuid(uuid);
-    if (_authStatus == AuthStatus.authenticated) {
+    if (currentAuthStatus == AuthStatus.authenticated) {
       try {
         final remote = await _apiService.getLocationById(uuid);
         if (remote != null) {
-          await _localStore.insert(remote.copyWith(synced: true)); // Cache/update
+          await _localStore.insert(remote.copyWith(synced: true));
           return remote;
-        } else { // Not on remote (404)
+        } else {
           if (local != null && local.synced) {
-            await _localStore.delete(uuid); // Was synced, now gone from server
-            _loadData(); // Refresh list
+            await _localStore.delete(uuid);
+            _loadData(authStatus: currentAuthStatus);
             return null;
           }
         }
       } catch (e) {
-        // API error, return local if available, potentially marking as unsynced
         if (local != null) {
-          if (local.synced) { // If it thought it was synced, mark as not authoritative now
+          if (local.synced) {
             final unsyncedLocal = local.copyWith(synced: false);
             await _localStore.update(unsyncedLocal);
             return unsyncedLocal;

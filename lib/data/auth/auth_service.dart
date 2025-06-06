@@ -15,82 +15,51 @@ class AuthService {
 
   Future<bool> register(String email, String password, String confirmPassword) async {
     final response = await apiClient.post(
-      '/api/auth/register',
+      '/api/auth/Auth/register',
       data: {
         'email': email,
         'password': password,
         'confirmPassword': confirmPassword
       },
     );
-    if (response.statusCode == 200 || response.statusCode == 201) {
+    if (response.statusCode == 200) {
       final data = response.data;
-      if (data['success'] == true) {
-        if (!kIsWeb && data['accessToken'] != null && data['refreshToken'] != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('accessToken', data['accessToken']);
-          await prefs.setString('refreshToken', data['refreshToken']);
+      if (data['accessToken'] != null) {
+        if (!kIsWeb) {
+          await storeTokens(data['accessToken'], data['refreshToken']);
         }
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-        await prefs.setString('userEmail', email);
+        await setLoginState(email: data['email'], isGoogleUser: false);
         return true;
       }
     }
-    throw Exception(response.data['error'] ?? 'Registration failed');
+    throw Exception(response.data['message'] ?? 'Registration failed');
   }
 
   Future<bool> login(String email, String password) async {
     final response = await apiClient.post(
-      '/api/auth/login',
+      '/api/auth/Auth/login',
       data: {'email': email, 'password': password},
     );
 
     if (response.statusCode == 200) {
       final data = response.data;
-      if (data['success'] == true) {
-        if (!kIsWeb && data['accessToken'] != null && data['refreshToken'] != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('accessToken', data['accessToken']);
-          await prefs.setString('refreshToken', data['refreshToken']);
+      if (data['accessToken'] != null) {
+        if (!kIsWeb) {
+          await storeTokens(data['accessToken'], data['refreshToken']);
         }
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-        await prefs.setString('userEmail', email);
+        await setLoginState(email: data['email'], isGoogleUser: false);
         return true;
       }
     }
-    throw Exception(response.data['error'] ?? 'Login failed');
-  }
-
-  Future<bool> loginWithGoogle(String idToken) async {
-    final response = await apiClient.post(
-      '/api/auth/google/login',
-      data: {'idToken': idToken},
-    );
-    if (response.statusCode == 200) {
-      final data = response.data;
-      if (data['success'] == true) {
-        if (!kIsWeb && data['accessToken'] != null && data['refreshToken'] != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('accessToken', data['accessToken']);
-          await prefs.setString('refreshToken', data['refreshToken']);
-        }
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-        await prefs.setBool('isGoogleUser', true);
-        final email = data['email'] ?? 'google_user';
-        await prefs.setString('userEmail', email);
-        return true;
-      }
-    }
-    throw Exception(response.data['error'] ?? 'Google login failed');
+    throw Exception(response.data['message'] ?? 'Login failed');
   }
 
   Future<String> getGoogleAuthUrl() async {
-    final response = await apiClient.get('/api/auth/google/url');
+    final response = await apiClient.get('/api/auth/OAuth/google/url');
     if (response.statusCode == 200) {
-      if (response.data is String) return response.data.replaceAll('"', '');
-      if (response.data is Map) return response.data['url'] ?? '';
+      if (response.data is Map && response.data['authorizationUrl'] != null) {
+        return response.data['authorizationUrl'];
+      }
       return response.data.toString();
     }
     throw Exception('Failed to get Google auth URL');
@@ -98,7 +67,15 @@ class AuthService {
 
   Future<void> logout() async {
     try {
-      await apiClient.post('/api/auth/logout');
+      if (!kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        final refreshToken = prefs.getString('refreshToken');
+        if (refreshToken != null) {
+          await apiClient.post('/api/auth/Token/revoke', data: {'refreshToken': refreshToken});
+        }
+      } else {
+        await apiClient.post('/api/auth/Token/revoke');
+      }
     } finally {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', false);
@@ -110,20 +87,24 @@ class AuthService {
   }
 
   Future<bool> refreshToken() async {
+    // This now points to the correctly proxied path
     return await apiClient.refreshToken();
   }
 
   Future<bool> isLoggedIn() async {
     if (kIsWeb) {
       try {
-        final response = await apiClient.get('/api/auth/validate');
+        final response = await apiClient.get('/api/auth/Session/me');
         if (response.statusCode == 200) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('isLoggedIn', true);
           final data = response.data;
-          if (data['email'] != null) await prefs.setString('userEmail', data['email']);
-          if (data['authType'] != null) await prefs.setBool('isGoogleUser', data['authType'] == 'Google');
-          return true;
+          if (data['isActive'] == true) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('isLoggedIn', true);
+            if (data['email'] != null) {
+              await prefs.setString('userEmail', data['email']);
+            }
+            return true;
+          }
         }
         return false;
       } catch (e) {
@@ -145,9 +126,28 @@ class AuthService {
     return prefs.getBool('isGoogleUser') ?? false;
   }
 
+  Future<void> setIsGoogleUser(bool isGoogle) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isGoogleUser', isGoogle);
+  }
+
   Future<String?> getAccessToken() async {
     if (kIsWeb) return null;
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('accessToken');
+  }
+
+  Future<void> storeTokens(String accessToken, String refreshToken) async {
+    if (kIsWeb) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('accessToken', accessToken);
+    await prefs.setString('refreshToken', refreshToken);
+  }
+
+  Future<void> setLoginState({required String email, required bool isGoogleUser}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setString('userEmail', email);
+    await prefs.setBool('isGoogleUser', isGoogleUser);
   }
 }

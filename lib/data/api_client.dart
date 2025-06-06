@@ -41,9 +41,9 @@ class ApiClient {
             // Handle 401 errors (token expired)
             if (error.response?.statusCode == 401) {
               // Skip token refresh for auth endpoints
-              if (error.requestOptions.path.contains('/api/auth/refresh') ||
-                  error.requestOptions.path.contains('/api/auth/login') ||
-                  error.requestOptions.path.contains('/api/auth/register')) {
+              if (error.requestOptions.path.contains('/api/v1/Token/refresh') ||
+                  error.requestOptions.path.contains('/api/v1/Auth/login') ||
+                  error.requestOptions.path.contains('/api/v1/Auth/register')) {
                 return handler.next(error);
               }
 
@@ -136,42 +136,29 @@ class ApiClient {
         refreshData['refreshToken'] = refreshToken;
       }
 
-      // Create a separate Dio instance for the refresh call to avoid interceptor loops
-      final refreshDio = Dio();
-      refreshDio.options.baseUrl = baseUrl;
-
-      if (kIsWeb) {
-        refreshDio.options.extra['withCredentials'] = true;
-      }
-
-      final response = await refreshDio.post(
-        '/api/auth/refresh',
+      // Use a direct POST via the configured Dio instance.
+      // The interceptor has checks to avoid loops for the refresh path.
+      final response = await post(
+        '/api/v1/Token/refresh',
         data: refreshData.isNotEmpty ? refreshData : null,
-        options: Options(
-          headers: {'Content-Type': 'application/json'},
-          validateStatus: (status) => status != null && status < 500,
-        ),
       );
+
 
       if (kDebugMode) {
         print('Refresh token response: ${response.statusCode}');
       }
 
       // For mobile, we need to store the new tokens
-      if (!kIsWeb && response.statusCode == 200 && response.data['success'] == true) {
+      if (!kIsWeb && response.statusCode == 200 && response.data['accessToken'] != null) {
         final prefs = await SharedPreferences.getInstance();
-        if (response.data['accessToken'] != null) {
-          await prefs.setString('accessToken', response.data['accessToken']);
-        }
-        if (response.data['refreshToken'] != null) {
-          await prefs.setString('refreshToken', response.data['refreshToken']);
-        }
+        await prefs.setString('accessToken', response.data['accessToken']);
+        await prefs.setString('refreshToken', response.data['refreshToken']);
         _isRefreshing = false;
         return true;
       }
 
       // For web, we just need to check success as cookies are handled automatically
-      if (kIsWeb && response.statusCode == 200 && response.data['success'] == true) {
+      if (kIsWeb && response.statusCode == 200) {
         _isRefreshing = false;
         return true;
       }

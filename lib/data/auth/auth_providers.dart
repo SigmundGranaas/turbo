@@ -1,12 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:uni_links/uni_links.dart';
 import '../api_client.dart';
 import 'auth_init_provider.dart';
 import 'auth_service.dart';
-import '../env_config.dart';
 
 
 final authServiceProvider = Provider<AuthService>((ref) {
@@ -19,7 +16,7 @@ final authenticatedApiClientProvider = Provider<ApiClient>((ref) {
 });
 
 final authStateProvider = StateNotifierProvider<AuthStateNotifier, AuthState>((ref) {
-  return AuthStateNotifier(ref.watch(authServiceProvider), ref);
+  return AuthStateNotifier(ref.watch(authServiceProvider), ref.read(authenticatedApiClientProvider), ref);
 });
 
 enum AuthStatus { initial, loading, authenticated, unauthenticated, error }
@@ -59,13 +56,14 @@ class AuthState {
 
 class AuthStateNotifier extends StateNotifier<AuthState> {
   final AuthService _authService;
+  final ApiClient _apiClient;
   // ignore: unused_field
-  final Ref _ref; // Keep Ref if needed for other purposes, though not for link stream here
+  final Ref _ref;
   AuthStatus? _previousStatus;
 
   AuthStatus? get previousAuthStatus => _previousStatus;
 
-  AuthStateNotifier(this._authService, this._ref) : super(AuthState());
+  AuthStateNotifier(this._authService, this._apiClient, this._ref) : super(AuthState());
 
   void _updateState(AuthState newState) {
     _previousStatus = state.status;
@@ -97,7 +95,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
           if (kDebugMode) print('AuthStateNotifier: Detected initial web callback URL: $uri');
           final code = uri.queryParameters['code'];
           if (code != null) {
-            // This call to processOAuthCallback will update the state internally.
             await processOAuthCallback(code);
           }
         }
@@ -106,7 +103,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
           final initialLink = await getInitialLink();
           if (initialLink != null) {
             if (kDebugMode) print('AuthStateNotifier: Handling initial mobile deep link: $initialLink');
-            // Use the shared helper. 'this' is the AuthStateNotifier instance.
             handleDeepLinkForProvider(initialLink, this);
           }
         } catch (e) {
@@ -151,23 +147,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> loginWithGoogle(String idToken) async {
-    _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
-    try {
-      await _authService.loginWithGoogle(idToken);
-      final email = await _authService.getUserEmail();
-      final token = await _authService.getAccessToken();
-      _updateState(AuthState(
-        status: AuthStatus.authenticated,
-        email: email,
-        isGoogleUser: true,
-        accessToken: token,
-      ));
-    } catch (e) {
-      _updateState(state.copyWith(status: AuthStatus.unauthenticated, errorMessage: e.toString()));
-    }
-  }
-
   Future<String> getGoogleAuthUrl() async {
     try {
       return await _authService.getGoogleAuthUrl();
@@ -178,41 +157,51 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> processOAuthCallback(String code) async {
-    // Only set loading if not already authenticated to avoid UI flicker if already logged in by token.
     if (state.status != AuthStatus.authenticated) {
       _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
     }
-    try {
-      final response = await http.get(
-        Uri.parse('${EnvironmentConfig.apiBaseUrl}/api/auth/google/callback?code=$code'),
-        headers: {'Accept': 'application/json'},
-      );
 
-      if (response.statusCode >= 200 && response.statusCode < 300 ) {
-        // After successful callback, rely on AuthService to update tokens/cookies
-        // Then, re-check login status via service
-        final isLoggedIn = await _authService.isLoggedIn(); // This should now reflect the callback's effect
-        if(isLoggedIn) {
-          final email = await _authService.getUserEmail();
-          final token = await _authService.getAccessToken(); // For mobile
+    try {
+      final response = await _apiClient.get('/api/v1/OAuth/google/callback', queryParameters: {'code': code});
+
+      if (response.statusCode == 200) {
+        if (kIsWeb) {
+          // On web, cookies are set by the browser. We just need to confirm the session.
+          final sessionIsValid = await _authService.isLoggedIn(); // This calls /me
+          if (sessionIsValid) {
+            final email = await _authService.getUserEmail();
+            await _authService.setIsGoogleUser(true); // Manually set flag
+            _updateState(AuthState(
+              status: AuthStatus.authenticated,
+              email: email,
+              isGoogleUser: true,
+            ));
+          } else {
+            throw Exception('OAuth callback processed but session is not valid.');
+          }
+        } else { // Mobile
+          final data = response.data;
+          final String accessToken = data['accessToken'];
+          final String refreshToken = data['refreshToken'];
+          final String email = data['email'];
+
+          await _authService.storeTokens(accessToken, refreshToken);
+          await _authService.setLoginState(email: email, isGoogleUser: true);
+
           _updateState(AuthState(
             status: AuthStatus.authenticated,
             email: email,
-            isGoogleUser: true, // Assume Google if through this flow
-            accessToken: token,
+            isGoogleUser: true,
+            accessToken: accessToken,
           ));
-        } else {
-          // This case might happen if cookie/token setting failed post-callback.
-          throw Exception('OAuth callback processed but not logged in via service state.');
         }
       } else {
         String errorMessage = 'Authentication failed during OAuth callback';
         try {
-          final data = jsonDecode(response.body);
-          errorMessage = data['error'] ?? data['detail'] ?? errorMessage;
+          final data = response.data;
+          errorMessage = data['message'] ?? errorMessage;
         } catch (_) {
-          // Use response body if JSON decoding fails
-          errorMessage = response.body.isNotEmpty ? response.body : errorMessage;
+          errorMessage = response.data?.toString() ?? errorMessage;
         }
         throw Exception(errorMessage);
       }

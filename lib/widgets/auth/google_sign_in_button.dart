@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../data/auth/auth_providers.dart';
 
@@ -76,90 +75,43 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
     widget.onSignInStarted();
 
     try {
-      if (kIsWeb) {
-        await _webGoogleSignIn();
-      } else {
-        await _nativeGoogleSignIn();
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Google sign-in error: $e');
-      }
-
-      if(mounted){
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign in failed: ${e.toString()}')),
-        );
-      }
-
-
-
-      widget.onSignInCompleted();
-    }
-  }
-
-  Future<void> _webGoogleSignIn() async {
-    try {
-      // For web, we'll get the auth URL from the backend and redirect to it
       final authUrl = await ref.read(authStateProvider.notifier).getGoogleAuthUrl();
+      final uri = Uri.parse(authUrl);
 
       if (kDebugMode) {
-        print('Got Google auth URL: $authUrl');
+        print('Launching Google auth URL: $authUrl');
       }
 
-      // Launch the URL using the _self target to do a full page redirect
-      final Uri uri = Uri.parse(authUrl);
       if (await canLaunchUrl(uri)) {
+        // On web, this performs a full page redirect. The app will reload on the
+        // callback URL and `initializeAndHandleInitialLink` will process it.
+        // On mobile, this opens the user's default browser. The app's deep link
+        // listener will catch the redirect and `linkStreamHandlerProvider` will process it.
         await launchUrl(
           uri,
           mode: LaunchMode.externalApplication,
-          webOnlyWindowName: '_self', // Forces a full page redirect instead of a popup
+          // This is critical for the web redirect flow to work.
+          webOnlyWindowName: '_self',
         );
       } else {
         throw Exception('Could not launch Google auth URL');
       }
 
-      // The flow will continue in GoogleAuthCallbackPage after redirect
+      // For web, the sign-in is not "completed" here as a redirect happens.
+      // For mobile, the user is now in the browser, so we can complete the "loading" state.
+      if (!kIsWeb) {
+        widget.onSignInCompleted();
+      }
     } catch (e) {
       if (kDebugMode) {
-        print('Web Google sign-in error: $e');
+        print('Google sign-in error: $e');
       }
-      rethrow;
-    }
-  }
-
-  Future<void> _nativeGoogleSignIn() async {
-    try {
-      final GoogleSignIn googleSignIn = GoogleSignIn(
-        scopes: ['email', 'profile', 'openid'],
-      );
-
-      // Force a fresh sign-in experience
-      await googleSignIn.signOut();
-
-      final GoogleSignInAccount? account = await googleSignIn.signIn();
-
-      if (account == null) {
-        // User canceled sign-in
-        widget.onSignInCompleted(); // Reset loading state
-        return;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Sign in failed: ${e.toString()}')),
+        );
       }
-
-      final GoogleSignInAuthentication auth = await account.authentication;
-
-      if (auth.idToken == null) {
-        throw Exception('Failed to get ID token from Google');
-      }
-
-      // Send the ID token to your backend
-      await ref.read(authStateProvider.notifier).loginWithGoogle(auth.idToken!);
-
       widget.onSignInCompleted();
-    } catch (e) {
-      if (kDebugMode) {
-        print('Native Google sign-in error: $e');
-      }
-      rethrow;
     }
   }
 }
