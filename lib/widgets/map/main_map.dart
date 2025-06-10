@@ -2,22 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:map_app/widgets/auth/drawer_widget.dart';
 import 'package:map_app/widgets/map/measuring/measuring_map.dart';
+import 'package:map_app/widgets/map/view/map_view_desktop.dart';
+import 'package:map_app/widgets/map/view/map_view_mobile.dart';
 
 import '../../data/model/marker.dart' as marker_model;
-import '../../data/search/composite_search_service.dart';
 import '../marker/create_location_sheet.dart';
-import '../search/searchbar.dart';
 import 'controller/map_utility.dart';
 import 'controller/provider/map_controller.dart';
 import 'controls/default_map_controls.dart';
-import 'controls/map_controls.dart';
 import 'layers/current_location_layer.dart';
 import 'layers/tiles/tile_registry/tile_provider.dart';
 import 'layers/tiles/tile_registry/tile_registry.dart';
 import 'layers/viewport_marker_layer.dart';
-import 'map_base.dart';
 
 class MapControllerPage extends ConsumerStatefulWidget {
   const MapControllerPage({super.key});
@@ -36,7 +33,10 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
   void initState() {
     super.initState();
     _mapController = ref.read(mapControllerProvProvider.notifier).controller();
-    // No need to init localMarkerDataStoreProvider here, LocationRepository handles it.
+  }
+
+  void _onLocationSelected(double east, double north) {
+    animatedMapMove(LatLng(north, east), 13, _mapController, this);
   }
 
   @override
@@ -58,83 +58,46 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
     ))
         .toList();
 
-    final mapLayers = <Widget>[
+    final commonMapLayers = <Widget>[
       ...tileLayers,
       ...attributions,
       const CurrentLocationLayer(),
       ViewportMarkers(mapController: _mapController),
-      if (_temporaryPin != null) MarkerLayer(markers: [_temporaryPin!]),
     ];
 
-    final width = MediaQuery.of(context).size.width;
-    final isMobile = width < 600;
-    final List<Widget> controls = isMobile
-        ? defaultMobileMapControls(_mapController, this)
-        : defaultMapControls(_mapController, this);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+        final mapControls = isMobile
+            ? defaultMobileMapControls(_mapController, this)
+            : defaultMapControls(_mapController, this);
 
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Scaffold(
-      key: _scaffoldKey,
-      drawer: const AppDrawer(),
-      body: Stack(
-        children: [
-          MapBase(
+        if (isMobile) {
+          return MobileMapView(
+            scaffoldKey: _scaffoldKey,
             mapController: _mapController,
-            mapLayers: mapLayers,
-            overlayWidgets: [
-              MapControls(controls: controls),
-              Positioned(
-                top: 20,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: _buildCustomSearchBar(isMobile),
-                ),
-              ),
-            ],
-            onLongPress: (tapPosition, point) => _handleLongPress(context, point),
-          ),
-          if (!isMobile)
-            Positioned(
-              left: 20,
-              top: 20,
-              child: SizedBox(
-                width: 64,
-                height: 64,
-                child: Card(
-                  elevation: 4,
-                  shape: const CircleBorder(),
-                  child: ClipOval(
-                    child: Material(
-                      color: Theme.of(context).colorScheme.surface,
-                      child: InkWell(
-                        onTap: () => _scaffoldKey.currentState?.openDrawer(),
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Icon(Icons.menu, color: colorScheme.primary),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCustomSearchBar(bool isMobile) {
-    final searchService = ref.watch(compositeSearchServiceProvider);
-
-    return SearchWidget(
-      onLocationSelected: (double east, double north) {
-        animatedMapMove(LatLng(north, east), 13, _mapController, this);
+            mapLayers: commonMapLayers,
+            mapControls: mapControls,
+            onLongPress: (tap, point) => _handleLongPress(context, point),
+            onLocationSelected: _onLocationSelected,
+            temporaryPin: _temporaryPin,
+          );
+        } else {
+          return DesktopMapView(
+            scaffoldKey: _scaffoldKey,
+            mapController: _mapController,
+            mapLayers: commonMapLayers,
+            mapControls: mapControls,
+            onLongPress: (tap, point) => _handleLongPress(context, point),
+            onLocationSelected: _onLocationSelected,
+            temporaryPin: _temporaryPin,
+          );
+        }
       },
-      service: searchService,
     );
   }
+
+  // --- Shared Logic Methods ---
 
   void _handleLongPress(BuildContext context, LatLng point) {
     setState(() {
@@ -209,7 +172,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
     );
 
     if (result != null && mounted) {
-      animatedMapMove(result.position, _mapController.camera.zoom +1, _mapController, this);
+      animatedMapMove(result.position, _mapController.camera.zoom + 1, _mapController, this);
     }
   }
 }

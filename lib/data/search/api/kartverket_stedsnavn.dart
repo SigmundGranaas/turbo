@@ -90,7 +90,7 @@ class PlaceName {
       navneobjekttype: json['navneobjekttype'],
       navnestatus: json['navnestatus'],
       representasjonspunkt:
-          RepresentasjonsPunkt.fromJson(json['representasjonspunkt']),
+      RepresentasjonsPunkt.fromJson(json['representasjonspunkt']),
       skrivemate: json['skrivemåte'],
       skrivematestatus: json['skrivemåtestatus'],
       sprak: json['språk'],
@@ -129,16 +129,16 @@ class Municipality {
 }
 
 class RepresentasjonsPunkt {
-  final int koordsys;
+  final int? koordsys;
   final double nord;
   final double ost;
 
   RepresentasjonsPunkt(
-      {required this.koordsys, required this.nord, required this.ost});
+      {this.koordsys, required this.nord, required this.ost});
 
   factory RepresentasjonsPunkt.fromJson(Map<String, dynamic> json) {
     return RepresentasjonsPunkt(
-      koordsys: json['koordsys'],
+      koordsys: json['koordsys'] as int?,
       nord: json['nord'],
       ost: json['øst'],
     );

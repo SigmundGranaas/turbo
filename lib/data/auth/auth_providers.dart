@@ -5,18 +5,21 @@ import '../api_client.dart';
 import 'auth_init_provider.dart';
 import 'auth_service.dart';
 
-
-final authServiceProvider = Provider<AuthService>((ref) {
-  return AuthService();
-});
-
-final authenticatedApiClientProvider = Provider<ApiClient>((ref) {
-  final authService = ref.watch(authServiceProvider);
-  return authService.client;
-});
-
+// The AuthStateNotifier is now the root. It creates and configures its own client.
 final authStateProvider = StateNotifierProvider<AuthStateNotifier, AuthState>((ref) {
-  return AuthStateNotifier(ref.watch(authServiceProvider), ref.read(authenticatedApiClientProvider), ref);
+  return AuthStateNotifier(ref);
+});
+
+// The AuthService depends on the client that the AuthStateNotifier owns.
+final authServiceProvider = Provider<AuthService>((ref) {
+  final apiClient = ref.watch(authStateProvider.notifier).apiClient;
+  return AuthService(apiClient: apiClient);
+});
+
+// This provider now gives other parts of the app access to the single,
+// correctly configured ApiClient instance.
+final authenticatedApiClientProvider = Provider<ApiClient>((ref) {
+  return ref.watch(authStateProvider.notifier).apiClient;
 });
 
 enum AuthStatus { initial, loading, authenticated, unauthenticated, error }
@@ -55,17 +58,33 @@ class AuthState {
 }
 
 class AuthStateNotifier extends StateNotifier<AuthState> {
-  final AuthService _authService;
-  final ApiClient _apiClient;
-  // ignore: unused_field
   final Ref _ref;
+  late final ApiClient _apiClient;
+  late final AuthService _authService;
   AuthStatus? _previousStatus;
 
+  // Public getter for the configured ApiClient
+  ApiClient get apiClient => _apiClient;
   AuthStatus? get previousAuthStatus => _previousStatus;
 
-  AuthStateNotifier(this._authService, this._apiClient, this._ref) : super(AuthState());
+  AuthStateNotifier(this._ref) : super(AuthState()) {
+    // 1. Create the ApiClient instance.
+    _apiClient = ApiClient();
+    // 2. Set its failure handler to call a method on this notifier instance.
+    //    This breaks the provider circular dependency.
+    _apiClient.setAuthFailureHandler(handleAuthFailure);
+    // 3. Create the AuthService using the now-configured client.
+    _authService = AuthService(apiClient: _apiClient);
+  }
+
+  /// This callback is invoked by the ApiClient when a token refresh fails.
+  void handleAuthFailure() {
+    // Defer the logout call to prevent "modifying state during build" errors.
+    Future.microtask(() => logout());
+  }
 
   void _updateState(AuthState newState) {
+    if (!mounted) return;
     _previousStatus = state.status;
     state = newState;
   }
@@ -162,7 +181,7 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
     }
 
     try {
-      final response = await _apiClient.get('/api/v1/OAuth/google/callback', queryParameters: {'code': code});
+      final response = await _apiClient.get('/api/auth/OAuth/google/callback', queryParameters: {'code': code});
 
       if (response.statusCode == 200) {
         if (kIsWeb) {
@@ -211,12 +230,20 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    // Prevent multiple logout calls if already logging out or unauthenticated
+    if (state.status == AuthStatus.loading || state.status == AuthStatus.unauthenticated) return;
+
     _updateState(state.copyWith(status: AuthStatus.loading));
     try {
       await _authService.logout();
-      _updateState(AuthState(status: AuthStatus.unauthenticated));
     } catch (e) {
-      _updateState(AuthState(status: AuthStatus.unauthenticated, errorMessage: "Logout failed: $e (still logged out locally)"));
+      // Even if logout API call fails, we still want to log out locally.
+      if (kDebugMode) {
+        print("Logout API call failed: $e. Logging out locally.");
+      }
+    } finally {
+      // Ensure local state is always cleared.
+      _updateState(AuthState(status: AuthStatus.unauthenticated));
     }
   }
 

@@ -1,15 +1,12 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api_client.dart';
-import '../env_config.dart';
 
 class AuthService {
-  final String baseUrl;
   final ApiClient apiClient;
 
-  AuthService({String? baseUrl})
-      : baseUrl = baseUrl ?? EnvironmentConfig.apiBaseUrl,
-        apiClient = ApiClient(baseUrl: baseUrl ?? EnvironmentConfig.apiBaseUrl);
+  AuthService({required this.apiClient});
 
   ApiClient get client => apiClient;
 
@@ -91,23 +88,33 @@ class AuthService {
     return await apiClient.refreshToken();
   }
 
+  Future<bool> _performSessionCheck() async {
+    final response = await apiClient.get('/api/auth/Session/me');
+    if (response.statusCode == 200) {
+      final data = response.data;
+      if (data['isActive'] == true) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isLoggedIn', true);
+        if (data['email'] != null) {
+          await prefs.setString('userEmail', data['email']);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<bool> isLoggedIn() async {
     if (kIsWeb) {
       try {
-        final response = await apiClient.get('/api/auth/Session/me');
-        if (response.statusCode == 200) {
-          final data = response.data;
-          if (data['isActive'] == true) {
-            final prefs = await SharedPreferences.getInstance();
-            await prefs.setBool('isLoggedIn', true);
-            if (data['email'] != null) {
-              await prefs.setString('userEmail', data['email']);
-            }
-            return true;
-          }
+        if (kDebugMode) {
+          print("Checking logged-in status via session check...");
         }
-        return false;
+        return await _performSessionCheck();
       } catch (e) {
+        if (kDebugMode) {
+          print("isLoggedIn check failed after interceptor attempt: $e");
+        }
         return false;
       }
     } else {

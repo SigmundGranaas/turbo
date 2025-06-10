@@ -7,10 +7,17 @@ class ApiClient {
   final String baseUrl;
   late Dio _dio;
   bool _isRefreshing = false;
-  final List<RequestOptions> _pendingRequests = [];
+
+  // Callback for when authentication fails irrecoverably (e.g., refresh token fails).
+  Function? _onAuthFailure;
 
   ApiClient({String? baseUrl}) : baseUrl = baseUrl ?? EnvironmentConfig.apiBaseUrl {
     _dio = _createDio();
+  }
+
+  /// Sets a handler to be called on final authentication failure.
+  void setAuthFailureHandler(Function handler) {
+    _onAuthFailure = handler;
   }
 
   Dio _createDio() {
@@ -18,83 +25,103 @@ class ApiClient {
     dio.options.baseUrl = baseUrl;
     dio.options.connectTimeout = const Duration(seconds: 15);
     dio.options.receiveTimeout = const Duration(seconds: 15);
-    dio.options.validateStatus = (status) => status != null && status < 500;
     dio.options.receiveDataWhenStatusError = true;
     dio.options.followRedirects = false;
 
     // For web, ensure cookies are sent with requests
     if (kIsWeb) {
       dio.options.extra['withCredentials'] = true;
-    } else {
-      // For mobile, add token to requests
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) async {
+    }
+
+    dio.interceptors.add(
+      // Use QueuedInterceptorsWrapper to handle concurrent requests during token refresh.
+      QueuedInterceptorsWrapper(
+        onRequest: (options, handler) async {
+          if (!kIsWeb) {
             final prefs = await SharedPreferences.getInstance();
             final accessToken = prefs.getString('accessToken');
             if (accessToken != null) {
               options.headers['Authorization'] = 'Bearer $accessToken';
             }
-            return handler.next(options);
-          },
-          onError: (DioException error, handler) async {
-            // Handle 401 errors (token expired)
-            if (error.response?.statusCode == 401) {
-              // Skip token refresh for auth endpoints
-              if (error.requestOptions.path.contains('/api/v1/Token/refresh') ||
-                  error.requestOptions.path.contains('/api/v1/Auth/login') ||
-                  error.requestOptions.path.contains('/api/v1/Auth/register')) {
+          }
+          return handler.next(options);
+        },
+        onError: (DioException error, handler) async {
+          final path = error.requestOptions.path;
+
+          if (kDebugMode) {
+            print("Interceptet error: ${error.message} ${error.response?.statusCode}");
+
+          }
+          // Check for 401 Unauthorized, but ignore for auth endpoints to prevent loops.
+          if (error.response?.statusCode == 401 && !path.contains('/api/auth/Token/refresh')) {
+            // On mobile, only try to refresh if a refresh token exists.
+            if (!kIsWeb) {
+              final prefs = await SharedPreferences.getInstance();
+              if (prefs.getString('refreshToken') == null) {
                 return handler.next(error);
-              }
-
-              // Don't try to refresh if we're already in the process
-              if (_isRefreshing) {
-                // Queue the request for later retry
-                _pendingRequests.add(error.requestOptions);
-                return handler.next(error);
-              }
-
-              // Try to refresh the token
-              try {
-                final refreshed = await refreshToken();
-                if (refreshed) {
-                  // Retry the original request with new token
-                  final response = await _retryRequest(error.requestOptions);
-
-                  // Process any pending requests
-                  _processPendingRequests();
-
-                  return handler.resolve(response);
-                }
-              } catch (e) {
-                if (kDebugMode) {
-                  print('Token refresh error: $e');
-                }
-                // Token refresh failed, let the error propagate
               }
             }
-            return handler.next(error);
-          },
-        ),
-      );
-    }
+
+            if (!_isRefreshing) {
+              _isRefreshing = true;
+
+              try {
+                final refreshed = await _performTokenRefresh();
+                if (refreshed) {
+                  // If refresh is successful, retry the original request.
+                  // The QueuedInterceptorsWrapper will process pending requests.
+                  final response = await _retryRequest(error.requestOptions);
+                  return handler.resolve(response);
+                } else {
+                  // Refresh failed, trigger logout and reject the request.
+                  _onAuthFailure?.call();
+                  return handler.reject(error);
+                }
+              } catch (e) {
+                _onAuthFailure?.call();
+                return handler.reject(error);
+              } finally {
+                // Always reset the flag.
+                _isRefreshing = false;
+              }
+            } else {
+              // A refresh is already in progress. The request is queued.
+              // We retry it, and it will wait for the first refresh to complete.
+              try {
+                final response = await _retryRequest(error.requestOptions);
+                return handler.resolve(response);
+              } on DioException catch (e) {
+                return handler.reject(e);
+              }
+            }
+          }
+          return handler.next(error);
+        },
+      ),
+    );
     return dio;
   }
 
   Future<Response> _retryRequest(RequestOptions requestOptions) async {
-    final prefs = await SharedPreferences.getInstance();
-    final newToken = prefs.getString('accessToken');
-
     final options = Options(
       method: requestOptions.method,
-      headers: {...requestOptions.headers},
+      headers: requestOptions.headers,
     );
 
-    if (!kIsWeb && newToken != null) {
-      options.headers?['Authorization'] = 'Bearer $newToken';
+    // Get the new token for the retry
+    if (!kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      final newAccessToken = prefs.getString('accessToken');
+      if (newAccessToken != null) {
+        options.headers?['Authorization'] = 'Bearer $newAccessToken';
+      }
     }
 
-    return _dio.request(
+    // Use a new Dio instance for retrying to avoid interceptor loops if something goes wrong
+    // Or, more simply, just use the original dio instance but be careful.
+    // Since we're just re-requesting with new headers, using _dio is fine.
+    return _dio.request<dynamic>(
       requestOptions.path,
       data: requestOptions.data,
       queryParameters: requestOptions.queryParameters,
@@ -102,75 +129,81 @@ class ApiClient {
     );
   }
 
-  void _processPendingRequests() async {
-    final requests = List<RequestOptions>.from(_pendingRequests);
-    _pendingRequests.clear();
+  // In lib/data/api_client.dart
 
-    for (var request in requests) {
-      try {
-        await _retryRequest(request);
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error retrying request: $e');
-        }
-      }
-    }
-  }
-
-  Future<bool> refreshToken() async {
-    if (_isRefreshing) return false;
-    _isRefreshing = true;
-
+  Future<bool> _performTokenRefresh() async {
     try {
-      // For web, the cookie is automatically sent
-      // For mobile, we need to send the refresh token
-      final refreshData = <String, dynamic>{};
+      Object? requestData;
 
-      if (!kIsWeb) {
+      if (kIsWeb) {
+        // For web, we don't send a body with a refresh token.
+        // We rely on the HttpOnly cookie being sent automatically by the browser.
+        // However, we send an empty map `{}` as the body, as many backends
+        // require a valid JSON body for POST requests, even if empty.
+        requestData = {};
+      } else {
+        // For mobile, we get the refresh token from local storage.
         final prefs = await SharedPreferences.getInstance();
         final refreshToken = prefs.getString('refreshToken');
         if (refreshToken == null) {
-          _isRefreshing = false;
+          if (kDebugMode) print('No refresh token found on mobile, refresh failed.');
           return false;
         }
-        refreshData['refreshToken'] = refreshToken;
+        requestData = {'refreshToken': refreshToken};
       }
 
-      // Use a direct POST via the configured Dio instance.
-      // The interceptor has checks to avoid loops for the refresh path.
-      final response = await post(
-        '/api/v1/Token/refresh',
-        data: refreshData.isNotEmpty ? refreshData : null,
-      );
+      if (kDebugMode) {
+        print('Attempting token refresh. Platform: ${kIsWeb ? 'Web' : 'Mobile'}.');
+      }
 
+      // Use the main dio instance, as the interceptor handles the recursion check.
+      final response = await _dio.post(
+        '/api/auth/Token/refresh',
+        data: requestData,
+      );
 
       if (kDebugMode) {
         print('Refresh token response: ${response.statusCode}');
       }
 
-      // For mobile, we need to store the new tokens
-      if (!kIsWeb && response.statusCode == 200 && response.data['accessToken'] != null) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('accessToken', response.data['accessToken']);
-        await prefs.setString('refreshToken', response.data['refreshToken']);
-        _isRefreshing = false;
-        return true;
+      if (response.statusCode == 200) {
+        if (!kIsWeb) {
+          // For mobile, store the new tokens.
+          final data = response.data;
+          if (data['accessToken'] != null && data['refreshToken'] != null) {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('accessToken', data['accessToken']);
+            await prefs.setString('refreshToken', data['refreshToken']);
+            if (kDebugMode) print('Mobile tokens refreshed and stored.');
+            return true;
+          }
+        } else {
+          // For web, a 200 OK is enough as cookies are handled by the browser.
+          if (kDebugMode) print('Web token refresh successful (cookies updated by server).');
+          return true;
+        }
       }
-
-      // For web, we just need to check success as cookies are handled automatically
-      if (kIsWeb && response.statusCode == 200) {
-        _isRefreshing = false;
-        return true;
+      // If we reach here, the refresh failed.
+      if (kDebugMode) {
+        print('Token refresh failed with status: ${response.statusCode}. Body: ${response.data}');
       }
-
-      _isRefreshing = false;
       return false;
     } catch (e) {
       if (kDebugMode) {
-        print('Error refreshing token: $e');
+        print('Error exception during token refresh: $e');
       }
-      _isRefreshing = false;
       return false;
+    }
+  }
+
+  /// Manually triggers a token refresh. Used for mobile app resume.
+  Future<bool> refreshToken() async {
+    if (_isRefreshing) return false;
+    _isRefreshing = true;
+    try {
+      return await _performTokenRefresh();
+    } finally {
+      _isRefreshing = false;
     }
   }
 

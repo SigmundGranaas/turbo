@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/widgets/auth/user_profile_screen.dart';
-
+import 'package:map_app/widgets/auth/login_screen.dart';
 import '../../data/auth/auth_providers.dart';
-import 'login_modal.dart';
 
 class AppDrawer extends ConsumerWidget {
   const AppDrawer({super.key});

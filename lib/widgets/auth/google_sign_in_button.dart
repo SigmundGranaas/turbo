@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../data/auth/auth_providers.dart';
 
-class GoogleSignInButton extends ConsumerStatefulWidget {
+class GoogleSignInButton extends ConsumerWidget {
   final bool isLoading;
   final VoidCallback onSignInStarted;
   final VoidCallback onSignInCompleted;
@@ -17,101 +17,73 @@ class GoogleSignInButton extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<GoogleSignInButton> createState() => _GoogleSignInButtonState();
-}
-
-class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
     return SizedBox(
       width: double.infinity,
-      child: ElevatedButton(
-        onPressed: widget.isLoading ? null : _handleGoogleSignIn,
+      child: ElevatedButton.icon(
+        onPressed: isLoading ? null : () => _handleGoogleSignIn(context, ref),
+        icon: isLoading
+            ? SizedBox(
+          height: 24,
+          width: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: colorScheme.primary,
+          ),
+        )
+            : Image.asset(
+          'assets/images/google_icon.webp',
+          height: 24,
+          width: 24,
+        ),
+        label: Text(
+          'Sign in with Google',
+          style: textTheme.labelLarge?.copyWith(
+            color: colorScheme.onSurface,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
         style: ElevatedButton.styleFrom(
-          foregroundColor: colorScheme.onSurface,
+          foregroundColor: colorScheme.primary,
           backgroundColor: colorScheme.surface,
+          disabledBackgroundColor: colorScheme.surface,
           elevation: 0,
-          side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.5)),
-          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
+          side: BorderSide(color: colorScheme.outline.withOpacity(0.5)),
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(28),
           ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (widget.isLoading)
-              SizedBox(
-                height: 18,
-                width: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: colorScheme.primary,
-                ),
-              )
-            else
-              Image.asset(
-                'assets/images/google_icon.webp',
-                height: 24,
-                width: 24,
-              ),
-            const SizedBox(width: 12),
-            Text(
-              'Sign in with Google',
-              style: textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
         ),
       ),
     );
   }
 
-  Future<void> _handleGoogleSignIn() async {
-    widget.onSignInStarted();
-
+  Future<void> _handleGoogleSignIn(BuildContext context, WidgetRef ref) async {
+    onSignInStarted();
     try {
       final authUrl = await ref.read(authStateProvider.notifier).getGoogleAuthUrl();
       final uri = Uri.parse(authUrl);
 
-      if (kDebugMode) {
-        print('Launching Google auth URL: $authUrl');
-      }
-
       if (await canLaunchUrl(uri)) {
-        // On web, this performs a full page redirect. The app will reload on the
-        // callback URL and `initializeAndHandleInitialLink` will process it.
-        // On mobile, this opens the user's default browser. The app's deep link
-        // listener will catch the redirect and `linkStreamHandlerProvider` will process it.
-        await launchUrl(
-          uri,
-          mode: LaunchMode.externalApplication,
-          // This is critical for the web redirect flow to work.
-          webOnlyWindowName: '_self',
-        );
+        await launchUrl(uri, mode: LaunchMode.externalApplication, webOnlyWindowName: '_self');
       } else {
         throw Exception('Could not launch Google auth URL');
       }
 
-      // For web, the sign-in is not "completed" here as a redirect happens.
-      // For mobile, the user is now in the browser, so we can complete the "loading" state.
       if (!kIsWeb) {
-        widget.onSignInCompleted();
+        onSignInCompleted();
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Google sign-in error: $e');
-      }
-      if (mounted) {
+      if (kDebugMode) print('Google sign-in error: $e');
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Sign in failed: ${e.toString()}')),
         );
       }
-      widget.onSignInCompleted();
+      onSignInCompleted();
     }
   }
 }

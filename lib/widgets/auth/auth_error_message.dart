@@ -17,18 +17,15 @@ class AuthErrorMessage extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.error.withValues(alpha: 0.1),
+        color: colorScheme.errorContainer,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: colorScheme.error.withValues(alpha: 0.3),
-        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            Icons.error_outline,
-            color: colorScheme.error,
+            Icons.error_outline_rounded,
+            color: colorScheme.onErrorContainer,
             size: 20,
           ),
           const SizedBox(width: 12),
@@ -36,7 +33,7 @@ class AuthErrorMessage extends StatelessWidget {
             child: Text(
               message,
               style: textTheme.bodyMedium?.copyWith(
-                color: colorScheme.error,
+                color: colorScheme.onErrorContainer,
               ),
             ),
           ),
