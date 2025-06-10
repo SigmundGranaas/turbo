@@ -60,12 +60,13 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
-            height: 64,
+            height: 64, // Match burger menu button height
             child: Card(
               elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)), // Make it pill-shaped
               clipBehavior: Clip.antiAlias,
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center, // Explicitly center children vertically
                 children: [
                   const SizedBox(width: 20),
                   Icon(Icons.search, color: colorScheme.onSurfaceVariant),
@@ -74,11 +75,10 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
                     child: TextField(
                       controller: _controller,
                       focusNode: _focusNode,
-                      textAlignVertical: TextAlignVertical.center,
                       decoration: const InputDecoration(
                         hintText: 'Search places, coordinates...',
                         border: InputBorder.none,
-                        isCollapsed: true,
+                        isCollapsed: true, // This is crucial for vertical centering
                       ),
                       onChanged: (query) => searchNotifier.onSearchChanged(query, searchService),
                     ),
