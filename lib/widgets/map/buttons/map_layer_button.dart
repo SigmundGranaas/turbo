@@ -92,7 +92,7 @@ class LayerSelectionSheet extends ConsumerWidget {
             const SizedBox(height: 16),
 
             SizedBox(
-              height: 160,
+              height: 120,
               child: ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 scrollDirection: Axis.horizontal,
@@ -125,7 +125,7 @@ class LayerSelectionSheet extends ConsumerWidget {
             const SizedBox(height: 16),
 
             SizedBox(
-              height: 160,
+              height: 120,
               child: ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 scrollDirection: Axis.horizontal,
@@ -149,12 +149,12 @@ class LayerSelectionSheet extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _buildSectionHeader(context, 'Overlays')
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: _buildSectionHeader(context, 'Overlays')
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 160,
+              height: 120,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -206,41 +206,39 @@ class LayerSelectionSheet extends ConsumerWidget {
     final textTheme = Theme.of(context).textTheme;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 16),
-      child: Card(
-        elevation: 0,
-        color: isSelected ? colorScheme.secondaryContainer : colorScheme.surfaceContainerLow,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: isSelected ? colorScheme.outline : Colors.transparent,
-            width: isSelected ? 1 : 0,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
+      padding: const EdgeInsets.only(right: 12),
+      child: SizedBox(
+        width: 100,
         child: InkWell(
           onTap: onToggle,
+          borderRadius: BorderRadius.circular(12),
           splashColor: colorScheme.secondaryContainer.withValues(alpha: 0.3),
           child: Container(
-            width: 120,
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            decoration: BoxDecoration(
+              color: isSelected ? colorScheme.secondaryContainer : colorScheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isSelected ? colorScheme.secondary : colorScheme.outline.withValues(alpha: 0.2),
+                width: isSelected ? 1.5 : 1.0,
+              ),
+            ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Spacer(),
                 Icon(
                   icon,
-                  size: 36,
+                  size: 28,
                   color: isSelected
                       ? colorScheme.onSecondaryContainer
                       : colorScheme.onSurfaceVariant,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
                 Text(
                   label,
                   textAlign: TextAlign.center,
-                  style: textTheme.labelLarge?.copyWith(
-                    fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
+                  style: textTheme.bodySmall?.copyWith(
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                     color: isSelected
                         ? colorScheme.onSecondaryContainer
                         : colorScheme.onSurfaceVariant,
@@ -248,7 +246,6 @@ class LayerSelectionSheet extends ConsumerWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const Spacer(),
               ],
             ),
           ),
@@ -265,6 +262,8 @@ class LayerSelectionSheet extends ConsumerWidget {
         return Icons.map;
       case 'gs':
         return Icons.satellite;
+      case 'avalanche_danger':
+        return Icons.ac_unit;
       default:
         return Icons.layers;
     }

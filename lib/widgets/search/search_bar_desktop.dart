@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/data/icon_service.dart';
 import 'package:map_app/data/search/composite_search_service.dart';
 import 'package:map_app/data/search/location_service.dart';
+import 'package:map_app/widgets/map/controller/map_utility.dart';
 import 'package:map_app/widgets/search/search_logic.dart';
 
 class DesktopSearchBar extends ConsumerStatefulWidget {
-  final Function(double, double) onLocationSelected;
+  final MapController mapController;
+  final TickerProvider tickerProvider;
 
   const DesktopSearchBar({
     super.key,
-    required this.onLocationSelected,
+    required this.mapController,
+    required this.tickerProvider,
   });
 
   @override
@@ -41,10 +45,18 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
-    widget.onLocationSelected(suggestion.position.longitude, suggestion.position.latitude);
-    _controller.clear();
-    _focusNode.unfocus();
-    ref.read(searchLogicProvider.notifier).clear();
+    // 1. Immediately fire the animation. It's a "fire-and-forget" call.
+    animatedMapMove(suggestion.position, 13, widget.mapController, widget.tickerProvider);
+
+    // 2. Schedule the UI cleanup to run AFTER the current frame is built.
+    // This is the definitive fix for the gesture cancellation.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.unfocus();
+        _controller.clear();
+        ref.read(searchLogicProvider.notifier).clear();
+      }
+    });
   }
 
   @override
@@ -60,13 +72,13 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
-            height: 64, // Match burger menu button height
+            height: 64,
             child: Card(
               elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)), // Make it pill-shaped
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
               clipBehavior: Clip.antiAlias,
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center, // Explicitly center children vertically
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const SizedBox(width: 20),
                   Icon(Icons.search, color: colorScheme.onSurfaceVariant),
@@ -78,7 +90,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
                       decoration: const InputDecoration(
                         hintText: 'Search places, coordinates...',
                         border: InputBorder.none,
-                        isCollapsed: true, // This is crucial for vertical centering
+                        isCollapsed: true,
                       ),
                       onChanged: (query) => searchNotifier.onSearchChanged(query, searchService),
                     ),
@@ -108,6 +120,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
                 margin: const EdgeInsets.only(top: 8),
                 elevation: 4,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                clipBehavior: Clip.antiAlias, // This fixes the highlight overflow
                 child: Container(
                   constraints: BoxConstraints(
                     maxHeight: MediaQuery.of(context).size.height * 0.5,

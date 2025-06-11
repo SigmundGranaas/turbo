@@ -1,4 +1,5 @@
 import 'package:flutter_map/flutter_map.dart';
+import 'package:map_app/data/layer_preference_service.dart';
 import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_registry_state.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -15,6 +16,14 @@ class TileRegistry extends _$TileRegistry {
       activeLocalIds: [],
       activeOverlayIds: [],
       availableProviders: {},
+    );
+  }
+
+  void _persistState() {
+    ref.read(layerPreferenceServiceProvider).saveLayers(
+      global: state.activeGlobalIds,
+      local: state.activeLocalIds,
+      overlays: state.activeOverlayIds,
     );
   }
 
@@ -49,6 +58,7 @@ class TileRegistry extends _$TileRegistry {
           ? state.activeGlobalIds.where((id) => id != providerId).toList()
           : [...state.activeGlobalIds, providerId],
     );
+    _persistState();
   }
 
   void toggleLocalLayer(String providerId) {
@@ -61,6 +71,7 @@ class TileRegistry extends _$TileRegistry {
           ? state.activeLocalIds.where((id) => id != providerId).toList()
           : [...state.activeLocalIds, providerId],
     );
+    _persistState();
   }
 
   void toggleOverlay(String providerId) {
@@ -72,6 +83,15 @@ class TileRegistry extends _$TileRegistry {
       activeOverlayIds: state.activeOverlayIds.contains(providerId)
           ? state.activeOverlayIds.where((id) => id != providerId).toList()
           : [...state.activeOverlayIds, providerId],
+    );
+    _persistState();
+  }
+
+  void initializeWith(List<String> global, List<String> local, List<String> overlays) {
+    state = state.copyWith(
+      activeGlobalIds: global,
+      activeLocalIds: local,
+      activeOverlayIds: overlays,
     );
   }
 

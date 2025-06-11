@@ -25,28 +25,37 @@ class ViewportMarkers extends ConsumerStatefulWidget {
 class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
   StreamSubscription<MapEvent>? _mapEventSubscription;
   ProviderSubscription<AsyncValue<List<marker_model.Marker>>>? _locationRepositorySubscription;
-
+  bool _isMapReady = false; // Guard flag to ensure map is initialized
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateViewportMarkers();
-
+      // Listen to map events to know when the controller is ready
       _mapEventSubscription = widget.mapController.mapEventStream.listen((event) {
         if (event is MapEventMoveEnd ||
             event is MapEventRotateEnd ||
             event is MapEventFlingAnimationEnd ||
             event is MapEventDoubleTapZoomEnd ||
             event is MapEventScrollWheelZoom) {
+
+          // The first event signifies the map is ready. Set the flag.
+          if (!_isMapReady) {
+            _isMapReady = true;
+          }
+
+          // Now it's safe to update markers.
           _updateViewportMarkers();
         }
       });
 
+      // Listen to data changes (e.g., login, new marker)
       _locationRepositorySubscription = ref.listenManual(locationRepositoryProvider, (prev, next) {
-        _updateViewportMarkers();
+        // IMPORTANT: Only update if the map is ready. This prevents the startup crash.
+        if (_isMapReady) {
+          _updateViewportMarkers();
+        }
       });
-
     });
   }
 
@@ -58,7 +67,9 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
   }
 
   void _updateViewportMarkers() {
-    if (!mounted) return;
+    // A final safety check, though the listeners are now gated.
+    if (!mounted || !_isMapReady) return;
+
     final bounds = widget.mapController.camera.visibleBounds;
     final zoom = widget.mapController.camera.zoom;
     ref.read(viewportMarkerNotifierProvider.notifier).loadMarkersInViewport(bounds, zoom);

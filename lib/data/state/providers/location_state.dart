@@ -1,66 +1,56 @@
 import 'dart:async';
-
-import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:flutter/foundation.dart';
 import 'dart:io';
 
-part 'location_state.g.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 
-@riverpod
-class LocationState extends _$LocationState {
+final locationStateProvider =
+AutoDisposeAsyncNotifierProvider<LocationState, LatLng?>(
+  LocationState.new,
+);
+
+class LocationState extends AutoDisposeAsyncNotifier<LatLng?> {
   StreamSubscription<Position>? _positionSubscription;
 
   @override
-  AsyncValue<LatLng?> build() {
-    _initLocationTracking();
+  Future<LatLng?> build() async {
+    final completer = Completer<LatLng?>();
 
-    // Dispose of the subscription when the provider is disposed
     ref.onDispose(() {
       _positionSubscription?.cancel();
     });
 
-    return const AsyncValue.loading();
+    _setupLocationListener(completer);
+
+    return completer.future;
   }
 
-  Future<void> _initLocationTracking() async {
-    if (!kIsWeb && Platform.isLinux) {
-      state = const AsyncValue.data(null);
-      return;
-    }
-
+  Future<void> _setupLocationListener(Completer<LatLng?> completer) async {
     try {
+      if (!kIsWeb && Platform.isLinux) {
+        if (!completer.isCompleted) completer.complete(null);
+        return;
+      }
+
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        state = const AsyncValue.error(
-          'Location services are disabled',
-          StackTrace.empty,
-        );
-        return;
+        throw Exception('Location services are disabled');
       }
 
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          state = const AsyncValue.error(
-            'Location permissions are denied',
-            StackTrace.empty,
-          );
-          return;
+          throw Exception('Location permissions are denied');
         }
       }
 
       if (permission == LocationPermission.deniedForever) {
-        state = const AsyncValue.error(
-          'Location permissions are permanently denied',
-          StackTrace.empty,
-        );
-        return;
+        throw Exception('Location permissions are permanently denied');
       }
 
-      // Start listening to location updates
       _positionSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -68,31 +58,39 @@ class LocationState extends _$LocationState {
         ),
       ).listen(
             (Position position) {
-          state = AsyncValue.data(
-            LatLng(position.latitude, position.longitude),
-          );
+          final newPosition = LatLng(position.latitude, position.longitude);
+          if (!completer.isCompleted) {
+            completer.complete(newPosition);
+          }
+          state = AsyncData(newPosition);
         },
-        onError: (error) {
-          state = AsyncValue.error(error, StackTrace.current);
+        onError: (error, stackTrace) {
+          if (!completer.isCompleted) {
+            completer.completeError(error, stackTrace);
+          }
+          state = AsyncError(error, stackTrace);
         },
       );
-    } catch (error, stack) {
-      state = AsyncValue.error(error, stack);
+    } catch (e, st) {
+      if (!completer.isCompleted) {
+        completer.completeError(e, st);
+      }
+      state = AsyncError(e, st);
     }
   }
 
   Future<void> requestLocationPermission() async {
-    await _initLocationTracking();
-  }
-
-  Future<AsyncValue<LatLng?>> position() async {
-    return state;
+    ref.invalidateSelf();
+    await future;
   }
 }
 
-// Optional provider for location settings
-@riverpod
-class LocationSettingsProv extends _$LocationSettingsProv{
+final locationSettingsProvProvider =
+AutoDisposeNotifierProvider<LocationSettingsProv, LocationAccuracy>(
+  LocationSettingsProv.new,
+);
+
+class LocationSettingsProv extends AutoDisposeNotifier<LocationAccuracy> {
   @override
   LocationAccuracy build() => LocationAccuracy.high;
 

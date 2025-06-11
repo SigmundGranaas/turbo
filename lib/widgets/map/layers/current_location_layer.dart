@@ -11,10 +11,13 @@ class CurrentLocationLayer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final locationState = ref.watch(locationStateProvider);
 
+    // This .when() block correctly handles all possible states of the AsyncNotifier.
     return locationState.when(
       data: (location) {
+        // If data is available but null (e.g., on Linux), show nothing.
         if (location == null) return const SizedBox.shrink();
 
+        // If we have a location, show the marker.
         return MarkerLayer(
           markers: [
             Marker(
@@ -26,6 +29,7 @@ class CurrentLocationLayer extends ConsumerWidget {
           ],
         );
       },
+      // While loading or if there's an error, show nothing.
       loading: () => const SizedBox.shrink(),
       error: (error, stack) => const SizedBox.shrink(),
     );
@@ -46,16 +50,17 @@ class CurrentLocationMarker extends StatelessWidget {
           height: 32,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.5),
+            color: Colors.lightBlue.withOpacity(0.3),
           ),
         ),
         // Blue dot
         Container(
           width: 16,
           height: 16,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: Colors.lightBlue,
+            border: Border.all(color: Colors.white, width: 2),
           ),
         ),
       ],

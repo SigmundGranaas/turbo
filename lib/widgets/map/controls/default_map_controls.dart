@@ -10,7 +10,7 @@ import '../controller/map_utility.dart';
 List<Widget> defaultMapControls(MapController controller, TickerProvider ticker) {
   final controls = [
     const MapLayerButton(),
-    const LocationButton(),
+    LocationButton(mapController: controller),
     CustomMapCompass(mapController: controller),
     PlusMinusButtons(
       onZoomIn: () => zoomIn(controller, ticker),
@@ -23,9 +23,8 @@ List<Widget> defaultMapControls(MapController controller, TickerProvider ticker)
 List<Widget> defaultMobileMapControls(MapController controller, TickerProvider ticker) {
   final controls = [
     const MapLayerButton(),
-    const LocationButton(),
+    LocationButton(mapController: controller),
     CustomMapCompass(mapController: controller),
   ];
   return controls;
 }
-

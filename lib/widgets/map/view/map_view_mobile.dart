@@ -9,20 +9,20 @@ import 'package:map_app/widgets/search/search_bar_mobile.dart';
 class MobileMapView extends StatelessWidget {
   final GlobalKey<ScaffoldState> scaffoldKey;
   final MapController mapController;
+  final TickerProvider tickerProvider;
   final List<Widget> mapLayers;
   final List<Widget> mapControls;
   final Function(TapPosition, LatLng) onLongPress;
-  final Function(double, double) onLocationSelected;
   final Marker? temporaryPin;
 
   const MobileMapView({
     super.key,
     required this.scaffoldKey,
     required this.mapController,
+    required this.tickerProvider,
     required this.mapLayers,
     required this.mapControls,
     required this.onLongPress,
-    required this.onLocationSelected,
     this.temporaryPin,
   });
 
@@ -47,7 +47,8 @@ class MobileMapView extends StatelessWidget {
             left: 0,
             right: 0,
             child: MobileSearchBar(
-              onLocationSelected: onLocationSelected,
+              mapController: mapController,
+              tickerProvider: tickerProvider,
               onMenuPressed: () => scaffoldKey.currentState?.openDrawer(),
             ),
           ),

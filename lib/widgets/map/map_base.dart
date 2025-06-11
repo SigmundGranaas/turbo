@@ -33,6 +33,7 @@ class MapBase extends ConsumerWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Stack(
+      clipBehavior: Clip.none,
       children: [
         FlutterMap(
           mapController: mapController,

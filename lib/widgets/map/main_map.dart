@@ -9,7 +9,6 @@ import 'package:map_app/widgets/map/view/map_view_mobile.dart';
 import '../../data/model/marker.dart' as marker_model;
 import '../marker/create_location_sheet.dart';
 import 'controller/map_utility.dart';
-import 'controller/provider/map_controller.dart';
 import 'controls/default_map_controls.dart';
 import 'layers/current_location_layer.dart';
 import 'layers/tiles/tile_registry/tile_provider.dart';
@@ -25,19 +24,26 @@ class MapControllerPage extends ConsumerStatefulWidget {
 
 class MapControllerPageState extends ConsumerState<MapControllerPage>
     with TickerProviderStateMixin {
-  late MapController _mapController;
+  late final MapController _mapController;
   Marker? _temporaryPin;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
-    _mapController = ref.read(mapControllerProvProvider.notifier).controller();
+    _mapController = MapController();
   }
 
-  void _onLocationSelected(double east, double north) {
-    animatedMapMove(LatLng(north, east), 13, _mapController, this);
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
   }
+
+  // This function is no longer needed as the search bars will handle animation directly.
+  // void _onLocationSelected(double east, double north) {
+  //   animatedMapMove(LatLng(north, east), 13, _mapController, this);
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -76,20 +82,20 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
           return MobileMapView(
             scaffoldKey: _scaffoldKey,
             mapController: _mapController,
+            tickerProvider: this,
             mapLayers: commonMapLayers,
             mapControls: mapControls,
             onLongPress: (tap, point) => _handleLongPress(context, point),
-            onLocationSelected: _onLocationSelected,
             temporaryPin: _temporaryPin,
           );
         } else {
           return DesktopMapView(
             scaffoldKey: _scaffoldKey,
             mapController: _mapController,
+            tickerProvider: this,
             mapLayers: commonMapLayers,
             mapControls: mapControls,
             onLongPress: (tap, point) => _handleLongPress(context, point),
-            onLocationSelected: _onLocationSelected,
             temporaryPin: _temporaryPin,
           );
         }

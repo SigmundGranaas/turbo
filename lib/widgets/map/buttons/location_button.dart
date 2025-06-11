@@ -5,13 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map_app/widgets/map/controller/map_utility.dart';
+import 'package:flutter_map/flutter_map.dart';
 
 import '../../../data/state/providers/location_state.dart';
-import '../controller/provider/map_controller.dart';
 import 'map_control_button_base.dart';
 
 class LocationButton extends ConsumerStatefulWidget {
-  const LocationButton({super.key});
+  final MapController mapController;
+  const LocationButton({super.key, required this.mapController});
 
   @override
   ConsumerState<LocationButton> createState() => LocationButtonState();
@@ -21,37 +22,37 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
   @override
   Widget build(BuildContext context) {
     return MapControlButtonBase(
-      onPressed: () => _moveToCurrentLocation(context, ref),
+      onPressed: () => _moveToCurrentLocation(),
       child: Icon(Icons.location_on, color: Theme.of(context).colorScheme.primary),
     );
   }
 
-  Future<void> _moveToCurrentLocation(BuildContext context, WidgetRef ref) async {
+  Future<void> _moveToCurrentLocation() async {
     if (!kIsWeb && Platform.isLinux) {
-      _showLinuxDialog(context);
+      _showLinuxDialog();
       return;
     }
 
     try {
-      final position = await _getCurrentPosition(context, ref);
-      if(position != null){
-        final controller = ref.read(mapControllerProvProvider.notifier).controller();
-        animatedMapMove(LatLng(position.latitude, position.longitude), 15, controller, this);
-      }
+      final position = await ref.read(locationStateProvider.future);
 
-        } catch (error) {
-      if (context.mounted) {
-        _showErrorDialog(context, error.toString());
+      if (position != null) {
+        animatedMapMove(position, 15, widget.mapController, this);
+      } else {
+        if (mounted) {
+          _showErrorDialog("Could not determine location.");
+        }
       }
+    } catch (error) {
+      if (mounted) {
+        _showErrorDialog(error.toString());
+      }
+      ref.read(locationStateProvider.notifier).requestLocationPermission();
     }
   }
 
-  Future<LatLng?> _getCurrentPosition(BuildContext context,  WidgetRef ref) async {
-    final future = await ref.read(locationStateProvider.notifier).position();
-    return future.value;
-  }
-
-  void _showLinuxDialog(BuildContext context) {
+  void _showLinuxDialog() {
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -72,7 +73,8 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
     );
   }
 
-  void _showErrorDialog(BuildContext context, String message) {
+  void _showErrorDialog(String message) {
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (BuildContext context) {

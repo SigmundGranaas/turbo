@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:map_app/data/icon_service.dart';
 import 'package:map_app/data/search/composite_search_service.dart';
 import 'package:map_app/data/search/location_service.dart';
+import 'package:map_app/widgets/map/controller/map_utility.dart';
 import 'package:map_app/widgets/search/search_logic.dart';
 
 class MobileSearchBar extends ConsumerStatefulWidget {
-  final Function(double, double) onLocationSelected;
+  final MapController mapController;
+  final TickerProvider tickerProvider;
   final VoidCallback onMenuPressed;
 
   const MobileSearchBar({
     super.key,
-    required this.onLocationSelected,
+    required this.mapController,
+    required this.tickerProvider,
     required this.onMenuPressed,
   });
 
@@ -43,10 +47,18 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
-    widget.onLocationSelected(suggestion.position.longitude, suggestion.position.latitude);
-    _controller.clear();
-    _focusNode.unfocus();
-    ref.read(searchLogicProvider.notifier).clear();
+    // 1. Immediately fire the animation. It's a "fire-and-forget" call.
+    animatedMapMove(suggestion.position, 13, widget.mapController, widget.tickerProvider);
+
+    // 2. Schedule the UI cleanup to run AFTER the current frame is built.
+    // This is the definitive fix for the gesture cancellation.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.unfocus();
+        _controller.clear();
+        ref.read(searchLogicProvider.notifier).clear();
+      }
+    });
   }
 
   @override
@@ -67,7 +79,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
             clipBehavior: Clip.antiAlias,
             child: Row(
               children: [
-                const SizedBox(width: 4), // Add left padding
+                const SizedBox(width: 4),
                 IconButton(
                   icon: Icon(Icons.menu, color: colorScheme.onSurfaceVariant),
                   onPressed: widget.onMenuPressed,
@@ -94,7 +106,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                     },
                     tooltip: 'Clear search',
                   ),
-                const SizedBox(width: 4), // Add right padding
+                const SizedBox(width: 4),
               ],
             ),
           ),
@@ -104,6 +116,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                 margin: const EdgeInsets.only(top: 8),
                 elevation: 4,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                clipBehavior: Clip.antiAlias, // This fixes the highlight overflow
                 child: Container(
                   constraints: BoxConstraints(
                     maxHeight: MediaQuery.of(context).size.height * 0.4,
