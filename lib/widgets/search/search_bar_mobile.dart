@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,7 +6,6 @@ import 'package:map_app/data/icon_service.dart';
 import 'package:map_app/data/search/composite_search_service.dart';
 import 'package:map_app/data/search/location_service.dart';
 import 'package:map_app/widgets/map/controller/map_utility.dart';
-import 'package:map_app/widgets/search/search_logic.dart';
 
 class MobileSearchBar extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -26,7 +26,14 @@ class MobileSearchBar extends ConsumerStatefulWidget {
 class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  final LayerLink _layerLink = LayerLink();
   final IconService _iconService = IconService();
+  final GlobalKey _searchBarKey = GlobalKey(); // Add this key
+
+  OverlayEntry? _overlayEntry;
+  List<LocationSearchResult> _suggestions = [];
+  bool _isLoading = false;
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -39,102 +46,150 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
     _focusNode.removeListener(_onFocusChange);
     _focusNode.dispose();
     _controller.dispose();
+    _debounce?.cancel();
+    _removeOverlay();
     super.dispose();
   }
 
   void _onFocusChange() {
-    ref.read(searchLogicProvider.notifier).setFocus(_focusNode.hasFocus);
+    if (_focusNode.hasFocus) {
+      _showOverlay();
+    } else {
+      // Delay removal to allow tap events to be processed.
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted && !_focusNode.hasFocus) {
+          _removeOverlay();
+        }
+      });
+    }
   }
 
-  void _onSuggestionSelected(LocationSearchResult suggestion) {
-    // 1. Immediately fire the animation. It's a "fire-and-forget" call.
-    animatedMapMove(suggestion.position, 13, widget.mapController, widget.tickerProvider);
+  void _onSearchChanged(String query) {
+    final searchService = ref.read(compositeSearchServiceProvider);
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
 
-    // 2. Schedule the UI cleanup to run AFTER the current frame is built.
-    // This is the definitive fix for the gesture cancellation.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _focusNode.unfocus();
-        _controller.clear();
-        ref.read(searchLogicProvider.notifier).clear();
+    if (query.length < 2) {
+      setState(() {
+        _isLoading = false;
+        _suggestions = [];
+      });
+      _updateOverlay();
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final data = await searchService.findLocationsBy(query);
+        if (mounted) {
+          setState(() {
+            _suggestions = data;
+            _isLoading = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _suggestions = [];
+            _isLoading = false;
+          });
+        }
+      } finally {
+        if (mounted) {
+          _updateOverlay();
+        }
       }
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final searchState = ref.watch(searchLogicProvider);
-    final searchNotifier = ref.read(searchLogicProvider.notifier);
-    final searchService = ref.watch(compositeSearchServiceProvider);
-    final colorScheme = Theme.of(context).colorScheme;
+  void _onSuggestionSelected(LocationSearchResult suggestion) {
+    // Unfocus the text field. This triggers the delayed removal in _onFocusChange.
+    _focusNode.unfocus();
+    _controller.clear();
+    setState(() {
+      _suggestions = [];
+    });
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Card(
+    // Animate the map.
+    animatedMapMove(
+      suggestion.position,
+      13,
+      widget.mapController,
+      widget.tickerProvider,
+    );
+  }
+
+  void _showOverlay() {
+    if (_overlayEntry != null) return;
+    _overlayEntry = _createOverlayEntry();
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _updateOverlay() {
+    _overlayEntry?.markNeedsBuild();
+  }
+
+  OverlayEntry _createOverlayEntry() {
+    return OverlayEntry(
+      builder: (context) {
+        // Get the search bar's size and position from the key
+        final RenderBox? renderBox = _searchBarKey.currentContext?.findRenderObject() as RenderBox?;
+        if (renderBox == null) {
+          return const SizedBox.shrink();
+        }
+
+        final size = renderBox.size;
+        final position = renderBox.localToGlobal(Offset.zero);
+        final screenWidth = MediaQuery.of(context).size.width;
+
+        // Calculate the overlay width with proper constraints
+        final overlayWidth = size.width;
+        final leftOffset = position.dx;
+
+        // Ensure the overlay doesn't go off screen
+        final maxWidth = screenWidth - leftOffset - 16; // 16 for padding
+        final finalWidth = overlayWidth.clamp(0.0, maxWidth);
+
+        return Positioned(
+          left: leftOffset,
+          top: position.dy + size.height + 8.0,
+          child: Material(
             elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             clipBehavior: Clip.antiAlias,
-            child: Row(
-              children: [
-                const SizedBox(width: 4),
-                IconButton(
-                  icon: Icon(Icons.menu, color: colorScheme.onSurfaceVariant),
-                  onPressed: widget.onMenuPressed,
-                  tooltip: 'Open menu',
+            child: Container(
+              width: finalWidth,
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.4,
+                maxWidth: finalWidth,
+              ),
+              child: _suggestions.isEmpty && !_isLoading
+                  ? const SizedBox.shrink()
+                  : _isLoading
+                  ? Container(
+                padding: const EdgeInsets.all(16),
+                child: const Center(
+                  child: CircularProgressIndicator(),
                 ),
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    decoration: const InputDecoration(
-                      hintText: 'Search here',
-                      border: InputBorder.none,
-                    ),
-                    onChanged: (query) => searchNotifier.onSearchChanged(query, searchService),
-                  ),
-                ),
-                if (_focusNode.hasFocus)
-                  IconButton(
-                    icon: Icon(Icons.close, color: colorScheme.onSurfaceVariant),
-                    onPressed: () {
-                      _controller.clear();
-                      searchNotifier.clear();
-                      _focusNode.unfocus();
-                    },
-                    tooltip: 'Clear search',
-                  ),
-                const SizedBox(width: 4),
-              ],
-            ),
-          ),
-          if (searchState.isFocused && searchState.suggestions.isNotEmpty)
-            Flexible(
-              child: Card(
-                margin: const EdgeInsets.only(top: 8),
-                elevation: 4,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                clipBehavior: Clip.antiAlias, // This fixes the highlight overflow
-                child: Container(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.4,
-                  ),
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: searchState.suggestions.length,
-                    itemBuilder: (context, index) {
-                      final suggestion = searchState.suggestions[index];
-                      return _buildSuggestionItem(suggestion);
-                    },
-                  ),
-                ),
+              )
+                  : ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: _suggestions.length,
+                itemBuilder: (context, index) {
+                  final suggestion = _suggestions[index];
+                  return _buildSuggestionItem(suggestion);
+                },
               ),
             ),
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -144,9 +199,67 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
         backgroundColor: Theme.of(context).colorScheme.primaryContainer,
         child: _leadingWidget(suggestion),
       ),
-      title: Text(suggestion.title),
-      subtitle: Text(suggestion.description ?? ''),
+      title: Text(
+        suggestion.title,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: suggestion.description != null
+          ? Text(
+        suggestion.description!,
+        overflow: TextOverflow.ellipsis,
+      )
+          : null,
       onTap: () => _onSuggestionSelected(suggestion),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: CompositedTransformTarget(
+        link: _layerLink,
+        child: Card(
+          key: _searchBarKey, // Add the key here
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+          clipBehavior: Clip.antiAlias,
+          child: Row(
+            children: [
+              const SizedBox(width: 4),
+              IconButton(
+                icon: Icon(Icons.menu, color: colorScheme.onSurfaceVariant),
+                onPressed: widget.onMenuPressed,
+                tooltip: 'Open menu',
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  decoration: const InputDecoration(
+                    hintText: 'Search here',
+                    border: InputBorder.none,
+                  ),
+                  onChanged: _onSearchChanged,
+                ),
+              ),
+              if (_focusNode.hasFocus)
+                IconButton(
+                  icon: Icon(Icons.close, color: colorScheme.onSurfaceVariant),
+                  onPressed: () {
+                    _controller.clear();
+                    _onSearchChanged('');
+                    _focusNode.unfocus();
+                  },
+                  tooltip: 'Clear search',
+                ),
+              const SizedBox(width: 4),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

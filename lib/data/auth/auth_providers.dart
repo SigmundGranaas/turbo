@@ -7,7 +7,7 @@ import 'auth_service.dart';
 
 // The AuthStateNotifier is now the root. It creates and configures its own client.
 final authStateProvider = StateNotifierProvider<AuthStateNotifier, AuthState>((ref) {
-  return AuthStateNotifier(ref);
+  return AuthStateNotifier();
 });
 
 // The AuthService depends on the client that the AuthStateNotifier owns.
@@ -58,7 +58,6 @@ class AuthState {
 }
 
 class AuthStateNotifier extends StateNotifier<AuthState> {
-  final Ref _ref;
   late final ApiClient _apiClient;
   late final AuthService _authService;
   AuthStatus? _previousStatus;
@@ -67,7 +66,7 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   ApiClient get apiClient => _apiClient;
   AuthStatus? get previousAuthStatus => _previousStatus;
 
-  AuthStateNotifier(this._ref) : super(AuthState()) {
+  AuthStateNotifier() : super(AuthState()) {
     // 1. Create the ApiClient instance.
     _apiClient = ApiClient();
     // 2. Set its failure handler to call a method on this notifier instance.
@@ -92,11 +91,32 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   Future<void> initializeAndHandleInitialLink() async {
     _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
     try {
+      // First, handle any potential mobile deep link that might have launched the app.
+      // This is the primary mechanism for the mobile OAuth flow.
+      if (!kIsWeb) {
+        try {
+          final initialLink = await getInitialLink();
+          if (initialLink != null) {
+            if (kDebugMode) print('AuthStateNotifier: Handling initial mobile deep link: $initialLink');
+            handleDeepLinkForProvider(initialLink, this);
+            // If the deep link resulted in authentication, we can return.
+            if (state.status == AuthStatus.authenticated) {
+              return;
+            }
+          }
+        } catch (e) {
+          if (kDebugMode) print('AuthStateNotifier: Error handling initial deep link: $e');
+        }
+      }
+
+      // Now, check the session status. This is the primary method for:
+      // 1. Web: After a successful OAuth redirect, the browser has the session cookie.
+      // 2. Mobile/Web: On subsequent app opens to check for an existing session.
       final isLoggedIn = await _authService.isLoggedIn();
       if (isLoggedIn) {
         final email = await _authService.getUserEmail();
         final isGoogleUser = await _authService.isGoogleUser();
-        final token = await _authService.getAccessToken();
+        final token = await _authService.getAccessToken(); // This is null on web, which is fine
         _updateState(AuthState(
           status: AuthStatus.authenticated,
           email: email,
@@ -105,28 +125,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
         ));
       } else {
         _updateState(AuthState(status: AuthStatus.unauthenticated));
-      }
-
-      // Handle initial link/callback
-      if (kIsWeb) {
-        final uri = Uri.base;
-        if (uri.path.contains('/login/callback')) {
-          if (kDebugMode) print('AuthStateNotifier: Detected initial web callback URL: $uri');
-          final code = uri.queryParameters['code'];
-          if (code != null) {
-            await processOAuthCallback(code);
-          }
-        }
-      } else { // Mobile
-        try {
-          final initialLink = await getInitialLink();
-          if (initialLink != null) {
-            if (kDebugMode) print('AuthStateNotifier: Handling initial mobile deep link: $initialLink');
-            handleDeepLinkForProvider(initialLink, this);
-          }
-        } catch (e) {
-          if (kDebugMode) print('AuthStateNotifier: Error handling initial deep link: $e');
-        }
       }
     } catch (e) {
       _updateState(AuthState(status: AuthStatus.error, errorMessage: 'Initialization failed: $e'));
@@ -176,44 +174,32 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> processOAuthCallback(String code) async {
-    if (state.status != AuthStatus.authenticated) {
-      _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
-    }
+    // This method is now ONLY for mobile.
+    // The web flow is handled by server-side redirects and subsequent cookie-based session validation.
+    if (kIsWeb) return;
+
+    if (state.status == AuthStatus.authenticated) return;
+    _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
 
     try {
+      // The mobile client makes a direct API call and expects a JSON response with tokens.
       final response = await _apiClient.get('/api/auth/OAuth/google/callback', queryParameters: {'code': code});
 
       if (response.statusCode == 200) {
-        if (kIsWeb) {
-          // On web, cookies are set by the browser. We just need to confirm the session.
-          final sessionIsValid = await _authService.isLoggedIn(); // This calls /me
-          if (sessionIsValid) {
-            final email = await _authService.getUserEmail();
-            await _authService.setIsGoogleUser(true); // Manually set flag
-            _updateState(AuthState(
-              status: AuthStatus.authenticated,
-              email: email,
-              isGoogleUser: true,
-            ));
-          } else {
-            throw Exception('OAuth callback processed but session is not valid.');
-          }
-        } else { // Mobile
-          final data = response.data;
-          final String accessToken = data['accessToken'];
-          final String refreshToken = data['refreshToken'];
-          final String email = data['email'];
+        final data = response.data;
+        final String accessToken = data['accessToken'];
+        final String refreshToken = data['refreshToken'];
+        final String email = data['email'];
 
-          await _authService.storeTokens(accessToken, refreshToken);
-          await _authService.setLoginState(email: email, isGoogleUser: true);
+        await _authService.storeTokens(accessToken, refreshToken);
+        await _authService.setLoginState(email: email, isGoogleUser: true);
 
-          _updateState(AuthState(
-            status: AuthStatus.authenticated,
-            email: email,
-            isGoogleUser: true,
-            accessToken: accessToken,
-          ));
-        }
+        _updateState(AuthState(
+          status: AuthStatus.authenticated,
+          email: email,
+          isGoogleUser: true,
+          accessToken: accessToken,
+        ));
       } else {
         String errorMessage = 'Authentication failed during OAuth callback';
         try {
@@ -254,7 +240,7 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
     try {
       final success = await _authService.refreshToken();
       if (!success) {
-        await logout(); // Full logout if refresh fails
+        await logout();
       } else {
         final token = await _authService.getAccessToken();
         _updateState(state.copyWith(accessToken: token));

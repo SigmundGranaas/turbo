@@ -31,8 +31,6 @@ class LoginViewMobile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     final errorMessage = ref.watch(authStateProvider.select((s) => s.errorMessage));
 
     return Scaffold(

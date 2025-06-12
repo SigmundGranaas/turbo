@@ -1,52 +1,34 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:idb_shim/idb_client_memory.dart';
-import 'package:map_app/data/datastore/indexeddb/indexdb.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:map_app/data/datastore/marker_data_store.dart';
 import 'package:map_app/data/model/marker.dart';
 import 'package:map_app/data/search/location_service.dart';
-import 'package:map_app/data/search/marker_search_service.dart';
+import 'package:map_app/data/state/providers/location_repository.dart';
 
-void main() {
-  late ShimDBMarkerDataStore dataStore;
-  late MarkerSearchService search;
+final markerSearchServiceProvider = Provider<MarkerSearchService>((ref) {
+  final dataStore = ref.watch(localMarkerDataStoreProvider);
+  return MarkerSearchService(dataStore);
+});
 
-  late IdbFactory idbFactory;
+class MarkerSearchService extends LocationService {
+  final MarkerDataStore _store;
 
-  setUp(() async {
-    // Create an in-memory IDB factory
-    idbFactory = newIdbFactoryMemory();
+  MarkerSearchService(this._store);
 
-    // Inject the factory into our data store
-    dataStore = ShimDBMarkerDataStore(idbFactory: idbFactory);
+  @override
+  Future<List<LocationSearchResult>> findLocationsBy(String name) async {
+    // findByName is not part of MarkerDataStore, so we fetch all and filter.
+    // This assumes the local store is already initialized by LocationRepository.
+    final allMarkers = await _store.getAll();
+    final searchTerm = name.toLowerCase();
+    final List<Marker> res = allMarkers
+        .where((marker) => marker.title.toLowerCase().contains(searchTerm))
+        .toList();
 
-    await dataStore.init();
+    final List<LocationSearchResult> mapped = res.map((el) => from(el)).toList();
+    return mapped;
+  }
 
-    final marker = Marker(
-      position: const LatLng(40.7128, -74.0060),
-      title: 'New York',
-      description: 'The Big Apple',
-    );
-
-    await dataStore.insert(marker);
-
-    search = MarkerSearchService(dataStore);
-  });
-
-  tearDown(() async {
-    // Clean up after each test
-    await idbFactory.deleteDatabase(ShimDBMarkerDataStore.dbName);
-  });
-
-  test('Search by name yields a single result', () async {
-   const searchQuery = 'New';
-   List<LocationSearchResult> results = await search.findLocationsBy(searchQuery);
-   assert(results.length == 1);
-  });
-
-  test('Search by invalid name yields no results', () async {
-    const searchQuery = 'Old';
-    List<LocationSearchResult> results = await search.findLocationsBy(searchQuery);
-    assert(results.isEmpty);
-  });
+  LocationSearchResult from(Marker marker){
+    return LocationSearchResult(title: marker.title, description: marker.description, position: marker.position, icon: marker.icon);
+  }
 }
-

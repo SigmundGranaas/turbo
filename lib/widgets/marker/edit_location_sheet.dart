@@ -84,7 +84,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
                     icon: const Icon(Icons.close),
                     style: IconButton.styleFrom(
                       foregroundColor: colorScheme.onSurfaceVariant,
-                      backgroundColor: colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                      backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                     ),
                   ),
                 ],
