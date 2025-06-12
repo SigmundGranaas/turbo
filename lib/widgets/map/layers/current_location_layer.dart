@@ -50,7 +50,7 @@ class CurrentLocationMarker extends StatelessWidget {
           height: 32,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.lightBlue.withOpacity(0.3),
+            color: Colors.lightBlue.withValues(alpha: 0.3),
           ),
         ),
         // Blue dot

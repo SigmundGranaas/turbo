@@ -1,4 +1,3 @@
-// FILE: /home/sigmund/Documents/projects/map-app/lib/data/auth/auth_providers.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uni_links/uni_links.dart';
@@ -8,7 +7,7 @@ import 'auth_service.dart';
 
 // The AuthStateNotifier is now the root. It creates and configures its own client.
 final authStateProvider = StateNotifierProvider<AuthStateNotifier, AuthState>((ref) {
-  return AuthStateNotifier(ref);
+  return AuthStateNotifier();
 });
 
 // The AuthService depends on the client that the AuthStateNotifier owns.
@@ -59,7 +58,6 @@ class AuthState {
 }
 
 class AuthStateNotifier extends StateNotifier<AuthState> {
-  final Ref _ref;
   late final ApiClient _apiClient;
   late final AuthService _authService;
   AuthStatus? _previousStatus;
@@ -68,7 +66,7 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   ApiClient get apiClient => _apiClient;
   AuthStatus? get previousAuthStatus => _previousStatus;
 
-  AuthStateNotifier(this._ref) : super(AuthState()) {
+  AuthStateNotifier() : super(AuthState()) {
     // 1. Create the ApiClient instance.
     _apiClient = ApiClient();
     // 2. Set its failure handler to call a method on this notifier instance.

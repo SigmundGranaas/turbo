@@ -24,8 +24,8 @@ class PrimaryButton extends ButtonBase {
       style: ElevatedButton.styleFrom(
         foregroundColor: colorScheme.onPrimary,
         backgroundColor: colorScheme.primary,
-        disabledForegroundColor: colorScheme.onPrimary.withOpacity(0.5),
-        disabledBackgroundColor: colorScheme.primary.withOpacity(0.7),
+        disabledForegroundColor: colorScheme.onPrimary.withValues(alpha: 0.5),
+        disabledBackgroundColor: colorScheme.primary.withValues(alpha: 0.7),
         elevation: 0,
         padding: defaultPadding,
         shape: RoundedRectangleBorder(
