@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,7 +6,6 @@ import 'package:map_app/data/icon_service.dart';
 import 'package:map_app/data/search/composite_search_service.dart';
 import 'package:map_app/data/search/location_service.dart';
 import 'package:map_app/widgets/map/controller/map_utility.dart';
-import 'package:map_app/widgets/search/search_logic.dart';
 
 class DesktopSearchBar extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -24,7 +24,13 @@ class DesktopSearchBar extends ConsumerStatefulWidget {
 class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  final LayerLink _layerLink = LayerLink();
   final IconService _iconService = IconService();
+
+  OverlayEntry? _overlayEntry;
+  List<LocationSearchResult> _suggestions = [];
+  bool _isLoading = false;
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -37,107 +43,121 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
     _focusNode.removeListener(_onFocusChange);
     _focusNode.dispose();
     _controller.dispose();
+    _debounce?.cancel();
+    _removeOverlay();
     super.dispose();
   }
 
   void _onFocusChange() {
-    ref.read(searchLogicProvider.notifier).setFocus(_focusNode.hasFocus);
+    if (_focusNode.hasFocus) {
+      _showOverlay();
+    } else {
+      // Delay removal to allow tap events to be processed.
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted && !_focusNode.hasFocus) {
+          _removeOverlay();
+        }
+      });
+    }
   }
 
-  void _onSuggestionSelected(LocationSearchResult suggestion) {
-    // 1. Immediately fire the animation. It's a "fire-and-forget" call.
-    animatedMapMove(suggestion.position, 13, widget.mapController, widget.tickerProvider);
+  void _onSearchChanged(String query) {
+    final searchService = ref.read(compositeSearchServiceProvider);
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
 
-    // 2. Schedule the UI cleanup to run AFTER the current frame is built.
-    // This is the definitive fix for the gesture cancellation.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _focusNode.unfocus();
-        _controller.clear();
-        ref.read(searchLogicProvider.notifier).clear();
+    if (query.length < 2) {
+      setState(() {
+        _isLoading = false;
+        _suggestions = [];
+      });
+      _updateOverlay();
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final data = await searchService.findLocationsBy(query);
+        if (mounted) {
+          setState(() {
+            _suggestions = data;
+            _isLoading = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _suggestions = [];
+            _isLoading = false;
+          });
+        }
+      } finally {
+        _updateOverlay();
       }
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final searchState = ref.watch(searchLogicProvider);
-    final searchNotifier = ref.read(searchLogicProvider.notifier);
-    final searchService = ref.watch(compositeSearchServiceProvider);
-    final colorScheme = Theme.of(context).colorScheme;
+  void _onSuggestionSelected(LocationSearchResult suggestion) {
+    // Unfocus the text field. This triggers the delayed removal in _onFocusChange.
+    _focusNode.unfocus();
+    _controller.clear();
+    setState(() {
+      _suggestions = [];
+    });
 
-    return SizedBox(
-      width: 450,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            height: 64,
-            child: Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
-              clipBehavior: Clip.antiAlias,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  const SizedBox(width: 20),
-                  Icon(Icons.search, color: colorScheme.onSurfaceVariant),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      focusNode: _focusNode,
-                      decoration: const InputDecoration(
-                        hintText: 'Search places, coordinates...',
-                        border: InputBorder.none,
-                        isCollapsed: true,
-                      ),
-                      onChanged: (query) => searchNotifier.onSearchChanged(query, searchService),
-                    ),
-                  ),
-                  if (searchState.isLoading)
-                    const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5)),
-                    )
-                  else if (_controller.text.isNotEmpty)
-                    IconButton(
-                      icon: Icon(Icons.close, color: colorScheme.onSurfaceVariant),
-                      onPressed: () {
-                        _controller.clear();
-                        searchNotifier.clear();
-                      },
-                      tooltip: 'Clear search',
-                    ),
-                  if (_controller.text.isEmpty && !searchState.isLoading) const SizedBox(width: 12),
-                ],
+    // Animate the map.
+    animatedMapMove(
+      suggestion.position,
+      13,
+      widget.mapController,
+      widget.tickerProvider,
+    );
+  }
+
+  void _showOverlay() {
+    if (_overlayEntry != null) return;
+    _overlayEntry = _createOverlayEntry();
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  void _updateOverlay() {
+    _overlayEntry?.markNeedsBuild();
+  }
+
+  OverlayEntry _createOverlayEntry() {
+    final renderBox = context.findRenderObject() as RenderBox;
+    final size = renderBox.size;
+
+    return OverlayEntry(
+      builder: (context) => Positioned(
+        width: size.width,
+        child: CompositedTransformFollower(
+          link: _layerLink,
+          showWhenUnlinked: false,
+          offset: Offset(0.0, size.height + 8.0),
+          child: Material(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.5),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: _suggestions.length,
+                itemBuilder: (context, index) {
+                  final suggestion = _suggestions[index];
+                  return _buildSuggestionItem(suggestion);
+                },
               ),
             ),
           ),
-          if (searchState.isFocused && searchState.suggestions.isNotEmpty)
-            Flexible(
-              child: Card(
-                margin: const EdgeInsets.only(top: 8),
-                elevation: 4,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                clipBehavior: Clip.antiAlias, // This fixes the highlight overflow
-                child: Container(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.5,
-                  ),
-                  child: ListView.builder(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    itemCount: searchState.suggestions.length,
-                    itemBuilder: (context, index) {
-                      final suggestion = searchState.suggestions[index];
-                      return _buildSuggestionItem(suggestion);
-                    },
-                  ),
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
@@ -151,6 +171,59 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
       title: Text(suggestion.title),
       subtitle: Text(suggestion.description ?? ''),
       onTap: () => _onSuggestionSelected(suggestion),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return CompositedTransformTarget(
+      link: _layerLink,
+      child: SizedBox(
+        width: 450,
+        height: 64,
+        child: Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+          clipBehavior: Clip.antiAlias,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(width: 20),
+              Icon(Icons.search, color: colorScheme.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  decoration: const InputDecoration(
+                    hintText: 'Search places, coordinates...',
+                    border: InputBorder.none,
+                    isCollapsed: true,
+                  ),
+                  onChanged: _onSearchChanged,
+                ),
+              ),
+              if (_isLoading)
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5)),
+                )
+              else if (_controller.text.isNotEmpty)
+                IconButton(
+                  icon: Icon(Icons.close, color: colorScheme.onSurfaceVariant),
+                  onPressed: () {
+                    _controller.clear();
+                    _onSearchChanged('');
+                  },
+                  tooltip: 'Clear search',
+                ),
+              if (_controller.text.isEmpty && !_isLoading) const SizedBox(width: 12),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

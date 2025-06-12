@@ -21,41 +21,42 @@ void main() async {
   );
 }
 
-class MyApp extends ConsumerStatefulWidget { // Changed to ConsumerStatefulWidget
+class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});
 
   @override
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends ConsumerState<MyApp> { // Changed to ConsumerState
+class _MyAppState extends ConsumerState<MyApp> {
 
   @override
   void initState() {
     super.initState();
-    // Initialize auth state and handle initial link/callback.
-    // Done in Future.microtask to ensure it runs after first frame/build.
+    // Use Future.microtask to ensure initialization runs after the first frame.
     Future.microtask(() {
+      // Initialize auth state. This handles initial deep links (for mobile OAuth)
+      // and checks for existing sessions (for both web and mobile).
       ref.read(authStateProvider.notifier).initializeAndHandleInitialLink();
-      // Activate the subsequent link listener.
-      ref.read(linkStreamHandlerProvider);
-    });
 
-    // Eagerly initialize the local marker data store via its provider.
-    Future.microtask(() => ref.read(localMarkerDataStoreProvider).init());
+      // Activate the listener for subsequent deep links (when app is already running).
+      ref.read(linkStreamHandlerProvider);
+
+      // Eagerly initialize the local marker data store.
+      ref.read(localMarkerDataStoreProvider).init();
+    });
   }
 
   @override
-  Widget build(BuildContext context) { // WidgetRef is implicitly available as `ref`
-    // Initialize tiles (this FutureProvider will be kept alive)
+  Widget build(BuildContext context) {
+    // Initialize tiles (this FutureProvider will be kept alive by Riverpod).
     ref.watch(initializeTilesProvider);
 
-    // Watch authStateProvider to rebuild MyApp or parts of it when auth changes.
-    // This line itself doesn't cause issues, it's the modification during init that did.
-    final _ = ref.watch(authStateProvider);
+    // Watch auth state to rebuild when auth status changes.
+    final authState = ref.watch(authStateProvider);
 
     if (kDebugMode) {
-      print("Building MyApp. Auth Status: ${ref.read(authStateProvider).status}");
+      print("Building MyApp. Auth Status: ${authState.status}");
     }
     TextTheme textTheme = createTextTheme(context, "Roboto", "Libre Baskerville");
     MaterialTheme theme = MaterialTheme(textTheme);
@@ -66,10 +67,13 @@ class _MyAppState extends ConsumerState<MyApp> { // Changed to ConsumerState
       theme:  theme.light(),
       darkTheme: theme.dark(),
       themeMode: ThemeMode.system,
+      // The router handles navigation, including the post-OAuth redirect for web.
       routes: {
         '/': (context) => const MapControllerPage(),
-        '/login/callback': (context) => const GoogleAuthCallbackPage(),
+        // This route is hit by the backend redirect for web OAuth flow.
         '/login/success': (context) => const LoginSuccessPage(),
+        // This route might be part of an older flow but is kept for compatibility.
+        '/login/callback': (context) => const GoogleAuthCallbackPage(),
       },
       initialRoute: '/',
     );
