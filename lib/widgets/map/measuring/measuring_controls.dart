@@ -5,6 +5,8 @@ class MeasuringControls extends StatelessWidget {
   final VoidCallback onReset;
   final VoidCallback onUndo;
   final VoidCallback onFinish;
+  final bool canUndo;
+  final bool canReset;
 
   const MeasuringControls({
     super.key,
@@ -12,84 +14,70 @@ class MeasuringControls extends StatelessWidget {
     required this.onReset,
     required this.onUndo,
     required this.onFinish,
+    required this.canUndo,
+    required this.canReset,
   });
 
   @override
   Widget build(BuildContext context) {
-    return  Card(
-        elevation: 3,
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
+    return Card(
+      elevation: 4,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      color: colorScheme.surfaceContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.straighten_outlined, color: colorScheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    'Distance: ',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                  Text(
+                    'Total Distance',
+                    style: textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
                     ),
                   ),
                   Text(
                     '${(distance / 1000).toStringAsFixed(2)} km',
-                    style: TextStyle(
-                      fontSize: 20,
+                    style: textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: Theme.of(context).primaryColor,
+                      color: colorScheme.onSurface,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FilledButton.tonal(
-                    onPressed: onUndo,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.undo, size: 20),
-                        SizedBox(width: 8),
-                        Text('Undo'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  FilledButton.tonal(
-                    onPressed: onReset,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.refresh, size: 20),
-                        SizedBox(width: 8),
-                        Text('Reset'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  FilledButton(
-                    onPressed: onFinish,
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check, size: 20),
-                        SizedBox(width: 8),
-                        Text('Done'),
-                      ],
-                    ),
-                  ),
-                ],
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: canUndo ? onUndo : null,
+              icon: const Icon(Icons.undo),
+              tooltip: 'Undo Last Point',
+            ),
+            IconButton(
+              onPressed: canReset ? onReset : null,
+              icon: const Icon(Icons.delete_sweep_outlined),
+              tooltip: 'Reset Measurement',
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonal(
+              onPressed: onFinish,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
               ),
-            ],
-          ),
+              child: const Text('Done'),
+            ),
+          ],
         ),
-      );
+      ),
+    );
   }
 }

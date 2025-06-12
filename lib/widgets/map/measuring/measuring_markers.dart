@@ -13,6 +13,8 @@ class MeasureMarkers extends StatelessWidget {
     return MarkerLayer(
       markers: points.map((point) {
         return Marker(
+          width: point.type.size,
+          height: point.type.size,
           point: point.point,
           child: TweenAnimationBuilder<double>(
             duration: const Duration(milliseconds: 300),
@@ -21,10 +23,22 @@ class MeasureMarkers extends StatelessWidget {
             builder: (context, value, child) {
               return Transform.scale(
                 scale: value,
-                child: Icon(
-                  point.type.icon,
-                  color: Theme.of(context).primaryColor,
-                  size: 16,
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: point.type.getColor(context),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.surface,
+                      width: 2.0,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 4,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },

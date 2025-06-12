@@ -7,45 +7,37 @@ import 'measure_point_collection.dart';
 class MeasuringState {
   final List<MeasurePoint> points;
   final double totalDistance;
-  final bool isMapReady;
 
   const MeasuringState({
     required this.points,
     required this.totalDistance,
-    required this.isMapReady,
   });
 
   MeasuringState copyWith({
     List<MeasurePoint>? points,
     double? totalDistance,
-    bool? isMapReady,
   }) {
     return MeasuringState(
       points: points ?? this.points,
       totalDistance: totalDistance ?? this.totalDistance,
-      isMapReady: isMapReady ?? this.isMapReady,
     );
   }
 }
 
 class MeasuringStateNotifier extends StateNotifier<MeasuringState> {
   final MeasurePointCollection _pointsManager;
+  final LatLng _initialStartPoint;
 
   MeasuringStateNotifier({
     required LatLng startPoint,
     MeasurePointCollection? pointsManager,
-  }) : _pointsManager = pointsManager ?? MeasurePointCollection(),
+  })  : _pointsManager = pointsManager ?? MeasurePointCollection(),
+        _initialStartPoint = startPoint,
         super(const MeasuringState(
         points: [],
         totalDistance: 0,
-        isMapReady: false,
       )) {
-    _pointsManager.reset(startPoint);
-    _updateState();
-  }
-
-  void setMapReady(bool ready) {
-    state = state.copyWith(isMapReady: ready);
+    reset(); // Initialize with the start point
   }
 
   void addPoint(LatLng point) {
@@ -59,8 +51,8 @@ class MeasuringStateNotifier extends StateNotifier<MeasuringState> {
     }
   }
 
-  void reset(LatLng startPoint) {
-    _pointsManager.reset(startPoint);
+  void reset() {
+    _pointsManager.reset(_initialStartPoint);
     _updateState();
   }
 
