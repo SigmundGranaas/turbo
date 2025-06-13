@@ -2,10 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:map_app/data/icon_service.dart';
-import 'package:map_app/data/search/composite_search_service.dart';
-import 'package:map_app/data/search/location_service.dart';
-import 'package:map_app/widgets/map/controller/map_utility.dart';
+import 'package:turbo/data/icon_service.dart';
+import 'package:turbo/data/search/composite_search_service.dart';
+import 'package:turbo/data/search/location_service.dart';
+import 'package:turbo/widgets/map/controller/map_utility.dart';
 
 class MobileSearchBar extends ConsumerStatefulWidget {
   final MapController mapController;

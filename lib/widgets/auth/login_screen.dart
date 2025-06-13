@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:map_app/data/auth/auth_providers.dart';
-import 'package:map_app/widgets/auth/register_screen.dart';
+import 'package:turbo/data/auth/auth_providers.dart';
+import 'package:turbo/widgets/auth/register_screen.dart';
 
 import 'login_view_desktop.dart';
 import 'login_view_mobile.dart';

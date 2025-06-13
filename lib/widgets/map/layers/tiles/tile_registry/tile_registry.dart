@@ -1,6 +1,6 @@
 import 'package:flutter_map/flutter_map.dart';
-import 'package:map_app/data/layer_preference_service.dart';
-import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_registry_state.dart';
+import 'package:turbo/data/layer_preference_service.dart';
+import 'package:turbo/widgets/map/layers/tiles/tile_registry/tile_registry_state.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'tile_provider.dart';

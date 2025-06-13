@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:map_app/widgets/map/buttons/map_control_button_base.dart';
-import 'package:map_app/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
+import 'package:turbo/widgets/map/buttons/map_control_button_base.dart';
+import 'package:turbo/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
 
 class MapLayerButton extends ConsumerWidget {
   const MapLayerButton({super.key});

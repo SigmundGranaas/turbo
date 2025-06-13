@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:map_app/data/model/marker.dart' as marker_model;
-import 'package:map_app/data/state/providers/location_repository.dart';
+import 'package:turbo/data/model/marker.dart' as marker_model;
+import 'package:turbo/data/state/providers/location_repository.dart';
 
 import '../../../data/icon_service.dart';
 import '../../../data/model/named_icon.dart';

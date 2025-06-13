@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:map_app/data/auth/auth_providers.dart';
-import 'package:map_app/widgets/auth/auth_divider.dart';
-import 'package:map_app/widgets/auth/auth_error_message.dart';
-import 'package:map_app/widgets/auth/auth_footer_link.dart';
-import 'package:map_app/widgets/auth/auth_text_field.dart';
-import 'package:map_app/widgets/auth/google_sign_in_button.dart';
-import 'package:map_app/widgets/auth/password_field.dart';
-import 'package:map_app/widgets/auth/primary_button.dart';
+import 'package:turbo/data/auth/auth_providers.dart';
+import 'package:turbo/widgets/auth/auth_divider.dart';
+import 'package:turbo/widgets/auth/auth_error_message.dart';
+import 'package:turbo/widgets/auth/auth_footer_link.dart';
+import 'package:turbo/widgets/auth/auth_text_field.dart';
+import 'package:turbo/widgets/auth/google_sign_in_button.dart';
+import 'package:turbo/widgets/auth/password_field.dart';
+import 'package:turbo/widgets/auth/primary_button.dart';
 
 class LoginViewMobile extends ConsumerWidget {
   final GlobalKey<FormState> formKey;

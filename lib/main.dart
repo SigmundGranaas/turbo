@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:map_app/theme.dart';
-import 'package:map_app/utils.dart';
-import 'package:map_app/widgets/auth/google_oauth_screen.dart';
-import 'package:map_app/widgets/auth/login_success.dart';
-import 'package:map_app/widgets/map/main_map.dart';
+import 'package:turbo/theme.dart';
+import 'package:turbo/utils.dart';
+import 'package:turbo/widgets/auth/google_oauth_screen.dart';
+import 'package:turbo/widgets/auth/login_success.dart';
+import 'package:turbo/widgets/map/main_map.dart';
 
 import 'data/state/providers/initialize_tiles_provider.dart';
 import 'data/auth/auth_providers.dart'; // For authStateProvider

@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:map_app/data/datastore/marker_data_store.dart';
-import 'package:map_app/data/model/marker.dart';
-import 'package:map_app/data/search/location_service.dart';
-import 'package:map_app/data/state/providers/location_repository.dart';
+import 'package:turbo/data/datastore/marker_data_store.dart';
+import 'package:turbo/data/model/marker.dart';
+import 'package:turbo/data/search/location_service.dart';
+import 'package:turbo/data/state/providers/location_repository.dart';
 
 final markerSearchServiceProvider = Provider<MarkerSearchService>((ref) {
   final dataStore = ref.watch(localMarkerDataStoreProvider);

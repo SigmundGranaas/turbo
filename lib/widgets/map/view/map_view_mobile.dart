@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:map_app/widgets/auth/drawer_widget.dart';
-import 'package:map_app/widgets/map/controls/map_controls.dart';
-import 'package:map_app/widgets/map/map_base.dart';
-import 'package:map_app/widgets/search/search_bar_mobile.dart';
+import 'package:turbo/widgets/auth/drawer_widget.dart';
+import 'package:turbo/widgets/map/controls/map_controls.dart';
+import 'package:turbo/widgets/map/map_base.dart';
+import 'package:turbo/widgets/search/search_bar_mobile.dart';
 
 class MobileMapView extends StatelessWidget {
   final GlobalKey<ScaffoldState> scaffoldKey;

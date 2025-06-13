@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:idb_shim/idb_client_memory.dart';
-import 'package:map_app/data/datastore/indexeddb/indexdb.dart';
-import 'package:map_app/data/model/marker.dart';
+import 'package:turbo/data/datastore/indexeddb/indexdb.dart';
+import 'package:turbo/data/model/marker.dart';
 
 void main() {
   late ShimDBMarkerDataStore dataStore;

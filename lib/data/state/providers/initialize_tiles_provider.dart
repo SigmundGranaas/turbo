@@ -1,6 +1,6 @@
-import 'package:map_app/data/layer_preference_service.dart';
-import 'package:map_app/data/state/providers/tile_cache_path_provider.dart';
-import 'package:map_app/widgets/map/layers/tiles/avalanche_overlay.dart';
+import 'package:turbo/data/layer_preference_service.dart';
+import 'package:turbo/data/state/providers/tile_cache_path_provider.dart';
+import 'package:turbo/widgets/map/layers/tiles/avalanche_overlay.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../widgets/map/layers/tiles/osm_tiles.dart';

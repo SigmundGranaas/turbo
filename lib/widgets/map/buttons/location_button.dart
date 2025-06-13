@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:map_app/widgets/map/controller/map_utility.dart';
+import 'package:turbo/widgets/map/controller/map_utility.dart';
 import 'package:flutter_map/flutter_map.dart';
 
 import '../../../data/state/providers/location_state.dart';
