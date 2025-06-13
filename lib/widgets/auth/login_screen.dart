@@ -11,20 +11,17 @@ import 'login_view_mobile.dart';
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
-  /// Shows the login screen as a responsive dialog or a full-screen page.
   static Future<void> show(BuildContext context) {
-    // Standard breakpoint for mobile/desktop layouts
     final isDesktop = MediaQuery.of(context).size.width > 768;
 
     if (isDesktop) {
       return showDialog(
         context: context,
-        builder: (context) => const Dialog(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: EdgeInsets.all(16),
-          child: SizedBox(
+        builder: (context) => Dialog(
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+          clipBehavior: Clip.antiAlias,
+          child: const SizedBox(
             width: 420,
             child: LoginScreen(),
           ),
@@ -49,7 +46,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // Separate loading states for different actions
   final _isLoading = StateProvider<bool>((ref) => false);
   final _isGoogleLoading = StateProvider<bool>((ref) => false);
 
@@ -60,23 +56,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   void _setupListeners() {
-    // Listener to clear errors when user starts typing
     void clearErrors() => ref.read(authStateProvider.notifier).clearErrors();
     _emailController.addListener(clearErrors);
     _passwordController.addListener(clearErrors);
 
-    // Listener to handle auth state changes (e.g., success, error)
     ref.listenManual<AuthState>(authStateProvider, (previous, next) {
-      // On successful authentication, close the screen
       if (next.status == AuthStatus.authenticated) {
         if (kDebugMode) print("Login successful, closing screen.");
         if (Navigator.of(context).canPop()) {
           Navigator.of(context).pop();
         }
-      }
-      // Optional: Show a snackbar on specific error transitions
-      if (previous?.status == AuthStatus.loading && next.status == AuthStatus.unauthenticated && next.errorMessage != null) {
-        // You could show a snackbar here if desired, but the inline error is often better for forms.
       }
     });
   }
@@ -89,7 +78,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _login() async {
-    // Hide keyboard
     FocusScope.of(context).unfocus();
     if (_formKey.currentState?.validate() ?? false) {
       ref.read(_isLoading.notifier).state = true;
@@ -107,7 +95,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   void _navigateToRegister() {
-    // Pop the current screen before pushing the new one
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }

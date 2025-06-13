@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uni_links/uni_links.dart';
+import 'package:app_links/app_links.dart';
 
 import 'auth_providers.dart';
 
@@ -14,10 +14,10 @@ final linkStreamHandlerProvider = Provider<void>((ref) {
 
   // Listen for subsequent links (if app is already running)
   try {
-    final sub = uriLinkStream.listen((uri) {
-      if (uri != null) {
-        handleDeepLinkForProvider(uri.toString(), authNotifier);
-      }
+    final appLinks = AppLinks();
+    final sub = appLinks.uriLinkStream.listen((uri) {
+      // The stream from app_links emits non-nullable Uri objects.
+      handleDeepLinkForProvider(uri.toString(), authNotifier);
     });
 
     // Cancel the subscription when the provider is disposed

@@ -33,76 +33,81 @@ class LoginViewDesktop extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final errorMessage = ref.watch(authStateProvider.select((s) => s.errorMessage));
+    final errorMessage =
+    ref.watch(authStateProvider.select((s) => s.errorMessage));
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(28),
-      child: Scaffold( // Using Scaffold for consistent background and structure
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(32, 24, 32, 32),
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Align(
-                  alignment: Alignment.topRight,
-                  child: IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.of(context).pop(),
-                    tooltip: 'Close',
-                  ),
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(32, 24, 32, 32),
+        child: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                  tooltip: 'Close',
                 ),
-                Text('Sign in', style: textTheme.headlineMedium),
-                const SizedBox(height: 8),
-                Text('to continue to Turbo', style: textTheme.bodyLarge?.copyWith(color: colorScheme.onSurfaceVariant)),
-                const SizedBox(height: 32),
-                if (errorMessage != null) ...[
-                  AuthErrorMessage(message: errorMessage),
-                  const SizedBox(height: 24),
-                ],
-                AuthTextField(
-                  controller: emailController,
-                  label: 'Email',
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (val) => (val == null || val.isEmpty) ? 'Please enter your email' : null,
-                ),
+              ),
+              Text('Sign in', style: textTheme.headlineMedium),
+              const SizedBox(height: 8),
+              Text('to continue to Turbo',
+                  style: textTheme.bodyLarge
+                      ?.copyWith(color: colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 32),
+              if (errorMessage != null) ...[
+                AuthErrorMessage(message: errorMessage),
                 const SizedBox(height: 24),
-                PasswordField(
-                  controller: passwordController,
-                  label: 'Password',
-                  validator: (val) => (val == null || val.isEmpty) ? 'Please enter your password' : null,
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () { /* TODO: Implement Forgot Password */ },
-                    child: const Text('Forgot Password?'),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                PrimaryButton(
-                  text: 'Sign in',
-                  onPressed: onLogin,
-                  isLoading: ref.watch(isLoadingProvider),
-                ),
-                const SizedBox(height: 24),
-                const AuthDivider(text: 'or'),
-                const SizedBox(height: 24),
-                GoogleSignInButton(
-                  isLoading: ref.watch(isGoogleLoadingProvider),
-                  onSignInStarted: () => ref.read(isGoogleLoadingProvider.notifier).state = true,
-                  onSignInCompleted: () => ref.read(isGoogleLoadingProvider.notifier).state = false,
-                ),
-                const SizedBox(height: 32),
-                AuthFooterLink(
-                  message: 'Don\'t have an account?',
-                  linkText: 'Create account',
-                  onPressed: onNavigateToRegister,
-                ),
               ],
-            ),
+              AuthTextField(
+                controller: emailController,
+                label: 'Email',
+                keyboardType: TextInputType.emailAddress,
+                validator: (val) =>
+                (val == null || val.isEmpty) ? 'Please enter your email' : null,
+              ),
+              const SizedBox(height: 24),
+              PasswordField(
+                controller: passwordController,
+                label: 'Password',
+                validator: (val) => (val == null || val.isEmpty)
+                    ? 'Please enter your password'
+                    : null,
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {},
+                  child: const Text('Forgot Password?'),
+                ),
+              ),
+              const SizedBox(height: 24),
+              PrimaryButton(
+                text: 'Sign in',
+                onPressed: onLogin,
+                isLoading: ref.watch(isLoadingProvider),
+              ),
+              const SizedBox(height: 24),
+              const AuthDivider(text: 'or'),
+              const SizedBox(height: 24),
+              GoogleSignInButton(
+                isLoading: ref.watch(isGoogleLoadingProvider),
+                onSignInStarted: () =>
+                ref.read(isGoogleLoadingProvider.notifier).state = true,
+                onSignInCompleted: () =>
+                ref.read(isGoogleLoadingProvider.notifier).state = false,
+              ),
+              const SizedBox(height: 32),
+              AuthFooterLink(
+                message: 'Don\'t have an account?',
+                linkText: 'Create account',
+                onPressed: onNavigateToRegister,
+              ),
+            ],
           ),
         ),
       ),

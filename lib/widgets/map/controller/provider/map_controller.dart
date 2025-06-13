@@ -1,17 +1,18 @@
 import 'package:flutter_map/flutter_map.dart';
-import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-part 'map_controller.g.dart';
+final mapControllerProvProvider =
+AutoDisposeNotifierProvider<MapControllerProv, MapControllerState>(
+  MapControllerProv.new,
+);
 
-
-@riverpod
-class MapControllerProv extends _$MapControllerProv {
+class MapControllerProv extends AutoDisposeNotifier<MapControllerState> {
   @override
   MapControllerState build() {
     return MapControllerState(MapController());
   }
 
-  MapController controller(){
+  MapController controller() {
     return state.controller;
   }
 }

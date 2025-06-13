@@ -1,14 +1,16 @@
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/layer_preference_service.dart';
 import 'package:turbo/widgets/map/layers/tiles/tile_registry/tile_registry_state.dart';
-import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'tile_provider.dart';
 
-part 'tile_registry.g.dart';
+final tileRegistryProvider =
+AutoDisposeNotifierProvider<TileRegistry, TileRegistryState>(
+  TileRegistry.new,
+);
 
-@riverpod
-class TileRegistry extends _$TileRegistry {
+class TileRegistry extends AutoDisposeNotifier<TileRegistryState> {
   @override
   TileRegistryState build() {
     return const TileRegistryState(
@@ -123,26 +125,23 @@ class TileRegistry extends _$TileRegistry {
   }
 }
 
-@riverpod
-List<TileProviderWrapper> globalLayers(GlobalLayersRef ref) {
+final globalLayersProvider = AutoDisposeProvider<List<TileProviderWrapper>>((ref) {
   final registry = ref.watch(tileRegistryProvider);
   return registry.availableProviders.values
       .where((provider) => provider.category == TileCategory.global)
       .toList();
-}
+});
 
-@riverpod
-List<TileProviderWrapper> localLayers(LocalLayersRef ref) {
+final localLayersProvider = AutoDisposeProvider<List<TileProviderWrapper>>((ref) {
   final registry = ref.watch(tileRegistryProvider);
   return registry.availableProviders.values
       .where((provider) => provider.category == TileCategory.local)
       .toList();
-}
+});
 
-@riverpod
-List<TileProviderWrapper> overlayLayers(OverlayLayersRef ref) {
+final overlayLayersProvider = AutoDisposeProvider<List<TileProviderWrapper>>((ref) {
   final registry = ref.watch(tileRegistryProvider);
   return registry.availableProviders.values
       .where((provider) => provider.category == TileCategory.overlay)
       .toList();
-}
+});

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// A reusable divider with centered text, commonly used in auth forms
 class AuthDivider extends StatelessWidget {
   final String text;
 
@@ -16,7 +15,7 @@ class AuthDivider extends StatelessWidget {
 
     return Row(
       children: [
-        Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
+        Expanded(child: Divider(color: colorScheme.outlineVariant)),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Text(
@@ -26,7 +25,7 @@ class AuthDivider extends StatelessWidget {
             ),
           ),
         ),
-        Expanded(child: Divider(color: colorScheme.outline.withValues(alpha: 0.5))),
+        Expanded(child: Divider(color: colorScheme.outlineVariant)),
       ],
     );
   }

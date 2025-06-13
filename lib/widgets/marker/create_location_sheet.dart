@@ -14,7 +14,8 @@ class CreateLocationSheet extends ConsumerStatefulWidget {
   const CreateLocationSheet({super.key, this.newLocation});
 
   @override
-  ConsumerState<CreateLocationSheet> createState() => CreateLocationSheetState();
+  ConsumerState<CreateLocationSheet> createState() =>
+      CreateLocationSheetState();
 }
 
 class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
@@ -27,8 +28,8 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   @override
   void initState() {
     super.initState();
-    // Initialize with a default icon or the first from IconService
-    _selectedIcon = IconService().getAllIcons().firstOrNull ?? const NamedIcon(title: 'Default', icon: Icons.help_outline);
+    _selectedIcon = IconService().getAllIcons().firstOrNull ??
+        const NamedIcon(title: 'Default', icon: Icons.help_outline);
     _nameController = TextEditingController();
     _descriptionController = TextEditingController();
   }
@@ -42,73 +43,47 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final viewInsets = MediaQuery.of(context).viewInsets;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-        left: 24,
-        right: 24,
-        top: 12,
-      ),
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + viewInsets.bottom),
       child: Form(
         key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Center(
-                child: Container(
-                  width: 32,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colorScheme.outlineVariant,
-                    borderRadius: BorderRadius.circular(2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('New Marker', style: textTheme.titleLarge),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: LocationFormFields(
+                    nameController: _nameController,
+                    descriptionController: _descriptionController,
+                    selectedIcon: _selectedIcon,
+                    onIconSelected: (icon) =>
+                        setState(() => _selectedIcon = icon),
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'New Marker',
-                    style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                    style: IconButton.styleFrom(
-                      foregroundColor: colorScheme.onSurfaceVariant,
-                      backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              LocationFormFields(
-                nameController: _nameController,
-                descriptionController: _descriptionController,
-                selectedIcon: _selectedIcon,
-                onIconSelected: (icon) => setState(() => _selectedIcon = icon),
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                child: PrimaryButton(
-                  text: 'Save Marker',
-                  onPressed: _isLoading ? null : _saveLocation,
-                  isLoading: _isLoading,
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
+            ),
+            PrimaryButton(
+              text: 'Save Marker',
+              onPressed: _isLoading ? null : _saveLocation,
+              isLoading: _isLoading,
+            ),
+          ],
         ),
       ),
     );
@@ -123,16 +98,17 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
 
         final newMarker = Marker(
           title: _nameController.text,
-          description: _descriptionController.text.isEmpty ? null : _descriptionController.text,
+          description: _descriptionController.text.isEmpty
+              ? null
+              : _descriptionController.text,
           icon: _selectedIcon.title,
           position: widget.newLocation!,
-          // `synced` will be handled by the repository
         );
 
         await locationNotifier.addMarker(newMarker);
 
         if (!mounted) return;
-        Navigator.of(context).pop(newMarker); // Pass back the created marker
+        Navigator.of(context).pop(newMarker);
       } catch (e) {
         if (!mounted) return;
         _showErrorSnackBar(context, e.toString());
@@ -150,16 +126,11 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
     final colorScheme = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.error_outline, color: colorScheme.onErrorContainer),
-            const SizedBox(width: 16),
-            Expanded(child: Text(message)),
-          ],
-        ),
+        content: Text(message),
         behavior: SnackBarBehavior.floating,
         backgroundColor: colorScheme.errorContainer,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         margin: const EdgeInsets.all(16),
       ),
     );

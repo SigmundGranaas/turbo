@@ -2,27 +2,26 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/auth/auth_providers.dart';
-import 'package:turbo/widgets/auth/register_view_desktop.dart';
-import 'package:turbo/widgets/auth/register_view_mobile.dart';
 
 import 'login_screen.dart';
+import 'register_view_desktop.dart';
+import 'register_view_mobile.dart';
+
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
-  /// Shows the register screen as a responsive dialog or a full-screen page.
   static Future<void> show(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width > 768;
 
     if (isDesktop) {
       return showDialog(
         context: context,
-        builder: (context) => const Dialog(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: EdgeInsets.all(16),
-          child: SizedBox(
+        builder: (context) => Dialog(
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+          clipBehavior: Clip.antiAlias,
+          child: const SizedBox(
             width: 420,
             child: RegisterScreen(),
           ),

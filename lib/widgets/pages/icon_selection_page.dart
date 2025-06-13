@@ -10,9 +10,11 @@ class IconSelectionPage extends StatefulWidget {
   @override
   State<IconSelectionPage> createState() => _IconSelectionPageState();
 
-  static Future<NamedIcon?> show(BuildContext context, IconService iconService) {
+  static Future<NamedIcon?> show(
+      BuildContext context, IconService iconService) {
     return Navigator.of(context).push<NamedIcon?>(
-      MaterialPageRoute(builder: (context) => IconSelectionPage(iconService: iconService)),
+      MaterialPageRoute(
+          builder: (context) => IconSelectionPage(iconService: iconService)),
     );
   }
 }
@@ -27,13 +29,16 @@ class _IconSelectionPageState extends State<IconSelectionPage> {
     super.initState();
     _icons = widget.iconService.getAllIcons();
     _filteredIcons = _icons;
+    _searchController.addListener(() {
+      _filterIcons(_searchController.text);
+    });
   }
 
   void _filterIcons(String query) {
     setState(() {
       _filteredIcons = _icons
-          .where((icon) =>
-          icon.title.toLowerCase().contains(query.toLowerCase()))
+          .where(
+              (icon) => icon.title.toLowerCase().contains(query.toLowerCase()))
           .toList();
     });
   }
@@ -42,31 +47,44 @@ class _IconSelectionPageState extends State<IconSelectionPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text('Ikoner', style: TextStyle(fontWeight: FontWeight.bold),),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
+        title: const Text('Select an Icon'),
       ),
       body: Column(
         children: [
-          IconSearchBar(
-            controller: _searchController,
-            onChanged: _filterIcons,
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: SearchBar(
+              controller: _searchController,
+              hintText: 'Search icons...',
+              leading: const Icon(Icons.search),
+              trailing: [
+                if (_searchController.text.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () {
+                      _searchController.clear();
+                      FocusScope.of(context).unfocus();
+                    },
+                  )
+              ],
+            ),
           ),
           Expanded(
             child: _filteredIcons.isEmpty
-                ? const Center(child: Text('Ingen resultater'))
-                : IconGrid(
-              icons: _filteredIcons,
-              onIconSelected: (icon) => Navigator.pop(context, icon),
-            ),
+                ? const Center(child: Text('No icons found.'))
+                : LayoutBuilder(builder: (context, constraints) {
+              if (constraints.maxWidth < 600) {
+                return IconGrid(
+                  icons: _filteredIcons,
+                  onIconSelected: (icon) => Navigator.pop(context, icon),
+                );
+              } else {
+                return IconList(
+                  icons: _filteredIcons,
+                  onIconSelected: (icon) => Navigator.pop(context, icon),
+                );
+              }
+            }),
           ),
         ],
       ),
@@ -80,43 +98,9 @@ class _IconSelectionPageState extends State<IconSelectionPage> {
   }
 }
 
-class IconSearchBar extends StatelessWidget {
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-
-  const IconSearchBar({
-    super.key,
-    required this.controller,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: TextField(
-        controller: controller,
-        decoration: InputDecoration(
-          hintText: 'Søk på ikoner',
-          prefixIcon: const Icon(Icons.search),
-          filled: true,
-          fillColor: Colors.grey[200],
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(30),
-            borderSide: BorderSide.none,
-          ),
-        ),
-        onChanged: onChanged,
-      ),
-    );
-  }
-}
-
 class IconGrid extends StatelessWidget {
   final List<NamedIcon> icons;
   final ValueChanged<NamedIcon> onIconSelected;
-  final double itemSize = 64.0;
-  final double iconSize = 32.0;
 
   const IconGrid({
     super.key,
@@ -126,27 +110,19 @@ class IconGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final int crossAxisCount = (constraints.maxWidth / itemSize).floor();
-
-        return GridView.builder(
-          padding: const EdgeInsets.all(8),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            childAspectRatio: 1,
-            crossAxisSpacing: 0,
-            mainAxisSpacing: 0,
-          ),
-          itemCount: icons.length,
-          itemBuilder: (context, index) {
-            return IconGridItem(
-              icon: icons[index],
-              itemSize: itemSize,
-              iconSize: iconSize,
-              onTap: () => onIconSelected(icons[index]),
-            );
-          },
+    return GridView.builder(
+      padding: const EdgeInsets.all(12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        childAspectRatio: 1,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: icons.length,
+      itemBuilder: (context, index) {
+        return IconGridItem(
+          icon: icons[index],
+          onTap: () => onIconSelected(icons[index]),
         );
       },
     );
@@ -155,57 +131,61 @@ class IconGrid extends StatelessWidget {
 
 class IconGridItem extends StatelessWidget {
   final NamedIcon icon;
-  final double itemSize;
-  final double iconSize;
   final VoidCallback onTap;
 
   const IconGridItem({
     super.key,
     required this.icon,
-    required this.itemSize,
-    required this.iconSize,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: Semantics(
-        button: true,
-        label: 'Select ${icon.title} icon',
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            hoverColor: Colors.blue.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
-              width: itemSize,
-              height: itemSize,
-              padding: const EdgeInsets.all(4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    icon.icon,
-                    size: iconSize,
-                    color: Colors.grey[600],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    icon.title,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 10),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
+    final textTheme = Theme.of(context).textTheme;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon.icon, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            icon.title,
+            textAlign: TextAlign.center,
+            style: textTheme.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-        ),
+        ],
       ),
+    );
+  }
+}
+
+class IconList extends StatelessWidget {
+  final List<NamedIcon> icons;
+  final ValueChanged<NamedIcon> onIconSelected;
+
+  const IconList({
+    super.key,
+    required this.icons,
+    required this.onIconSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      itemCount: icons.length,
+      itemBuilder: (context, index) {
+        final icon = icons[index];
+        return ListTile(
+          leading: Icon(icon.icon),
+          title: Text(icon.title),
+          onTap: () => onIconSelected(icon),
+        );
+      },
     );
   }
 }

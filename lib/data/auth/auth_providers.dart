@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
-import 'package:uni_links/uni_links.dart';
+import 'package:app_links/app_links.dart';
 import '../api_client.dart';
 import 'auth_init_provider.dart';
 import 'auth_service.dart';
@@ -95,8 +95,10 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
       // This is the primary mechanism for the mobile OAuth flow.
       if (!kIsWeb) {
         try {
-          final initialLink = await getInitialLink();
-          if (initialLink != null) {
+          final appLinks = AppLinks();
+          final initialUri = await appLinks.getInitialLink();
+          if (initialUri != null) {
+            final initialLink = initialUri.toString();
             if (kDebugMode) print('AuthStateNotifier: Handling initial mobile deep link: $initialLink');
             handleDeepLinkForProvider(initialLink, this);
             // If the deep link resulted in authentication, we can return.

@@ -1,4 +1,4 @@
-package com.sigmundgranaas.map_app
+package com.sigmundgranaas.turbo
 
 import io.flutter.embedding.android.FlutterActivity
 

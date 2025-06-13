@@ -11,23 +11,32 @@ class SecondaryButton extends ButtonBase {
   });
 
   @override
+  EdgeInsetsGeometry get defaultPadding =>
+      const EdgeInsets.symmetric(vertical: 12, horizontal: 24);
+
+  @override
   Widget buildButton(BuildContext context) {
-    final buttonStyle = TextButton.styleFrom(
-      foregroundColor: Colors.blue.shade700,
-      padding: defaultPadding,
-      shape: RoundedRectangleBorder(
-        borderRadius: borderRadius,
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return OutlinedButton(
+      onPressed: isLoading || onPressed == null ? null : onPressed,
+      style: OutlinedButton.styleFrom(
+        padding: defaultPadding,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(100),
+        ),
+        side: BorderSide(color: colorScheme.outline),
       ),
-    );
-
-    Widget buttonChild = isLoading
-        ? buildLoadingIndicator(Colors.blue.shade700)
-        : Text(text, style: textStyle);
-
-    return TextButton(
-      onPressed: isLoading ? null : onPressed,
-      style: buttonStyle,
-      child: buttonChild,
+      child: isLoading
+          ? buildLoadingIndicator(colorScheme.primary)
+          : Text(
+        text,
+        style: textTheme.labelLarge?.copyWith(
+          color: colorScheme.primary,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }

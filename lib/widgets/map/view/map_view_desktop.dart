@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/widgets/auth/drawer_widget.dart';
+import 'package:turbo/widgets/map/buttons/map_control_button_base.dart';
 import 'package:turbo/widgets/map/controls/map_controls.dart';
 import 'package:turbo/widgets/map/map_base.dart';
 import 'package:turbo/widgets/search/search_bar_desktop.dart';
@@ -45,34 +46,19 @@ class DesktopMapView extends StatelessWidget {
           MapControls(controls: mapControls),
           Positioned(
             top: 16,
-            left: 16 + 64 + 16, // Padded to the right of the menu button
-            child: DesktopSearchBar(
-              mapController: mapController,
-              tickerProvider: tickerProvider,
-            ),
-          ),
-          Positioned(
             left: 16,
-            top: 16,
-            child: SizedBox(
-              width: 64,
-              height: 64,
-              child: Card(
-                elevation: 4,
-                shape: const CircleBorder(),
-                child: ClipOval(
-                  child: Material(
-                    color: colorScheme.surface,
-                    child: InkWell(
-                      onTap: () => scaffoldKey.currentState?.openDrawer(),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Icon(Icons.menu, color: colorScheme.primary),
-                      ),
-                    ),
-                  ),
+            child: Row(
+              children: [
+                MapControlButtonBase(
+                  onPressed: () => scaffoldKey.currentState?.openDrawer(),
+                  child: Icon(Icons.menu, color: colorScheme.primary),
                 ),
-              ),
+                const SizedBox(width: 8),
+                DesktopSearchBar(
+                  mapController: mapController,
+                  tickerProvider: tickerProvider,
+                ),
+              ],
             ),
           ),
         ],
