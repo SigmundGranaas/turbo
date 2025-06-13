@@ -19,6 +19,7 @@ class PlusMinusButtons extends StatelessWidget {
     return Card(
       elevation: 4,
       shape:  RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+      color: Theme.of(context).colorScheme.surfaceContainer,
       child: Padding(
         padding: EdgeInsets.all(paddingSize),
         child: Column(

@@ -29,7 +29,6 @@ class ViewportMarkerNotifier extends StateNotifier<AsyncValue<List<Marker>>> {
 
   ApiLocationService get _apiService => _ref.read(apiLocationServiceProvider);
   AuthStatus get _authStatus => _ref.watch(authStateProvider).status;
-  MarkerDataStore get _localStore => _ref.read(localMarkerDataStoreProvider);
 
   void loadMarkersInViewport(fm.LatLngBounds bounds, double currentZoom) {
     _debounceTimer?.cancel();
@@ -61,10 +60,8 @@ class ViewportMarkerNotifier extends StateNotifier<AsyncValue<List<Marker>>> {
         if (_authStatus == AuthStatus.authenticated) {
           markers = await _apiService.getLocationsInExtent(querySW, queryNE);
         } else {
-          // Ensure local store is initialized before use if not already handled
-          // This is typically handled by LocationRepository, but good to be safe
-          // await _localStore.init(); // Might be redundant if LocationRepository initializes it first
-          markers = await _localStore.findInBounds(querySW, queryNE);
+          final localStore = await _ref.read(localMarkerDataStoreProvider.future);
+          markers = await localStore.findInBounds(querySW, queryNE);
         }
         _viewportCache[cacheKey] = markers;
         _viewportCacheTimestamps[cacheKey] = DateTime.now();
@@ -84,7 +81,6 @@ class ViewportMarkerNotifier extends StateNotifier<AsyncValue<List<Marker>>> {
   void invalidateCache() {
     _viewportCache.clear();
     _viewportCacheTimestamps.clear();
-    // Optionally trigger a reload if current bounds are known
   }
 
 

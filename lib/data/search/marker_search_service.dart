@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:turbo/data/datastore/marker_data_store.dart';
 import 'package:turbo/data/search/location_service.dart';
 import 'package:turbo/data/state/providers/location_repository.dart';
 
@@ -14,23 +14,38 @@ class MarkerSearchService extends LocationService {
 
   MarkerSearchService(this._ref);
 
-  MarkerDataStore get _store => _ref.read(localMarkerDataStoreProvider);
-
   @override
   Future<List<LocationSearchResult>> findLocationsBy(String name) async {
-    // findByName is not part of MarkerDataStore, so we fetch all and filter.
-    // This assumes the local store is already initialized by LocationRepository.
-    final allMarkers = await _store.getAll();
-    final searchTerm = name.toLowerCase();
-    final List<Marker> res = allMarkers
-        .where((marker) => marker.title.toLowerCase().contains(searchTerm))
-        .toList();
+    try {
+      // Safely await the fully initialized data store.
+      final store = await _ref.read(localMarkerDataStoreProvider.future);
 
-    final List<LocationSearchResult> mapped = res.map((el) => from(el)).toList();
-    return mapped;
+      final allMarkers = await store.getAll();
+      final searchTerm = name.toLowerCase();
+      final List<Marker> res = allMarkers
+          .where((marker) => marker.title.toLowerCase().contains(searchTerm))
+          .toList();
+
+      final List<LocationSearchResult> mapped = res.map((el) => from(el)).toList();
+      return mapped;
+    } catch (e) {
+      // If the database fails, we don't want to crash the search.
+      // Just return no local results.
+      if (kDebugMode) {
+        print("Error searching local markers: $e");
+      }
+      return [];
+    }
   }
 
   LocationSearchResult from(Marker marker){
-    return LocationSearchResult(title: marker.title, description: marker.description, position: marker.position, icon: marker.icon);
+    // Added source for better debugging and potential UI differentiation
+    return LocationSearchResult(
+        title: marker.title,
+        description: marker.description,
+        position: marker.position,
+        icon: marker.icon,
+        source: 'local'
+    );
   }
 }

@@ -26,7 +26,7 @@ class MapControlButtonBase extends StatelessWidget {
         shape: const CircleBorder(),
         child: ClipOval(
           child: Material(
-            color: Theme.of(context).colorScheme.surface,
+            color: Theme.of(context).colorScheme.surfaceContainer,
             child: InkWell(
               onTap: onPressed,
               child: Padding(

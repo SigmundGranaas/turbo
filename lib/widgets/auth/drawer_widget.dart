@@ -54,7 +54,7 @@ class AppDrawer extends ConsumerWidget {
           else
             ListTile(
               leading: const Icon(Icons.login),
-              title: const Text('Login / Sign Up'),
+              title: const Text('Login'),
               onTap: () {
                 Navigator.pop(context);
                 LoginScreen.show(context);
