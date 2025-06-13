@@ -15,8 +15,6 @@ class KartverketLocationService extends LocationService {
       final encodedName = Uri.encodeComponent(name);
       final uri = Uri.parse('$baseUrl?sok=$encodedName*&fuzzy=true&treffPerSide=10');
 
-      print('Searching Kartverket: $uri');
-
       final response = await http.get(uri);
 
       if (response.statusCode == 200) {
@@ -25,15 +23,12 @@ class KartverketLocationService extends LocationService {
         final json = jsonDecode(decodedBody);
         final List<dynamic> navnList = json['navn'] ?? [];
 
-        print('Kartverket returned ${navnList.length} results');
 
         return navnList.map((item) => _parseLocation(item)).toList();
       } else {
-        print('Kartverket API error: ${response.statusCode} - ${response.reasonPhrase}');
         return [];
       }
     } catch (e) {
-      print('Error searching Kartverket: $e');
       return [];
     }
   }
