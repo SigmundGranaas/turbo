@@ -5,7 +5,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/data/auth/auth_providers.dart';
 import 'package:turbo/data/datastore/api_location_service.dart';
 import 'package:turbo/data/model/marker.dart';
-import 'package:turbo/data/datastore/marker_data_store.dart';
 import 'location_repository.dart';
 
 String _boundsToCacheKey(fm.LatLngBounds bounds, double zoom) {

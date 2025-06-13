@@ -101,8 +101,6 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
 
   @override
   Widget build(BuildContext context) {
-    final searchState = ref.watch(searchProvider);
-
     return CompositedTransformTarget(
       link: _layerLink,
       child: SizedBox(
