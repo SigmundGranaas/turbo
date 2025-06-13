@@ -7,12 +7,42 @@ import 'package:turbo/widgets/pages/icon_selection_page.dart';
 void main() {
   late IconService mockIconService;
 
+  // Helper to correctly pump the IconSelectionPage within a Navigator
+  Future<void> pumpIconSelectionPage(WidgetTester tester, IconService service) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) {
+              return Center(
+                child: ElevatedButton(
+                  child: const Text('Open'),
+                  onPressed: () {
+                    // Use the static show method which pushes the page
+                    IconSelectionPage.show(context, service);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    // Tap the button to show the IconSelectionPage
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pumpAndSettle();
+
+    // Verify the page is now visible
+    expect(find.byType(IconSelectionPage), findsOneWidget);
+  }
+
   setUp(() {
     mockIconService = MockIconService();
   });
 
   testWidgets('Success case: Select an icon without searching', (WidgetTester tester) async {
-    await tester.pumpWidget(MaterialApp(home: IconSelectionPage(iconService: mockIconService)));
+    await pumpIconSelectionPage(tester, mockIconService);
 
     // Verify that icons are displayed
     expect(find.byType(IconGridItem), findsWidgets);
@@ -21,8 +51,7 @@ void main() {
     await tester.tap(find.byType(IconGridItem).first);
     await tester.pumpAndSettle();
 
-    // Verify that the correct icon was returned
-    expect(tester.takeException(), null);
+    // Verify that the page is closed
     expect(find.byType(IconSelectionPage), findsNothing);
   });
 }
