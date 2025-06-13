@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:map_app/data/search/api/kartverket_stedsnavn.dart';
-import 'package:map_app/data/search/kartverket_location_service.dart';
+import 'package:turbo/data/search/api/kartverket_stedsnavn.dart';
+import 'package:turbo/data/search/kartverket_location_service.dart';
 
 void main() {
   group('KartverketLocationService', () {

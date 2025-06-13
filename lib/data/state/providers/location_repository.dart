@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:map_app/data/auth/auth_providers.dart';
-import 'package:map_app/data/datastore/api_location_service.dart';
-import 'package:map_app/data/datastore/indexeddb/indexdb.dart';
-import 'package:map_app/data/datastore/marker_data_store.dart';
-import 'package:map_app/data/datastore/sqlite/sqlite_marker_datastore.dart';
-import 'package:map_app/data/model/marker.dart';
+import 'package:turbo/data/auth/auth_providers.dart';
+import 'package:turbo/data/datastore/api_location_service.dart';
+import 'package:turbo/data/datastore/indexeddb/indexdb.dart';
+import 'package:turbo/data/datastore/marker_data_store.dart';
+import 'package:turbo/data/datastore/sqlite/sqlite_marker_datastore.dart';
+import 'package:turbo/data/model/marker.dart';
 
 final localMarkerDataStoreProvider = Provider<MarkerDataStore>((ref) {
   if (kIsWeb) {

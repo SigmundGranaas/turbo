@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:map_app/data/datastore/sqlite/sqlite_marker_datastore.dart';
-import 'package:map_app/data/model/marker.dart';
+import 'package:turbo/data/datastore/sqlite/sqlite_marker_datastore.dart';
+import 'package:turbo/data/model/marker.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {

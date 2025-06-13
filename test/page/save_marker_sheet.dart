@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:map_app/data/model/named_icon.dart';
-import 'package:map_app/data/icon_service.dart';
-import 'package:map_app/widgets/pages/icon_selection_page.dart';
+import 'package:turbo/data/model/named_icon.dart';
+import 'package:turbo/data/icon_service.dart';
+import 'package:turbo/widgets/pages/icon_selection_page.dart';
 
 void main() {
   late IconService mockIconService;

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:map_app/widgets/map/measuring/measuring_map.dart';
-import 'package:map_app/widgets/map/view/map_view_desktop.dart';
-import 'package:map_app/widgets/map/view/map_view_mobile.dart';
+import 'package:turbo/widgets/map/measuring/measuring_map.dart';
+import 'package:turbo/widgets/map/view/map_view_desktop.dart';
+import 'package:turbo/widgets/map/view/map_view_mobile.dart';
 
 import '../../data/model/marker.dart' as marker_model;
 import '../marker/create_location_sheet.dart';

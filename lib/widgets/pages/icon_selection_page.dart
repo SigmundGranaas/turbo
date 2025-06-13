@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:map_app/data/model/named_icon.dart';
+import 'package:turbo/data/model/named_icon.dart';
 
 import '../../data/icon_service.dart';
 

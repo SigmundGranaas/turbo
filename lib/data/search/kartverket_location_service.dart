@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
-import 'package:map_app/data/search/location_service.dart';
+import 'package:turbo/data/search/location_service.dart';
 import 'api/kartverket_stedsnavn.dart';
 
 class KartverketLocationService extends LocationService {

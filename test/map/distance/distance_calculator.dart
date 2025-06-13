@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:map_app/widgets/map/measuring/distance_calculator.dart' as calc;
+import 'package:turbo/widgets/map/measuring/distance_calculator.dart' as calc;
 
 void main() {
   group('DistanceCalculator', () {
