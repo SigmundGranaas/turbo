@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/auth/auth_providers.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/auth/auth_divider.dart';
 import 'package:turbo/widgets/auth/auth_error_message.dart';
 import 'package:turbo/widgets/auth/auth_footer_link.dart';
@@ -31,13 +32,15 @@ class LoginViewMobile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final errorMessage = ref.watch(authStateProvider.select((s) => s.errorMessage));
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sign in'),
+        title: Text(l10n.signIn),
         leading: IconButton(
           icon: const Icon(Icons.close),
+          tooltip: l10n.closeTooltip,
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -58,31 +61,31 @@ class LoginViewMobile extends ConsumerWidget {
                     ],
                     AuthTextField(
                       controller: emailController,
-                      label: 'Email',
+                      label: l10n.email,
                       keyboardType: TextInputType.emailAddress,
-                      validator: (val) => (val == null || val.isEmpty) ? 'Please enter your email' : null,
+                      validator: (val) => (val == null || val.isEmpty) ? l10n.pleaseEnterEmail : null,
                     ),
                     const SizedBox(height: 16),
                     PasswordField(
                       controller: passwordController,
-                      label: 'Password',
-                      validator: (val) => (val == null || val.isEmpty) ? 'Please enter your password' : null,
+                      label: l10n.password,
+                      validator: (val) => (val == null || val.isEmpty) ? l10n.pleaseEnterPassword : null,
                     ),
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
                         onPressed: () { /* TODO: Implement Forgot Password */ },
-                        child: const Text('Forgot Password?'),
+                        child: Text(l10n.forgotPassword),
                       ),
                     ),
                     const SizedBox(height: 16),
                     PrimaryButton(
-                      text: 'Sign in',
+                      text: l10n.signIn,
                       onPressed: onLogin,
                       isLoading: ref.watch(isLoadingProvider),
                     ),
                     const SizedBox(height: 24),
-                    const AuthDivider(text: 'or'),
+                    AuthDivider(text: l10n.or),
                     const SizedBox(height: 24),
                     GoogleSignInButton(
                       isLoading: ref.watch(isGoogleLoadingProvider),
@@ -91,8 +94,8 @@ class LoginViewMobile extends ConsumerWidget {
                     ),
                     const SizedBox(height: 24),
                     AuthFooterLink(
-                      message: 'Don\'t have an account?',
-                      linkText: 'Create account',
+                      message: l10n.dontHaveAnAccount,
+                      linkText: l10n.createAccount,
                       onPressed: onNavigateToRegister,
                     ),
                   ],

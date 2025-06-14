@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/auth/auth_providers.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/auth/auth_divider.dart';
 import 'package:turbo/widgets/auth/auth_error_message.dart';
 import 'package:turbo/widgets/auth/auth_footer_link.dart';
@@ -31,6 +32,7 @@ class RegisterViewDesktop extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
     final errorMessage =
@@ -50,10 +52,10 @@ class RegisterViewDesktop extends ConsumerWidget {
                 child: IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.of(context).pop(),
-                  tooltip: 'Close',
+                  tooltip: l10n.closeTooltip,
                 ),
               ),
-              Text('Create account', style: textTheme.headlineMedium),
+              Text(l10n.createAccount, style: textTheme.headlineMedium),
               const SizedBox(height: 32),
               if (errorMessage != null) ...[
                 AuthErrorMessage(message: errorMessage),
@@ -61,13 +63,13 @@ class RegisterViewDesktop extends ConsumerWidget {
               ],
               AuthTextField(
                 controller: emailController,
-                label: 'Email',
+                label: l10n.email,
                 keyboardType: TextInputType.emailAddress,
                 validator: (val) {
-                  if (val == null || val.isEmpty) return 'Please enter an email';
+                  if (val == null || val.isEmpty) return l10n.pleaseEnterEmail;
                   if ((!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(val)))
                   {
-                    return 'Please enter a valid email';
+                    return l10n.pleaseEnterValidEmail;
                   }
 
                   return null;
@@ -76,25 +78,25 @@ class RegisterViewDesktop extends ConsumerWidget {
               const SizedBox(height: 24),
               PasswordField(
                 controller: passwordController,
-                label: 'Password',
+                label: l10n.password,
                 validator: (val) {
                   if (val == null || val.isEmpty) {
-                    return 'Please enter a password';
+                    return l10n.pleaseEnterPassword;
                   }
                   if (val.length < 8){
-                    return 'Password must be at least 8 characters';
+                    return l10n.passwordTooShort(8);
                   }
                   return null;
                 },
               ),
               const SizedBox(height: 32),
               PrimaryButton(
-                text: 'Create account',
+                text: l10n.createAccount,
                 onPressed: onRegister,
                 isLoading: ref.watch(isLoadingProvider),
               ),
               const SizedBox(height: 24),
-              const AuthDivider(text: 'or'),
+              AuthDivider(text: l10n.or),
               const SizedBox(height: 24),
               GoogleSignInButton(
                 isLoading: ref.watch(isGoogleLoadingProvider),
@@ -105,15 +107,15 @@ class RegisterViewDesktop extends ConsumerWidget {
               ),
               const SizedBox(height: 24),
               Text(
-                'By creating an account, you agree to our Terms of Service and Privacy Policy.',
+                l10n.termsAndPrivacy,
                 textAlign: TextAlign.center,
                 style: textTheme.bodySmall
                     ?.copyWith(color: colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 16),
               AuthFooterLink(
-                message: 'Already have an account?',
-                linkText: 'Sign in',
+                message: l10n.alreadyHaveAnAccount,
+                linkText: l10n.signIn,
                 onPressed: onNavigateToLogin,
               ),
             ],

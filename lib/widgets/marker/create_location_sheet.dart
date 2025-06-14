@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/data/icon_service.dart';
 import 'package:turbo/data/model/named_icon.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import '../../data/model/marker.dart';
 import '../../data/state/providers/location_repository.dart';
 import 'components.dart';
@@ -24,14 +25,22 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
   bool _isLoading = false;
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _selectedIcon = IconService().getAllIcons().firstOrNull ??
-        const NamedIcon(title: 'Default', icon: Icons.help_outline);
     _nameController = TextEditingController();
     _descriptionController = TextEditingController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_isInitialized) {
+      _selectedIcon = IconService().getDefaultIcon(context);
+      _isInitialized = true;
+    }
   }
 
   @override
@@ -43,6 +52,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final textTheme = Theme.of(context).textTheme;
     final viewInsets = MediaQuery.of(context).viewInsets;
 
@@ -57,7 +67,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('New Marker', style: textTheme.titleLarge),
+                Text(l10n.newMarker, style: textTheme.titleLarge),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
@@ -79,7 +89,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
               ),
             ),
             PrimaryButton(
-              text: 'Save Marker',
+              text: l10n.saveMarker,
               onPressed: _isLoading ? null : _saveLocation,
               isLoading: _isLoading,
             ),
@@ -90,6 +100,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   }
 
   void _saveLocation() async {
+    final l10n = context.l10n;
     if (_formKey.currentState!.validate() && widget.newLocation != null) {
       setState(() => _isLoading = true);
 
@@ -101,7 +112,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
           description: _descriptionController.text.isEmpty
               ? null
               : _descriptionController.text,
-          icon: _selectedIcon.title,
+          icon: _selectedIcon.title, // Use the non-translated key for saving
           position: widget.newLocation!,
         );
 
@@ -118,7 +129,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
         }
       }
     } else if (widget.newLocation == null) {
-      _showErrorSnackBar(context, "Location not specified for new marker.");
+      _showErrorSnackBar(context, l10n.errorLocationNotSpecified);
     }
   }
 

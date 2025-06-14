@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../data/icon_service.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import '../../data/model/named_icon.dart';
 import '../pages/icon_selection_page.dart';
 
@@ -19,18 +19,19 @@ class LocationFormFields extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextFormField(
           controller: nameController,
-          decoration: const InputDecoration(
-            labelText: 'Name',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: l10n.name,
+            border: const OutlineInputBorder(),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
-              return 'Please enter a name';
+              return l10n.pleaseEnterName;
             }
             return null;
           },
@@ -40,14 +41,14 @@ class LocationFormFields extends StatelessWidget {
           controller: descriptionController,
           maxLines: 3,
           minLines: 1,
-          decoration: const InputDecoration(
-            labelText: 'Description (optional)',
-            border: OutlineInputBorder(),
+          decoration: InputDecoration(
+            labelText: l10n.descriptionOptional,
+            border: const OutlineInputBorder(),
           ),
         ),
         const SizedBox(height: 24),
         Text(
-          'Icon',
+          l10n.icon,
           style: Theme.of(context).textTheme.titleSmall,
         ),
         const SizedBox(height: 8),
@@ -85,7 +86,7 @@ class IconSelector extends StatelessWidget {
       child: InkWell(
         onTap: () async {
           final NamedIcon? result =
-          await IconSelectionPage.show(context, IconService());
+          await IconSelectionPage.show(context);
           if (result != null) {
             onIconSelected(result);
           }
@@ -110,7 +111,7 @@ class IconSelector extends StatelessWidget {
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
-                  selectedIcon.title,
+                  selectedIcon.localizedTitle ?? selectedIcon.title,
                   style: textTheme.bodyLarge?.copyWith(
                     color: colorScheme.onSurface,
                   ),

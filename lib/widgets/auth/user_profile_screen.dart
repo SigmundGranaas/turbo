@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 
 import '../../data/auth/auth_providers.dart';
 
@@ -8,20 +9,20 @@ class UserProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final email = ref.watch(authStateProvider).email;
     final colorScheme = Theme.of(context).colorScheme;
-    // Get the auth notifier at build time
     final authNotifier = ref.read(authStateProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Profile'),
+        title: Text(l10n.profile),
         centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
+            tooltip: l10n.logout,
             onPressed: () {
-              // Pass the already obtained authNotifier to the dialog
               _showLogoutDialog(context, authNotifier);
             },
           ),
@@ -33,7 +34,6 @@ class UserProfileScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Profile header
               Row(
                 children: [
                   CircleAvatar(
@@ -54,14 +54,14 @@ class UserProfileScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          email ?? 'User',
+                          email ?? l10n.user,
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Turbo User',
+                          l10n.turboUser,
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -73,46 +73,35 @@ class UserProfileScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 32),
 
-              // Profile options
               _buildOptionTile(
                 context,
                 icon: Icons.person_outline,
-                title: 'Edit Profile',
-                onTap: () {
-                  // Navigate to edit profile page
-                },
+                title: l10n.editProfile,
+                onTap: () {},
               ),
               _buildOptionTile(
                 context,
                 icon: Icons.lock_outline,
-                title: 'Change Password',
-                onTap: () {
-                  // Navigate to change password page
-                },
+                title: l10n.changePassword,
+                onTap: () {},
               ),
               _buildOptionTile(
                 context,
                 icon: Icons.notifications_outlined,
-                title: 'Notifications',
-                onTap: () {
-                  // Navigate to notifications page
-                },
+                title: l10n.notifications,
+                onTap: () {},
               ),
               _buildOptionTile(
                 context,
                 icon: Icons.help_outline,
-                title: 'Help & Support',
-                onTap: () {
-                  // Navigate to help page
-                },
+                title: l10n.helpAndSupport,
+                onTap: () {},
               ),
               _buildOptionTile(
                 context,
                 icon: Icons.info_outline,
-                title: 'About',
-                onTap: () {
-                  // Navigate to about page
-                },
+                title: l10n.about,
+                onTap: () {},
               ),
             ],
           ),
@@ -137,23 +126,23 @@ class UserProfileScreen extends ConsumerWidget {
   }
 
   void _showLogoutDialog(BuildContext context, AuthStateNotifier authNotifier) {
+    final l10n = context.l10n;
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        title: Text(l10n.logout),
+        content: Text(l10n.areYouSureYouWantToLogout),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.cancel),
           ),
           FilledButton(
             onPressed: () {
               Navigator.of(dialogContext).pop();
-              // Use the authNotifier passed from build method
               authNotifier.logout();
             },
-            child: const Text('Logout'),
+            child: Text(l10n.logout),
           ),
         ],
       ),

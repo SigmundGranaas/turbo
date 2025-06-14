@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/icon_service.dart';
 import 'package:turbo/data/search/location_service.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/map/controller/map_utility.dart';
 import 'package:turbo/widgets/search/search_state_provider.dart';
 
@@ -101,6 +102,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return CompositedTransformTarget(
       link: _layerLink,
       child: SizedBox(
@@ -108,12 +110,12 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
         child: SearchBar(
           controller: _textController,
           focusNode: _focusNode,
-          hintText: 'Search places, coordinates...',
+          hintText: l10n.searchHint,
           leading: const Icon(Icons.search),
           padding: const WidgetStatePropertyAll<EdgeInsets>(
               EdgeInsets.symmetric(horizontal: 16.0)),
           trailing: [
-             if (_textController.text.isNotEmpty)
+            if (_textController.text.isNotEmpty)
               IconButton(
                 icon: const Icon(Icons.clear),
                 onPressed: () {
@@ -128,6 +130,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
   }
 
   Widget _buildSuggestionsList() {
+    final l10n = context.l10n;
     return Consumer(
       builder: (context, ref, child) {
         final searchState = ref.watch(searchProvider);
@@ -157,9 +160,9 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
             ),
             data: (suggestions) {
               if (suggestions.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24.0),
-                  child: Center(child: Text('No results found.')),
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24.0),
+                  child: Center(child: Text(l10n.noResultsFound)),
                 );
               }
               return ConstrainedBox(
@@ -190,7 +193,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
 
   Widget _leadingWidget(LocationSearchResult suggestion) {
     if (suggestion.icon != null) {
-      return Icon(_iconService.getIcon(suggestion.icon!).icon);
+      return Icon(_iconService.getIcon(context, suggestion.icon!).icon);
     }
     return Text(suggestion.title.isNotEmpty ? suggestion.title[0] : '?');
   }

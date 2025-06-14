@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import '../../data/icon_service.dart';
 import '../../data/model/marker.dart';
 import '../../data/model/named_icon.dart';
@@ -23,6 +24,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   late NamedIcon _selectedIcon;
   bool _isLoading = false;
   bool _isDeleting = false;
+  bool _isInitialized = false;
 
   @override
   void initState() {
@@ -30,7 +32,15 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
     _nameController = TextEditingController(text: widget.location.title);
     _descriptionController =
         TextEditingController(text: widget.location.description);
-    _selectedIcon = IconService().getIcon(widget.location.icon);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_isInitialized) {
+      _selectedIcon = IconService().getIcon(context, widget.location.icon);
+      _isInitialized = true;
+    }
   }
 
   @override
@@ -42,6 +52,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
     final viewInsets = MediaQuery.of(context).viewInsets;
@@ -57,7 +68,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Edit Marker', style: textTheme.titleLarge),
+                Text(l10n.editMarker, style: textTheme.titleLarge),
                 IconButton(
                   onPressed: () => Navigator.pop(context, false),
                   icon: const Icon(Icons.close),
@@ -79,7 +90,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
               ),
             ),
             PrimaryButton(
-              text: 'Save Changes',
+              text: l10n.saveChanges,
               onPressed: _isLoading || _isDeleting ? null : _updateLocation,
               isLoading: _isLoading,
             ),
@@ -91,11 +102,11 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
                   child: CircularProgressIndicator(
                       strokeWidth: 2, color: colorScheme.error))
                   : const Icon(Icons.delete_outline),
-              label: const Text('Delete Marker'),
+              label: Text(l10n.deleteMarker),
               onPressed: _isLoading || _isDeleting ? null : _confirmDelete,
               style: OutlinedButton.styleFrom(
                 foregroundColor: colorScheme.error,
-                side: BorderSide(color: colorScheme.error.withValues(alpha: 0.5)),
+                side: BorderSide(color: colorScheme.error.withOpacity(0.5)),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(100)),
@@ -108,17 +119,17 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   }
 
   void _confirmDelete() {
+    final l10n = context.l10n;
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog.adaptive(
-          title: const Text('Delete Marker?'),
-          content:
-          const Text('This action is permanent and cannot be undone.'),
+          title: Text(l10n.confirmDeleteTitle),
+          content: Text(l10n.confirmDeleteMessage),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10n.cancel),
             ),
             FilledButton(
               style: FilledButton.styleFrom(
@@ -129,7 +140,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
                 Navigator.of(dialogContext).pop();
                 _deleteLocation();
               },
-              child: const Text('Delete'),
+              child: Text(l10n.delete),
             ),
           ],
         );
@@ -138,6 +149,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   }
 
   Future<void> _updateLocation() async {
+    final l10n = context.l10n;
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
       try {
@@ -158,7 +170,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
         }
       } catch (error) {
         if (mounted) {
-          _showErrorSnackBar(context, 'Error updating location: $error');
+          _showErrorSnackBar(context, l10n.errorUpdatingLocation(error.toString()));
         }
       } finally {
         if (mounted) {
@@ -169,6 +181,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   }
 
   Future<void> _deleteLocation() async {
+    final l10n = context.l10n;
     setState(() => _isDeleting = true);
     try {
       await ref
@@ -179,7 +192,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
       }
     } catch (error) {
       if (mounted) {
-        _showErrorSnackBar(context, 'Error deleting location: $error');
+        _showErrorSnackBar(context, l10n.errorDeletingLocation(error.toString()));
       }
     } finally {
       if (mounted) {

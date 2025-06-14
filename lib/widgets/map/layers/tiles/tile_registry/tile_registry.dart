@@ -5,12 +5,13 @@ import 'package:turbo/widgets/map/layers/tiles/tile_registry/tile_registry_state
 
 import 'tile_provider.dart';
 
+// FIX: Changed to NotifierProvider to make it persistent.
 final tileRegistryProvider =
-AutoDisposeNotifierProvider<TileRegistry, TileRegistryState>(
+NotifierProvider<TileRegistry, TileRegistryState>(
   TileRegistry.new,
 );
 
-class TileRegistry extends AutoDisposeNotifier<TileRegistryState> {
+class TileRegistry extends Notifier<TileRegistryState> {
   @override
   TileRegistryState build() {
     return const TileRegistryState(
@@ -125,21 +126,24 @@ class TileRegistry extends AutoDisposeNotifier<TileRegistryState> {
   }
 }
 
-final globalLayersProvider = AutoDisposeProvider<List<TileProviderWrapper>>((ref) {
+// FIX: Changed to Provider to avoid auto-disposal.
+final globalLayersProvider = Provider<List<TileProviderWrapper>>((ref) {
   final registry = ref.watch(tileRegistryProvider);
   return registry.availableProviders.values
       .where((provider) => provider.category == TileCategory.global)
       .toList();
 });
 
-final localLayersProvider = AutoDisposeProvider<List<TileProviderWrapper>>((ref) {
+// FIX: Changed to Provider to avoid auto-disposal.
+final localLayersProvider = Provider<List<TileProviderWrapper>>((ref) {
   final registry = ref.watch(tileRegistryProvider);
   return registry.availableProviders.values
       .where((provider) => provider.category == TileCategory.local)
       .toList();
 });
 
-final overlayLayersProvider = AutoDisposeProvider<List<TileProviderWrapper>>((ref) {
+// FIX: Changed to Provider to avoid auto-disposal.
+final overlayLayersProvider = Provider<List<TileProviderWrapper>>((ref) {
   final registry = ref.watch(tileRegistryProvider);
   return registry.availableProviders.values
       .where((provider) => provider.category == TileCategory.overlay)

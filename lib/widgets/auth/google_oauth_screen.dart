@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
 
+import 'package:turbo/l10n/app_localizations.dart';
 import '../../data/auth/auth_providers.dart';
 
 class GoogleAuthCallbackPage extends ConsumerStatefulWidget {
@@ -14,14 +15,13 @@ class GoogleAuthCallbackPage extends ConsumerStatefulWidget {
 
 class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage> {
   bool _isProcessing = true;
-  String _message = "Processing Google login...";
+  String? _message;
   bool _processingComplete = false;
   Timer? _redirectTimer;
 
   @override
   void initState() {
     super.initState();
-    // Use a post-frame callback to ensure the context is ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _processAuthCallback();
     });
@@ -34,15 +34,13 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
   }
 
   Future<void> _processAuthCallback() async {
+    final l10n = context.l10n;
     if (kDebugMode) {
       print('Processing Google auth callback');
     }
 
     try {
-      // Get the current URL
       final uri = Uri.base;
-
-      // Extract the code parameter
       final code = uri.queryParameters['code'];
 
       if (kDebugMode) {
@@ -50,23 +48,18 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
       }
 
       if (code != null) {
-        // Process the code
         await ref.read(authStateProvider.notifier).processOAuthCallback(code);
-
-        // Wait a moment to let the state update
         await Future.delayed(const Duration(milliseconds: 500));
 
-        // Check the authentication state
         final authState = ref.read(authStateProvider);
 
         if (authState.status == AuthStatus.authenticated) {
           setState(() {
-            _message = "Login successful! Redirecting...";
+            _message = l10n.loginSuccessfulRedirecting;
             _isProcessing = false;
             _processingComplete = true;
           });
 
-          // Auto-redirect after a delay
           _redirectTimer = Timer(const Duration(seconds: 2), () {
             if (mounted) {
               Navigator.of(context).pushReplacementNamed('/');
@@ -74,14 +67,14 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
           });
         } else {
           setState(() {
-            _message = "Login failed: ${authState.errorMessage ?? 'Unknown error'}";
+            _message = l10n.loginFailed(authState.errorMessage ?? 'Unknown error');
             _isProcessing = false;
             _processingComplete = true;
           });
         }
       } else {
         setState(() {
-          _message = "No authorization code found in the URL";
+          _message = l10n.noAuthCodeFound;
           _isProcessing = false;
         });
       }
@@ -91,7 +84,7 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
       }
 
       setState(() {
-        _message = "Error processing login: $e";
+        _message = l10n.errorProcessingLogin(e.toString());
         _isProcessing = false;
       });
     }
@@ -99,9 +92,10 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Google Authentication'),
+        title: Text(l10n.googleAuth),
         automaticallyImplyLeading: !_isProcessing,
       ),
       body: Center(
@@ -111,12 +105,10 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (_isProcessing)
-                const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                ),
+                const CircularProgressIndicator(),
               const SizedBox(height: 24),
               Text(
-                _message,
+                _message ?? l10n.processingGoogleLogin,
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 18),
               ),
@@ -126,20 +118,14 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
                   onPressed: () {
                     Navigator.of(context).pushReplacementNamed('/');
                   },
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                  ),
-                  child: const Text('Continue to App'),
+                  child: Text(l10n.continueToApp),
                 ),
               ] else if (!_isProcessing) ...[
                 ElevatedButton(
                   onPressed: () {
                     Navigator.of(context).pushReplacementNamed('/login');
                   },
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                  ),
-                  child: const Text('Return to Login'),
+                  child: Text(l10n.returnToLogin),
                 ),
               ],
             ],

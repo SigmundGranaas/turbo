@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/map/controller/map_utility.dart';
 import 'package:flutter_map/flutter_map.dart';
 
@@ -26,6 +27,21 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
     );
   }
 
+  String _translateLocationError(BuildContext context, String error) {
+    final l10n = context.l10n;
+    final key = error.replaceFirst('Exception: ', '').trim();
+    switch (key) {
+      case 'location_services_disabled':
+        return l10n.locationServicesDisabled;
+      case 'location_permissions_denied':
+        return l10n.locationPermissionsDenied;
+      case 'location_permissions_denied_forever':
+        return l10n.locationPermissionsDeniedForever;
+      default:
+        return error;
+    }
+  }
+
   Future<void> _moveToCurrentLocation() async {
     if (!kIsWeb && Platform.isLinux) {
       _showLinuxDialog();
@@ -34,17 +50,16 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
 
     try {
       final position = await ref.read(locationStateProvider.future);
-
       if (position != null) {
         animatedMapMove(position, 15, widget.mapController, this);
       } else {
         if (mounted) {
-          _showErrorDialog("Could not determine location.");
+          _showErrorDialog(context.l10n.locationServicesUnavailable);
         }
       }
     } catch (error) {
       if (mounted) {
-        _showErrorDialog(error.toString());
+        _showErrorDialog(_translateLocationError(context, error.toString()));
       }
       ref.read(locationStateProvider.notifier).requestLocationPermission();
     }
@@ -52,18 +67,16 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
 
   void _showLinuxDialog() {
     if (!mounted) return;
+    final l10n = context.l10n;
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Location Services Unavailable'),
-          content: const Text(
-            'Location services are not yet supported on Linux. '
-                'We apologize for the inconvenience.',
-          ),
+          title: Text(l10n.locationServicesUnavailable),
+          content: Text(l10n.locationServicesUnsupportedOnPlatform),
           actions: <Widget>[
             TextButton(
-              child: const Text('OK'),
+              child: Text(l10n.ok),
               onPressed: () => Navigator.of(context).pop(),
             ),
           ],
@@ -74,19 +87,20 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
 
   void _showErrorDialog(String message) {
     if (!mounted) return;
+    final l10n = context.l10n;
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Location Error'),
+          title: Text(l10n.locationError),
           content: Text(message),
           actions: <Widget>[
             TextButton(
-              child: const Text('OK'),
+              child: Text(l10n.ok),
               onPressed: () => Navigator.of(context).pop(),
             ),
             TextButton(
-              child: const Text('Open Settings'),
+              child: Text(l10n.openSettings),
               onPressed: () {
                 Navigator.of(context).pop();
                 Geolocator.openLocationSettings();

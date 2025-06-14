@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/auth/user_profile_screen.dart';
 import 'package:turbo/widgets/auth/login_screen.dart';
+import 'package:turbo/widgets/pages/settings_page.dart';
 import '../../data/auth/auth_providers.dart';
 
 class AppDrawer extends ConsumerWidget {
@@ -9,10 +11,7 @@ class AppDrawer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Note: The following lines assume your providers are set up correctly.
-    // If authStateProvider, AuthStatus, LoginScreen, or UserProfileScreen are not
-    // available, you'll need to replace them with your actual implementations.
-    // For demonstration, placeholder values can be used.
+    final l10n = context.l10n;
     final authState = ref.watch(authStateProvider);
     final isAuthenticated = authState.status == AuthStatus.authenticated;
     final email = authState.email;
@@ -20,21 +19,20 @@ class AppDrawer extends ConsumerWidget {
     final textTheme = Theme.of(context).textTheme;
 
     final List<Map<String, dynamic>> destinations = [
-      {'key': 'map', 'icon': Icons.map_outlined, 'selectedIcon': Icons.map, 'label': 'Map'},
-      {'key': 'settings', 'icon': Icons.settings_outlined, 'selectedIcon': Icons.settings, 'label': 'Settings'},
+      {'key': 'map', 'icon': Icons.map_outlined, 'selectedIcon': Icons.map, 'label': l10n.map},
+      {'key': 'settings', 'icon': Icons.settings_outlined, 'selectedIcon': Icons.settings, 'label': l10n.settings},
       if (isAuthenticated)
-        {'key': 'profile', 'icon': Icons.account_circle_outlined, 'selectedIcon': Icons.account_circle, 'label': 'Profile'},
+        {'key': 'profile', 'icon': Icons.account_circle_outlined, 'selectedIcon': Icons.account_circle, 'label': l10n.profile},
     ];
 
     return Drawer(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // --- 1. TOP HEADER SECTION (Fixed Height) ---
           Padding(
             padding: const EdgeInsets.fromLTRB(28, 28, 16, 10),
             child: Text(
-              'Turbo',
+              l10n.appTitle,
               style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
@@ -56,7 +54,7 @@ class AppDrawer extends ConsumerWidget {
                 children: [
                   CircleAvatar(
                     radius: 20,
-                    backgroundColor: colorScheme.surface,
+                    backgroundColor: colorScheme.surfaceContainer,
                     child: Text(
                       isAuthenticated && email != null && email.isNotEmpty
                           ? email[0].toUpperCase()
@@ -74,11 +72,11 @@ class AppDrawer extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          isAuthenticated ? 'Turbo User' : 'Guest User',
+                          isAuthenticated ? l10n.turboUser : l10n.guestUser,
                           style: textTheme.bodyLarge,
                         ),
                         Text(
-                          isAuthenticated ? (email ?? '') : 'Not signed in',
+                          isAuthenticated ? (email ?? '') : l10n.notSignedIn,
                           style: textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -92,16 +90,10 @@ class AppDrawer extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           const Divider(indent: 28, endIndent: 28),
-
-          // --- 2. NAVIGATION DESTINATIONS (FLEXIBLE/EXPANDED) ---
-          // Wrap the NavigationDrawer in Expanded. This resolves the layout error by
-          // giving the scrollable NavigationDrawer a fixed, finite space to occupy.
           Expanded(
             child: NavigationDrawer(
               backgroundColor: Colors.transparent,
               shadowColor: Colors.transparent,
-              // You can still manage selectedIndex if you have a way to track the current route
-              // selectedIndex: _calculateCurrentIndex(destinations, context),
               onDestinationSelected: (selectedIndex) {
                 Navigator.pop(context);
 
@@ -110,10 +102,13 @@ class AppDrawer extends ConsumerWidget {
 
                 switch (selectedKey) {
                   case 'map':
-                  // Navigate to Map
+                  // Already on map, do nothing
                     break;
                   case 'settings':
-                  // Navigate to Settings
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SettingsPage()),
+                    );
                     break;
                   case 'profile':
                     Navigator.push(
@@ -133,13 +128,11 @@ class AppDrawer extends ConsumerWidget {
               ],
             ),
           ),
-
-          // --- 3. BOTTOM ACTION SECTION (Fixed Height) ---
           const Divider(indent: 28, endIndent: 28),
           if (isAuthenticated)
             ListTile(
               leading: const Icon(Icons.logout),
-              title: const Text('Logout'),
+              title: Text(l10n.logout),
               contentPadding: const EdgeInsets.symmetric(horizontal: 28.0),
               onTap: () {
                 Navigator.pop(context);
@@ -149,7 +142,7 @@ class AppDrawer extends ConsumerWidget {
           else
             ListTile(
               leading: const Icon(Icons.login),
-              title: const Text('Login'),
+              title: Text(l10n.login),
               contentPadding: const EdgeInsets.symmetric(horizontal: 28.0),
               onTap: () {
                 Navigator.pop(context);
@@ -164,22 +157,23 @@ class AppDrawer extends ConsumerWidget {
 
   void _showLogoutDialog(BuildContext context, WidgetRef ref) {
     final authNotifier = ref.read(authStateProvider.notifier);
+    final l10n = context.l10n;
     showDialog(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        title: Text(l10n.logout),
+        content: Text(l10n.areYouSureYouWantToLogout),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.cancel),
           ),
           FilledButton(
             onPressed: () {
               Navigator.of(dialogContext).pop();
               authNotifier.logout();
             },
-            child: const Text('Logout'),
+            child: Text(l10n.logout),
           ),
         ],
       ),

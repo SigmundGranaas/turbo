@@ -1,9 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 
 abstract class TileProviderWrapper {
   String get id;
-  String get name;
-  String get description;
+  String name(BuildContext context);
+  String description(BuildContext context);
   String get attributions;
 
   TileCategory get category;

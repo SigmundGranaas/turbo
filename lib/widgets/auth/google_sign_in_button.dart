@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../data/auth/auth_providers.dart';
 
@@ -18,6 +19,7 @@ class GoogleSignInButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -40,7 +42,7 @@ class GoogleSignInButton extends ConsumerWidget {
           width: 24,
         ),
         label: Text(
-          'Sign in with Google',
+          l10n.signInWithGoogle,
           style: textTheme.labelLarge?.copyWith(
             color: colorScheme.onSurface,
             fontWeight: FontWeight.w500,
@@ -51,7 +53,7 @@ class GoogleSignInButton extends ConsumerWidget {
           backgroundColor: colorScheme.surface,
           disabledBackgroundColor: colorScheme.surface,
           elevation: 0,
-          side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.5)),
+          side: BorderSide(color: colorScheme.outline.withOpacity(0.5)),
           padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(28),
@@ -63,6 +65,7 @@ class GoogleSignInButton extends ConsumerWidget {
 
   Future<void> _handleGoogleSignIn(BuildContext context, WidgetRef ref) async {
     onSignInStarted();
+    final l10n = context.l10n;
     try {
       final authUrl = await ref.read(authStateProvider.notifier).getGoogleAuthUrl();
       final uri = Uri.parse(authUrl);
@@ -70,7 +73,7 @@ class GoogleSignInButton extends ConsumerWidget {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication, webOnlyWindowName: '_self');
       } else {
-        throw Exception('Could not launch Google auth URL');
+        throw Exception(l10n.errorCouldNotLaunchUrl);
       }
 
       if (!kIsWeb) {
@@ -80,7 +83,7 @@ class GoogleSignInButton extends ConsumerWidget {
       if (kDebugMode) print('Google sign-in error: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sign in failed: ${e.toString()}')),
+          SnackBar(content: Text(l10n.signInFailed(e.toString()))),
         );
       }
       onSignInCompleted();

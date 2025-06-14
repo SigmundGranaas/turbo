@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/map/measuring/measuring_map.dart';
 import 'package:turbo/widgets/map/view/map_view_desktop.dart';
 import 'package:turbo/widgets/map/view/map_view_mobile.dart';
@@ -40,23 +41,22 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
     super.dispose();
   }
 
-  // This function is no longer needed as the search bars will handle animation directly.
-  // void _onLocationSelected(double east, double north) {
-  //   animatedMapMove(LatLng(north, east), 13, _mapController, this);
-  // }
-
   @override
   Widget build(BuildContext context) {
-    final activeTileLayers = ref.watch(tileRegistryProvider.select((s) => s.activeGlobalIds + s.activeLocalIds + s.activeOverlayIds));
-    final availableProviders = ref.watch(tileRegistryProvider.select((s) => s.availableProviders));
+    // Watch the entire tile registry state object for consistency.
+    final tileRegistryState = ref.watch(tileRegistryProvider);
+    final activeIds = tileRegistryState.activeGlobalIds +
+        tileRegistryState.activeLocalIds +
+        tileRegistryState.activeOverlayIds;
 
-    List<TileLayer> tileLayers = activeTileLayers
-        .map((id) => availableProviders[id]?.createTileLayer())
+    // Build layers from the consistent state snapshot.
+    final tileLayers = activeIds
+        .map((id) => tileRegistryState.availableProviders[id]?.createTileLayer())
         .whereType<TileLayer>()
         .toList();
 
-    List<RichAttributionWidget> attributions = activeTileLayers
-        .map((id) => availableProviders[id])
+    final attributions = activeIds
+        .map((id) => tileRegistryState.availableProviders[id])
         .whereType<TileProviderWrapper>()
         .map((provider) => RichAttributionWidget(
       animationConfig: const ScaleRAWA(),
@@ -103,8 +103,6 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
     );
   }
 
-  // --- Shared Logic Methods ---
-
   void _handleLongPress(BuildContext context, LatLng point) {
     setState(() {
       _temporaryPin = Marker(
@@ -117,6 +115,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
   }
 
   void _showPinOptionsSheet(BuildContext context, LatLng point) {
+    final l10n = context.l10n;
     showModalBottomSheet(
       context: context,
       builder: (BuildContext context) {
@@ -127,7 +126,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
             children: [
               ListTile(
                 leading: const Icon(Icons.add_location_alt_outlined),
-                title: const Text('Create New Marker Here'),
+                title: Text(l10n.createNewMarkerHere),
                 onTap: () {
                   Navigator.pop(context);
                   _showCreateSheet(context, newLocation: point);
@@ -135,7 +134,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
               ),
               ListTile(
                 leading: const Icon(Icons.straighten),
-                title: const Text('Measure Distance From Here'),
+                title: Text(l10n.measureDistanceFromHere),
                 onTap: () {
                   Navigator.pop(context);
                   _navigateToMeasuring(point);

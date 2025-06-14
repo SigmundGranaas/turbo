@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../data/icon_service.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import '../../data/model/named_icon.dart';
 import '../pages/icon_selection_page.dart';
 
@@ -92,17 +92,18 @@ class _LocationSheetBaseState extends State<LocationSheetBase> {
   }
 
   Widget _buildNameField() {
+    final l10n = context.l10n;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
       child: TextFormField(
         controller: _nameController,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          labelText: 'Navn',
+        decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          labelText: l10n.nameLabel,
         ),
         validator: (value) {
           if (value == null || value.isEmpty) {
-            return 'Skriv inn et navn';
+            return l10n.pleaseEnterName;
           }
           return null;
         },
@@ -111,24 +112,26 @@ class _LocationSheetBaseState extends State<LocationSheetBase> {
   }
 
   Widget _buildDescriptionField() {
+    final l10n = context.l10n;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
       child: TextFormField(
         controller: _descriptionController,
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          labelText: 'Beskrivelse',
+        decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          labelText: l10n.descriptionLabel,
         ),
       ),
     );
   }
 
   Widget _buildIconSection() {
+    final l10n = context.l10n;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Ikon',
+          l10n.iconLabel,
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[600]),
         ),
         const SizedBox(height: 4),
@@ -140,8 +143,8 @@ class _LocationSheetBaseState extends State<LocationSheetBase> {
   Widget _buildIconSelector() {
     return ListTile(
       leading: Icon(_selectedIcon.icon),
-      title: Text(_selectedIcon.title),
-      tileColor: Colors.blue.withValues(alpha: 0.1),
+      title: Text(_selectedIcon.localizedTitle ?? _selectedIcon.title),
+      tileColor: Colors.blue.withOpacity(0.1),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
       ),
@@ -151,7 +154,7 @@ class _LocationSheetBaseState extends State<LocationSheetBase> {
   }
 
   Future<void> _selectIcon() async {
-    final NamedIcon? result = await IconSelectionPage.show(context, IconService());
+    final NamedIcon? result = await IconSelectionPage.show(context);
     if (result != null) {
       setState(() {
         _selectedIcon = result;
@@ -159,83 +162,3 @@ class _LocationSheetBaseState extends State<LocationSheetBase> {
     }
   }
 }
-
-class LocationFormFields extends StatelessWidget {
-  final TextEditingController nameController;
-  final TextEditingController descriptionController;
-  final NamedIcon selectedIcon;
-  final Function(NamedIcon) onIconSelected;
-
-  const LocationFormFields({
-    super.key,
-    required this.nameController,
-    required this.descriptionController,
-    required this.selectedIcon,
-    required this.onIconSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        TextFormField(
-          controller: nameController,
-          decoration: const InputDecoration(
-            labelText: 'Navn',
-            border: OutlineInputBorder(),
-          ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Skriv inn et navn';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: descriptionController,
-          decoration: const InputDecoration(
-            labelText: 'Beskrivelse',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 16),
-        IconSelector(
-          selectedIcon: selectedIcon,
-          onIconSelected: onIconSelected,
-        ),
-      ],
-    );
-  }
-}
-
-class IconSelector extends StatelessWidget {
-  final NamedIcon selectedIcon;
-  final Function(NamedIcon) onIconSelected;
-
-  const IconSelector({
-    super.key,
-    required this.selectedIcon,
-    required this.onIconSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(selectedIcon.icon),
-      title: Text(selectedIcon.title),
-      tileColor: Colors.blue.withValues(alpha: 0.1),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-      ),
-      trailing: const Icon(Icons.arrow_forward_ios),
-      onTap: () async {
-        final NamedIcon? result = await IconSelectionPage.show(context, IconService());
-        if (result != null) {
-          onIconSelected(result);
-        }
-      },
-    );
-  }
-}
-

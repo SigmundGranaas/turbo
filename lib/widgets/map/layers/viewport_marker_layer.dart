@@ -86,7 +86,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
         }
         return MarkerLayer(
           markers: locations.map((location) {
-            final namedIcon = iconService.getIcon(location.icon);
+            final namedIcon = iconService.getIcon(context ,location.icon);
             const double markerScale = 1.0;
             const double verticalOffset = 30.0 * markerScale;
 
@@ -114,7 +114,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
         if (previousData != null && previousData.isNotEmpty) {
           return MarkerLayer(
             markers: previousData.map((location) {
-              final namedIcon = iconService.getIcon(location.icon);
+              final namedIcon = iconService.getIcon(context, location.icon);
               const double markerScale = 1.0;
               const double verticalOffset = 30.0 * markerScale;
               return Marker(

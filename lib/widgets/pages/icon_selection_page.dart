@@ -1,20 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:turbo/data/model/named_icon.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 
 import '../../data/icon_service.dart';
 
 class IconSelectionPage extends StatefulWidget {
-  final IconService iconService;
-  const IconSelectionPage({super.key, required this.iconService});
+  const IconSelectionPage({super.key});
 
   @override
   State<IconSelectionPage> createState() => _IconSelectionPageState();
 
-  static Future<NamedIcon?> show(
-      BuildContext context, IconService iconService) {
+  static Future<NamedIcon?> show(BuildContext context) {
     return Navigator.of(context).push<NamedIcon?>(
       MaterialPageRoute(
-          builder: (context) => IconSelectionPage(iconService: iconService)),
+          builder: (context) => const IconSelectionPage()),
     );
   }
 }
@@ -23,31 +22,42 @@ class _IconSelectionPageState extends State<IconSelectionPage> {
   late List<NamedIcon> _icons;
   late List<NamedIcon> _filteredIcons;
   final TextEditingController _searchController = TextEditingController();
+  final IconService _iconService = IconService();
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _icons = widget.iconService.getAllIcons();
-    _filteredIcons = _icons;
     _searchController.addListener(() {
       _filterIcons(_searchController.text);
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_isInitialized) {
+      _icons = _iconService.getAllIcons(context);
+      _filteredIcons = _icons;
+      _isInitialized = true;
+    }
   }
 
   void _filterIcons(String query) {
     setState(() {
       _filteredIcons = _icons
           .where(
-              (icon) => icon.title.toLowerCase().contains(query.toLowerCase()))
+              (icon) => (icon.localizedTitle ?? icon.title).toLowerCase().contains(query.toLowerCase()))
           .toList();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Select an Icon'),
+        title: Text(l10n.selectAnIcon),
       ),
       body: Column(
         children: [
@@ -55,7 +65,7 @@ class _IconSelectionPageState extends State<IconSelectionPage> {
             padding: const EdgeInsets.all(16.0),
             child: SearchBar(
               controller: _searchController,
-              hintText: 'Search icons...',
+              hintText: l10n.searchIcons,
               leading: const Icon(Icons.search),
               trailing: [
                 if (_searchController.text.isNotEmpty)
@@ -71,7 +81,7 @@ class _IconSelectionPageState extends State<IconSelectionPage> {
           ),
           Expanded(
             child: _filteredIcons.isEmpty
-                ? const Center(child: Text('No icons found.'))
+                ? Center(child: Text(l10n.noIconsFound))
                 : LayoutBuilder(builder: (context, constraints) {
               if (constraints.maxWidth < 600) {
                 return IconGrid(
@@ -152,7 +162,7 @@ class IconGridItem extends StatelessWidget {
           Icon(icon.icon, size: 32),
           const SizedBox(height: 8),
           Text(
-            icon.title,
+            icon.localizedTitle ?? icon.title,
             textAlign: TextAlign.center,
             style: textTheme.bodySmall,
             maxLines: 1,
@@ -182,7 +192,7 @@ class IconList extends StatelessWidget {
         final icon = icons[index];
         return ListTile(
           leading: Icon(icon.icon),
-          title: Text(icon.title),
+          title: Text(icon.localizedTitle ?? icon.title),
           onTap: () => onIconSelected(icon),
         );
       },

@@ -8,7 +8,8 @@ import '../../../widgets/map/layers/tiles/google_sattelite.dart';
 import '../../../widgets/map/layers/tiles/norges_kart_topo.dart';
 import '../../../widgets/map/layers/tiles/tile_registry/tile_registry.dart';
 
-final initializeTilesProvider = AutoDisposeFutureProvider<void>((ref) async {
+// FIX: Changed to FutureProvider to run once and persist.
+final initializeTilesProvider = FutureProvider<void>((ref) async {
   final registry = ref.read(tileRegistryProvider.notifier);
   final prefsService = ref.read(layerPreferenceServiceProvider);
   final cachePath = await ref.watch(cachePathProvider.future);

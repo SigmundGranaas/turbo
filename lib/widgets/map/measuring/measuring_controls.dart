@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 
 class MeasuringControls extends StatelessWidget {
   final double distance;
@@ -20,6 +21,7 @@ class MeasuringControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
@@ -41,7 +43,7 @@ class MeasuringControls extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Total Distance',
+                    l10n.totalDistance,
                     style: textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -60,12 +62,12 @@ class MeasuringControls extends StatelessWidget {
             IconButton(
               onPressed: canUndo ? onUndo : null,
               icon: const Icon(Icons.undo),
-              tooltip: 'Undo Last Point',
+              tooltip: l10n.undoLastPoint,
             ),
             IconButton(
               onPressed: canReset ? onReset : null,
               icon: const Icon(Icons.delete_sweep_outlined),
-              tooltip: 'Reset Measurement',
+              tooltip: l10n.resetMeasurement,
             ),
             const SizedBox(width: 8),
             FilledButton.tonal(
@@ -73,7 +75,7 @@ class MeasuringControls extends StatelessWidget {
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
               ),
-              child: const Text('Done'),
+              child: Text(l10n.done),
             ),
           ],
         ),

@@ -36,19 +36,19 @@ class LocationState extends AutoDisposeAsyncNotifier<LatLng?> {
 
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        throw Exception('Location services are disabled');
+        throw Exception('location_services_disabled');
       }
 
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          throw Exception('Location permissions are denied');
+          throw Exception('location_permissions_denied');
         }
       }
 
       if (permission == LocationPermission.deniedForever) {
-        throw Exception('Location permissions are permanently denied');
+        throw Exception('location_permissions_denied_forever');
       }
 
       _positionSubscription = Geolocator.getPositionStream(

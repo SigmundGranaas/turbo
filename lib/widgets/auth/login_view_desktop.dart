@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/auth/auth_providers.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/auth/auth_divider.dart';
 import 'package:turbo/widgets/auth/auth_error_message.dart';
 import 'package:turbo/widgets/auth/auth_footer_link.dart';
@@ -31,6 +32,7 @@ class LoginViewDesktop extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final errorMessage =
@@ -50,12 +52,12 @@ class LoginViewDesktop extends ConsumerWidget {
                 child: IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.of(context).pop(),
-                  tooltip: 'Close',
+                  tooltip: l10n.closeTooltip,
                 ),
               ),
-              Text('Sign in', style: textTheme.headlineMedium),
+              Text(l10n.signIn, style: textTheme.headlineMedium),
               const SizedBox(height: 8),
-              Text('to continue to Turbo',
+              Text(l10n.toContinueTo(l10n.appTitle),
                   style: textTheme.bodyLarge
                       ?.copyWith(color: colorScheme.onSurfaceVariant)),
               const SizedBox(height: 32),
@@ -65,34 +67,34 @@ class LoginViewDesktop extends ConsumerWidget {
               ],
               AuthTextField(
                 controller: emailController,
-                label: 'Email',
+                label: l10n.email,
                 keyboardType: TextInputType.emailAddress,
                 validator: (val) =>
-                (val == null || val.isEmpty) ? 'Please enter your email' : null,
+                (val == null || val.isEmpty) ? l10n.pleaseEnterEmail : null,
               ),
               const SizedBox(height: 24),
               PasswordField(
                 controller: passwordController,
-                label: 'Password',
+                label: l10n.password,
                 validator: (val) => (val == null || val.isEmpty)
-                    ? 'Please enter your password'
+                    ? l10n.pleaseEnterPassword
                     : null,
               ),
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: () {},
-                  child: const Text('Forgot Password?'),
+                  child: Text(l10n.forgotPassword),
                 ),
               ),
               const SizedBox(height: 24),
               PrimaryButton(
-                text: 'Sign in',
+                text: l10n.signIn,
                 onPressed: onLogin,
                 isLoading: ref.watch(isLoadingProvider),
               ),
               const SizedBox(height: 24),
-              const AuthDivider(text: 'or'),
+              AuthDivider(text: l10n.or),
               const SizedBox(height: 24),
               GoogleSignInButton(
                 isLoading: ref.watch(isGoogleLoadingProvider),
@@ -103,8 +105,8 @@ class LoginViewDesktop extends ConsumerWidget {
               ),
               const SizedBox(height: 32),
               AuthFooterLink(
-                message: 'Don\'t have an account?',
-                linkText: 'Create account',
+                message: l10n.dontHaveAnAccount,
+                linkText: l10n.createAccount,
                 onPressed: onNavigateToRegister,
               ),
             ],

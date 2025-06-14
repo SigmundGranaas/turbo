@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/icon_service.dart';
 import 'package:turbo/data/search/location_service.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/map/controller/map_utility.dart';
 import 'package:turbo/widgets/search/search_state_provider.dart';
 
@@ -67,28 +68,23 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
     if (_overlayEntry != null) return;
 
     final overlay = Overlay.of(context);
-    // Get the RenderBox of the SearchBar's parent Padding to calculate position
     final renderBox = context.findRenderObject() as RenderBox;
     final size = renderBox.size;
     final offset = renderBox.localToGlobal(Offset.zero);
 
     _overlayEntry = OverlayEntry(
       builder: (context) {
-        // Wrap the entire overlay in a GestureDetector to detect taps outside
         return Stack(
           children: [
-            // Invisible layer to detect taps outside the search results
             Positioned.fill(
               child: GestureDetector(
                 onTap: () {
-                  // Unfocus when tapping outside
                   _focusNode.unfocus();
                   _removeOverlay();
                 },
                 behavior: HitTestBehavior.translucent,
               ),
             ),
-            // The actual search results
             Positioned(
               top: offset.dy + size.height + 8.0,
               left: 16.0,
@@ -119,7 +115,6 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
     );
   }
 
-  // Helper method to unfocus the search bar
   void _unfocusSearchBar() {
     if (_focusNode.hasFocus) {
       _focusNode.unfocus();
@@ -128,10 +123,9 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
 
   @override
   Widget build(BuildContext context) {
-    // Wrap the search bar in a TapRegion to handle focus
+    final l10n = context.l10n;
     return TapRegion(
       onTapOutside: (event) {
-        // Unfocus when tapping outside the search bar
         _unfocusSearchBar();
       },
       child: Padding(
@@ -139,11 +133,12 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
         child: SearchBar(
           controller: _textController,
           focusNode: _focusNode,
-          hintText: "Search places...",
+          hintText: l10n.searchHintMobile,
           leading: IconButton(
             icon: const Icon(Icons.menu),
+            tooltip: l10n.menu,
             onPressed: () {
-              _unfocusSearchBar(); // Unfocus when opening menu
+              _unfocusSearchBar();
               widget.onMenuPressed();
             },
           ),
@@ -156,7 +151,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                 onPressed: () {
                   _textController.clear();
                   ref.read(searchProvider.notifier).clear();
-                  _unfocusSearchBar(); // Also unfocus when clearing
+                  _unfocusSearchBar();
                 },
               ),
           ],
@@ -166,6 +161,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   }
 
   Widget _buildSuggestionsList() {
+    final l10n = context.l10n;
     return Consumer(
       builder: (context, ref, child) {
         final searchState = ref.watch(searchProvider);
@@ -195,9 +191,9 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
             ),
             data: (suggestions) {
               if (suggestions.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 24.0),
-                  child: Center(child: Text('No results found.')),
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24.0),
+                  child: Center(child: Text(l10n.noResultsFound)),
                 );
               }
               return ConstrainedBox(
@@ -230,7 +226,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
 
   Widget _leadingWidget(LocationSearchResult suggestion) {
     if (suggestion.icon != null) {
-      return Icon(_iconService.getIcon(suggestion.icon!).icon);
+      return Icon(_iconService.getIcon(context, suggestion.icon!).icon);
     }
     return Text(suggestion.title.isNotEmpty ? suggestion.title[0] : '?');
   }

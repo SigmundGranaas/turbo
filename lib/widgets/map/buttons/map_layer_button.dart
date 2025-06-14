@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/map/buttons/map_control_button_base.dart';
 import 'package:turbo/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
 
@@ -34,6 +35,7 @@ class LayerSelectionSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final registry = ref.watch(tileRegistryProvider);
     final globalLayers = ref.watch(globalLayersProvider);
     final localLayers = ref.watch(localLayersProvider);
@@ -51,7 +53,6 @@ class LayerSelectionSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 12),
-            // Drag Handle
             Center(
               child: Container(
                 width: 32,
@@ -62,14 +63,13 @@ class LayerSelectionSheet extends ConsumerWidget {
                 ),
               ),
             ),
-            // Header Section
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Map Layers',
+                    l10n.mapLayers,
                     style: textTheme.headlineSmall,
                   ),
                   IconButton(
@@ -84,10 +84,9 @@ class LayerSelectionSheet extends ConsumerWidget {
               ),
             ),
 
-            // Global Maps Section
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _buildSectionHeader(context, 'Global Maps'),
+              child: _buildSectionHeader(context, l10n.globalMaps),
             ),
             const SizedBox(height: 16),
 
@@ -102,7 +101,7 @@ class LayerSelectionSheet extends ConsumerWidget {
                   final isSelected = registry.activeGlobalIds.contains(layer.id);
                   return _buildLayerCard(
                     context: context,
-                    label: layer.name,
+                    label: layer.name(context),
                     value: layer.id,
                     isSelected: isSelected,
                     icon: _getLayerIcon(layer.id),
@@ -117,10 +116,9 @@ class LayerSelectionSheet extends ConsumerWidget {
 
             const SizedBox(height: 24),
 
-            // Norwegian Maps Section
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _buildSectionHeader(context, 'Norwegian Maps'),
+              child: _buildSectionHeader(context, l10n.norwegianMaps),
             ),
             const SizedBox(height: 16),
 
@@ -135,7 +133,7 @@ class LayerSelectionSheet extends ConsumerWidget {
                   final isSelected = registry.activeLocalIds.contains(layer.id);
                   return _buildLayerCard(
                     context: context,
-                    label: layer.name,
+                    label: layer.name(context),
                     value: layer.id,
                     isSelected: isSelected,
                     icon: _getLayerIcon(layer.id),
@@ -150,7 +148,7 @@ class LayerSelectionSheet extends ConsumerWidget {
             const SizedBox(height: 24),
             Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: _buildSectionHeader(context, 'Overlays')
+                child: _buildSectionHeader(context, l10n.overlays)
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -163,7 +161,7 @@ class LayerSelectionSheet extends ConsumerWidget {
                   final layer = overlayLayers[index];
                   return _buildLayerCard(
                     context: context,
-                    label: layer.name,
+                    label: layer.name(context),
                     value: layer.id,
                     isSelected: registry.activeOverlayIds.contains(layer.id),
                     icon: _getLayerIcon(layer.id),
@@ -212,14 +210,14 @@ class LayerSelectionSheet extends ConsumerWidget {
         child: InkWell(
           onTap: onToggle,
           borderRadius: BorderRadius.circular(12),
-          splashColor: colorScheme.secondaryContainer.withValues(alpha: 0.3),
+          splashColor: colorScheme.secondaryContainer.withOpacity(0.3),
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
             decoration: BoxDecoration(
               color: isSelected ? colorScheme.secondaryContainer : colorScheme.surfaceContainer,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? colorScheme.secondary : colorScheme.outline.withValues(alpha: 0.2),
+                color: isSelected ? colorScheme.secondary : colorScheme.outline.withOpacity(0.2),
                 width: isSelected ? 1.5 : 1.0,
               ),
             ),
