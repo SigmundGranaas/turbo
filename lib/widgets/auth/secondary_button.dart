@@ -12,7 +12,7 @@ class SecondaryButton extends ButtonBase {
 
   @override
   EdgeInsetsGeometry get defaultPadding =>
-      const EdgeInsets.symmetric(vertical: 12, horizontal: 24);
+      const EdgeInsets.symmetric(vertical: 24, horizontal: 24);
 
   @override
   Widget buildButton(BuildContext context) {
