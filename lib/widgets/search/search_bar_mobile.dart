@@ -74,14 +74,28 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
 
     _overlayEntry = OverlayEntry(
       builder: (context) {
-        // Position the overlay container manually
-        return Positioned(
-          // Place it 8px below the search bar
-          top: offset.dy + size.height + 8.0,
-          // Constrain it horizontally with the same padding as the search bar
-          left: 16.0,
-          right: 16.0,
-          child: _buildSuggestionsList(),
+        // Wrap the entire overlay in a GestureDetector to detect taps outside
+        return Stack(
+          children: [
+            // Invisible layer to detect taps outside the search results
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: () {
+                  // Unfocus when tapping outside
+                  _focusNode.unfocus();
+                  _removeOverlay();
+                },
+                behavior: HitTestBehavior.translucent,
+              ),
+            ),
+            // The actual search results
+            Positioned(
+              top: offset.dy + size.height + 8.0,
+              left: 16.0,
+              right: 16.0,
+              child: _buildSuggestionsList(),
+            ),
+          ],
         );
       },
     );
@@ -105,31 +119,48 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
     );
   }
 
+  // Helper method to unfocus the search bar
+  void _unfocusSearchBar() {
+    if (_focusNode.hasFocus) {
+      _focusNode.unfocus();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // The root widget is now this Padding, which we use to position the overlay
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: SearchBar(
-        controller: _textController,
-        focusNode: _focusNode,
-        hintText: "Search places...",
-        leading: IconButton(
-          icon: const Icon(Icons.menu),
-          onPressed: widget.onMenuPressed,
+    // Wrap the search bar in a TapRegion to handle focus
+    return TapRegion(
+      onTapOutside: (event) {
+        // Unfocus when tapping outside the search bar
+        _unfocusSearchBar();
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: SearchBar(
+          controller: _textController,
+          focusNode: _focusNode,
+          hintText: "Search places...",
+          leading: IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () {
+              _unfocusSearchBar(); // Unfocus when opening menu
+              widget.onMenuPressed();
+            },
+          ),
+          padding: const WidgetStatePropertyAll<EdgeInsets>(
+              EdgeInsets.only(left: 8.0, right: 16.0)),
+          trailing: [
+            if (_textController.text.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _textController.clear();
+                  ref.read(searchProvider.notifier).clear();
+                  _unfocusSearchBar(); // Also unfocus when clearing
+                },
+              ),
+          ],
         ),
-        padding: const WidgetStatePropertyAll<EdgeInsets>(
-            EdgeInsets.only(left: 8.0, right: 16.0)),
-        trailing: [
-          if (_textController.text.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.clear),
-              onPressed: () {
-                _textController.clear();
-                ref.read(searchProvider.notifier).clear();
-              },
-            ),
-        ],
       ),
     );
   }
