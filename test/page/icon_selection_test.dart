@@ -18,7 +18,6 @@ void main() {
                 child: ElevatedButton(
                   child: const Text('Open'),
                   onPressed: () {
-                    // Use the static show method which pushes the page
                     IconSelectionPage.show(context, service);
                   },
                 ),
@@ -45,10 +44,10 @@ void main() {
     await pumpIconSelectionPage(tester, mockIconService);
 
     // Verify that icons are displayed
-    expect(find.byType(IconGridItem), findsWidgets);
+    expect(find.byType(ListTile), findsWidgets);
 
     // Tap on the first icon
-    await tester.tap(find.byType(IconGridItem).first);
+    await tester.tap(find.byType(ListTile).first);
     await tester.pumpAndSettle();
 
     // Verify that the page is closed
@@ -63,10 +62,10 @@ void main() {
     await tester.pump(); // pump to reflect the changes
 
     // Verify that search results are displayed
-    expect(find.byType(IconGridItem), findsWidgets);
+    expect(find.byType(ListTile), findsWidgets);
 
     // Tap on the first search result
-    await tester.tap(find.byType(IconGridItem).first);
+    await tester.tap(find.byType(ListTile).first);
     await tester.pumpAndSettle();
 
     // Verify that the page is closed
