@@ -15,7 +15,7 @@ class MapControls extends StatelessWidget {
 
     if(isMobile){
       return Positioned(
-        top: 80,
+        top: 100,
         right: 16,
         child: Column(
           children: controls,

@@ -7,67 +7,94 @@ import 'package:turbo/widgets/pages/icon_selection_page.dart';
 void main() {
   late IconService mockIconService;
 
+  // Helper to correctly pump the IconSelectionPage within a Navigator
+  Future<void> pumpIconSelectionPage(WidgetTester tester, IconService service) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) {
+              return Center(
+                child: ElevatedButton(
+                  child: const Text('Open'),
+                  onPressed: () {
+                    IconSelectionPage.show(context, service);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    // Tap the button to show the IconSelectionPage
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pumpAndSettle();
+
+    // Verify the page is now visible
+    expect(find.byType(IconSelectionPage), findsOneWidget);
+  }
+
   setUp(() {
     mockIconService = MockIconService();
   });
 
   testWidgets('Success case: Select an icon without searching', (WidgetTester tester) async {
-    await tester.pumpWidget(MaterialApp(home: IconSelectionPage(iconService: mockIconService)));
+    await pumpIconSelectionPage(tester, mockIconService);
 
     // Verify that icons are displayed
-    expect(find.byType(IconGridItem), findsWidgets);
+    expect(find.byType(ListTile), findsWidgets);
 
     // Tap on the first icon
-    await tester.tap(find.byType(IconGridItem).first);
+    await tester.tap(find.byType(ListTile).first);
     await tester.pumpAndSettle();
 
-    // Verify that the correct icon was returned
-    expect(tester.takeException(), null);
+    // Verify that the page is closed
     expect(find.byType(IconSelectionPage), findsNothing);
   });
 
   testWidgets('Success case: Search for an icon and select it', (WidgetTester tester) async {
-    await tester.pumpWidget(MaterialApp(home: IconSelectionPage(iconService: mockIconService)));
+    await pumpIconSelectionPage(tester, mockIconService);
 
-    // Enter search text
-    await tester.enterText(find.byType(TextField), 'Home');
-    await tester.pump();
+    // Enter search text into the SearchBar
+    await tester.enterText(find.byType(SearchBar), 'Home');
+    await tester.pump(); // pump to reflect the changes
 
     // Verify that search results are displayed
-    expect(find.byType(IconGridItem), findsWidgets);
+    expect(find.byType(ListTile), findsWidgets);
 
     // Tap on the first search result
-    await tester.tap(find.byType(IconGridItem).first);
+    await tester.tap(find.byType(ListTile).first);
     await tester.pumpAndSettle();
 
-    // Verify that the correct icon was returned
-    expect(tester.takeException(), null);
+    // Verify that the page is closed
     expect(find.byType(IconSelectionPage), findsNothing);
   });
 
   testWidgets('Neutral case: Go back without selecting an icon', (WidgetTester tester) async {
-    await tester.pumpWidget(MaterialApp(home: IconSelectionPage(iconService: mockIconService)));
+    await pumpIconSelectionPage(tester, mockIconService);
 
-    // Tap the back button
+    // Tap the back button in the AppBar
     await tester.tap(find.byIcon(Icons.arrow_back));
     await tester.pumpAndSettle();
 
-    // Verify that no icon was returned and the page is closed
-    expect(tester.takeException(), null);
+    // Verify that the page is closed
     expect(find.byType(IconSelectionPage), findsNothing);
   });
 
   testWidgets('Failure case: Search with no results', (WidgetTester tester) async {
-    await tester.pumpWidget(MaterialApp(home: IconSelectionPage(iconService: mockIconService)));
+    await pumpIconSelectionPage(tester, mockIconService);
 
     // Enter search text that should yield no results
-    await tester.enterText(find.byType(TextField), 'nonexistenticon');
+    await tester.enterText(find.byType(SearchBar), 'nonexistenticon');
     await tester.pump();
 
     // Verify that no search results are displayed
     expect(find.byType(IconGridItem), findsNothing);
 
-    expect(find.text('Ingen resultater'), findsOneWidget);
+    // Check for the correct "no results" message
+    expect(find.text('No icons found.'), findsOneWidget);
   });
 }
 

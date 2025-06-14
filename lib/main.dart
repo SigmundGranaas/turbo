@@ -42,8 +42,10 @@ class _MyAppState extends ConsumerState<MyApp> {
       // Activate the listener for subsequent deep links (when app is already running).
       ref.read(linkStreamHandlerProvider);
 
-      // Eagerly initialize the local marker data store.
-      ref.read(localMarkerDataStoreProvider).init();
+      // Eagerly initialize the local marker data store provider.
+      // This is now handled by the FutureProvider itself, but calling it here
+      // can start the initialization early.
+      ref.read(localMarkerDataStoreProvider);
     });
   }
 

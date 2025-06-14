@@ -44,7 +44,6 @@ class AppDrawer extends ConsumerWidget {
               },
             ),
           const Spacer(),
-          const Divider(height: 1),
           if (isAuthenticated)
             ListTile(
               leading: const Icon(Icons.logout),
@@ -54,7 +53,7 @@ class AppDrawer extends ConsumerWidget {
           else
             ListTile(
               leading: const Icon(Icons.login),
-              title: const Text('Login / Sign Up'),
+              title: const Text('Login / Register'),
               onTap: () {
                 Navigator.pop(context);
                 LoginScreen.show(context);

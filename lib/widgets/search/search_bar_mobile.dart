@@ -1,11 +1,10 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/icon_service.dart';
-import 'package:turbo/data/search/composite_search_service.dart';
 import 'package:turbo/data/search/location_service.dart';
 import 'package:turbo/widgets/map/controller/map_utility.dart';
+import 'package:turbo/widgets/search/search_state_provider.dart';
 
 class MobileSearchBar extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -24,66 +23,94 @@ class MobileSearchBar extends ConsumerStatefulWidget {
 }
 
 class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
-  final SearchController _controller = SearchController();
-  final IconService _iconService = IconService();
-
-  Timer? _debounce;
-  List<LocationSearchResult> _suggestions = [];
-  bool _isLoading = false;
+  final _textController = TextEditingController();
+  final _focusNode = FocusNode();
+  final _iconService = IconService();
+  OverlayEntry? _overlayEntry;
 
   @override
   void initState() {
     super.initState();
-    _controller.addListener(_onSearchChanged);
+    _focusNode.addListener(_onFocusChanged);
+    _textController.addListener(_onTextChanged);
+    Future.microtask(() => ref.read(searchProvider.notifier).clear());
   }
 
   @override
   void dispose() {
-    _debounce?.cancel();
-    _controller.removeListener(_onSearchChanged);
-    _controller.dispose();
+    _focusNode.removeListener(_onFocusChanged);
+    _focusNode.dispose();
+    _textController.removeListener(_onTextChanged);
+    _textController.dispose();
+    _removeOverlay();
     super.dispose();
   }
 
-  void _onSearchChanged() {
-    final String query = _controller.text;
-    final searchService = ref.read(compositeSearchServiceProvider);
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-
-    if (query.trim().length < 2) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _suggestions = [];
-        });
-      }
-      return;
+  void _onFocusChanged() {
+    if (_focusNode.hasFocus && _textController.text.isNotEmpty) {
+      _showOverlay();
+    } else {
+      _removeOverlay();
     }
+  }
 
-    if (mounted) setState(() => _isLoading = true);
-    _debounce = Timer(const Duration(milliseconds: 300), () async {
-      try {
-        final data = await searchService.findLocationsBy(query);
-        if (mounted) {
-          setState(() {
-            _suggestions = data;
-            _isLoading = false;
-          });
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _suggestions = [];
-            _isLoading = false;
-          });
-        }
-      }
-    });
+  void _onTextChanged() {
+    if (_textController.text.isNotEmpty && _focusNode.hasFocus) {
+      _showOverlay();
+    } else {
+      _removeOverlay();
+    }
+    ref.read(searchProvider.notifier).search(_textController.text);
+  }
+
+  void _showOverlay() {
+    if (_overlayEntry != null) return;
+
+    final overlay = Overlay.of(context);
+    // Get the RenderBox of the SearchBar's parent Padding to calculate position
+    final renderBox = context.findRenderObject() as RenderBox;
+    final size = renderBox.size;
+    final offset = renderBox.localToGlobal(Offset.zero);
+
+    _overlayEntry = OverlayEntry(
+      builder: (context) {
+        // Wrap the entire overlay in a GestureDetector to detect taps outside
+        return Stack(
+          children: [
+            // Invisible layer to detect taps outside the search results
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: () {
+                  // Unfocus when tapping outside
+                  _focusNode.unfocus();
+                  _removeOverlay();
+                },
+                behavior: HitTestBehavior.translucent,
+              ),
+            ),
+            // The actual search results
+            Positioned(
+              top: offset.dy + size.height + 8.0,
+              left: 16.0,
+              right: 16.0,
+              child: _buildSuggestionsList(),
+            ),
+          ],
+        );
+      },
+    );
+    overlay.insert(_overlayEntry!);
+  }
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
-    _controller.closeView(suggestion.title);
-    FocusScope.of(context).unfocus();
+    _textController.clear();
+    _focusNode.unfocus();
+    ref.read(searchProvider.notifier).clear();
     animatedMapMove(
       suggestion.position,
       13,
@@ -92,74 +119,119 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
     );
   }
 
+  // Helper method to unfocus the search bar
+  void _unfocusSearchBar() {
+    if (_focusNode.hasFocus) {
+      _focusNode.unfocus();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: SearchAnchor(
-        searchController: _controller,
-        builder: (BuildContext context, SearchController controller) {
-          return SearchBar(
-            controller: controller,
-            padding: const WidgetStatePropertyAll<EdgeInsets>(
-                EdgeInsets.only(left: 8.0, right: 16.0)),
-            onTap: () => controller.openView(),
-            onChanged: (_) => controller.openView(),
-            leading: IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: widget.onMenuPressed,
-            ),
-            hintText: "Search places...",
-            trailing: [
-              if (_isLoading)
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2.5),
-                )
-            ],
-          );
-        },
-        suggestionsBuilder:
-            (BuildContext context, SearchController controller) {
-          if (_isLoading) {
-            return [
-              const Center(
-                  child: Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: CircularProgressIndicator()))
-            ];
-          }
-          if (_suggestions.isEmpty && controller.text.isNotEmpty) {
-            return [
-              const Center(
-                  child: Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: Text('No results found.')))
-            ];
-          }
-          return _suggestions.map((s) => _buildSuggestionItem(s));
-        },
+    // Wrap the search bar in a TapRegion to handle focus
+    return TapRegion(
+      onTapOutside: (event) {
+        // Unfocus when tapping outside the search bar
+        _unfocusSearchBar();
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: SearchBar(
+          controller: _textController,
+          focusNode: _focusNode,
+          hintText: "Search places...",
+          leading: IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () {
+              _unfocusSearchBar(); // Unfocus when opening menu
+              widget.onMenuPressed();
+            },
+          ),
+          padding: const WidgetStatePropertyAll<EdgeInsets>(
+              EdgeInsets.only(left: 8.0, right: 16.0)),
+          trailing: [
+            if (_textController.text.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _textController.clear();
+                  ref.read(searchProvider.notifier).clear();
+                  _unfocusSearchBar(); // Also unfocus when clearing
+                },
+              ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildSuggestionItem(LocationSearchResult suggestion) {
-    return ListTile(
-      leading: CircleAvatar(
-        child: _leadingWidget(suggestion),
-      ),
-      title: Text(suggestion.title),
-      subtitle: Text(suggestion.description ?? ''),
-      onTap: () => _onSuggestionSelected(suggestion),
+  Widget _buildSuggestionsList() {
+    return Consumer(
+      builder: (context, ref, child) {
+        final searchState = ref.watch(searchProvider);
+        final theme = Theme.of(context);
+
+        if (_textController.text.trim().length < 2) {
+          return const SizedBox.shrink();
+        }
+
+        return Material(
+          elevation: 3.0,
+          color: theme.colorScheme.surfaceContainer,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28.0),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: searchState.when(
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 24.0),
+                child: CircularProgressIndicator(),
+              ),
+            ),
+            error: (err, stack) => Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text('Error: $err', style: TextStyle(color: theme.colorScheme.error)),
+            ),
+            data: (suggestions) {
+              if (suggestions.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24.0),
+                  child: Center(child: Text('No results found.')),
+                );
+              }
+              return ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.4,
+                ),
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  shrinkWrap: true,
+                  itemCount: suggestions.length,
+                  itemBuilder: (context, index) {
+                    final suggestion = suggestions[index];
+                    return ListTile(
+                      leading: CircleAvatar(child: _leadingWidget(suggestion)),
+                      title: Text(suggestion.title),
+                      subtitle: suggestion.description != null && suggestion.description!.isNotEmpty
+                          ? Text(suggestion.description!, maxLines: 1, overflow: TextOverflow.ellipsis)
+                          : null,
+                      onTap: () => _onSuggestionSelected(suggestion),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
   Widget _leadingWidget(LocationSearchResult suggestion) {
     if (suggestion.icon != null) {
-      return Icon(_iconService.getIcon(suggestion.icon).icon);
-    } else {
-      return Text(suggestion.title.isNotEmpty ? suggestion.title[0] : '?');
+      return Icon(_iconService.getIcon(suggestion.icon!).icon);
     }
+    return Text(suggestion.title.isNotEmpty ? suggestion.title[0] : '?');
   }
 }
