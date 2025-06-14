@@ -48,24 +48,39 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   }
 
   void _onFocusChanged() {
-    if (_focusNode.hasFocus && _textController.text.isNotEmpty) {
+    debugPrint("[MobileSearch] Focus changed. hasFocus: ${_focusNode.hasFocus}");
+    if (_focusNode.hasFocus) {
       _showOverlay();
     } else {
-      _removeOverlay();
+      // This is the key fix. We delay removing the overlay to give the
+      // tap event on a suggestion a chance to be processed.
+      Future.delayed(const Duration(milliseconds: 200), () {
+        // We check if the widget is still in the tree and if focus
+        // hasn't been re-acquired.
+        if (mounted && !_focusNode.hasFocus) {
+          _removeOverlay();
+        }
+      });
     }
   }
 
   void _onTextChanged() {
-    if (_textController.text.isNotEmpty && _focusNode.hasFocus) {
+    // Rebuild to show/hide the clear button
+    setState(() {});
+    debugPrint("[MobileSearch] Text changed: ${_textController.text}");
+
+    if (_focusNode.hasFocus && _textController.text.isNotEmpty) {
+      ref.read(searchProvider.notifier).search(_textController.text);
       _showOverlay();
     } else {
+      ref.read(searchProvider.notifier).clear();
       _removeOverlay();
     }
-    ref.read(searchProvider.notifier).search(_textController.text);
   }
 
   void _showOverlay() {
     if (_overlayEntry != null) return;
+    debugPrint("[MobileSearch] Showing overlay.");
 
     final overlay = Overlay.of(context);
     final renderBox = context.findRenderObject() as RenderBox;
@@ -74,24 +89,11 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
 
     _overlayEntry = OverlayEntry(
       builder: (context) {
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: () {
-                  _focusNode.unfocus();
-                  _removeOverlay();
-                },
-                behavior: HitTestBehavior.translucent,
-              ),
-            ),
-            Positioned(
-              top: offset.dy + size.height + 8.0,
-              left: 16.0,
-              right: 16.0,
-              child: _buildSuggestionsList(),
-            ),
-          ],
+        return Positioned(
+          top: offset.dy + size.height + 8.0,
+          left: 16.0,
+          right: 16.0,
+          child: _buildSuggestionsList(),
         );
       },
     );
@@ -99,13 +101,18 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   }
 
   void _removeOverlay() {
+    if (_overlayEntry == null) return;
+    debugPrint("[MobileSearch] Removing overlay.");
     _overlayEntry?.remove();
     _overlayEntry = null;
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
+    debugPrint("[MobileSearch] Tapped on suggestion: ${suggestion.title}");
     _textController.clear();
-    _focusNode.unfocus();
+    // Unfocusing will trigger our _onFocusChanged listener, which will
+    // then handle closing the overlay after a delay.
+    _unfocusSearchBar();
     ref.read(searchProvider.notifier).clear();
     animatedMapMove(
       suggestion.position,
@@ -124,36 +131,69 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return TapRegion(
-      onTapOutside: (event) {
-        _unfocusSearchBar();
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-        child: SearchBar(
-          controller: _textController,
-          focusNode: _focusNode,
-          hintText: l10n.searchHintMobile,
-          leading: IconButton(
-            icon: const Icon(Icons.menu),
-            tooltip: l10n.menu,
-            onPressed: () {
-              _unfocusSearchBar();
-              widget.onMenuPressed();
-            },
-          ),
-          padding: const WidgetStatePropertyAll<EdgeInsets>(
-              EdgeInsets.only(left: 8.0, right: 16.0)),
-          trailing: [
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Container(
+        height: 56, // Enforce standard M3 SearchBar height
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(28.0),
+          boxShadow: [
+            BoxShadow(
+              color: theme.shadowColor.withOpacity(0.1),
+              blurRadius: 3,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const SizedBox(width: 8),
+            // Menu Icon Button
+            IconButton(
+              icon: const Icon(Icons.menu),
+              tooltip: l10n.menu,
+              onPressed: () {
+                _unfocusSearchBar();
+                widget.onMenuPressed();
+              },
+            ),
+            const SizedBox(width: 8), // Space between icon and text field
+
+            // Text Field
+            Expanded(
+              child: TextField(
+                controller: _textController,
+                focusNode: _focusNode,
+                textAlignVertical: TextAlignVertical.top,
+                decoration: InputDecoration(
+                  hintText: l10n.searchHintMobile,
+                  border: InputBorder.none,
+                  isDense: true, // Important for vertical alignment
+                  contentPadding: EdgeInsets.zero, // Remove all internal padding
+                ),
+              ),
+            ),
+            const SizedBox(width: 8), // Space between text field and clear icon
+
+            // Clear Icon Button (conditionally visible)
             if (_textController.text.isNotEmpty)
               IconButton(
                 icon: const Icon(Icons.clear),
                 onPressed: () {
+                  debugPrint("[MobileSearch] Clear button pressed");
                   _textController.clear();
-                  ref.read(searchProvider.notifier).clear();
-                  _unfocusSearchBar();
                 },
-              ),
+              )
+            else
+            // This SizedBox keeps the TextField from expanding when the clear
+            // button disappears, preventing a layout jump.
+              const SizedBox(width: 48), // Default width of an IconButton
+
+            const SizedBox(width: 8),
           ],
         ),
       ),
@@ -209,10 +249,16 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                     return ListTile(
                       leading: CircleAvatar(child: _leadingWidget(suggestion)),
                       title: Text(suggestion.title),
-                      subtitle: suggestion.description != null && suggestion.description!.isNotEmpty
-                          ? Text(suggestion.description!, maxLines: 1, overflow: TextOverflow.ellipsis)
+                      subtitle: suggestion.description != null &&
+                          suggestion.description!.isNotEmpty
+                          ? Text(suggestion.description!,
+                          maxLines: 1, overflow: TextOverflow.ellipsis)
                           : null,
-                      onTap: () => _onSuggestionSelected(suggestion),
+                      onTap: () {
+                        debugPrint(
+                            "[MobileSearch] ListTile tapped for ${suggestion.title}");
+                        _onSuggestionSelected(suggestion);
+                      },
                     );
                   },
                 ),

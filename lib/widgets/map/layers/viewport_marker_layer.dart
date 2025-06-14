@@ -119,7 +119,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
                 point: location.position,
                 alignment: Alignment.bottomCenter,
                 child: Transform.translate(
-                  offset: Offset(0, -markerHeight / 2),
+                  offset: const Offset(0, -markerHeight / 2),
                   child: MapMarkerWidget(
                       namedIcon: namedIcon,
                       title: location.title,

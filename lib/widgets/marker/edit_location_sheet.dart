@@ -106,7 +106,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
               onPressed: _isLoading || _isDeleting ? null : _confirmDelete,
               style: OutlinedButton.styleFrom(
                 foregroundColor: colorScheme.error,
-                side: BorderSide(color: colorScheme.error.withOpacity(0.5)),
+                side: BorderSide(color: colorScheme.error.withValues(alpha: 0.5)),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(100)),

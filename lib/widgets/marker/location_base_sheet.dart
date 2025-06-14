@@ -144,7 +144,7 @@ class _LocationSheetBaseState extends State<LocationSheetBase> {
     return ListTile(
       leading: Icon(_selectedIcon.icon),
       title: Text(_selectedIcon.localizedTitle ?? _selectedIcon.title),
-      tileColor: Colors.blue.withOpacity(0.1),
+      tileColor: Colors.blue.withValues(alpha: 0.1),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
       ),

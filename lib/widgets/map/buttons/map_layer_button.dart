@@ -210,14 +210,14 @@ class LayerSelectionSheet extends ConsumerWidget {
         child: InkWell(
           onTap: onToggle,
           borderRadius: BorderRadius.circular(12),
-          splashColor: colorScheme.secondaryContainer.withOpacity(0.3),
+          splashColor: colorScheme.secondaryContainer.withValues(alpha: 0.3),
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
             decoration: BoxDecoration(
               color: isSelected ? colorScheme.secondaryContainer : colorScheme.surfaceContainer,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected ? colorScheme.secondary : colorScheme.outline.withOpacity(0.2),
+                color: isSelected ? colorScheme.secondary : colorScheme.outline.withValues(alpha: 0.2),
                 width: isSelected ? 1.5 : 1.0,
               ),
             ),
