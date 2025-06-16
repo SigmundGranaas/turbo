@@ -27,7 +27,8 @@ class LocationFormFields extends StatelessWidget {
           controller: nameController,
           decoration: InputDecoration(
             labelText: l10n.name,
-            border: const OutlineInputBorder(),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)
+            ),
           ),
           validator: (value) {
             if (value == null || value.isEmpty) {
@@ -43,7 +44,8 @@ class LocationFormFields extends StatelessWidget {
           minLines: 1,
           decoration: InputDecoration(
             labelText: l10n.descriptionOptional,
-            border: const OutlineInputBorder(),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)
+            ),
           ),
         ),
         const SizedBox(height: 24),
@@ -79,8 +81,7 @@ class IconSelector extends StatelessWidget {
     return Material(
       color: colorScheme.surfaceContainer,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(16),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(

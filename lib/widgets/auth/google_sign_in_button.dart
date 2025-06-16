@@ -54,7 +54,7 @@ class GoogleSignInButton extends ConsumerWidget {
           disabledBackgroundColor: colorScheme.surface,
           elevation: 0,
           side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.5)),
-          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
+          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(28),
           ),

@@ -5,6 +5,7 @@ import '../../data/icon_service.dart';
 import '../../data/model/marker.dart';
 import '../../data/model/named_icon.dart';
 import '../../data/state/providers/location_repository.dart';
+import '../auth/secondary_button.dart';
 import 'components.dart';
 import '../auth/primary_button.dart';
 
@@ -95,22 +96,9 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
               isLoading: _isLoading,
             ),
             const SizedBox(height: 12),
-            OutlinedButton.icon(
-              icon: _isDeleting
-                  ? SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: colorScheme.error))
-                  : const Icon(Icons.delete_outline),
-              label: Text(l10n.deleteMarker),
+            SecondaryButton(
+              text: l10n.deleteMarker,
               onPressed: _isLoading || _isDeleting ? null : _confirmDelete,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: colorScheme.error,
-                side: BorderSide(color: colorScheme.error.withValues(alpha: 0.5)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(100)),
-              ),
             ),
           ],
         ),

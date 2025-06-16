@@ -11,7 +11,7 @@ class PrimaryButton extends ButtonBase {
 
   @override
   EdgeInsetsGeometry get defaultPadding =>
-      const EdgeInsets.symmetric(vertical: 24, horizontal: 24);
+      const EdgeInsets.symmetric(vertical: 18, horizontal: 24);
 
   @override
   Widget buildButton(BuildContext context) {
