@@ -1,3 +1,4 @@
+// ==== FILE: /home/sigmund/Documents/projects/map-app/lib/data/env_config.dart ====
 import 'package:flutter/foundation.dart';
 
 enum Environment {
@@ -26,5 +27,9 @@ class EnvironmentConfig {
       // Production environment
       return 'https://kart-api.sandring.no';
     }
+  }
+
+  static String get googleServerClientId {
+    return '863382325847-l4s030g7ruif29o6no75ugb19c380an0.apps.googleusercontent.com';
   }
 }

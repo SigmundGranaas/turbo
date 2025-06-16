@@ -91,20 +91,17 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   Future<void> initializeAndHandleInitialLink() async {
     _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
     try {
-      // First, handle any potential mobile deep link that might have launched the app.
-      // This is the primary mechanism for the mobile OAuth flow.
+      // Native Google Sign-In does not use a deep link to start the auth flow.
+      // The logic for handling an initial deep link for OAuth on mobile has been removed.
+      // This section can be used for other types of deep links if needed.
       if (!kIsWeb) {
         try {
           final appLinks = AppLinks();
           final initialUri = await appLinks.getInitialLink();
           if (initialUri != null) {
-            final initialLink = initialUri.toString();
-            if (kDebugMode) print('AuthStateNotifier: Handling initial mobile deep link: $initialLink');
-            handleDeepLinkForProvider(initialLink, this);
-            // If the deep link resulted in authentication, we can return.
-            if (state.status == AuthStatus.authenticated) {
-              return;
-            }
+            // Example: Handle a non-auth deep link.
+            if (kDebugMode) print('AuthStateNotifier: Handling initial deep link: ${initialUri.toString()}');
+            handleDeepLinkForProvider(initialUri.toString(), this);
           }
         } catch (e) {
           if (kDebugMode) print('AuthStateNotifier: Error handling initial deep link: $e');
@@ -176,18 +173,21 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> processOAuthCallback(String code) async {
-    // This method is now ONLY for mobile.
-    // The web flow is handled by server-side redirects and subsequent cookie-based session validation.
-    if (kIsWeb) return;
-
+    // This method handles the authorization code exchange.
+    // - On mobile, it's called with the serverAuthCode from native Google Sign-In.
+    // - On web, it's called by the callback page with the code from the URL.
     if (state.status == AuthStatus.authenticated) return;
     _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
 
     try {
-      // The mobile client makes a direct API call and expects a JSON response with tokens.
+      // The backend endpoint handles the code exchange.
+      // For mobile (which sets Accept: application/json), it returns tokens in the body.
+      // For web, it sets cookies and redirects.
       final response = await _apiClient.get('/api/auth/OAuth/google/callback', queryParameters: {'code': code});
 
-      if (response.statusCode == 200) {
+      // The web flow is handled by the redirect and subsequent session check on page load.
+      // The mobile flow needs to process the returned tokens.
+      if (!kIsWeb && response.statusCode == 200) {
         final data = response.data;
         final String accessToken = data['accessToken'];
         final String refreshToken = data['refreshToken'];
@@ -202,7 +202,12 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
           isGoogleUser: true,
           accessToken: accessToken,
         ));
+      } else if (kIsWeb) {
+        // For web, a successful call means cookies are set.
+        // We can re-check the session state to update the UI.
+        await initializeAndHandleInitialLink();
       } else {
+        // Handle API errors for mobile
         String errorMessage = 'Authentication failed during OAuth callback';
         try {
           final data = response.data;

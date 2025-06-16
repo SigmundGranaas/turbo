@@ -33,12 +33,10 @@ void handleDeepLinkForProvider(String link, AuthStateNotifier authNotifier) {
   if (kDebugMode) {
     print('Deep Link Handler: Got deep link: $link');
   }
-  final uri = Uri.parse(link);
-  // Check if this is our OAuth callback for mobile
-  if (uri.path.contains('/oauth2callback')) {
-    final code = uri.queryParameters['code'];
-    if (code != null) {
-      authNotifier.processOAuthCallback(code);
-    }
-  }
+  // The native OAuth flow no longer uses deep links for the callback.
+  // The previous check for `/oauth2callback` has been removed.
+  // This function can be used for other deep link features in the future.
+  // Example:
+  // final uri = Uri.parse(link);
+  // if (uri.path.contains('/marker/')) { ... }
 }
