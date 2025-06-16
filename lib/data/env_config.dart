@@ -30,6 +30,10 @@ class EnvironmentConfig {
   }
 
   static String get googleServerClientId {
-    return '863382325847-imlbbghvo3av9gbh4ovfa84d0dujn7dj.apps.googleusercontent.com';
+    if (isDevelopment) {
+      return '863382325847-l4s030g7ruif29o6no75ugb19c380an0.apps.googleusercontent.com';
+    } else {
+      return '863382325847-qahghop28qnml8k9vjf85dsp6o9g7mj5.apps.googleusercontent.com';
+    }
   }
 }

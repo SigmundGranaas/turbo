@@ -173,21 +173,27 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> processOAuthCallback(String code) async {
-    // This method handles the authorization code exchange.
-    // - On mobile, it's called with the serverAuthCode from native Google Sign-In.
-    // - On web, it's called by the callback page with the code from the URL.
+    // This method is now exclusively for the native mobile OAuth flow.
+    // The web flow is handled by server-side redirects and session checks.
+    if (kIsWeb) {
+      if (kDebugMode) print("processOAuthCallback called on web, which is unexpected.");
+      return;
+    }
     if (state.status == AuthStatus.authenticated) return;
     _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
 
     try {
-      // The backend endpoint handles the code exchange.
-      // For mobile (which sets Accept: application/json), it returns tokens in the body.
-      // For web, it sets cookies and redirects.
-      final response = await _apiClient.get('/api/auth/OAuth/google/callback', queryParameters: {'code': code});
+      // Mobile flow uses the new dedicated POST endpoint.
+      final response = await _apiClient.post(
+        '/api/auth/OAuth/mobile-signin',
+        data: {
+          'provider': 'google',
+          'code': code,
+        },
+      );
 
-      // The web flow is handled by the redirect and subsequent session check on page load.
-      // The mobile flow needs to process the returned tokens.
-      if (!kIsWeb && response.statusCode == 200) {
+      // Mobile flow expects a 200 OK with tokens in the body.
+      if (response.statusCode == 200) {
         final data = response.data;
         final String accessToken = data['accessToken'];
         final String refreshToken = data['refreshToken'];
@@ -202,19 +208,9 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
           isGoogleUser: true,
           accessToken: accessToken,
         ));
-      } else if (kIsWeb) {
-        // For web, a successful call means cookies are set.
-        // We can re-check the session state to update the UI.
-        await initializeAndHandleInitialLink();
       } else {
-        // Handle API errors for mobile
-        String errorMessage = 'Authentication failed during OAuth callback';
-        try {
-          final data = response.data;
-          errorMessage = data['message'] ?? errorMessage;
-        } catch (_) {
-          errorMessage = response.data?.toString() ?? errorMessage;
-        }
+        // Handle explicit API errors for mobile.
+        String errorMessage = response.data?['message'] ?? 'Authentication failed';
         throw Exception(errorMessage);
       }
     } catch (e) {

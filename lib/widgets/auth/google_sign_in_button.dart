@@ -36,7 +36,9 @@ class GoogleSignInButton extends ConsumerWidget {
       } else {
         // Native Android/iOS flow
         final googleSignIn = GoogleSignIn(
-          scopes: ['https://www.googleapis.com/auth/userinfo.email'],
+          // Use the correctly configured server client ID from your env config
+          serverClientId: EnvironmentConfig.googleServerClientId,
+          scopes: ['email'],
         );
 
         // Sign out from any previous session to ensure a fresh sign-in attempt
@@ -54,15 +56,13 @@ class GoogleSignInButton extends ConsumerWidget {
         final serverAuthCode = googleUser.serverAuthCode;
 
         if (serverAuthCode == null) {
-          throw Exception('Failed to get server auth code from Google.');
+          throw Exception('Failed to get server auth code from Google. Check Google Cloud Console configuration.');
         }
 
         if (kDebugMode) {
           print('Native Google Sign-In successful. Sending serverAuthCode to backend.');
         }
         // The auth notifier will handle the API call and update the state.
-        // It will set the loading state internally, so we don't need to await here.
-        // The UI will update automatically when the auth state changes.
         ref.read(authStateProvider.notifier).processOAuthCallback(serverAuthCode);
       }
     } catch (e) {
@@ -73,9 +73,7 @@ class GoogleSignInButton extends ConsumerWidget {
         );
       }
     } finally {
-      // We call onSignInCompleted in both cases to ensure the button's loading state resets.
-      // For web, it's called immediately after launchUrl.
-      // For native, it's called after the sign-in attempt (success or fail).
+      // This ensures the button's loading state resets.
       onSignInCompleted();
     }
   }
