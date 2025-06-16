@@ -32,18 +32,18 @@ jobs:
       - name: Create Keystore and Signing Properties
         run: |
           echo "Decoding keystore..."
-          # Place the keystore in the standard 'app' module directory
           echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.jks
           echo "Keystore decoded to android/app/release.jks"
           
           echo "Creating key.properties file..."
-          # Create key.properties in the root of the android project directory
+          # Place key.properties in the android/ directory
           echo "storePassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" > android/key.properties
           echo "keyPassword=${{ secrets.RELEASE_KEY_PASSWORD }}" >> android/key.properties
           echo "keyAlias=${{ secrets.RELEASE_KEY_ALIAS }}" >> android/key.properties
-          # The path to the storeFile is now relative to the key.properties file location
-          echo "storeFile=app/release.jks" >> android/key.properties
-          echo "key.properties created in android/."
+          
+          echo "storeFile=release.jks" >> android/key.properties
+          
+          echo "key.properties created."
 
       - name: Get App Version
         id: get_version
