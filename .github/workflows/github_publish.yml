@@ -29,49 +29,44 @@ jobs:
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      # ----- NEW STEPS FOR SIGNING -----
-      - name: Decode and install the keystore
+      # ----- REVISED SIGNING STEPS -----
+      - name: Create Keystore and Signing Properties
         run: |
+          echo "Decoding keystore..."
           echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.jks
-
-      - name: Build APK with signing
-        run: |
-          flutter build apk --release \
-            --build-name=${{ env.APP_VERSION }} \
-            --build-number=${{ github.run_number }} \
-            --obfuscate --split-debug-info=./debug-info \
-            --target-platform android-arm,android-arm64,android-x64 \
-            --split-per-abi
-        env:
-          SIGNING_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-          SIGNING_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-
-      # The build command above produces multiple APKs. We need to package them.
-      - name: Package artifacts
-        run: |
-          mkdir -p release-apks
-          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk release-apks/
-          mv build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk release-apks/
-          mv build/app/outputs/flutter-apk/app-x86_64-release.apk release-apks/
+          echo "Keystore decoded."
           
-          # Optional: Zip the debug info for crash reporting (e.g., Sentry, Firebase Crashlytics)
-          # zip -r debug-info.zip ./debug-info
+          echo "Creating key.properties file..."
+          echo "storePassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" > android/key.properties
+          echo "keyPassword=${{ secrets.RELEASE_KEY_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.RELEASE_KEY_ALIAS }}" >> android/key.properties
+          echo "storeFile=release.jks" >> android/key.properties
+          echo "key.properties created."
 
-      - name: Extract app version
+      - name: Get App Version
         id: get_version
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | cut -d ' ' -f 2)
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
 
+      # Use the version in the build name and the run number for the build number
+      - name: Build Release APK
+        run: flutter build apk --release --build-name=${{ env.APP_VERSION }} --build-number=${{ github.run_number }} --split-per-abi
+
+      - name: Find and Rename APKs
+        run: |
+          # Create a directory to hold the final APKs
+          mkdir -p release-artifacts
+          # Find all release APKs and move/rename them
+          find build/app/outputs/flutter-apk -name 'app-*-release.apk' -exec mv {} release-artifacts/ \;
+          ls -R release-artifacts
+
       - name: Create GitHub Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.APP_VERSION }}.${{ github.run_number }}
-          name: Release ${{ env.APP_VERSION }}
+          tag_name: v${{ env.APP_VERSION }}-${{ github.run_number }}
+          name: Release v${{ env.APP_VERSION }} build ${{ github.run_number }}
           generate_release_notes: true
-          # Upload all APKs in the directory
-          files: |
-            release-apks/*.apk
-            # Optional:
-            # debug-info.zip
+          # Upload all files from the artifacts directory
+          files: release-artifacts/*
