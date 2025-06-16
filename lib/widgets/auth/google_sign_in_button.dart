@@ -36,8 +36,7 @@ class GoogleSignInButton extends ConsumerWidget {
       } else {
         // Native Android/iOS flow
         final googleSignIn = GoogleSignIn(
-          serverClientId: EnvironmentConfig.googleServerClientId,
-          scopes: ['email', 'profile'],
+          scopes: ['https://www.googleapis.com/auth/userinfo.email'],
         );
 
         // Sign out from any previous session to ensure a fresh sign-in attempt
@@ -52,8 +51,7 @@ class GoogleSignInButton extends ConsumerWidget {
           return;
         }
 
-        final googleAuth = await googleUser.authentication;
-        final serverAuthCode = googleAuth.serverAuthCode;
+        final serverAuthCode = googleUser.serverAuthCode;
 
         if (serverAuthCode == null) {
           throw Exception('Failed to get server auth code from Google.');
