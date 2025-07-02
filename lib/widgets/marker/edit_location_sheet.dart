@@ -55,7 +55,6 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final textTheme = Theme.of(context).textTheme;
-    final colorScheme = Theme.of(context).colorScheme;
     final viewInsets = MediaQuery.of(context).viewInsets;
 
     return Padding(

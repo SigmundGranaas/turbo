@@ -136,7 +136,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
             borderRadius: BorderRadius.circular(28.0),
             boxShadow: [
               BoxShadow(
-                color: theme.shadowColor.withOpacity(0.1),
+                color: theme.shadowColor.withValues(alpha: 0.1),
                 blurRadius: 3,
                 offset: const Offset(0, 1),
               ),
