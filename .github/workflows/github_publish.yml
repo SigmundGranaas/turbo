@@ -67,8 +67,8 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.APP_VERSION }}-${{ github.run_number }}
-          name: Release v${{ env.APP_VERSION }} build ${{ github.run_number }}
+          tag_name: v${{ env.APP_VERSION }}
+          name: Turbo Release v${{ env.APP_VERSION }}
           generate_release_notes: true
           # Upload all files from the artifacts directory
           files: release-artifacts/*
