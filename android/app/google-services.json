@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "281611831390",
+    "project_id": "turbo-c1b82",
+    "storage_bucket": "turbo-c1b82.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:281611831390:android:201745f1aafab1fb740ccf",
+        "android_client_info": {
+          "package_name": "com.sigmundgranaas.turbo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGl6pDqvLIQ952YbKNEVZRkMVo7SOBeL0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

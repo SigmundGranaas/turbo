@@ -68,6 +68,7 @@ dependencies:
   # For handling deep links - useful for OAuth flow
   app_links: 6.4.0
   intl: ^0.20.2
+  firebase_core: ^3.15.0
 
 dev_dependencies:
   flutter_test:
