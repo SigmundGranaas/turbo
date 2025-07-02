@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/auth/user_profile_screen.dart';
 import 'package:turbo/widgets/auth/login_screen.dart';
-import 'package:turbo/widgets/pages/settings_page.dart';
 import '../../data/auth/auth_providers.dart';
 
 class AppDrawer extends ConsumerWidget {

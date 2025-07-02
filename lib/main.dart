@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/theme.dart';
 import 'package:turbo/utils.dart';
@@ -13,7 +14,6 @@ import 'data/state/providers/initialize_tiles_provider.dart';
 import 'data/auth/auth_providers.dart';
 import 'data/auth/auth_init_provider.dart';
 import 'data/state/providers/location_repository.dart';
-import 'data/state/providers/settings_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,14 +46,12 @@ class _MyAppState extends ConsumerState<MyApp> {
   Widget build(BuildContext context) {
     ref.watch(initializeTilesProvider);
     final authState = ref.watch(authStateProvider);
-    final themeMode = ref.watch(themeModeProvider);
-    final locale = ref.watch(localeProvider);
+    final settingsAsync = ref.watch(settingsProvider);
 
     if (kDebugMode) {
       print("Building MyApp. Auth Status: ${authState.status}");
     }
-    TextTheme textTheme =
-    createTextTheme(context, "Roboto", "Libre Baskerville");
+    TextTheme textTheme = createTextTheme(context, "Roboto", "Libre Baskerville");
     MaterialTheme theme = MaterialTheme(textTheme);
 
     return MaterialApp(
@@ -61,8 +59,8 @@ class _MyAppState extends ConsumerState<MyApp> {
       debugShowCheckedModeBanner: false,
       theme: theme.light(),
       darkTheme: theme.dark(),
-      themeMode: themeMode,
-      locale: locale,
+      themeMode: settingsAsync.value?.themeMode ?? ThemeMode.system,
+      locale: settingsAsync.value?.locale ?? const Locale('en'),
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,

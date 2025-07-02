@@ -55,7 +55,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
       // This is the key fix. We delay removing the overlay to give the
       // tap event on a suggestion a chance to be processed.
       Future.delayed(const Duration(milliseconds: 200), () {
-        // We check if the widget is still in the tree and if focus
+        // We check if the widgets is still in the tree and if focus
         // hasn't been re-acquired.
         if (mounted && !_focusNode.hasFocus) {
           _removeOverlay();
