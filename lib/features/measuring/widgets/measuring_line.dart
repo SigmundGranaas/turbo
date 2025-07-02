@@ -1,21 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-
-import 'measure_point.dart';
+import 'package:latlong2/latlong.dart';
 
 class MeasurePolyline extends StatelessWidget {
-  final List<MeasurePoint> points;
+  final List<LatLng> points;
 
   const MeasurePolyline({super.key, required this.points});
 
   @override
   Widget build(BuildContext context) {
+    if (points.length < 2) {
+      return const SizedBox.shrink();
+    }
     return PolylineLayer(
       polylines: [
         Polyline(
-          points: points.map((p) => p.point).toList(),
+          points: points,
           strokeWidth: 3,
-          color: Theme.of(context).primaryColor.withValues(alpha: 0.8),
+          color: Theme.of(context).primaryColor.withAlpha(200),
           strokeCap: StrokeCap.round,
           strokeJoin: StrokeJoin.round,
         ),

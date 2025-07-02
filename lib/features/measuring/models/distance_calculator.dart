@@ -3,7 +3,8 @@ import 'package:latlong2/latlong.dart';
 class DistanceCalculator {
   final Distance _distance;
 
-  DistanceCalculator([Distance? distance]) : _distance = distance ?? const Distance();
+  DistanceCalculator([Distance? distance])
+      : _distance = distance ?? const Distance();
 
   double calculateDistance(LatLng point1, LatLng point2) {
     return _distance.distance(point1, point2);

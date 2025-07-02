@@ -1,9 +1,8 @@
-
 import 'package:latlong2/latlong.dart';
-
-import 'distance_calculator.dart' as calc;
-import 'measure_point.dart';
-import 'measure_point_type.dart';
+import 'package:turbo/features/measuring/models/distance_calculator.dart'
+as calc;
+import 'package:turbo/features/measuring/models/measure_point.dart';
+import 'package:turbo/features/measuring/models/measure_point_type.dart';
 
 class MeasurePointCollection {
   final List<MeasurePoint> _points;
@@ -13,7 +12,7 @@ class MeasurePointCollection {
   MeasurePointCollection({
     List<MeasurePoint>? initialPoints,
     calc.DistanceCalculator? calculator,
-  }) : _points = initialPoints ?? [],
+  })  : _points = initialPoints ?? [],
         _calculator = calculator ?? calc.DistanceCalculator(),
         _totalDistance = 0;
 
@@ -21,27 +20,25 @@ class MeasurePointCollection {
   double get totalDistance => _totalDistance;
 
   void addPoint(LatLng point) {
-    final newType = _determinePointType();
-    _updateLastPointTypeIfNeeded(newType);
+    if (_points.isEmpty) {
+      _points.add(MeasurePoint(point: point, type: MeasurePointType.start));
+      _updateTotalDistance();
+      return;
+    }
 
-    _points.add(MeasurePoint(point: point, type: newType));
-    _updateTotalDistance();
-  }
-
-  MeasurePointType _determinePointType() {
-    if (_points.isEmpty) return MeasurePointType.start;
-    if (_points.length == 1) return MeasurePointType.end;
-    return MeasurePointType.middle;
-  }
-
-  void _updateLastPointTypeIfNeeded(MeasurePointType newType) {
-    if (newType == MeasurePointType.middle && _points.isNotEmpty) {
-      final lastIndex = _points.length - 1;
-      _points[lastIndex] = MeasurePoint(
-        point: _points[lastIndex].point,
+    // The current last point is no longer the end. Change its type to middle.
+    // The start point's type should not be changed.
+    final lastPoint = _points.last;
+    if (lastPoint.type == MeasurePointType.end) {
+      _points[_points.length - 1] = MeasurePoint(
+        point: lastPoint.point,
         type: MeasurePointType.middle,
       );
     }
+
+    // Add the new point, which is always the new end point.
+    _points.add(MeasurePoint(point: point, type: MeasurePointType.end));
+    _updateTotalDistance();
   }
 
   void _updateTotalDistance() {
@@ -61,7 +58,8 @@ class MeasurePointCollection {
 
     final removedPoint = _points.removeLast();
 
-    if (_points.length > 1) {
+    // The new last point becomes the end point, unless it's the start point.
+    if (_points.isNotEmpty && _points.last.type == MeasurePointType.middle) {
       final lastIndex = _points.length - 1;
       _points[lastIndex] = MeasurePoint(
         point: _points[lastIndex].point,
