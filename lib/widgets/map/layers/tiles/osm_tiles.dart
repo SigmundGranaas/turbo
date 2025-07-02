@@ -21,6 +21,8 @@ class OSMProvider extends TileProviderWrapper {
   @override
   TileLayer createTileLayer() => TileLayer(
     urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    panBuffer: 2,
+    evictErrorTileStrategy: EvictErrorTileStrategy.none,
     tileProvider: cachePath != null
         ? CachedTileProvider(
       maxStale: const Duration(days: 30),

@@ -22,6 +22,8 @@ class AvalancheOverlay extends TileProviderWrapper {
   TileLayer createTileLayer() => TileLayer(
     urlTemplate: 'https://gis3.nve.no/arcgis/rest/services/wmts/Bratthet_med_utlop_2024/MapServer/tile/{z}/{y}/{x}',
     tileDisplay: const TileDisplay.instantaneous(opacity: 0.7),
+    panBuffer: 2, // Pre-load tiles when panning to improve perceived performance
+    evictErrorTileStrategy: EvictErrorTileStrategy.none,
     tileProvider: cachePath != null
         ? CachedTileProvider(
       maxStale: const Duration(days: 30),

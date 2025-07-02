@@ -22,6 +22,8 @@ class GoogleSatellite extends TileProviderWrapper {
   @override
   TileLayer createTileLayer() => TileLayer(
     urlTemplate: 'https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}',
+    panBuffer: 2,
+    evictErrorTileStrategy: EvictErrorTileStrategy.none,
     tileProvider: cachePath != null
         ? CachedTileProvider(
       maxStale: const Duration(days: 30),
