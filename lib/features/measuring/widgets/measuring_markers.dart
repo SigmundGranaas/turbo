@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-
-import 'measure_point.dart';
+import 'package:turbo/features/measuring/models/measure_point.dart';
 
 class MeasureMarkers extends StatelessWidget {
   final List<MeasurePoint> points;

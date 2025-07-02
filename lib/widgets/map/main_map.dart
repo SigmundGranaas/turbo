@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/features/measuring/api.dart';
 import 'package:turbo/l10n/app_localizations.dart';
-import 'package:turbo/widgets/map/measuring/measuring_map.dart';
 import 'package:turbo/widgets/map/view/map_view_desktop.dart';
 import 'package:turbo/widgets/map/view/map_view_mobile.dart';
 
@@ -43,13 +43,11 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
 
   @override
   Widget build(BuildContext context) {
-    // Watch the entire tile registry state object for consistency.
     final tileRegistryState = ref.watch(tileRegistryProvider);
     final activeIds = tileRegistryState.activeGlobalIds +
         tileRegistryState.activeLocalIds +
         tileRegistryState.activeOverlayIds;
 
-    // Build layers from the consistent state snapshot.
     final tileLayers = activeIds
         .map((id) => tileRegistryState.availableProviders[id]?.createTileLayer())
         .whereType<TileLayer>()
@@ -154,7 +152,7 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
   void _navigateToMeasuring(LatLng startPoint) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => MeasuringControllerPage(
+        builder: (context) => MeasuringMapPage(
           initialPosition: _mapController.camera.center,
           startPoint: startPoint,
           zoom: _mapController.camera.zoom,
@@ -165,7 +163,8 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
 
   void _showCreateSheet(BuildContext context, {LatLng? newLocation}) async {
     if (newLocation != null) {
-      animatedMapMove(newLocation, _mapController.camera.zoom, _mapController, this);
+      animatedMapMove(
+          newLocation, _mapController.camera.zoom, _mapController, this);
     }
 
     final result = await showModalBottomSheet<marker_model.Marker>(
@@ -177,7 +176,8 @@ class MapControllerPageState extends ConsumerState<MapControllerPage>
     );
 
     if (result != null && mounted) {
-      animatedMapMove(result.position, _mapController.camera.zoom + 1, _mapController, this);
+      animatedMapMove(
+          result.position, _mapController.camera.zoom + 1, _mapController, this);
     }
   }
 }

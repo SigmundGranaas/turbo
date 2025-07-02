@@ -164,6 +164,12 @@ abstract class AppLocalizations {
   String get loginSuccessful;
   String welcomeBack(String email);
   String get redirectingToApp;
+
+  String get toggleIntermediatePoints;
+
+  get smoothLine;
+
+  get drawMode;
 }
 
 // English translations
@@ -306,6 +312,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get loginSuccessful => 'Login Successful!';
   @override String welcomeBack(String email) => 'Welcome back, $email';
   @override String get redirectingToApp => 'Redirecting to app...';
+
+  @override
+  String get toggleIntermediatePoints => 'Toggle intermediate points';
+  @override get smoothLine => 'Smooth Line';
+  @override get drawMode => 'Draw mode';
 }
 
 // Norwegian translations
@@ -447,6 +458,9 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get loginSuccessful => 'Innlogging vellykket!';
   @override String welcomeBack(String email) => 'Velkommen tilbake, $email';
   @override String get redirectingToApp => 'Omdirigerer til appen...';
+  @override String get toggleIntermediatePoints => 'Vis mellompunkter';
+  @override String get smoothLine => 'Kurvet linje';
+  @override get drawMode => 'Tegnemodus';
 }
 
 // The delegate
