@@ -37,7 +37,7 @@ void main() {
     });
 
     testWidgets('loads and displays initial default settings', (WidgetTester tester) async {
-      // Arrange: Pump the SettingsPage widget inside our TestApp.
+      // Arrange: Pump the SettingsPage widgets inside our TestApp.
       await tester.pumpWidget(const ProviderScope(child: TestApp(child: SettingsPage())));
 
       // Act: Wait for the async provider to finish loading from persistence.
@@ -127,7 +127,7 @@ void main() {
       expect(tester.widget<SegmentedButton<Locale>>(find.byType(SegmentedButton<Locale>)).selected, {const Locale('nb')});
 
       // --- SECOND SESSION ---
-      // Arrange & Act: Re-pump the widget tree. This simulates an app restart.
+      // Arrange & Act: Re-pump the widgets tree. This simulates an app restart.
       // The SharedPreferences mock retains values between pumps in a single test.
       await tester.pumpWidget(const ProviderScope(child: TestApp(child: SettingsPage())));
       await tester.pumpAndSettle();

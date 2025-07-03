@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:turbo/data/auth/auth_providers.dart';
 import 'package:turbo/data/datastore/api_location_service.dart';
 import 'package:turbo/data/datastore/indexeddb/indexdb.dart';
@@ -8,10 +10,18 @@ import 'package:turbo/data/datastore/marker_data_store.dart';
 import 'package:turbo/data/datastore/sqlite/sqlite_marker_datastore.dart';
 import 'package:turbo/data/model/marker.dart';
 
+import '../../../core/data/database_provider.dart';
+
 final localMarkerDataStoreProvider = FutureProvider<MarkerDataStore>((ref) async {
-  final store = kIsWeb ? ShimDBMarkerDataStore() : SQLiteMarkerDataStore();
-  await store.init();
-  return store;
+  if (kIsWeb) {
+    final store = ShimDBMarkerDataStore();
+    await store.init();
+    return store;
+  } else {
+    // FIX: Depend on the central database provider
+    final db = await ref.watch(databaseProvider.future);
+    return SQLiteMarkerDataStore(db);
+  }
 });
 
 final apiLocationServiceProvider = Provider<ApiLocationService>((ref) {
@@ -25,7 +35,9 @@ final locationRepositoryProvider = StateNotifierProvider.autoDispose<LocationRep
 
 class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
   final Ref _ref;
-  StreamSubscription? _authSubscription;
+  ProviderSubscription? _authSubscription;
+  final _log = Logger('LocationRepository');
+
 
   LocationRepository(this._ref) : super(const AsyncValue.loading()) {
     _initState();
@@ -37,7 +49,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
   Future<void> _initState() async {
     await _loadData(authStatus: _ref.read(authStateProvider).status);
 
-    final listener = _ref.listen<AuthState>(authStateProvider, (previous, next) {
+    _authSubscription = _ref.listen<AuthState>(authStateProvider, (previous, next) {
       final prevStatus = previous?.status;
       if (prevStatus != next.status) {
         if ((prevStatus == AuthStatus.unauthenticated || prevStatus == AuthStatus.initial || prevStatus == AuthStatus.error) &&
@@ -48,10 +60,6 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
         }
       }
     });
-
-    if (!kIsWeb) {
-      _authSubscription = listener as StreamSubscription?;
-    }
   }
 
   Future<void> _loadData({required AuthStatus authStatus}) async {
@@ -67,7 +75,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       }
       if (mounted) state = AsyncValue.data(markers);
     } catch (e, st) {
-      if (kDebugMode) print("Error loading data: $e");
+      _log.severe("Error loading data", e, st);
       if (mounted) state = AsyncValue.error(e, st);
     }
   }
@@ -88,7 +96,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
               await localStore.insert(serverMarker.copyWith(synced: true));
             }
           } catch (e) {
-            if (kDebugMode) print("Error syncing local marker ${localMarker.uuid} on login: $e");
+            _log.warning("Error syncing local marker ${localMarker.uuid} on login", e);
           }
         }());
       }
@@ -98,19 +106,53 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
 
 
   Future<List<Marker>> _fetchAndCacheAllUserMarkersFromServer() async {
+    final stopwatch = Stopwatch()..start();
     final localStore = await _localStore;
     try {
+      _log.info('SYNC: Starting server fetch...');
       final serverMarkers = await _apiService.getAllUserLocations();
-      await localStore.clearAll();
-      for (final marker in serverMarkers) {
-        await localStore.insert(marker.copyWith(synced: true));
+      _log.info('SYNC: Fetched ${serverMarkers.length} markers from server in ${stopwatch.elapsedMilliseconds}ms.');
+      stopwatch.reset();
+
+      if (serverMarkers.isEmpty) {
+        await localStore.clearAll();
+        return [];
       }
+
+      _log.info('SYNC: Starting BATCH write of ${serverMarkers.length} markers to DB...');
+
+      // This is a web-safe way of doing this.
+      if (localStore is SQLiteMarkerDataStore) {
+        // Use a batch operation for performance on native platforms
+        await localStore.db.transaction((txn) async {
+          await txn.delete(markersTable);
+          final batch = txn.batch();
+          for (final marker in serverMarkers) {
+            batch.insert(
+              markersTable,
+              marker.copyWith(synced: true).toLocalMap(),
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+          await batch.commit(noResult: true);
+        });
+      } else {
+        // Fallback for web (or other implementations)
+        await localStore.clearAll();
+        for (final marker in serverMarkers) {
+          await localStore.insert(marker.copyWith(synced: true));
+        }
+      }
+
+      _log.info('SYNC: Finished BATCH writing markers in ${stopwatch.elapsedMilliseconds}ms.');
+      stopwatch.stop();
       return serverMarkers;
-    } catch (e) {
-      if (kDebugMode) print("Error fetching from server, returning local: $e");
+    } catch (e, s) {
+      _log.severe("Error fetching from server, returning local", e, s);
       return localStore.getAll();
     }
   }
+
 
   Future<void> addMarker(Marker marker) async {
     if (!mounted) return;
@@ -133,7 +175,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       await localStore.insert(markerToSave);
       await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
-      if (kDebugMode) print("Error adding marker: $e");
+      _log.warning("Error adding marker", e, st);
       if (mounted) state = AsyncValue.error(e, st);
       await localStore.insert(marker.copyWith(synced: false));
       await _loadData(authStatus: currentAuthStatus);
@@ -156,7 +198,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       await localStore.update(markerToUpdate);
       await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
-      if (kDebugMode) print("Error updating marker: $e");
+      _log.warning("Error updating marker", e, st);
       if (mounted) state = AsyncValue.error(e, st);
       await localStore.update(marker.copyWith(synced: false));
       await _loadData(authStatus: currentAuthStatus);
@@ -175,7 +217,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       await localStore.delete(uuid);
       await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
-      if (kDebugMode) print("Error deleting marker: $e");
+      _log.warning("Error deleting marker", e, st);
       await localStore.delete(uuid);
       await _loadData(authStatus: currentAuthStatus);
       if (mounted) state = AsyncValue.error(e, st);
@@ -197,7 +239,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
             await localStore.insert(serverMarker.copyWith(synced: true));
           }
         } catch (e) {
-          if (kDebugMode) print("Manual Sync: Error uploading ${localMarker.uuid}: $e");
+          _log.warning("Manual Sync: Error uploading ${localMarker.uuid}", e);
         }
       }
 
@@ -229,7 +271,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
 
       await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
-      if (kDebugMode) print("Error during manual sync: $e");
+      _log.severe("Error during manual sync", e, st);
       if (mounted) state = AsyncValue.error(e, st);
     }
   }
@@ -275,7 +317,7 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
 
   @override
   void dispose() {
-    _authSubscription?.cancel();
+    _authSubscription?.close();
     super.dispose();
   }
 }

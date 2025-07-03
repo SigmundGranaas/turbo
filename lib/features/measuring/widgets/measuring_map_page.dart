@@ -14,8 +14,9 @@ import 'package:turbo/widgets/map/controls/bottom_controls.dart';
 import 'package:turbo/widgets/map/controls/default_map_controls.dart';
 import 'package:turbo/widgets/map/controls/go_back_button.dart';
 import 'package:turbo/widgets/map/controls/map_controls.dart';
-import 'package:turbo/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
-import 'package:turbo/widgets/map/map_base.dart';
+
+import '../../map_view/widgets/map_base.dart';
+import '../../tile_providers/api.dart';
 
 final measuringStateProvider = StateNotifierProvider.autoDispose
     .family<MeasuringStateNotifier, MeasuringState, LatLng>(
@@ -120,6 +121,7 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
               isDrawing: measuringState.isDrawing,
               showIntermediatePoints: measuringState.showIntermediatePoints,
               drawSensitivity: measuringState.drawSensitivity,
+
             ),
           ),
         ],
@@ -133,6 +135,9 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
           flags: measuringState.isDrawing
               ? InteractiveFlag.none
               : InteractiveFlag.all,
+          pinchZoomThreshold: 0.2,
+          pinchMoveThreshold: 40,
+          rotationThreshold: 5.0,
         ),
       ),
     );

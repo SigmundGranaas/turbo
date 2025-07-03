@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/settings/api.dart';
+import 'package:turbo/features/tile_storage/offline_regions/widgets/offline_regions_page.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/auth/user_profile_screen.dart';
 import 'package:turbo/widgets/auth/login_screen.dart';
@@ -20,6 +21,7 @@ class AppDrawer extends ConsumerWidget {
 
     final List<Map<String, dynamic>> destinations = [
       {'key': 'map', 'icon': Icons.map_outlined, 'selectedIcon': Icons.map, 'label': l10n.map},
+      {'key': 'offline_maps', 'icon': Icons.download_for_offline_outlined, 'selectedIcon': Icons.download_for_offline, 'label': "Offline Maps"},
       {'key': 'settings', 'icon': Icons.settings_outlined, 'selectedIcon': Icons.settings, 'label': l10n.settings},
       if (isAuthenticated)
         {'key': 'profile', 'icon': Icons.account_circle_outlined, 'selectedIcon': Icons.account_circle, 'label': l10n.profile},
@@ -103,6 +105,12 @@ class AppDrawer extends ConsumerWidget {
                 switch (selectedKey) {
                   case 'map':
                   // Already on map, do nothing
+                    break;
+                  case 'offline_maps':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const OfflineRegionsPage()),
+                    );
                     break;
                   case 'settings':
                     Navigator.push(

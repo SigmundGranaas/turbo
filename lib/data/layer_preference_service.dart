@@ -9,16 +9,19 @@ class LayerPreferenceService {
   static const _globalKey = 'active_global_layers';
   static const _localKey = 'active_local_layers';
   static const _overlayKey = 'active_overlay_layers';
+  static const _offlineKey = 'active_offline_layers';
 
   Future<void> saveLayers({
     required List<String> global,
     required List<String> local,
     required List<String> overlays,
+    required List<String> offline,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_globalKey, global);
     await prefs.setStringList(_localKey, local);
     await prefs.setStringList(_overlayKey, overlays);
+    await prefs.setStringList(_offlineKey, offline);
   }
 
   Future<Map<String, List<String>>> getSavedLayers() async {
@@ -27,6 +30,7 @@ class LayerPreferenceService {
       'global': prefs.getStringList(_globalKey) ?? [],
       'local': prefs.getStringList(_localKey) ?? [],
       'overlays': prefs.getStringList(_overlayKey) ?? [],
+      'offline': prefs.getStringList(_offlineKey) ?? [],
     };
   }
 }

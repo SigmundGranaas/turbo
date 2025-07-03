@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 
+import '../../../features/map_view/widgets/buttons/map_layer_button.dart';
 import '../buttons/compass.dart';
 import '../buttons/location_button.dart';
-import '../buttons/map_layer_button.dart';
 import '../buttons/plus_minus_buttons.dart';
 import '../controller/map_utility.dart';
 
