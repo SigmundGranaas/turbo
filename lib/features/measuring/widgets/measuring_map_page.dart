@@ -121,6 +121,7 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
               isDrawing: measuringState.isDrawing,
               showIntermediatePoints: measuringState.showIntermediatePoints,
               drawSensitivity: measuringState.drawSensitivity,
+
             ),
           ),
         ],
@@ -134,6 +135,9 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
           flags: measuringState.isDrawing
               ? InteractiveFlag.none
               : InteractiveFlag.all,
+          pinchZoomThreshold: 0.2,
+          pinchMoveThreshold: 40,
+          rotationThreshold: 5.0,
         ),
       ),
     );

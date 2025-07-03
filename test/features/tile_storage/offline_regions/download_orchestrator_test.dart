@@ -206,7 +206,7 @@ void main() {
       const minZoom = 1;
       const maxZoom = 3;
       const totalTiles = 98;
-      const failedTiles = 16;
+      const failedTiles = 20;
       const expectedDownloadedCount = totalTiles - failedTiles;
       const regionName = 'Test Area With Failures';
 

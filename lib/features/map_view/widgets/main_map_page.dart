@@ -80,7 +80,6 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       ViewportMarkers(mapController: _mapController),
     ];
 
-    // --- START: Offline Download Toolbar Logic (using new system) ---
     final overlayWidgets = <Widget>[];
     final offlineRegionsAsync = ref.watch(offline_api.offlineRegionsProvider);
     final activeDownloads = offlineRegionsAsync.valueOrNull
@@ -109,7 +108,6 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         ),
       );
     }
-    // --- END: Offline Download Toolbar Logic ---
 
     return LayoutBuilder(
       builder: (context, constraints) {
