@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/layer_preference_service.dart';
 import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.dart';
@@ -96,7 +97,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
       activeOfflineIds: <String>{
         ...state.activeOfflineIds.where((id) => !toRemove.contains(id)),
         ...newlyAddedIds,
-      }.toList(),
+      }.toList(), // Use Set to avoid duplicates
     );
     _persistState();
   }
@@ -168,8 +169,36 @@ class TileRegistry extends Notifier<TileRegistryState> {
   List<TileLayer> getActiveLayers() {
     final layers = <TileLayer>[];
 
+    // --- WEB IMPLEMENTATION ---
+    // For web, we bypass the custom caching mechanism which is not web-compatible
+    // and use the recommended CancellableNetworkTileProvider.
+    if (kIsWeb) {
+      final activeIds = [
+        ...state.activeGlobalIds,
+        ...state.activeLocalIds,
+        ...state.activeOverlayIds,
+      ];
+      for (final id in activeIds) {
+        final config = state.availableProviders[id];
+        if (config == null) continue;
+
+        layers.add(TileLayer(
+          tileProvider: CancellableNetworkTileProvider(headers: config.headers),
+          urlTemplate: config.urlTemplate,
+          minZoom: config.minZoom,
+          maxZoom: 22, // Allow overzooming visually
+          maxNativeZoom: config.maxZoom.toInt(),
+          panBuffer: 2,
+          evictErrorTileStrategy: EvictErrorTileStrategy.none,
+          tileDisplay: TileDisplay.instantaneous(opacity: config.opacity),
+        ));
+      }
+      return layers;
+    }
+
+    // --- NATIVE IMPLEMENTATION (The existing logic) ---
     final cacheApiAsync = ref.read(cacheApiProvider);
-    final offlineApi = kIsWeb ? null : ref.read(offlineApiProvider);
+    final offlineApi = ref.read(offlineApiProvider); // Safe to read here since not web
 
     if (cacheApiAsync is! AsyncData) {
       return [];
@@ -188,7 +217,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
       if (config == null) continue;
 
       final tileProvider = config.category == TileProviderCategory.offline
-          ? offlineApi?.createTileProvider(
+          ? offlineApi.createTileProvider(
           region: (config as OfflineRegionProviderConfig).region)
           : cacheApi?.createTileProvider(
         urlTemplate: config.urlTemplate,
