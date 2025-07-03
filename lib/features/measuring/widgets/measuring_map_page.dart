@@ -14,8 +14,9 @@ import 'package:turbo/widgets/map/controls/bottom_controls.dart';
 import 'package:turbo/widgets/map/controls/default_map_controls.dart';
 import 'package:turbo/widgets/map/controls/go_back_button.dart';
 import 'package:turbo/widgets/map/controls/map_controls.dart';
-import 'package:turbo/widgets/map/layers/tiles/tile_registry/tile_registry.dart';
-import 'package:turbo/widgets/map/map_base.dart';
+
+import '../../map_view/widgets/map_base.dart';
+import '../../tile_providers/api.dart';
 
 final measuringStateProvider = StateNotifierProvider.autoDispose
     .family<MeasuringStateNotifier, MeasuringState, LatLng>(

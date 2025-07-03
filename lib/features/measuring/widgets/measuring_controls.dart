@@ -46,6 +46,37 @@ class MeasuringControls extends StatelessWidget {
       foregroundColor: colorScheme.onPrimaryContainer,
     );
 
+    final actionButtons = [
+      IconButton(
+        onPressed: onToggleDrawing,
+        icon: const Icon(Icons.draw_outlined),
+        tooltip: l10n.drawMode,
+        style: isDrawing ? selectedStyle : null,
+      ),
+      IconButton(
+        onPressed: onToggleSmoothing,
+        icon: const Icon(Icons.insights_outlined),
+        tooltip: l10n.smoothLine,
+        style: isSmoothing ? selectedStyle : null,
+      ),
+      IconButton(
+        onPressed: canReset ? onToggleIntermediatePoints : null,
+        icon: const Icon(Icons.linear_scale_outlined),
+        tooltip: l10n.toggleIntermediatePoints,
+        style: showIntermediatePoints ? null : selectedStyle,
+      ),
+      IconButton(
+        onPressed: canUndo ? onUndo : null,
+        icon: const Icon(Icons.undo),
+        tooltip: l10n.undoLastPoint,
+      ),
+      IconButton(
+        onPressed: canReset ? onReset : null,
+        icon: const Icon(Icons.delete_sweep_outlined),
+        tooltip: l10n.resetMeasurement,
+      ),
+    ];
+
     return Card(
       elevation: 4,
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -56,11 +87,10 @@ class MeasuringControls extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Top row: Distance display and Done button
             Padding(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.straighten_outlined,
                       color: colorScheme.onSurfaceVariant),
@@ -87,36 +117,6 @@ class MeasuringControls extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: onToggleDrawing,
-                    icon: const Icon(Icons.draw_outlined),
-                    tooltip: l10n.drawMode,
-                    style: isDrawing ? selectedStyle : null,
-                  ),
-                  IconButton(
-                    onPressed: onToggleSmoothing,
-                    icon: const Icon(Icons.insights_outlined),
-                    tooltip: l10n.smoothLine,
-                    style: isSmoothing ? selectedStyle : null,
-                  ),
-                  IconButton(
-                    onPressed: canReset ? onToggleIntermediatePoints : null,
-                    icon: const Icon(Icons.linear_scale_outlined),
-                    tooltip: l10n.toggleIntermediatePoints,
-                    style: showIntermediatePoints ? null : selectedStyle,
-                  ),
-                  const VerticalDivider(width: 16),
-                  IconButton(
-                    onPressed: canUndo ? onUndo : null,
-                    icon: const Icon(Icons.undo),
-                    tooltip: l10n.undoLastPoint,
-                  ),
-                  IconButton(
-                    onPressed: canReset ? onReset : null,
-                    icon: const Icon(Icons.delete_sweep_outlined),
-                    tooltip: l10n.resetMeasurement,
-                  ),
-                  const SizedBox(width: 8),
                   FilledButton.tonal(
                     onPressed: onFinish,
                     style: FilledButton.styleFrom(
@@ -127,6 +127,20 @@ class MeasuringControls extends StatelessWidget {
                 ],
               ),
             ),
+            // Divider if there are action buttons or slider
+            if (actionButtons.isNotEmpty || isDrawing)
+              const Divider(height: 1, indent: 16, endIndent: 16),
+            // Middle row: Action buttons
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8.0, // Horizontal space between buttons
+                runSpacing: 4.0, // Vertical space if it wraps
+                children: actionButtons,
+              ),
+            ),
+            // Bottom row: Slider for drawing sensitivity
             if (isDrawing)
               Padding(
                 padding:
