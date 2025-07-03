@@ -93,10 +93,10 @@ class TileRegistry extends Notifier<TileRegistryState> {
     // and automatically enabling newly downloaded regions.
     state = state.copyWith(
       availableProviders: currentProviders,
-      activeOfflineIds: [
+      activeOfflineIds: <String>{
         ...state.activeOfflineIds.where((id) => !toRemove.contains(id)),
         ...newlyAddedIds,
-      ].toSet().toList(), // Use Set to avoid duplicates
+      }.toList(),
     );
     _persistState();
   }
