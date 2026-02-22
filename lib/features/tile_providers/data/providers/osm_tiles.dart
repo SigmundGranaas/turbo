@@ -17,4 +17,8 @@ class OsmConfig extends TileProviderConfig {
   String get urlTemplate => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   @override
   double get maxZoom => 19.0;
+  @override
+  Map<String, String>? get headers => {
+    'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+  };
 }

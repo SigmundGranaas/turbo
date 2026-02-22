@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:isolate';
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/tile_storage/offline_regions/data/region_repository.dart';
@@ -9,7 +10,6 @@ import 'package:uuid/uuid.dart';
 import '../../tile_store/api.dart';
 import '../api.dart';
 import '../models/tile_download_job.dart';
-import 'download_worker.dart';
 
 final downloadOrchestratorProvider = Provider<DownloadOrchestrator?>((ref) {
   // Watch all async dependencies.
@@ -17,21 +17,17 @@ final downloadOrchestratorProvider = Provider<DownloadOrchestrator?>((ref) {
   final tileStoreAsync = ref.watch(tileStoreServiceProvider);
   final regionRepoAsync = ref.watch(regionRepositoryProvider);
 
-  // If any of them are not ready, return null. The UI/caller won't get an instance yet.
+  // If any of them are not ready, return null.
   if (jobQueueAsync.isLoading || tileStoreAsync.isLoading || regionRepoAsync.isLoading) {
     return null;
   }
 
-  // Optionally handle errors, e.g., by logging them.
   if (jobQueueAsync.hasError || tileStoreAsync.hasError || regionRepoAsync.hasError) {
     log.severe('Failed to initialize a dependency for DownloadOrchestrator',
         jobQueueAsync.error ?? tileStoreAsync.error ?? regionRepoAsync.error);
     return null;
   }
 
-  // All dependencies are ready, create the real orchestrator instance.
-  // Riverpod will cache this instance. It will only be recreated if one of the
-  // dependencies is invalidated and re-resolved.
   final orchestrator = DownloadOrchestrator(
     jobQueue: jobQueueAsync.value!,
     tileStore: tileStoreAsync.value!,
@@ -45,39 +41,48 @@ final downloadOrchestratorProvider = Provider<DownloadOrchestrator?>((ref) {
   return orchestrator;
 });
 
-typedef IsolateSpawner = Future<Isolate> Function(
-    void Function(DownloadTask) entryPoint, DownloadTask message);
-
 class DownloadOrchestrator {
   final TileJobQueue _jobQueue;
   final TileStoreService _tileStore;
   final RegionRepository _regionRepository;
   final OfflineRegionsNotifier _regionNotifier;
-  final IsolateSpawner _isolateSpawner;
-
+  
+  final Dio _dio;
   Timer? _timer;
   bool _isRunning = false;
-  bool _isTicking = false; // Mutex flag to prevent concurrent ticks.
-  static const int maxConcurrentWorkers = 4;
-  final Map<String, Isolate> _activeWorkers = {};
+  bool _isTicking = false;
+  
+  static const int maxConcurrentDownloads = 8;
+  int _activeDownloadCount = 0;
+
+  // Circuit breaker state
+  int _consecutiveConnectionFailures = 0;
+  DateTime? _pauseUntil;
 
   DownloadOrchestrator({
     required TileJobQueue jobQueue,
     required TileStoreService tileStore,
     required RegionRepository regionRepository,
     required OfflineRegionsNotifier regionNotifier,
-    IsolateSpawner spawner = Isolate.spawn,
   })  : _jobQueue = jobQueue,
         _tileStore = tileStore,
         _regionRepository = regionRepository,
         _regionNotifier = regionNotifier,
-        _isolateSpawner = spawner;
+        _dio = Dio(BaseOptions(
+          responseType: ResponseType.bytes,
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 10),
+          headers: {
+            'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+            'Accept': 'image/png,image/*;q=0.8,*/*;q=0.5',
+          },
+        ));
 
   void start() {
     if (_isRunning) return;
     _isRunning = true;
     log.info('DownloadOrchestrator started.');
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     _tick();
   }
 
@@ -85,31 +90,38 @@ class DownloadOrchestrator {
     log.info('DownloadOrchestrator stopped.');
     _timer?.cancel();
     _isRunning = false;
-    _activeWorkers
-        .forEach((id, isolate) => isolate.kill(priority: Isolate.immediate));
-    _activeWorkers.clear();
   }
 
   Future<void> _tick() async {
     if (_isTicking || !_isRunning) return;
+
+    // Check if we are currently paused by the circuit breaker
+    if (_pauseUntil != null) {
+      if (DateTime.now().isBefore(_pauseUntil!)) {
+        return;
+      }
+      log.info('Circuit breaker: Resuming downloads after connection pause.');
+      _pauseUntil = null;
+      _consecutiveConnectionFailures = 0;
+    }
+
     _isTicking = true;
 
     try {
-      final staleCount = await _jobQueue.findAndResetStaleJobs();
-      if (staleCount > 0) {
-        log.warning('Reset $staleCount stale jobs.');
-      }
+      // 1. Recover stale jobs (e.g. from app crash)
+      await _jobQueue.findAndResetStaleJobs();
 
-      final availableSlots = maxConcurrentWorkers - _activeWorkers.length;
+      // 2. Fill available slots
+      final availableSlots = maxConcurrentDownloads - _activeDownloadCount;
       if (availableSlots <= 0) return;
 
       for (int i = 0; i < availableSlots; i++) {
-        final workerId = const Uuid().v4();
+        final workerId = "async-worker-${const Uuid().v4()}";
         final job = await _jobQueue.claimJob(workerId: workerId);
         if (job != null) {
-          _spawnWorker(job, workerId);
+          unawaited(_processJob(job));
         } else {
-          break; // No more pending jobs
+          break; // No more work
         }
       }
     } finally {
@@ -117,79 +129,51 @@ class DownloadOrchestrator {
     }
   }
 
-  void _spawnWorker(TileDownloadJob job, String workerId) {
-    log.fine('Spawning worker $workerId for job ${job.url}');
-    final receivePort = ReceivePort();
-
-    receivePort.listen((message) {
-      if (message is JobResult) {
-        _handleJobResult(message).whenComplete(() {
-          _activeWorkers.remove(workerId)?.kill();
-          receivePort.close();
-          _tick(); // Check for more work immediately
-        });
-      } else if (message is WorkerLogRecord) {
-        log.log(message.level, '[Worker $workerId] ${message.message}',
-            message.error, message.stackTrace);
-      } else if (message is List && message.length == 2 && message[0] is String) {
-        final error = message[0];
-        final stack = message[1];
-        log.severe('[Worker $workerId] Unhandled isolate error', error,
-            StackTrace.fromString(stack));
-        _handleJobResult(JobFailure(job, "Isolate crashed: $error"))
-            .whenComplete(() {
-          _activeWorkers.remove(workerId);
-          receivePort.close();
-          _tick();
-        });
-      } else {
-        log.warning(
-            'Orchestrator received unknown message from worker: $message');
-      }
-    });
-
-    _isolateSpawner(
-        downloadWorkerEntrypoint, DownloadTask(receivePort.sendPort, job))
-        .then((isolate) {
-      log.fine('Worker $workerId for job ${job.url} spawned successfully.');
-      _activeWorkers[workerId] = isolate;
-      isolate.addErrorListener(receivePort.sendPort);
-    }).catchError((error, stack) {
-      log.severe('Isolate.spawn FAILED for job ${job.url}', error, stack);
-      receivePort.close();
-      _activeWorkers.remove(workerId);
-      _handleJobResult(JobFailure(job, 'Failed to spawn isolate: $error'));
-    });
-  }
-
-  Future<void> _handleJobResult(JobResult result) async {
+  Future<void> _processJob(TileDownloadJob job) async {
+    _activeDownloadCount++;
+    final coords = TileCoordinates(job.x, job.y, job.z);
+    
     try {
-      final job = result.job;
-      final coords = TileCoordinates(job.x, job.y, job.z);
-
-      if (result is JobSuccess) {
-        log.fine(
-            'Job SUCCEEDED for ${job.url} in ${result.duration.inMilliseconds}ms');
-        await _tileStore.put(job.providerId, coords, result.bytes);
-        await _tileStore.incrementReference(job.providerId, coords);
+      final response = await _dio.get<Uint8List>(job.url);
+      
+      if (response.statusCode == 200 && response.data != null) {
+        // Success: Reset connection failure counter
+        _consecutiveConnectionFailures = 0;
+        
+        await _tileStore.putWithReference(job.providerId, coords, response.data!);
         await _jobQueue.markJobSuccess(job);
-        await _regionNotifier.updateRegionProgress(job.regionId,
-            tileSucceeded: true);
-      } else if (result is JobFailure) {
-        log.warning('Job FAILED for ${job.url}. Error: ${result.error}');
-        await _jobQueue.markJobFailed(job);
-        await _regionNotifier.updateRegionProgress(job.regionId,
-            tileSucceeded: false);
+        await _regionNotifier.updateRegionProgress(job.regionId, tileSucceeded: true);
+      } else {
+        throw Exception("Status code: ${response.statusCode}");
+      }
+    } catch (e) {
+      log.warning('Job FAILED for ${job.url}. Error: $e');
+      
+      // Check if this is a connection-level error
+      if (e is DioException) {
+        final isConnectionError = e.type == DioExceptionType.connectionError || 
+                                 e.type == DioExceptionType.connectionTimeout ||
+                                 e.error.toString().contains('SocketException') ||
+                                 e.error.toString().contains('Failed host lookup');
+        
+        if (isConnectionError) {
+          _consecutiveConnectionFailures++;
+          if (_consecutiveConnectionFailures >= 5) {
+            log.severe('Circuit breaker: Persistent connection errors detected. Pausing downloads for 30 seconds.');
+            _pauseUntil = DateTime.now().add(const Duration(seconds: 30));
+          }
+        }
       }
 
+      await _jobQueue.markJobFailed(job);
+      await _regionNotifier.updateRegionProgress(job.regionId, tileSucceeded: false);
+    } finally {
+      _activeDownloadCount--;
       await _checkAndFinalizeRegion(job.regionId);
-    } catch (e, s) {
-      log.severe(
-        'CRITICAL: Error while processing job result for region ${result.job.regionId}. '
-            'This may lead to an incomplete or stalled download. Error: $e',
-        e,
-        s,
-      );
+      // Immediately try to start next job if not paused
+      if (_pauseUntil == null) {
+        _tick();
+      }
     }
   }
 

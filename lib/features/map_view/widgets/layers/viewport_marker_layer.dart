@@ -144,6 +144,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
     final result = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (BuildContext context) {
         return EditLocationSheet(location: marker);
       },

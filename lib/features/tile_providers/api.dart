@@ -1,6 +1,6 @@
-/// The public API for the Tile Providers feature.
-library tile_providers;
+library;
 
+/// The public API for the Tile Providers feature.
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/tile_providers/data/tile_registry.dart';

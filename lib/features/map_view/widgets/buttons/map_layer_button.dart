@@ -29,6 +29,7 @@ class MapLayerButton extends ConsumerWidget {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (BuildContext context) {
         return const LayerSelectionSheet();
       },
@@ -58,88 +59,90 @@ class LayerSelectionSheet extends ConsumerWidget {
       ...registry.activeOfflineIds,
     };
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 12),
-            Center(
-              child: Container(
-                width: 32,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(2),
+    return SafeArea(
+      child: Container(
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 12),
+              Center(
+                child: Container(
+                  width: 32,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    l10n.mapLayers,
-                    style: textTheme.headlineSmall,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: IconButton.styleFrom(
-                      foregroundColor: colorScheme.onSurfaceVariant,
-                      backgroundColor: colorScheme.surfaceContainerHighest,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      l10n.mapLayers,
+                      style: textTheme.headlineSmall,
                     ),
-                  ),
-                ],
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: IconButton.styleFrom(
+                        foregroundColor: colorScheme.onSurfaceVariant,
+                        backgroundColor: colorScheme.surfaceContainerHighest,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            _buildLayerSection(
-              context,
-              ref,
-              title: l10n.globalMaps,
-              layers: globalLayers,
-              activeLayerIds: activeLayerIds,
-              onToggle: (id) =>
-                  ref.read(tileRegistryProvider.notifier).toggleGlobalLayer(id),
-            ),
-            _buildLayerSection(
-              context,
-              ref,
-              title: l10n.norwegianMaps,
-              layers: localLayers,
-              activeLayerIds: activeLayerIds,
-              onToggle: (id) =>
-                  ref.read(tileRegistryProvider.notifier).toggleLocalLayer(id),
-            ),
-            _buildLayerSection(
-              context,
-              ref,
-              title: l10n.overlays,
-              layers: overlayLayers,
-              activeLayerIds: activeLayerIds,
-              onToggle: (id) =>
-                  ref.read(tileRegistryProvider.notifier).toggleOverlay(id),
-            ),
-            const Divider(height: 24, indent: 24, endIndent: 24),
-            _buildLayerSection(
-              context,
-              ref,
-              title: "Offline Maps",
-              layers: offlineLayers,
-              activeLayerIds: activeLayerIds,
-              onToggle: (id) => ref
-                  .read(tileRegistryProvider.notifier)
-                  .toggleOfflineLayer(id),
-              isOffline: true,
-            ),
-            const SizedBox(height: 24),
-          ],
+              _buildLayerSection(
+                context,
+                ref,
+                title: l10n.globalMaps,
+                layers: globalLayers,
+                activeLayerIds: activeLayerIds,
+                onToggle: (id) =>
+                    ref.read(tileRegistryProvider.notifier).toggleGlobalLayer(id),
+              ),
+              _buildLayerSection(
+                context,
+                ref,
+                title: l10n.norwegianMaps,
+                layers: localLayers,
+                activeLayerIds: activeLayerIds,
+                onToggle: (id) =>
+                    ref.read(tileRegistryProvider.notifier).toggleLocalLayer(id),
+              ),
+              _buildLayerSection(
+                context,
+                ref,
+                title: l10n.overlays,
+                layers: overlayLayers,
+                activeLayerIds: activeLayerIds,
+                onToggle: (id) =>
+                    ref.read(tileRegistryProvider.notifier).toggleOverlay(id),
+              ),
+              const Divider(height: 24, indent: 24, endIndent: 24),
+              _buildLayerSection(
+                context,
+                ref,
+                title: "Offline Maps",
+                layers: offlineLayers,
+                activeLayerIds: activeLayerIds,
+                onToggle: (id) => ref
+                    .read(tileRegistryProvider.notifier)
+                    .toggleOfflineLayer(id),
+                isOffline: true,
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
         ),
       ),
     );

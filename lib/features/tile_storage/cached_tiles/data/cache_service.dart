@@ -10,7 +10,17 @@ import 'package:turbo/features/tile_storage/tile_store/api.dart';
 import 'package:turbo/features/tile_storage/tile_store/utils/tile_provider_id_sanitizer.dart';
 
 // Internal provider for a singleton Dio instance. Can be overridden in tests.
-final dioProvider = Provider<Dio>((ref) => Dio());
+final dioProvider = Provider<Dio>((ref) {
+  final dio = Dio();
+  dio.options.connectTimeout = const Duration(seconds: 10);
+  dio.options.receiveTimeout = const Duration(seconds: 10);
+  dio.options.headers = {
+    'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+    'Accept': 'image/png,image/*;q=0.8,*/*;q=0.5',
+    'Connection': 'keep-alive',
+  };
+  return dio;
+});
 
 // Internal provider for the CacheService. The public API will use this.
 final cacheServiceProvider = FutureProvider<CacheService>((ref) async {
@@ -107,12 +117,13 @@ class CacheService {
         );
       }
     } on DioException catch (e) {
-      _log.warning('Failed to fetch tile $key. Error: ${e.message}', e);
-      // In case of error, rethrow to allow flutter_map to handle it gracefully.
-      rethrow;
+      _log.warning('Failed to fetch tile $key. Error: ${e.message}');
+      // Return null instead of rethrowing to allow FutureImage to handle it gracefully
+      // without polluting the global error handler.
+      return null;
     } catch (e, s) {
       _log.severe('An unexpected error occurred fetching tile $key', e, s);
-      rethrow;
+      return null;
     }
   }
 
@@ -146,7 +157,7 @@ class _CachingTileProvider extends TileProvider {
   }
 }
 
-/// An efficient ImageProvider that resolves a Future<Uint8List?>.
+/// An efficient ImageProvider that resolves a `Future<Uint8List?>`.
 /// It directly decodes the bytes, avoiding intermediate Image objects.
 class FutureImage extends ImageProvider<FutureImage> {
   final Future<Uint8List?> futureBytes;
@@ -185,9 +196,10 @@ class FutureImage extends ImageProvider<FutureImage> {
       final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
       return decode(buffer);
     } catch (e) {
-      // For any other error (e.g., network failure from Dio), we also rethrow
-      // so flutter_map can use its error handling.
-      rethrow;
+      // Any error resulting in null bytes (like Dio failures) should trigger
+      // the errorBuilder or tile fallback in flutter_map.
+      throw const _TileNotFoundInStore(
+          'Tile fetch failed or not found.');
     }
   }
 

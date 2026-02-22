@@ -82,12 +82,12 @@ class _DownloadDetailsSheetState extends ConsumerState<DownloadDetailsSheet> {
     int count = 0;
     for (var z = _zoomRange.start.round(); z <= _zoomRange.end.round(); z++) {
       final zoom = z.toDouble();
-      final nwPoint = crs.latLngToPoint(widget.bounds.northWest, zoom);
-      final sePoint = crs.latLngToPoint(widget.bounds.southEast, zoom);
+      final nwPoint = crs.latLngToOffset(widget.bounds.northWest, zoom);
+      final sePoint = crs.latLngToOffset(widget.bounds.southEast, zoom);
       final from = Point<int>(
-          (nwPoint.x / tileSize).floor(), (nwPoint.y / tileSize).floor());
+          (nwPoint.dx / tileSize).floor(), (nwPoint.dy / tileSize).floor());
       final to = Point<int>(
-          (sePoint.x / tileSize).floor(), (sePoint.y / tileSize).floor());
+          (sePoint.dx / tileSize).floor(), (sePoint.dy / tileSize).floor());
       count += (to.x - from.x + 1) * (to.y - from.y + 1);
     }
     setState(() {
@@ -131,78 +131,112 @@ class _DownloadDetailsSheetState extends ConsumerState<DownloadDetailsSheet> {
         p.category == TileProviderCategory.local)
         .toList();
 
-    return SingleChildScrollView(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-            24, 24, 24, 24 + MediaQuery.of(context).viewInsets.bottom),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text("Download Details",
-                  style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 24),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                    labelText: "Region Name", border: OutlineInputBorder()),
-                validator: (v) =>
-                v!.trim().isEmpty ? "Name is required" : null,
-              ),
-              const SizedBox(height: 16),
-              if (downloadableProviders.isNotEmpty)
-                DropdownButtonFormField<String>(
-                  value: _selectedProviderId,
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+              24, 24, 24, 24 + MediaQuery.of(context).viewInsets.bottom),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text("Download Details",
+                    style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 24),
+                TextFormField(
+                  controller: _nameController,
                   decoration: const InputDecoration(
-                      labelText: "Map Source", border: OutlineInputBorder()),
-                  items: downloadableProviders
-                      .map((p) => DropdownMenuItem(
-                      value: p.id, child: Text(p.name(context))))
-                      .toList(),
-                  onChanged: _setSelectedProvider,
+                      labelText: "Region Name", border: OutlineInputBorder()),
                   validator: (v) =>
-                  v == null ? 'Please select a map source' : null,
-                )
-              else
-                const Text("No downloadable map sources available."),
-              const SizedBox(height: 24),
-              Text(
-                  "Zoom Range: ${_zoomRange.start.round()} - ${_zoomRange.end.round()}",
-                  style: Theme.of(context).textTheme.titleSmall),
-              RangeSlider(
-                values: _zoomRange,
-                min: _providerMinZoom,
-                max: _providerMaxZoom,
-                divisions: (_providerMaxZoom - _providerMinZoom).round(),
-                labels: RangeLabels(_zoomRange.start.round().toString(),
-                    _zoomRange.end.round().toString()),
-                onChanged: (v) {
-                  setState(() => _zoomRange = v);
-                  _updateEstimates();
-                },
-              ),
-              const SizedBox(height: 16),
-              Card(
-                color: Theme.of(context).colorScheme.surfaceContainerLow,
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Text(
-                      "Estimated Tiles: $_tileCount\nEstimated Size: ~$_estimatedSizeMb MB",
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium),
+                  v!.trim().isEmpty ? "Name is required" : null,
                 ),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16)),
-                onPressed: _startDownload,
-                icon: const Icon(Icons.download),
-                label: const Text("Start Download"),
-              )
-            ],
+                              const SizedBox(height: 16),
+                              if (downloadableProviders.isNotEmpty)
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text("Map Source", style: Theme.of(context).textTheme.labelMedium),
+                                    const SizedBox(height: 8),
+                                    MenuAnchor(
+                                      builder: (context, controller, child) {
+                                        final selectedProvider = downloadableProviders.firstWhere(
+                                          (p) => p.id == _selectedProviderId,
+                                          orElse: () => downloadableProviders.first,
+                                        );
+                                        return OutlinedButton(
+                                          onPressed: () {
+                                            if (controller.isOpen) {
+                                              controller.close();
+                                            } else {
+                                              controller.open();
+                                            }
+                                          },
+                                          style: OutlinedButton.styleFrom(
+                                            minimumSize: const Size.fromHeight(56),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                            side: BorderSide(color: Theme.of(context).colorScheme.outline),
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(selectedProvider.name(context)),
+                                              const Icon(Icons.arrow_drop_down),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                      menuChildren: downloadableProviders.map((p) {
+                                        return MenuItemButton(
+                                          onPressed: () => _setSelectedProvider(p.id),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                                            child: Text(p.name(context)),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ],
+                                )
+                              else
+                                const Text("No downloadable map sources available."),                const SizedBox(height: 24),
+                Text(
+                    "Zoom Range: ${_zoomRange.start.round()} - ${_zoomRange.end.round()}",
+                    style: Theme.of(context).textTheme.titleSmall),
+                RangeSlider(
+                  values: _zoomRange,
+                  min: _providerMinZoom,
+                  max: _providerMaxZoom,
+                  divisions: (_providerMaxZoom - _providerMinZoom).round(),
+                  labels: RangeLabels(_zoomRange.start.round().toString(),
+                      _zoomRange.end.round().toString()),
+                  onChanged: (v) {
+                    setState(() => _zoomRange = v);
+                    _updateEstimates();
+                  },
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Text(
+                        "Estimated Tiles: $_tileCount\nEstimated Size: ~$_estimatedSizeMb MB",
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16)),
+                  onPressed: _startDownload,
+                  icon: const Icon(Icons.download),
+                  label: const Text("Start Download"),
+                )
+              ],
+            ),
           ),
         ),
       ),

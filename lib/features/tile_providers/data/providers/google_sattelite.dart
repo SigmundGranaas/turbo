@@ -19,4 +19,8 @@ class GoogleSatelliteConfig extends TileProviderConfig {
       'https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}';
   @override
   double get maxZoom => 20.0;
+  @override
+  Map<String, String>? get headers => {
+    'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+  };
 }

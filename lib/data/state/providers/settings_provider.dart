@@ -3,16 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // --- Theme Provider ---
-final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((ref) {
+final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(() {
   return ThemeModeNotifier();
 });
 
-class ThemeModeNotifier extends StateNotifier<ThemeMode> {
-  ThemeModeNotifier() : super(ThemeMode.system) {
-    _loadThemeMode();
-  }
-
+class ThemeModeNotifier extends Notifier<ThemeMode> {
   static const _themeModeKey = 'themeMode';
+
+  @override
+  ThemeMode build() {
+    _loadThemeMode();
+    return ThemeMode.system;
+  }
 
   Future<void> _loadThemeMode() async {
     final prefs = await SharedPreferences.getInstance();
@@ -27,7 +29,6 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   }
 
   Future<void> setThemeMode(ThemeMode themeMode) async {
-    if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
     state = themeMode;
     if (themeMode == ThemeMode.light) {
@@ -41,28 +42,28 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
 }
 
 // --- Locale Provider ---
-final localeProvider = StateNotifierProvider<LocaleNotifier, Locale>((ref) {
+final localeProvider = NotifierProvider<LocaleNotifier, Locale>(() {
   return LocaleNotifier();
 });
 
-class LocaleNotifier extends StateNotifier<Locale> {
-  LocaleNotifier() : super(const Locale('en')) { // Default to English
-    _loadLocale();
-  }
-
+class LocaleNotifier extends Notifier<Locale> {
   static const _localeKey = 'locale';
+
+  @override
+  Locale build() {
+    _loadLocale();
+    return const Locale('en');
+  }
 
   Future<void> _loadLocale() async {
     final prefs = await SharedPreferences.getInstance();
     final languageCode = prefs.getString(_localeKey);
     if (languageCode != null) {
-      if (!mounted) return;
       state = Locale(languageCode);
     }
   }
 
   Future<void> setLocale(Locale locale) async {
-    if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_localeKey, locale.languageCode);
     state = locale;

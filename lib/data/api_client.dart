@@ -23,10 +23,11 @@ class ApiClient {
   Dio _createDio() {
     final dio = Dio();
     dio.options.baseUrl = baseUrl;
-    dio.options.connectTimeout = const Duration(seconds: 15);
-    dio.options.receiveTimeout = const Duration(seconds: 15);
+    dio.options.connectTimeout = const Duration(seconds: 5);
+    dio.options.receiveTimeout = const Duration(seconds: 8);
     dio.options.receiveDataWhenStatusError = true;
     dio.options.followRedirects = false;
+    dio.options.headers['User-Agent'] = 'turbo_map_app/1.0.18';
 
     // For web, ensure cookies are sent with requests
     if (kIsWeb) {

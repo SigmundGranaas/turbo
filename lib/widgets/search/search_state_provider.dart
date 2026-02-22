@@ -4,7 +4,7 @@ import 'package:turbo/data/search/composite_search_service.dart';
 import 'package:turbo/data/search/location_service.dart';
 
 // The Notifier for our search logic
-class SearchNotifier extends AutoDisposeAsyncNotifier<List<LocationSearchResult>> {
+class SearchNotifier extends AsyncNotifier<List<LocationSearchResult>> {
   Timer? _debounce;
 
   @override
@@ -47,6 +47,6 @@ class SearchNotifier extends AutoDisposeAsyncNotifier<List<LocationSearchResult>
 
 // The provider itself
 final searchProvider =
-AutoDisposeAsyncNotifierProvider<SearchNotifier, List<LocationSearchResult>>(
+AsyncNotifierProvider.autoDispose<SearchNotifier, List<LocationSearchResult>>(
   SearchNotifier.new,
 );

@@ -38,7 +38,44 @@ class SettingsPage extends ConsumerWidget {
         const SizedBox(height: 24),
         _buildSectionHeader(context, l10n.language),
         _buildLanguageSelector(context, ref, settings.locale),
+        const SizedBox(height: 24),
+        _buildSectionHeader(context, "Draw Sensitivity"),
+        _buildSensitivitySelector(context, ref, settings.drawSensitivity),
       ],
+    );
+  }
+
+  Widget _buildSensitivitySelector(
+      BuildContext context, WidgetRef ref, double currentSensitivity) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            const Icon(Icons.line_axis, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Slider(
+                value: currentSensitivity,
+                min: 5,
+                max: 50,
+                divisions: 9,
+                label: currentSensitivity.round().toString(),
+                onChanged: (value) {
+                  ref.read(settingsProvider.notifier).setDrawSensitivity(value);
+                },
+              ),
+            ),
+            Text(
+              "${currentSensitivity.round()}px",
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
     );
   }
 

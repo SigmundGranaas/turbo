@@ -15,7 +15,7 @@ class BottomControls extends StatelessWidget {
       left: 0,
       right: 0,
       child: Center(
-       child: controls,
+        child: controls,
       ),
     );
   }

@@ -31,63 +31,71 @@ class AppDrawer extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(28, 28, 16, 10),
-            child: Text(
-              l10n.appTitle,
-              style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-          ),
-          GestureDetector(
-            onTap: () {
-              Navigator.pop(context); // Close drawer first
-              if (isAuthenticated) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const UserProfileScreen()),
-                );
-              } else {
-                LoginScreen.show(context);
-              }
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: colorScheme.surfaceContainer,
-                    child: Text(
-                      isAuthenticated && email != null && email.isNotEmpty
-                          ? email[0].toUpperCase()
-                          : '?',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
+          SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(28, 20, 16, 10),
+                  child: Text(
+                    l10n.appTitle,
+                    style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pop(context); // Close drawer first
+                    if (isAuthenticated) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const UserProfileScreen()),
+                      );
+                    } else {
+                      LoginScreen.show(context);
+                    }
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+                    child: Row(
                       children: [
-                        Text(
-                          isAuthenticated ? l10n.turboUser : l10n.guestUser,
-                          style: textTheme.bodyLarge,
+                        CircleAvatar(
+                          radius: 20,
+                          backgroundColor: colorScheme.surfaceContainer,
+                          child: Text(
+                            isAuthenticated && email != null && email.isNotEmpty
+                                ? email[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                         ),
-                        Text(
-                          isAuthenticated ? (email ?? '') : l10n.notSignedIn,
-                          style: textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isAuthenticated ? l10n.turboUser : l10n.guestUser,
+                                style: textTheme.bodyLarge,
+                              ),
+                              Text(
+                                isAuthenticated ? (email ?? '') : l10n.notSignedIn,
+                                style: textTheme.bodyMedium?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),
@@ -136,28 +144,35 @@ class AppDrawer extends ConsumerWidget {
               ],
             ),
           ),
-          const Divider(indent: 28, endIndent: 28),
-          if (isAuthenticated)
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: Text(l10n.logout),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 28.0),
-              onTap: () {
-                Navigator.pop(context);
-                _showLogoutDialog(context, ref);
-              },
-            )
-          else
-            ListTile(
-              leading: const Icon(Icons.login),
-              title: Text(l10n.login),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 28.0),
-              onTap: () {
-                Navigator.pop(context);
-                LoginScreen.show(context);
-              },
+          SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                const Divider(indent: 28, endIndent: 28),
+                if (isAuthenticated)
+                  ListTile(
+                    leading: const Icon(Icons.logout),
+                    title: Text(l10n.logout),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 28.0),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showLogoutDialog(context, ref);
+                    },
+                  )
+                else
+                  ListTile(
+                    leading: const Icon(Icons.login),
+                    title: Text(l10n.login),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 28.0),
+                    onTap: () {
+                      Navigator.pop(context);
+                      LoginScreen.show(context);
+                    },
+                  ),
+                const SizedBox(height: 12),
+              ],
             ),
-          const SizedBox(height: 12),
+          ),
         ],
       ),
     );

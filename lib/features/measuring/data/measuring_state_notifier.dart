@@ -5,31 +5,27 @@ import 'package:turbo/features/measuring/data/measuring_state.dart';
 import 'package:turbo/features/measuring/models/measure_point.dart';
 import 'package:turbo/features/measuring/models/measure_point_type.dart';
 
-class MeasuringStateNotifier extends StateNotifier<MeasuringState> {
-  final MeasurePointCollection _pointsManager;
-  final LatLng _initialStartPoint;
+class MeasuringStateNotifier extends Notifier<MeasuringState> {
+  late MeasurePointCollection _pointsManager;
+  late LatLng _initialStartPoint;
 
-  MeasuringStateNotifier({
-    required LatLng startPoint,
-    MeasurePointCollection? pointsManager,
-  })  : _pointsManager = pointsManager ?? MeasurePointCollection(),
-        _initialStartPoint = startPoint,
-  // The state is now initialized atomically with its correct first value.
-  // It is never in a transient "empty" state. This resolves the test race condition.
-        super(
-        MeasuringState(
-          points: [
-            MeasurePoint(point: startPoint, type: MeasurePointType.start)
-          ],
-          totalDistance: 0,
-          isDrawing: false,
-          isSmoothing: false,
-          showIntermediatePoints: true,
-          drawSensitivity: 15.0,
-        ),
-      ) {
-    // Also ensure the internal manager is synced with this initial state.
-    _pointsManager.reset(startPoint);
+  // Internal setter for family initialization
+  set initialStartPoint(LatLng value) => _initialStartPoint = value;
+
+  @override
+  MeasuringState build() {
+    // This will be called by Riverpod after the instance is created
+    // and initialStartPoint has been set by the provider.
+    _pointsManager = MeasurePointCollection();
+    _pointsManager.reset(_initialStartPoint);
+    
+    return MeasuringState(
+      points: [MeasurePoint(point: _initialStartPoint, type: MeasurePointType.start)],
+      totalDistance: 0,
+      isDrawing: false,
+      isSmoothing: false,
+      showIntermediatePoints: true,
+    );
   }
 
   void addPoint(LatLng point) {
@@ -58,10 +54,6 @@ class MeasuringStateNotifier extends StateNotifier<MeasuringState> {
 
   void toggleIntermediatePoints() {
     state = state.copyWith(showIntermediatePoints: !state.showIntermediatePoints);
-  }
-
-  void setDrawSensitivity(double sensitivity) {
-    state = state.copyWith(drawSensitivity: sensitivity);
   }
 
   void _updateState() {

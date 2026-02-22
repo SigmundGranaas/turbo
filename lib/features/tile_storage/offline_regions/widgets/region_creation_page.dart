@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -153,7 +152,7 @@ class _RegionCreationPageState extends ConsumerState<RegionCreationPage>
           onPanUpdate: (details) {
             final mapRenderBox = context.findRenderObject() as RenderBox;
             final localPt = mapRenderBox.globalToLocal(details.globalPosition);
-            final newPoint = _mapController.camera.pointToLatLng(Point(localPt.dx, localPt.dy));
+            final newPoint = _mapController.camera.screenOffsetToLatLng(localPt);
             _updateRectangle(newPoint);
           },
           onPanEnd: () => _draggedHandleIndex = null,
@@ -237,7 +236,11 @@ class _RegionCreationPageState extends ConsumerState<RegionCreationPage>
             MarkerLayer(markers: _getRectangleHandles()),
         ],
         overlayWidgets: [
-          const Positioned(top: 16, left: 16, child: GoBackButton()),
+          const Positioned(
+            top: 16,
+            left: 16,
+            child: GoBackButton(),
+          ),
           Positioned(
             bottom: 32,
             left: 16,
@@ -256,6 +259,7 @@ class _RegionCreationPageState extends ConsumerState<RegionCreationPage>
                     showModalBottomSheet(
                       context: context,
                       isScrollControlled: true,
+                      useSafeArea: true,
                       builder: (_) => DownloadDetailsSheet(bounds: _selectionBounds!),
                     );
                   }

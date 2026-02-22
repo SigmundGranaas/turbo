@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:path/path.dart' as p;
 
 class OfflineFirstTileProvider extends TileProvider {
@@ -14,7 +13,7 @@ class OfflineFirstTileProvider extends TileProvider {
     required this.tileCacheBasePath,
     Map<String, String>? headers,
     this.offlineOnly = false,
-  }) : _networkTileProvider = CancellableNetworkTileProvider(headers: headers);
+  }) : _networkTileProvider = NetworkTileProvider(headers: headers, silenceExceptions: true);
 
   @override
   bool get supportsCancelLoading => true;

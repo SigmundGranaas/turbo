@@ -125,7 +125,6 @@ void main() {
       expect(state.isDrawing, false);
       expect(state.isSmoothing, false);
       expect(state.showIntermediatePoints, true);
-      expect(state.drawSensitivity, 15.0);
     });
 
     test('toggle methods correctly update boolean flags', () {
@@ -150,17 +149,6 @@ void main() {
       expect(notifier.state.showIntermediatePoints, isTrue);
       notifier.toggleIntermediatePoints();
       expect(notifier.state.showIntermediatePoints, isFalse);
-    });
-
-    test('setDrawSensitivity updates the sensitivity value in the state', () {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final notifier =
-      container.read(measuringStateProvider(startPoint).notifier);
-
-      expect(notifier.state.drawSensitivity, 15.0);
-      notifier.setDrawSensitivity(30.0);
-      expect(notifier.state.drawSensitivity, 30.0);
     });
   });
 }

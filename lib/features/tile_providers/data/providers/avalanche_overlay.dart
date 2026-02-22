@@ -19,4 +19,8 @@ class AvalancheOverlayConfig extends TileProviderConfig {
       'https://gis3.nve.no/arcgis/rest/services/wmts/Bratthet_med_utlop_2024/MapServer/tile/{z}/{y}/{x}';
   @override
   double get opacity => 0.7;
+  @override
+  Map<String, String>? get headers => {
+    'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+  };
 }
