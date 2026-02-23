@@ -41,7 +41,7 @@ Future<void> _backgroundInit(ProviderContainer container) async {
     container.read(databaseProvider);
     // We LISTEN here because the provider might be null initially while DB is loading.
     // Listening ensures it gets created and started as soon as dependencies are ready.
-    container.listen(downloadOrchestratorProvider, (_, __) {});
+    container.listen(downloadOrchestratorProvider, (_, _) {});
   }
   // This triggers the internal build() logic which starts the session check
   container.read(authStateProvider);

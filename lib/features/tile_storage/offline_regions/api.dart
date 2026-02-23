@@ -231,7 +231,7 @@ class OfflineApi {
     return tileStoreAsync.when(
       data: (store) => OfflineTileProvider(region: region, tileStore: store),
       loading: () => null,
-      error: (_, __) => null,
+      error: (_, _) => null,
     );
   }
 }
