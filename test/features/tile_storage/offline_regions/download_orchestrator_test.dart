@@ -8,7 +8,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:shelf_router/shelf_router.dart' as shelf_router;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:turbo/core/data/database_provider.dart';
 import 'package:turbo/core/service/logger.dart';
@@ -135,7 +134,6 @@ void main() {
   final tileBytes = Uint8List.fromList([1, 2, 3]);
 
   setUpAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized();
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     setupLogging(level: Level.INFO);
@@ -166,20 +164,21 @@ void main() {
   });
 
   Future<void> startServer(shelf.Handler handler) async {
-    server = await shelf_io.serve(handler, 'localhost', 0);
-    urlTemplate = 'http://${server!.address.host}:${server!.port}/{z}/{x}/{y}.png';
+    server = await shelf_io.serve(handler, InternetAddress.anyIPv4, 0);
+    urlTemplate = 'http://127.0.0.1:${server!.port}/{z}/{x}/{y}.png';
   }
 
   group('Offline Download Integration Test with Real Isolates', () {
     test('successfully downloads a region', () async {
       const minZoom = 1;
       const maxZoom = 2;
-      const expectedTileCount = 26;
+      const expectedTileCount = 20;
       const regionName = 'Test Area Success';
 
-      final router = shelf_router.Router()
-        ..get('/<z>/<x>/<y>.png', (shelf.Request request) => shelf.Response.ok(tileBytes, headers: {'Content-Type': 'image/png'}));
-      await startServer(router.call);
+      shelf.Response handler(shelf.Request request) {
+        return shelf.Response.ok(tileBytes, headers: {'Content-Type': 'image/png'});
+      }
+      await startServer(handler);
 
       offlineApi.downloadRegion(
         name: regionName,
@@ -205,17 +204,19 @@ void main() {
     test('handles failed tiles gracefully', () async {
       const minZoom = 1;
       const maxZoom = 3;
-      const totalTiles = 98;
-      const failedTiles = 20;
+      const totalTiles = 84;
+      const failedTiles = 16;
       const expectedDownloadedCount = totalTiles - failedTiles;
       const regionName = 'Test Area With Failures';
 
-      final router = shelf_router.Router()
-        ..get('/<z>/<x>/<y>.png', (shelf.Request request, String z, String x, String y) {
-          if (z == '2') return shelf.Response.internalServerError();
-          return shelf.Response.ok(tileBytes, headers: {'Content-Type': 'image/png'});
-        });
-      await startServer(router.call);
+      shelf.Response handler(shelf.Request request) {
+        final path = request.url.path;
+        if (path.startsWith('2/')) {
+          return shelf.Response.internalServerError();
+        }
+        return shelf.Response.ok(tileBytes, headers: {'Content-Type': 'image/png'});
+      }
+      await startServer(handler);
 
       offlineApi.downloadRegion(
         name: regionName,

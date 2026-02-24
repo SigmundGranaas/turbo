@@ -1,5 +1,3 @@
-library cached_tiles;
-
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/tile_storage/cached_tiles/data/cache_service.dart';

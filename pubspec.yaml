@@ -16,10 +16,10 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.18
+version: 1.0.18+22
 
 environment:
-  sdk: '>=3.5.5 <4.0.0'
+  sdk: '>=3.11.0 <4.0.0'
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -36,37 +36,34 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.6
-  flutter_map: ^7.0.1
-  flutter_map_cancellable_tile_provider: ^3.0.0
+  flutter_map: ^8.2.2
   latlong2: ^0.9.1
-  flutter_map_cache: ^1.5.1
-  dio: ^5.4.3+1
-  dio_cache_interceptor: ^3.5.0
+  flutter_map_cache: ^2.0.0
+  dio: ^5.9.1
   sqflite: ^2.3.3+1
   path: ^1.9.0
-  sqflite_common_ffi: ^2.3.3
+  sqflite_common_ffi: ^2.4.0+2
   path_provider: ^2.1.4
   proj4dart: ^2.1.0
   uuid: ^4.4.0
-  idb_shim: ^2.5.0+1
-  http: ^1.2.1
-  geolocator: ^13.0.1
-  flutter_svg: ^2.0.10+1
-  dio_cache_interceptor_hive_store: ^3.2.2
-  flutter_riverpod: 2.6.1
-  riverpod_annotation: 2.6.1
-  google_fonts: ^6.2.1
-  shared_preferences: ^2.5.2
+  idb_shim: ^2.8.2+4
+  http: ^1.6.0
+  geolocator: ^14.0.2
+  flutter_svg: ^2.2.3
+  flutter_riverpod: ^3.2.1
+  riverpod_annotation: ^4.0.2
+  google_fonts: ^8.0.2
+  shared_preferences: ^2.5.4
 
   # Added for Google Sign-In
-  google_sign_in: ^6.1.4
-  url_launcher: ^6.1.12
+  google_sign_in: ^7.2.0
+  url_launcher: ^6.3.2
 
   # For web platform specifically
-  google_sign_in_web: ^0.12.0
+  google_sign_in_web: ^1.1.2
 
   # For handling deep links - useful for OAuth flow
-  app_links: 6.4.0
+  app_links: ^7.0.0
   intl: ^0.20.2
   polygon: ^0.1.0
   http_mock_adapter: ^0.6.1
@@ -77,16 +74,15 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  build_runner:
-  custom_lint:
-  riverpod_lint: ^2.6.5
+  build_runner: ^2.11.1
+  custom_lint: ^0.8.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^4.0.0
+  flutter_lints: ^6.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

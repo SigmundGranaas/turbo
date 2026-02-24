@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/auth/auth_providers.dart';
+import 'package:turbo/utils.dart';
 import 'package:turbo/widgets/auth/register_screen.dart';
 
 import 'login_view_desktop.dart';
@@ -46,8 +47,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  final _isLoading = StateProvider<bool>((ref) => false);
-  final _isGoogleLoading = StateProvider<bool>((ref) => false);
+  final _isLoading = NotifierProvider<LoadingNotifier, bool>(LoadingNotifier.new);
+  final _isGoogleLoading = NotifierProvider<LoadingNotifier, bool>(LoadingNotifier.new);
 
   @override
   void initState() {
@@ -80,7 +81,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _login() async {
     FocusScope.of(context).unfocus();
     if (_formKey.currentState?.validate() ?? false) {
-      ref.read(_isLoading.notifier).state = true;
+      ref.read(_isLoading.notifier).set(true);
       try {
         await ref.read(authStateProvider.notifier).login(
           _emailController.text.trim(),
@@ -88,7 +89,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       } finally {
         if (mounted) {
-          ref.read(_isLoading.notifier).state = false;
+          ref.read(_isLoading.notifier).set(false);
         }
       }
     }

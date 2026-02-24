@@ -51,6 +51,10 @@ void downloadWorkerEntrypoint(DownloadTask task) async {
     responseType: ResponseType.bytes,
     connectTimeout: const Duration(seconds: 15),
     receiveTimeout: const Duration(seconds: 15),
+    headers: {
+      'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+      'Accept': 'image/png,image/*;q=0.8,*/*;q=0.5',
+    },
   ));
 
   final stopwatch = Stopwatch()..start();

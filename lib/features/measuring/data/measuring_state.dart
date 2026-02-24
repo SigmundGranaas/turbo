@@ -5,7 +5,6 @@ class MeasuringState {
   final double totalDistance;
   final bool isSmoothing;
   final bool isDrawing;
-  final double drawSensitivity;
   final bool showIntermediatePoints;
 
   const MeasuringState({
@@ -13,7 +12,6 @@ class MeasuringState {
     required this.totalDistance,
     required this.isSmoothing,
     required this.isDrawing,
-    required this.drawSensitivity,
     required this.showIntermediatePoints,
   });
 
@@ -23,7 +21,6 @@ class MeasuringState {
       totalDistance: 0,
       isSmoothing: false,
       isDrawing: false,
-      drawSensitivity: 15.0,
       showIntermediatePoints: true,
     );
   }
@@ -33,7 +30,6 @@ class MeasuringState {
     double? totalDistance,
     bool? isSmoothing,
     bool? isDrawing,
-    double? drawSensitivity,
     bool? showIntermediatePoints,
   }) {
     return MeasuringState(
@@ -41,7 +37,6 @@ class MeasuringState {
       totalDistance: totalDistance ?? this.totalDistance,
       isSmoothing: isSmoothing ?? this.isSmoothing,
       isDrawing: isDrawing ?? this.isDrawing,
-      drawSensitivity: drawSensitivity ?? this.drawSensitivity,
       showIntermediatePoints:
       showIntermediatePoints ?? this.showIntermediatePoints,
     );

@@ -29,27 +29,28 @@ final apiLocationServiceProvider = Provider<ApiLocationService>((ref) {
   return ApiLocationService(apiClient);
 });
 
-final locationRepositoryProvider = StateNotifierProvider.autoDispose<LocationRepository, AsyncValue<List<Marker>>>((ref) {
-  return LocationRepository(ref);
+final locationRepositoryProvider = NotifierProvider.autoDispose<LocationRepository, AsyncValue<List<Marker>>>(() {
+  return LocationRepository();
 });
 
-class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
-  final Ref _ref;
-  ProviderSubscription? _authSubscription;
+class LocationRepository extends Notifier<AsyncValue<List<Marker>>> {
   final _log = Logger('LocationRepository');
 
-
-  LocationRepository(this._ref) : super(const AsyncValue.loading()) {
+  @override
+  AsyncValue<List<Marker>> build() {
+    // 1. Return cached/empty data immediately to avoid blocking the UI
+    // with a global loading spinner on every app restart.
     _initState();
+    return const AsyncValue.data([]); 
   }
 
-  Future<MarkerDataStore> get _localStore => _ref.read(localMarkerDataStoreProvider.future);
-  ApiLocationService get _apiService => _ref.read(apiLocationServiceProvider);
+  Future<MarkerDataStore> get _localStore => ref.read(localMarkerDataStoreProvider.future);
+  ApiLocationService get _apiService => ref.read(apiLocationServiceProvider);
 
   Future<void> _initState() async {
-    await _loadData(authStatus: _ref.read(authStateProvider).status);
+    await _loadData(authStatus: ref.read(authStateProvider).status);
 
-    _authSubscription = _ref.listen<AuthState>(authStateProvider, (previous, next) {
+    ref.listen<AuthState>(authStateProvider, (previous, next) {
       final prevStatus = previous?.status;
       if (prevStatus != next.status) {
         if ((prevStatus == AuthStatus.unauthenticated || prevStatus == AuthStatus.initial || prevStatus == AuthStatus.error) &&
@@ -63,7 +64,6 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
   }
 
   Future<void> _loadData({required AuthStatus authStatus}) async {
-    if (!mounted) return;
     state = const AsyncValue.loading();
     try {
       List<Marker> markers;
@@ -73,10 +73,10 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
         final localStore = await _localStore;
         markers = await localStore.getAll();
       }
-      if (mounted) state = AsyncValue.data(markers);
+      state = AsyncValue.data(markers);
     } catch (e, st) {
       _log.severe("Error loading data", e, st);
-      if (mounted) state = AsyncValue.error(e, st);
+      state = AsyncValue.error(e, st);
     }
   }
 
@@ -155,9 +155,8 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
 
 
   Future<void> addMarker(Marker marker) async {
-    if (!mounted) return;
     final localStore = await _localStore;
-    final currentAuthStatus = _ref.read(authStateProvider).status;
+    final currentAuthStatus = ref.read(authStateProvider).status;
 
     state = const AsyncValue.loading();
 
@@ -176,16 +175,15 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
       _log.warning("Error adding marker", e, st);
-      if (mounted) state = AsyncValue.error(e, st);
+      state = AsyncValue.error(e, st);
       await localStore.insert(marker.copyWith(synced: false));
       await _loadData(authStatus: currentAuthStatus);
     }
   }
 
   Future<void> updateMarker(Marker marker) async {
-    if (!mounted) return;
     final localStore = await _localStore;
-    final currentAuthStatus = _ref.read(authStateProvider).status;
+    final currentAuthStatus = ref.read(authStateProvider).status;
     state = const AsyncValue.loading();
     try {
       Marker markerToUpdate = marker.copyWith(synced: false);
@@ -199,16 +197,15 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
       _log.warning("Error updating marker", e, st);
-      if (mounted) state = AsyncValue.error(e, st);
+      state = AsyncValue.error(e, st);
       await localStore.update(marker.copyWith(synced: false));
       await _loadData(authStatus: currentAuthStatus);
     }
   }
 
   Future<void> deleteMarker(String uuid) async {
-    if (!mounted) return;
     final localStore = await _localStore;
-    final currentAuthStatus = _ref.read(authStateProvider).status;
+    final currentAuthStatus = ref.read(authStateProvider).status;
     state = const AsyncValue.loading();
     try {
       if (currentAuthStatus == AuthStatus.authenticated) {
@@ -220,14 +217,14 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       _log.warning("Error deleting marker", e, st);
       await localStore.delete(uuid);
       await _loadData(authStatus: currentAuthStatus);
-      if (mounted) state = AsyncValue.error(e, st);
+      state = AsyncValue.error(e, st);
     }
   }
 
   Future<void> triggerManualSync() async {
     final localStore = await _localStore;
-    final currentAuthStatus = _ref.read(authStateProvider).status;
-    if (currentAuthStatus != AuthStatus.authenticated || !mounted) return;
+    final currentAuthStatus = ref.read(authStateProvider).status;
+    if (currentAuthStatus != AuthStatus.authenticated) return;
     state = const AsyncValue.loading();
     try {
       final localUnsynced = await localStore.getUnsynced();
@@ -272,14 +269,14 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       await _loadData(authStatus: currentAuthStatus);
     } catch (e, st) {
       _log.severe("Error during manual sync", e, st);
-      if (mounted) state = AsyncValue.error(e, st);
+      state = AsyncValue.error(e, st);
     }
   }
 
   Future<Marker?> getMarkerByUuid(String uuid) async {
     final localStore = await _localStore;
-    final currentAuthStatus = _ref.read(authStateProvider).status;
-    final currentStateValue = state.asData?.value;
+    final currentAuthStatus = ref.read(authStateProvider).status;
+    final currentStateValue = state.value;
     if (currentStateValue != null) {
       try {
         return currentStateValue.firstWhere((m) => m.uuid == uuid);
@@ -313,11 +310,5 @@ class LocationRepository extends StateNotifier<AsyncValue<List<Marker>>> {
       }
     }
     return local;
-  }
-
-  @override
-  void dispose() {
-    _authSubscription?.close();
-    super.dispose();
   }
 }

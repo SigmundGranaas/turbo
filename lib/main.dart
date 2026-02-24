@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,51 +15,49 @@ import 'package:turbo/widgets/auth/login_success.dart';
 import 'core/data/database_provider.dart';
 import 'core/service/logger.dart';
 import 'data/auth/auth_providers.dart';
-import 'data/auth/auth_init_provider.dart';
 import 'data/state/providers/location_repository.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
   setupLogging();
+  
+  final container = ProviderContainer();
+  
+  // Trigger background initializations without awaiting them.
+  // This allows the app to start rendering immediately.
+  unawaited(_backgroundInit(container));
+
   runApp(
-    const ProviderScope(
-      child: MyApp(),
+    UncontrolledProviderScope(
+      container: container,
+      child: const MyApp(),
     ),
   );
 }
 
-class MyApp extends ConsumerStatefulWidget {
+Future<void> _backgroundInit(ProviderContainer container) async {
+  if (!kIsWeb) {
+    // These calls are now fire-and-forget background tasks.
+    container.read(databaseProvider);
+    // We LISTEN here because the provider might be null initially while DB is loading.
+    // Listening ensures it gets created and started as soon as dependencies are ready.
+    container.listen(downloadOrchestratorProvider, (_, _) {});
+  }
+  // This triggers the internal build() logic which starts the session check
+  container.read(authStateProvider);
+  container.read(localMarkerDataStoreProvider);
+}
+
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   @override
-  ConsumerState<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends ConsumerState<MyApp> {
-  @override
-  void initState() {
-    super.initState();
-    // Eagerly initialize providers on startup.
-    // This ensures the database is created and services are ready.
-    Future.microtask(() {
-      if (!kIsWeb) {
-        ref.read(databaseProvider);
-        ref.read(downloadOrchestratorProvider);
-      }
-      // These providers are safe for all platforms.
-      ref.read(authStateProvider.notifier).initializeAndHandleInitialLink();
-      ref.read(linkStreamHandlerProvider);
-      ref.read(localMarkerDataStoreProvider);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateProvider);
     final settingsAsync = ref.watch(settingsProvider);
 
     if (kDebugMode) {
-      print("Building MyApp. Auth Status: ${authState.status}");
+      print("Building MyApp. Auth Status: ${authState.status}, Initializing: ${authState.isInitializing}");
     }
     TextTheme textTheme =
     createTextTheme(context, "Roboto", "Libre Baskerville");

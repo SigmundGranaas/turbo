@@ -14,6 +14,9 @@ import '../../../../core/data/database_provider.dart';
 class TileStoreService {
   final Database _db;
   final _log = Logger('TileStoreService');
+  
+  // Simple mutex to prevent concurrent file writes to the same path
+  final Set<String> _lockedPaths = {};
 
   // Public getter for the database instance
   Database get db => _db;
@@ -33,6 +36,17 @@ class TileStoreService {
 
   TileStoreService(this._db, {this.testDirectory});
 
+  Future<void> _withFileLock(String path, Future<void> Function() action) async {
+    while (_lockedPaths.contains(path)) {
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
+    _lockedPaths.add(path);
+    try {
+      await action();
+    } finally {
+      _lockedPaths.remove(path);
+    }
+  }
 
   void configure({int? maxMemoryItems, bool? enabled}) {
     if (enabled != null) _enabled = enabled;
@@ -70,6 +84,40 @@ class TileStoreService {
     final key = _getTileKey(providerId, coords);
     _putInMemory(key, bytes);
     await _putOnDisk(providerId, coords, bytes);
+  }
+
+  /// Specialized put for offline downloads that sets the reference count immediately.
+  Future<void> putWithReference(
+      String providerId, TileCoordinates coords, Uint8List bytes) async {
+    if (!_enabled) return;
+    final key = _getTileKey(providerId, coords);
+    _putInMemory(key, bytes);
+    
+    final path = await getTilePath(providerId, coords);
+    
+    await _withFileLock(path, () async {
+      final file = File(path);
+      try {
+        await file.create(recursive: true);
+        await file.writeAsBytes(bytes, flush: true);
+
+        await _db.insert(
+            tileStoreTable,
+            {
+              'providerId': providerId,
+              'z': coords.z,
+              'x': coords.x,
+              'y': coords.y,
+              'path': path,
+              'sizeInBytes': bytes.length,
+              'lastAccessed': DateTime.now().toIso8601String(),
+              'referenceCount': 1,
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      } catch (e, s) {
+        _log.warning('Failed to write tile to disk or DB. Path: $path', e, s);
+      }
+    });
   }
 
   Future<void> clearMemoryCache() async {

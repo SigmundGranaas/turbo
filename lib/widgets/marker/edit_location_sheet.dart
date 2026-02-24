@@ -57,49 +57,51 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
     final textTheme = Theme.of(context).textTheme;
     final viewInsets = MediaQuery.of(context).viewInsets;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + viewInsets.bottom),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(l10n.editMarker, style: textTheme.titleLarge),
-                IconButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24.0),
-                  child: LocationFormFields(
-                    nameController: _nameController,
-                    descriptionController: _descriptionController,
-                    selectedIcon: _selectedIcon,
-                    onIconSelected: (icon) =>
-                        setState(() => _selectedIcon = icon),
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + viewInsets.bottom),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(l10n.editMarker, style: textTheme.titleLarge),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24.0),
+                    child: LocationFormFields(
+                      nameController: _nameController,
+                      descriptionController: _descriptionController,
+                      selectedIcon: _selectedIcon,
+                      onIconSelected: (icon) =>
+                          setState(() => _selectedIcon = icon),
+                    ),
                   ),
                 ),
               ),
-            ),
-            PrimaryButton(
-              text: l10n.saveChanges,
-              onPressed: _isLoading || _isDeleting ? null : _updateLocation,
-              isLoading: _isLoading,
-            ),
-            const SizedBox(height: 12),
-            SecondaryButton(
-              text: l10n.deleteMarker,
-              onPressed: _isLoading || _isDeleting ? null : _confirmDelete,
-            ),
-          ],
+              PrimaryButton(
+                text: l10n.saveChanges,
+                onPressed: _isLoading || _isDeleting ? null : _updateLocation,
+                isLoading: _isLoading,
+              ),
+              const SizedBox(height: 12),
+              SecondaryButton(
+                text: l10n.deleteMarker,
+                onPressed: _isLoading || _isDeleting ? null : _confirmDelete,
+              ),
+            ],
+          ),
         ),
       ),
     );

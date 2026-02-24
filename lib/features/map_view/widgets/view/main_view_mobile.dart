@@ -55,17 +55,14 @@ class MobileMapView extends StatelessWidget {
         overlayWidgets: [
           ...overlayWidgets,
           MapControls(controls: mapControls),
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 8.0),
-                child: MobileSearchBar(
-                  mapController: mapController,
-                  tickerProvider: tickerProvider,
-                  onMenuPressed: () => scaffoldKey.currentState?.openDrawer(),
-                ),
-              ),
+          Positioned(
+            top: 8,
+            left: 0,
+            right: 0,
+            child: MobileSearchBar(
+              mapController: mapController,
+              tickerProvider: tickerProvider,
+              onMenuPressed: () => scaffoldKey.currentState?.openDrawer(),
             ),
           ),
         ],

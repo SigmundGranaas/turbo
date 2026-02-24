@@ -16,24 +16,27 @@ final _viewportCache = <String, List<Marker>>{};
 final _viewportCacheTimestamps = <String, DateTime>{};
 const _cacheDuration = Duration(seconds: 30); // Shorter cache for viewport data
 
-final viewportMarkerNotifierProvider = StateNotifierProvider.autoDispose<ViewportMarkerNotifier, AsyncValue<List<Marker>>>((ref) {
-  return ViewportMarkerNotifier(ref);
+final viewportMarkerNotifierProvider = NotifierProvider.autoDispose<ViewportMarkerNotifier, AsyncValue<List<Marker>>>(() {
+  return ViewportMarkerNotifier();
 });
 
-class ViewportMarkerNotifier extends StateNotifier<AsyncValue<List<Marker>>> {
-  final Ref _ref;
+class ViewportMarkerNotifier extends Notifier<AsyncValue<List<Marker>>> {
   Timer? _debounceTimer;
 
-  ViewportMarkerNotifier(this._ref) : super(const AsyncValue.data([]));
+  @override
+  AsyncValue<List<Marker>> build() {
+    ref.onDispose(() {
+      _debounceTimer?.cancel();
+    });
+    return const AsyncValue.data([]);
+  }
 
-  ApiLocationService get _apiService => _ref.read(apiLocationServiceProvider);
-  AuthStatus get _authStatus => _ref.watch(authStateProvider).status;
+  ApiLocationService get _apiService => ref.read(apiLocationServiceProvider);
+  AuthStatus get _authStatus => ref.watch(authStateProvider).status;
 
   void loadMarkersInViewport(fm.LatLngBounds bounds, double currentZoom) {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
-      if (!mounted) return;
-
       // Do not set global loading if current data is available, for smoother UX
       // Only set to loading if truly fetching for the first time or after error.
       if (state is! AsyncData || (state as AsyncData).value.isEmpty) {
@@ -49,7 +52,7 @@ class ViewportMarkerNotifier extends StateNotifier<AsyncValue<List<Marker>>> {
       if (cachedTime != null && DateTime.now().difference(cachedTime) < _cacheDuration) {
         final cachedMarkers = _viewportCache[cacheKey];
         if (cachedMarkers != null) {
-          if (mounted) state = AsyncValue.data(cachedMarkers);
+          state = AsyncValue.data(cachedMarkers);
           return;
         }
       }
@@ -59,14 +62,14 @@ class ViewportMarkerNotifier extends StateNotifier<AsyncValue<List<Marker>>> {
         if (_authStatus == AuthStatus.authenticated) {
           markers = await _apiService.getLocationsInExtent(querySW, queryNE);
         } else {
-          final localStore = await _ref.read(localMarkerDataStoreProvider.future);
+          final localStore = await ref.read(localMarkerDataStoreProvider.future);
           markers = await localStore.findInBounds(querySW, queryNE);
         }
         _viewportCache[cacheKey] = markers;
         _viewportCacheTimestamps[cacheKey] = DateTime.now();
-        if (mounted) state = AsyncValue.data(markers);
+        state = AsyncValue.data(markers);
       } catch (e, st) {
-        if (mounted) state = AsyncValue.error(e, st);
+        state = AsyncValue.error(e, st);
       }
     });
   }
@@ -80,12 +83,5 @@ class ViewportMarkerNotifier extends StateNotifier<AsyncValue<List<Marker>>> {
   void invalidateCache() {
     _viewportCache.clear();
     _viewportCacheTimestamps.clear();
-  }
-
-
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    super.dispose();
   }
 }

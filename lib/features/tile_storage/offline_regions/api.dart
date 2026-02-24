@@ -1,5 +1,3 @@
-library offline_regions;
-
 import 'dart:async';
 import 'dart:math';
 
@@ -28,26 +26,18 @@ export 'widgets/region_creation_page.dart';
 
 final offlineRegionsProvider =
 AsyncNotifierProvider<OfflineRegionsNotifier, List<OfflineRegion>>(
-      () {
-    // This feature is not available on the web
-    if (kIsWeb) return OfflineRegionsNotifier.web();
-    return OfflineRegionsNotifier();
-  },
+  OfflineRegionsNotifier.new,
 );
 
 class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
-  bool _isWeb = false;
-
-  // Private constructor for the web version
-  OfflineRegionsNotifier.web() {
-    _isWeb = true;
-  }
-  // Public constructor for native
-  OfflineRegionsNotifier();
+  DateTime _lastUiUpdateTime = DateTime.fromMillisecondsSinceEpoch(0);
+  final Map<String, int> _progressBuffer = {};
 
   @override
   Future<List<OfflineRegion>> build() async {
-    if (_isWeb) return []; // Return empty list for web
+    // This feature is not available on the web
+    if (kIsWeb) return [];
+
     // **THE FIX**: Break the circular dependency.
     // The notifier no longer watches the orchestrator.
     // It relies on the orchestrator being started elsewhere (e.g., in main or a test setup).
@@ -65,7 +55,7 @@ class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
     required String tileProviderName,
     required List<TileCoordinates> coords,
   }) async {
-    if (_isWeb) return;
+    if (kIsWeb) return;
 
     final repo = await ref.read(regionRepositoryProvider.future);
     final jobQueue = await ref.read(tileJobQueueProvider.future);
@@ -86,7 +76,7 @@ class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
     );
 
     await repo.saveRegion(newRegion);
-    final currentState = state.valueOrNull ?? [];
+    final currentState = state.value ?? [];
     state = AsyncData([...currentState, newRegion]);
 
     final jobs = coords.map((c) {
@@ -104,7 +94,7 @@ class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
   }
 
   Future<void> deleteRegion(String regionId) async {
-    if (_isWeb) return;
+    if (kIsWeb) return;
 
     final repo = await ref.read(regionRepositoryProvider.future);
     final jobQueue = await ref.read(tileJobQueueProvider.future);
@@ -129,43 +119,61 @@ class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
     await jobQueue.clearJobsForRegion(regionId);
     await repo.deleteRegion(regionId);
 
-    final currentState = state.valueOrNull ?? [];
+    final currentState = state.value ?? [];
     state = AsyncData(currentState.where((r) => r.id != regionId).toList());
   }
 
   Future<void> updateRegionProgress(String regionId,
       {required bool tileSucceeded}) async {
-    if (_isWeb) return;
-    final repo = await ref.read(regionRepositoryProvider.future);
+    if (kIsWeb) return;
 
-    if (tileSucceeded) {
-      await repo.incrementDownloadedTileCount(regionId);
+    _progressBuffer[regionId] = (_progressBuffer[regionId] ?? 0) + (tileSucceeded ? 1 : 0);
+
+    final now = DateTime.now();
+    // Update UI and DB only every 1 second or every 20 tiles
+    if (now.difference(_lastUiUpdateTime).inSeconds >= 1 || (_progressBuffer[regionId] ?? 0) >= 20) {
+      final increment = _progressBuffer.remove(regionId) ?? 0;
+      _lastUiUpdateTime = now;
+
+      if (increment > 0) {
+        final repo = await ref.read(regionRepositoryProvider.future);
+        // Bulk increment in DB
+        await repo.incrementDownloadedTileCount(regionId, count: increment);
+      }
+
+      final currentRegions = state.value;
+      if (currentRegions == null) return;
+
+      final regionIndex = currentRegions.indexWhere((r) => r.id == regionId);
+      if (regionIndex == -1) return;
+
+      final oldRegion = currentRegions[regionIndex];
+      if (oldRegion.status != DownloadStatus.downloading) return;
+
+      // Update local state for UI
+      final updatedRegion = oldRegion.copyWith(
+        downloadedTiles: oldRegion.downloadedTiles + increment,
+      );
+
+      final newList = List<OfflineRegion>.from(currentRegions);
+      newList[regionIndex] = updatedRegion;
+      state = AsyncData(newList);
     }
-
-    final currentRegions = state.valueOrNull;
-    if (currentRegions == null) return;
-
-    final regionIndex = currentRegions.indexWhere((r) => r.id == regionId);
-    if (regionIndex == -1) return;
-
-    final oldRegion = currentRegions[regionIndex];
-    if (oldRegion.status != DownloadStatus.downloading) return;
-
-    final updatedRegion = oldRegion.copyWith(
-      downloadedTiles:
-      tileSucceeded ? oldRegion.downloadedTiles + 1 : oldRegion.downloadedTiles,
-    );
-
-    final newList = List<OfflineRegion>.from(currentRegions);
-    newList[regionIndex] = updatedRegion;
-    state = AsyncData(newList);
   }
 
   Future<void> finalizeRegion(String regionId) async {
-    if (_isWeb) return;
+    if (kIsWeb) return;
+    
+    // 1. Flush any remaining progress in the buffer
+    final remainingIncrement = _progressBuffer.remove(regionId) ?? 0;
+    if (remainingIncrement > 0) {
+      final repo = await ref.read(regionRepositoryProvider.future);
+      await repo.incrementDownloadedTileCount(regionId, count: remainingIncrement);
+    }
+
     final repo = await ref.read(regionRepositoryProvider.future);
 
-    final currentRegions = state.valueOrNull;
+    final currentRegions = state.value;
     if (currentRegions == null) return;
 
     final regionIndex = currentRegions.indexWhere((r) => r.id == regionId);
@@ -223,7 +231,7 @@ class OfflineApi {
     return tileStoreAsync.when(
       data: (store) => OfflineTileProvider(region: region, tileStore: store),
       loading: () => null,
-      error: (_, __) => null,
+      error: (_, _) => null,
     );
   }
 }
@@ -244,15 +252,20 @@ List<TileCoordinates> _calculateCoordsForRegion(
 
   for (var z = minZoom; z <= maxZoom; z++) {
     final zoom = z.toDouble();
-    final nwPoint = crs.latLngToPoint(bounds.northWest, zoom);
-    final sePoint = crs.latLngToPoint(bounds.southEast, zoom);
-    final nwTile = Point<int>(
-        (nwPoint.x / tileSize).floor(), (nwPoint.y / tileSize).floor());
-    final seTile = Point<int>(
-        (sePoint.x / tileSize).floor(), (sePoint.y / tileSize).floor());
+    final nwPoint = crs.latLngToOffset(bounds.northWest, zoom);
+    final sePoint = crs.latLngToOffset(bounds.southEast, zoom);
 
-    for (var x = nwTile.x; x <= seTile.x; x++) {
-      for (var y = nwTile.y; y <= seTile.y; y++) {
+    // We use a small epsilon to avoid including the next tile when
+    // the coordinate is exactly on the boundary of the next tile.
+    final nwTileX = (nwPoint.dx / tileSize).floor();
+    final nwTileY = (nwPoint.dy / tileSize).floor();
+    final seTileX = ((sePoint.dx - 0.0000001) / tileSize).floor();
+    final seTileY = ((sePoint.dy - 0.0000001) / tileSize).floor();
+
+    final maxTile = pow(2, z).toInt() - 1;
+
+    for (var x = max(0, nwTileX); x <= min(maxTile, seTileX); x++) {
+      for (var y = max(0, nwTileY); y <= min(maxTile, seTileY); y++) {
         coordsList.add(TileCoordinates(x, y, z));
       }
     }

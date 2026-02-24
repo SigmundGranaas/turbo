@@ -82,7 +82,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
 
     final overlayWidgets = <Widget>[];
     final offlineRegionsAsync = ref.watch(offline_api.offlineRegionsProvider);
-    final activeDownloads = offlineRegionsAsync.valueOrNull
+    final activeDownloads = offlineRegionsAsync.value
         ?.where((r) =>
     r.status == offline_api.DownloadStatus.downloading &&
         !_hiddenDownloadIds.contains(r.id))
@@ -165,29 +165,32 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final l10n = context.l10n;
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.add_location_alt_outlined),
-                title: Text(l10n.createNewMarkerHere),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showCreateSheet(context, newLocation: point);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.straighten),
-                title: Text(l10n.measureDistanceFromHere),
-                onTap: () {
-                  Navigator.pop(context);
-                  _navigateToMeasuring(point);
-                },
-              ),
-            ],
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.add_location_alt_outlined),
+                  title: Text(l10n.createNewMarkerHere),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showCreateSheet(context, newLocation: point);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.straighten),
+                  title: Text(l10n.measureDistanceFromHere),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _navigateToMeasuring(point);
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -222,6 +225,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final result = await showModalBottomSheet<marker_model.Marker>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (BuildContext context) {
         return CreateLocationSheet(newLocation: newLocation);
       },

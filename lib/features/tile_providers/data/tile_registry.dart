@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/data/layer_preference_service.dart';
 import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.dart';
@@ -183,7 +182,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
         if (config == null) continue;
 
         layers.add(TileLayer(
-          tileProvider: CancellableNetworkTileProvider(headers: config.headers),
+          tileProvider: NetworkTileProvider(headers: config.headers, silenceExceptions: true),
           urlTemplate: config.urlTemplate,
           minZoom: config.minZoom,
           maxZoom: 22, // Allow overzooming visually

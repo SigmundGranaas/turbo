@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/widgets/map/controller/map_utility.dart';
@@ -49,7 +50,7 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
     }
 
     try {
-      final position = await ref.read(locationStateProvider.future);
+      final LatLng? position = await ref.read(locationStateProvider.future);
       if (position != null) {
         animatedMapMove(position, 15, widget.mapController, this);
       } else {

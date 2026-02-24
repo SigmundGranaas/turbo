@@ -25,10 +25,10 @@ class RegionRepository {
   }
 
   /// Atomically increments the downloaded tile count for a region.
-  Future<void> incrementDownloadedTileCount(String regionId) async {
+  Future<void> incrementDownloadedTileCount(String regionId, {int count = 1}) async {
     await db.rawUpdate(
-        'UPDATE $regionsTable SET downloadedTiles = downloadedTiles + 1 WHERE id = ?',
-        [regionId]);
+        'UPDATE $regionsTable SET downloadedTiles = downloadedTiles + ? WHERE id = ?',
+        [count, regionId]);
   }
 
   Future<OfflineRegion?> getRegion(String id) async {

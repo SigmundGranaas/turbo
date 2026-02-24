@@ -167,9 +167,9 @@ abstract class AppLocalizations {
 
   String get toggleIntermediatePoints;
 
-  get smoothLine;
+  String get smoothLine;
 
-  get drawMode;
+  String get drawMode;
 }
 
 // English translations
@@ -315,8 +315,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get toggleIntermediatePoints => 'Toggle intermediate points';
-  @override get smoothLine => 'Smooth Line';
-  @override get drawMode => 'Draw mode';
+  @override String get smoothLine => 'Smooth Line';
+  @override String get drawMode => 'Draw mode';
 }
 
 // Norwegian translations
@@ -460,7 +460,7 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get redirectingToApp => 'Omdirigerer til appen...';
   @override String get toggleIntermediatePoints => 'Vis mellompunkter';
   @override String get smoothLine => 'Kurvet linje';
-  @override get drawMode => 'Tegnemodus';
+  @override String get drawMode => 'Tegnemodus';
 }
 
 // The delegate

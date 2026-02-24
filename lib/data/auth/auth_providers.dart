@@ -6,7 +6,7 @@ import 'auth_init_provider.dart';
 import 'auth_service.dart';
 
 // The AuthStateNotifier is now the root. It creates and configures its own client.
-final authStateProvider = StateNotifierProvider<AuthStateNotifier, AuthState>((ref) {
+final authStateProvider = NotifierProvider<AuthStateNotifier, AuthState>(() {
   return AuthStateNotifier();
 });
 
@@ -30,6 +30,7 @@ class AuthState {
   final String? errorMessage;
   final bool isGoogleUser;
   final String? accessToken;
+  final bool isInitializing;
 
   AuthState({
     this.status = AuthStatus.initial,
@@ -37,6 +38,7 @@ class AuthState {
     this.errorMessage,
     this.isGoogleUser = false,
     this.accessToken,
+    this.isInitializing = false,
   });
 
   AuthState copyWith({
@@ -46,6 +48,7 @@ class AuthState {
     bool? removeError,
     bool? isGoogleUser,
     String? accessToken,
+    bool? isInitializing,
   }) {
     return AuthState(
       status: status ?? this.status,
@@ -53,11 +56,12 @@ class AuthState {
       errorMessage: removeError == true ? null : errorMessage ?? this.errorMessage,
       isGoogleUser: isGoogleUser ?? this.isGoogleUser,
       accessToken: accessToken ?? this.accessToken,
+      isInitializing: isInitializing ?? this.isInitializing,
     );
   }
 }
 
-class AuthStateNotifier extends StateNotifier<AuthState> {
+class AuthStateNotifier extends Notifier<AuthState> {
   late final ApiClient _apiClient;
   late final AuthService _authService;
   AuthStatus? _previousStatus;
@@ -66,14 +70,20 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   ApiClient get apiClient => _apiClient;
   AuthStatus? get previousAuthStatus => _previousStatus;
 
-  AuthStateNotifier() : super(AuthState()) {
+  @override
+  AuthState build() {
     // 1. Create the ApiClient instance.
     _apiClient = ApiClient();
     // 2. Set its failure handler to call a method on this notifier instance.
-    //    This breaks the provider circular dependency.
     _apiClient.setAuthFailureHandler(handleAuthFailure);
     // 3. Create the AuthService using the now-configured client.
     _authService = AuthService(apiClient: _apiClient);
+
+    // 4. Trigger background initialization without blocking.
+    Future.microtask(() => initializeAndHandleInitialLink());
+
+    // 5. Start in a guest-friendly state immediately.
+    return AuthState(status: AuthStatus.unauthenticated, isInitializing: true);
   }
 
   /// This callback is invoked by the ApiClient when a token refresh fails.
@@ -83,50 +93,50 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   }
 
   void _updateState(AuthState newState) {
-    if (!mounted) return;
     _previousStatus = state.status;
     state = newState;
   }
 
   Future<void> initializeAndHandleInitialLink() async {
-    _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
     try {
-      // Native Google Sign-In does not use a deep link to start the auth flow.
-      // The logic for handling an initial deep link for OAuth on mobile has been removed.
-      // This section can be used for other types of deep links if needed.
       if (!kIsWeb) {
         try {
           final appLinks = AppLinks();
-          final initialUri = await appLinks.getInitialLink();
+          final initialUri = await appLinks.getInitialLink().timeout(const Duration(seconds: 2));
           if (initialUri != null) {
-            // Example: Handle a non-auth deep link.
-            if (kDebugMode) print('AuthStateNotifier: Handling initial deep link: ${initialUri.toString()}');
             handleDeepLinkForProvider(initialUri.toString(), this);
           }
         } catch (e) {
-          if (kDebugMode) print('AuthStateNotifier: Error handling initial deep link: $e');
+          if (kDebugMode) print('AuthStateNotifier: Background initial link check failed/timed out: $e');
         }
       }
 
-      // Now, check the session status. This is the primary method for:
-      // 1. Web: After a successful OAuth redirect, the browser has the session cookie.
-      // 2. Mobile/Web: On subsequent app opens to check for an existing session.
-      final isLoggedIn = await _authService.isLoggedIn();
+      // Check session status with a timeout to prevent app stall
+      final isLoggedIn = await _authService.isLoggedIn().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          if (kDebugMode) print('AuthStateNotifier: Session check timed out, continuing as unauthenticated.');
+          return false;
+        },
+      );
+
       if (isLoggedIn) {
         final email = await _authService.getUserEmail();
         final isGoogleUser = await _authService.isGoogleUser();
-        final token = await _authService.getAccessToken(); // This is null on web, which is fine
+        final token = await _authService.getAccessToken();
         _updateState(AuthState(
           status: AuthStatus.authenticated,
           email: email,
           isGoogleUser: isGoogleUser,
           accessToken: token,
+          isInitializing: false,
         ));
       } else {
-        _updateState(AuthState(status: AuthStatus.unauthenticated));
+        _updateState(state.copyWith(status: AuthStatus.unauthenticated, isInitializing: false));
       }
     } catch (e) {
-      _updateState(AuthState(status: AuthStatus.error, errorMessage: 'Initialization failed: $e'));
+      if (kDebugMode) print('AuthStateNotifier: Background initialization error: $e');
+      _updateState(state.copyWith(isInitializing: false));
     }
   }
 
@@ -173,8 +183,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> processOAuthCallback(String code) async {
-    // This method is now exclusively for the native mobile OAuth flow.
-    // The web flow is handled by server-side redirects and session checks.
     if (kIsWeb) {
       if (kDebugMode) print("processOAuthCallback called on web, which is unexpected.");
       return;
@@ -183,7 +191,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
     _updateState(state.copyWith(status: AuthStatus.loading, removeError: true));
 
     try {
-      // Mobile flow uses the new dedicated POST endpoint.
       final response = await _apiClient.post(
         '/api/auth/OAuth/mobile-signin',
         data: {
@@ -192,7 +199,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
         },
       );
 
-      // Mobile flow expects a 200 OK with tokens in the body.
       if (response.statusCode == 200) {
         final data = response.data;
         final String accessToken = data['accessToken'];
@@ -209,7 +215,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
           accessToken: accessToken,
         ));
       } else {
-        // Handle explicit API errors for mobile.
         String errorMessage = response.data?['message'] ?? 'Authentication failed';
         throw Exception(errorMessage);
       }
@@ -219,19 +224,16 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
-    // Prevent multiple logout calls if already logging out or unauthenticated
     if (state.status == AuthStatus.loading || state.status == AuthStatus.unauthenticated) return;
 
     _updateState(state.copyWith(status: AuthStatus.loading));
     try {
       await _authService.logout();
     } catch (e) {
-      // Even if logout API call fails, we still want to log out locally.
       if (kDebugMode) {
         print("Logout API call failed: $e. Logging out locally.");
       }
     } finally {
-      // Ensure local state is always cleared.
       _updateState(AuthState(status: AuthStatus.unauthenticated));
     }
   }
@@ -249,7 +251,6 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
         _updateState(state.copyWith(accessToken: token));
       }
     } catch (e) {
-      // Ensure logout on any error during refresh
       await logout();
     }
   }

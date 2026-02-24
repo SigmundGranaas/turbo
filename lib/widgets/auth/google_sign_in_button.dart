@@ -34,30 +34,25 @@ class GoogleSignInButton extends ConsumerWidget {
           throw Exception(l10n.errorCouldNotLaunchUrl);
         }
       } else {
-        // Native Android/iOS flow
-        final googleSignIn = GoogleSignIn(
-          // Use the correctly configured server client ID from your env config
+        // Native Android/iOS flow (v7.2.0 uses a singleton instance)
+        final googleSignIn = GoogleSignIn.instance;
+        
+        // Initialize if not already done.
+        await googleSignIn.initialize(
           serverClientId: EnvironmentConfig.googleServerClientId,
-          scopes: ['email'],
         );
 
         // Sign out from any previous session to ensure a fresh sign-in attempt
         await googleSignIn.signOut();
 
-        final googleUser = await googleSignIn.signIn();
+        await googleSignIn.authenticate();
 
-        if (googleUser == null) {
-          // User canceled the sign-in
-          if (kDebugMode) print('Google Sign-In canceled by user.');
-          onSignInCompleted();
-          return;
+        // In v7.2.0, we must authorize scopes to get the server auth code
+        final auth = await googleSignIn.authorizationClient.authorizeServer(['email']);
+        if (auth == null) {
+          throw Exception('Failed to authorize scopes');
         }
-
-        final serverAuthCode = googleUser.serverAuthCode;
-
-        if (serverAuthCode == null) {
-          throw Exception('Failed to get server auth code from Google. Check Google Cloud Console configuration.');
-        }
+        final serverAuthCode = auth.serverAuthCode;
 
         if (kDebugMode) {
           print('Native Google Sign-In successful. Sending serverAuthCode to backend.');

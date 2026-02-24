@@ -9,13 +9,11 @@ class MeasuringControls extends StatelessWidget {
   final VoidCallback onToggleSmoothing;
   final VoidCallback onToggleDrawing;
   final VoidCallback onToggleIntermediatePoints;
-  final Function(double) onSensitivityChanged;
   final bool canUndo;
   final bool canReset;
   final bool isSmoothing;
   final bool isDrawing;
   final bool showIntermediatePoints;
-  final double drawSensitivity;
 
   const MeasuringControls({
     super.key,
@@ -26,13 +24,11 @@ class MeasuringControls extends StatelessWidget {
     required this.onToggleSmoothing,
     required this.onToggleDrawing,
     required this.onToggleIntermediatePoints,
-    required this.onSensitivityChanged,
     required this.canUndo,
     required this.canReset,
     required this.isSmoothing,
     required this.isDrawing,
     required this.showIntermediatePoints,
-    required this.drawSensitivity,
   });
 
   @override
@@ -140,27 +136,6 @@ class MeasuringControls extends StatelessWidget {
                 children: actionButtons,
               ),
             ),
-            // Bottom row: Slider for drawing sensitivity
-            if (isDrawing)
-              Padding(
-                padding:
-                const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-                child: Row(
-                  children: [
-                    const Icon(Icons.line_axis, size: 20),
-                    Expanded(
-                      child: Slider(
-                        value: drawSensitivity,
-                        min: 5,
-                        max: 50,
-                        divisions: 9,
-                        label: drawSensitivity.round().toString(),
-                        onChanged: onSensitivityChanged,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
           ],
         ),
       ),

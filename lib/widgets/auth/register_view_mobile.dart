@@ -9,6 +9,7 @@ import 'package:turbo/widgets/auth/auth_text_field.dart';
 import 'package:turbo/widgets/auth/google_sign_in_button.dart';
 import 'package:turbo/widgets/auth/password_field.dart';
 import 'package:turbo/widgets/auth/primary_button.dart';
+import 'package:turbo/utils.dart';
 
 class RegisterViewMobile extends ConsumerWidget {
   final GlobalKey<FormState> formKey;
@@ -16,8 +17,8 @@ class RegisterViewMobile extends ConsumerWidget {
   final TextEditingController passwordController;
   final Future<void> Function() onRegister;
   final VoidCallback onNavigateToLogin;
-  final StateProvider<bool> isLoadingProvider;
-  final StateProvider<bool> isGoogleLoadingProvider;
+  final NotifierProvider<LoadingNotifier, bool> isLoadingProvider;
+  final NotifierProvider<LoadingNotifier, bool> isGoogleLoadingProvider;
 
   const RegisterViewMobile( {
     super.key,
@@ -92,8 +93,8 @@ class RegisterViewMobile extends ConsumerWidget {
                     const SizedBox(height: 24),
                     GoogleSignInButton(
                       isLoading: ref.watch(isGoogleLoadingProvider),
-                      onSignInStarted: () => ref.read(isGoogleLoadingProvider.notifier).state = true,
-                      onSignInCompleted: () => ref.read(isGoogleLoadingProvider.notifier).state = false,
+                      onSignInStarted: () => ref.read(isGoogleLoadingProvider.notifier).set(true),
+                      onSignInCompleted: () => ref.read(isGoogleLoadingProvider.notifier).set(false),
                     ),
                     const SizedBox(height: 24),
                     Text(

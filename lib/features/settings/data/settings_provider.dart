@@ -7,25 +7,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 class SettingsState {
   final ThemeMode themeMode;
   final Locale locale;
+  final double drawSensitivity;
 
   const SettingsState({
     required this.themeMode,
     required this.locale,
+    required this.drawSensitivity,
   });
 
   // Default initial state
   factory SettingsState.initial() => const SettingsState(
     themeMode: ThemeMode.system,
     locale: Locale('en'),
+    drawSensitivity: 15.0,
   );
 
   SettingsState copyWith({
     ThemeMode? themeMode,
     Locale? locale,
+    double? drawSensitivity,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
       locale: locale ?? this.locale,
+      drawSensitivity: drawSensitivity ?? this.drawSensitivity,
     );
   }
 }
@@ -37,6 +42,7 @@ class SettingsState {
 class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _themeModeKey = 'themeMode';
   static const _localeKey = 'locale';
+  static const _drawSensitivityKey = 'drawSensitivity';
 
   @override
   Future<SettingsState> build() async {
@@ -61,7 +67,22 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     final languageCode = prefs.getString(_localeKey);
     final locale = languageCode != null ? Locale(languageCode) : const Locale('en');
 
-    return SettingsState(themeMode: themeMode, locale: locale);
+    // Load Draw Sensitivity
+    final drawSensitivity = prefs.getDouble(_drawSensitivityKey) ?? 15.0;
+
+    return SettingsState(
+      themeMode: themeMode,
+      locale: locale,
+      drawSensitivity: drawSensitivity,
+    );
+  }
+
+  /// Updates the draw sensitivity and persists it.
+  Future<void> setDrawSensitivity(double value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(drawSensitivity: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_drawSensitivityKey, value);
   }
 
   /// Updates the theme mode and persists it to local storage.

@@ -18,8 +18,8 @@ export 'models/map_view_state.dart' show MapViewState;
 
 // 3. Export the public state provider.
 final mapViewStateProvider =
-StateNotifierProvider<MapViewStateNotifier, MapViewState>(
-      (ref) => MapViewStateNotifier(),
+NotifierProvider<MapViewStateNotifier, MapViewState>(
+  MapViewStateNotifier.new,
 );
 
 /// 4. (Recommended) Provide a clean, mockable API wrapper class.

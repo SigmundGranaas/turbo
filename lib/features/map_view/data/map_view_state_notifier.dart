@@ -4,8 +4,11 @@ import 'package:turbo/features/map_view/models/map_view_state.dart';
 
 /// Manages the state of the map's viewport (center, zoom).
 /// It is the single source of truth for the map's position.
-class MapViewStateNotifier extends StateNotifier<MapViewState> {
-  MapViewStateNotifier() : super(MapViewState.initial());
+class MapViewStateNotifier extends Notifier<MapViewState> {
+  @override
+  MapViewState build() {
+    return MapViewState.initial();
+  }
 
   /// Updates the state based on a MapEvent.
   /// This should be called from the map's `onMapEvent` callback.

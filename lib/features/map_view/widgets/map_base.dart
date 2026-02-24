@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -65,36 +64,45 @@ class MapBase extends ConsumerWidget {
     );
 
     return Stack(
-      clipBehavior: Clip.none,
       children: [
-        Listener(
-          onPointerDown: (event) {
-            if (onPointerDown != null) {
-              final point = event.localPosition;
-              final latLng =
-              mapController.camera.pointToLatLng(Point(point.dx, point.dy));
-              onPointerDown!(event, latLng);
-            }
-          },
-          onPointerMove: (event) {
-            if (onPointerMove != null) {
-              final point = event.localPosition;
-              final latLng =
-              mapController.camera.pointToLatLng(Point(point.dx, point.dy));
-              onPointerMove!(event, latLng);
-            }
-          },
-          onPointerUp: (event) {
-            if (onPointerUp != null) {
-              final point = event.localPosition;
-              final latLng =
-              mapController.camera.pointToLatLng(Point(point.dx, point.dy));
-              onPointerUp!(event, latLng);
-            }
-          },
-          child: flutterMap,
+        Positioned.fill(
+          child: Listener(
+            onPointerDown: (event) {
+              if (onPointerDown != null) {
+                final point = event.localPosition;
+                final latLng =
+                mapController.camera.screenOffsetToLatLng(point);
+                onPointerDown!(event, latLng);
+              }
+            },
+            onPointerMove: (event) {
+              if (onPointerMove != null) {
+                final point = event.localPosition;
+                final latLng =
+                mapController.camera.screenOffsetToLatLng(point);
+                onPointerMove!(event, latLng);
+              }
+            },
+            onPointerUp: (event) {
+              if (onPointerUp != null) {
+                final point = event.localPosition;
+                final latLng =
+                mapController.camera.screenOffsetToLatLng(point);
+                onPointerUp!(event, latLng);
+              }
+            },
+            child: flutterMap,
+          ),
         ),
-        ...overlayWidgets,
+        Positioned.fill(
+          child: SafeArea(
+            left: false, // Map usually looks better if side-to-side padding is managed by widgets
+            right: false,
+            child: Stack(
+              children: overlayWidgets,
+            ),
+          ),
+        ),
       ],
     );
   }
