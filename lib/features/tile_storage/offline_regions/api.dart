@@ -250,16 +250,22 @@ List<TileCoordinates> _calculateCoordsForRegion(
   const crs = Epsg3857();
   const tileSize = 256.0;
 
-      for (var z = minZoom; z <= maxZoom; z++) {
-      final zoom = z.toDouble();
-      final nwPoint = crs.latLngToOffset(bounds.northWest, zoom);
-      final sePoint = crs.latLngToOffset(bounds.southEast, zoom);
-      final nwTile = Point<int>(
-          (nwPoint.dx / tileSize).floor(), (nwPoint.dy / tileSize).floor());
-      final seTile = Point<int>(
-          (sePoint.dx / tileSize).floor(), (sePoint.dy / tileSize).floor());
-    for (var x = nwTile.x; x <= seTile.x; x++) {
-      for (var y = nwTile.y; y <= seTile.y; y++) {
+  for (var z = minZoom; z <= maxZoom; z++) {
+    final zoom = z.toDouble();
+    final nwPoint = crs.latLngToOffset(bounds.northWest, zoom);
+    final sePoint = crs.latLngToOffset(bounds.southEast, zoom);
+
+    // We use a small epsilon to avoid including the next tile when
+    // the coordinate is exactly on the boundary of the next tile.
+    final nwTileX = (nwPoint.dx / tileSize).floor();
+    final nwTileY = (nwPoint.dy / tileSize).floor();
+    final seTileX = ((sePoint.dx - 0.0000001) / tileSize).floor();
+    final seTileY = ((sePoint.dy - 0.0000001) / tileSize).floor();
+
+    final maxTile = pow(2, z).toInt() - 1;
+
+    for (var x = max(0, nwTileX); x <= min(maxTile, seTileX); x++) {
+      for (var y = max(0, nwTileY); y <= min(maxTile, seTileY); y++) {
         coordsList.add(TileCoordinates(x, y, z));
       }
     }
