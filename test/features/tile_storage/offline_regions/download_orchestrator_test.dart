@@ -8,7 +8,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:shelf_router/shelf_router.dart' as shelf_router;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:turbo/core/data/database_provider.dart';
 import 'package:turbo/core/service/logger.dart';
@@ -176,9 +175,9 @@ void main() {
       const expectedTileCount = 20;
       const regionName = 'Test Area Success';
 
-      final handler = (shelf.Request request) {
+      shelf.Response handler(shelf.Request request) {
         return shelf.Response.ok(tileBytes, headers: {'Content-Type': 'image/png'});
-      };
+      }
       await startServer(handler);
 
       offlineApi.downloadRegion(
@@ -210,13 +209,13 @@ void main() {
       const expectedDownloadedCount = totalTiles - failedTiles;
       const regionName = 'Test Area With Failures';
 
-      final handler = (shelf.Request request) {
+      shelf.Response handler(shelf.Request request) {
         final path = request.url.path;
         if (path.startsWith('2/')) {
           return shelf.Response.internalServerError();
         }
         return shelf.Response.ok(tileBytes, headers: {'Content-Type': 'image/png'});
-      };
+      }
       await startServer(handler);
 
       offlineApi.downloadRegion(
