@@ -5,7 +5,7 @@ import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_regions_api;
 import 'package:turbo/l10n/app_localizations.dart';
-import 'package:turbo/widgets/map/buttons/map_control_button_base.dart';
+import 'package:turbo/core/widgets/map/buttons/map_control_button_base.dart';
 
 class MapLayerButton extends ConsumerWidget {
   const MapLayerButton({super.key});

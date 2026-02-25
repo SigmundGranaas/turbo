@@ -6,9 +6,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/widgets/map_base.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/widgets/download_details_sheet.dart';
-import 'package:turbo/widgets/map/controls/go_back_button.dart';
+import 'package:turbo/core/widgets/map/controls/go_back_button.dart';
 
-import '../../../tile_providers/data/providers/osm_tiles.dart';
+// OsmConfig is exported from tile_providers api.dart (already imported above)
 
 enum SelectionMode { viewport, rectangle, draw }
 

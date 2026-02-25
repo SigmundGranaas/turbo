@@ -3,13 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:turbo/data/model/marker.dart' as marker_model;
-import 'package:turbo/data/state/providers/location_repository.dart';
-
-import '../../../../data/icon_service.dart';
-import '../../../../data/model/named_icon.dart';
-import '../../../../data/state/providers/viewport_marker_provider.dart';
-import '../../../../widgets/marker/edit_location_sheet.dart';
+import 'package:turbo/features/markers/api.dart' as marker_model;
+import 'package:turbo/features/markers/api.dart' hide Marker;
 
 class ViewportMarkers extends ConsumerStatefulWidget {
   final MapController mapController;

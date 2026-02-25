@@ -1,0 +1,93 @@
+import 'dart:async';
+import 'package:flutter_map/flutter_map.dart' as fm;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/connectivity/connectivity_provider.dart';
+import 'package:turbo/features/auth/api.dart';
+import 'api_location_service.dart';
+import '../models/marker.dart';
+import 'location_repository.dart';
+
+String _boundsToCacheKey(fm.LatLngBounds bounds, double zoom) {
+  const precision = 5; // Adjust precision as needed for cache granularity
+  return '${bounds.southWest.latitude.toStringAsFixed(precision)}_${bounds.southWest.longitude.toStringAsFixed(precision)}_${bounds.northEast.latitude.toStringAsFixed(precision)}_${bounds.northEast.longitude.toStringAsFixed(precision)}_${zoom.round()}';
+}
+
+final _viewportCache = <String, List<Marker>>{};
+final _viewportCacheTimestamps = <String, DateTime>{};
+const _cacheDuration = Duration(seconds: 30); // Shorter cache for viewport data
+
+final viewportMarkerNotifierProvider = NotifierProvider.autoDispose<ViewportMarkerNotifier, AsyncValue<List<Marker>>>(() {
+  return ViewportMarkerNotifier();
+});
+
+class ViewportMarkerNotifier extends Notifier<AsyncValue<List<Marker>>> {
+  Timer? _debounceTimer;
+
+  @override
+  AsyncValue<List<Marker>> build() {
+    ref.onDispose(() {
+      _debounceTimer?.cancel();
+    });
+    return const AsyncValue.data([]);
+  }
+
+  ApiLocationService get _apiService => ref.read(apiLocationServiceProvider);
+  AuthStatus get _authStatus => ref.watch(authStateProvider).status;
+
+  void loadMarkersInViewport(fm.LatLngBounds bounds, double currentZoom) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () async {
+      // Do not set global loading if current data is available, for smoother UX
+      // Only set to loading if truly fetching for the first time or after error.
+      if (state is! AsyncData || (state as AsyncData).value.isEmpty) {
+        state = const AsyncValue.loading();
+      }
+
+      final querySW = LatLng(bounds.southWest.latitude, bounds.southWest.longitude);
+      final queryNE = LatLng(bounds.northEast.latitude, bounds.northEast.longitude);
+
+      final cacheKey = _boundsToCacheKey(bounds, currentZoom);
+      final cachedTime = _viewportCacheTimestamps[cacheKey];
+
+      if (cachedTime != null && DateTime.now().difference(cachedTime) < _cacheDuration) {
+        final cachedMarkers = _viewportCache[cacheKey];
+        if (cachedMarkers != null) {
+          state = AsyncValue.data(cachedMarkers);
+          return;
+        }
+      }
+
+      try {
+        List<Marker> markers;
+        if (_authStatus == AuthStatus.authenticated && ref.read(connectivityProvider)) {
+          try {
+            markers = await _apiService.getLocationsInExtent(querySW, queryNE);
+          } catch (_) {
+            final localStore = await ref.read(localMarkerDataStoreProvider.future);
+            markers = await localStore.findInBounds(querySW, queryNE);
+          }
+        } else {
+          final localStore = await ref.read(localMarkerDataStoreProvider.future);
+          markers = await localStore.findInBounds(querySW, queryNE);
+        }
+        _viewportCache[cacheKey] = markers;
+        _viewportCacheTimestamps[cacheKey] = DateTime.now();
+        state = AsyncValue.data(markers);
+      } catch (e, st) {
+        state = AsyncValue.error(e, st);
+      }
+    });
+  }
+
+  void clearViewportCacheAndReload(fm.LatLngBounds bounds, double currentZoom) {
+    _viewportCache.remove(_boundsToCacheKey(bounds, currentZoom));
+    _viewportCacheTimestamps.remove(_boundsToCacheKey(bounds, currentZoom));
+    loadMarkersInViewport(bounds, currentZoom);
+  }
+
+  void invalidateCache() {
+    _viewportCache.clear();
+    _viewportCacheTimestamps.clear();
+  }
+}

@@ -10,11 +10,11 @@ import 'package:turbo/features/measuring/widgets/measuring_controls.dart';
 import 'package:turbo/features/measuring/widgets/measuring_line.dart';
 import 'package:turbo/features/measuring/widgets/measuring_markers.dart';
 import 'package:turbo/features/settings/api.dart';
-import 'package:turbo/widgets/map/controller/map_utility.dart';
-import 'package:turbo/widgets/map/controls/bottom_controls.dart';
-import 'package:turbo/widgets/map/controls/default_map_controls.dart';
-import 'package:turbo/widgets/map/controls/go_back_button.dart';
-import 'package:turbo/widgets/map/controls/map_controls.dart';
+import 'package:turbo/core/widgets/map/controller/map_utility.dart';
+import 'package:turbo/core/widgets/map/controls/bottom_controls.dart';
+import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
+import 'package:turbo/core/widgets/map/controls/go_back_button.dart';
+import 'package:turbo/core/widgets/map/controls/map_controls.dart';
 
 import '../../map_view/widgets/map_base.dart';
 import '../../tile_providers/api.dart';

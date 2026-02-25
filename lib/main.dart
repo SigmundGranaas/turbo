@@ -5,17 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/settings/api.dart';
-import 'package:turbo/features/tile_storage/offline_regions/data/download_orchestrator.dart';
+import 'package:turbo/features/tile_storage/offline_regions/api.dart' as offline_regions;
 import 'package:turbo/l10n/app_localizations.dart';
-import 'package:turbo/theme.dart';
-import 'package:turbo/utils.dart';
-import 'package:turbo/widgets/auth/google_oauth_screen.dart';
-import 'package:turbo/widgets/auth/login_success.dart';
+import 'package:turbo/core/theme/theme.dart';
+import 'package:turbo/core/theme/utils.dart';
+import 'package:turbo/features/auth/api.dart';
+import 'package:turbo/features/markers/api.dart';
 
 import 'core/data/database_provider.dart';
 import 'core/service/logger.dart';
-import 'data/auth/auth_providers.dart';
-import 'data/state/providers/location_repository.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,7 +39,7 @@ Future<void> _backgroundInit(ProviderContainer container) async {
     container.read(databaseProvider);
     // We LISTEN here because the provider might be null initially while DB is loading.
     // Listening ensures it gets created and started as soon as dependencies are ready.
-    container.listen(downloadOrchestratorProvider, (_, _) {});
+    container.listen(offline_regions.downloadOrchestratorProvider, (_, _) {});
   }
   // This triggers the internal build() logic which starts the session check
   container.read(authStateProvider);

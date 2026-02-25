@@ -13,11 +13,9 @@ import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_api;
 import 'package:turbo/features/tile_storage/offline_regions/widgets/download_progress_toolbar.dart';
 import 'package:turbo/l10n/app_localizations.dart';
-import 'package:turbo/data/model/marker.dart' as marker_model;
+import 'package:turbo/features/markers/api.dart' as marker_model;
 
-import 'package:turbo/widgets/marker/create_location_sheet.dart';
-
-import '../../../widgets/map/controls/default_map_controls.dart';
+import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
 
 class MainMapPage extends ConsumerStatefulWidget {
   const MainMapPage({super.key});
@@ -227,7 +225,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       isScrollControlled: true,
       useSafeArea: true,
       builder: (BuildContext context) {
-        return CreateLocationSheet(newLocation: newLocation);
+        return marker_model.CreateLocationSheet(newLocation: newLocation);
       },
     );
 
