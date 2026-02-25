@@ -10,6 +10,7 @@ import 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
 // 1. Export the public models.
 export 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 export 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
+export 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart' show OsmConfig;
 
 // 2. Export the main state notifier provider for the registry.
 final tileRegistryProvider =

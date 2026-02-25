@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../data/state/providers/location_state.dart';
+import 'package:turbo/core/location/location_state.dart';
 
 class CurrentLocationLayer extends ConsumerWidget {
   const CurrentLocationLayer({super.key});

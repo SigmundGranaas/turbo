@@ -6,13 +6,14 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 1;
+const int _dbVersion = 2;
 
 // Table Names
 const String regionsTable = 'offline_regions';
 const String tileJobsTable = 'tile_jobs';
 const String tileStoreTable = 'tile_store';
 const String markersTable = 'markers';
+const String pendingDeletesTable = 'pending_deletes';
 
 
 /// A provider that creates and holds the single instance of the app's database.
@@ -28,6 +29,7 @@ final databaseProvider = FutureProvider<Database>((ref) async {
     join(await getDatabasesPath(), _dbName),
     version: _dbVersion,
     onCreate: _createDb,
+    onUpgrade: _upgradeDb,
   );
 });
 
@@ -106,6 +108,31 @@ Future<void> _createDb(Database db, int version) async {
   batch.execute('CREATE INDEX idx_tile_path ON $tileStoreTable (path)');
   batch.execute('CREATE INDEX idx_tile_ref_count ON $tileStoreTable (referenceCount)');
 
+  // Pending deletes queue (v2)
+  batch.execute('''
+    CREATE TABLE $pendingDeletesTable(
+      uuid TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL
+    )
+  ''');
 
   await batch.commit(noResult: true);
+}
+
+Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
+  for (var version = oldVersion + 1; version <= newVersion; version++) {
+    switch (version) {
+      case 2:
+        await _migrateV1ToV2(db);
+    }
+  }
+}
+
+Future<void> _migrateV1ToV2(Database db) async {
+  await db.execute('''
+    CREATE TABLE $pendingDeletesTable(
+      uuid TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL
+    )
+  ''');
 }

@@ -18,6 +18,9 @@ import 'data/offline_tile_provider.dart';
 // Models
 export 'models/offline_region.dart';
 
+// Data
+export 'data/download_orchestrator.dart' show downloadOrchestratorProvider;
+
 // UI
 export 'widgets/offline_regions_page.dart';
 export 'widgets/region_creation_page.dart';

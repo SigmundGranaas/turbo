@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:turbo/data/layer_preference_service.dart';
+import 'layer_preference_service.dart';
 import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/google_sattelite.dart';
 import 'package:turbo/features/tile_providers/data/providers/norges_kart_topo.dart';
