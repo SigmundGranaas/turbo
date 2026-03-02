@@ -81,6 +81,7 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
     final registry = ref.watch(tileRegistryProvider);
     final measuringState = ref.watch(measuringStateProvider);
     final measuringNotifier = ref.watch(measuringStateProvider.notifier);
+    final settings = ref.watch(settingsProvider).value;
 
     final width = MediaQuery.of(context).size.width;
     final isMobile = width < 600;
@@ -88,8 +89,11 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
         ? defaultMobileMapControls(_mapController, this)
         : defaultMapControls(_mapController, this);
 
+    final isSmoothing = settings?.smoothLine ?? true;
+    final showIntermediatePoints = settings?.showIntermediatePoints ?? false;
+
     final allPoints = measuringState.points;
-    final pointsToRenderForMarkers = measuringState.showIntermediatePoints
+    final pointsToRenderForMarkers = showIntermediatePoints
         ? allPoints
         : allPoints
         .where((p) =>
@@ -98,7 +102,7 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
         .toList();
 
     final rawPointsForLine = allPoints.map((p) => p.point).toList();
-    final polylinePoints = measuringState.isSmoothing
+    final polylinePoints = isSmoothing
         ? CatmullRomSpline(controlPoints: rawPointsForLine).generate()
         : rawPointsForLine;
 
@@ -134,17 +138,12 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
                 measuringNotifier.reset();
               },
               onUndo: measuringNotifier.undoLastPoint,
-              onFinish: () => _handleFinish(measuringState),
-              onToggleSmoothing: measuringNotifier.toggleSmoothing,
+              onFinish: () => _handleFinish(measuringState, isSmoothing),
               onToggleDrawing: measuringNotifier.toggleDrawing,
-              onToggleIntermediatePoints:
-              measuringNotifier.toggleIntermediatePoints,
               canUndo: measuringState.points.isNotEmpty,
               canReset: measuringState.points.isNotEmpty,
               canSave: measuringState.points.length >= 2,
-              isSmoothing: measuringState.isSmoothing,
               isDrawing: measuringState.isDrawing,
-              showIntermediatePoints: measuringState.showIntermediatePoints,
             ),
           ),
         ],
@@ -165,7 +164,7 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
     );
   }
 
-  void _handleFinish(MeasuringState measuringState) async {
+  void _handleFinish(MeasuringState measuringState, bool isSmoothing) async {
     if (measuringState.points.length < 2) {
       final l10n = context.l10n;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -189,7 +188,7 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
       builder: (context) => SavePathSheet(
         points: points,
         distance: distance,
-        isSmoothing: measuringState.isSmoothing,
+        isSmoothing: isSmoothing,
       ),
     );
 

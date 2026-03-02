@@ -141,32 +141,19 @@ void main() {
       expect(state.points, isEmpty);
       expect(state.totalDistance, 0);
       expect(state.isDrawing, false);
-      expect(state.isSmoothing, false);
-      expect(state.showIntermediatePoints, true);
     });
 
-    test('toggle methods correctly update boolean flags', () {
+    test('toggle drawing correctly updates flag', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final notifier =
       container.read(measuringStateProvider.notifier);
 
-      // Test Drawing
       expect(notifier.state.isDrawing, isFalse);
       notifier.toggleDrawing();
       expect(notifier.state.isDrawing, isTrue);
       notifier.toggleDrawing();
       expect(notifier.state.isDrawing, isFalse);
-
-      // Test Smoothing
-      expect(notifier.state.isSmoothing, isFalse);
-      notifier.toggleSmoothing();
-      expect(notifier.state.isSmoothing, isTrue);
-
-      // Test Intermediate Points
-      expect(notifier.state.showIntermediatePoints, isTrue);
-      notifier.toggleIntermediatePoints();
-      expect(notifier.state.showIntermediatePoints, isFalse);
     });
   });
 }

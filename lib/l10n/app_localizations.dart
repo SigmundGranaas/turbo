@@ -175,6 +175,9 @@ abstract class AppLocalizations {
 
   String get drawMode;
 
+  String get drawing;
+  String get drawSensitivity;
+
   // Saved Paths
   String get savedPaths;
   String get savePath;
@@ -214,6 +217,20 @@ abstract class AppLocalizations {
   String get saveToFile;
   String get pathExported;
   String errorExportingPath(String error);
+
+  // Info Sheets
+  String get coordinates;
+  String get createdDate;
+  String get edit;
+  String get export;
+  String get exportMarker;
+  String get textDescription;
+  String get shareAsText;
+  String get shareAsFile;
+  String get markerExported;
+  String get markerDeleted;
+  String get markerUpdated;
+  String errorExportingMarker(String error);
 }
 
 // English translations
@@ -365,6 +382,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get toggleIntermediatePoints => 'Toggle intermediate points';
   @override String get smoothLine => 'Smooth Line';
   @override String get drawMode => 'Draw mode';
+  @override String get drawing => 'Drawing';
+  @override String get drawSensitivity => 'Draw Sensitivity';
 
   @override String get savedPaths => 'Saved Paths';
   @override String get savePath => 'Save Path';
@@ -402,6 +421,19 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get saveToFile => 'Save to File';
   @override String get pathExported => 'Path exported successfully';
   @override String errorExportingPath(String error) => 'Error exporting path: $error';
+
+  @override String get coordinates => 'Coordinates';
+  @override String get createdDate => 'Created';
+  @override String get edit => 'Edit';
+  @override String get export => 'Export';
+  @override String get exportMarker => 'Export Marker';
+  @override String get textDescription => 'Plain text - easy to paste anywhere';
+  @override String get shareAsText => 'Share as text';
+  @override String get shareAsFile => 'Share as file';
+  @override String get markerExported => 'Marker saved';
+  @override String get markerDeleted => 'Marker deleted';
+  @override String get markerUpdated => 'Marker updated';
+  @override String errorExportingMarker(String error) => 'Error exporting marker: $error';
 }
 
 // Norwegian translations
@@ -550,6 +582,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get toggleIntermediatePoints => 'Vis mellompunkter';
   @override String get smoothLine => 'Kurvet linje';
   @override String get drawMode => 'Tegnemodus';
+  @override String get drawing => 'Tegning';
+  @override String get drawSensitivity => 'Tegnefølsomhet';
 
   @override String get savedPaths => 'Lagrede ruter';
   @override String get savePath => 'Lagre rute';
@@ -587,6 +621,19 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get saveToFile => 'Lagre til fil';
   @override String get pathExported => 'Rute eksportert';
   @override String errorExportingPath(String error) => 'Feil ved eksportering av rute: $error';
+
+  @override String get coordinates => 'Koordinater';
+  @override String get createdDate => 'Opprettet';
+  @override String get edit => 'Rediger';
+  @override String get export => 'Eksporter';
+  @override String get exportMarker => 'Eksporter punkt';
+  @override String get textDescription => 'Ren tekst - enkelt å lime inn hvor som helst';
+  @override String get shareAsText => 'Del som tekst';
+  @override String get shareAsFile => 'Del som fil';
+  @override String get markerExported => 'Punkt lagret';
+  @override String get markerDeleted => 'Punkt slettet';
+  @override String get markerUpdated => 'Punkt oppdatert';
+  @override String errorExportingMarker(String error) => 'Feil ved eksportering av punkt: $error';
 }
 
 // The delegate

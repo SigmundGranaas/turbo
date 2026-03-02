@@ -28,16 +28,8 @@ class MeasuringStateNotifier extends Notifier<MeasuringState> {
     _updateState();
   }
 
-  void toggleSmoothing() {
-    state = state.copyWith(isSmoothing: !state.isSmoothing);
-  }
-
   void toggleDrawing() {
     state = state.copyWith(isDrawing: !state.isDrawing);
-  }
-
-  void toggleIntermediatePoints() {
-    state = state.copyWith(showIntermediatePoints: !state.showIntermediatePoints);
   }
 
   void _updateState() {

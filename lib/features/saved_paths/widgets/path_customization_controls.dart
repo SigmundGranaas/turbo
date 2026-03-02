@@ -87,29 +87,70 @@ class PathCustomizationControls extends StatelessWidget {
     final hasIcon = selectedIconKey != null;
     final namedIcon =
         hasIcon ? iconService.getIcon(context, selectedIconKey) : null;
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        hasIcon ? namedIcon!.icon : Icons.add_circle_outline,
-        color: hasIcon ? Theme.of(context).colorScheme.primary : null,
+    return Material(
+      color: colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
       ),
-      title: Text(hasIcon
-          ? (namedIcon!.localizedTitle ?? namedIcon.title)
-          : l10n.pathIcon),
-      trailing: hasIcon
-          ? IconButton(
-              icon: const Icon(Icons.clear),
-              tooltip: l10n.removeIcon,
-              onPressed: () => onIconChanged(null),
-            )
-          : null,
-      onTap: () async {
-        final result = await IconSelectionPage.show(context);
-        if (result != null) {
-          onIconChanged(result.title);
-        }
-      },
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () async {
+          final result = await IconSelectionPage.show(context);
+          FocusManager.instance.primaryFocus?.unfocus();
+          if (result != null) {
+            onIconChanged(result.title);
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: hasIcon
+                      ? colorScheme.primaryContainer
+                      : colorScheme.surfaceContainerHighest,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  hasIcon ? namedIcon!.icon : Icons.add,
+                  color: hasIcon
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurfaceVariant,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  hasIcon
+                      ? (namedIcon!.localizedTitle ?? namedIcon.title)
+                      : l10n.pathIcon,
+                  style: textTheme.bodyLarge?.copyWith(
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              if (hasIcon)
+                IconButton(
+                  icon: const Icon(Icons.clear),
+                  tooltip: l10n.removeIcon,
+                  onPressed: () => onIconChanged(null),
+                )
+              else
+                Icon(
+                  Icons.chevron_right,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

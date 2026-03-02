@@ -993,7 +993,7 @@ void main() {
       expect(segmented.selected, {PathLineStyle.solid});
     });
 
-    testWidgets('renders edit title and all buttons', (tester) async {
+    testWidgets('renders edit title and save button', (tester) async {
       final path = _makePath(title: 'Some Path');
 
       await tester.pumpWidget(_testApp(
@@ -1006,8 +1006,6 @@ void main() {
 
       expect(find.text('Edit Path'), findsOneWidget);
       expect(find.text('Save Changes'), findsOneWidget);
-      expect(find.text('Export Path'), findsOneWidget);
-      expect(find.text('Delete Path'), findsOneWidget);
     });
   });
 

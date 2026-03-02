@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
-import '../data/path_export_service.dart';
-import '../models/saved_path.dart';
+import '../data/marker_export_service.dart';
+import '../models/marker.dart';
 
-class ExportOptionsSheet extends StatelessWidget {
-  final SavedPath path;
+class MarkerExportOptionsSheet extends StatelessWidget {
+  final Marker marker;
 
-  const ExportOptionsSheet({super.key, required this.path});
+  const MarkerExportOptionsSheet({super.key, required this.marker});
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +27,7 @@ class ExportOptionsSheet extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(l10n.exportPath, style: textTheme.titleLarge),
+              Text(l10n.exportMarker, style: textTheme.titleLarge),
               IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
@@ -36,13 +36,11 @@ class ExportOptionsSheet extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _FormatCard(
-            icon: Icons.route,
-            title: 'GPX',
-            description: l10n.gpxDescription,
+            icon: Icons.text_fields,
+            title: l10n.shareAsText,
+            description: l10n.textDescription,
             shareLabel: l10n.share,
-            saveLabel: l10n.saveToFile,
-            onShare: () => _export(context, ExportFormat.gpx, share: true),
-            onSave: () => _export(context, ExportFormat.gpx, share: false),
+            onShare: () => _export(context, _MarkerExportAction.shareText),
           ),
           const SizedBox(height: 12),
           _FormatCard(
@@ -51,8 +49,8 @@ class ExportOptionsSheet extends StatelessWidget {
             description: l10n.geoJsonDescription,
             shareLabel: l10n.share,
             saveLabel: l10n.saveToFile,
-            onShare: () => _export(context, ExportFormat.geoJson, share: true),
-            onSave: () => _export(context, ExportFormat.geoJson, share: false),
+            onShare: () => _export(context, _MarkerExportAction.shareGeoJson),
+            onSave: () => _export(context, _MarkerExportAction.saveGeoJson),
           ),
         ],
       ),
@@ -61,20 +59,23 @@ class ExportOptionsSheet extends StatelessWidget {
 
   Future<void> _export(
     BuildContext context,
-    ExportFormat format, {
-    required bool share,
-  }) async {
+    _MarkerExportAction action,
+  ) async {
     final l10n = context.l10n;
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     final colorScheme = Theme.of(context).colorScheme;
 
     try {
-      final service = PathExportService();
-      if (share) {
-        await service.share(path, format);
-      } else {
-        await service.saveToFile(path, format);
+      final service = MarkerExportService();
+      switch (action) {
+        case _MarkerExportAction.shareText:
+          await service.shareAsText(marker);
+        case _MarkerExportAction.shareGeoJson:
+          await service.shareAsGeoJson(marker);
+        case _MarkerExportAction.saveGeoJson:
+          final result = await service.saveToFile(marker);
+          if (result == null) return;
       }
 
       navigator.pop();
@@ -85,7 +86,7 @@ class ExportOptionsSheet extends StatelessWidget {
               Icon(Icons.check_circle,
                   color: colorScheme.onPrimaryContainer, size: 20),
               const SizedBox(width: 8),
-              Text(l10n.pathExported,
+              Text(l10n.markerExported,
                   style: TextStyle(color: colorScheme.onPrimaryContainer)),
             ],
           ),
@@ -98,12 +99,11 @@ class ExportOptionsSheet extends StatelessWidget {
     } catch (error) {
       messenger.showSnackBar(
         SnackBar(
-          content: Text(l10n.errorExportingPath(error.toString())),
+          content: Text(l10n.errorExportingMarker(error.toString())),
           behavior: SnackBarBehavior.floating,
           backgroundColor: colorScheme.errorContainer,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -111,23 +111,25 @@ class ExportOptionsSheet extends StatelessWidget {
   }
 }
 
+enum _MarkerExportAction { shareText, shareGeoJson, saveGeoJson }
+
 class _FormatCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final String description;
   final String shareLabel;
-  final String saveLabel;
+  final String? saveLabel;
   final VoidCallback onShare;
-  final VoidCallback onSave;
+  final VoidCallback? onSave;
 
   const _FormatCard({
     required this.icon,
     required this.title,
     required this.description,
     required this.shareLabel,
-    required this.saveLabel,
+    this.saveLabel,
     required this.onShare,
-    required this.onSave,
+    this.onSave,
   });
 
   @override
@@ -167,11 +169,12 @@ class _FormatCard extends StatelessWidget {
               icon: const Icon(Icons.share),
               tooltip: shareLabel,
             ),
-            IconButton(
-              onPressed: onSave,
-              icon: const Icon(Icons.save_alt),
-              tooltip: saveLabel,
-            ),
+            if (onSave != null)
+              IconButton(
+                onPressed: onSave,
+                icon: const Icon(Icons.save_alt),
+                tooltip: saveLabel,
+              ),
           ],
         ),
       ),

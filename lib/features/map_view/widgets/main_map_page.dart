@@ -212,11 +212,19 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     );
     if (result == true && mounted) {
       final l10n = context.l10n;
+      final colorScheme = Theme.of(context).colorScheme;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(l10n.pathSaved),
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
+              const SizedBox(width: 8),
+              Text(l10n.pathSaved, style: TextStyle(color: colorScheme.onPrimaryContainer)),
+            ],
+          ),
+          backgroundColor: colorScheme.primaryContainer,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: const StadiumBorder(),
           margin: const EdgeInsets.all(16),
         ),
       );

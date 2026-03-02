@@ -6,15 +6,11 @@ class MeasuringControls extends StatelessWidget {
   final VoidCallback onReset;
   final VoidCallback onUndo;
   final VoidCallback onFinish;
-  final VoidCallback onToggleSmoothing;
   final VoidCallback onToggleDrawing;
-  final VoidCallback onToggleIntermediatePoints;
   final bool canUndo;
   final bool canReset;
   final bool canSave;
-  final bool isSmoothing;
   final bool isDrawing;
-  final bool showIntermediatePoints;
 
   const MeasuringControls({
     super.key,
@@ -22,15 +18,11 @@ class MeasuringControls extends StatelessWidget {
     required this.onReset,
     required this.onUndo,
     required this.onFinish,
-    required this.onToggleSmoothing,
     required this.onToggleDrawing,
-    required this.onToggleIntermediatePoints,
     required this.canUndo,
     required this.canReset,
     required this.canSave,
-    required this.isSmoothing,
     required this.isDrawing,
-    required this.showIntermediatePoints,
   });
 
   @override
@@ -95,12 +87,11 @@ class MeasuringControls extends StatelessWidget {
               ),
             ),
             const Divider(height: 1, indent: 16, endIndent: 16),
-            // Bottom row: Draw mode (left) | view toggles (center) | undo/reset (right)
+            // Bottom row: Draw mode (left) | undo/reset (right)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Row(
                 children: [
-                  // Left: Draw mode
                   IconButton(
                     onPressed: onToggleDrawing,
                     icon: const Icon(Icons.draw_outlined),
@@ -108,21 +99,6 @@ class MeasuringControls extends StatelessWidget {
                     style: isDrawing ? selectedStyle : null,
                   ),
                   const Spacer(),
-                  // Center: View toggles
-                  IconButton(
-                    onPressed: onToggleSmoothing,
-                    icon: const Icon(Icons.insights_outlined),
-                    tooltip: l10n.smoothLine,
-                    style: isSmoothing ? selectedStyle : null,
-                  ),
-                  IconButton(
-                    onPressed: canReset ? onToggleIntermediatePoints : null,
-                    icon: const Icon(Icons.linear_scale_outlined),
-                    tooltip: l10n.showPoints,
-                    style: showIntermediatePoints ? null : selectedStyle,
-                  ),
-                  const Spacer(),
-                  // Right: Undo and Reset
                   IconButton(
                     onPressed: canUndo ? onUndo : null,
                     icon: const Icon(Icons.undo),

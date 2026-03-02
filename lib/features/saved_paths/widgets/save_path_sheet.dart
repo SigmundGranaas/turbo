@@ -83,7 +83,7 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
               controller: _nameController,
               decoration: InputDecoration(
                 labelText: l10n.pathName,
-                border: const OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
@@ -99,7 +99,7 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
                 controller: _descriptionController,
                 decoration: InputDecoration(
                   labelText: l10n.descriptionOptional,
-                  border: const OutlineInputBorder(),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                 ),
                 maxLines: 2,
               )

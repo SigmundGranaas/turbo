@@ -11,6 +11,7 @@ import '../data/viewport_saved_path_provider.dart';
 import '../models/path_style.dart';
 import '../models/saved_path.dart';
 import 'path_detail_sheet.dart';
+import 'path_info_sheet.dart';
 
 class SavedPathsLayer extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -130,7 +131,7 @@ class _SavedPathsLayerState extends ConsumerState<SavedPathsLayer> {
                 orElse: () => null,
               );
           if (path != null) {
-            _showDetailSheet(context, path);
+            _showInfoSheet(context, path);
           }
         }
       },
@@ -143,7 +144,7 @@ class _SavedPathsLayerState extends ConsumerState<SavedPathsLayer> {
                   ? CatmullRomSpline(controlPoints: path.points).generate()
                   : path.points;
               final color =
-                  (hexToColor(path.colorHex) ?? colorScheme.primary)
+                  (hexToColor(path.colorHex) ?? colorScheme.onSurfaceVariant)
                       .withAlpha(180);
               final pattern =
                   PathLineStyle.fromKey(path.lineStyleKey).toStrokePattern();
@@ -166,14 +167,14 @@ class _SavedPathsLayerState extends ConsumerState<SavedPathsLayer> {
                 final namedIcon =
                     _iconService.getIcon(context, path.iconKey);
                 final color =
-                    hexToColor(path.colorHex) ?? colorScheme.primary;
+                    hexToColor(path.colorHex) ?? colorScheme.onSurfaceVariant;
 
                 return Marker(
                   point: center,
                   width: 40,
                   height: 40,
                   child: GestureDetector(
-                    onTap: () => _showDetailSheet(context, path),
+                    onTap: () => _showInfoSheet(context, path),
                     child: Icon(
                       namedIcon.icon,
                       color: color,
@@ -188,33 +189,46 @@ class _SavedPathsLayerState extends ConsumerState<SavedPathsLayer> {
     );
   }
 
-  void _showDetailSheet(BuildContext context, SavedPath path) async {
+  void _showInfoSheet(BuildContext context, SavedPath path) async {
     final l10n = context.l10n;
     final messenger = ScaffoldMessenger.of(context);
+    final colorScheme = Theme.of(context).colorScheme;
     final result = await showModalBottomSheet<PathDetailResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => PathDetailSheet(path: path),
+      builder: (_) => PathInfoSheet(path: path),
     );
     if (!mounted) return;
     if (result == PathDetailResult.updated) {
       messenger.showSnackBar(
         SnackBar(
-          content: Text(l10n.pathUpdated),
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
+              const SizedBox(width: 8),
+              Text(l10n.pathUpdated, style: TextStyle(color: colorScheme.onPrimaryContainer)),
+            ],
+          ),
+          backgroundColor: colorScheme.primaryContainer,
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: const StadiumBorder(),
           margin: const EdgeInsets.all(16),
         ),
       );
     } else if (result == PathDetailResult.deleted) {
       messenger.showSnackBar(
         SnackBar(
-          content: Text(l10n.pathDeleted),
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
+              const SizedBox(width: 8),
+              Text(l10n.pathDeleted, style: TextStyle(color: colorScheme.onPrimaryContainer)),
+            ],
+          ),
+          backgroundColor: colorScheme.primaryContainer,
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: const StadiumBorder(),
           margin: const EdgeInsets.all(16),
         ),
       );

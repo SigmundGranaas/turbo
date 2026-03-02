@@ -14,3 +14,4 @@ export 'data/gpx_serializer.dart' show savedPathToGpx;
 export 'data/geojson_serializer.dart' show savedPathToGeoJson;
 export 'data/path_export_service.dart' show PathExportService, ExportFormat;
 export 'widgets/export_options_sheet.dart' show ExportOptionsSheet;
+export 'widgets/path_info_sheet.dart' show PathInfoSheet;
