@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
+import 'package:turbo/features/saved_paths/data/data_visibility_provider.dart';
 
 class ViewportMarkers extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -70,6 +71,9 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
 
   @override
   Widget build(BuildContext context) {
+    final isVisible = ref.watch(markersVisibleProvider);
+    if (!isVisible) return const SizedBox.shrink();
+
     final viewportMarkersAsync = ref.watch(viewportMarkerNotifierProvider);
     final iconService = IconService();
 

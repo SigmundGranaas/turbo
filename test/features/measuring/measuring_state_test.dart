@@ -80,18 +80,40 @@ void main() {
       expect(collection.totalDistance, 1000.0);
     });
 
-    test(
-        'undoLastPoint returns false and does nothing when only one point exists',
-            () {
-          final collection = MeasurePointCollection(calculator: fakeCalculator);
-          collection.addPoint(point1);
+    test('undoLastPoint with one point succeeds and results in 0 points', () {
+      final collection = MeasurePointCollection(calculator: fakeCalculator);
+      collection.addPoint(point1);
 
-          final success = collection.undoLastPoint();
+      final success = collection.undoLastPoint();
 
-          expect(success, isFalse);
-          expect(collection.points.length, 1);
-          expect(collection.totalDistance, 0.0);
-        });
+      expect(success, isTrue);
+      expect(collection.points, isEmpty);
+      expect(collection.totalDistance, 0.0);
+    });
+
+    test('undoLastPoint on empty collection returns false', () {
+      final collection = MeasurePointCollection(calculator: fakeCalculator);
+
+      final success = collection.undoLastPoint();
+
+      expect(success, isFalse);
+      expect(collection.points, isEmpty);
+      expect(collection.totalDistance, 0.0);
+    });
+
+    test('clear empties collection and resets distance', () {
+      final collection = MeasurePointCollection(calculator: fakeCalculator);
+      collection.addPoint(point1);
+      collection.addPoint(point2);
+      collection.addPoint(point3);
+      expect(collection.points.length, 3);
+      expect(collection.totalDistance, 2000.0);
+
+      collection.clear();
+
+      expect(collection.points, isEmpty);
+      expect(collection.totalDistance, 0.0);
+    });
 
     test('reset clears points and sets a new start point', () {
       final collection = MeasurePointCollection(calculator: fakeCalculator);
@@ -108,19 +130,15 @@ void main() {
   });
 
   group('MeasuringStateNotifier', () {
-    const startPoint = LatLng(10, 10);
-
-    test('initial state contains only the start point and default flags', () {
+    test('initial state has empty points and default flags', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
       final notifier =
-      container.read(measuringStateProvider(startPoint).notifier);
+      container.read(measuringStateProvider.notifier);
       final state = notifier.state;
 
-      expect(state.points.length, 1);
-      expect(state.points.first.point, startPoint);
-      expect(state.points.first.type, MeasurePointType.start);
+      expect(state.points, isEmpty);
       expect(state.totalDistance, 0);
       expect(state.isDrawing, false);
       expect(state.isSmoothing, false);
@@ -131,7 +149,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final notifier =
-      container.read(measuringStateProvider(startPoint).notifier);
+      container.read(measuringStateProvider.notifier);
 
       // Test Drawing
       expect(notifier.state.isDrawing, isFalse);

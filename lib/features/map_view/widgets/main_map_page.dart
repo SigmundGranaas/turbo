@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/map_view/widgets/layers/current_location_layer.dart';
 import 'package:turbo/features/map_view/widgets/layers/viewport_marker_layer.dart';
+import 'package:turbo/features/saved_paths/widgets/saved_paths_layer.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_mobile.dart';
 import 'package:turbo/features/measuring/api.dart';
@@ -75,6 +76,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       ...tileLayers,
       ...attributions,
       const CurrentLocationLayer(),
+      SavedPathsLayer(mapController: _mapController),
       ViewportMarkers(mapController: _mapController),
     ];
 
@@ -199,17 +201,26 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     });
   }
 
-  void _navigateToMeasuring(LatLng startPoint) {
-    final mapState = ref.read(mapViewStateProvider);
-    Navigator.of(context).push(
+  void _navigateToMeasuring(LatLng startPoint) async {
+    final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (context) => MeasuringMapPage(
-          initialPosition: mapState.center,
-          startPoint: startPoint,
-          zoom: mapState.zoom,
+          initialPosition: _mapController.camera.center,
+          zoom: _mapController.camera.zoom,
         ),
       ),
     );
+    if (result == true && mounted) {
+      final l10n = context.l10n;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.pathSaved),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 
   void _showCreateSheet(BuildContext context, {LatLng? newLocation}) async {
