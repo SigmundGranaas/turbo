@@ -3,11 +3,11 @@ import 'package:turbo/l10n/app_localizations.dart';
 import '../models/named_icon.dart';
 import 'icon_selection_page.dart';
 
-class LocationFormFields extends StatelessWidget {
+class LocationFormFields extends StatefulWidget {
   final TextEditingController nameController;
   final TextEditingController descriptionController;
-  final NamedIcon selectedIcon;
-  final Function(NamedIcon) onIconSelected;
+  final NamedIcon? selectedIcon;
+  final Function(NamedIcon?) onIconSelected;
 
   const LocationFormFields({
     super.key,
@@ -18,36 +18,56 @@ class LocationFormFields extends StatelessWidget {
   });
 
   @override
+  State<LocationFormFields> createState() => _LocationFormFieldsState();
+}
+
+class _LocationFormFieldsState extends State<LocationFormFields> {
+  late bool _showDescription;
+
+  @override
+  void initState() {
+    super.initState();
+    _showDescription = widget.descriptionController.text.isNotEmpty;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextFormField(
-          controller: nameController,
+          controller: widget.nameController,
           decoration: InputDecoration(
             labelText: l10n.name,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
           ),
           validator: (value) {
-            if (value == null || value.isEmpty) {
+            if (value == null || value.trim().isEmpty) {
               return l10n.pleaseEnterName;
             }
             return null;
           },
         ),
         const SizedBox(height: 16),
-        TextFormField(
-          controller: descriptionController,
-          maxLines: 3,
-          minLines: 1,
-          decoration: InputDecoration(
-            labelText: l10n.descriptionOptional,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)
+        if (_showDescription)
+          TextFormField(
+            controller: widget.descriptionController,
+            maxLines: 2,
+            decoration: InputDecoration(
+              labelText: l10n.descriptionOptional,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          )
+        else
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => setState(() => _showDescription = true),
+              icon: const Icon(Icons.add, size: 18),
+              label: Text(l10n.addDescription),
             ),
           ),
-        ),
         const SizedBox(height: 24),
         Text(
           l10n.icon,
@@ -55,8 +75,8 @@ class LocationFormFields extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         IconSelector(
-          selectedIcon: selectedIcon,
-          onIconSelected: onIconSelected,
+          selectedIcon: widget.selectedIcon,
+          onIconSelected: widget.onIconSelected,
         ),
       ],
     );
@@ -64,8 +84,8 @@ class LocationFormFields extends StatelessWidget {
 }
 
 class IconSelector extends StatelessWidget {
-  final NamedIcon selectedIcon;
-  final Function(NamedIcon) onIconSelected;
+  final NamedIcon? selectedIcon;
+  final Function(NamedIcon?) onIconSelected;
 
   const IconSelector({
     super.key,
@@ -77,6 +97,8 @@ class IconSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final l10n = context.l10n;
+    final hasIcon = selectedIcon != null;
 
     return Material(
       color: colorScheme.surfaceContainer,
@@ -88,6 +110,7 @@ class IconSelector extends StatelessWidget {
         onTap: () async {
           final NamedIcon? result =
           await IconSelectionPage.show(context);
+          FocusManager.instance.primaryFocus?.unfocus();
           if (result != null) {
             onIconSelected(result);
           }
@@ -100,28 +123,40 @@ class IconSelector extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
+                  color: hasIcon
+                      ? colorScheme.primaryContainer
+                      : colorScheme.surfaceContainerHighest,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  selectedIcon.icon,
-                  color: colorScheme.onPrimaryContainer,
+                  hasIcon ? selectedIcon!.icon : Icons.add,
+                  color: hasIcon
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurfaceVariant,
                   size: 24,
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
-                  selectedIcon.localizedTitle ?? selectedIcon.title,
+                  hasIcon
+                      ? (selectedIcon!.localizedTitle ?? selectedIcon!.title)
+                      : l10n.icon,
                   style: textTheme.bodyLarge?.copyWith(
                     color: colorScheme.onSurface,
                   ),
                 ),
               ),
-              Icon(
-                Icons.chevron_right,
-                color: colorScheme.onSurfaceVariant,
-              ),
+              if (hasIcon)
+                IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () => onIconSelected(null),
+                )
+              else
+                Icon(
+                  Icons.chevron_right,
+                  color: colorScheme.onSurfaceVariant,
+                ),
             ],
           ),
         ),

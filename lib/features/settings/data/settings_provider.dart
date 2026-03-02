@@ -8,11 +8,15 @@ class SettingsState {
   final ThemeMode themeMode;
   final Locale locale;
   final double drawSensitivity;
+  final bool smoothLine;
+  final bool showIntermediatePoints;
 
   const SettingsState({
     required this.themeMode,
     required this.locale,
     required this.drawSensitivity,
+    required this.smoothLine,
+    required this.showIntermediatePoints,
   });
 
   // Default initial state
@@ -20,17 +24,23 @@ class SettingsState {
     themeMode: ThemeMode.system,
     locale: Locale('en'),
     drawSensitivity: 15.0,
+    smoothLine: true,
+    showIntermediatePoints: false,
   );
 
   SettingsState copyWith({
     ThemeMode? themeMode,
     Locale? locale,
     double? drawSensitivity,
+    bool? smoothLine,
+    bool? showIntermediatePoints,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
       locale: locale ?? this.locale,
       drawSensitivity: drawSensitivity ?? this.drawSensitivity,
+      smoothLine: smoothLine ?? this.smoothLine,
+      showIntermediatePoints: showIntermediatePoints ?? this.showIntermediatePoints,
     );
   }
 }
@@ -43,6 +53,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _themeModeKey = 'themeMode';
   static const _localeKey = 'locale';
   static const _drawSensitivityKey = 'drawSensitivity';
+  static const _smoothLineKey = 'smoothLine';
+  static const _showIntermediatePointsKey = 'showIntermediatePoints';
 
   @override
   Future<SettingsState> build() async {
@@ -70,10 +82,16 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     // Load Draw Sensitivity
     final drawSensitivity = prefs.getDouble(_drawSensitivityKey) ?? 15.0;
 
+    // Load Drawing Preferences
+    final smoothLine = prefs.getBool(_smoothLineKey) ?? true;
+    final showIntermediatePoints = prefs.getBool(_showIntermediatePointsKey) ?? false;
+
     return SettingsState(
       themeMode: themeMode,
       locale: locale,
       drawSensitivity: drawSensitivity,
+      smoothLine: smoothLine,
+      showIntermediatePoints: showIntermediatePoints,
     );
   }
 
@@ -83,6 +101,22 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     state = AsyncData(state.value!.copyWith(drawSensitivity: value));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_drawSensitivityKey, value);
+  }
+
+  /// Updates the smooth line setting and persists it.
+  Future<void> setSmoothLine(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(smoothLine: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_smoothLineKey, value);
+  }
+
+  /// Updates the show intermediate points setting and persists it.
+  Future<void> setShowIntermediatePoints(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(showIntermediatePoints: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showIntermediatePointsKey, value);
   }
 
   /// Updates the theme mode and persists it to local storage.
