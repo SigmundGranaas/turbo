@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
+import 'package:turbo/features/saved_paths/data/data_visibility_provider.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_regions_api;
 import 'package:turbo/l10n/app_localizations.dart';
@@ -128,6 +129,7 @@ class LayerSelectionSheet extends ConsumerWidget {
                 onToggle: (id) =>
                     ref.read(tileRegistryProvider.notifier).toggleOverlay(id),
               ),
+              _buildDataSection(context, ref),
               const Divider(height: 24, indent: 24, endIndent: 24),
               _buildLayerSection(
                 context,
@@ -236,6 +238,37 @@ class LayerSelectionSheet extends ConsumerWidget {
           ),
         ],
         const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildDataSection(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final markersVisible = ref.watch(markersVisibleProvider);
+    final pathsVisible = ref.watch(savedPathsVisibleProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: _buildSectionHeader(context, l10n.dataLayers),
+        ),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+          secondary: const Icon(Icons.location_on_outlined),
+          title: Text(l10n.showMarkers),
+          value: markersVisible,
+          onChanged: (_) => ref.read(markersVisibleProvider.notifier).toggle(),
+        ),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+          secondary: const Icon(Icons.route_outlined),
+          title: Text(l10n.showPaths),
+          value: pathsVisible,
+          onChanged: (_) => ref.read(savedPathsVisibleProvider.notifier).toggle(),
+        ),
+        const SizedBox(height: 8),
       ],
     );
   }

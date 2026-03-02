@@ -55,10 +55,13 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final textTheme = Theme.of(context).textTheme;
-    final viewInsets = MediaQuery.of(context).viewInsets;
+    final mediaQuery = MediaQuery.of(context);
+    final bottomPadding = mediaQuery.viewInsets.bottom > 0
+        ? mediaQuery.viewInsets.bottom
+        : mediaQuery.padding.bottom;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + viewInsets.bottom),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPadding),
       child: Form(
         key: _formKey,
         child: Column(
