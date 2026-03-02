@@ -629,10 +629,7 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Find all GestureDetector widgets in the color row.
-      // The first is the default circle (already selected), remaining are palette colors.
-      // Tap the second circle (first palette color = Blue).
-      final circles = find.byType(GestureDetector);
+
       // There are 11 color circles (1 default + 10 palette) plus GestureDetectors
       // from other widgets. Find them by the Container size.
       final colorContainers = find.byWidgetPredicate(
