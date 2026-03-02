@@ -568,6 +568,7 @@ void main() {
             onSmoothingChanged: (_) {},
             lineStyle: PathLineStyle.solid,
             onLineStyleChanged: (_) {},
+            initiallyExpanded: true,
           ),
         ),
       ));
@@ -579,12 +580,12 @@ void main() {
       expect(find.text('Icon'), findsOneWidget);
       // Smoothing section
       expect(find.text('Smooth line'), findsOneWidget);
-      // Line style section
-      expect(find.text('Line style'), findsOneWidget);
-      expect(find.text('Solid'), findsOneWidget);
-      expect(find.text('Dotted'), findsOneWidget);
-      expect(find.text('Dashed'), findsOneWidget);
-      expect(find.text('Dash-dot'), findsOneWidget);
+      // Line style segmented button with 4 segments (visual icons, no text labels)
+      expect(find.byType(SegmentedButton<PathLineStyle>), findsOneWidget);
+      final segmented = tester.widget<SegmentedButton<PathLineStyle>>(
+        find.byType(SegmentedButton<PathLineStyle>),
+      );
+      expect(segmented.segments.length, 4);
     });
 
     testWidgets('default color shows check mark initially', (tester) async {
@@ -709,12 +710,15 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Segments use visual icons instead of text labels.
-      // Find CustomPaint widgets inside the SegmentedButton.
+      // Segments use visual icons (CustomPaint with Size(40, 2)) instead of text labels.
+      // Match only our line pattern painters, not internal framework CustomPaint widgets.
       final segments = find.descendant(
         of: find.byType(SegmentedButton<PathLineStyle>),
-        matching: find.byType(CustomPaint),
+        matching: find.byWidgetPredicate(
+          (w) => w is CustomPaint && w.size == const Size(40, 2),
+        ),
       );
+      expect(segments, findsNWidgets(4));
 
       // Tap "Dashed" (3rd segment, index 2)
       await tester.tap(segments.at(2));
@@ -900,9 +904,12 @@ void main() {
       expect(switchWidget.value, false);
 
       // Change line style to dashed (3rd segment, index 2)
+      // Match only our line pattern painters (Size(40, 2)), not internal framework CustomPaint widgets.
       final segments = find.descendant(
         of: find.byType(SegmentedButton<PathLineStyle>),
-        matching: find.byType(CustomPaint),
+        matching: find.byWidgetPredicate(
+          (w) => w is CustomPaint && w.size == const Size(40, 2),
+        ),
       );
       await tester.tap(segments.at(2));
       await tester.pumpAndSettle();
