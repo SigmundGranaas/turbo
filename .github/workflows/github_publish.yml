@@ -59,7 +59,7 @@ jobs:
         run: |
           # Create a directory to hold the final APKs
           mkdir -p release-artifacts
-          # Find all release APKs and move/rename them
+          # Find all release APKs and move/Disrename them
           find build/app/outputs/flutter-apk -name 'app-*-release.apk' -exec mv {} release-artifacts/ \;
           ls -R release-artifacts
 

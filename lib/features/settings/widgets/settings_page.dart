@@ -1,6 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:turbo/core/widgets/color_circle.dart';
+import 'package:turbo/features/markers/data/icon_service.dart';
+import 'package:turbo/features/saved_paths/models/path_style.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
+import 'package:turbo/features/settings/widgets/location_icon_picker_sheet.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -43,6 +51,35 @@ class SettingsPage extends ConsumerWidget {
         _buildDrawingToggles(context, ref, settings, l10n),
         const SizedBox(height: 12),
         _buildSensitivitySelector(context, ref, settings.drawSensitivity, l10n),
+        const SizedBox(height: 24),
+        _buildSectionHeader(context, l10n.myLocation),
+        _buildLocationIconPicker(context, ref, settings),
+        const SizedBox(height: 8),
+        _buildLocationSizeSlider(context, ref, settings.locationMarkerSize, l10n),
+        const SizedBox(height: 8),
+        _buildHeadingArrowToggle(context, ref, settings.showHeadingArrow, l10n),
+        if (settings.showHeadingArrow) ...[
+          const SizedBox(height: 8),
+          _buildColorPickerRow(
+            context,
+            ref,
+            label: l10n.arrowColor,
+            selectedHex: settings.markerArrowColorHex,
+            onColorChanged: (color) {
+              ref.read(settingsProvider.notifier).setMarkerArrowColor(color);
+            },
+          ),
+        ],
+        const SizedBox(height: 8),
+        _buildColorPickerRow(
+          context,
+          ref,
+          label: l10n.outlineColor,
+          selectedHex: settings.markerOutlineColorHex,
+          onColorChanged: (color) {
+            ref.read(settingsProvider.notifier).setMarkerOutlineColor(color);
+          },
+        ),
       ],
     );
   }
@@ -168,6 +205,234 @@ class SettingsPage extends ConsumerWidget {
       onSelectionChanged: (Set<Locale> newSelection) {
         ref.read(settingsProvider.notifier).setLocale(newSelection.first);
       },
+    );
+  }
+
+  Widget _buildLocationIconPicker(
+      BuildContext context, WidgetRef ref, SettingsState settings) {
+    final l10n = AppLocalizations.of(context);
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => showLocationIconPickerSheet(context, ref),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              _buildCurrentIconPreview(context, settings),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  l10n.locationIcon,
+                  style: Theme.of(context).textTheme.bodyLarge,
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentIconPreview(BuildContext context, SettingsState settings) {
+    const double previewSize = 40;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    switch (settings.locationIconType) {
+      case 'builtin':
+        final iconService = IconService();
+        final namedIcon = iconService.getIcon(context, settings.locationIconKey);
+        return Container(
+          width: previewSize,
+          height: previewSize,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: colorScheme.primary.withValues(alpha: 0.15),
+            border: Border.all(color: colorScheme.primary, width: 2),
+          ),
+          child: Icon(namedIcon.icon, size: 22, color: colorScheme.primary),
+        );
+      case 'custom':
+        if (settings.locationImagePath != null) {
+          return FutureBuilder<Directory>(
+            future: getApplicationDocumentsDirectory(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return _buildDefaultDotPreview(previewSize);
+              }
+              final fullPath =
+                  p.join(snapshot.data!.path, settings.locationImagePath!);
+              final file = File(fullPath);
+              if (!file.existsSync()) {
+                return _buildDefaultDotPreview(previewSize);
+              }
+              return ClipOval(
+                child: SizedBox(
+                  width: previewSize,
+                  height: previewSize,
+                  child: Image.file(file, fit: BoxFit.cover),
+                ),
+              );
+            },
+          );
+        }
+        return _buildDefaultDotPreview(previewSize);
+      default:
+        return _buildDefaultDotPreview(previewSize);
+    }
+  }
+
+  Widget _buildDefaultDotPreview(double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.lightBlue.withValues(alpha: 0.3),
+      ),
+      child: Center(
+        child: Container(
+          width: size * 0.5,
+          height: size * 0.5,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.lightBlue,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocationSizeSlider(
+      BuildContext context, WidgetRef ref, double currentSize, AppLocalizations l10n) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            const Icon(Icons.open_in_full, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Slider(
+                value: currentSize,
+                min: 0.5,
+                max: 2.0,
+                divisions: 6,
+                label: '${currentSize.toStringAsFixed(1)}x',
+                onChanged: (value) {
+                  ref
+                      .read(settingsProvider.notifier)
+                      .setLocationMarkerSize(value);
+                },
+              ),
+            ),
+            Text(
+              '${currentSize.toStringAsFixed(1)}x',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeadingArrowToggle(
+      BuildContext context, WidgetRef ref, bool showHeading, AppLocalizations l10n) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(
+          children: [
+            const Icon(Icons.navigation, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l10n.showHeadingArrow,
+                      style: Theme.of(context).textTheme.bodyLarge),
+                  Text(l10n.headingArrowDescription,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          )),
+                ],
+              ),
+            ),
+            Switch(
+              value: showHeading,
+              onChanged: (value) {
+                ref
+                    .read(settingsProvider.notifier)
+                    .setShowHeadingArrow(value);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildColorPickerRow(
+    BuildContext context,
+    WidgetRef ref, {
+    required String label,
+    required String? selectedHex,
+    required ValueChanged<Color?> onColorChanged,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
+
+    return Card(
+      elevation: 0,
+      color: colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.bodyLarge),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ColorCircle(
+                    color: null,
+                    isSelected: selectedHex == null,
+                    onTap: () => onColorChanged(null),
+                    label: l10n.defaultColor,
+                    colorScheme: colorScheme,
+                  ),
+                  ...pathColorPalette.map((color) => ColorCircle(
+                        color: color,
+                        isSelected: selectedHex != null &&
+                            selectedHex == colorToHex(color),
+                        onTap: () => onColorChanged(color),
+                        colorScheme: colorScheme,
+                      )),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

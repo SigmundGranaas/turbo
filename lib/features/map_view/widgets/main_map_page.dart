@@ -15,8 +15,14 @@ as offline_api;
 import 'package:turbo/features/tile_storage/offline_regions/widgets/download_progress_toolbar.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
+import 'package:turbo/features/navigation/api.dart';
 
+import 'package:turbo/core/location/compass_mode_state.dart';
+import 'package:turbo/core/location/compass_state.dart';
+import 'package:turbo/core/location/follow_mode_state.dart';
+import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
+import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
 
 class MainMapPage extends ConsumerStatefulWidget {
   const MainMapPage({super.key});
@@ -32,6 +38,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final Set<String> _hiddenDownloadIds = {};
 
+  AnimationController? _followAnimController;
+  AnimationController? _compassAnimController;
+
   @override
   void initState() {
     super.initState();
@@ -40,8 +49,92 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
 
   @override
   void dispose() {
+    _followAnimController?.dispose();
+    _compassAnimController?.dispose();
     _mapController.dispose();
     super.dispose();
+  }
+
+  void _smoothMoveTo(LatLng position) {
+    _followAnimController?.stop();
+    _followAnimController?.dispose();
+
+    _followAnimController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    final latTween = Tween<double>(
+      begin: _mapController.camera.center.latitude,
+      end: position.latitude,
+    );
+    final lngTween = Tween<double>(
+      begin: _mapController.camera.center.longitude,
+      end: position.longitude,
+    );
+
+    final curved = CurvedAnimation(
+      parent: _followAnimController!,
+      curve: Curves.easeOutCubic,
+    );
+
+    _followAnimController!.addListener(() {
+      _mapController.move(
+        LatLng(latTween.evaluate(curved), lngTween.evaluate(curved)),
+        _mapController.camera.zoom,
+      );
+    });
+
+    _followAnimController!.addStatusListener((status) {
+      if (status == AnimationStatus.completed ||
+          status == AnimationStatus.dismissed) {
+        _followAnimController?.dispose();
+        _followAnimController = null;
+      }
+    });
+
+    _followAnimController!.forward();
+  }
+
+  void _smoothRotateTo(double targetDegrees) {
+    _compassAnimController?.stop();
+    _compassAnimController?.dispose();
+
+    _compassAnimController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+
+    final currentRotation = _mapController.camera.rotation;
+    // Normalize to shortest rotation path
+    double diff = (targetDegrees - currentRotation) % 360;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    final normalizedTarget = currentRotation + diff;
+
+    final rotationTween = Tween<double>(
+      begin: currentRotation,
+      end: normalizedTarget,
+    );
+
+    final curved = CurvedAnimation(
+      parent: _compassAnimController!,
+      curve: Curves.easeOutCubic,
+    );
+
+    _compassAnimController!.addListener(() {
+      _mapController.rotate(rotationTween.evaluate(curved));
+    });
+
+    _compassAnimController!.addStatusListener((status) {
+      if (status == AnimationStatus.completed ||
+          status == AnimationStatus.dismissed) {
+        _compassAnimController?.dispose();
+        _compassAnimController = null;
+      }
+    });
+
+    _compassAnimController!.forward();
   }
 
   void _onMapEvent(MapEvent event) {
@@ -52,10 +145,60 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         ref.read(mapViewStateProvider.notifier).onMapEvent(event);
       }
     }
+
+    // Disengage follow mode on user-initiated pan/drag/fling
+    if (event.source == MapEventSource.onDrag ||
+        event.source == MapEventSource.onMultiFinger ||
+        event.source == MapEventSource.flingAnimationController) {
+      if (event is MapEventWithMove || event is MapEventMoveStart) {
+        ref.read(followModeProvider.notifier).disable();
+      }
+    }
+
+    // Disengage compass mode on user-initiated rotation
+    if (event is MapEventRotate || event is MapEventRotateStart) {
+      if (event.source == MapEventSource.onMultiFinger ||
+          event.source == MapEventSource.cursorKeyboardRotation) {
+        ref.read(compassModeProvider.notifier).disable();
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Follow mode: smoothly move map when location updates
+    ref.listen<AsyncValue<LatLng?>>(locationStateProvider, (previous, next) {
+      final position = next.value;
+      if (position != null && ref.read(followModeProvider)) {
+        _smoothMoveTo(position);
+      }
+    });
+
+    // Compass mode: smoothly rotate map when compass heading updates
+    ref.listen<AsyncValue<double?>>(compassStateProvider, (previous, next) {
+      final heading = next.value;
+      if (heading != null && ref.read(compassModeProvider)) {
+        _smoothRotateTo(-heading);
+      }
+    });
+
+    // Navigation arrival detection: auto-cancel when within 15m of target
+    ref.listen<AsyncValue<LatLng?>>(locationStateProvider, (previous, next) {
+      final position = next.value;
+      final navState = ref.read(navigationStateProvider);
+      if (position != null && navState.isActive && navState.target != null) {
+        final distance = const Distance().distance(position, navState.target!);
+        if (distance < 15) {
+          ref.read(navigationStateProvider.notifier).stopNavigation();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(context.l10n.youHaveArrived)),
+            );
+          }
+        }
+      }
+    });
+
     // Initialize providers and get current state
     final tileRegistryState = ref.watch(tileRegistryProvider);
     final initialMapState = ref.watch(mapViewStateProvider);
@@ -76,11 +219,15 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       ...tileLayers,
       ...attributions,
       const CurrentLocationLayer(),
+      const NavigationPolylineLayer(),
+      const NavigationTargetMarker(),
       SavedPathsLayer(mapController: _mapController),
       ViewportMarkers(mapController: _mapController),
     ];
 
-    final overlayWidgets = <Widget>[];
+    final overlayWidgets = <Widget>[
+      const ModeIndicator(),
+    ];
     final offlineRegionsAsync = ref.watch(offline_api.offlineRegionsProvider);
     final activeDownloads = offlineRegionsAsync.value
         ?.where((r) =>
@@ -163,6 +310,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
 
   void _showPinOptionsSheet(BuildContext context, LatLng point) {
     final l10n = context.l10n;
+    final isNavigating = ref.read(navigationStateProvider).isActive;
     showModalBottomSheet(
       context: context,
       useSafeArea: true,
@@ -187,6 +335,18 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
                   onTap: () {
                     Navigator.pop(context);
                     _navigateToMeasuring(point);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.navigation_outlined),
+                  title: Text(isNavigating ? l10n.stopNavigation : l10n.navigateToHere),
+                  onTap: () {
+                    Navigator.pop(context);
+                    if (isNavigating) {
+                      ref.read(navigationStateProvider.notifier).stopNavigation();
+                    } else {
+                      ref.read(navigationStateProvider.notifier).startNavigation(point);
+                    }
                   },
                 ),
               ],

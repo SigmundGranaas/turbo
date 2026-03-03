@@ -178,6 +178,38 @@ abstract class AppLocalizations {
   String get drawing;
   String get drawSensitivity;
 
+  // My Location settings
+  String get myLocation;
+  String get locationIcon;
+  String get chooseIcon;
+  String get chooseFromGallery;
+  String get takePhoto;
+  String get resetToDefault;
+  String get locationMarkerSize;
+  String get showHeadingArrow;
+  String get headingArrowDescription;
+  String get arrowColor;
+  String get outlineColor;
+  String get colors;
+
+  // Follow mode
+  String get followMyLocation;
+  String get stopFollowing;
+  String get following;
+
+  // Compass mode
+  String get compassOrientation;
+  String get compassOrientationDescription;
+  String get stopCompass;
+
+  // Navigation
+  String get navigateToHere;
+  String get stopNavigation;
+  String get navigationAhead;
+  String navigationTurnLeft(int degrees);
+  String navigationTurnRight(int degrees);
+  String get youHaveArrived;
+
   // Saved Paths
   String get savedPaths;
   String get savePath;
@@ -385,6 +417,32 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get drawing => 'Drawing';
   @override String get drawSensitivity => 'Draw Sensitivity';
 
+  @override String get myLocation => 'My Location';
+  @override String get locationIcon => 'Icon';
+  @override String get chooseIcon => 'Choose Icon';
+  @override String get chooseFromGallery => 'Choose from Gallery';
+  @override String get takePhoto => 'Take Photo';
+  @override String get resetToDefault => 'Reset to Default';
+  @override String get locationMarkerSize => 'Marker Size';
+  @override String get showHeadingArrow => 'Show Heading Arrow';
+  @override String get headingArrowDescription => 'Shows the direction your phone is pointing';
+  @override String get arrowColor => 'Arrow Color';
+  @override String get outlineColor => 'Outline Color';
+  @override String get colors => 'Colors';
+  @override String get followMyLocation => 'Follow My Location';
+  @override String get stopFollowing => 'Stop Following';
+  @override String get following => 'Following';
+  @override String get compassOrientation => 'Compass Orientation';
+  @override String get compassOrientationDescription => 'Rotate the map to match your phone\'s compass heading';
+  @override String get stopCompass => 'Stop Compass';
+
+  @override String get navigateToHere => 'Navigate Here';
+  @override String get stopNavigation => 'Stop Navigation';
+  @override String get navigationAhead => 'Ahead';
+  @override String navigationTurnLeft(int degrees) => '$degrees° left';
+  @override String navigationTurnRight(int degrees) => '$degrees° right';
+  @override String get youHaveArrived => 'You have arrived!';
+
   @override String get savedPaths => 'Saved Paths';
   @override String get savePath => 'Save Path';
   @override String get editPath => 'Edit Path';
@@ -584,6 +642,32 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get drawMode => 'Tegnemodus';
   @override String get drawing => 'Tegning';
   @override String get drawSensitivity => 'Tegnefølsomhet';
+
+  @override String get myLocation => 'Min posisjon';
+  @override String get locationIcon => 'Ikon';
+  @override String get chooseIcon => 'Velg ikon';
+  @override String get chooseFromGallery => 'Velg fra galleri';
+  @override String get takePhoto => 'Ta bilde';
+  @override String get resetToDefault => 'Tilbakestill til standard';
+  @override String get locationMarkerSize => 'Markørstørrelse';
+  @override String get showHeadingArrow => 'Vis retningspil';
+  @override String get headingArrowDescription => 'Viser retningen telefonen peker';
+  @override String get arrowColor => 'Pilfarge';
+  @override String get outlineColor => 'Omrissfarge';
+  @override String get colors => 'Farger';
+  @override String get followMyLocation => 'Følg min posisjon';
+  @override String get stopFollowing => 'Slutt å følge';
+  @override String get following => 'Følger';
+  @override String get compassOrientation => 'Kompassorientering';
+  @override String get compassOrientationDescription => 'Roter kartet etter telefonens kompassretning';
+  @override String get stopCompass => 'Stopp kompass';
+
+  @override String get navigateToHere => 'Naviger hit';
+  @override String get stopNavigation => 'Stopp navigering';
+  @override String get navigationAhead => 'Rett frem';
+  @override String navigationTurnLeft(int degrees) => '$degrees° venstre';
+  @override String navigationTurnRight(int degrees) => '$degrees° høyre';
+  @override String get youHaveArrived => 'Du har ankommet!';
 
   @override String get savedPaths => 'Lagrede ruter';
   @override String get savePath => 'Lagre rute';

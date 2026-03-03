@@ -2,11 +2,14 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 
+import 'package:turbo/core/location/compass_mode_state.dart';
 import 'map_control_button_base.dart';
 
-class CustomMapCompass extends StatefulWidget {
+class CustomMapCompass extends ConsumerStatefulWidget {
   final MapController mapController;
   final String _svg = '''
   '<svg  viewBox="0 0 35 34" xmlns="http://www.w3.org/2000/svg">
@@ -27,10 +30,10 @@ class CustomMapCompass extends StatefulWidget {
   });
 
   @override
-  State<CustomMapCompass> createState() => _CustomMapCompassState();
+  ConsumerState<CustomMapCompass> createState() => _CustomMapCompassState();
 }
 
-class _CustomMapCompassState extends State<CustomMapCompass> with TickerProviderStateMixin {
+class _CustomMapCompassState extends ConsumerState<CustomMapCompass> with TickerProviderStateMixin {
   double _rotation = 0.0;
 
   @override
@@ -49,18 +52,22 @@ class _CustomMapCompassState extends State<CustomMapCompass> with TickerProvider
   Widget build(BuildContext context) {
     final IconThemeData iconTheme = IconTheme.of(context);
     final colorScheme = Theme.of(context).colorScheme;
+    final isCompassMode = ref.watch(compassModeProvider);
 
     return MapControlButtonBase(
       onPressed: _resetRotation,
+      onLongPress: () => _showCompassSheet(context),
+      isActive: isCompassMode,
       child: Transform.rotate(
         angle: -_rotation * (pi / 180),
         child: SvgPicture.string(
           widget._svg,
           width: iconTheme.size,
           height: iconTheme.size,
-          // Use the current theme's icon color
           colorFilter: ColorFilter.mode(
-            colorScheme.primary,
+            isCompassMode
+                ? colorScheme.onTertiaryContainer
+                : colorScheme.primary,
             BlendMode.srcIn,
           ),
         ),
@@ -68,33 +75,73 @@ class _CustomMapCompassState extends State<CustomMapCompass> with TickerProvider
     );
   }
 
+  void _showCompassSheet(BuildContext context) {
+    final l10n = context.l10n;
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      builder: (BuildContext context) {
+        return Consumer(
+          builder: (context, ref, _) {
+            final isCompassMode = ref.watch(compassModeProvider);
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: Icon(
+                        isCompassMode ? Icons.explore_off : Icons.explore,
+                      ),
+                      title: Text(
+                        isCompassMode
+                            ? l10n.stopCompass
+                            : l10n.compassOrientation,
+                      ),
+                      subtitle: Text(l10n.compassOrientationDescription),
+                      onTap: () {
+                        Navigator.pop(context);
+                        ref.read(compassModeProvider.notifier).toggle();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   void _resetRotation() {
-      // Tween attributes
-      final zoomTween = Tween<double>(
-          begin: widget.mapController.camera.rotation,
-          end: 0);
-
-      final controller = AnimationController(
-          duration: const Duration(milliseconds: 500), vsync: this);
-
-      Animation<double> animation =
-      CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
-
-      // This will make sure the mapController is moved on every tick
-      controller.addListener(() {
-        widget.mapController.rotate(zoomTween.evaluate(animation));
-      });
-
-      animation.addStatusListener((status) {
-        if (status == AnimationStatus.completed) {
-          controller.dispose();
-        } else if (status == AnimationStatus.dismissed) {
-          controller.dispose();
-        }
-      });
-
-      controller.forward();
+    if (ref.read(compassModeProvider)) {
+      ref.read(compassModeProvider.notifier).disable();
     }
 
+    final zoomTween = Tween<double>(
+        begin: widget.mapController.camera.rotation,
+        end: 0);
+
+    final controller = AnimationController(
+        duration: const Duration(milliseconds: 500), vsync: this);
+
+    Animation<double> animation =
+    CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
+
+    controller.addListener(() {
+      widget.mapController.rotate(zoomTween.evaluate(animation));
+    });
+
+    animation.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        controller.dispose();
+      } else if (status == AnimationStatus.dismissed) {
+        controller.dispose();
+      }
+    });
+
+    controller.forward();
+  }
 }

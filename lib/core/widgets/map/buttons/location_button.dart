@@ -8,6 +8,7 @@ import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:flutter_map/flutter_map.dart';
 
+import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'map_control_button_base.dart';
 
@@ -22,9 +23,61 @@ class LocationButton extends ConsumerStatefulWidget {
 class LocationButtonState extends ConsumerState<LocationButton> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
+    final isFollowing = ref.watch(followModeProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+
     return MapControlButtonBase(
       onPressed: () => _moveToCurrentLocation(),
-      child: Icon(Icons.location_on, color: Theme.of(context).colorScheme.primary),
+      onLongPress: () => _showLocationSheet(context),
+      isActive: isFollowing,
+      child: Icon(
+        isFollowing ? Icons.my_location : Icons.location_on,
+        color: isFollowing
+            ? colorScheme.onTertiaryContainer
+            : colorScheme.primary,
+      ),
+    );
+  }
+
+  void _showLocationSheet(BuildContext context) {
+    final l10n = context.l10n;
+    showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      builder: (BuildContext context) {
+        return Consumer(
+          builder: (context, ref, _) {
+            final isFollowing = ref.watch(followModeProvider);
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: Icon(
+                        isFollowing ? Icons.location_off : Icons.my_location,
+                      ),
+                      title: Text(
+                        isFollowing
+                            ? l10n.stopFollowing
+                            : l10n.followMyLocation,
+                      ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        ref.read(followModeProvider.notifier).toggle();
+                        if (!isFollowing) {
+                          _moveToCurrentLocation();
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
