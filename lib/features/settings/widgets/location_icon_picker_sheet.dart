@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/color_circle.dart';
 import 'package:turbo/features/markers/widgets/icon_selection_page.dart';
 import 'package:turbo/features/saved_paths/models/path_style.dart';
@@ -16,21 +17,199 @@ void showLocationIconPickerSheet(BuildContext context, WidgetRef ref) {
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (sheetContext) => _LocationIconPickerContent(
+    builder: (_) => _LocationIconPickerSheet(
       ref: ref,
       navigatorContext: context,
     ),
   );
 }
 
-class _LocationIconPickerContent extends ConsumerWidget {
+class _LocationIconPickerSheet extends ConsumerWidget {
   final WidgetRef ref;
   final BuildContext navigatorContext;
 
-  const _LocationIconPickerContent({
+  const _LocationIconPickerSheet({
     required this.ref,
     required this.navigatorContext,
   });
+
+  @override
+  Widget build(BuildContext context, WidgetRef widgetRef) {
+    final l10n = AppLocalizations.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final mediaQuery = MediaQuery.of(context);
+    final bottomPadding = mediaQuery.viewInsets.bottom > 0
+        ? mediaQuery.viewInsets.bottom
+        : mediaQuery.padding.bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPadding),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(l10n.locationIcon, style: textTheme.titleLarge),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Actions row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ActionButton(
+                icon: Icons.image_outlined,
+                label: l10n.locationIcon,
+                onTap: () => _openIconSource(context),
+              ),
+              ActionButton(
+                icon: Icons.palette_outlined,
+                label: l10n.colors,
+                onTap: () => _openColors(context),
+              ),
+              ActionButton(
+                icon: Icons.restart_alt,
+                label: l10n.resetToDefault,
+                onTap: () {
+                  Navigator.pop(context);
+                  ref.read(settingsProvider.notifier).resetLocationIcon();
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openIconSource(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _IconSourceSheet(
+        ref: ref,
+        navigatorContext: navigatorContext,
+      ),
+    );
+  }
+
+  void _openColors(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _ColorPickerSheet(ref: ref),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────
+// Secondary sheet: icon source (Choose Icon / Gallery / Camera)
+// ──────────────────────────────────────────────
+
+class _IconSourceSheet extends StatelessWidget {
+  final WidgetRef ref;
+  final BuildContext navigatorContext;
+
+  const _IconSourceSheet({
+    required this.ref,
+    required this.navigatorContext,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final mediaQuery = MediaQuery.of(context);
+    final bottomPadding = mediaQuery.viewInsets.bottom > 0
+        ? mediaQuery.viewInsets.bottom
+        : mediaQuery.padding.bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPadding),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(l10n.chooseIcon, style: textTheme.titleLarge),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _FormatCard(
+            icon: Icons.grid_view,
+            title: l10n.chooseIcon,
+            onTap: () async {
+              Navigator.pop(context);
+              final icon = await IconSelectionPage.show(navigatorContext);
+              if (icon != null) {
+                ref
+                    .read(settingsProvider.notifier)
+                    .setLocationBuiltinIcon(icon.title);
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          _FormatCard(
+            icon: Icons.photo_library,
+            title: l10n.chooseFromGallery,
+            onTap: () async {
+              Navigator.pop(context);
+              final picker = ImagePicker();
+              final image =
+                  await picker.pickImage(source: ImageSource.gallery);
+              if (image != null) {
+                ref
+                    .read(settingsProvider.notifier)
+                    .setLocationImage(image.path);
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          _FormatCard(
+            icon: Icons.camera_alt,
+            title: l10n.takePhoto,
+            onTap: () async {
+              Navigator.pop(context);
+              final picker = ImagePicker();
+              final image =
+                  await picker.pickImage(source: ImageSource.camera);
+              if (image != null) {
+                ref
+                    .read(settingsProvider.notifier)
+                    .setLocationImage(image.path);
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────
+// Secondary sheet: color pickers
+// ──────────────────────────────────────────────
+
+class _ColorPickerSheet extends ConsumerWidget {
+  final WidgetRef ref;
+
+  const _ColorPickerSheet({required this.ref});
 
   @override
   Widget build(BuildContext context, WidgetRef widgetRef) {
@@ -52,11 +231,10 @@ class _LocationIconPickerContent extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(l10n.locationIcon, style: textTheme.titleLarge),
+              Text(l10n.colors, style: textTheme.titleLarge),
               IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
@@ -65,68 +243,9 @@ class _LocationIconPickerContent extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
 
-          // Choose Icon option
-          ListTile(
-            leading: const Icon(Icons.grid_view),
-            title: Text(l10n.chooseIcon),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            onTap: () async {
-              Navigator.pop(context);
-              final icon = await IconSelectionPage.show(navigatorContext);
-              if (icon != null) {
-                ref
-                    .read(settingsProvider.notifier)
-                    .setLocationBuiltinIcon(icon.title);
-              }
-            },
-          ),
-
-          // Choose from Gallery option
-          ListTile(
-            leading: const Icon(Icons.photo_library),
-            title: Text(l10n.chooseFromGallery),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            onTap: () async {
-              Navigator.pop(context);
-              final picker = ImagePicker();
-              final image =
-                  await picker.pickImage(source: ImageSource.gallery);
-              if (image != null) {
-                ref
-                    .read(settingsProvider.notifier)
-                    .setLocationImage(image.path);
-              }
-            },
-          ),
-
-          // Take Photo option
-          ListTile(
-            leading: const Icon(Icons.camera_alt),
-            title: Text(l10n.takePhoto),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            onTap: () async {
-              Navigator.pop(context);
-              final picker = ImagePicker();
-              final image =
-                  await picker.pickImage(source: ImageSource.camera);
-              if (image != null) {
-                ref
-                    .read(settingsProvider.notifier)
-                    .setLocationImage(image.path);
-              }
-            },
-          ),
-          const SizedBox(height: 16),
-
           // Arrow color picker (only when heading arrow is enabled)
           if (showHeading) ...[
-            _buildColorPickerCard(
+            _buildColorRow(
               context: context,
               label: l10n.arrowColor,
               selectedHex: arrowColorHex,
@@ -138,7 +257,7 @@ class _LocationIconPickerContent extends ConsumerWidget {
           ],
 
           // Outline color picker
-          _buildColorPickerCard(
+          _buildColorRow(
             context: context,
             label: l10n.outlineColor,
             selectedHex: outlineColorHex,
@@ -146,22 +265,12 @@ class _LocationIconPickerContent extends ConsumerWidget {
               ref.read(settingsProvider.notifier).setMarkerOutlineColor(color);
             },
           ),
-          const SizedBox(height: 16),
-
-          // Reset to Default
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ref.read(settingsProvider.notifier).resetLocationIcon();
-            },
-            child: Text(l10n.resetToDefault),
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildColorPickerCard({
+  Widget _buildColorRow({
     required BuildContext context,
     required String label,
     required String? selectedHex,
@@ -210,3 +319,48 @@ class _LocationIconPickerContent extends ConsumerWidget {
   }
 }
 
+// ──────────────────────────────────────────────
+// Shared card widget (matches _FormatCard in export sheets)
+// ──────────────────────────────────────────────
+
+class _FormatCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  const _FormatCard({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Icon(icon, size: 28, color: colorScheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(title, style: textTheme.titleSmall),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

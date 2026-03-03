@@ -190,6 +190,7 @@ abstract class AppLocalizations {
   String get headingArrowDescription;
   String get arrowColor;
   String get outlineColor;
+  String get colors;
 
   // Follow mode
   String get followMyLocation;
@@ -427,6 +428,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get headingArrowDescription => 'Shows the direction your phone is pointing';
   @override String get arrowColor => 'Arrow Color';
   @override String get outlineColor => 'Outline Color';
+  @override String get colors => 'Colors';
   @override String get followMyLocation => 'Follow My Location';
   @override String get stopFollowing => 'Stop Following';
   @override String get following => 'Following';
@@ -652,6 +654,7 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get headingArrowDescription => 'Viser retningen telefonen peker';
   @override String get arrowColor => 'Pilfarge';
   @override String get outlineColor => 'Omrissfarge';
+  @override String get colors => 'Farger';
   @override String get followMyLocation => 'Følg min posisjon';
   @override String get stopFollowing => 'Slutt å følge';
   @override String get following => 'Følger';
