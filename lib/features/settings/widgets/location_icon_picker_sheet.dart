@@ -14,14 +14,23 @@ import 'package:turbo/l10n/app_localizations.dart';
 void showLocationIconPickerSheet(BuildContext context, WidgetRef ref) {
   showModalBottomSheet(
     context: context,
-    builder: (sheetContext) => _LocationIconPickerContent(ref: ref),
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) => _LocationIconPickerContent(
+      ref: ref,
+      navigatorContext: context,
+    ),
   );
 }
 
 class _LocationIconPickerContent extends ConsumerWidget {
   final WidgetRef ref;
+  final BuildContext navigatorContext;
 
-  const _LocationIconPickerContent({required this.ref});
+  const _LocationIconPickerContent({
+    required this.ref,
+    required this.navigatorContext,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef widgetRef) {
@@ -57,12 +66,15 @@ class _LocationIconPickerContent extends ConsumerWidget {
           const SizedBox(height: 16),
 
           // Choose Icon option
-          _OptionCard(
-            icon: Icons.grid_view,
-            label: l10n.chooseIcon,
+          ListTile(
+            leading: const Icon(Icons.grid_view),
+            title: Text(l10n.chooseIcon),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             onTap: () async {
               Navigator.pop(context);
-              final icon = await IconSelectionPage.show(context);
+              final icon = await IconSelectionPage.show(navigatorContext);
               if (icon != null) {
                 ref
                     .read(settingsProvider.notifier)
@@ -70,12 +82,14 @@ class _LocationIconPickerContent extends ConsumerWidget {
               }
             },
           ),
-          const SizedBox(height: 12),
 
           // Choose from Gallery option
-          _OptionCard(
-            icon: Icons.photo_library,
-            label: l10n.chooseFromGallery,
+          ListTile(
+            leading: const Icon(Icons.photo_library),
+            title: Text(l10n.chooseFromGallery),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             onTap: () async {
               Navigator.pop(context);
               final picker = ImagePicker();
@@ -88,12 +102,14 @@ class _LocationIconPickerContent extends ConsumerWidget {
               }
             },
           ),
-          const SizedBox(height: 12),
 
           // Take Photo option
-          _OptionCard(
-            icon: Icons.camera_alt,
-            label: l10n.takePhoto,
+          ListTile(
+            leading: const Icon(Icons.camera_alt),
+            title: Text(l10n.takePhoto),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             onTap: () async {
               Navigator.pop(context);
               final picker = ImagePicker();
@@ -158,9 +174,9 @@ class _LocationIconPickerContent extends ConsumerWidget {
     return Card(
       elevation: 0,
       color: colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -194,46 +210,3 @@ class _LocationIconPickerContent extends ConsumerWidget {
   }
 }
 
-class _OptionCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _OptionCard({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outlineVariant),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Icon(icon, size: 24, color: colorScheme.onSurfaceVariant),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(label, style: textTheme.bodyLarge),
-              ),
-              Icon(Icons.chevron_right,
-                  color: colorScheme.onSurfaceVariant),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

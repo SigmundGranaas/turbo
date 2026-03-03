@@ -155,15 +155,26 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
 }
 
 Future<void> _migrateV3ToV4(Database db) async {
-  await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN color_hex TEXT');
-  await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN icon_key TEXT');
-  await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN smoothing INTEGER NOT NULL DEFAULT 0');
-  await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN line_style TEXT');
+  final columns = (await db.rawQuery('PRAGMA table_info($savedPathsTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!columns.contains('color_hex')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN color_hex TEXT');
+  }
+  if (!columns.contains('icon_key')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN icon_key TEXT');
+  }
+  if (!columns.contains('smoothing')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN smoothing INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!columns.contains('line_style')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN line_style TEXT');
+  }
 }
 
 Future<void> _migrateV1ToV2(Database db) async {
   await db.execute('''
-    CREATE TABLE $pendingDeletesTable(
+    CREATE TABLE IF NOT EXISTS $pendingDeletesTable(
       uuid TEXT PRIMARY KEY,
       created_at TEXT NOT NULL
     )
@@ -172,7 +183,7 @@ Future<void> _migrateV1ToV2(Database db) async {
 
 Future<void> _migrateV2ToV3(Database db) async {
   await db.execute('''
-    CREATE TABLE $savedPathsTable(
+    CREATE TABLE IF NOT EXISTS $savedPathsTable(
       uuid TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT,
@@ -185,5 +196,5 @@ Future<void> _migrateV2ToV3(Database db) async {
       created_at TEXT NOT NULL
     )
   ''');
-  await db.execute('CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
+  await db.execute('CREATE INDEX IF NOT EXISTS idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
 }

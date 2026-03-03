@@ -136,59 +136,49 @@ class _NavigationInfoChip extends ConsumerWidget {
       arrowRotation = bearingToTarget * (math.pi / 180);
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: colorScheme.tertiaryContainer,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Transform.rotate(
-            angle: arrowRotation,
-            child: Icon(
-              Icons.navigation,
-              size: 16,
-              color: colorScheme.onTertiaryContainer,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            distanceText,
-            style: textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-              color: colorScheme.onTertiaryContainer,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            directionText,
-            style: textTheme.labelMedium?.copyWith(
-              color: colorScheme.onTertiaryContainer,
-            ),
-          ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => ref.read(navigationStateProvider.notifier).stopNavigation(),
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.all(2),
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      color: colorScheme.surfaceContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Transform.rotate(
+              angle: arrowRotation,
               child: Icon(
-                Icons.close,
-                size: 16,
-                color: colorScheme.onTertiaryContainer,
+                Icons.navigation,
+                color: colorScheme.onSurfaceVariant,
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Text(
+              distanceText,
+              style: textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w500,
+                color: colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              directionText,
+              style: textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => ref.read(navigationStateProvider.notifier).stopNavigation(),
+              behavior: HitTestBehavior.opaque,
+              child: Icon(
+                Icons.close,
+                size: 20,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -217,49 +207,35 @@ class _ModeChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: colorScheme.tertiaryContainer,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 16,
-            color: colorScheme.onTertiaryContainer,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w500,
-              color: colorScheme.onTertiaryContainer,
-            ),
-          ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: onDismiss,
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.all(2),
-              child: Icon(
-                Icons.close,
-                size: 16,
-                color: colorScheme.onTertiaryContainer,
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      color: colorScheme.surfaceContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: colorScheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: textTheme.titleSmall?.copyWith(
+                color: colorScheme.onSurface,
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onDismiss,
+              behavior: HitTestBehavior.opaque,
+              child: Icon(
+                Icons.close,
+                size: 20,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
