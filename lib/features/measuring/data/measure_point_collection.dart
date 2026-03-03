@@ -54,12 +54,17 @@ class MeasurePointCollection {
   }
 
   bool undoLastPoint() {
-    if (_points.length <= 1) return false;
+    if (_points.isEmpty) return false;
 
     final removedPoint = _points.removeLast();
 
+    if (_points.isEmpty) {
+      _totalDistance = 0;
+      return true;
+    }
+
     // The new last point becomes the end point, unless it's the start point.
-    if (_points.isNotEmpty && _points.last.type == MeasurePointType.middle) {
+    if (_points.last.type == MeasurePointType.middle) {
       final lastIndex = _points.length - 1;
       _points[lastIndex] = MeasurePoint(
         point: _points[lastIndex].point,
@@ -73,6 +78,11 @@ class MeasurePointCollection {
     );
 
     return true;
+  }
+
+  void clear() {
+    _points.clear();
+    _totalDistance = 0;
   }
 
   void reset(LatLng startPoint) {

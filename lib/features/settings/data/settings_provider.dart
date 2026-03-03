@@ -12,6 +12,8 @@ class SettingsState {
   final ThemeMode themeMode;
   final Locale locale;
   final double drawSensitivity;
+  final bool smoothLine;
+  final bool showIntermediatePoints;
 
   /// One of 'default', 'builtin', 'custom'.
   final String locationIconType;
@@ -32,6 +34,8 @@ class SettingsState {
     required this.themeMode,
     required this.locale,
     required this.drawSensitivity,
+    required this.smoothLine,
+    required this.showIntermediatePoints,
     this.locationIconType = 'default',
     this.locationIconKey,
     this.locationImagePath,
@@ -44,12 +48,16 @@ class SettingsState {
     themeMode: ThemeMode.system,
     locale: Locale('en'),
     drawSensitivity: 15.0,
+    smoothLine: true,
+    showIntermediatePoints: false,
   );
 
   SettingsState copyWith({
     ThemeMode? themeMode,
     Locale? locale,
     double? drawSensitivity,
+    bool? smoothLine,
+    bool? showIntermediatePoints,
     String? locationIconType,
     String? Function()? locationIconKey,
     String? Function()? locationImagePath,
@@ -60,6 +68,8 @@ class SettingsState {
       themeMode: themeMode ?? this.themeMode,
       locale: locale ?? this.locale,
       drawSensitivity: drawSensitivity ?? this.drawSensitivity,
+      smoothLine: smoothLine ?? this.smoothLine,
+      showIntermediatePoints: showIntermediatePoints ?? this.showIntermediatePoints,
       locationIconType: locationIconType ?? this.locationIconType,
       locationIconKey: locationIconKey != null ? locationIconKey() : this.locationIconKey,
       locationImagePath: locationImagePath != null ? locationImagePath() : this.locationImagePath,
@@ -77,6 +87,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _themeModeKey = 'themeMode';
   static const _localeKey = 'locale';
   static const _drawSensitivityKey = 'drawSensitivity';
+  static const _smoothLineKey = 'smoothLine';
+  static const _showIntermediatePointsKey = 'showIntermediatePoints';
   static const _locationIconTypeKey = 'locationIconType';
   static const _locationIconKeyKey = 'locationIconKey';
   static const _locationImagePathKey = 'locationImagePath';
@@ -109,6 +121,10 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     // Load Draw Sensitivity
     final drawSensitivity = prefs.getDouble(_drawSensitivityKey) ?? 15.0;
 
+    // Load Drawing Preferences
+    final smoothLine = prefs.getBool(_smoothLineKey) ?? true;
+    final showIntermediatePoints = prefs.getBool(_showIntermediatePointsKey) ?? false;
+
     // Load Location Marker Settings
     final locationIconType = prefs.getString(_locationIconTypeKey) ?? 'default';
     final locationIconKey = prefs.getString(_locationIconKeyKey);
@@ -120,6 +136,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
       themeMode: themeMode,
       locale: locale,
       drawSensitivity: drawSensitivity,
+      smoothLine: smoothLine,
+      showIntermediatePoints: showIntermediatePoints,
       locationIconType: locationIconType,
       locationIconKey: locationIconKey,
       locationImagePath: locationImagePath,
@@ -134,6 +152,22 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     state = AsyncData(state.value!.copyWith(drawSensitivity: value));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_drawSensitivityKey, value);
+  }
+
+  /// Updates the smooth line setting and persists it.
+  Future<void> setSmoothLine(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(smoothLine: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_smoothLineKey, value);
+  }
+
+  /// Updates the show intermediate points setting and persists it.
+  Future<void> setShowIntermediatePoints(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(showIntermediatePoints: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showIntermediatePointsKey, value);
   }
 
   /// Updates the theme mode and persists it to local storage.

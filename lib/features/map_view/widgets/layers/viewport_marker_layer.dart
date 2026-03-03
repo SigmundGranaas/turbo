@@ -5,6 +5,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
+import 'package:turbo/features/saved_paths/data/data_visibility_provider.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 
 class ViewportMarkers extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -70,6 +72,9 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
 
   @override
   Widget build(BuildContext context) {
+    final isVisible = ref.watch(markersVisibleProvider);
+    if (!isVisible) return const SizedBox.shrink();
+
     final viewportMarkersAsync = ref.watch(viewportMarkerNotifierProvider);
     final iconService = IconService();
 
@@ -91,7 +96,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
                 child: MapMarkerWidget(
                   namedIcon: namedIcon,
                   title: location.title,
-                  onTap: () => _showEditSheet(context, ref, location),
+                  onTap: () => _showInfoSheet(context, ref, location),
                   scale: markerScale,
                 ),
               ),
@@ -118,7 +123,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
                   child: MapMarkerWidget(
                       namedIcon: namedIcon,
                       title: location.title,
-                      onTap: () => _showEditSheet(context, ref, location),
+                      onTap: () => _showInfoSheet(context, ref, location),
                       scale: markerScale),
                 ),
               );
@@ -134,19 +139,54 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
     );
   }
 
-  void _showEditSheet(
+  void _showInfoSheet(
       BuildContext context, WidgetRef ref, marker_model.Marker marker) async {
-    final result = await showModalBottomSheet<bool>(
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    final colorScheme = Theme.of(context).colorScheme;
+    final result = await showModalBottomSheet<MarkerInfoResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (BuildContext context) {
-        return EditLocationSheet(location: marker);
-      },
+      builder: (_) => MarkerInfoSheet(marker: marker),
     );
-    if (result == true && mounted) {
+    if (!mounted) return;
+    if (result != null) {
       ref.read(viewportMarkerNotifierProvider.notifier).invalidateCache();
       _updateViewportMarkers();
+    }
+    if (result == MarkerInfoResult.updated) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
+              const SizedBox(width: 8),
+              Text(l10n.markerUpdated, style: TextStyle(color: colorScheme.onPrimaryContainer)),
+            ],
+          ),
+          backgroundColor: colorScheme.primaryContainer,
+          behavior: SnackBarBehavior.floating,
+          shape: const StadiumBorder(),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    } else if (result == MarkerInfoResult.deleted) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
+              const SizedBox(width: 8),
+              Text(l10n.markerDeleted, style: TextStyle(color: colorScheme.onPrimaryContainer)),
+            ],
+          ),
+          backgroundColor: colorScheme.primaryContainer,
+          behavior: SnackBarBehavior.floating,
+          shape: const StadiumBorder(),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
     }
   }
 }

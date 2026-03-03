@@ -137,6 +137,10 @@ abstract class AppLocalizations {
   String get undoLastPoint;
   String get resetMeasurement;
   String get done;
+  String get save;
+  String get needMorePoints;
+  String get addDescription;
+  String get showPoints;
 
   // Main Map
   String get createNewMarkerHere;
@@ -171,6 +175,9 @@ abstract class AppLocalizations {
 
   String get drawMode;
 
+  String get drawing;
+  String get drawSensitivity;
+
   // My Location settings
   String get myLocation;
   String get locationIcon;
@@ -199,6 +206,60 @@ abstract class AppLocalizations {
   String navigationTurnLeft(int degrees);
   String navigationTurnRight(int degrees);
   String get youHaveArrived;
+
+  // Saved Paths
+  String get savedPaths;
+  String get savePath;
+  String get editPath;
+  String get deletePath;
+  String get pathName;
+  String get pathSaved;
+  String get confirmDeletePathTitle;
+  String get discardPath;
+  String get dataLayers;
+  String get showMarkers;
+  String get showPaths;
+  String get pathUpdated;
+  String get pathDeleted;
+  String errorSavingPath(String error);
+  String errorDeletingPath(String error);
+
+  // Path Customization
+  String get appearance;
+  String get pathColor;
+  String get pathIcon;
+  String get pathSmoothing;
+  String get pathLineStyle;
+  String get lineStyleSolid;
+  String get lineStyleDotted;
+  String get lineStyleDashed;
+  String get lineStyleDashDot;
+  String get defaultColor;
+  String get removeIcon;
+
+  // Export
+  String get exportPath;
+  String get selectFormat;
+  String get gpxDescription;
+  String get geoJsonDescription;
+  String get share;
+  String get saveToFile;
+  String get pathExported;
+  String errorExportingPath(String error);
+
+  // Info Sheets
+  String get coordinates;
+  String get createdDate;
+  String get edit;
+  String get export;
+  String get exportMarker;
+  String get textDescription;
+  String get shareAsText;
+  String get shareAsFile;
+  String get markerExported;
+  String get markerDeleted;
+  String get markerUpdated;
+  String errorExportingMarker(String error);
 }
 
 // English translations
@@ -316,6 +377,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get undoLastPoint => 'Undo Last Point';
   @override String get resetMeasurement => 'Reset Measurement';
   @override String get done => 'Done';
+  @override String get save => 'Save';
+  @override String get needMorePoints => 'Add at least 2 points';
+  @override String get addDescription => 'Add description';
+  @override String get showPoints => 'Show points';
 
   @override String get createNewMarkerHere => 'Create New Marker Here';
   @override String get measureDistanceFromHere => 'Measure Distance From Here';
@@ -346,6 +411,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get toggleIntermediatePoints => 'Toggle intermediate points';
   @override String get smoothLine => 'Smooth Line';
   @override String get drawMode => 'Draw mode';
+  @override String get drawing => 'Drawing';
+  @override String get drawSensitivity => 'Draw Sensitivity';
 
   @override String get myLocation => 'My Location';
   @override String get locationIcon => 'Icon';
@@ -369,6 +436,56 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String navigationTurnLeft(int degrees) => '$degrees° left';
   @override String navigationTurnRight(int degrees) => '$degrees° right';
   @override String get youHaveArrived => 'You have arrived!';
+
+  @override String get savedPaths => 'Saved Paths';
+  @override String get savePath => 'Save Path';
+  @override String get editPath => 'Edit Path';
+  @override String get deletePath => 'Delete Path';
+  @override String get pathName => 'Path Name';
+  @override String get pathSaved => 'Path saved';
+  @override String get confirmDeletePathTitle => 'Delete Path?';
+  @override String get discardPath => 'Discard';
+  @override String get dataLayers => 'Data';
+  @override String get showMarkers => 'Markers';
+  @override String get showPaths => 'Paths';
+  @override String get pathUpdated => 'Path updated';
+  @override String get pathDeleted => 'Path deleted';
+  @override String errorSavingPath(String error) => 'Error saving path: $error';
+  @override String errorDeletingPath(String error) => 'Error deleting path: $error';
+
+  @override String get appearance => 'Appearance';
+  @override String get pathColor => 'Color';
+  @override String get pathIcon => 'Icon';
+  @override String get pathSmoothing => 'Smooth line';
+  @override String get pathLineStyle => 'Line style';
+  @override String get lineStyleSolid => 'Solid';
+  @override String get lineStyleDotted => 'Dotted';
+  @override String get lineStyleDashed => 'Dashed';
+  @override String get lineStyleDashDot => 'Dash-dot';
+  @override String get defaultColor => 'Default';
+  @override String get removeIcon => 'Remove icon';
+
+  @override String get exportPath => 'Export Path';
+  @override String get selectFormat => 'Select Format';
+  @override String get gpxDescription => 'GPS Exchange Format - works with most GPS apps';
+  @override String get geoJsonDescription => 'GeoJSON - works with mapping and GIS tools';
+  @override String get share => 'Share';
+  @override String get saveToFile => 'Save to File';
+  @override String get pathExported => 'Path exported successfully';
+  @override String errorExportingPath(String error) => 'Error exporting path: $error';
+
+  @override String get coordinates => 'Coordinates';
+  @override String get createdDate => 'Created';
+  @override String get edit => 'Edit';
+  @override String get export => 'Export';
+  @override String get exportMarker => 'Export Marker';
+  @override String get textDescription => 'Plain text - easy to paste anywhere';
+  @override String get shareAsText => 'Share as text';
+  @override String get shareAsFile => 'Share as file';
+  @override String get markerExported => 'Marker saved';
+  @override String get markerDeleted => 'Marker deleted';
+  @override String get markerUpdated => 'Marker updated';
+  @override String errorExportingMarker(String error) => 'Error exporting marker: $error';
 }
 
 // Norwegian translations
@@ -486,6 +603,10 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get undoLastPoint => 'Angre siste punkt';
   @override String get resetMeasurement => 'Nullstill måling';
   @override String get done => 'Ferdig';
+  @override String get save => 'Lagre';
+  @override String get needMorePoints => 'Legg til minst 2 punkter';
+  @override String get addDescription => 'Legg til beskrivelse';
+  @override String get showPoints => 'Vis punkter';
 
   @override String get createNewMarkerHere => 'Opprett nytt punkt her';
   @override String get measureDistanceFromHere => 'Mål avstand herfra';
@@ -513,6 +634,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get toggleIntermediatePoints => 'Vis mellompunkter';
   @override String get smoothLine => 'Kurvet linje';
   @override String get drawMode => 'Tegnemodus';
+  @override String get drawing => 'Tegning';
+  @override String get drawSensitivity => 'Tegnefølsomhet';
 
   @override String get myLocation => 'Min posisjon';
   @override String get locationIcon => 'Ikon';
@@ -536,6 +659,56 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String navigationTurnLeft(int degrees) => '$degrees° venstre';
   @override String navigationTurnRight(int degrees) => '$degrees° høyre';
   @override String get youHaveArrived => 'Du har ankommet!';
+
+  @override String get savedPaths => 'Lagrede ruter';
+  @override String get savePath => 'Lagre rute';
+  @override String get editPath => 'Rediger rute';
+  @override String get deletePath => 'Slett rute';
+  @override String get pathName => 'Rutenavn';
+  @override String get pathSaved => 'Rute lagret';
+  @override String get confirmDeletePathTitle => 'Slette ruten?';
+  @override String get discardPath => 'Forkast';
+  @override String get dataLayers => 'Data';
+  @override String get showMarkers => 'Markorer';
+  @override String get showPaths => 'Ruter';
+  @override String get pathUpdated => 'Rute oppdatert';
+  @override String get pathDeleted => 'Rute slettet';
+  @override String errorSavingPath(String error) => 'Feil ved lagring av rute: $error';
+  @override String errorDeletingPath(String error) => 'Feil ved sletting av rute: $error';
+
+  @override String get appearance => 'Utseende';
+  @override String get pathColor => 'Farge';
+  @override String get pathIcon => 'Ikon';
+  @override String get pathSmoothing => 'Kurvet linje';
+  @override String get pathLineStyle => 'Linjestil';
+  @override String get lineStyleSolid => 'Heltrukken';
+  @override String get lineStyleDotted => 'Prikket';
+  @override String get lineStyleDashed => 'Stiplet';
+  @override String get lineStyleDashDot => 'Strek-prikk';
+  @override String get defaultColor => 'Standard';
+  @override String get removeIcon => 'Fjern ikon';
+
+  @override String get exportPath => 'Eksporter rute';
+  @override String get selectFormat => 'Velg format';
+  @override String get gpxDescription => 'GPS Exchange Format - fungerer med de fleste GPS-apper';
+  @override String get geoJsonDescription => 'GeoJSON - fungerer med kart- og GIS-verktøy';
+  @override String get share => 'Del';
+  @override String get saveToFile => 'Lagre til fil';
+  @override String get pathExported => 'Rute eksportert';
+  @override String errorExportingPath(String error) => 'Feil ved eksportering av rute: $error';
+
+  @override String get coordinates => 'Koordinater';
+  @override String get createdDate => 'Opprettet';
+  @override String get edit => 'Rediger';
+  @override String get export => 'Eksporter';
+  @override String get exportMarker => 'Eksporter punkt';
+  @override String get textDescription => 'Ren tekst - enkelt å lime inn hvor som helst';
+  @override String get shareAsText => 'Del som tekst';
+  @override String get shareAsFile => 'Del som fil';
+  @override String get markerExported => 'Punkt lagret';
+  @override String get markerDeleted => 'Punkt slettet';
+  @override String get markerUpdated => 'Punkt oppdatert';
+  @override String errorExportingMarker(String error) => 'Feil ved eksportering av punkt: $error';
 }
 
 // The delegate

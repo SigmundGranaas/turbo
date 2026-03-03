@@ -5,8 +5,8 @@ import '../data/icon_service.dart';
 import '../models/marker.dart';
 import '../models/named_icon.dart';
 import '../data/location_repository.dart';
-import 'package:turbo/core/widgets/buttons/secondary_button.dart';
 import 'components.dart';
+import 'marker_info_sheet.dart';
 import 'package:turbo/core/widgets/buttons/primary_button.dart';
 
 class EditLocationSheet extends ConsumerStatefulWidget {
@@ -22,9 +22,8 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
-  late NamedIcon _selectedIcon;
+  NamedIcon? _selectedIcon;
   bool _isLoading = false;
-  bool _isDeleting = false;
   bool _isInitialized = false;
 
   @override
@@ -39,7 +38,9 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_isInitialized) {
-      _selectedIcon = IconService().getIcon(context, widget.location.icon);
+      _selectedIcon = widget.location.icon != null
+          ? IconService().getIcon(context, widget.location.icon)
+          : null;
       _isInitialized = true;
     }
   }
@@ -55,10 +56,13 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final textTheme = Theme.of(context).textTheme;
-    final viewInsets = MediaQuery.of(context).viewInsets;
+    final mediaQuery = MediaQuery.of(context);
+    final bottomPadding = mediaQuery.viewInsets.bottom > 0
+        ? mediaQuery.viewInsets.bottom
+        : mediaQuery.padding.bottom;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + viewInsets.bottom),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPadding),
       child: Form(
         key: _formKey,
         child: Column(
@@ -70,7 +74,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
               children: [
                 Text(l10n.editMarker, style: textTheme.titleLarge),
                 IconButton(
-                  onPressed: () => Navigator.pop(context, false),
+                  onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                 ),
               ],
@@ -83,55 +87,19 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
                     nameController: _nameController,
                     descriptionController: _descriptionController,
                     selectedIcon: _selectedIcon,
-                    onIconSelected: (icon) =>
-                        setState(() => _selectedIcon = icon),
+                    onIconSelected: (icon) => setState(() => _selectedIcon = icon),
                   ),
                 ),
               ),
             ),
             PrimaryButton(
               text: l10n.saveChanges,
-              onPressed: _isLoading || _isDeleting ? null : _updateLocation,
+              onPressed: _isLoading ? null : _updateLocation,
               isLoading: _isLoading,
-            ),
-            const SizedBox(height: 12),
-            SecondaryButton(
-              text: l10n.deleteMarker,
-              onPressed: _isLoading || _isDeleting ? null : _confirmDelete,
             ),
           ],
         ),
       ),
-    );
-  }
-
-  void _confirmDelete() {
-    final l10n = context.l10n;
-    showDialog(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog.adaptive(
-          title: Text(l10n.confirmDeleteTitle),
-          content: Text(l10n.confirmDeleteMessage),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(l10n.cancel),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-                foregroundColor: Theme.of(context).colorScheme.onError,
-              ),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-                _deleteLocation();
-              },
-              child: Text(l10n.delete),
-            ),
-          ],
-        );
-      },
     );
   }
 
@@ -145,7 +113,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
           description: _descriptionController.text.isEmpty
               ? null
               : _descriptionController.text,
-          icon: _selectedIcon.title,
+          icon: _selectedIcon?.title,
         );
 
         await ref
@@ -153,7 +121,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
             .updateMarker(updatedMarker);
 
         if (mounted) {
-          Navigator.of(context).pop(true);
+          Navigator.of(context).pop(MarkerInfoResult.updated);
         }
       } catch (error) {
         if (mounted) {
@@ -163,27 +131,6 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
         if (mounted) {
           setState(() => _isLoading = false);
         }
-      }
-    }
-  }
-
-  Future<void> _deleteLocation() async {
-    final l10n = context.l10n;
-    setState(() => _isDeleting = true);
-    try {
-      await ref
-          .read(locationRepositoryProvider.notifier)
-          .deleteMarker(widget.location.uuid);
-      if (mounted) {
-        Navigator.of(context).pop(true);
-      }
-    } catch (error) {
-      if (mounted) {
-        _showErrorSnackBar(context, l10n.errorDeletingLocation(error.toString()));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isDeleting = false);
       }
     }
   }

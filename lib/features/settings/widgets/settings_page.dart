@@ -45,8 +45,10 @@ class SettingsPage extends ConsumerWidget {
         _buildSectionHeader(context, l10n.language),
         _buildLanguageSelector(context, ref, settings.locale),
         const SizedBox(height: 24),
-        _buildSectionHeader(context, "Draw Sensitivity"),
-        _buildSensitivitySelector(context, ref, settings.drawSensitivity),
+        _buildSectionHeader(context, l10n.drawing),
+        _buildDrawingToggles(context, ref, settings, l10n),
+        const SizedBox(height: 12),
+        _buildSensitivitySelector(context, ref, settings.drawSensitivity, l10n),
         const SizedBox(height: 24),
         _buildSectionHeader(context, l10n.myLocation),
         _buildLocationIconPicker(context, ref, settings),
@@ -58,8 +60,38 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 
+  Widget _buildDrawingToggles(
+      BuildContext context, WidgetRef ref, SettingsState settings, AppLocalizations l10n) {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        children: [
+          SwitchListTile(
+            title: Text(l10n.smoothLine),
+            secondary: const Icon(Icons.insights_outlined, size: 20),
+            value: settings.smoothLine,
+            onChanged: (value) {
+              ref.read(settingsProvider.notifier).setSmoothLine(value);
+            },
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
+          SwitchListTile(
+            title: Text(l10n.showPoints),
+            secondary: const Icon(Icons.linear_scale_outlined, size: 20),
+            value: settings.showIntermediatePoints,
+            onChanged: (value) {
+              ref.read(settingsProvider.notifier).setShowIntermediatePoints(value);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSensitivitySelector(
-      BuildContext context, WidgetRef ref, double currentSensitivity) {
+      BuildContext context, WidgetRef ref, double currentSensitivity, AppLocalizations l10n) {
     return Card(
       elevation: 0,
       color: Theme.of(context).colorScheme.surfaceContainerLow,

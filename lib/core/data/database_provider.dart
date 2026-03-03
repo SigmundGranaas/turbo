@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 2;
+const int _dbVersion = 4;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -14,6 +14,7 @@ const String tileJobsTable = 'tile_jobs';
 const String tileStoreTable = 'tile_store';
 const String markersTable = 'markers';
 const String pendingDeletesTable = 'pending_deletes';
+const String savedPathsTable = 'saved_paths';
 
 
 /// A provider that creates and holds the single instance of the app's database.
@@ -116,6 +117,27 @@ Future<void> _createDb(Database db, int version) async {
     )
   ''');
 
+  // Saved paths (v3, extended in v4)
+  batch.execute('''
+    CREATE TABLE $savedPathsTable(
+      uuid TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      points TEXT NOT NULL,
+      distance REAL NOT NULL,
+      min_lat REAL NOT NULL,
+      min_lng REAL NOT NULL,
+      max_lat REAL NOT NULL,
+      max_lng REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      color_hex TEXT,
+      icon_key TEXT,
+      smoothing INTEGER NOT NULL DEFAULT 0,
+      line_style TEXT
+    )
+  ''');
+  batch.execute('CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
+
   await batch.commit(noResult: true);
 }
 
@@ -124,8 +146,19 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
     switch (version) {
       case 2:
         await _migrateV1ToV2(db);
+      case 3:
+        await _migrateV2ToV3(db);
+      case 4:
+        await _migrateV3ToV4(db);
     }
   }
+}
+
+Future<void> _migrateV3ToV4(Database db) async {
+  await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN color_hex TEXT');
+  await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN icon_key TEXT');
+  await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN smoothing INTEGER NOT NULL DEFAULT 0');
+  await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN line_style TEXT');
 }
 
 Future<void> _migrateV1ToV2(Database db) async {
@@ -135,4 +168,22 @@ Future<void> _migrateV1ToV2(Database db) async {
       created_at TEXT NOT NULL
     )
   ''');
+}
+
+Future<void> _migrateV2ToV3(Database db) async {
+  await db.execute('''
+    CREATE TABLE $savedPathsTable(
+      uuid TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      points TEXT NOT NULL,
+      distance REAL NOT NULL,
+      min_lat REAL NOT NULL,
+      min_lng REAL NOT NULL,
+      max_lat REAL NOT NULL,
+      max_lng REAL NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  ''');
+  await db.execute('CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
 }

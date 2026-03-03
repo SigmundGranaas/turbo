@@ -6,14 +6,11 @@ class MeasuringControls extends StatelessWidget {
   final VoidCallback onReset;
   final VoidCallback onUndo;
   final VoidCallback onFinish;
-  final VoidCallback onToggleSmoothing;
   final VoidCallback onToggleDrawing;
-  final VoidCallback onToggleIntermediatePoints;
   final bool canUndo;
   final bool canReset;
-  final bool isSmoothing;
+  final bool canSave;
   final bool isDrawing;
-  final bool showIntermediatePoints;
 
   const MeasuringControls({
     super.key,
@@ -21,14 +18,11 @@ class MeasuringControls extends StatelessWidget {
     required this.onReset,
     required this.onUndo,
     required this.onFinish,
-    required this.onToggleSmoothing,
     required this.onToggleDrawing,
-    required this.onToggleIntermediatePoints,
     required this.canUndo,
     required this.canReset,
-    required this.isSmoothing,
+    required this.canSave,
     required this.isDrawing,
-    required this.showIntermediatePoints,
   });
 
   @override
@@ -42,37 +36,6 @@ class MeasuringControls extends StatelessWidget {
       foregroundColor: colorScheme.onPrimaryContainer,
     );
 
-    final actionButtons = [
-      IconButton(
-        onPressed: onToggleDrawing,
-        icon: const Icon(Icons.draw_outlined),
-        tooltip: l10n.drawMode,
-        style: isDrawing ? selectedStyle : null,
-      ),
-      IconButton(
-        onPressed: onToggleSmoothing,
-        icon: const Icon(Icons.insights_outlined),
-        tooltip: l10n.smoothLine,
-        style: isSmoothing ? selectedStyle : null,
-      ),
-      IconButton(
-        onPressed: canReset ? onToggleIntermediatePoints : null,
-        icon: const Icon(Icons.linear_scale_outlined),
-        tooltip: l10n.toggleIntermediatePoints,
-        style: showIntermediatePoints ? null : selectedStyle,
-      ),
-      IconButton(
-        onPressed: canUndo ? onUndo : null,
-        icon: const Icon(Icons.undo),
-        tooltip: l10n.undoLastPoint,
-      ),
-      IconButton(
-        onPressed: canReset ? onReset : null,
-        icon: const Icon(Icons.delete_sweep_outlined),
-        tooltip: l10n.resetMeasurement,
-      ),
-    ];
-
     return Card(
       elevation: 4,
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -83,7 +46,7 @@ class MeasuringControls extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Top row: Distance display and Done button
+            // Row 1: Distance display and Save button
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Row(
@@ -114,26 +77,39 @@ class MeasuringControls extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   FilledButton.tonal(
-                    onPressed: onFinish,
+                    onPressed: canSave ? onFinish : null,
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                     ),
-                    child: Text(l10n.done),
+                    child: Text(l10n.save),
                   ),
                 ],
               ),
             ),
-            // Divider if there are action buttons or slider
-            if (actionButtons.isNotEmpty || isDrawing)
-              const Divider(height: 1, indent: 16, endIndent: 16),
-            // Middle row: Action buttons
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            // Bottom row: Draw mode (left) | undo/reset (right)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8.0, // Horizontal space between buttons
-                runSpacing: 4.0, // Vertical space if it wraps
-                children: actionButtons,
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: onToggleDrawing,
+                    icon: const Icon(Icons.draw_outlined),
+                    tooltip: l10n.drawMode,
+                    style: isDrawing ? selectedStyle : null,
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: canUndo ? onUndo : null,
+                    icon: const Icon(Icons.undo),
+                    tooltip: l10n.undoLastPoint,
+                  ),
+                  IconButton(
+                    onPressed: canReset ? onReset : null,
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                    tooltip: l10n.resetMeasurement,
+                  ),
+                ],
               ),
             ),
           ],

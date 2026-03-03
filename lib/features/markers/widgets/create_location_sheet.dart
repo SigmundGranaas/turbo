@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/l10n/app_localizations.dart';
-import '../data/icon_service.dart';
 import '../models/named_icon.dart';
 import '../models/marker.dart';
 import '../data/location_repository.dart';
@@ -21,26 +20,16 @@ class CreateLocationSheet extends ConsumerStatefulWidget {
 
 class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   final _formKey = GlobalKey<FormState>();
-  late NamedIcon _selectedIcon;
+  NamedIcon? _selectedIcon;
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
   bool _isLoading = false;
-  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController();
     _descriptionController = TextEditingController();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_isInitialized) {
-      _selectedIcon = IconService().getDefaultIcon(context);
-      _isInitialized = true;
-    }
   }
 
   @override
@@ -54,10 +43,13 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final textTheme = Theme.of(context).textTheme;
-    final viewInsets = MediaQuery.of(context).viewInsets;
+    final mediaQuery = MediaQuery.of(context);
+    final bottomPadding = mediaQuery.viewInsets.bottom > 0
+        ? mediaQuery.viewInsets.bottom
+        : mediaQuery.padding.bottom;
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + viewInsets.bottom),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPadding),
       child: Form(
         key: _formKey,
         child: Column(
@@ -82,8 +74,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
                     nameController: _nameController,
                     descriptionController: _descriptionController,
                     selectedIcon: _selectedIcon,
-                    onIconSelected: (icon) =>
-                        setState(() => _selectedIcon = icon),
+                    onIconSelected: (icon) => setState(() => _selectedIcon = icon),
                   ),
                 ),
               ),
@@ -112,7 +103,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
           description: _descriptionController.text.isEmpty
               ? null
               : _descriptionController.text,
-          icon: _selectedIcon.title, // Use the non-translated key for saving
+          icon: _selectedIcon?.title,
           position: widget.newLocation!,
         );
 
