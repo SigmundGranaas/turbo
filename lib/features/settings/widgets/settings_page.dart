@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:turbo/core/widgets/color_circle.dart';
 import 'package:turbo/features/markers/data/icon_service.dart';
+import 'package:turbo/features/saved_paths/models/path_style.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
 import 'package:turbo/features/settings/widgets/location_icon_picker_sheet.dart';
 import 'package:turbo/l10n/app_localizations.dart';
@@ -56,6 +58,28 @@ class SettingsPage extends ConsumerWidget {
         _buildLocationSizeSlider(context, ref, settings.locationMarkerSize, l10n),
         const SizedBox(height: 8),
         _buildHeadingArrowToggle(context, ref, settings.showHeadingArrow, l10n),
+        if (settings.showHeadingArrow) ...[
+          const SizedBox(height: 8),
+          _buildColorPickerRow(
+            context,
+            ref,
+            label: l10n.arrowColor,
+            selectedHex: settings.markerArrowColorHex,
+            onColorChanged: (color) {
+              ref.read(settingsProvider.notifier).setMarkerArrowColor(color);
+            },
+          ),
+        ],
+        const SizedBox(height: 8),
+        _buildColorPickerRow(
+          context,
+          ref,
+          label: l10n.outlineColor,
+          selectedHex: settings.markerOutlineColorHex,
+          onColorChanged: (color) {
+            ref.read(settingsProvider.notifier).setMarkerOutlineColor(color);
+          },
+        ),
       ],
     );
   }
@@ -357,6 +381,54 @@ class SettingsPage extends ConsumerWidget {
                     .read(settingsProvider.notifier)
                     .setShowHeadingArrow(value);
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildColorPickerRow(
+    BuildContext context,
+    WidgetRef ref, {
+    required String label,
+    required String? selectedHex,
+    required ValueChanged<Color?> onColorChanged,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
+
+    return Card(
+      elevation: 0,
+      color: colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.bodyLarge),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ColorCircle(
+                    color: null,
+                    isSelected: selectedHex == null,
+                    onTap: () => onColorChanged(null),
+                    label: l10n.defaultColor,
+                    colorScheme: colorScheme,
+                  ),
+                  ...pathColorPalette.map((color) => ColorCircle(
+                        color: color,
+                        isSelected: selectedHex != null &&
+                            selectedHex == colorToHex(color),
+                        onTap: () => onColorChanged(color),
+                        colorScheme: colorScheme,
+                      )),
+                ],
+              ),
             ),
           ],
         ),

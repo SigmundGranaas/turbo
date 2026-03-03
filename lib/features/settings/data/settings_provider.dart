@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:turbo/features/saved_paths/models/path_style.dart';
 
 /// Defines the state for all user-configurable settings.
 @immutable
@@ -30,6 +31,12 @@ class SettingsState {
   /// Whether to show a heading direction arrow behind the marker.
   final bool showHeadingArrow;
 
+  /// Hex string for heading arrow color (null = theme primary default).
+  final String? markerArrowColorHex;
+
+  /// Hex string for icon outline/border color (null = white default).
+  final String? markerOutlineColorHex;
+
   const SettingsState({
     required this.themeMode,
     required this.locale,
@@ -41,6 +48,8 @@ class SettingsState {
     this.locationImagePath,
     this.locationMarkerSize = 1.0,
     this.showHeadingArrow = false,
+    this.markerArrowColorHex,
+    this.markerOutlineColorHex,
   });
 
   // Default initial state
@@ -63,6 +72,8 @@ class SettingsState {
     String? Function()? locationImagePath,
     double? locationMarkerSize,
     bool? showHeadingArrow,
+    String? Function()? markerArrowColorHex,
+    String? Function()? markerOutlineColorHex,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -75,6 +86,8 @@ class SettingsState {
       locationImagePath: locationImagePath != null ? locationImagePath() : this.locationImagePath,
       locationMarkerSize: locationMarkerSize ?? this.locationMarkerSize,
       showHeadingArrow: showHeadingArrow ?? this.showHeadingArrow,
+      markerArrowColorHex: markerArrowColorHex != null ? markerArrowColorHex() : this.markerArrowColorHex,
+      markerOutlineColorHex: markerOutlineColorHex != null ? markerOutlineColorHex() : this.markerOutlineColorHex,
     );
   }
 }
@@ -94,6 +107,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _locationImagePathKey = 'locationImagePath';
   static const _locationMarkerSizeKey = 'locationMarkerSize';
   static const _showHeadingArrowKey = 'showHeadingArrow';
+  static const _markerArrowColorKey = 'markerArrowColor';
+  static const _markerOutlineColorKey = 'markerOutlineColor';
 
   @override
   Future<SettingsState> build() async {
@@ -131,6 +146,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     final locationImagePath = prefs.getString(_locationImagePathKey);
     final locationMarkerSize = prefs.getDouble(_locationMarkerSizeKey) ?? 1.0;
     final showHeadingArrow = prefs.getBool(_showHeadingArrowKey) ?? false;
+    final markerArrowColorHex = prefs.getString(_markerArrowColorKey);
+    final markerOutlineColorHex = prefs.getString(_markerOutlineColorKey);
 
     return SettingsState(
       themeMode: themeMode,
@@ -143,6 +160,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
       locationImagePath: locationImagePath,
       locationMarkerSize: locationMarkerSize,
       showHeadingArrow: showHeadingArrow,
+      markerArrowColorHex: markerArrowColorHex,
+      markerOutlineColorHex: markerOutlineColorHex,
     );
   }
 
@@ -267,6 +286,32 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     state = AsyncData(state.value!.copyWith(showHeadingArrow: value));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_showHeadingArrowKey, value);
+  }
+
+  /// Sets the heading arrow color. Pass null to revert to theme default.
+  Future<void> setMarkerArrowColor(Color? color) async {
+    if (state.value == null) return;
+    final hex = color != null ? colorToHex(color) : null;
+    state = AsyncData(state.value!.copyWith(markerArrowColorHex: () => hex));
+    final prefs = await SharedPreferences.getInstance();
+    if (hex != null) {
+      await prefs.setString(_markerArrowColorKey, hex);
+    } else {
+      await prefs.remove(_markerArrowColorKey);
+    }
+  }
+
+  /// Sets the icon outline/border color. Pass null to revert to white default.
+  Future<void> setMarkerOutlineColor(Color? color) async {
+    if (state.value == null) return;
+    final hex = color != null ? colorToHex(color) : null;
+    state = AsyncData(state.value!.copyWith(markerOutlineColorHex: () => hex));
+    final prefs = await SharedPreferences.getInstance();
+    if (hex != null) {
+      await prefs.setString(_markerOutlineColorKey, hex);
+    } else {
+      await prefs.remove(_markerOutlineColorKey);
+    }
   }
 }
 

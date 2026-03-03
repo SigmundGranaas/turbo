@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/features/markers/data/icon_service.dart';
+import 'package:turbo/features/saved_paths/models/path_style.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
 import 'package:turbo/features/settings/widgets/location_icon_picker_sheet.dart';
 
@@ -28,6 +29,10 @@ class CurrentLocationLayer extends ConsumerWidget {
         final settings = settingsAsync.value;
         final scale = settings?.locationMarkerSize ?? 1.0;
         final showHeading = settings?.showHeadingArrow ?? false;
+        final arrowColor = hexToColor(settings?.markerArrowColorHex) ??
+            Theme.of(context).colorScheme.primary;
+        final outlineColor =
+            hexToColor(settings?.markerOutlineColorHex) ?? Colors.white;
 
         // Base marker size is 40; heading arrow adds extra space.
         final baseSize = 40.0 * scale;
@@ -56,6 +61,8 @@ class CurrentLocationLayer extends ConsumerWidget {
                   scale: scale,
                   showHeading: showHeading,
                   headingDegrees: heading,
+                  arrowColor: arrowColor,
+                  outlineColor: outlineColor,
                 ),
               ),
             ),
@@ -75,6 +82,8 @@ class CurrentLocationMarker extends StatelessWidget {
   final double scale;
   final bool showHeading;
   final double? headingDegrees;
+  final Color arrowColor;
+  final Color outlineColor;
 
   const CurrentLocationMarker({
     super.key,
@@ -84,6 +93,8 @@ class CurrentLocationMarker extends StatelessWidget {
     this.scale = 1.0,
     this.showHeading = false,
     this.headingDegrees,
+    this.arrowColor = Colors.lightBlue,
+    this.outlineColor = Colors.white,
   });
 
   @override
@@ -107,7 +118,7 @@ class CurrentLocationMarker extends StatelessWidget {
           child: CustomPaint(
             size: Size(haloSize * 2, haloSize * 2),
             painter: HeadingIndicatorPainter(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+              color: arrowColor.withValues(alpha: 0.4),
             ),
           ),
         ),
@@ -145,7 +156,7 @@ class CurrentLocationMarker extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: Colors.lightBlue,
-            border: Border.all(color: Colors.white, width: 2),
+            border: Border.all(color: outlineColor, width: 2),
           ),
         ),
       ],
@@ -174,7 +185,7 @@ class CurrentLocationMarker extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: colorScheme.primary,
-            border: Border.all(color: Colors.white, width: 2),
+            border: Border.all(color: outlineColor, width: 2),
           ),
           child: Icon(
             namedIcon.icon,
@@ -217,7 +228,7 @@ class CurrentLocationMarker extends StatelessWidget {
               height: imageSize,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
+                border: Border.all(color: outlineColor, width: 2),
               ),
               child: ClipOval(
                 child: Image.file(file, fit: BoxFit.cover),

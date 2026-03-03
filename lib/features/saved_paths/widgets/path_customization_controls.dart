@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/color_circle.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/data/icon_service.dart';
 import 'package:turbo/features/markers/widgets/icon_selection_page.dart';
@@ -61,14 +62,14 @@ class PathCustomizationControls extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _ColorCircle(
+              ColorCircle(
                 color: null,
                 isSelected: selectedColor == null,
                 onTap: () => onColorChanged(null),
                 label: l10n.defaultColor,
                 colorScheme: Theme.of(context).colorScheme,
               ),
-              ...pathColorPalette.map((color) => _ColorCircle(
+              ...pathColorPalette.map((color) => ColorCircle(
                     color: color,
                     isSelected: selectedColor != null &&
                         colorToHex(selectedColor!) == colorToHex(color),
@@ -231,56 +232,3 @@ class _LinePatternPainter extends CustomPainter {
       style != oldDelegate.style || color != oldDelegate.color;
 }
 
-class _ColorCircle extends StatelessWidget {
-  final Color? color;
-  final bool isSelected;
-  final VoidCallback onTap;
-  final String? label;
-  final ColorScheme colorScheme;
-
-  const _ColorCircle({
-    required this.color,
-    required this.isSelected,
-    required this.onTap,
-    this.label,
-    required this.colorScheme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Tooltip(
-        message: label ?? '',
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color ?? colorScheme.surfaceContainerHighest,
-              border: color == null
-                  ? Border.all(color: colorScheme.outline, width: 2)
-                  : null,
-            ),
-            child: isSelected
-                ? Icon(
-                    Icons.check,
-                    size: 20,
-                    color: color == null
-                        ? colorScheme.onSurface
-                        : _contrastColor(color!),
-                  )
-                : null,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Color _contrastColor(Color color) {
-    final luminance = color.computeLuminance();
-    return luminance > 0.5 ? Colors.black : Colors.white;
-  }
-}
