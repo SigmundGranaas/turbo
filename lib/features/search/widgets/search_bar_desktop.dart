@@ -134,6 +134,13 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
           decoration: BoxDecoration(
             color: theme.colorScheme.surfaceContainer,
             borderRadius: BorderRadius.circular(28.0),
+            boxShadow: [
+              BoxShadow(
+                color: theme.shadowColor.withValues(alpha: 0.1),
+                blurRadius: 3,
+                offset: const Offset(0, 1),
+              ),
+            ],
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -151,6 +158,11 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
                     hintText: l10n.searchHint,
                     isDense: true,
                     border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    focusedErrorBorder: InputBorder.none,
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
