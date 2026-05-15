@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// Base screen for all authentication-related screens (login, register, etc.)
 /// Handles common layout for both mobile and desktop views
@@ -60,8 +59,7 @@ class AuthBaseScreen extends ConsumerWidget {
                   // Logo/App name
                   Text(
                     'Turbo',
-                    style: GoogleFonts.libreBaskerville(
-                      fontSize: 36,
+                    style: textTheme.displaySmall?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: colorScheme.onPrimaryContainer,
                     ),
