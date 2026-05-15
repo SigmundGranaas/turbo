@@ -231,29 +231,41 @@ By importing only `api.dart`, the `locations` feature remains completely decoupl
 
 ## 6. Testing Strategy
 
-This architecture makes our code highly testable at two key levels.
+Every code change ships with the tests that prove it works. Two levels of coverage are required for any non-trivial feature: **API-level behavioral tests** and **end-to-end user-story tests**.
 
-### API / Data Layer Testing (Unit/Integration)
+### Testing philosophy: outcomes, not wiring
 
-We can test the entire business logic of a feature without rendering any UI.
+We test what users (or callers of the public API) actually observe. We do not test that internal collaborators were invoked, that providers were constructed in a particular order, or that a specific widget type was used. A refactor that preserves behavior should never break a test.
 
-*   **Goal:** Verify that the `LocationRepository` correctly adds a marker when offline.
-*   **Location:** `test/features/locations/location_repository_test.dart`
-*   **Method:**
-    1.  Create a `ProviderContainer`.
-    2.  **Override** dependencies from the `core` layer. For example, provide a mock `MarkerDataStore`.
-    3.  **Override** the `authStateProvider` (from the `auth` feature's API) to simulate a logged-out user.
-    4.  Call the public methods on the `locationRepositoryProvider.notifier`.
-    5.  Assert that the state changes as expected and that the mock `MarkerDataStore`'s `insert` method was called.
+Rules:
 
-### UI / Widget Testing (Widget/Golden)
+1.  **Assert on outcomes, not call sequences.** Never write "verify that method `X` was called with arguments `Y`." Instead write "after action `A`, the visible state is `B`" — where the visible state is what the user sees (text on screen, navigation stack), or what a public API consumer observes (provider state, returned value, persisted row).
+2.  **No mocks of internal collaborators.** Internal classes (`AuthService`, `RegionRepository`, `MarkerDataStore` implementations, etc.) are implementation details. Use real implementations driven by in-memory backends (`sqflite_common_ffi`, `shelf` test servers). Mocks are only acceptable at true system boundaries that cannot be exercised locally (e.g., native platform channels, third-party SDKs that require credentials).
+3.  **Drive features the way users drive them.** End-to-end tests pump the real widget tree and use `tester.enterText`, `tester.tap`, etc. They do not call private widget methods or read internal state.
+4.  **Override providers at the public boundary.** When you need controllable behavior in a test, override the feature's public provider (e.g., `authStateProvider`) with a test notifier that extends the real notifier and overrides `build()` (plus any methods the test needs to control). Do not override deep internal providers — that couples tests to the feature's internal structure.
+5.  **Cover the chain, not just the endpoints.** Every user-facing flow gets one test that exercises the entire chain from gesture → persisted outcome (or from public method call → observable side effect). A test that only covers one link is incomplete.
+6.  **Tests ship with the code change.** When you touch a public API, the test for it lands in the same commit. A PR without tests for the affected behavior is not done.
+7.  **Avoid brittle finders.** Prefer behavioral predicates (`find.text('Settings')`, `find.byKey(...)`, widget property assertions) over coordinate hits or chained ancestor lookups. If a test breaks every time the UI is restyled, it's testing the wrong thing.
 
-We can test a feature's entire UI by mocking the APIs of the *other features* it depends on.
+### API-level behavioral tests
 
-*   **Goal:** Verify that the `MainMapScreen` correctly shows markers fetched from the `locations` feature.
-*   **Location:** `test/features/map_view/main_map_screen_test.dart`
-*   **Method:**
-    1.  Wrap `MainMapScreen` in a `ProviderScope`.
-    2.  **Override** the `locationRepositoryProvider` (from the `locations` feature's API) to return a predefined list of `Marker` objects.
-    3.  Pump the widget.
-    4.  Assert that the correct number of `MapMarkerWidget` instances are found on the screen.
+Test the public API of a feature (its notifier, its top-level functions) directly through a `ProviderContainer`, with real persistence (`sqflite_common_ffi`, in-memory `idb_shim`) and fake or test-controlled external services.
+
+*   **Example:** `LocationRepository.addMarker` while unauthenticated → assert that the new marker appears in `locationRepositoryProvider.state` AND in the SQLite store.
+*   **Pattern:** `marker_behavior_test.dart`, `saved_paths_test.dart`, `download_orchestrator_test.dart`.
+
+### End-to-end user-story tests
+
+Test a complete user flow through the widget tree. Pump the screen, drive it with gestures, assert on what a real user would see (button enables/disables, error text appears, screen closes).
+
+*   **Example:** Tap "Sign In" with valid creds → button disables → on success, the screen pops; on failure, the error message appears and the button re-enables.
+*   **Pattern:** `auth_flow_test.dart`, `settings_page_test.dart`, `path_customization_e2e_test.dart` (SavePathSheet group).
+
+### What to cover when you change something
+
+| You changed... | You need... |
+|---|---|
+| A notifier method | An API-level test that calls the method and asserts on the resulting state / persisted side effects. |
+| A user-facing flow (screen, widget) | An end-to-end test that drives the flow with `tester.tap`/`enterText` and asserts on visible outcomes. |
+| A pure helper (top-level function) | A unit test that calls the function and asserts on its return value. |
+| A bug fix | A regression test that reproduces the bug, then is made to pass by the fix. |
