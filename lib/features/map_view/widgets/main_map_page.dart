@@ -21,6 +21,7 @@ import 'package:turbo/core/location/compass_mode_state.dart';
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
+import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
 
@@ -392,11 +393,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   }
 
   void _showCreateSheet(BuildContext context, {LatLng? newLocation}) async {
-    final mapApi = ref.read(mapApiProvider);
     if (newLocation != null) {
-      mapApi.animatedMapMove(
-          newLocation, _mapController.camera.zoom,
-          vsync: this, mapController: _mapController);
+      animatedMapMove(
+          newLocation, _mapController.camera.zoom, _mapController, this);
     }
 
     final result = await showModalBottomSheet<marker_model.Marker>(
@@ -409,9 +408,8 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     );
 
     if (result != null && mounted) {
-      mapApi.animatedMapMove(
-          result.position, _mapController.camera.zoom + 1,
-          vsync: this, mapController: _mapController);
+      animatedMapMove(
+          result.position, _mapController.camera.zoom + 1, _mapController, this);
     }
   }
 }

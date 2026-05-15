@@ -70,43 +70,51 @@ Every feature follows a consistent internal structure. Let's use the **`auth`** 
 
 This is the most important file in any feature. It defines the feature's public API.
 
-**What goes in `api.dart`?**
-1.  **Public State Providers:** The main `StateNotifierProvider` or `AsyncNotifierProvider` that manages the feature's state.
-2.  **Public Models:** Any data classes that other features or the UI need to interact with.
-3.  **Public UI Entry Points:** The main screen or widget for the feature (e.g., `LoginScreen.show(context)`).
-4.  **(Optional but Recommended) API Wrapper Class:** A plain class that wraps the notifier's methods. This decouples consumers from Riverpod's `.notifier` syntax, making the API cleaner and easier to mock.
+`api.dart` is a thin re-export façade. It must contain only `export` directives (and optionally a `library;` declaration). Provider globals, notifier classes, and helper functions all live in `data/`; `api.dart` simply re-exports the names that outside code is allowed to use.
+
+**What `api.dart` exports:**
+1.  **Public state providers** — declared in the same `data/` file as their notifier, re-exported via `export ... show xxxProvider, XxxNotifier;`.
+2.  **Public models** — any data classes that other features or the UI need to interact with.
+3.  **Public UI entry points** — the main screen or widget for the feature (e.g., `LoginScreen`).
+
+**The notifier is the public API.** Consumers call methods via `ref.read(xxxProvider.notifier).method(...)`. Do not introduce an `Api`/wrapper class around the notifier — it adds an indirection layer without buying testability, since notifiers are already mockable via `ProviderContainer.overrides`.
 
 **Example: `features/auth/api.dart`**
 ```dart
-// lib/features/auth/api.dart
+/// The public API for the Auth feature.
+library;
 
-// 1. Export the main state provider for consumers to watch.
-export 'data/auth_state_notifier.dart' show authStateProvider;
-
-// 2. Export the models so others can understand and react to auth state.
-export 'models/auth_state.dart';
-
-// 3. Export the UI entry point.
+export 'data/auth_state_notifier.dart' show authStateProvider, AuthStateNotifier;
+export 'models/auth_state.dart' show AuthState, AuthStatus;
 export 'widgets/login_screen.dart' show LoginScreen;
-
-// 4. Provide a clean, mockable API class.
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'data/auth_state_notifier.dart';
-
-final authApiProvider = Provider<AuthApi>((ref) => AuthApi(ref));
-
-class AuthApi {
-  final Ref _ref;
-  AuthApi(this._ref);
-
-  Future<void> login(String email, String password) =>
-      _ref.read(authStateProvider.notifier).login(email, password);
-
-  Future<void> logout() => _ref.read(authStateProvider.notifier).logout();
-  
-  // ... other public methods
-}
 ```
+
+### Provider type matrix
+
+| Use case | Provider | `build()` returns |
+|---|---|---|
+| Synchronous state | `NotifierProvider<X, T>` | `T` |
+| Naturally async state (loading flicker acceptable) | `AsyncNotifierProvider<X, T>` | `Future<T>` |
+| Async with immediate seed + background fill | `NotifierProvider<X, AsyncValue<T>>` returning `AsyncValue.data(seed)` and triggering `_loadData()` from `build()` | `AsyncValue<T>` |
+| Stateless DI / service singleton | `Provider<T>` | `T` |
+| Stream source | `StreamProvider<T>` | `Stream<T>` |
+| One-shot future, no methods | `FutureProvider<T>` | `Future<T>` |
+
+The seeded-`AsyncValue` pattern (third row) is used **deliberately** by `LocationRepository`, `SavedPathRepository`, `ViewportMarkerNotifier`, and `ViewportSavedPathNotifier` to avoid a startup loading flicker. Do not "normalize" them to `AsyncNotifierProvider` — it would change observable behavior.
+
+### No code generation
+
+This codebase does not use `@riverpod`, `freezed`, or `build_runner`. State classes are immutable with hand-written `const` constructors and `copyWith`. Provider types are written out explicitly:
+
+```dart
+final myProvider = NotifierProvider<MyNotifier, MyState>(MyNotifier.new);
+```
+
+Do **not** re-introduce `riverpod_annotation` or `build_runner` in `pubspec.yaml`. The tradeoff is intentional: a few extra characters per provider, no generated artifacts to keep in sync.
+
+### File naming (soft convention)
+
+Existing files keep their current names. For new features, prefer `<feature>_notifier.dart` for the file that holds the main notifier and its provider global.
 
 ### The Private Implementation
 
@@ -139,8 +147,14 @@ class AuthApi {
 
 3.  **Create the Logic (`data/favorites_notifier.dart`):**
     ```dart
-    @riverpod
-    class FavoritesNotifier extends _$FavoritesNotifier {
+    import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+    final favoritesNotifierProvider =
+        AsyncNotifierProvider<FavoritesNotifier, List<Favorite>>(
+      FavoritesNotifier.new,
+    );
+
+    class FavoritesNotifier extends AsyncNotifier<List<Favorite>> {
       @override
       Future<List<Favorite>> build() { /* Load from persistence */ }
 
@@ -151,13 +165,12 @@ class AuthApi {
 
 4.  **Define the Public Contract (`api.dart`):**
     ```dart
-    // lib/features/favorites/api.dart
-    
-    // Export the provider
-    export 'data/favorites_notifier.dart' show favoritesNotifierProvider;
-    
-    // Export the model
-    export 'models/favorite.dart';
+    /// The public API for the Favorites feature.
+    library;
+
+    export 'data/favorites_notifier.dart'
+        show favoritesNotifierProvider, FavoritesNotifier;
+    export 'models/favorite.dart' show Favorite;
     ```
 
 5.  **Build the UI (`widgets/favorites_screen.dart`):**

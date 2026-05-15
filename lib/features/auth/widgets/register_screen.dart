@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/auth_providers.dart';
-import 'package:turbo/core/theme/utils.dart';
 
 import 'login_screen.dart';
 import 'register_view_desktop.dart';
@@ -47,8 +46,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  final _isLoading = NotifierProvider<LoadingNotifier, bool>(LoadingNotifier.new);
-  final _isGoogleLoading = NotifierProvider<LoadingNotifier, bool>(LoadingNotifier.new);
+  bool _isLoading = false;
+  bool _isGoogleLoading = false;
 
   @override
   void initState() {
@@ -81,7 +80,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   Future<void> _register() async {
     FocusScope.of(context).unfocus();
     if (_formKey.currentState?.validate() ?? false) {
-      ref.read(_isLoading.notifier).set(true);
+      setState(() => _isLoading = true);
       try {
         await ref.read(authStateProvider.notifier).register(
           _emailController.text.trim(),
@@ -89,7 +88,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         );
       } finally {
         if (mounted) {
-          ref.read(_isLoading.notifier).set(false);
+          setState(() => _isLoading = false);
         }
       }
     }
@@ -100,6 +99,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       Navigator.of(context).pop();
     }
     LoginScreen.show(context);
+  }
+
+  void _onGoogleSignInStarted() {
+    setState(() => _isGoogleLoading = true);
+  }
+
+  void _onGoogleSignInCompleted() {
+    if (mounted) setState(() => _isGoogleLoading = false);
   }
 
   @override
@@ -113,8 +120,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         passwordController: _passwordController,
         onRegister: _register,
         onNavigateToLogin: _navigateToLogin,
-        isLoadingProvider: _isLoading,
-        isGoogleLoadingProvider: _isGoogleLoading,
+        isLoading: _isLoading,
+        isGoogleLoading: _isGoogleLoading,
+        onGoogleSignInStarted: _onGoogleSignInStarted,
+        onGoogleSignInCompleted: _onGoogleSignInCompleted,
       );
     } else {
       return RegisterViewMobile(
@@ -123,8 +132,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         passwordController: _passwordController,
         onRegister: _register,
         onNavigateToLogin: _navigateToLogin,
-        isLoadingProvider: _isLoading,
-        isGoogleLoadingProvider: _isGoogleLoading,
+        isLoading: _isLoading,
+        isGoogleLoading: _isGoogleLoading,
+        onGoogleSignInStarted: _onGoogleSignInStarted,
+        onGoogleSignInCompleted: _onGoogleSignInCompleted,
       );
     }
   }

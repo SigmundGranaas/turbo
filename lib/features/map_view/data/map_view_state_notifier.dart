@@ -2,6 +2,11 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/map_view/models/map_view_state.dart';
 
+final mapViewStateProvider =
+    NotifierProvider<MapViewStateNotifier, MapViewState>(
+  MapViewStateNotifier.new,
+);
+
 /// Manages the state of the map's viewport (center, zoom).
 /// It is the single source of truth for the map's position.
 class MapViewStateNotifier extends Notifier<MapViewState> {
