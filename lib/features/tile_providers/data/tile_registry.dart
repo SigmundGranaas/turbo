@@ -197,15 +197,15 @@ class TileRegistry extends Notifier<TileRegistryState> {
     }
 
     // --- NATIVE IMPLEMENTATION (The existing logic) ---
-    final cacheApiAsync = ref.read(cacheApiProvider);
+    final cacheServiceAsync = ref.read(cacheServiceProvider);
     // Subscribe so layers rebuild once the tile store is ready.
     ref.watch(tileStoreServiceProvider);
     final offlineNotifier = ref.read(offlineRegionsProvider.notifier);
 
-    if (cacheApiAsync is! AsyncData) {
+    if (cacheServiceAsync is! AsyncData) {
       return [];
     }
-    final cacheApi = cacheApiAsync.value;
+    final cacheService = cacheServiceAsync.value;
 
     final activeIds = [
       ...state.activeGlobalIds,
@@ -221,7 +221,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
       final tileProvider = config.category == TileProviderCategory.offline
           ? offlineNotifier.createTileProvider(
           region: (config as OfflineRegionProviderConfig).region)
-          : cacheApi?.createTileProvider(
+          : cacheService?.createTileProvider(
         urlTemplate: config.urlTemplate,
         headers: config.headers,
       );
