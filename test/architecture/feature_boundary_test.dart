@@ -49,6 +49,34 @@ void main() {
       ..writeln('Each feature is reachable only through its public api.dart.');
     fail(buf.toString());
   });
+
+  test('every features/<X>/api.dart is a pure re-export facade', () {
+    final repoRoot = _findRepoRoot();
+    final featuresDir = Directory(p.join(repoRoot, 'lib', 'features'));
+    final impurities = <_Impurity>[];
+
+    for (final entity in featuresDir.listSync(recursive: true)) {
+      if (entity is! File) continue;
+      if (p.basename(entity.path) != 'api.dart') continue;
+      impurities.addAll(_impuritiesIn(entity, repoRoot));
+    }
+
+    if (impurities.isEmpty) return;
+    final buf = StringBuffer()
+      ..writeln('${impurities.length} api.dart purity violation(s) found.')
+      ..writeln('An api.dart must contain only blank lines, comments, '
+          '`library;`, and `export ...;` directives.')
+      ..writeln('Provider declarations, classes, and `import` directives '
+          'belong in data/ files and should be re-exported.')
+      ..writeln();
+    for (final v in impurities) {
+      buf
+        ..writeln('  ${v.file}:${v.lineNumber}')
+        ..writeln('    ${v.line.trimRight()}')
+        ..writeln();
+    }
+    fail(buf.toString());
+  });
 }
 
 class _Violation {
@@ -123,6 +151,58 @@ Iterable<_Violation> _violationsIn(File dartFile, String featuresDirPath) sync* 
       fromFeature: importerFeature,
       toFeature: targetFeature,
     );
+  }
+}
+
+class _Impurity {
+  final String file;
+  final int lineNumber;
+  final String line;
+
+  _Impurity({required this.file, required this.lineNumber, required this.line});
+}
+
+/// Matches lines that are allowed inside an api.dart facade. Anything else is
+/// an impurity:
+///   - blank
+///   - single-line `//` comment (including dartdoc `///`)
+///   - block-comment line (`/* ... */` opener, content, or closer)
+///   - `library;` or `library <name>;`
+///   - any `export ...;` directive (may span multiple lines for long shows)
+final _allowedLineRe = RegExp(
+  r'^\s*(' // optional leading whitespace
+  r'$' // empty
+  r'|//' // line comment
+  r'|/\*' // block comment open
+  r'|\*' // block comment continuation / close
+  r'|library\b' // library directive
+  r'|export\b' // export directive
+  r')',
+);
+
+Iterable<_Impurity> _impuritiesIn(File apiFile, String repoRoot) sync* {
+  final lines = apiFile.readAsLinesSync();
+  final rel = p.relative(apiFile.path, from: repoRoot);
+
+  // Track whether we're inside a multi-line statement so continuation lines of
+  // a long `export ... show A, B, C;` don't get flagged.
+  var inExport = false;
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final trimmed = line.trimLeft();
+
+    if (inExport) {
+      if (trimmed.contains(';')) inExport = false;
+      continue;
+    }
+    if (_allowedLineRe.hasMatch(line)) {
+      // If this is an export that didn't end on this line, follow it.
+      if (trimmed.startsWith('export') && !line.contains(';')) {
+        inExport = true;
+      }
+      continue;
+    }
+    yield _Impurity(file: rel, lineNumber: i + 1, line: line);
   }
 }
 

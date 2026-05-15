@@ -2,6 +2,7 @@ import 'dart:collection';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:turbo/features/tile_storage/tile_store/models/storage_stats.dart';
@@ -10,6 +11,13 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../../../core/data/database_provider.dart';
 
+/// The public provider for accessing the [TileStoreService].
+///
+/// Throws on web — this feature is not available there.
+final tileStoreServiceProvider = FutureProvider<TileStoreService>((ref) async {
+  final db = await ref.watch(databaseProvider.future);
+  return TileStoreService(db);
+});
 
 class TileStoreService {
   final Database _db;
