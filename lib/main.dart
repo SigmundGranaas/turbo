@@ -57,8 +57,7 @@ class MyApp extends ConsumerWidget {
     if (kDebugMode) {
       print("Building MyApp. Auth Status: ${authState.status}, Initializing: ${authState.isInitializing}");
     }
-    TextTheme textTheme =
-    createTextTheme(context, "Roboto", "Libre Baskerville");
+    TextTheme textTheme = createTextTheme(context, "Roboto");
     MaterialTheme theme = MaterialTheme(textTheme);
 
     return MaterialApp(

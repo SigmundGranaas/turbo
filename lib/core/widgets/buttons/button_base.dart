@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// A base class for button styling and behavior
 /// that can be extended by specific button types
@@ -18,7 +17,7 @@ abstract class ButtonBase extends StatelessWidget {
   });
 
   // Default text style used by all buttons
-  TextStyle get textStyle => GoogleFonts.roboto(
+  TextStyle get textStyle => const TextStyle(
     fontSize: 16,
     fontWeight: FontWeight.w500,
     letterSpacing: 0.5,
