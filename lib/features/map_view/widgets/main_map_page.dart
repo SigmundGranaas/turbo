@@ -5,14 +5,13 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/map_view/widgets/layers/current_location_layer.dart';
 import 'package:turbo/features/map_view/widgets/layers/viewport_marker_layer.dart';
-import 'package:turbo/features/saved_paths/widgets/saved_paths_layer.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_mobile.dart';
 import 'package:turbo/features/measuring/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_api;
-import 'package:turbo/features/tile_storage/offline_regions/widgets/download_progress_toolbar.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
@@ -244,7 +243,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
           left: 16,
           right: 16,
           child: Center(
-            child: DownloadProgressToolbar(
+            child: offline_api.DownloadProgressToolbar(
               region: activeDownloads.first,
               onHide: () {
                 setState(() {

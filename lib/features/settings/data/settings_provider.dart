@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:turbo/features/saved_paths/models/path_style.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 
 /// Defines the state for all user-configurable settings.
 @immutable
