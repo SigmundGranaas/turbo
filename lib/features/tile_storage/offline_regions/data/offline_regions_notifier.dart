@@ -10,7 +10,6 @@ import 'package:turbo/features/tile_storage/offline_regions/models/offline_regio
 import 'package:turbo/features/tile_storage/offline_regions/models/tile_download_job.dart';
 import 'package:uuid/uuid.dart';
 import '../../tile_store/api.dart';
-import '../../tile_store/utils/tile_provider_id_sanitizer.dart';
 import 'offline_tile_provider.dart';
 
 final offlineRegionsProvider =

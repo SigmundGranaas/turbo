@@ -7,6 +7,7 @@ export 'data/icon_service.dart' show IconService;
 export 'data/marker_data_store.dart' show MarkerDataStore;
 export 'widgets/create_location_sheet.dart' show CreateLocationSheet;
 export 'widgets/edit_location_sheet.dart' show EditLocationSheet;
+export 'widgets/icon_selection_page.dart' show IconSelectionPage;
 export 'widgets/marker_info_sheet.dart' show MarkerInfoSheet, MarkerInfoResult;
 export 'widgets/marker_export_options_sheet.dart' show MarkerExportOptionsSheet;
 export 'data/marker_export_service.dart' show MarkerExportService;

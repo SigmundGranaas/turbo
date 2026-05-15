@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:turbo/features/search/data/location_service.dart';
+import 'package:turbo/features/search/api.dart';
 import 'saved_path_repository.dart';
 
 final pathSearchServiceProvider = Provider<PathSearchService>((ref) {

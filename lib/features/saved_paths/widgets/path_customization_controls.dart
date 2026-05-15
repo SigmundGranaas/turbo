@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:turbo/core/widgets/color_circle.dart';
 import 'package:turbo/l10n/app_localizations.dart';
-import 'package:turbo/features/markers/data/icon_service.dart';
-import 'package:turbo/features/markers/widgets/icon_selection_page.dart';
+import 'package:turbo/features/markers/api.dart';
 import '../models/path_style.dart';
 
 class PathCustomizationControls extends StatelessWidget {
