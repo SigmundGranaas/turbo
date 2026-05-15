@@ -172,6 +172,11 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                 decoration: InputDecoration(
                   hintText: l10n.searchHintMobile,
                   border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  focusedErrorBorder: InputBorder.none,
                   isDense: true, // Important for vertical alignment
                   contentPadding: EdgeInsets.zero, // Remove all internal padding
                 ),
