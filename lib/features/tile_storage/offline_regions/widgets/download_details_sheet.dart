@@ -106,9 +106,8 @@ class _DownloadDetailsSheetState extends ConsumerState<DownloadDetailsSheet> {
     ref.read(tileRegistryProvider).availableProviders[_selectedProviderId!];
     if (provider == null) return;
 
-    final offlineApi = ref.read(offline_api.offlineApiProvider);
     // No need to await, the process runs in the background.
-    offlineApi.downloadRegion(
+    ref.read(offline_api.offlineRegionsProvider.notifier).createRegion(
       name: _nameController.text.trim(),
       bounds: widget.bounds,
       minZoom: _zoomRange.start.round(),

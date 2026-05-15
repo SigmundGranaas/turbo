@@ -123,7 +123,7 @@ Future<String> awaitRegionCreation(ProviderContainer container, String regionNam
 
 void main() {
   late ProviderContainer container;
-  late OfflineApi offlineApi;
+  late OfflineRegionsNotifier offlineNotifier;
   late TileStoreService tileStoreService;
   late Directory tempDir;
   late Database db;
@@ -148,7 +148,7 @@ void main() {
     await container.read(regionRepositoryProvider.future);
     await container.read(offlineRegionsProvider.future);
     container.read(downloadOrchestratorProvider);
-    offlineApi = container.read(offlineApiProvider);
+    offlineNotifier = container.read(offlineRegionsProvider.notifier);
   });
 
   tearDown(() async {
@@ -179,7 +179,7 @@ void main() {
       }
       await startServer(handler);
 
-      offlineApi.downloadRegion(
+      offlineNotifier.createRegion(
         name: regionName,
         bounds: LatLngBounds(const LatLng(-85, -180), const LatLng(85, 180)),
         minZoom: minZoom,
@@ -217,7 +217,7 @@ void main() {
       }
       await startServer(handler);
 
-      offlineApi.downloadRegion(
+      offlineNotifier.createRegion(
         name: regionName,
         bounds: LatLngBounds(const LatLng(-85, -180), const LatLng(85, 180)),
         minZoom: minZoom,

@@ -9,7 +9,6 @@ import './auth_text_field.dart';
 import './google_sign_in_button.dart';
 import './password_field.dart';
 import 'package:turbo/core/widgets/buttons/primary_button.dart';
-import 'package:turbo/core/theme/utils.dart';
 
 class RegisterViewDesktop extends ConsumerWidget {
   final GlobalKey<FormState> formKey;
@@ -17,8 +16,10 @@ class RegisterViewDesktop extends ConsumerWidget {
   final TextEditingController passwordController;
   final Future<void> Function() onRegister;
   final VoidCallback onNavigateToLogin;
-  final NotifierProvider<LoadingNotifier, bool> isLoadingProvider;
-  final NotifierProvider<LoadingNotifier, bool> isGoogleLoadingProvider;
+  final bool isLoading;
+  final bool isGoogleLoading;
+  final VoidCallback onGoogleSignInStarted;
+  final VoidCallback onGoogleSignInCompleted;
 
   const RegisterViewDesktop({
     super.key,
@@ -27,8 +28,10 @@ class RegisterViewDesktop extends ConsumerWidget {
     required this.passwordController,
     required this.onRegister,
     required this.onNavigateToLogin,
-    required this.isLoadingProvider,
-    required this.isGoogleLoadingProvider,
+    required this.isLoading,
+    required this.isGoogleLoading,
+    required this.onGoogleSignInStarted,
+    required this.onGoogleSignInCompleted,
   });
 
   @override
@@ -94,17 +97,15 @@ class RegisterViewDesktop extends ConsumerWidget {
               PrimaryButton(
                 text: l10n.createAccount,
                 onPressed: onRegister,
-                isLoading: ref.watch(isLoadingProvider),
+                isLoading: isLoading,
               ),
               const SizedBox(height: 24),
               AuthDivider(text: l10n.or),
               const SizedBox(height: 24),
               GoogleSignInButton(
-                isLoading: ref.watch(isGoogleLoadingProvider),
-                onSignInStarted: () =>
-                ref.read(isGoogleLoadingProvider.notifier).set(true),
-                onSignInCompleted: () =>
-                ref.read(isGoogleLoadingProvider.notifier).set(false),
+                isLoading: isGoogleLoading,
+                onSignInStarted: onGoogleSignInStarted,
+                onSignInCompleted: onGoogleSignInCompleted,
               ),
               const SizedBox(height: 24),
               Text(

@@ -70,43 +70,51 @@ Every feature follows a consistent internal structure. Let's use the **`auth`** 
 
 This is the most important file in any feature. It defines the feature's public API.
 
-**What goes in `api.dart`?**
-1.  **Public State Providers:** The main `StateNotifierProvider` or `AsyncNotifierProvider` that manages the feature's state.
-2.  **Public Models:** Any data classes that other features or the UI need to interact with.
-3.  **Public UI Entry Points:** The main screen or widget for the feature (e.g., `LoginScreen.show(context)`).
-4.  **(Optional but Recommended) API Wrapper Class:** A plain class that wraps the notifier's methods. This decouples consumers from Riverpod's `.notifier` syntax, making the API cleaner and easier to mock.
+`api.dart` is a thin re-export façade. It must contain only `export` directives (and optionally a `library;` declaration). Provider globals, notifier classes, and helper functions all live in `data/`; `api.dart` simply re-exports the names that outside code is allowed to use.
+
+**What `api.dart` exports:**
+1.  **Public state providers** — declared in the same `data/` file as their notifier, re-exported via `export ... show xxxProvider, XxxNotifier;`.
+2.  **Public models** — any data classes that other features or the UI need to interact with.
+3.  **Public UI entry points** — the main screen or widget for the feature (e.g., `LoginScreen`).
+
+**The notifier is the public API.** Consumers call methods via `ref.read(xxxProvider.notifier).method(...)`. Do not introduce an `Api`/wrapper class around the notifier — it adds an indirection layer without buying testability, since notifiers are already mockable via `ProviderContainer.overrides`.
 
 **Example: `features/auth/api.dart`**
 ```dart
-// lib/features/auth/api.dart
+/// The public API for the Auth feature.
+library;
 
-// 1. Export the main state provider for consumers to watch.
-export 'data/auth_state_notifier.dart' show authStateProvider;
-
-// 2. Export the models so others can understand and react to auth state.
-export 'models/auth_state.dart';
-
-// 3. Export the UI entry point.
+export 'data/auth_state_notifier.dart' show authStateProvider, AuthStateNotifier;
+export 'models/auth_state.dart' show AuthState, AuthStatus;
 export 'widgets/login_screen.dart' show LoginScreen;
-
-// 4. Provide a clean, mockable API class.
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'data/auth_state_notifier.dart';
-
-final authApiProvider = Provider<AuthApi>((ref) => AuthApi(ref));
-
-class AuthApi {
-  final Ref _ref;
-  AuthApi(this._ref);
-
-  Future<void> login(String email, String password) =>
-      _ref.read(authStateProvider.notifier).login(email, password);
-
-  Future<void> logout() => _ref.read(authStateProvider.notifier).logout();
-  
-  // ... other public methods
-}
 ```
+
+### Provider type matrix
+
+| Use case | Provider | `build()` returns |
+|---|---|---|
+| Synchronous state | `NotifierProvider<X, T>` | `T` |
+| Naturally async state (loading flicker acceptable) | `AsyncNotifierProvider<X, T>` | `Future<T>` |
+| Async with immediate seed + background fill | `NotifierProvider<X, AsyncValue<T>>` returning `AsyncValue.data(seed)` and triggering `_loadData()` from `build()` | `AsyncValue<T>` |
+| Stateless DI / service singleton | `Provider<T>` | `T` |
+| Stream source | `StreamProvider<T>` | `Stream<T>` |
+| One-shot future, no methods | `FutureProvider<T>` | `Future<T>` |
+
+The seeded-`AsyncValue` pattern (third row) is used **deliberately** by `LocationRepository`, `SavedPathRepository`, `ViewportMarkerNotifier`, and `ViewportSavedPathNotifier` to avoid a startup loading flicker. Do not "normalize" them to `AsyncNotifierProvider` — it would change observable behavior.
+
+### No code generation
+
+This codebase does not use `@riverpod`, `freezed`, or `build_runner`. State classes are immutable with hand-written `const` constructors and `copyWith`. Provider types are written out explicitly:
+
+```dart
+final myProvider = NotifierProvider<MyNotifier, MyState>(MyNotifier.new);
+```
+
+Do **not** re-introduce `riverpod_annotation` or `build_runner` in `pubspec.yaml`. The tradeoff is intentional: a few extra characters per provider, no generated artifacts to keep in sync.
+
+### File naming (soft convention)
+
+Existing files keep their current names. For new features, prefer `<feature>_notifier.dart` for the file that holds the main notifier and its provider global.
 
 ### The Private Implementation
 
@@ -139,8 +147,14 @@ class AuthApi {
 
 3.  **Create the Logic (`data/favorites_notifier.dart`):**
     ```dart
-    @riverpod
-    class FavoritesNotifier extends _$FavoritesNotifier {
+    import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+    final favoritesNotifierProvider =
+        AsyncNotifierProvider<FavoritesNotifier, List<Favorite>>(
+      FavoritesNotifier.new,
+    );
+
+    class FavoritesNotifier extends AsyncNotifier<List<Favorite>> {
       @override
       Future<List<Favorite>> build() { /* Load from persistence */ }
 
@@ -151,13 +165,12 @@ class AuthApi {
 
 4.  **Define the Public Contract (`api.dart`):**
     ```dart
-    // lib/features/favorites/api.dart
-    
-    // Export the provider
-    export 'data/favorites_notifier.dart' show favoritesNotifierProvider;
-    
-    // Export the model
-    export 'models/favorite.dart';
+    /// The public API for the Favorites feature.
+    library;
+
+    export 'data/favorites_notifier.dart'
+        show favoritesNotifierProvider, FavoritesNotifier;
+    export 'models/favorite.dart' show Favorite;
     ```
 
 5.  **Build the UI (`widgets/favorites_screen.dart`):**
@@ -218,29 +231,41 @@ By importing only `api.dart`, the `locations` feature remains completely decoupl
 
 ## 6. Testing Strategy
 
-This architecture makes our code highly testable at two key levels.
+Every code change ships with the tests that prove it works. Two levels of coverage are required for any non-trivial feature: **API-level behavioral tests** and **end-to-end user-story tests**.
 
-### API / Data Layer Testing (Unit/Integration)
+### Testing philosophy: outcomes, not wiring
 
-We can test the entire business logic of a feature without rendering any UI.
+We test what users (or callers of the public API) actually observe. We do not test that internal collaborators were invoked, that providers were constructed in a particular order, or that a specific widget type was used. A refactor that preserves behavior should never break a test.
 
-*   **Goal:** Verify that the `LocationRepository` correctly adds a marker when offline.
-*   **Location:** `test/features/locations/location_repository_test.dart`
-*   **Method:**
-    1.  Create a `ProviderContainer`.
-    2.  **Override** dependencies from the `core` layer. For example, provide a mock `MarkerDataStore`.
-    3.  **Override** the `authStateProvider` (from the `auth` feature's API) to simulate a logged-out user.
-    4.  Call the public methods on the `locationRepositoryProvider.notifier`.
-    5.  Assert that the state changes as expected and that the mock `MarkerDataStore`'s `insert` method was called.
+Rules:
 
-### UI / Widget Testing (Widget/Golden)
+1.  **Assert on outcomes, not call sequences.** Never write "verify that method `X` was called with arguments `Y`." Instead write "after action `A`, the visible state is `B`" — where the visible state is what the user sees (text on screen, navigation stack), or what a public API consumer observes (provider state, returned value, persisted row).
+2.  **No mocks of internal collaborators.** Internal classes (`AuthService`, `RegionRepository`, `MarkerDataStore` implementations, etc.) are implementation details. Use real implementations driven by in-memory backends (`sqflite_common_ffi`, `shelf` test servers). Mocks are only acceptable at true system boundaries that cannot be exercised locally (e.g., native platform channels, third-party SDKs that require credentials).
+3.  **Drive features the way users drive them.** End-to-end tests pump the real widget tree and use `tester.enterText`, `tester.tap`, etc. They do not call private widget methods or read internal state.
+4.  **Override providers at the public boundary.** When you need controllable behavior in a test, override the feature's public provider (e.g., `authStateProvider`) with a test notifier that extends the real notifier and overrides `build()` (plus any methods the test needs to control). Do not override deep internal providers — that couples tests to the feature's internal structure.
+5.  **Cover the chain, not just the endpoints.** Every user-facing flow gets one test that exercises the entire chain from gesture → persisted outcome (or from public method call → observable side effect). A test that only covers one link is incomplete.
+6.  **Tests ship with the code change.** When you touch a public API, the test for it lands in the same commit. A PR without tests for the affected behavior is not done.
+7.  **Avoid brittle finders.** Prefer behavioral predicates (`find.text('Settings')`, `find.byKey(...)`, widget property assertions) over coordinate hits or chained ancestor lookups. If a test breaks every time the UI is restyled, it's testing the wrong thing.
 
-We can test a feature's entire UI by mocking the APIs of the *other features* it depends on.
+### API-level behavioral tests
 
-*   **Goal:** Verify that the `MainMapScreen` correctly shows markers fetched from the `locations` feature.
-*   **Location:** `test/features/map_view/main_map_screen_test.dart`
-*   **Method:**
-    1.  Wrap `MainMapScreen` in a `ProviderScope`.
-    2.  **Override** the `locationRepositoryProvider` (from the `locations` feature's API) to return a predefined list of `Marker` objects.
-    3.  Pump the widget.
-    4.  Assert that the correct number of `MapMarkerWidget` instances are found on the screen.
+Test the public API of a feature (its notifier, its top-level functions) directly through a `ProviderContainer`, with real persistence (`sqflite_common_ffi`, in-memory `idb_shim`) and fake or test-controlled external services.
+
+*   **Example:** `LocationRepository.addMarker` while unauthenticated → assert that the new marker appears in `locationRepositoryProvider.state` AND in the SQLite store.
+*   **Pattern:** `marker_behavior_test.dart`, `saved_paths_test.dart`, `download_orchestrator_test.dart`.
+
+### End-to-end user-story tests
+
+Test a complete user flow through the widget tree. Pump the screen, drive it with gestures, assert on what a real user would see (button enables/disables, error text appears, screen closes).
+
+*   **Example:** Tap "Sign In" with valid creds → button disables → on success, the screen pops; on failure, the error message appears and the button re-enables.
+*   **Pattern:** `auth_flow_test.dart`, `settings_page_test.dart`, `path_customization_e2e_test.dart` (SavePathSheet group).
+
+### What to cover when you change something
+
+| You changed... | You need... |
+|---|---|
+| A notifier method | An API-level test that calls the method and asserts on the resulting state / persisted side effects. |
+| A user-facing flow (screen, widget) | An end-to-end test that drives the flow with `tester.tap`/`enterText` and asserts on visible outcomes. |
+| A pure helper (top-level function) | A unit test that calls the function and asserts on its return value. |
+| A bug fix | A regression test that reproduces the bug, then is made to pass by the fix. |

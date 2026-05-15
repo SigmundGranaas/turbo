@@ -11,6 +11,7 @@ import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 import 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
 import 'package:turbo/features/tile_storage/cached_tiles/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
+import 'package:turbo/features/tile_storage/tile_store/api.dart';
 
 class TileRegistry extends Notifier<TileRegistryState> {
   @override
@@ -197,7 +198,9 @@ class TileRegistry extends Notifier<TileRegistryState> {
 
     // --- NATIVE IMPLEMENTATION (The existing logic) ---
     final cacheApiAsync = ref.read(cacheApiProvider);
-    final offlineApi = ref.read(offlineApiProvider); // Safe to read here since not web
+    // Subscribe so layers rebuild once the tile store is ready.
+    ref.watch(tileStoreServiceProvider);
+    final offlineNotifier = ref.read(offlineRegionsProvider.notifier);
 
     if (cacheApiAsync is! AsyncData) {
       return [];
@@ -216,7 +219,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
       if (config == null) continue;
 
       final tileProvider = config.category == TileProviderCategory.offline
-          ? offlineApi.createTileProvider(
+          ? offlineNotifier.createTileProvider(
           region: (config as OfflineRegionProviderConfig).region)
           : cacheApi?.createTileProvider(
         urlTemplate: config.urlTemplate,
