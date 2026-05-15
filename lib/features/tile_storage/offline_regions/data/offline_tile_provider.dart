@@ -5,7 +5,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:turbo/features/tile_storage/cached_tiles/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/models/offline_region.dart';
 import 'package:turbo/features/tile_storage/tile_store/api.dart';
-import '../../tile_store/utils/tile_provider_id_sanitizer.dart';
 
 /// A TileProvider that ONLY loads tiles from the local TileStore for a specific
 /// [OfflineRegion]. It does not fall back to the network.

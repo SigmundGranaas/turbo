@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/settings/api.dart';
-import 'package:turbo/features/tile_storage/offline_regions/widgets/offline_regions_page.dart';
+import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import './user_profile_screen.dart';
 import './login_screen.dart';

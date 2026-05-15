@@ -10,5 +10,6 @@ export 'data/offline_regions_notifier.dart'
 export 'data/download_orchestrator.dart' show downloadOrchestratorProvider;
 
 // UI
+export 'widgets/download_progress_toolbar.dart' show DownloadProgressToolbar;
 export 'widgets/offline_regions_page.dart';
 export 'widgets/region_creation_page.dart';

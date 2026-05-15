@@ -7,7 +7,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:turbo/features/tile_storage/tile_store/api.dart';
-import 'package:turbo/features/tile_storage/tile_store/utils/tile_provider_id_sanitizer.dart';
 
 // Internal provider for a singleton Dio instance. Can be overridden in tests.
 final dioProvider = Provider<Dio>((ref) {
