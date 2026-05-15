@@ -13,6 +13,9 @@ import 'package:turbo/features/tile_storage/cached_tiles/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/features/tile_storage/tile_store/api.dart';
 
+final tileRegistryProvider =
+    NotifierProvider<TileRegistry, TileRegistryState>(TileRegistry.new);
+
 class TileRegistry extends Notifier<TileRegistryState> {
   @override
   TileRegistryState build() {
