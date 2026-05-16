@@ -23,6 +23,7 @@ import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
+import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 
 class MainMapPage extends ConsumerStatefulWidget {
@@ -308,49 +309,20 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   }
 
   void _showPinOptionsSheet(BuildContext context, LatLng point) {
-    final l10n = context.l10n;
     final isNavigating = ref.read(navigationStateProvider).isActive;
     showModalBottomSheet(
       context: context,
       useSafeArea: true,
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.add_location_alt_outlined),
-                  title: Text(l10n.createNewMarkerHere),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showCreateSheet(context, newLocation: point);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.straighten),
-                  title: Text(l10n.measureDistanceFromHere),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _navigateToMeasuring(point);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.navigation_outlined),
-                  title: Text(isNavigating ? l10n.stopNavigation : l10n.navigateToHere),
-                  onTap: () {
-                    Navigator.pop(context);
-                    if (isNavigating) {
-                      ref.read(navigationStateProvider.notifier).stopNavigation();
-                    } else {
-                      ref.read(navigationStateProvider.notifier).startNavigation(point);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
+      builder: (BuildContext sheetContext) {
+        return PinOptionsSheet(
+          isNavigating: isNavigating,
+          onCreateMarker: () => _showCreateSheet(context, newLocation: point),
+          onMeasure: () => _navigateToMeasuring(point),
+          onNavigate: () => ref
+              .read(navigationStateProvider.notifier)
+              .startNavigation(point),
+          onStopNavigation: () =>
+              ref.read(navigationStateProvider.notifier).stopNavigation(),
         );
       },
     ).whenComplete(() {
