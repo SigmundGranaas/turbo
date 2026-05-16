@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 
 /// The single button primitive for the app. Use one of the named constructors;
 /// the underlying styling is enforced by the theme's `filledButtonTheme`,

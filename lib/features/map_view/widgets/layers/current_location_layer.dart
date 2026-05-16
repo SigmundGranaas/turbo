@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/location_state.dart';
-import 'package:turbo/core/theme/location_marker_tokens.dart';
+import 'package:turbo/app/location_marker_tokens.dart';
 import 'package:turbo/features/markers/api.dart' hide Marker;
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/api.dart';

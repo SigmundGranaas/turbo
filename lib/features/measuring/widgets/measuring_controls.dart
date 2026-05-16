@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_pill.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 class MeasuringControls extends StatelessWidget {
   final double distance;

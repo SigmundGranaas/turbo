@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 class DownloadProgressToolbar extends ConsumerWidget {
   final OfflineRegion region;

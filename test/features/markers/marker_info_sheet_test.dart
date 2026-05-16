@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/markers/api.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 /// Minimal fake repository that records delete calls. The sheet only needs
 /// `deleteMarker`; the rest of [LocationRepository] is unused in this flow.

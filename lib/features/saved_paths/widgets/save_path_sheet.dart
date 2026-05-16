@@ -4,7 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/app_text_field.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 import '../models/saved_path.dart';
 import '../models/path_style.dart';
 import '../data/saved_path_repository.dart';

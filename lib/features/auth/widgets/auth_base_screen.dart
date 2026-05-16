@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 
 /// Base screen for all authentication-related screens (login, register, etc.)
 /// Handles common layout for both mobile and desktop views

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 
 class MapControls extends StatelessWidget {
   final List<Widget> controls;

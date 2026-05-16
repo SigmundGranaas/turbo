@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:turbo/core/theme/shadows.dart';
+import 'package:turbo/app/shadows.dart';
 import 'package:turbo/features/measuring/models/measure_point.dart';
 
 class MeasureMarkers extends StatelessWidget {

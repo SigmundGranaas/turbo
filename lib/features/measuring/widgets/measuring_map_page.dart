@@ -18,7 +18,7 @@ import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
 import 'package:turbo/core/widgets/map/controls/go_back_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/map/controls/map_controls.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 import '../../map_view/api.dart';
 import '../../tile_providers/api.dart';

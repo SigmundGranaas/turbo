@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 class AvalancheOverlayConfig extends TileProviderConfig {
   @override

@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/features/auth/api.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 /// A test double for [AuthStateNotifier] that lets the test drive the outcome
 /// of login/register operations.

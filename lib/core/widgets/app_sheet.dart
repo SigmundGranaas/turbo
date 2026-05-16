@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 
 /// Standard bottom sheet shell: rounded top corners, drag handle, a title
 /// row with close button, and 16dp body padding.

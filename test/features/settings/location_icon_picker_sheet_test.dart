@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo/core/widgets/app_list_card.dart';
 import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 /// Test double for [SettingsNotifier]. Records calls; doesn't touch
 /// SharedPreferences, the documents dir, or anything else.

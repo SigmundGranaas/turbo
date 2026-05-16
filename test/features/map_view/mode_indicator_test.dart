@@ -9,7 +9,7 @@ import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
 import 'package:turbo/features/navigation/api.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 class _FakeLocation extends LocationState {
   final LatLng? value;

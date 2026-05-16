@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 
 /// Centralized snackbar styling. Three flavors:
 ///

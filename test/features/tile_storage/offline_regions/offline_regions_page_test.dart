@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 /// Test double for [OfflineRegionsNotifier]. Records `deleteRegion` calls so
 /// the delete-confirmation flow can be asserted on without touching SQLite,

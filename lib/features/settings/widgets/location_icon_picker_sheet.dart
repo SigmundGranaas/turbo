@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_list_card.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 /// Shows the location-icon picker bottom sheet.
 ///

@@ -15,7 +15,7 @@ import 'package:turbo/features/saved_paths/models/saved_path.dart';
 import 'package:turbo/features/saved_paths/widgets/path_customization_controls.dart';
 import 'package:turbo/features/saved_paths/widgets/path_detail_sheet.dart';
 import 'package:turbo/features/saved_paths/widgets/save_path_sheet.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers

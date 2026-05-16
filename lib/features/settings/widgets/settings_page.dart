@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import 'package:turbo/core/theme/location_marker_tokens.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/location_marker_tokens.dart';
+import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_grouped_card.dart';
 import 'package:turbo/core/widgets/app_section_header.dart';
 import 'package:turbo/core/widgets/color_circle.dart';
@@ -13,7 +13,7 @@ import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
 import 'package:turbo/features/settings/widgets/location_icon_picker_sheet.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});

@@ -8,10 +8,10 @@ import 'package:turbo/core/location/compass_mode_state.dart';
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/features/navigation/api.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 class ModeIndicator extends ConsumerWidget {
   const ModeIndicator({super.key});

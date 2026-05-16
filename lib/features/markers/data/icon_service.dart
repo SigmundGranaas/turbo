@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 import '../models/named_icon.dart';
 

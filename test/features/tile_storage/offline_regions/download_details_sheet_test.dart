@@ -9,7 +9,7 @@ import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 import 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/widgets/download_details_sheet.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 class _StubProvider extends TileProviderConfig {
   @override

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/app/tokens.dart';
 
 /// Floating pill chrome for map-overlay chips (mode indicator, navigation
 /// info). Intrinsic-width: the caller controls sizing via the child.
