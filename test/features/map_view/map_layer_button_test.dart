@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/features/map_view/widgets/buttons/map_layer_button.dart';
 import 'package:turbo/features/tile_providers/data/tile_registry.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 import 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
-import 'package:turbo/app/l10n/app_localizations.dart';
+
+import '../../helpers/pump_app.dart';
 
 class _StubProvider extends TileProviderConfig {
   @override
@@ -54,26 +52,14 @@ Future<void> _pumpSheet(
   WidgetTester tester, {
   List<String> activeOffline = const [],
 }) async {
-  SharedPreferences.setMockInitialValues({});
-  await tester.pumpWidget(
-    ProviderScope(
-      overrides: [
-        tileRegistryProvider
-            .overrideWith(() => _FakeRegistry(activeOffline: activeOffline)),
-      ],
-      child: const MaterialApp(
-        localizationsDelegates: [
-          AppLocalizations.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(body: LayerSelectionSheet()),
-      ),
-    ),
+  await pumpTestApp(
+    tester,
+    const LayerSelectionSheet(),
+    overrides: [
+      tileRegistryProvider
+          .overrideWith(() => _FakeRegistry(activeOffline: activeOffline)),
+    ],
   );
-  await tester.pumpAndSettle();
 }
 
 void main() {

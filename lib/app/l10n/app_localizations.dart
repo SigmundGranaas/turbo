@@ -116,6 +116,8 @@ abstract class AppLocalizations {
   String get searchHint;
   String get searchHintMobile;
   String get noResultsFound;
+  String get searchFailed;
+  String get retry;
   String get menu;
 
   // Layer selection
@@ -385,6 +387,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get searchHint => 'Search places, coordinates...';
   @override String get searchHintMobile => 'Search places...';
   @override String get noResultsFound => 'No results found.';
+  @override String get searchFailed => 'Search failed. Check your connection and try again.';
+  @override String get retry => 'Retry';
   @override String get menu => 'Menu';
 
   @override String get mapLayers => 'Map Layers';
@@ -637,6 +641,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get searchHint => 'Søk etter steder, koordinater...';
   @override String get searchHintMobile => 'Søk etter steder...';
   @override String get noResultsFound => 'Ingen resultater funnet.';
+  @override String get searchFailed => 'Søket mislyktes. Sjekk nettforbindelsen og prøv igjen.';
+  @override String get retry => 'Prøv igjen';
   @override String get menu => 'Meny';
 
   @override String get mapLayers => 'Kartlag';

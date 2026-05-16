@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
@@ -15,6 +13,9 @@ import 'package:turbo/features/markers/data/sqlite_marker_datastore.dart';
 import 'package:turbo/features/markers/data/viewport_marker_provider.dart';
 import 'package:turbo/features/markers/models/marker.dart';
 import 'package:flutter_map/flutter_map.dart' as fm;
+
+import '../../helpers/in_memory_db.dart';
+import '../../helpers/wait_for.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -124,43 +125,8 @@ Marker _makeMarker({
       synced: synced,
     );
 
-/// Wait for the LocationRepository state to settle to data (not loading).
-Future<List<Marker>> _waitForData(ProviderContainer container) async {
-  // Poll until state transitions out of loading.
-  for (var i = 0; i < 100; i++) {
-    await Future.delayed(const Duration(milliseconds: 20));
-    final s = container.read(locationRepositoryProvider);
-    if (s is AsyncData<List<Marker>>) return s.value;
-    if (s is AsyncError) throw (s as AsyncError).error;
-  }
-  throw TimeoutException('LocationRepository did not settle');
-}
-
-Future<Database> _createTestDb() async {
-  final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
-  await db.execute('''
-    CREATE TABLE $markersTable(
-      uuid TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      icon TEXT,
-      latitude REAL NOT NULL,
-      longitude REAL NOT NULL,
-      synced INTEGER NOT NULL DEFAULT 0
-    )
-  ''');
-  await db.execute(
-      'CREATE INDEX idx_markers_coords ON $markersTable(latitude, longitude)');
-  await db.execute(
-      'CREATE INDEX idx_markers_synced ON $markersTable(synced)');
-  await db.execute('''
-    CREATE TABLE $pendingDeletesTable(
-      uuid TEXT PRIMARY KEY,
-      created_at TEXT NOT NULL
-    )
-  ''');
-  return db;
-}
+Future<List<Marker>> _waitForData(ProviderContainer container) =>
+    waitForAsyncData(container, locationRepositoryProvider);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -173,13 +139,8 @@ void main() {
   late TestAuthNotifier testAuth;
   late TestConnectivityNotifier testConnectivity;
 
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
   setUp(() async {
-    db = await _createTestDb();
+    db = await createMarkersDb();
     fakeApi = FakeApiLocationService();
     testAuth = TestAuthNotifier();
     testConnectivity = TestConnectivityNotifier(true);

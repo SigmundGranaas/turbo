@@ -213,10 +213,23 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
             ),
             error: (err, stack) => Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Text(
-                'Error: $err',
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: theme.colorScheme.error),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.searchFailed,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.error),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => ref
+                        .read(searchProvider.notifier)
+                        .search(_textController.text),
+                    child: Text(l10n.retry),
+                  ),
+                ],
               ),
             ),
             data: (suggestions) {
