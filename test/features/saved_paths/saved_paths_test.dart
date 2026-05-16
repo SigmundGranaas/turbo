@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
@@ -10,9 +8,8 @@ import 'package:turbo/features/saved_paths/data/saved_path_repository.dart';
 import 'package:turbo/features/saved_paths/data/sqlite_saved_path_datastore.dart';
 import 'package:turbo/features/saved_paths/models/saved_path.dart';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import '../../helpers/in_memory_db.dart';
+import '../../helpers/wait_for.dart';
 
 SavedPath _makePath({
   String? uuid,
@@ -37,61 +34,17 @@ SavedPath _makePath({
       lineStyleKey: lineStyleKey,
     );
 
-Future<List<SavedPath>> _waitForData(ProviderContainer container) async {
-  for (var i = 0; i < 100; i++) {
-    await Future.delayed(const Duration(milliseconds: 20));
-    final s = container.read(savedPathRepositoryProvider);
-    if (s is AsyncData<List<SavedPath>>) return s.value;
-    if (s is AsyncError) throw (s as AsyncError).error;
-  }
-  throw TimeoutException('SavedPathRepository did not settle');
-}
-
-Future<Database> _createTestDb() async {
-  final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
-  await db.execute('''
-    CREATE TABLE $savedPathsTable(
-      uuid TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      points TEXT NOT NULL,
-      distance REAL NOT NULL,
-      min_lat REAL NOT NULL,
-      min_lng REAL NOT NULL,
-      max_lat REAL NOT NULL,
-      max_lng REAL NOT NULL,
-      created_at TEXT NOT NULL,
-      color_hex TEXT,
-      icon_key TEXT,
-      smoothing INTEGER NOT NULL DEFAULT 0,
-      line_style TEXT
-    )
-  ''');
-  await db.execute(
-      'CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
-  return db;
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 void main() {
   late Database db;
   late ProviderContainer container;
 
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
   setUp(() async {
-    db = await _createTestDb();
+    db = await createSavedPathsDb();
     container = ProviderContainer(overrides: [
       databaseProvider.overrideWith((ref) async => db),
     ]);
     container.listen(savedPathRepositoryProvider, (_, _) {});
-    await _waitForData(container);
+    await waitForAsyncData(container, savedPathRepositoryProvider);
   });
 
   tearDown(() async {
@@ -116,7 +69,7 @@ void main() {
       distance: 4200.0,
     );
     await repo.addPath(path);
-    var paths = await _waitForData(container);
+    var paths = await waitForAsyncData(container, savedPathRepositoryProvider);
     expect(paths.length, 1);
     expect(paths.first.title, 'Besseggen Ridge');
 
@@ -129,12 +82,12 @@ void main() {
 
     // User taps the path on the map, edits the name
     await repo.updatePath(path.copyWith(title: 'Besseggen via Memurubu'));
-    paths = await _waitForData(container);
+    paths = await waitForAsyncData(container, savedPathRepositoryProvider);
     expect(paths.first.title, 'Besseggen via Memurubu');
 
     // User deletes the path
     await repo.deletePath('hike-1');
-    paths = await _waitForData(container);
+    paths = await waitForAsyncData(container, savedPathRepositoryProvider);
     expect(paths, isEmpty);
     expect(await store.getByUuid('hike-1'), isNull);
   });
@@ -211,7 +164,7 @@ void main() {
       lineStyleKey: 'dashed',
     );
     await repo.addPath(path);
-    var paths = await _waitForData(container);
+    var paths = await waitForAsyncData(container, savedPathRepositoryProvider);
     expect(paths.length, 1);
 
     final store = SQLiteSavedPathDataStore(db);

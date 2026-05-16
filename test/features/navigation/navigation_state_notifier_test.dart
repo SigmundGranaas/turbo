@@ -56,12 +56,8 @@ void main() {
       expect(state.target, isNull);
     });
 
-    test('stopNavigation does NOT disable followMode — UX gap documented',
-        () {
-      // **Light fix candidate.** Stopping navigation leaves followMode on,
-      // which means the camera continues tracking the user after the user
-      // explicitly ends navigation. This pins the current behavior so a
-      // deliberate change is visible.
+    test('stopNavigation disables followMode — user explicitly ending '
+        'navigation also stops the camera from tracking', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final notifier = container.read(navigationStateProvider.notifier);
@@ -70,7 +66,7 @@ void main() {
       expect(container.read(followModeProvider), isTrue);
 
       notifier.stopNavigation();
-      expect(container.read(followModeProvider), isTrue);
+      expect(container.read(followModeProvider), isFalse);
     });
 
     test('starting a second navigation replaces the target', () {

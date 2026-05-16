@@ -6,6 +6,13 @@ import 'location_service.dart';
 class KartverketLocationService extends LocationService {
   static const String baseUrl = 'https://ws.geonorge.no/stedsnavn/v1/navn';
 
+  /// Allows tests to inject a mock HTTP client. Defaults to a fresh
+  /// `http.Client` in production.
+  final http.Client _client;
+
+  KartverketLocationService({http.Client? client})
+      : _client = client ?? http.Client();
+
   @override
   Future<List<LocationSearchResult>> findLocationsBy(String name) async {
     if (name.trim().isEmpty) return [];
@@ -15,7 +22,7 @@ class KartverketLocationService extends LocationService {
       final encodedName = Uri.encodeComponent(name);
       final uri = Uri.parse('$baseUrl?sok=$encodedName*&fuzzy=true&treffPerSide=10');
 
-      final response = await http.get(uri);
+      final response = await _client.get(uri);
 
       if (response.statusCode == 200) {
         // Kartverket API returns UTF-8, but sometimes the http package needs help decoding.

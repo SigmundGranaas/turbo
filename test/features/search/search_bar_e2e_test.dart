@@ -121,15 +121,18 @@ void main() {
       expect(find.text('No results found.'), findsOneWidget);
     });
 
-    testWidgets('service errors surface in the suggestion overlay '
-        '— UX gap: currently a raw "Error: <toString>" string',
-        (tester) async {
-      // **Light fix candidate.** The mobile bar prints `Error: $err` verbatim
-      // into the overlay (`search_bar_mobile.dart:236-241`). That's untranslated
-      // and not user-friendly. This test pins the current behavior; a follow-up
-      // should swap it for an l10n string + retry affordance.
-      final service =
-          FakeLocationService(throwOnQuery: StateError('network down'));
+    testWidgets('service errors surface a localized message with a Retry '
+        'affordance, and tapping Retry re-issues the query', (tester) async {
+      var failNext = true;
+      final service = FakeLocationService(
+        responder: (q) async {
+          if (failNext) {
+            failNext = false;
+            throw StateError('network down');
+          }
+          return [_r('Oslo', 'kartverket')];
+        },
+      );
 
       await pumpTestApp(
         tester,
@@ -146,7 +149,22 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Error:'), findsOneWidget);
+      // Friendly localized error — not "Error: <stacktrace>".
+      expect(
+          find.text('Search failed. Check your connection and try again.'),
+          findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.textContaining('Error:'), findsNothing);
+
+      // Tapping Retry kicks off another search; the responder succeeds this
+      // time and the overlay shows the matching suggestion.
+      await tester.tap(find.text('Retry'));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Oslo'), findsOneWidget);
+      // Two queries: the original failure + the retry.
+      expect(service.queries, ['oslo', 'oslo']);
     });
 
     testWidgets('clear icon appears when text is non-empty and empties the '

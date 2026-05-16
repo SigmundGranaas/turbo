@@ -1,7 +1,4 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart' hide CatmullRomSpline;
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
@@ -15,11 +12,10 @@ import 'package:turbo/features/saved_paths/models/saved_path.dart';
 import 'package:turbo/features/saved_paths/widgets/path_customization_controls.dart';
 import 'package:turbo/features/saved_paths/widgets/path_detail_sheet.dart';
 import 'package:turbo/features/saved_paths/widgets/save_path_sheet.dart';
-import 'package:turbo/app/l10n/app_localizations.dart';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import '../../helpers/in_memory_db.dart';
+import '../../helpers/pump_app.dart';
+import '../../helpers/wait_for.dart';
 
 SavedPath _makePath({
   String? uuid,
@@ -44,61 +40,13 @@ SavedPath _makePath({
       lineStyleKey: lineStyleKey,
     );
 
-Future<List<SavedPath>> _waitForData(ProviderContainer container) async {
-  for (var i = 0; i < 100; i++) {
-    await Future.delayed(const Duration(milliseconds: 20));
-    final s = container.read(savedPathRepositoryProvider);
-    if (s is AsyncData<List<SavedPath>>) return s.value;
-    if (s is AsyncError) throw (s as AsyncError).error;
-  }
-  throw TimeoutException('SavedPathRepository did not settle');
-}
+Future<List<SavedPath>> _waitForData(ProviderContainer container) =>
+    waitForAsyncData(container, savedPathRepositoryProvider);
 
-Future<Database> _createTestDb() async {
-  final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
-  await db.execute('''
-    CREATE TABLE $savedPathsTable(
-      uuid TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT,
-      points TEXT NOT NULL,
-      distance REAL NOT NULL,
-      min_lat REAL NOT NULL,
-      min_lng REAL NOT NULL,
-      max_lat REAL NOT NULL,
-      max_lng REAL NOT NULL,
-      created_at TEXT NOT NULL,
-      color_hex TEXT,
-      icon_key TEXT,
-      smoothing INTEGER NOT NULL DEFAULT 0,
-      line_style TEXT
-    )
-  ''');
-  await db.execute(
-      'CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
-  return db;
-}
+Future<Database> _createTestDb() => createSavedPathsDb();
 
-/// Wraps a widget with MaterialApp + localization for widget tests.
-/// Pass [dbOverride] to override the database provider with an in-memory DB.
-Widget _testApp(Widget child, {Database? dbOverride}) {
-  return ProviderScope(
-    overrides: [
-      if (dbOverride != null)
-        databaseProvider.overrideWith((ref) async => dbOverride),
-    ],
-    child: MaterialApp(
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(body: child),
-    ),
-  );
-}
+Widget _testApp(Widget child, {Database? dbOverride}) =>
+    buildTestApp(child, database: dbOverride);
 
 // ---------------------------------------------------------------------------
 // Tests

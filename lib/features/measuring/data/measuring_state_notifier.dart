@@ -25,7 +25,7 @@ class MeasuringStateNotifier extends Notifier<MeasuringState> {
 
   void reset() {
     _pointsManager.clear();
-    _updateState();
+    state = MeasuringState.initial();
   }
 
   void toggleDrawing() {

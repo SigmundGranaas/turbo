@@ -221,17 +221,19 @@ void main() {
       expect(state.totalDistance, 0);
     });
 
-    test('reset does NOT change isDrawing — UX gap noted', () {
-      // **Light fix candidate.** A user who hits Reset mid-draw might expect
-      // drawing mode to also turn off. Today it persists. Test pins the
-      // current contract.
+    test('reset returns to the initial state — clears points AND exits '
+        'drawing mode', () {
       final container = makeContainer();
       final notifier = container.read(measuringStateProvider.notifier);
       notifier.toggleDrawing();
       notifier.addPoint(const LatLng(59.9, 10.7));
+      expect(container.read(measuringStateProvider).isDrawing, isTrue);
 
       notifier.reset();
-      expect(container.read(measuringStateProvider).isDrawing, isTrue);
+      final state = container.read(measuringStateProvider);
+      expect(state.isDrawing, isFalse);
+      expect(state.points, isEmpty);
+      expect(state.totalDistance, 0);
     });
   });
 }

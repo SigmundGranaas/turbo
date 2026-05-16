@@ -20,5 +20,6 @@ class NavigationStateNotifier extends Notifier<NavigationState> {
 
   void stopNavigation() {
     state = NavigationState.inactive;
+    ref.read(followModeProvider.notifier).disable();
   }
 }
