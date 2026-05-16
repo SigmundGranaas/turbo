@@ -21,9 +21,9 @@ final dioProvider = Provider<Dio>((ref) {
   return dio;
 });
 
-// Internal provider for the CacheService. The public API will use this.
+/// The public provider for [CacheService]. Resolves once the underlying
+/// [tileStoreServiceProvider] is ready.
 final cacheServiceProvider = FutureProvider<CacheService>((ref) async {
-  // Await the tileStoreProvider to get the concrete instance
   final tileStore = await ref.watch(tileStoreServiceProvider.future);
   return CacheService(
     tileStore: tileStore,

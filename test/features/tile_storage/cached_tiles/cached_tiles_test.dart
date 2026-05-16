@@ -7,7 +7,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:turbo/core/data/database_provider.dart';
-import 'package:turbo/features/tile_storage/cached_tiles/api.dart';
 import 'package:turbo/features/tile_storage/cached_tiles/data/cache_service.dart';
 import 'package:turbo/features/tile_storage/tile_store/api.dart';
 
@@ -114,8 +113,8 @@ void main() {
       await tileStoreService.put(providerId, coords, tileBytes);
       expect(await tileStoreService.get(providerId, coords), isNotNull);
 
-      final cacheApi = await container.read(cacheApiProvider.future);
-      await cacheApi.clearCache();
+      final cacheService = await container.read(cacheServiceProvider.future);
+      await cacheService.clear();
 
       expect(await tileStoreService.get(providerId, coords), isNull);
     });
