@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:turbo/core/widgets/action_button.dart';
+import 'package:turbo/core/widgets/app_list_card.dart';
 import 'package:turbo/core/widgets/color_circle.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
@@ -151,7 +152,7 @@ class _IconSourceSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _FormatCard(
+          AppListCard(
             icon: Icons.grid_view,
             title: l10n.chooseIcon,
             onTap: () async {
@@ -165,7 +166,7 @@ class _IconSourceSheet extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
-          _FormatCard(
+          AppListCard(
             icon: Icons.photo_library,
             title: l10n.chooseFromGallery,
             onTap: () async {
@@ -181,7 +182,7 @@ class _IconSourceSheet extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
-          _FormatCard(
+          AppListCard(
             icon: Icons.camera_alt,
             title: l10n.takePhoto,
             onTap: () async {
@@ -319,48 +320,3 @@ class _ColorPickerSheet extends ConsumerWidget {
   }
 }
 
-// ──────────────────────────────────────────────
-// Shared card widget (matches _FormatCard in export sheets)
-// ──────────────────────────────────────────────
-
-class _FormatCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final VoidCallback onTap;
-
-  const _FormatCard({
-    required this.icon,
-    required this.title,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outlineVariant),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Icon(icon, size: 28, color: colorScheme.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(title, style: textTheme.titleSmall),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
