@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/app_button.dart';
+import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
 class MeasuringControls extends StatelessWidget {
@@ -36,84 +39,78 @@ class MeasuringControls extends StatelessWidget {
       foregroundColor: colorScheme.onPrimaryContainer,
     );
 
-    return Card(
-      elevation: 4,
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      color: colorScheme.surfaceContainer,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 700),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Row 1: Distance display and Save button
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              child: Row(
-                children: [
-                  Icon(Icons.straighten_outlined,
-                      color: colorScheme.onSurfaceVariant),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          l10n.totalDistance,
-                          style: textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
+    return AppCardSurface(
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
+      maxWidth: 700,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Row 1: Distance display and Save button
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.l, AppSpacing.m, AppSpacing.l, AppSpacing.m),
+            child: Row(
+              children: [
+                Icon(Icons.straighten_outlined,
+                    color: colorScheme.onSurfaceVariant),
+                const SizedBox(width: AppSpacing.m),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        l10n.totalDistance,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
                         ),
-                        Text(
-                          '${(distance / 1000).toStringAsFixed(2)} km',
-                          style: textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.onSurface,
-                          ),
+                      ),
+                      Text(
+                        '${(distance / 1000).toStringAsFixed(2)} km',
+                        style: textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  FilledButton.tonal(
-                    onPressed: canSave ? onFinish : null,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                    ),
-                    child: Text(l10n.save),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(width: AppSpacing.s),
+                AppButton.tonal(
+                  text: l10n.save,
+                  onPressed: canSave ? onFinish : null,
+                ),
+              ],
             ),
-            const Divider(height: 1, indent: 16, endIndent: 16),
-            // Bottom row: Draw mode (left) | undo/reset (right)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: onToggleDrawing,
-                    icon: const Icon(Icons.draw_outlined),
-                    tooltip: l10n.drawMode,
-                    style: isDrawing ? selectedStyle : null,
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: canUndo ? onUndo : null,
-                    icon: const Icon(Icons.undo),
-                    tooltip: l10n.undoLastPoint,
-                  ),
-                  IconButton(
-                    onPressed: canReset ? onReset : null,
-                    icon: const Icon(Icons.delete_sweep_outlined),
-                    tooltip: l10n.resetMeasurement,
-                  ),
-                ],
-              ),
+          ),
+          const Divider(height: 1, indent: AppSpacing.l, endIndent: AppSpacing.l),
+          // Bottom row: Draw mode (left) | undo/reset (right)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.m, vertical: AppSpacing.xs),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: onToggleDrawing,
+                  icon: const Icon(Icons.draw_outlined),
+                  tooltip: l10n.drawMode,
+                  style: isDrawing ? selectedStyle : null,
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: canUndo ? onUndo : null,
+                  icon: const Icon(Icons.undo),
+                  tooltip: l10n.undoLastPoint,
+                ),
+                IconButton(
+                  onPressed: canReset ? onReset : null,
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  tooltip: l10n.resetMeasurement,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

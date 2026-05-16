@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/widgets/app_button.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../models/named_icon.dart';
 import '../models/marker.dart';
 import '../data/location_repository.dart';
 import 'components.dart';
-import 'package:turbo/core/widgets/buttons/primary_button.dart';
 
 class CreateLocationSheet extends ConsumerStatefulWidget {
   final LatLng? newLocation;
@@ -79,10 +80,11 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
                 ),
               ),
             ),
-            PrimaryButton(
+            AppButton.primary(
               text: l10n.saveMarker,
               onPressed: _isLoading ? null : _saveLocation,
               isLoading: _isLoading,
+              fullWidth: true,
             ),
           ],
         ),
@@ -125,16 +127,6 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   }
 
   void _showErrorSnackBar(BuildContext context, String message) {
-    final colorScheme = Theme.of(context).colorScheme;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: colorScheme.errorContainer,
-        shape:
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
+    AppSnackbars.error(context, message);
   }
 }

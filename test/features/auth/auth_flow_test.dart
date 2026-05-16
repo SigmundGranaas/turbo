@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:turbo/core/widgets/buttons/primary_button.dart';
+import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
@@ -138,8 +138,8 @@ Future<void> _enterCredentials(
   await tester.pump();
 }
 
-PrimaryButton _primaryButton(WidgetTester tester) =>
-    tester.widget<PrimaryButton>(find.byType(PrimaryButton));
+AppButton _primaryButton(WidgetTester tester) =>
+    tester.widget<AppButton>(find.byType(AppButton));
 
 void main() {
   group('LoginScreen user-facing flow', () {
@@ -147,7 +147,7 @@ void main() {
         (tester) async {
       final fake = await _openLogin(tester);
 
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pumpAndSettle();
 
       // The user sees validator errors.
@@ -164,7 +164,7 @@ void main() {
       final fake = await _openLogin(tester);
       await _enterCredentials(tester);
 
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pump(); // process the tap + setState
 
       expect(fake.loginCallCount, 1);
@@ -172,7 +172,7 @@ void main() {
       // user can't double-submit by tapping again.
       expect(_primaryButton(tester).isLoading, isTrue);
 
-      await tester.tap(find.byType(PrimaryButton), warnIfMissed: false);
+      await tester.tap(find.byType(AppButton), warnIfMissed: false);
       await tester.pump();
       expect(fake.loginCallCount, 1,
           reason: 'second tap should be ignored while login is in flight');
@@ -182,7 +182,7 @@ void main() {
       final fake = await _openLogin(tester);
       await _enterCredentials(tester);
 
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pump();
       expect(find.byType(LoginScreen), findsOneWidget);
 
@@ -199,7 +199,7 @@ void main() {
       final fake = await _openLogin(tester);
       await _enterCredentials(tester);
 
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pump();
 
       fake.resolveFailure('Exception: Bad credentials');
@@ -217,13 +217,13 @@ void main() {
       final fake = await _openLogin(tester);
       await _enterCredentials(tester);
 
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pump();
       fake.resolveFailure('Exception: Bad credentials');
       await tester.pumpAndSettle();
 
       // Second attempt — same credentials, this time it succeeds.
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pump();
       expect(fake.loginCallCount, 2);
 
@@ -236,7 +236,7 @@ void main() {
         (tester) async {
       final fake = await _openLogin(tester);
       await _enterCredentials(tester);
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pump();
       fake.resolveFailure('Exception: Bad credentials');
       await tester.pumpAndSettle();
@@ -266,7 +266,7 @@ void main() {
         find.widgetWithText(TextFormField, 'Password'),
         'longenoughpassword',
       );
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pumpAndSettle();
 
       expect(find.text('Please enter a valid email'), findsOneWidget);
@@ -284,7 +284,7 @@ void main() {
         find.widgetWithText(TextFormField, 'Password'),
         'short',
       );
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Password must be at least'), findsOneWidget);
@@ -302,7 +302,7 @@ void main() {
         'longenoughpassword',
       );
 
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pump();
       expect(fake.registerCallCount, 1);
       expect(_primaryButton(tester).isLoading, isTrue);
@@ -326,7 +326,7 @@ void main() {
         'longenoughpassword',
       );
 
-      await tester.tap(find.byType(PrimaryButton));
+      await tester.tap(find.byType(AppButton));
       await tester.pump();
       fake.resolveFailure('Exception: Email already registered');
       await tester.pumpAndSettle();

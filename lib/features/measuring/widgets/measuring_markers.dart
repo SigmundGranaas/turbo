@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:turbo/app/shadows.dart';
 import 'package:turbo/features/measuring/models/measure_point.dart';
 
 class MeasureMarkers extends StatelessWidget {
@@ -30,13 +31,7 @@ class MeasureMarkers extends StatelessWidget {
                       color: Theme.of(context).colorScheme.surface,
                       width: 2.0,
                     ),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
+                    boxShadow: AppShadows.mapOverlay,
                   ),
                 ),
               );

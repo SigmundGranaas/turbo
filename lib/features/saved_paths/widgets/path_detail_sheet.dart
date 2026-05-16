@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/widgets/app_button.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/core/widgets/app_text_field.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
-import 'package:turbo/core/widgets/buttons/primary_button.dart';
 import '../models/saved_path.dart';
 import '../models/path_style.dart';
 import '../data/saved_path_repository.dart';
@@ -76,12 +78,9 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
               ],
             ),
             const SizedBox(height: 24),
-            TextFormField(
+            AppTextField(
               controller: _nameController,
-              decoration: InputDecoration(
-                labelText: l10n.pathName,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-              ),
+              label: l10n.pathName,
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return l10n.pleaseEnterName;
@@ -91,12 +90,9 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
             ),
             const SizedBox(height: 16),
             if (_showDescription)
-              TextFormField(
+              AppTextField(
                 controller: _descriptionController,
-                decoration: InputDecoration(
-                  labelText: l10n.descriptionOptional,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                ),
+                label: l10n.descriptionOptional,
                 maxLines: 2,
               )
             else
@@ -128,10 +124,11 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
               ),
             ),
             const SizedBox(height: 24),
-            PrimaryButton(
+            AppButton.primary(
               text: l10n.saveChanges,
               onPressed: _isLoading ? null : _updatePath,
               isLoading: _isLoading,
+              fullWidth: true,
             ),
           ],
         ),
@@ -176,15 +173,6 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
   }
 
   void _showErrorSnackBar(BuildContext context, String message) {
-    final colorScheme = Theme.of(context).colorScheme;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: colorScheme.errorContainer,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
+    AppSnackbars.error(context, message);
   }
 }

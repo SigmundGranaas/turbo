@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/app_button.dart';
+import 'package:turbo/core/widgets/app_section_header.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
@@ -64,7 +67,7 @@ class LayerSelectionSheet extends ConsumerWidget {
       child: Container(
         decoration: BoxDecoration(
           color: colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
         ),
         child: SingleChildScrollView(
           child: Column(
@@ -78,7 +81,8 @@ class LayerSelectionSheet extends ConsumerWidget {
                   height: 4,
                   decoration: BoxDecoration(
                     color: colorScheme.outlineVariant,
-                    borderRadius: BorderRadius.circular(2),
+                    // Drag-handle pill is intentionally tiny; localized here.
+                    borderRadius: const BorderRadius.all(Radius.circular(2)),
                   ),
                 ),
               ),
@@ -134,7 +138,7 @@ class LayerSelectionSheet extends ConsumerWidget {
               _buildLayerSection(
                 context,
                 ref,
-                title: "Offline Maps",
+                title: l10n.offlineMaps,
                 layers: offlineLayers,
                 activeLayerIds: activeLayerIds,
                 onToggle: (id) => ref
@@ -191,46 +195,49 @@ class LayerSelectionSheet extends ConsumerWidget {
             ),
           )
         else if (isOffline)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-            child: Center(child: Text("No offline maps downloaded yet.")),
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xl, vertical: AppSpacing.xl),
+            child: Center(child: Text(context.l10n.noOfflineMapsDownloaded)),
           ),
         if (isOffline) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.l),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
             child: Row(
               children: [
                 Expanded(
-                  child: FilledButton.tonal(
+                  child: AppButton.tonal(
+                    text: context.l10n.manage,
+                    fullWidth: true,
                     onPressed: () {
-                      Navigator.of(context).pop(); // Close sheet
+                      Navigator.of(context).pop();
                       Navigator.of(context).push(MaterialPageRoute(
                         builder: (context) =>
-                        const offline_regions_api.OfflineRegionsPage(),
+                            const offline_regions_api.OfflineRegionsPage(),
                       ));
                     },
-                    child: const Text("Manage"),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpacing.m),
                 Expanded(
-                  child: FilledButton(
+                  child: AppButton.primary(
+                    text: context.l10n.download,
+                    fullWidth: true,
                     onPressed: () {
                       final mapState = ref.read(mapViewStateProvider);
                       final activeLayers = ref.read(activeTileLayersProvider);
-                      Navigator.of(context).pop(); // Close sheet
+                      Navigator.of(context).pop();
                       Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) =>
                             offline_regions_api.RegionCreationPage(
-                              initialCenter: mapState.center,
-                              initialZoom: mapState.zoom,
-                              activeTileLayer:
+                          initialCenter: mapState.center,
+                          initialZoom: mapState.zoom,
+                          activeTileLayer:
                               activeLayers.isNotEmpty ? activeLayers.first : null,
-                            ),
+                        ),
                       ));
                     },
-                    child: const Text("Download"),
                   ),
                 ),
               ],
@@ -274,13 +281,7 @@ class LayerSelectionSheet extends ConsumerWidget {
   }
 
   Widget _buildSectionHeader(BuildContext context, String title) {
-    return Text(
-      title,
-      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-        fontWeight: FontWeight.w600,
-      ),
-    );
+    return AppSectionHeader(title);
   }
 
   Widget _buildLayerCard({
@@ -300,14 +301,14 @@ class LayerSelectionSheet extends ConsumerWidget {
         width: 100,
         child: InkWell(
           onTap: onToggle,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.m),
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.s, horizontal: AppSpacing.s),
             decoration: BoxDecoration(
               color: isSelected
                   ? colorScheme.secondaryContainer
                   : colorScheme.surfaceContainer,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadius.m),
               border: Border.all(
                 color: isSelected
                     ? colorScheme.secondary

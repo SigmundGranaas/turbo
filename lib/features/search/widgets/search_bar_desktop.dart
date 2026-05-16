@@ -213,7 +213,11 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
             ),
             error: (err, stack) => Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Text('Error: $err', style: TextStyle(color: theme.colorScheme.error)),
+              child: Text(
+                'Error: $err',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: theme.colorScheme.error),
+              ),
             ),
             data: (suggestions) {
               if (suggestions.isEmpty) {

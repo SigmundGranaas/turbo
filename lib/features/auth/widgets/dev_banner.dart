@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/app/tokens.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
 /// A banner to indicate when the app is in development mode
@@ -16,7 +17,7 @@ class DevModeBanner extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.amber.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadius.s),
         border: Border.all(color: Colors.amber),
       ),
       child: Row(

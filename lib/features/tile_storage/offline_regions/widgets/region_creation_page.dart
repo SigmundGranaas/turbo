@@ -3,10 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/app/map_overlay_tokens.dart';
+import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/widgets/download_details_sheet.dart';
 import 'package:turbo/core/widgets/map/controls/go_back_button.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 // OsmConfig is exported from tile_providers api.dart (already imported above)
 
@@ -218,8 +222,8 @@ class _RegionCreationPageState extends ConsumerState<RegionCreationPage>
                   _selectionBounds!.northEast,
                   _selectionBounds!.southEast,
                 ],
-                color: Colors.blue.withValues(alpha: 0.1),
-                borderColor: Colors.blue,
+                color: MapOverlayTokens.selectionFill,
+                borderColor: MapOverlayTokens.selectionBorder,
                 borderStrokeWidth: 2,
               ),
             ]),
@@ -227,8 +231,8 @@ class _RegionCreationPageState extends ConsumerState<RegionCreationPage>
             PolygonLayer(polygons: [
               Polygon(
                 points: _drawnPoints,
-                color: Colors.blue.withValues(alpha: 0.1),
-                borderColor: Colors.blue,
+                color: MapOverlayTokens.selectionFill,
+                borderColor: MapOverlayTokens.selectionBorder,
                 borderStrokeWidth: 2,
               )
             ]),
@@ -298,8 +302,10 @@ class DraggableHandle extends StatelessWidget {
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.primary,
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 5)],
+            border: Border.all(color: MapOverlayTokens.handleBorder, width: 2),
+            boxShadow: const [
+              BoxShadow(color: MapOverlayTokens.handleShadow, blurRadius: 5),
+            ],
           ),
         ),
       ),
@@ -326,23 +332,21 @@ class CreationControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
 
-    Widget button(
-        {required String tooltip, required IconData icon, required SelectionMode mode}) {
+    Widget toggleButton(
+        {required String tooltip,
+        required IconData icon,
+        required SelectionMode mode}) {
       final isSelected = selectionMode == mode;
       return IconButton(
         tooltip: tooltip,
         iconSize: 20,
-        style: isSelected
-            ? IconButton.styleFrom(
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
-          padding: const EdgeInsets.all(10),
-        )
-            : IconButton.styleFrom(
-          backgroundColor: colorScheme.surfaceContainer,
-          foregroundColor: colorScheme.onSurfaceVariant,
-          padding: const EdgeInsets.all(10),
+        style: IconButton.styleFrom(
+          backgroundColor:
+              isSelected ? colorScheme.primary : colorScheme.surfaceContainer,
+          foregroundColor:
+              isSelected ? colorScheme.onPrimary : colorScheme.onSurfaceVariant,
         ),
         icon: Icon(icon),
         onPressed: () => onModeChanged(mode),
@@ -350,50 +354,49 @@ class CreationControls extends StatelessWidget {
     }
 
     return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+      elevation: AppElevation.floating,
+      shape: const StadiumBorder(),
       color: colorScheme.surfaceContainer,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.m, vertical: AppSpacing.s),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            button(
-                tooltip: "Select by Viewport",
+            toggleButton(
+                tooltip: l10n.selectByViewport,
                 icon: Icons.fullscreen,
                 mode: SelectionMode.viewport),
-            const SizedBox(width: 6),
-            button(
-                tooltip: "Select by Rectangle",
+            const SizedBox(width: AppSpacing.xs + 2),
+            toggleButton(
+                tooltip: l10n.selectByRectangle,
                 icon: Icons.crop_square,
                 mode: SelectionMode.rectangle),
-            const SizedBox(width: 6),
-            button(
-                tooltip: "Draw Area", icon: Icons.draw_outlined, mode: SelectionMode.draw),
+            const SizedBox(width: AppSpacing.xs + 2),
+            toggleButton(
+                tooltip: l10n.drawArea,
+                icon: Icons.draw_outlined,
+                mode: SelectionMode.draw),
             if (selectionMode == SelectionMode.draw) ...[
-              const SizedBox(width: 6),
+              const SizedBox(width: AppSpacing.xs + 2),
               IconButton(
-                tooltip: "Clear Drawing",
+                tooltip: l10n.clearDrawing,
                 iconSize: 20,
                 style: IconButton.styleFrom(
                   backgroundColor: colorScheme.surfaceContainer,
                   foregroundColor: colorScheme.onSurfaceVariant,
-                  padding: const EdgeInsets.all(10),
                 ),
                 icon: const Icon(Icons.clear_all),
                 onPressed: onClearDrawing,
               ),
             ],
-            const SizedBox(width: 6),
-            const VerticalDivider(width: 1, thickness: 1, indent: 8, endIndent: 8),
-            const SizedBox(width: 6),
-            FilledButton.tonal(
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                textStyle: Theme.of(context).textTheme.labelLarge,
-              ),
+            const SizedBox(width: AppSpacing.xs + 2),
+            const VerticalDivider(
+                width: 1, thickness: 1, indent: AppSpacing.s, endIndent: AppSpacing.s),
+            const SizedBox(width: AppSpacing.xs + 2),
+            AppButton.tonal(
+              text: l10n.next,
               onPressed: isSelectionValid ? onNext : null,
-              child: const Text("Next"),
             ),
           ],
         ),

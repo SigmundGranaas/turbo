@@ -263,6 +263,30 @@ abstract class AppLocalizations {
   String get markerDeleted;
   String get markerUpdated;
   String errorExportingMarker(String error);
+
+  // Offline Maps
+  String get offlineMaps;
+  String get noOfflineMapsDownloaded;
+  String get addOfflineRegion;
+  String get manage;
+  String get download;
+  String deleteRegionTitle(String name);
+  String get deleteRegionContent;
+  String get defaultOfflineMapName;
+  String get downloadDetails;
+  String get regionName;
+  String get mapSource;
+  String get noDownloadableMapSources;
+  String get startDownload;
+  String estimatedTiles(int count);
+  String estimatedSizeMb(int mb);
+  String tilesDownloaded(int done, int total);
+  String get next;
+  String get selectByViewport;
+  String get selectByRectangle;
+  String get drawArea;
+  String get clearDrawing;
+  String get hide;
 }
 
 // English translations
@@ -492,6 +516,29 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get markerDeleted => 'Marker deleted';
   @override String get markerUpdated => 'Marker updated';
   @override String errorExportingMarker(String error) => 'Error exporting marker: $error';
+
+  @override String get offlineMaps => 'Offline Maps';
+  @override String get noOfflineMapsDownloaded => 'No maps downloaded yet.\nTap the button below to download an area.';
+  @override String get addOfflineRegion => 'Add offline region';
+  @override String get manage => 'Manage';
+  @override String get download => 'Download';
+  @override String deleteRegionTitle(String name) => 'Delete $name?';
+  @override String get deleteRegionContent => 'This will remove the offline map data from your device.';
+  @override String get defaultOfflineMapName => 'My Offline Map';
+  @override String get downloadDetails => 'Download Details';
+  @override String get regionName => 'Region Name';
+  @override String get mapSource => 'Map Source';
+  @override String get noDownloadableMapSources => 'No downloadable map sources available.';
+  @override String get startDownload => 'Start Download';
+  @override String estimatedTiles(int count) => 'Estimated Tiles: $count';
+  @override String estimatedSizeMb(int mb) => 'Estimated Size: ~$mb MB';
+  @override String tilesDownloaded(int done, int total) => '$done / $total tiles downloaded';
+  @override String get next => 'Next';
+  @override String get selectByViewport => 'Select by viewport';
+  @override String get selectByRectangle => 'Select by rectangle';
+  @override String get drawArea => 'Draw area';
+  @override String get clearDrawing => 'Clear drawing';
+  @override String get hide => 'Hide';
 }
 
 // Norwegian translations
@@ -718,6 +765,29 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get markerDeleted => 'Punkt slettet';
   @override String get markerUpdated => 'Punkt oppdatert';
   @override String errorExportingMarker(String error) => 'Feil ved eksportering av punkt: $error';
+
+  @override String get offlineMaps => 'Offline-kart';
+  @override String get noOfflineMapsDownloaded => 'Ingen kart lastet ned ennå.\nTrykk på knappen under for å laste ned et område.';
+  @override String get addOfflineRegion => 'Legg til offline-område';
+  @override String get manage => 'Administrer';
+  @override String get download => 'Last ned';
+  @override String deleteRegionTitle(String name) => 'Slette $name?';
+  @override String get deleteRegionContent => 'Dette fjerner offline-kartdata fra enheten din.';
+  @override String get defaultOfflineMapName => 'Mitt offline-kart';
+  @override String get downloadDetails => 'Nedlastingsdetaljer';
+  @override String get regionName => 'Områdenavn';
+  @override String get mapSource => 'Kartkilde';
+  @override String get noDownloadableMapSources => 'Ingen nedlastbare kartkilder tilgjengelig.';
+  @override String get startDownload => 'Start nedlasting';
+  @override String estimatedTiles(int count) => 'Estimerte fliser: $count';
+  @override String estimatedSizeMb(int mb) => 'Estimert størrelse: ~$mb MB';
+  @override String tilesDownloaded(int done, int total) => '$done / $total fliser lastet ned';
+  @override String get next => 'Neste';
+  @override String get selectByViewport => 'Velg etter visning';
+  @override String get selectByRectangle => 'Velg etter rektangel';
+  @override String get drawArea => 'Tegn område';
+  @override String get clearDrawing => 'Tøm tegning';
+  @override String get hide => 'Skjul';
 }
 
 // The delegate

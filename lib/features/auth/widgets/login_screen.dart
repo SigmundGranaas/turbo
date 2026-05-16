@@ -18,8 +18,6 @@ class LoginScreen extends ConsumerStatefulWidget {
       return showDialog(
         context: context,
         builder: (context) => Dialog(
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
           clipBehavior: Clip.antiAlias,
           child: const SizedBox(
             width: 420,

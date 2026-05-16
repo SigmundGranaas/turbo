@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:turbo/core/config/env_config.dart';
+import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/auth_providers.dart';
@@ -63,9 +65,7 @@ class GoogleSignInButton extends ConsumerWidget {
     } catch (e) {
       if (kDebugMode) print('Google sign-in error: $e');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.signInFailed(e.toString()))),
-        );
+        AppSnackbars.error(context, context.l10n.signInFailed(e.toString()));
       }
     } finally {
       // This ensures the button's loading state resets.
@@ -111,9 +111,8 @@ class GoogleSignInButton extends ConsumerWidget {
           elevation: 0,
           side: BorderSide(color: colorScheme.outline.withValues(alpha: 0.5)),
           padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(28),
-          ),
+          shape: const StadiumBorder(),
+          minimumSize: const Size.fromHeight(AppRadius.xl * 2),
         ),
       ),
     );

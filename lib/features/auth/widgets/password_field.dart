@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'auth_text_field.dart';
+import 'package:turbo/core/widgets/app_text_field.dart';
 
 class PasswordField extends StatefulWidget {
   final TextEditingController controller;
@@ -26,7 +26,7 @@ class _PasswordFieldState extends State<PasswordField> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return AuthTextField(
+    return AppTextField(
       controller: widget.controller,
       label: widget.label,
       hintText: widget.hintText,

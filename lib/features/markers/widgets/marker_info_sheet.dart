@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/action_button.dart';
+import 'package:turbo/core/widgets/app_dialog.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../data/icon_service.dart';
 import '../data/location_repository.dart';
@@ -156,32 +158,17 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
     );
   }
 
-  void _confirmDelete() {
+  Future<void> _confirmDelete() async {
     final l10n = context.l10n;
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog.adaptive(
-        title: Text(l10n.confirmDeleteTitle),
-        content: Text(l10n.confirmDeleteMessage),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(l10n.cancel),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              _deleteMarker();
-            },
-            child: Text(l10n.delete),
-          ),
-        ],
-      ),
+    final confirmed = await AppDialog.destructive(
+      context,
+      title: l10n.confirmDeleteTitle,
+      content: l10n.confirmDeleteMessage,
+      destructiveLabel: l10n.delete,
     );
+    if (confirmed) {
+      await _deleteMarker();
+    }
   }
 
   Future<void> _deleteMarker() async {
@@ -196,17 +183,7 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
       }
     } catch (error) {
       if (mounted) {
-        final colorScheme = Theme.of(context).colorScheme;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.errorDeletingLocation(error.toString())),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: colorScheme.errorContainer,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
-            margin: const EdgeInsets.all(16),
-          ),
-        );
+        AppSnackbars.error(context, l10n.errorDeletingLocation(error.toString()));
       }
     } finally {
       if (mounted) {

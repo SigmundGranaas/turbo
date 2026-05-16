@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/app/tokens.dart';
 
 /// Base screen for all authentication-related screens (login, register, etc.)
 /// Handles common layout for both mobile and desktop views
@@ -32,7 +33,7 @@ class AuthBaseScreen extends ConsumerWidget {
       ),
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
       ),
       color: colorScheme.surface,
       child: SingleChildScrollView(
@@ -50,7 +51,7 @@ class AuthBaseScreen extends ConsumerWidget {
               margin: EdgeInsets.fromLTRB(24, isDesktopView ? 36 : 0, 24, 24),
               decoration: BoxDecoration(
                 color: headerBackgroundColor ?? colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(AppRadius.l),
               ),
               padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
               child: Column(
@@ -147,7 +148,7 @@ class AuthBaseScreen extends ConsumerWidget {
             child: SizedBox(
               width: 500,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
+                borderRadius: BorderRadius.circular(AppRadius.xl),
                 child: child,
               ),
             ),

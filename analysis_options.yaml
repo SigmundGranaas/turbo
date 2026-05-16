@@ -30,3 +30,11 @@ linter:
 analyzer:
   plugins:
     - custom_lint
+
+# Project-local lints from tools/turbo_lints. To temporarily silence one rule
+# for a file, use `// ignore_for_file: avoid_hardcoded_colors` (etc.).
+custom_lint:
+  rules:
+    - avoid_hardcoded_colors
+    - avoid_inline_textstyle
+    - allowed_border_radius
