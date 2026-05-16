@@ -179,6 +179,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                   focusedErrorBorder: InputBorder.none,
                   isDense: true, // Important for vertical alignment
                   contentPadding: EdgeInsets.zero, // Remove all internal padding
+                  filled: false,
                 ),
               ),
             ),
@@ -194,9 +195,9 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                 },
               )
             else
-            // This SizedBox keeps the TextField from expanding when the clear
-            // button disappears, preventing a layout jump.
-              const SizedBox(width: 48), // Default width of an IconButton
+              // This SizedBox keeps the TextField from expanding when the clear
+              // button disappears, preventing a layout jump.
+              const SizedBox(width: 48),
 
             const SizedBox(width: 8),
           ],
@@ -232,7 +233,11 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
             ),
             error: (err, stack) => Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Text('Error: $err', style: TextStyle(color: theme.colorScheme.error)),
+              child: Text(
+                'Error: $err',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: theme.colorScheme.error),
+              ),
             ),
             data: (suggestions) {
               if (suggestions.isEmpty) {

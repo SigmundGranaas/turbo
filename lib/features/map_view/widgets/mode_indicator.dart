@@ -8,6 +8,8 @@ import 'package:turbo/core/location/compass_mode_state.dart';
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
+import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
@@ -136,49 +138,43 @@ class _NavigationInfoChip extends ConsumerWidget {
       arrowRotation = bearingToTarget * (math.pi / 180);
     }
 
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      color: colorScheme.surfaceContainer,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Transform.rotate(
-              angle: arrowRotation,
-              child: Icon(
-                Icons.navigation,
-                color: colorScheme.onSurfaceVariant,
-              ),
+    return AppPill(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Transform.rotate(
+            angle: arrowRotation,
+            child: Icon(
+              Icons.navigation,
+              color: colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(width: 12),
-            Text(
-              distanceText,
-              style: textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w500,
-                color: colorScheme.onSurface,
-              ),
+          ),
+          const SizedBox(width: AppSpacing.m),
+          Text(
+            distanceText,
+            style: textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w500,
+              color: colorScheme.onSurface,
             ),
-            const SizedBox(width: 8),
-            Text(
-              directionText,
-              style: textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+          ),
+          const SizedBox(width: AppSpacing.s),
+          Text(
+            directionText,
+            style: textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => ref.read(navigationStateProvider.notifier).stopNavigation(),
-              behavior: HitTestBehavior.opaque,
-              child: Icon(
-                Icons.close,
-                size: 20,
-                color: colorScheme.onSurfaceVariant,
-              ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: () =>
+                ref.read(navigationStateProvider.notifier).stopNavigation(),
+            icon: Icon(
+              Icons.close,
+              size: 20,
+              color: colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -207,35 +203,28 @@ class _ModeChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      color: colorScheme.surfaceContainer,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: colorScheme.onSurfaceVariant),
-            const SizedBox(width: 12),
-            Text(
-              label,
-              style: textTheme.titleSmall?.copyWith(
-                color: colorScheme.onSurface,
-              ),
+    return AppPill(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: AppSpacing.m),
+          Text(
+            label,
+            style: textTheme.titleSmall?.copyWith(
+              color: colorScheme.onSurface,
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: onDismiss,
-              behavior: HitTestBehavior.opaque,
-              child: Icon(
-                Icons.close,
-                size: 20,
-                color: colorScheme.onSurfaceVariant,
-              ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: onDismiss,
+            icon: Icon(
+              Icons.close,
+              size: 20,
+              color: colorScheme.onSurfaceVariant,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

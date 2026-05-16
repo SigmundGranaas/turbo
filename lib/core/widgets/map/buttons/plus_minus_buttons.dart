@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/theme/tokens.dart';
 
 class PlusMinusButtons extends StatelessWidget {
   final Function() onZoomIn;
@@ -17,8 +18,8 @@ class PlusMinusButtons extends StatelessWidget {
     final spacingHeight = isMobile ? 4.0 : 8.0;
 
     return Card(
-      elevation: 4,
-      shape:  RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+      elevation: AppElevation.floating,
+      shape: const StadiumBorder(),
       color: Theme.of(context).colorScheme.surfaceContainer,
       child: Padding(
         padding: EdgeInsets.all(paddingSize),

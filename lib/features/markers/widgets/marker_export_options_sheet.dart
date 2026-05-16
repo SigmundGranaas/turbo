@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/app_list_card.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
 import '../data/marker_export_service.dart';
@@ -35,22 +37,37 @@ class MarkerExportOptionsSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _FormatCard(
+          AppListCard(
             icon: Icons.text_fields,
             title: l10n.shareAsText,
-            description: l10n.textDescription,
-            shareLabel: l10n.share,
-            onShare: () => _export(context, _MarkerExportAction.shareText),
+            subtitle: l10n.textDescription,
+            trailing: [
+              IconButton(
+                icon: const Icon(Icons.share),
+                tooltip: l10n.share,
+                onPressed: () => _export(context, _MarkerExportAction.shareText),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
-          _FormatCard(
+          AppListCard(
             icon: Icons.data_object,
             title: 'GeoJSON',
-            description: l10n.geoJsonDescription,
-            shareLabel: l10n.share,
-            saveLabel: l10n.saveToFile,
-            onShare: () => _export(context, _MarkerExportAction.shareGeoJson),
-            onSave: () => _export(context, _MarkerExportAction.saveGeoJson),
+            subtitle: l10n.geoJsonDescription,
+            trailing: [
+              IconButton(
+                icon: const Icon(Icons.share),
+                tooltip: l10n.share,
+                onPressed: () =>
+                    _export(context, _MarkerExportAction.shareGeoJson),
+              ),
+              IconButton(
+                icon: const Icon(Icons.save_alt),
+                tooltip: l10n.saveToFile,
+                onPressed: () =>
+                    _export(context, _MarkerExportAction.saveGeoJson),
+              ),
+            ],
           ),
         ],
       ),
@@ -62,9 +79,7 @@ class MarkerExportOptionsSheet extends StatelessWidget {
     _MarkerExportAction action,
   ) async {
     final l10n = context.l10n;
-    final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final colorScheme = Theme.of(context).colorScheme;
 
     try {
       final service = MarkerExportService();
@@ -78,106 +93,14 @@ class MarkerExportOptionsSheet extends StatelessWidget {
           if (result == null) return;
       }
 
+      if (!context.mounted) return;
       navigator.pop();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle,
-                  color: colorScheme.onPrimaryContainer, size: 20),
-              const SizedBox(width: 8),
-              Text(l10n.markerExported,
-                  style: TextStyle(color: colorScheme.onPrimaryContainer)),
-            ],
-          ),
-          backgroundColor: colorScheme.primaryContainer,
-          behavior: SnackBarBehavior.floating,
-          shape: const StadiumBorder(),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      AppSnackbars.success(context, l10n.markerExported);
     } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.errorExportingMarker(error.toString())),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: colorScheme.errorContainer,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      if (!context.mounted) return;
+      AppSnackbars.error(context, l10n.errorExportingMarker(error.toString()));
     }
   }
 }
 
 enum _MarkerExportAction { shareText, shareGeoJson, saveGeoJson }
-
-class _FormatCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String description;
-  final String shareLabel;
-  final String? saveLabel;
-  final VoidCallback onShare;
-  final VoidCallback? onSave;
-
-  const _FormatCard({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.shareLabel,
-    this.saveLabel,
-    required this.onShare,
-    this.onSave,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Icon(icon, size: 28, color: colorScheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: textTheme.titleSmall),
-                  const SizedBox(height: 2),
-                  Text(
-                    description,
-                    style: textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: onShare,
-              icon: const Icon(Icons.share),
-              tooltip: shareLabel,
-            ),
-            if (onSave != null)
-              IconButton(
-                onPressed: onSave,
-                icon: const Icon(Icons.save_alt),
-                tooltip: saveLabel,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}

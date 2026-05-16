@@ -16,6 +16,7 @@ import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:turbo/core/widgets/map/controls/bottom_controls.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
 import 'package:turbo/core/widgets/map/controls/go_back_button.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/map/controls/map_controls.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
@@ -166,15 +167,7 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
 
   void _handleFinish(MeasuringState measuringState, bool isSmoothing) async {
     if (measuringState.points.length < 2) {
-      final l10n = context.l10n;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.needMorePoints),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      AppSnackbars.info(context, context.l10n.needMorePoints);
       return;
     }
 

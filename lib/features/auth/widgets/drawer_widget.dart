@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/l10n/app_localizations.dart';
@@ -21,7 +22,7 @@ class AppDrawer extends ConsumerWidget {
 
     final List<Map<String, dynamic>> destinations = [
       {'key': 'map', 'icon': Icons.map_outlined, 'selectedIcon': Icons.map, 'label': l10n.map},
-      {'key': 'offline_maps', 'icon': Icons.download_for_offline_outlined, 'selectedIcon': Icons.download_for_offline, 'label': "Offline Maps"},
+      {'key': 'offline_maps', 'icon': Icons.download_for_offline_outlined, 'selectedIcon': Icons.download_for_offline, 'label': l10n.offlineMaps},
       {'key': 'settings', 'icon': Icons.settings_outlined, 'selectedIcon': Icons.settings, 'label': l10n.settings},
       if (isAuthenticated)
         {'key': 'profile', 'icon': Icons.account_circle_outlined, 'selectedIcon': Icons.account_circle, 'label': l10n.profile},
@@ -66,8 +67,7 @@ class AppDrawer extends ConsumerWidget {
                             isAuthenticated && email != null && email.isNotEmpty
                                 ? email[0].toUpperCase()
                                 : '?',
-                            style: TextStyle(
-                              fontSize: 16,
+                            style: textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                               color: colorScheme.onSurfaceVariant,
                             ),
@@ -178,28 +178,16 @@ class AppDrawer extends ConsumerWidget {
     );
   }
 
-  void _showLogoutDialog(BuildContext context, WidgetRef ref) {
-    final authNotifier = ref.read(authStateProvider.notifier);
+  Future<void> _showLogoutDialog(BuildContext context, WidgetRef ref) async {
     final l10n = context.l10n;
-    showDialog(
-      context: context,
-      builder: (BuildContext dialogContext) => AlertDialog(
-        title: Text(l10n.logout),
-        content: Text(l10n.areYouSureYouWantToLogout),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(l10n.cancel),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              authNotifier.logout();
-            },
-            child: Text(l10n.logout),
-          ),
-        ],
-      ),
+    final confirmed = await AppDialog.confirm(
+      context,
+      title: l10n.logout,
+      content: l10n.areYouSureYouWantToLogout,
+      confirmLabel: l10n.logout,
     );
+    if (confirmed) {
+      ref.read(authStateProvider.notifier).logout();
+    }
   }
 }

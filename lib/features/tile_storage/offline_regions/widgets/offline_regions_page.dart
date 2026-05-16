@@ -1,37 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
+import 'package:turbo/l10n/app_localizations.dart';
 
 class OfflineRegionsPage extends ConsumerWidget {
   const OfflineRegionsPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
     final offlineRegionsAsync = ref.watch(offlineRegionsProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Offline Maps"),
+        title: Text(l10n.offlineMaps),
       ),
       body: offlineRegionsAsync.when(
         data: (regions) {
           if (regions.isEmpty) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(AppSpacing.l),
                 child: Text(
-                  "No maps downloaded yet.\nTap the button below to download an area.",
+                  l10n.noOfflineMapsDownloaded,
                   textAlign: TextAlign.center,
-                  style: TextStyle(height: 1.5),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        height: 1.5,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                 ),
               ),
             );
           }
           return ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.s),
             itemCount: regions.length,
             itemBuilder: (context, index) {
               final region = regions[index];
@@ -56,7 +63,7 @@ class OfflineRegionsPage extends ConsumerWidget {
             ),
           ));
         },
-        label: const Text("Add offline region"),
+        label: Text(l10n.addOfflineRegion),
         icon: const Icon(Icons.download_outlined),
       ),
     );
@@ -79,7 +86,8 @@ class _RegionListTile extends ConsumerWidget {
     final hasErrors = failedTiles > 0;
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      margin: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.m, vertical: AppSpacing.xs + 2),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: _statusColor(context, region.status),
@@ -102,9 +110,9 @@ class _RegionListTile extends ConsumerWidget {
             if (hasErrors)
               Text(
                 "Warning: $failedTiles of ${region.totalTiles} tiles could not be downloaded.",
-                style: TextStyle(
-                    color: colorScheme.error,
-                    fontSize: Theme.of(context).textTheme.bodySmall?.fontSize),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.error,
+                    ),
               ),
             if (region.status == DownloadStatus.downloading)
               Padding(
@@ -123,34 +131,21 @@ class _RegionListTile extends ConsumerWidget {
     );
   }
 
-  void _confirmDelete(
-      BuildContext context,
-      OfflineRegionsNotifier notifier,
-      OfflineRegion region,
-      ) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text("Delete ${region.name}?"),
-        content:
-        const Text("This will remove the offline map data from your device."),
-        actions: [
-          TextButton(
-            child: const Text("Cancel"),
-            onPressed: () => Navigator.of(ctx).pop(),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
-            child: const Text("Delete"),
-            onPressed: () {
-              notifier.deleteRegion(region.id);
-              Navigator.of(ctx).pop();
-            },
-          ),
-        ],
-      ),
+  Future<void> _confirmDelete(
+    BuildContext context,
+    OfflineRegionsNotifier notifier,
+    OfflineRegion region,
+  ) async {
+    final l10n = context.l10n;
+    final confirmed = await AppDialog.destructive(
+      context,
+      title: l10n.deleteRegionTitle(region.name),
+      content: l10n.deleteRegionContent,
+      destructiveLabel: l10n.delete,
     );
+    if (confirmed) {
+      notifier.deleteRegion(region.id);
+    }
   }
 
   Color _statusColor(BuildContext context, DownloadStatus status) {
@@ -159,9 +154,9 @@ class _RegionListTile extends ConsumerWidget {
       case DownloadStatus.downloading:
         return colors.primaryContainer;
       case DownloadStatus.completed:
-        return Colors.green.shade100;
+        return colors.tertiaryContainer;
       case DownloadStatus.paused:
-        return Colors.grey.shade300;
+        return colors.surfaceContainerHigh;
       case DownloadStatus.failed:
         return colors.errorContainer;
       case DownloadStatus.enqueued:
@@ -171,6 +166,7 @@ class _RegionListTile extends ConsumerWidget {
 
   Widget _statusIcon(BuildContext context, OfflineRegion region) {
     final colors = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     switch (region.status) {
       case DownloadStatus.downloading:
         return Stack(
@@ -183,8 +179,7 @@ class _RegionListTile extends ConsumerWidget {
             ),
             Text(
               "${(region.progress * 100).toInt()}%",
-              style: TextStyle(
-                fontSize: 10,
+              style: textTheme.labelSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: colors.onPrimaryContainer,
               ),
@@ -192,12 +187,12 @@ class _RegionListTile extends ConsumerWidget {
           ],
         );
       case DownloadStatus.paused:
-        return Icon(Icons.pause, color: colors.onSecondaryContainer);
+        return Icon(Icons.pause, color: colors.onSurfaceVariant);
       case DownloadStatus.completed:
         final hasErrors = region.totalTiles > region.downloadedTiles;
         return hasErrors
             ? Icon(Icons.warning_amber, color: colors.error)
-            : Icon(Icons.check, color: Colors.green.shade800);
+            : Icon(Icons.check, color: colors.onTertiaryContainer);
       case DownloadStatus.failed:
         return Icon(Icons.error_outline, color: colors.onErrorContainer);
       case DownloadStatus.enqueued:

@@ -5,10 +5,10 @@ import 'package:turbo/l10n/app_localizations.dart';
 import './auth_divider.dart';
 import './auth_error_message.dart';
 import './auth_footer_link.dart';
-import './auth_text_field.dart';
 import './google_sign_in_button.dart';
 import './password_field.dart';
-import 'package:turbo/core/widgets/buttons/primary_button.dart';
+import 'package:turbo/core/widgets/app_button.dart';
+import 'package:turbo/core/widgets/app_text_field.dart';
 
 class LoginViewDesktop extends ConsumerWidget {
   final GlobalKey<FormState> formKey;
@@ -69,7 +69,7 @@ class LoginViewDesktop extends ConsumerWidget {
                 AuthErrorMessage(message: errorMessage),
                 const SizedBox(height: 24),
               ],
-              AuthTextField(
+              AppTextField(
                 controller: emailController,
                 label: l10n.email,
                 keyboardType: TextInputType.emailAddress,
@@ -92,10 +92,11 @@ class LoginViewDesktop extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              PrimaryButton(
+              AppButton.primary(
                 text: l10n.signIn,
                 onPressed: onLogin,
                 isLoading: isLoading,
+                fullWidth: true,
               ),
               const SizedBox(height: 24),
               AuthDivider(text: l10n.or),

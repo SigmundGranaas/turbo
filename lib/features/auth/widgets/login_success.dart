@@ -21,9 +21,9 @@ class _LoginSuccessPageState extends ConsumerState<LoginSuccessPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
+            Icon(
               Icons.check_circle_outline,
-              color: Colors.green,
+              color: Theme.of(context).colorScheme.primary,
               size: 80,
             ),
             const SizedBox(height: 24),

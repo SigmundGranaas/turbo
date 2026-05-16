@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
 import '../data/auth_providers.dart';
@@ -41,11 +42,10 @@ class UserProfileScreen extends ConsumerWidget {
                     backgroundColor: colorScheme.primaryContainer,
                     child: Text(
                       email != null && email.isNotEmpty ? email[0].toUpperCase() : '?',
-                      style: TextStyle(
-                        fontSize: 36,
-                        color: colorScheme.onPrimaryContainer,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                            color: colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -125,27 +125,17 @@ class UserProfileScreen extends ConsumerWidget {
     );
   }
 
-  void _showLogoutDialog(BuildContext context, AuthStateNotifier authNotifier) {
+  Future<void> _showLogoutDialog(
+      BuildContext context, AuthStateNotifier authNotifier) async {
     final l10n = context.l10n;
-    showDialog(
-      context: context,
-      builder: (BuildContext dialogContext) => AlertDialog(
-        title: Text(l10n.logout),
-        content: Text(l10n.areYouSureYouWantToLogout),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(l10n.cancel),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              authNotifier.logout();
-            },
-            child: Text(l10n.logout),
-          ),
-        ],
-      ),
+    final confirmed = await AppDialog.confirm(
+      context,
+      title: l10n.logout,
+      content: l10n.areYouSureYouWantToLogout,
+      confirmLabel: l10n.logout,
     );
+    if (confirmed) {
+      authNotifier.logout();
+    }
   }
 }
