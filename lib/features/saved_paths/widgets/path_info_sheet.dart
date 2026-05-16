@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
-import 'package:turbo/features/markers/data/icon_service.dart';
+import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import '../data/saved_path_repository.dart';
 import '../models/path_style.dart';

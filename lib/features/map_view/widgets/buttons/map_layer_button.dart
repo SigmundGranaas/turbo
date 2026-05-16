@@ -5,7 +5,7 @@ import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_section_header.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
-import 'package:turbo/features/saved_paths/data/data_visibility_provider.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_regions_api;
 import 'package:turbo/l10n/app_localizations.dart';

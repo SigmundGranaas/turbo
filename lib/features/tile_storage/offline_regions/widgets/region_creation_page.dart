@@ -6,7 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/core/theme/map_overlay_tokens.dart';
 import 'package:turbo/core/theme/tokens.dart';
 import 'package:turbo/core/widgets/app_button.dart';
-import 'package:turbo/features/map_view/widgets/map_base.dart';
+import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/widgets/download_details_sheet.dart';
 import 'package:turbo/core/widgets/map/controls/go_back_button.dart';

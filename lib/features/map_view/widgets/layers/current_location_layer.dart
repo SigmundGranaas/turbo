@@ -10,10 +10,9 @@ import 'package:path/path.dart' as p;
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/core/theme/location_marker_tokens.dart';
-import 'package:turbo/features/markers/data/icon_service.dart';
-import 'package:turbo/features/saved_paths/models/path_style.dart';
-import 'package:turbo/features/settings/data/settings_provider.dart';
-import 'package:turbo/features/settings/widgets/location_icon_picker_sheet.dart';
+import 'package:turbo/features/markers/api.dart' hide Marker;
+import 'package:turbo/features/saved_paths/api.dart';
+import 'package:turbo/features/settings/api.dart';
 
 class CurrentLocationLayer extends ConsumerWidget {
   const CurrentLocationLayer({super.key});

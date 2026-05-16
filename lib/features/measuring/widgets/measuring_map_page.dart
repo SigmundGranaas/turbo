@@ -10,7 +10,7 @@ import 'package:turbo/core/util/catmull_rom_spline.dart';
 import 'package:turbo/features/measuring/widgets/measuring_controls.dart';
 import 'package:turbo/features/measuring/widgets/measuring_line.dart';
 import 'package:turbo/features/measuring/widgets/measuring_markers.dart';
-import 'package:turbo/features/saved_paths/widgets/save_path_sheet.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:turbo/core/widgets/map/controls/bottom_controls.dart';
@@ -20,7 +20,7 @@ import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/map/controls/map_controls.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
-import '../../map_view/widgets/map_base.dart';
+import '../../map_view/api.dart';
 import '../../tile_providers/api.dart';
 import '../data/freehand_gesture_handler.dart';
 import '../util/edge_pan_handler.dart';

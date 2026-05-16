@@ -4,8 +4,8 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/color_circle.dart';
-import 'package:turbo/features/markers/widgets/icon_selection_page.dart';
-import 'package:turbo/features/saved_paths/models/path_style.dart';
+import 'package:turbo/features/markers/api.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 

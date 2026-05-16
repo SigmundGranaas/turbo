@@ -7,7 +7,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:turbo/features/tile_storage/tile_store/api.dart';
-import 'package:turbo/features/tile_storage/tile_store/utils/tile_provider_id_sanitizer.dart';
 
 // Internal provider for a singleton Dio instance. Can be overridden in tests.
 final dioProvider = Provider<Dio>((ref) {
@@ -22,9 +21,9 @@ final dioProvider = Provider<Dio>((ref) {
   return dio;
 });
 
-// Internal provider for the CacheService. The public API will use this.
+/// The public provider for [CacheService]. Resolves once the underlying
+/// [tileStoreServiceProvider] is ready.
 final cacheServiceProvider = FutureProvider<CacheService>((ref) async {
-  // Await the tileStoreProvider to get the concrete instance
   final tileStore = await ref.watch(tileStoreServiceProvider.future);
   return CacheService(
     tileStore: tileStore,

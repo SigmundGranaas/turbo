@@ -7,7 +7,7 @@ import 'package:turbo/core/theme/shadows.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
-import 'package:turbo/features/saved_paths/data/data_visibility_provider.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
 class ViewportMarkers extends ConsumerStatefulWidget {

@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:turbo/features/saved_paths/data/path_search_service.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 import 'kartverket_location_service.dart';
 import 'location_service.dart';
 import 'marker_search_service.dart';
