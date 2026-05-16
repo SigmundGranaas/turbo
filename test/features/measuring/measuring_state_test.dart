@@ -130,13 +130,17 @@ void main() {
   });
 
   group('MeasuringStateNotifier', () {
-    test('initial state has empty points and default flags', () {
+    ProviderContainer makeContainer() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
+      // Pin the autoDispose provider for the duration of the test.
+      container.listen(measuringStateProvider, (_, _) {});
+      return container;
+    }
 
-      final notifier =
-      container.read(measuringStateProvider.notifier);
-      final state = notifier.state;
+    test('initial state has empty points and default flags', () {
+      final container = makeContainer();
+      final state = container.read(measuringStateProvider);
 
       expect(state.points, isEmpty);
       expect(state.totalDistance, 0);
@@ -144,16 +148,90 @@ void main() {
     });
 
     test('toggle drawing correctly updates flag', () {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final notifier =
-      container.read(measuringStateProvider.notifier);
+      final container = makeContainer();
+      final notifier = container.read(measuringStateProvider.notifier);
 
-      expect(notifier.state.isDrawing, isFalse);
+      expect(container.read(measuringStateProvider).isDrawing, isFalse);
       notifier.toggleDrawing();
-      expect(notifier.state.isDrawing, isTrue);
+      expect(container.read(measuringStateProvider).isDrawing, isTrue);
       notifier.toggleDrawing();
-      expect(notifier.state.isDrawing, isFalse);
+      expect(container.read(measuringStateProvider).isDrawing, isFalse);
+    });
+
+    test('addPoint accumulates points and recalculates totalDistance', () {
+      final container = makeContainer();
+      final notifier = container.read(measuringStateProvider.notifier);
+
+      notifier.addPoint(const LatLng(59.9, 10.7));
+      expect(container.read(measuringStateProvider).points.length, 1);
+      expect(container.read(measuringStateProvider).totalDistance, 0);
+
+      notifier.addPoint(const LatLng(60.0, 10.7));
+      final twoPointState = container.read(measuringStateProvider);
+      expect(twoPointState.points.length, 2);
+      // Distance is calculated by the real DistanceCalculator (~11 km).
+      expect(twoPointState.totalDistance, greaterThan(10000));
+      expect(twoPointState.totalDistance, lessThan(12000));
+
+      notifier.addPoint(const LatLng(60.1, 10.7));
+      expect(container.read(measuringStateProvider).points.length, 3);
+      expect(
+          container.read(measuringStateProvider).totalDistance,
+          greaterThan(twoPointState.totalDistance));
+    });
+
+    test('undoLastPoint removes the most recent point and updates distance',
+        () {
+      final container = makeContainer();
+      final notifier = container.read(measuringStateProvider.notifier);
+
+      notifier.addPoint(const LatLng(59.9, 10.7));
+      notifier.addPoint(const LatLng(60.0, 10.7));
+      notifier.addPoint(const LatLng(60.1, 10.7));
+      final threeDistance =
+          container.read(measuringStateProvider).totalDistance;
+
+      notifier.undoLastPoint();
+      final twoState = container.read(measuringStateProvider);
+      expect(twoState.points.length, 2);
+      expect(twoState.totalDistance, lessThan(threeDistance));
+    });
+
+    test('undoLastPoint on empty state is a safe no-op', () {
+      final container = makeContainer();
+      final notifier = container.read(measuringStateProvider.notifier);
+
+      // Should not throw.
+      notifier.undoLastPoint();
+      expect(container.read(measuringStateProvider).points, isEmpty);
+      expect(container.read(measuringStateProvider).totalDistance, 0);
+    });
+
+    test('reset empties points and zeroes distance', () {
+      final container = makeContainer();
+      final notifier = container.read(measuringStateProvider.notifier);
+
+      notifier.addPoint(const LatLng(59.9, 10.7));
+      notifier.addPoint(const LatLng(60.0, 10.7));
+      expect(container.read(measuringStateProvider).points, hasLength(2));
+
+      notifier.reset();
+      final state = container.read(measuringStateProvider);
+      expect(state.points, isEmpty);
+      expect(state.totalDistance, 0);
+    });
+
+    test('reset does NOT change isDrawing — UX gap noted', () {
+      // **Light fix candidate.** A user who hits Reset mid-draw might expect
+      // drawing mode to also turn off. Today it persists. Test pins the
+      // current contract.
+      final container = makeContainer();
+      final notifier = container.read(measuringStateProvider.notifier);
+      notifier.toggleDrawing();
+      notifier.addPoint(const LatLng(59.9, 10.7));
+
+      notifier.reset();
+      expect(container.read(measuringStateProvider).isDrawing, isTrue);
     });
   });
 }
