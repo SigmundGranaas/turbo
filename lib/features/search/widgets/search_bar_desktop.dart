@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/markers/api.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import '../data/location_service.dart';
 import '../data/search_state_provider.dart';

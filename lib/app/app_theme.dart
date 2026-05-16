@@ -1,4 +1,16 @@
-import "package:flutter/material.dart";
+/// The application's theme.
+///
+/// Generated `MaterialTheme` with light/dark color schemes plus a small
+/// helper for building the text theme from a Google font.
+library;
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+TextTheme createTextTheme(BuildContext context, String fontString) {
+  TextTheme baseTextTheme = Theme.of(context).textTheme;
+  return GoogleFonts.getTextTheme(fontString, baseTextTheme);
+}
 
 class MaterialTheme {
   final TextTheme textTheme;

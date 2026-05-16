@@ -4,7 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/util/catmull_rom_spline.dart';
 import 'package:turbo/features/markers/api.dart' hide Marker;
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 import '../data/data_visibility_provider.dart';
 import '../data/saved_path_repository.dart';
 import '../data/viewport_saved_path_provider.dart';

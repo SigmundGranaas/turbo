@@ -12,7 +12,7 @@ import 'package:turbo/features/measuring/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_api;
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
 

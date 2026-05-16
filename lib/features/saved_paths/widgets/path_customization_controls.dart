@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:turbo/core/widgets/color_circle.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart';
 import '../models/path_style.dart';
 

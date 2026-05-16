@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/buttons/primary_button.dart';
 import 'package:turbo/core/widgets/buttons/secondary_button.dart';
 import '../models/saved_path.dart';

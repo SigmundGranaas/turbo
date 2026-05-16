@@ -9,7 +9,7 @@ import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
 import 'package:turbo/features/settings/widgets/location_icon_picker_sheet.dart';
-import 'package:turbo/l10n/app_localizations.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
