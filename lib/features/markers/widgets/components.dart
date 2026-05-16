@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/app_text_field.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import '../models/named_icon.dart';
 import 'icon_selection_page.dart';
@@ -36,12 +37,9 @@ class _LocationFormFieldsState extends State<LocationFormFields> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextFormField(
+        AppTextField(
           controller: widget.nameController,
-          decoration: InputDecoration(
-            labelText: l10n.name,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-          ),
+          label: l10n.name,
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
               return l10n.pleaseEnterName;
@@ -51,13 +49,10 @@ class _LocationFormFieldsState extends State<LocationFormFields> {
         ),
         const SizedBox(height: 16),
         if (_showDescription)
-          TextFormField(
+          AppTextField(
             controller: widget.descriptionController,
+            label: l10n.descriptionOptional,
             maxLines: 2,
-            decoration: InputDecoration(
-              labelText: l10n.descriptionOptional,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-            ),
           )
         else
           Align(

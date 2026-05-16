@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/theme/shadows.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
 import 'package:turbo/features/saved_paths/data/data_visibility_provider.dart';
@@ -142,51 +144,21 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
   void _showInfoSheet(
       BuildContext context, WidgetRef ref, marker_model.Marker marker) async {
     final l10n = context.l10n;
-    final messenger = ScaffoldMessenger.of(context);
-    final colorScheme = Theme.of(context).colorScheme;
     final result = await showModalBottomSheet<MarkerInfoResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => MarkerInfoSheet(marker: marker),
     );
-    if (!mounted) return;
+    if (!context.mounted) return;
     if (result != null) {
       ref.read(viewportMarkerNotifierProvider.notifier).invalidateCache();
       _updateViewportMarkers();
     }
     if (result == MarkerInfoResult.updated) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
-              const SizedBox(width: 8),
-              Text(l10n.markerUpdated, style: TextStyle(color: colorScheme.onPrimaryContainer)),
-            ],
-          ),
-          backgroundColor: colorScheme.primaryContainer,
-          behavior: SnackBarBehavior.floating,
-          shape: const StadiumBorder(),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      AppSnackbars.success(context, l10n.markerUpdated);
     } else if (result == MarkerInfoResult.deleted) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
-              const SizedBox(width: 8),
-              Text(l10n.markerDeleted, style: TextStyle(color: colorScheme.onPrimaryContainer)),
-            ],
-          ),
-          backgroundColor: colorScheme.primaryContainer,
-          behavior: SnackBarBehavior.floating,
-          shape: const StadiumBorder(),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      AppSnackbars.success(context, l10n.markerDeleted);
     }
   }
 }
@@ -254,13 +226,7 @@ class _MapMarkerWidgetState extends State<MapMarkerWidget> {
         decoration: BoxDecoration(
           color: colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(8.0 * widget.scale),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 4.0 * widget.scale,
-              offset: Offset(0, 2.0 * widget.scale),
-            ),
-          ],
+          boxShadow: AppShadows.mapOverlay,
         ),
         child: Text(
           widget.title,

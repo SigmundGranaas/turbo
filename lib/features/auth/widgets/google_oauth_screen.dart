@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
 
+import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import '../data/auth_providers.dart';
 
@@ -110,22 +111,18 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
               Text(
                 _message ?? l10n.processingGoogleLogin,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 18),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 24),
               if (_processingComplete && !_isProcessing) ...[
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pushReplacementNamed('/');
-                  },
-                  child: Text(l10n.continueToApp),
+                AppButton.primary(
+                  text: l10n.continueToApp,
+                  onPressed: () => Navigator.of(context).pushReplacementNamed('/'),
                 ),
               ] else if (!_isProcessing) ...[
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pushReplacementNamed('/login');
-                  },
-                  child: Text(l10n.returnToLogin),
+                AppButton.secondary(
+                  text: l10n.returnToLogin,
+                  onPressed: () => Navigator.of(context).pushReplacementNamed('/login'),
                 ),
               ],
             ],

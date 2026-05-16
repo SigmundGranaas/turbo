@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' hide CatmullRomSpline;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/util/catmull_rom_spline.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/data/icon_service.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 import '../data/data_visibility_provider.dart';
@@ -191,47 +192,17 @@ class _SavedPathsLayerState extends ConsumerState<SavedPathsLayer> {
 
   void _showInfoSheet(BuildContext context, SavedPath path) async {
     final l10n = context.l10n;
-    final messenger = ScaffoldMessenger.of(context);
-    final colorScheme = Theme.of(context).colorScheme;
     final result = await showModalBottomSheet<PathDetailResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => PathInfoSheet(path: path),
     );
-    if (!mounted) return;
+    if (!context.mounted) return;
     if (result == PathDetailResult.updated) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
-              const SizedBox(width: 8),
-              Text(l10n.pathUpdated, style: TextStyle(color: colorScheme.onPrimaryContainer)),
-            ],
-          ),
-          backgroundColor: colorScheme.primaryContainer,
-          behavior: SnackBarBehavior.floating,
-          shape: const StadiumBorder(),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      AppSnackbars.success(context, l10n.pathUpdated);
     } else if (result == PathDetailResult.deleted) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle, color: colorScheme.onPrimaryContainer, size: 20),
-              const SizedBox(width: 8),
-              Text(l10n.pathDeleted, style: TextStyle(color: colorScheme.onPrimaryContainer)),
-            ],
-          ),
-          backgroundColor: colorScheme.primaryContainer,
-          behavior: SnackBarBehavior.floating,
-          shape: const StadiumBorder(),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      AppSnackbars.success(context, l10n.pathDeleted);
     }
   }
 }

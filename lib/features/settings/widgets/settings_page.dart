@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:turbo/core/theme/location_marker_tokens.dart';
+import 'package:turbo/core/theme/tokens.dart';
+import 'package:turbo/core/widgets/app_grouped_card.dart';
+import 'package:turbo/core/widgets/app_section_header.dart';
 import 'package:turbo/core/widgets/color_circle.dart';
 import 'package:turbo/features/markers/data/icon_service.dart';
 import 'package:turbo/features/saved_paths/models/path_style.dart';
@@ -39,27 +43,27 @@ class SettingsPage extends ConsumerWidget {
   Widget _buildSettingsList(
       BuildContext context, WidgetRef ref, SettingsState settings, AppLocalizations l10n) {
     return ListView(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(AppSpacing.l),
       children: [
-        _buildSectionHeader(context, l10n.theme),
+        AppSectionHeader(l10n.theme),
         _buildThemeSelector(context, ref, settings.themeMode),
-        const SizedBox(height: 24),
-        _buildSectionHeader(context, l10n.language),
+        const SizedBox(height: AppSpacing.xl),
+        AppSectionHeader(l10n.language),
         _buildLanguageSelector(context, ref, settings.locale),
-        const SizedBox(height: 24),
-        _buildSectionHeader(context, l10n.drawing),
+        const SizedBox(height: AppSpacing.xl),
+        AppSectionHeader(l10n.drawing),
         _buildDrawingToggles(context, ref, settings, l10n),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.m),
         _buildSensitivitySelector(context, ref, settings.drawSensitivity, l10n),
-        const SizedBox(height: 24),
-        _buildSectionHeader(context, l10n.myLocation),
+        const SizedBox(height: AppSpacing.xl),
+        AppSectionHeader(l10n.myLocation),
         _buildLocationIconPicker(context, ref, settings),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.s),
         _buildLocationSizeSlider(context, ref, settings.locationMarkerSize, l10n),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.s),
         _buildHeadingArrowToggle(context, ref, settings.showHeadingArrow, l10n),
         if (settings.showHeadingArrow) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.s),
           _buildColorPickerRow(
             context,
             ref,
@@ -70,7 +74,7 @@ class SettingsPage extends ConsumerWidget {
             },
           ),
         ],
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.s),
         _buildColorPickerRow(
           context,
           ref,
@@ -86,10 +90,7 @@ class SettingsPage extends ConsumerWidget {
 
   Widget _buildDrawingToggles(
       BuildContext context, WidgetRef ref, SettingsState settings, AppLocalizations l10n) {
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return AppGroupedCard(
       child: Column(
         children: [
           SwitchListTile(
@@ -100,7 +101,7 @@ class SettingsPage extends ConsumerWidget {
               ref.read(settingsProvider.notifier).setSmoothLine(value);
             },
           ),
-          const Divider(height: 1, indent: 16, endIndent: 16),
+          const Divider(height: 1, indent: AppSpacing.l, endIndent: AppSpacing.l),
           SwitchListTile(
             title: Text(l10n.showPoints),
             secondary: const Icon(Icons.linear_scale_outlined, size: 20),
@@ -116,47 +117,29 @@ class SettingsPage extends ConsumerWidget {
 
   Widget _buildSensitivitySelector(
       BuildContext context, WidgetRef ref, double currentSensitivity, AppLocalizations l10n) {
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            const Icon(Icons.line_axis, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Slider(
-                value: currentSensitivity,
-                min: 5,
-                max: 50,
-                divisions: 9,
-                label: currentSensitivity.round().toString(),
-                onChanged: (value) {
-                  ref.read(settingsProvider.notifier).setDrawSensitivity(value);
-                },
-              ),
+    return AppGroupedCard(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l, vertical: AppSpacing.s),
+      child: Row(
+        children: [
+          const Icon(Icons.line_axis, size: 20),
+          const SizedBox(width: AppSpacing.m),
+          Expanded(
+            child: Slider(
+              value: currentSensitivity,
+              min: 5,
+              max: 50,
+              divisions: 9,
+              label: currentSensitivity.round().toString(),
+              onChanged: (value) {
+                ref.read(settingsProvider.notifier).setDrawSensitivity(value);
+              },
             ),
-            Text(
-              "${currentSensitivity.round()}px",
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader(BuildContext context, String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-          color: Theme.of(context).colorScheme.primary,
-          fontWeight: FontWeight.bold,
-        ),
+          ),
+          Text(
+            "${currentSensitivity.round()}px",
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ),
     );
   }
@@ -211,19 +194,16 @@ class SettingsPage extends ConsumerWidget {
   Widget _buildLocationIconPicker(
       BuildContext context, WidgetRef ref, SettingsState settings) {
     final l10n = AppLocalizations.of(context);
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return AppGroupedCard(
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadius.l),
         onTap: () => showLocationIconPickerSheet(context, ref),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l, vertical: AppSpacing.m),
           child: Row(
             children: [
               _buildCurrentIconPreview(context, settings),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.m),
               Expanded(
                 child: Text(
                   l10n.locationIcon,
@@ -295,7 +275,7 @@ class SettingsPage extends ConsumerWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.lightBlue.withValues(alpha: 0.3),
+        color: LocationMarkerTokens.defaultFill.withValues(alpha: 0.3),
       ),
       child: Center(
         child: Container(
@@ -303,8 +283,8 @@ class SettingsPage extends ConsumerWidget {
           height: size * 0.5,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.lightBlue,
-            border: Border.all(color: Colors.white, width: 2),
+            color: LocationMarkerTokens.defaultFill,
+            border: Border.all(color: LocationMarkerTokens.defaultOutline, width: 2),
           ),
         ),
       ),
@@ -313,77 +293,67 @@ class SettingsPage extends ConsumerWidget {
 
   Widget _buildLocationSizeSlider(
       BuildContext context, WidgetRef ref, double currentSize, AppLocalizations l10n) {
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          children: [
-            const Icon(Icons.open_in_full, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Slider(
-                value: currentSize,
-                min: 0.5,
-                max: 2.0,
-                divisions: 6,
-                label: '${currentSize.toStringAsFixed(1)}x',
-                onChanged: (value) {
-                  ref
-                      .read(settingsProvider.notifier)
-                      .setLocationMarkerSize(value);
-                },
-              ),
+    return AppGroupedCard(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l, vertical: AppSpacing.s),
+      child: Row(
+        children: [
+          const Icon(Icons.open_in_full, size: 20),
+          const SizedBox(width: AppSpacing.m),
+          Expanded(
+            child: Slider(
+              value: currentSize,
+              min: 0.5,
+              max: 2.0,
+              divisions: 6,
+              label: '${currentSize.toStringAsFixed(1)}x',
+              onChanged: (value) {
+                ref
+                    .read(settingsProvider.notifier)
+                    .setLocationMarkerSize(value);
+              },
             ),
-            Text(
-              '${currentSize.toStringAsFixed(1)}x',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
+          ),
+          Text(
+            '${currentSize.toStringAsFixed(1)}x',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildHeadingArrowToggle(
       BuildContext context, WidgetRef ref, bool showHeading, AppLocalizations l10n) {
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Row(
-          children: [
-            const Icon(Icons.navigation, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(l10n.showHeadingArrow,
-                      style: Theme.of(context).textTheme.bodyLarge),
-                  Text(l10n.headingArrowDescription,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
-                          )),
-                ],
-              ),
+    return AppGroupedCard(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l, vertical: AppSpacing.xs),
+      child: Row(
+        children: [
+          const Icon(Icons.navigation, size: 20),
+          const SizedBox(width: AppSpacing.m),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l10n.showHeadingArrow,
+                    style: Theme.of(context).textTheme.bodyLarge),
+                Text(l10n.headingArrowDescription,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
+                        )),
+              ],
             ),
-            Switch(
-              value: showHeading,
-              onChanged: (value) {
-                ref
-                    .read(settingsProvider.notifier)
-                    .setShowHeadingArrow(value);
-              },
-            ),
-          ],
-        ),
+          ),
+          Switch(
+            value: showHeading,
+            onChanged: (value) {
+              ref
+                  .read(settingsProvider.notifier)
+                  .setShowHeadingArrow(value);
+            },
+          ),
+        ],
       ),
     );
   }
@@ -398,40 +368,35 @@ class SettingsPage extends ConsumerWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context);
 
-    return Card(
-      elevation: 0,
-      color: colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: Theme.of(context).textTheme.bodyLarge),
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  ColorCircle(
-                    color: null,
-                    isSelected: selectedHex == null,
-                    onTap: () => onColorChanged(null),
-                    label: l10n.defaultColor,
-                    colorScheme: colorScheme,
-                  ),
-                  ...pathColorPalette.map((color) => ColorCircle(
-                        color: color,
-                        isSelected: selectedHex != null &&
-                            selectedHex == colorToHex(color),
-                        onTap: () => onColorChanged(color),
-                        colorScheme: colorScheme,
-                      )),
-                ],
-              ),
+    return AppGroupedCard(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l, vertical: AppSpacing.m),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodyLarge),
+          const SizedBox(height: AppSpacing.s),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                ColorCircle(
+                  color: null,
+                  isSelected: selectedHex == null,
+                  onTap: () => onColorChanged(null),
+                  label: l10n.defaultColor,
+                  colorScheme: colorScheme,
+                ),
+                ...pathColorPalette.map((color) => ColorCircle(
+                      color: color,
+                      isSelected: selectedHex != null &&
+                          selectedHex == colorToHex(color),
+                      onTap: () => onColorChanged(color),
+                      colorScheme: colorScheme,
+                    )),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

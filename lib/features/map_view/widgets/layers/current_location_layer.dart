@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/location_state.dart';
+import 'package:turbo/core/theme/location_marker_tokens.dart';
 import 'package:turbo/features/markers/data/icon_service.dart';
 import 'package:turbo/features/saved_paths/models/path_style.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
@@ -31,8 +32,8 @@ class CurrentLocationLayer extends ConsumerWidget {
         final showHeading = settings?.showHeadingArrow ?? false;
         final arrowColor = hexToColor(settings?.markerArrowColorHex) ??
             Theme.of(context).colorScheme.primary;
-        final outlineColor =
-            hexToColor(settings?.markerOutlineColorHex) ?? Colors.white;
+        final outlineColor = hexToColor(settings?.markerOutlineColorHex) ??
+            LocationMarkerTokens.defaultOutline;
 
         // Base marker size is 40; heading arrow adds extra space.
         final baseSize = 40.0 * scale;
@@ -93,8 +94,8 @@ class CurrentLocationMarker extends StatelessWidget {
     this.scale = 1.0,
     this.showHeading = false,
     this.headingDegrees,
-    this.arrowColor = Colors.lightBlue,
-    this.outlineColor = Colors.white,
+    this.arrowColor = LocationMarkerTokens.defaultFill,
+    this.outlineColor = LocationMarkerTokens.defaultOutline,
   });
 
   @override
@@ -147,7 +148,7 @@ class CurrentLocationMarker extends StatelessWidget {
           height: haloSize,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.lightBlue.withValues(alpha: 0.3),
+            color: LocationMarkerTokens.defaultFill.withValues(alpha: 0.3),
           ),
         ),
         Container(
@@ -155,7 +156,7 @@ class CurrentLocationMarker extends StatelessWidget {
           height: dotSize,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.lightBlue,
+            color: LocationMarkerTokens.defaultFill,
             border: Border.all(color: outlineColor, width: 2),
           ),
         ),
@@ -190,7 +191,7 @@ class CurrentLocationMarker extends StatelessWidget {
           child: Icon(
             namedIcon.icon,
             size: dotSize * 0.75,
-            color: Colors.white,
+            color: LocationMarkerTokens.defaultOutline,
           ),
         ),
       ],

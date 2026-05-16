@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/l10n/app_localizations.dart';
 
 import '../data/path_export_service.dart';
@@ -65,9 +66,7 @@ class ExportOptionsSheet extends StatelessWidget {
     required bool share,
   }) async {
     final l10n = context.l10n;
-    final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final colorScheme = Theme.of(context).colorScheme;
 
     try {
       final service = PathExportService();
@@ -77,36 +76,12 @@ class ExportOptionsSheet extends StatelessWidget {
         await service.saveToFile(path, format);
       }
 
+      if (!context.mounted) return;
       navigator.pop();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle,
-                  color: colorScheme.onPrimaryContainer, size: 20),
-              const SizedBox(width: 8),
-              Text(l10n.pathExported,
-                  style: TextStyle(color: colorScheme.onPrimaryContainer)),
-            ],
-          ),
-          backgroundColor: colorScheme.primaryContainer,
-          behavior: SnackBarBehavior.floating,
-          shape: const StadiumBorder(),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      AppSnackbars.success(context, l10n.pathExported);
     } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(l10n.errorExportingPath(error.toString())),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: colorScheme.errorContainer,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      if (!context.mounted) return;
+      AppSnackbars.error(context, l10n.errorExportingPath(error.toString()));
     }
   }
 }
