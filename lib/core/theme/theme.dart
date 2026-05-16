@@ -353,10 +353,14 @@ class MaterialTheme {
       scaffoldBackgroundColor: colorScheme.surface,
       canvasColor: colorScheme.surface,
 
-      // Surfaces
+      // Surfaces.
+      // Cards default to `surfaceContainerHigh`: two tones above `surface`
+      // (settings page bg) and one tone above `surfaceContainerLow` (sheet
+      // bg below). This keeps cards visually distinct from whatever they
+      // sit on, instead of receding into the parent.
       cardTheme: CardThemeData(
         elevation: AppElevation.flat,
-        color: colorScheme.surfaceContainerLow,
+        color: colorScheme.surfaceContainerHigh,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.l),
@@ -425,7 +429,7 @@ class MaterialTheme {
         ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: colorScheme.surfaceContainer,
+        backgroundColor: colorScheme.surfaceContainerLow,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
             top: Radius.circular(AppRadius.xl),
