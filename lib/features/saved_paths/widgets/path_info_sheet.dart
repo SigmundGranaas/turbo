@@ -267,6 +267,8 @@ class _PathCollectionChipStrip extends ConsumerWidget {
                     ),
                     label: Text(l10n.addToCollection),
                     onPressed: onTap,
+                    shape: const StadiumBorder(),
+                    side: BorderSide(color: colorScheme.outlineVariant),
                     visualDensity: VisualDensity.compact,
                   )
                 else ...[
@@ -283,6 +285,8 @@ class _PathCollectionChipStrip extends ConsumerWidget {
                           ),
                           label: Text(byUuid[id]!.name),
                           onPressed: onTap,
+                          shape: const StadiumBorder(),
+                          side: BorderSide(color: colorScheme.outlineVariant),
                           visualDensity: VisualDensity.compact,
                         ),
                       ),

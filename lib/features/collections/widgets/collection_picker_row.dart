@@ -87,6 +87,12 @@ class CollectionPickerRow extends ConsumerWidget {
                                         colorScheme.primary,
                                   ),
                                   label: Text(byUuid[id]!.name),
+                                  shape: const StadiumBorder(),
+                                  side: BorderSide(color: colorScheme.outlineVariant),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
                                   visualDensity: VisualDensity.compact,
                                   materialTapTargetSize:
                                       MaterialTapTargetSize.shrinkWrap,
