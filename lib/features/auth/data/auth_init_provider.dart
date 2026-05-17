@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:app_links/app_links.dart';
+import 'package:logging/logging.dart';
 
 import 'auth_providers.dart';
+
+final _log = Logger('AuthInit');
 
 // This provider is responsible for handling SUBSEQUENT deep links after app is running.
 // The initial deep link is handled by AuthStateNotifier.initializeAndHandleInitialLink().
@@ -23,16 +26,12 @@ final linkStreamHandlerProvider = Provider<void>((ref) {
     // Cancel the subscription when the provider is disposed
     ref.onDispose(() => sub.cancel());
   } catch (e) {
-    if (kDebugMode) {
-      print('Error setting up link stream: $e');
-    }
+    _log.warning('Error setting up link stream', e);
   }
 });
 
 void handleDeepLinkForProvider(String link, AuthStateNotifier authNotifier) {
-  if (kDebugMode) {
-    print('Deep Link Handler: Got deep link: $link');
-  }
+  _log.fine(() => 'Got deep link: $link');
   // The native OAuth flow no longer uses deep links for the callback.
   // The previous check for `/oauth2callback` has been removed.
   // This function can be used for other deep link features in the future.
