@@ -84,13 +84,6 @@ class LoginViewDesktop extends ConsumerWidget {
                     ? l10n.pleaseEnterPassword
                     : null,
               ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () {},
-                  child: Text(l10n.forgotPassword),
-                ),
-              ),
               const SizedBox(height: 24),
               AppButton.primary(
                 text: l10n.signIn,

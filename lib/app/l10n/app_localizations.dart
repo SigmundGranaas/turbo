@@ -50,7 +50,6 @@ abstract class AppLocalizations {
   String get pleaseEnterValidEmail;
   String get pleaseEnterPassword;
   String passwordTooShort(int minLength);
-  String get forgotPassword;
   String get dontHaveAnAccount;
   String get createAccount;
   String get alreadyHaveAnAccount;
@@ -339,7 +338,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get pleaseEnterValidEmail => 'Please enter a valid email';
   @override String get pleaseEnterPassword => 'Please enter your password';
   @override String passwordTooShort(int minLength) => 'Password must be at least $minLength characters';
-  @override String get forgotPassword => 'Forgot Password?';
   @override String get dontHaveAnAccount => "Don't have an account?";
   @override String get createAccount => 'Create account';
   @override String get alreadyHaveAnAccount => 'Already have an account?';
@@ -606,7 +604,6 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get pleaseEnterValidEmail => 'Vennligst skriv inn en gyldig e-post';
   @override String get pleaseEnterPassword => 'Vennligst skriv inn ditt passord';
   @override String passwordTooShort(int minLength) => 'Passordet må være minst $minLength tegn';
-  @override String get forgotPassword => 'Glemt passord?';
   @override String get dontHaveAnAccount => 'Har du ikke en konto?';
   @override String get createAccount => 'Opprett konto';
   @override String get alreadyHaveAnAccount => 'Har du allerede en konto?';
