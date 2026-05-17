@@ -3,12 +3,15 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'package:turbo/app/shadows.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+
+final _log = Logger('ViewportMarkers');
 
 class ViewportMarkers extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -135,7 +138,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
         return const SizedBox.shrink();
       },
       error: (error, stack) {
-        debugPrint("Error loading viewport markers: $error\n$stack");
+        _log.warning('Error loading viewport markers', error, stack);
         return const SizedBox.shrink();
       },
     );

@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'package:app_links/app_links.dart';
+import 'package:logging/logging.dart';
 import 'package:turbo/core/api/api_client.dart';
 import 'auth_init_provider.dart';
 import 'auth_service.dart';
+
+final _log = Logger('AuthState');
 
 // The AuthStateNotifier is now the root. It creates and configures its own client.
 final authStateProvider = NotifierProvider<AuthStateNotifier, AuthState>(() {
@@ -107,7 +110,7 @@ class AuthStateNotifier extends Notifier<AuthState> {
             handleDeepLinkForProvider(initialUri.toString(), this);
           }
         } catch (e) {
-          if (kDebugMode) print('AuthStateNotifier: Background initial link check failed/timed out: $e');
+          _log.warning('Background initial link check failed/timed out', e);
         }
       }
 
@@ -115,7 +118,7 @@ class AuthStateNotifier extends Notifier<AuthState> {
       final isLoggedIn = await _authService.isLoggedIn().timeout(
         const Duration(seconds: 5),
         onTimeout: () {
-          if (kDebugMode) print('AuthStateNotifier: Session check timed out, continuing as unauthenticated.');
+          _log.warning('Session check timed out, continuing as unauthenticated');
           return false;
         },
       );
@@ -135,7 +138,7 @@ class AuthStateNotifier extends Notifier<AuthState> {
         _updateState(state.copyWith(status: AuthStatus.unauthenticated, isInitializing: false));
       }
     } catch (e) {
-      if (kDebugMode) print('AuthStateNotifier: Background initialization error: $e');
+      _log.warning('Background initialization error', e);
       _updateState(state.copyWith(isInitializing: false));
     }
   }
@@ -184,7 +187,7 @@ class AuthStateNotifier extends Notifier<AuthState> {
 
   Future<void> processOAuthCallback(String code) async {
     if (kIsWeb) {
-      if (kDebugMode) print("processOAuthCallback called on web, which is unexpected.");
+      _log.warning('processOAuthCallback called on web, which is unexpected');
       return;
     }
     if (state.status == AuthStatus.authenticated) return;
@@ -230,9 +233,7 @@ class AuthStateNotifier extends Notifier<AuthState> {
     try {
       await _authService.logout();
     } catch (e) {
-      if (kDebugMode) {
-        print("Logout API call failed: $e. Logging out locally.");
-      }
+      _log.warning('Logout API call failed; logging out locally', e);
     } finally {
       _updateState(AuthState(status: AuthStatus.unauthenticated));
     }

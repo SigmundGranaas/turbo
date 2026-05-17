@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import '../data/location_service.dart';
 import '../data/search_state_provider.dart';
+
+final _log = Logger('MobileSearch');
 
 class MobileSearchBar extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -48,7 +51,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   }
 
   void _onFocusChanged() {
-    debugPrint("[MobileSearch] Focus changed. hasFocus: ${_focusNode.hasFocus}");
+    _log.fine(() => 'Focus changed. hasFocus: ${_focusNode.hasFocus}');
     if (_focusNode.hasFocus) {
       _showOverlay();
     } else {
@@ -67,7 +70,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   void _onTextChanged() {
     // Rebuild to show/hide the clear button
     setState(() {});
-    debugPrint("[MobileSearch] Text changed: ${_textController.text}");
+    _log.fine(() => 'Text changed: ${_textController.text}');
 
     if (_focusNode.hasFocus && _textController.text.isNotEmpty) {
       ref.read(searchProvider.notifier).search(_textController.text);
@@ -80,7 +83,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
 
   void _showOverlay() {
     if (_overlayEntry != null) return;
-    debugPrint("[MobileSearch] Showing overlay.");
+    _log.fine('Showing overlay');
 
     final overlay = Overlay.of(context);
     final renderBox = context.findRenderObject() as RenderBox;
@@ -102,13 +105,13 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
 
   void _removeOverlay() {
     if (_overlayEntry == null) return;
-    debugPrint("[MobileSearch] Removing overlay.");
+    _log.fine('Removing overlay');
     _overlayEntry?.remove();
     _overlayEntry = null;
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
-    debugPrint("[MobileSearch] Tapped on suggestion: ${suggestion.title}");
+    _log.fine(() => 'Tapped on suggestion: ${suggestion.title}');
     _textController.clear();
     // Unfocusing will trigger our _onFocusChanged listener, which will
     // then handle closing the overlay after a delay.
@@ -190,7 +193,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
               IconButton(
                 icon: const Icon(Icons.clear),
                 onPressed: () {
-                  debugPrint("[MobileSearch] Clear button pressed");
+                  _log.fine('Clear button pressed');
                   _textController.clear();
                 },
               )
@@ -278,8 +281,8 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                           maxLines: 1, overflow: TextOverflow.ellipsis)
                           : null,
                       onTap: () {
-                        debugPrint(
-                            "[MobileSearch] ListTile tapped for ${suggestion.title}");
+                        _log.fine(() =>
+                            'ListTile tapped for ${suggestion.title}');
                         _onSuggestionSelected(suggestion);
                       },
                     );

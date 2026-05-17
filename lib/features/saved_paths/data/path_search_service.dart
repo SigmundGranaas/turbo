@@ -1,7 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'package:turbo/features/search/api.dart';
 import 'saved_path_repository.dart';
+
+final _log = Logger('PathSearchService');
 
 final pathSearchServiceProvider = Provider<PathSearchService>((ref) {
   return PathSearchService(ref);
@@ -29,9 +31,7 @@ class PathSearchService extends LocationService {
         source: 'saved_path',
       )).toList();
     } catch (e) {
-      if (kDebugMode) {
-        print("Error searching saved paths: $e");
-      }
+      _log.warning('Error searching saved paths', e);
       return [];
     }
   }
