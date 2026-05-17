@@ -63,6 +63,16 @@ Future<Database> createMarkersDb() async {
       created_at TEXT NOT NULL
     )
   ''');
+  await db.execute('''
+    CREATE TABLE $markerPhotosTable(
+      uuid TEXT PRIMARY KEY,
+      marker_uuid TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  ''');
+  await db.execute(
+      'CREATE INDEX idx_marker_photos_marker ON $markerPhotosTable(marker_uuid)');
   return db;
 }
 

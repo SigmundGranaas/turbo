@@ -1,5 +1,11 @@
 export 'models/marker.dart' show Marker;
+export 'models/marker_photo.dart' show MarkerPhoto;
 export 'models/named_icon.dart' show NamedIcon;
+export 'data/marker_photo_repository.dart'
+    show markerPhotosProvider, markerPhotoServiceProvider, MarkerPhotoService,
+        photoStorageServiceProvider, localMarkerPhotoDataStoreProvider;
+export 'data/marker_photo_data_store.dart' show MarkerPhotoDataStore;
+export 'data/photo_storage_service.dart' show PhotoStorageService;
 export 'data/location_repository.dart' show locationRepositoryProvider, LocationRepository,
     localMarkerDataStoreProvider, apiLocationServiceProvider;
 export 'data/viewport_marker_provider.dart' show viewportMarkerNotifierProvider, ViewportMarkerNotifier;

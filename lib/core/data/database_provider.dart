@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 6;
+const int _dbVersion = 7;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -17,6 +17,7 @@ const String pendingDeletesTable = 'pending_deletes';
 const String savedPathsTable = 'saved_paths';
 const String collectionsTable = 'collections';
 const String collectionItemsTable = 'collection_items';
+const String markerPhotosTable = 'marker_photos';
 
 
 /// A provider that creates and holds the single instance of the app's database.
@@ -170,6 +171,19 @@ Future<void> _createDb(Database db, int version) async {
   ''');
   batch.execute('CREATE INDEX idx_collection_items_item ON $collectionItemsTable(item_type, item_uuid)');
 
+  // Marker photos (v7).
+  batch.execute('''
+    CREATE TABLE $markerPhotosTable(
+      uuid TEXT PRIMARY KEY,
+      marker_uuid TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (marker_uuid) REFERENCES $markersTable(uuid) ON DELETE CASCADE
+    )
+  ''');
+  batch.execute(
+      'CREATE INDEX idx_marker_photos_marker ON $markerPhotosTable(marker_uuid)');
+
   await batch.commit(noResult: true);
 }
 
@@ -186,8 +200,25 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV4ToV5(db);
       case 6:
         await _migrateV5ToV6(db);
+      case 7:
+        await _migrateV6ToV7(db);
     }
   }
+}
+
+Future<void> _migrateV6ToV7(Database db) async {
+  // Idempotent — sqlite ignores CREATE TABLE IF NOT EXISTS on existing tables.
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $markerPhotosTable(
+      uuid TEXT PRIMARY KEY,
+      marker_uuid TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (marker_uuid) REFERENCES $markersTable(uuid) ON DELETE CASCADE
+    )
+  ''');
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_marker_photos_marker ON $markerPhotosTable(marker_uuid)');
 }
 
 Future<void> _migrateV5ToV6(Database db) async {

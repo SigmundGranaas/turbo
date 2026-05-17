@@ -14,6 +14,11 @@ export 'widgets/saved_paths_layer.dart' show SavedPathsLayer;
 export 'data/viewport_saved_path_provider.dart' show viewportSavedPathNotifierProvider;
 export 'data/gpx_serializer.dart' show savedPathToGpx;
 export 'data/geojson_serializer.dart' show savedPathToGeoJson;
+export 'data/gpx_parser.dart' show parseGpx;
+export 'data/geojson_parser.dart' show parseGeoJson;
+export 'data/kml_parser.dart' show parseKml;
+export 'data/path_importer.dart'
+    show importPathContent, ImportFormat, PathImportException;
 export 'data/path_export_service.dart' show PathExportService, ExportFormat;
 export 'widgets/export_options_sheet.dart' show ExportOptionsSheet;
 export 'widgets/path_info_sheet.dart' show PathInfoSheet;

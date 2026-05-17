@@ -53,5 +53,9 @@
 	<array>
 		<string>location</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Turkart uses the camera so you can attach photos from your hike to a marker.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Turkart needs access to your photo library so you can attach photos to your markers.</string>
 </dict>
 </plist>

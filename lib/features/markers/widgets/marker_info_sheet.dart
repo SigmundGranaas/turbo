@@ -1,5 +1,9 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
@@ -9,7 +13,9 @@ import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/saved_paths/api.dart' show hexToColor;
 import '../data/icon_service.dart';
 import '../data/location_repository.dart';
+import '../data/marker_photo_repository.dart';
 import '../models/marker.dart';
+import '../models/marker_photo.dart';
 import 'edit_location_sheet.dart';
 import 'marker_export_options_sheet.dart';
 
@@ -110,6 +116,8 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             ),
           ],
 
+          _PhotoStrip(markerUuid: _marker.uuid),
+
           const SizedBox(height: 12),
           _CollectionChipStrip(
             itemRef: CollectionItemRef(
@@ -134,6 +142,12 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
                 label: l10n.edit,
                 onTap: _openEdit,
               ),
+              if (!kIsWeb)
+                ActionButton(
+                  icon: Icons.add_a_photo_outlined,
+                  label: 'Photo',
+                  onTap: () => _addPhoto(context),
+                ),
               ActionButton(
                 icon: Icons.ios_share_outlined,
                 label: l10n.export,
@@ -149,6 +163,38 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
         ],
       ),
     );
+  }
+
+  Future<void> _addPhoto(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final choice = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(children: [
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Choose from gallery'),
+            onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_camera_outlined),
+            title: const Text('Take a photo'),
+            onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+          ),
+        ]),
+      ),
+    );
+    if (choice == null) return;
+    try {
+      final xfile = await ImagePicker().pickImage(
+        source: choice, maxWidth: 2048, imageQuality: 85);
+      if (xfile == null) return;
+      final svc = await ref.read(markerPhotoServiceProvider.future);
+      await svc.addPhoto(markerUuid: _marker.uuid, source: File(xfile.path));
+    } catch (e) {
+      messenger?.showSnackBar(
+          SnackBar(content: Text('Could not attach photo: $e')));
+    }
   }
 
   Future<void> _openAddToCollection() async {
@@ -321,6 +367,108 @@ class _CollectionChipStrip extends ConsumerWidget {
         );
       },
       orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+/// Horizontal thumbnail strip + "add photo" trailing button. Tapping a
+/// thumbnail opens a fullscreen viewer with a delete action.
+class _PhotoStrip extends ConsumerWidget {
+  final String markerUuid;
+  const _PhotoStrip({required this.markerUuid});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (kIsWeb) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final async = ref.watch(markerPhotosProvider(markerUuid));
+
+    return async.when(
+      loading: () => const SizedBox.shrink(),
+      error: (e, _) => Text('Photo error: $e', style: theme.textTheme.bodySmall),
+      data: (photos) {
+        if (photos.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: SizedBox(
+            height: 72,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: photos.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, i) => _PhotoThumb(photo: photos[i]),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PhotoThumb extends ConsumerWidget {
+  final MarkerPhoto photo;
+  const _PhotoThumb({required this.photo});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return GestureDetector(
+      onTap: () => _openViewer(context, ref),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.file(
+          File(photo.filePath),
+          width: 80,
+          height: 80,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => Container(
+            width: 80,
+            height: 80,
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: const Icon(Icons.broken_image_outlined),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openViewer(BuildContext context, WidgetRef ref) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _PhotoViewer(photo: photo),
+      ),
+    );
+    if (result == true) {
+      final svc = await ref.read(markerPhotoServiceProvider.future);
+      await svc.removePhoto(photo.uuid);
+    }
+  }
+}
+
+class _PhotoViewer extends StatelessWidget {
+  final MarkerPhoto photo;
+  const _PhotoViewer({required this.photo});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            tooltip: 'Delete',
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          child: Image.file(File(photo.filePath)),
+        ),
+      ),
     );
   }
 }

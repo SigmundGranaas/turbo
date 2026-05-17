@@ -1,9 +1,14 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/api.dart' show IconService;
 
+import '../data/path_importer.dart';
 import '../data/saved_path_repository.dart';
 import '../models/path_style.dart';
 import '../models/saved_path.dart';
@@ -21,7 +26,16 @@ class PathsListPage extends ConsumerWidget {
     final iconService = IconService();
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.allPaths)),
+      appBar: AppBar(
+        title: Text(l10n.allPaths),
+        actions: [
+          IconButton(
+            tooltip: 'Import GPX / GeoJSON / KML',
+            icon: const Icon(Icons.file_download_outlined),
+            onPressed: () => _importPaths(context, ref),
+          ),
+        ],
+      ),
       body: asyncPaths.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('$e')),
@@ -64,6 +78,74 @@ class PathsListPage extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  Future<void> _importPaths(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    FilePickerResult? picked;
+    try {
+      picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['gpx', 'geojson', 'json', 'kml'],
+        withData: kIsWeb,
+      );
+    } catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text('Could not open picker: $e')));
+      return;
+    }
+    if (picked == null || picked.files.isEmpty) return;
+
+    final file = picked.files.single;
+    String content;
+    try {
+      if (kIsWeb) {
+        final bytes = file.bytes;
+        if (bytes == null) {
+          messenger?.showSnackBar(
+              const SnackBar(content: Text('Failed to read selected file.')));
+          return;
+        }
+        content = String.fromCharCodes(bytes);
+      } else {
+        final path = file.path;
+        if (path == null) {
+          messenger?.showSnackBar(
+              const SnackBar(content: Text('Failed to read selected file.')));
+          return;
+        }
+        content = await File(path).readAsString();
+      }
+    } catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text('Failed to read file: $e')));
+      return;
+    }
+
+    List<SavedPath> parsed;
+    try {
+      parsed = importPathContent(content, filename: file.name);
+    } on PathImportException catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    } catch (e) {
+      messenger?.showSnackBar(SnackBar(content: Text('Import failed: $e')));
+      return;
+    }
+
+    if (parsed.isEmpty) {
+      messenger?.showSnackBar(
+          const SnackBar(content: Text('No tracks found in the file.')));
+      return;
+    }
+
+    final repo = ref.read(savedPathRepositoryProvider.notifier);
+    for (final p in parsed) {
+      await repo.addPath(p);
+    }
+    messenger?.showSnackBar(SnackBar(
+      content: Text(parsed.length == 1
+          ? 'Imported "${parsed.first.title}".'
+          : 'Imported ${parsed.length} tracks.'),
+    ));
   }
 
   Future<void> _openInfo(BuildContext context, SavedPath path) async {
