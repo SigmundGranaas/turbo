@@ -7,7 +7,7 @@ import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 
 /// Shows the "Add custom map" dialog. Returns true if the user saved a
 /// provider, false if they cancelled.
-Future<bool> showAddCustomMapDialog(BuildContext context, WidgetRef ref) async {
+Future<bool> showAddCustomMapDialog(BuildContext context) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (_) => const _AddCustomMapDialog(),
@@ -37,7 +37,6 @@ class _AddCustomMapDialogState extends ConsumerState<_AddCustomMapDialog> {
   }
 
   Future<void> _submit() async {
-    final l10n = context.l10n;
     if (!_formKey.currentState!.validate()) return;
     final provider = CustomTileProvider(
       id: 'custom_${DateTime.now().microsecondsSinceEpoch}',
@@ -47,11 +46,7 @@ class _AddCustomMapDialogState extends ConsumerState<_AddCustomMapDialog> {
     );
     await ref.read(customProviderStoreProvider.notifier).add(provider);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     Navigator.of(context).pop(true);
-    // Defensive: re-read l10n in case anyone surfaces a SnackBar elsewhere.
-    // ignore: unused_local_variable
-    final _ = l10n;
   }
 
   @override

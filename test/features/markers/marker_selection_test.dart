@@ -65,7 +65,7 @@ void main() {
     test('clearing an already-empty selection does not notify a new state',
         () {
       var notifyCount = 0;
-      container.listen(markerSelectionProvider, (_, __) => notifyCount++);
+      container.listen(markerSelectionProvider, (_, _) => notifyCount++);
 
       notifier.clear();
       // Listener fires once for the initial subscription cycle on some

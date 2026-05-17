@@ -409,8 +409,9 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   }
 
   /// Records the path style the user just chose so the next save sheet
-  /// can pre-fill the same values. Pass nulls to leave a slot unchanged
-  /// (use [clearLastPathStyle] to wipe everything).
+  /// can pre-fill the same values. Each argument is overwritten on every
+  /// call — passing null clears the matching slot rather than leaving the
+  /// previous value in place.
   Future<void> setLastPathStyle({
     String? colorHex,
     String? iconKey,

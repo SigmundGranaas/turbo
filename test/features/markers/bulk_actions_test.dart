@@ -102,7 +102,7 @@ void main() {
 
       final dropIds = before
           .where((m) => m.title.startsWith('Drop'))
-          .map((m) => m.uuid!)
+          .map((m) => m.uuid)
           .toList();
       await repo.deleteMarkers(dropIds);
 
@@ -137,7 +137,7 @@ void main() {
 
       // Simulate user multi-selecting A + C.
       final selection = container.read(markerSelectionProvider.notifier);
-      final byTitle = {for (final m in markers) m.title: m.uuid!};
+      final byTitle = {for (final m in markers) m.title: m.uuid};
       selection.toggle(byTitle['A']!);
       selection.toggle(byTitle['C']!);
       expect(container.read(markerSelectionProvider), hasLength(2));
