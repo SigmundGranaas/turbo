@@ -77,6 +77,7 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
                 IconButton(
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
+                  tooltip: l10n.close,
                 ),
               ],
             ),

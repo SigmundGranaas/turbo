@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/core/connectivity/connectivity_provider.dart';
 import 'package:turbo/features/auth/api.dart';
+import 'package:turbo/features/settings/api.dart';
 import 'api_location_service.dart';
 import '../models/marker.dart';
 import 'location_repository.dart';
@@ -15,7 +16,6 @@ String _boundsToCacheKey(fm.LatLngBounds bounds, double zoom) {
 
 final _viewportCache = <String, List<Marker>>{};
 final _viewportCacheTimestamps = <String, DateTime>{};
-const _cacheDuration = Duration(seconds: 30); // Shorter cache for viewport data
 
 final viewportMarkerNotifierProvider = NotifierProvider.autoDispose<ViewportMarkerNotifier, AsyncValue<List<Marker>>>(() {
   return ViewportMarkerNotifier();
@@ -49,8 +49,11 @@ class ViewportMarkerNotifier extends Notifier<AsyncValue<List<Marker>>> {
 
       final cacheKey = _boundsToCacheKey(bounds, currentZoom);
       final cachedTime = _viewportCacheTimestamps[cacheKey];
+      final ttlSeconds = ref.read(settingsProvider).value
+              ?.markerCacheTtlSeconds ?? 30;
+      final ttl = Duration(seconds: ttlSeconds);
 
-      if (cachedTime != null && DateTime.now().difference(cachedTime) < _cacheDuration) {
+      if (cachedTime != null && DateTime.now().difference(cachedTime) < ttl) {
         final cachedMarkers = _viewportCache[cacheKey];
         if (cachedMarkers != null) {
           state = AsyncValue.data(cachedMarkers);

@@ -1,12 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'custom_provider_store.dart';
 import 'layer_preference_service.dart';
 import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/google_sattelite.dart';
 import 'package:turbo/features/tile_providers/data/providers/norges_kart_topo.dart';
 import 'package:turbo/features/tile_providers/data/providers/offline_region_provider_config.dart';
 import 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart';
+import 'package:turbo/features/tile_providers/models/custom_tile_provider.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 import 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
 import 'package:turbo/features/tile_storage/cached_tiles/api.dart';
@@ -26,9 +28,21 @@ class TileRegistry extends Notifier<TileRegistryState> {
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),
     ];
-    final initialProviders = {
+    final initialProviders = <String, TileProviderConfig>{
       for (var p in builtInProviders) p.id: p,
     };
+
+    // Merge any already-loaded custom providers without re-subscribing
+    // (ref.watch would force build() to re-run on every state transition of
+    // the customs notifier — including its loading -> data flip — wiping
+    // accumulated state). ref.listen merges future changes in place.
+    final customsAsync = ref.read(customProviderStoreProvider);
+    for (final c in customsAsync.value ?? const <CustomTileProvider>[]) {
+      initialProviders[c.id] = CustomTileProviderConfig(c);
+    }
+    ref.listen(customProviderStoreProvider, (prev, next) {
+      _syncCustomProviders(next.value ?? const <CustomTileProvider>[]);
+    });
 
     // --- 2. Load preferences ---
     final preferencesFuture =
@@ -68,6 +82,26 @@ class TileRegistry extends Notifier<TileRegistryState> {
       activeLocalIds: const [],
       activeOverlayIds: const [],
       activeOfflineIds: const [],
+    );
+  }
+
+  void _syncCustomProviders(List<CustomTileProvider> customs) {
+    final next = Map<String, TileProviderConfig>.from(state.availableProviders);
+    // Drop any existing custom entries (id has the 'custom_' prefix) and
+    // re-add the current set. Built-ins and offline regions are untouched.
+    next.removeWhere((id, _) => id.startsWith('custom_'));
+    for (final c in customs) {
+      next[c.id] = CustomTileProviderConfig(c);
+    }
+    // Drop active selections that point to a deleted custom id so the
+    // registry doesn't carry stale references.
+    final customIds = customs.map((c) => c.id).toSet();
+    bool keep(String id) => !id.startsWith('custom_') || customIds.contains(id);
+    state = state.copyWith(
+      availableProviders: next,
+      activeGlobalIds: state.activeGlobalIds.where(keep).toList(),
+      activeLocalIds: state.activeLocalIds.where(keep).toList(),
+      activeOverlayIds: state.activeOverlayIds.where(keep).toList(),
     );
   }
 
@@ -185,9 +219,12 @@ class TileRegistry extends Notifier<TileRegistryState> {
         final config = state.availableProviders[id];
         if (config == null) continue;
 
+        final wms = config.wmsOptions;
         layers.add(TileLayer(
-          tileProvider: NetworkTileProvider(headers: config.headers, silenceExceptions: true),
-          urlTemplate: config.urlTemplate,
+          tileProvider: NetworkTileProvider(
+              headers: config.headers, silenceExceptions: true),
+          urlTemplate: wms == null ? config.urlTemplate : null,
+          wmsOptions: wms,
           minZoom: config.minZoom,
           maxZoom: 22, // Allow overzooming visually
           maxNativeZoom: config.maxZoom.toInt(),
@@ -221,18 +258,27 @@ class TileRegistry extends Notifier<TileRegistryState> {
       final config = state.availableProviders[id];
       if (config == null) continue;
 
-      final tileProvider = config.category == TileProviderCategory.offline
-          ? offlineNotifier.createTileProvider(
-          region: (config as OfflineRegionProviderConfig).region)
-          : cacheService?.createTileProvider(
-        urlTemplate: config.urlTemplate,
-        headers: config.headers,
-      );
+      final wms = config.wmsOptions;
+      final TileProvider? tileProvider;
+      if (config.category == TileProviderCategory.offline) {
+        tileProvider = offlineNotifier.createTileProvider(
+            region: (config as OfflineRegionProviderConfig).region);
+      } else {
+        // For WMS sources the urlTemplate doubles as a stable provider-id
+        // seed; flutter_map's TileLayer routes per-tile URL building through
+        // wmsOptions, so the cache still keys by (providerId, coords) and
+        // works end-to-end.
+        tileProvider = cacheService?.createTileProvider(
+          urlTemplate: config.urlTemplate,
+          headers: config.headers,
+        );
+      }
 
       if (tileProvider != null) {
         layers.add(TileLayer(
           tileProvider: tileProvider,
-          urlTemplate: config.urlTemplate,
+          urlTemplate: wms == null ? config.urlTemplate : null,
+          wmsOptions: wms,
           minZoom: config.minZoom,
           maxZoom: 22,
           maxNativeZoom: config.maxZoom.toInt(),

@@ -2,6 +2,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:logging/logging.dart';
+import 'package:turbo/core/util/user_agent.dart';
 import 'package:turbo/features/tile_storage/offline_regions/models/tile_download_job.dart';
 
 /// Data sent from the Orchestrator to the Worker Isolate.
@@ -52,7 +53,7 @@ void downloadWorkerEntrypoint(DownloadTask task) async {
     connectTimeout: const Duration(seconds: 15),
     receiveTimeout: const Duration(seconds: 15),
     headers: {
-      'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+      'User-Agent': kTurboUserAgent,
       'Accept': 'image/png,image/*;q=0.8,*/*;q=0.5',
     },
   ));

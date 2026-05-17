@@ -1,11 +1,13 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import '../data/auth_providers.dart';
 
 import 'login_screen.dart';
 import 'register_view_desktop.dart';
 import 'register_view_mobile.dart';
+
+final _log = Logger('RegisterScreen');
 
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -62,7 +64,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     ref.listenManual<AuthState>(authStateProvider, (previous, next) {
       if (next.status == AuthStatus.authenticated) {
-        if (kDebugMode) print("Registration successful, closing screen.");
+        _log.fine('Registration successful, closing screen');
         if (Navigator.of(context).canPop()) {
           Navigator.of(context).pop();
         }

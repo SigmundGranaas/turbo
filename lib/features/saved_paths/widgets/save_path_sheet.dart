@@ -5,6 +5,7 @@ import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/app_text_field.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/settings/api.dart';
 import '../models/saved_path.dart';
 import '../models/path_style.dart';
 import '../data/saved_path_repository.dart';
@@ -43,6 +44,19 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
     _nameController = TextEditingController();
     _descriptionController = TextEditingController();
     _isSmoothing = widget.isSmoothing;
+
+    // Pre-seed customization from the user's last-saved style (if any). The
+    // explicit widget.isSmoothing takes precedence over the memo so callers
+    // (e.g. measuring) can still pass their in-flight value.
+    final settings = ref.read(settingsProvider).value;
+    if (settings != null) {
+      _selectedColor = hexToColor(settings.lastPathColorHex);
+      _selectedIconKey = settings.lastPathIconKey;
+      _lineStyle = PathLineStyle.fromKey(settings.lastPathLineStyleKey);
+      if (!widget.isSmoothing && settings.lastPathSmoothing != null) {
+        _isSmoothing = settings.lastPathSmoothing!;
+      }
+    }
   }
 
   @override
@@ -166,6 +180,14 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
       );
 
       await ref.read(savedPathRepositoryProvider.notifier).addPath(path);
+
+      // Remember the style for the next save sheet.
+      await ref.read(settingsProvider.notifier).setLastPathStyle(
+            colorHex: path.colorHex,
+            iconKey: _selectedIconKey,
+            smoothing: _isSmoothing,
+            lineStyleKey: path.lineStyleKey,
+          );
 
       if (!mounted) return;
       Navigator.of(context).pop(true);

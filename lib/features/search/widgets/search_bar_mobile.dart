@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
+import 'package:turbo/core/connectivity/connectivity_provider.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import '../data/location_service.dart';
 import '../data/search_state_provider.dart';
+
+final _log = Logger('MobileSearch');
 
 class MobileSearchBar extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -48,7 +52,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   }
 
   void _onFocusChanged() {
-    debugPrint("[MobileSearch] Focus changed. hasFocus: ${_focusNode.hasFocus}");
+    _log.fine(() => 'Focus changed. hasFocus: ${_focusNode.hasFocus}');
     if (_focusNode.hasFocus) {
       _showOverlay();
     } else {
@@ -67,7 +71,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
   void _onTextChanged() {
     // Rebuild to show/hide the clear button
     setState(() {});
-    debugPrint("[MobileSearch] Text changed: ${_textController.text}");
+    _log.fine(() => 'Text changed: ${_textController.text}');
 
     if (_focusNode.hasFocus && _textController.text.isNotEmpty) {
       ref.read(searchProvider.notifier).search(_textController.text);
@@ -80,7 +84,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
 
   void _showOverlay() {
     if (_overlayEntry != null) return;
-    debugPrint("[MobileSearch] Showing overlay.");
+    _log.fine('Showing overlay');
 
     final overlay = Overlay.of(context);
     final renderBox = context.findRenderObject() as RenderBox;
@@ -102,13 +106,13 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
 
   void _removeOverlay() {
     if (_overlayEntry == null) return;
-    debugPrint("[MobileSearch] Removing overlay.");
+    _log.fine('Removing overlay');
     _overlayEntry?.remove();
     _overlayEntry = null;
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
-    debugPrint("[MobileSearch] Tapped on suggestion: ${suggestion.title}");
+    _log.fine(() => 'Tapped on suggestion: ${suggestion.title}');
     _textController.clear();
     // Unfocusing will trigger our _onFocusChanged listener, which will
     // then handle closing the overlay after a delay.
@@ -190,7 +194,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
               IconButton(
                 icon: const Icon(Icons.clear),
                 onPressed: () {
-                  debugPrint("[MobileSearch] Clear button pressed");
+                  _log.fine('Clear button pressed');
                   _textController.clear();
                 },
               )
@@ -211,6 +215,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
     return Consumer(
       builder: (context, ref, child) {
         final searchState = ref.watch(searchProvider);
+        final isOnline = ref.watch(connectivityProvider);
         final theme = Theme.of(context);
 
         if (_textController.text.trim().length < 2) {
@@ -224,7 +229,11 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
             borderRadius: BorderRadius.circular(28.0),
           ),
           clipBehavior: Clip.antiAlias,
-          child: searchState.when(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!isOnline) _OfflineHintBanner(l10n: l10n),
+              Flexible(child: searchState.when(
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.symmetric(vertical: 24.0),
@@ -278,8 +287,8 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                           maxLines: 1, overflow: TextOverflow.ellipsis)
                           : null,
                       onTap: () {
-                        debugPrint(
-                            "[MobileSearch] ListTile tapped for ${suggestion.title}");
+                        _log.fine(() =>
+                            'ListTile tapped for ${suggestion.title}');
                         _onSuggestionSelected(suggestion);
                       },
                     );
@@ -287,6 +296,8 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
                 ),
               );
             },
+          )),
+            ],
           ),
         );
       },
@@ -298,5 +309,38 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
       return Icon(_iconService.getIcon(context, suggestion.icon!).icon);
     }
     return Text(suggestion.title.isNotEmpty ? suggestion.title[0] : '?');
+  }
+}
+
+class _OfflineHintBanner extends StatelessWidget {
+  final AppLocalizations l10n;
+  const _OfflineHintBanner({required this.l10n});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.tertiaryContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 16,
+            color: theme.colorScheme.onTertiaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              l10n.searchOfflineHint,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onTertiaryContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

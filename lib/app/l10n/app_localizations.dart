@@ -50,7 +50,6 @@ abstract class AppLocalizations {
   String get pleaseEnterValidEmail;
   String get pleaseEnterPassword;
   String passwordTooShort(int minLength);
-  String get forgotPassword;
   String get dontHaveAnAccount;
   String get createAccount;
   String get alreadyHaveAnAccount;
@@ -117,6 +116,7 @@ abstract class AppLocalizations {
   String get searchHintMobile;
   String get noResultsFound;
   String get searchFailed;
+  String get searchOfflineHint;
   String get retry;
   String get menu;
 
@@ -125,6 +125,23 @@ abstract class AppLocalizations {
   String get globalMaps;
   String get norwegianMaps;
   String get overlays;
+  String get customMaps;
+  String get addCustomMap;
+  String get customMapNameHint;
+  String get customMapUrlHint;
+  String get customMapUrlHelp;
+  String get customMapInvalidUrl;
+  String get customMapKindXyz;
+  String get customMapKindWms;
+  String get customMapMissingWmsService;
+  String get customMapMissingWmsLayers;
+  String get customMapNameRequired;
+  String get customMapCategoryGlobal;
+  String get customMapCategoryLocal;
+  String get customMapCategoryOverlay;
+  String get customMapCategoryLabel;
+  String get add;
+  String get remove;
   String get layerNameNorgeskart;
   String get layerDescriptionNorgeskart;
   String get layerNameOsm;
@@ -180,6 +197,16 @@ abstract class AppLocalizations {
   String get drawing;
   String get drawSensitivity;
 
+  // Advanced settings
+  String get advanced;
+  String get distanceUnit;
+  String get distanceUnitMetric;
+  String get distanceUnitImperial;
+  String get maxConcurrentDownloads;
+  String get maxConcurrentDownloadsDescription;
+  String get markerCacheTtl;
+  String get markerCacheTtlDescription;
+
   // My Location settings
   String get myLocation;
   String get locationIcon;
@@ -211,6 +238,10 @@ abstract class AppLocalizations {
   String navigationTurnLeft(int degrees);
   String navigationTurnRight(int degrees);
   String get youHaveArrived;
+  String get alreadyNavigatingHere;
+  String get replaceNavigationTitle;
+  String get replaceNavigationMessage;
+  String get replace;
 
   // Saved Paths
   String get savedPaths;
@@ -266,12 +297,18 @@ abstract class AppLocalizations {
   String get markerExported;
   String get markerDeleted;
   String get markerUpdated;
+  String markersSelected(int count);
+  String get confirmBulkDeleteTitle;
+  String confirmBulkDeleteMessage(int count);
+  String get bulkDeleteSuccess;
+  String get bulkExport;
   String errorExportingMarker(String error);
 
   // Offline Maps
   String get offlineMaps;
   String get noOfflineMapsDownloaded;
   String get addOfflineRegion;
+  String get errorLoadingOfflineRegions;
   String get manage;
   String get download;
   String deleteRegionTitle(String name);
@@ -327,7 +364,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get pleaseEnterValidEmail => 'Please enter a valid email';
   @override String get pleaseEnterPassword => 'Please enter your password';
   @override String passwordTooShort(int minLength) => 'Password must be at least $minLength characters';
-  @override String get forgotPassword => 'Forgot Password?';
   @override String get dontHaveAnAccount => "Don't have an account?";
   @override String get createAccount => 'Create account';
   @override String get alreadyHaveAnAccount => 'Already have an account?';
@@ -390,12 +426,30 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get searchHintMobile => 'Search places...';
   @override String get noResultsFound => 'No results found.';
   @override String get searchFailed => 'Search failed. Check your connection and try again.';
+  @override String get searchOfflineHint => 'You\'re offline — only saved markers and paths will be searched.';
   @override String get retry => 'Retry';
   @override String get menu => 'Menu';
 
   @override String get mapLayers => 'Map Layers';
   @override String get globalMaps => 'Global Maps';
   @override String get norwegianMaps => 'Norwegian Maps';
+  @override String get customMaps => 'Custom maps';
+  @override String get addCustomMap => 'Add custom map…';
+  @override String get customMapNameHint => 'Display name (e.g. My TMS server)';
+  @override String get customMapUrlHint => 'URL template';
+  @override String get customMapUrlHelp => 'Tile servers: include {z}, {x}, {y}. WMS servers: include {bbox}, service=WMS and layers=.';
+  @override String get customMapInvalidUrl => 'Invalid URL template. Tile servers must contain {z}, {x}, {y}; WMS URLs must contain {bbox}.';
+  @override String get customMapKindXyz => 'Detected: XYZ tile server';
+  @override String get customMapKindWms => 'Detected: WMS server';
+  @override String get customMapMissingWmsService => 'WMS URL must include "service=WMS".';
+  @override String get customMapMissingWmsLayers => 'WMS URL must include a "layers=..." parameter.';
+  @override String get customMapNameRequired => 'Name is required.';
+  @override String get customMapCategoryGlobal => 'Worldwide';
+  @override String get customMapCategoryLocal => 'Regional';
+  @override String get customMapCategoryOverlay => 'Overlay';
+  @override String get customMapCategoryLabel => 'Category';
+  @override String get add => 'Add';
+  @override String get remove => 'Remove';
   @override String get overlays => 'Overlays';
   @override String get layerNameNorgeskart => 'Norgeskart';
   @override String get layerDescriptionNorgeskart => 'Norwegian Topographic Map';
@@ -447,6 +501,15 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get drawing => 'Drawing';
   @override String get drawSensitivity => 'Draw Sensitivity';
 
+  @override String get advanced => 'Advanced';
+  @override String get distanceUnit => 'Distance unit';
+  @override String get distanceUnitMetric => 'Metric (km / m)';
+  @override String get distanceUnitImperial => 'Imperial (mi / ft)';
+  @override String get maxConcurrentDownloads => 'Max parallel downloads';
+  @override String get maxConcurrentDownloadsDescription => 'Higher values finish faster but stress the tile server.';
+  @override String get markerCacheTtl => 'Marker cache lifetime';
+  @override String get markerCacheTtlDescription => 'How long viewport markers stay cached before refetching.';
+
   @override String get myLocation => 'My Location';
   @override String get locationIcon => 'Icon';
   @override String get chooseIcon => 'Choose Icon';
@@ -472,6 +535,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String navigationTurnLeft(int degrees) => '$degrees° left';
   @override String navigationTurnRight(int degrees) => '$degrees° right';
   @override String get youHaveArrived => 'You have arrived!';
+  @override String get alreadyNavigatingHere => 'Already navigating here';
+  @override String get replaceNavigationTitle => 'Replace navigation target?';
+  @override String get replaceNavigationMessage => 'You\'re currently navigating to another location. Replace the target with this marker?';
+  @override String get replace => 'Replace';
 
   @override String get savedPaths => 'Saved Paths';
   @override String get savePath => 'Save Path';
@@ -524,11 +591,17 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get markerExported => 'Marker saved';
   @override String get markerDeleted => 'Marker deleted';
   @override String get markerUpdated => 'Marker updated';
+  @override String markersSelected(int count) => '$count selected';
+  @override String get confirmBulkDeleteTitle => 'Delete selected markers?';
+  @override String confirmBulkDeleteMessage(int count) => 'This will permanently delete $count marker(s).';
+  @override String get bulkDeleteSuccess => 'Markers deleted';
+  @override String get bulkExport => 'Export';
   @override String errorExportingMarker(String error) => 'Error exporting marker: $error';
 
   @override String get offlineMaps => 'Offline Maps';
   @override String get noOfflineMapsDownloaded => 'No maps downloaded yet.\nTap the button below to download an area.';
   @override String get addOfflineRegion => 'Add offline region';
+  @override String get errorLoadingOfflineRegions => 'Could not load offline regions. Pull to refresh, or try again later.';
   @override String get manage => 'Manage';
   @override String get download => 'Download';
   @override String deleteRegionTitle(String name) => 'Delete $name?';
@@ -584,7 +657,6 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get pleaseEnterValidEmail => 'Vennligst skriv inn en gyldig e-post';
   @override String get pleaseEnterPassword => 'Vennligst skriv inn ditt passord';
   @override String passwordTooShort(int minLength) => 'Passordet må være minst $minLength tegn';
-  @override String get forgotPassword => 'Glemt passord?';
   @override String get dontHaveAnAccount => 'Har du ikke en konto?';
   @override String get createAccount => 'Opprett konto';
   @override String get alreadyHaveAnAccount => 'Har du allerede en konto?';
@@ -647,12 +719,30 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get searchHintMobile => 'Søk etter steder...';
   @override String get noResultsFound => 'Ingen resultater funnet.';
   @override String get searchFailed => 'Søket mislyktes. Sjekk nettforbindelsen og prøv igjen.';
+  @override String get searchOfflineHint => 'Du er offline — søket dekker kun lagrede markører og ruter.';
   @override String get retry => 'Prøv igjen';
   @override String get menu => 'Meny';
 
   @override String get mapLayers => 'Kartlag';
   @override String get globalMaps => 'Globale kart';
   @override String get norwegianMaps => 'Norske kart';
+  @override String get customMaps => 'Egendefinerte kart';
+  @override String get addCustomMap => 'Legg til kart…';
+  @override String get customMapNameHint => 'Visningsnavn (f.eks. Min TMS-server)';
+  @override String get customMapUrlHint => 'URL-mal';
+  @override String get customMapUrlHelp => 'Flislag: inkluder {z}, {x}, {y}. WMS-servere: inkluder {bbox}, service=WMS og layers=.';
+  @override String get customMapInvalidUrl => 'Ugyldig URL-mal. Flislag må inneholde {z}, {x}, {y}; WMS-URL må inneholde {bbox}.';
+  @override String get customMapKindXyz => 'Oppdaget: XYZ-flislag';
+  @override String get customMapKindWms => 'Oppdaget: WMS-server';
+  @override String get customMapMissingWmsService => 'WMS-URL må inkludere "service=WMS".';
+  @override String get customMapMissingWmsLayers => 'WMS-URL må inkludere en "layers=..."-parameter.';
+  @override String get customMapNameRequired => 'Navn er påkrevd.';
+  @override String get customMapCategoryGlobal => 'Globalt';
+  @override String get customMapCategoryLocal => 'Regionalt';
+  @override String get customMapCategoryOverlay => 'Overlegg';
+  @override String get customMapCategoryLabel => 'Kategori';
+  @override String get add => 'Legg til';
+  @override String get remove => 'Fjern';
   @override String get overlays => 'Overlegg';
   @override String get layerNameNorgeskart => 'Norgeskart';
   @override String get layerDescriptionNorgeskart => 'Norsk topografisk kart';
@@ -701,6 +791,15 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get drawing => 'Tegning';
   @override String get drawSensitivity => 'Tegnefølsomhet';
 
+  @override String get advanced => 'Avansert';
+  @override String get distanceUnit => 'Avstandsenhet';
+  @override String get distanceUnitMetric => 'Metrisk (km / m)';
+  @override String get distanceUnitImperial => 'Imperial (mi / ft)';
+  @override String get maxConcurrentDownloads => 'Maks parallelle nedlastinger';
+  @override String get maxConcurrentDownloadsDescription => 'Høyere verdier går raskere, men belaster kartserveren mer.';
+  @override String get markerCacheTtl => 'Markør-mellomlager';
+  @override String get markerCacheTtlDescription => 'Hvor lenge viewport-markører holdes før ny henting.';
+
   @override String get myLocation => 'Min posisjon';
   @override String get locationIcon => 'Ikon';
   @override String get chooseIcon => 'Velg ikon';
@@ -726,6 +825,10 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String navigationTurnLeft(int degrees) => '$degrees° venstre';
   @override String navigationTurnRight(int degrees) => '$degrees° høyre';
   @override String get youHaveArrived => 'Du har ankommet!';
+  @override String get alreadyNavigatingHere => 'Navigerer allerede hit';
+  @override String get replaceNavigationTitle => 'Erstatt navigasjonsmål?';
+  @override String get replaceNavigationMessage => 'Du navigerer allerede til et annet sted. Vil du erstatte målet med denne markøren?';
+  @override String get replace => 'Erstatt';
 
   @override String get savedPaths => 'Lagrede ruter';
   @override String get savePath => 'Lagre rute';
@@ -778,11 +881,17 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get markerExported => 'Punkt lagret';
   @override String get markerDeleted => 'Punkt slettet';
   @override String get markerUpdated => 'Punkt oppdatert';
+  @override String markersSelected(int count) => '$count valgt';
+  @override String get confirmBulkDeleteTitle => 'Slette valgte punkter?';
+  @override String confirmBulkDeleteMessage(int count) => 'Dette sletter $count punkt(er) permanent.';
+  @override String get bulkDeleteSuccess => 'Punkter slettet';
+  @override String get bulkExport => 'Eksporter';
   @override String errorExportingMarker(String error) => 'Feil ved eksportering av punkt: $error';
 
   @override String get offlineMaps => 'Offline-kart';
   @override String get noOfflineMapsDownloaded => 'Ingen kart lastet ned ennå.\nTrykk på knappen under for å laste ned et område.';
   @override String get addOfflineRegion => 'Legg til offline-område';
+  @override String get errorLoadingOfflineRegions => 'Kunne ikke laste offline-områder. Dra ned for å oppdatere, eller prøv igjen senere.';
   @override String get manage => 'Administrer';
   @override String get download => 'Last ned';
   @override String deleteRegionTitle(String name) => 'Slette $name?';

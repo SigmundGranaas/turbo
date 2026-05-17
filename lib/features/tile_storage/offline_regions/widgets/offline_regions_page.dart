@@ -47,7 +47,15 @@ class OfflineRegionsPage extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, st) => Center(child: Text("Error: $e")),
+        error: (e, st) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.l),
+            child: Text(
+              l10n.errorLoadingOfflineRegions,
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
