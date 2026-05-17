@@ -15,6 +15,7 @@ as offline_api;
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/sharing/api.dart';
 
 import 'package:turbo/core/location/compass_mode_state.dart';
 import 'package:turbo/core/location/compass_state.dart';
@@ -262,7 +263,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       );
     }
 
-    return LayoutBuilder(
+    return SharedPayloadListener(
+      onCenter: (point) => _smoothMoveTo(point),
+      child: LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 600;
         final mapControls = isMobile
@@ -299,6 +302,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
           );
         }
       },
+      ),
     );
   }
 

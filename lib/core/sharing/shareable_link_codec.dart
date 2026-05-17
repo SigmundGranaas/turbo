@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:latlong2/latlong.dart';
-import 'package:meta/meta.dart';
 
 import '../../features/markers/api.dart';
 import '../../features/saved_paths/api.dart';

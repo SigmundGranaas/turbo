@@ -293,6 +293,13 @@ abstract class AppLocalizations {
   String get shareAsLink;
   String get linkCopied;
   String get linkTooLargeShareGpxInstead;
+  String get sharedMarkerTitle;
+  String get sharedPathTitle;
+  String get saveToMyMarkers;
+  String get saveToMyPaths;
+  String get savedToMyMarkers;
+  String get savedToMyPaths;
+  String pointCount(int count);
   String get shareAsFile;
   String get markerExported;
   String get markerDeleted;
@@ -587,6 +594,13 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get linkCopied => 'Link copied to clipboard';
   @override String get linkTooLargeShareGpxInstead =>
       'This route is too large to share as a link. Share as GPX instead.';
+  @override String get sharedMarkerTitle => 'Shared marker';
+  @override String get sharedPathTitle => 'Shared route';
+  @override String get saveToMyMarkers => 'Save to my markers';
+  @override String get saveToMyPaths => 'Save to my routes';
+  @override String get savedToMyMarkers => 'Saved to your markers';
+  @override String get savedToMyPaths => 'Saved to your routes';
+  @override String pointCount(int count) => '$count points';
   @override String get shareAsFile => 'Share as file';
   @override String get markerExported => 'Marker saved';
   @override String get markerDeleted => 'Marker deleted';
@@ -877,6 +891,13 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get linkCopied => 'Lenke kopiert til utklippstavlen';
   @override String get linkTooLargeShareGpxInstead =>
       'Denne ruten er for stor til å deles som lenke. Del som GPX i stedet.';
+  @override String get sharedMarkerTitle => 'Delt punkt';
+  @override String get sharedPathTitle => 'Delt rute';
+  @override String get saveToMyMarkers => 'Lagre i mine punkter';
+  @override String get saveToMyPaths => 'Lagre i mine ruter';
+  @override String get savedToMyMarkers => 'Lagret i dine punkter';
+  @override String get savedToMyPaths => 'Lagret i dine ruter';
+  @override String pointCount(int count) => '$count punkter';
   @override String get shareAsFile => 'Del som fil';
   @override String get markerExported => 'Punkt lagret';
   @override String get markerDeleted => 'Punkt slettet';
