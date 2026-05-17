@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/collections/api.dart';
 import '../models/named_icon.dart';
 import '../models/marker.dart';
 import '../data/location_repository.dart';
@@ -24,6 +25,7 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   NamedIcon? _selectedIcon;
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
+  Set<String> _selectedCollectionUuids = {};
   bool _isLoading = false;
 
   @override
@@ -72,11 +74,23 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
               child: SingleChildScrollView(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: LocationFormFields(
-                    nameController: _nameController,
-                    descriptionController: _descriptionController,
-                    selectedIcon: _selectedIcon,
-                    onIconSelected: (icon) => setState(() => _selectedIcon = icon),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      LocationFormFields(
+                        nameController: _nameController,
+                        descriptionController: _descriptionController,
+                        selectedIcon: _selectedIcon,
+                        onIconSelected: (icon) =>
+                            setState(() => _selectedIcon = icon),
+                      ),
+                      const SizedBox(height: 16),
+                      CollectionPickerRow(
+                        selectedUuids: _selectedCollectionUuids,
+                        onChanged: (next) =>
+                            setState(() => _selectedCollectionUuids = next),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -111,6 +125,18 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
         );
 
         await locationNotifier.addMarker(newMarker);
+
+        if (_selectedCollectionUuids.isNotEmpty) {
+          await ref
+              .read(collectionRepositoryProvider.notifier)
+              .setMembership(
+                CollectionItemRef(
+                  type: CollectionItemRef.typeMarker,
+                  uuid: newMarker.uuid,
+                ),
+                _selectedCollectionUuids,
+              );
+        }
 
         if (!mounted) return;
         Navigator.of(context).pop(newMarker);

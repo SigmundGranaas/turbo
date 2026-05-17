@@ -17,5 +17,6 @@ export 'data/collection_filter.dart' show isItemVisibleForCollections;
 export 'widgets/collections_page.dart' show CollectionsPage;
 export 'widgets/collection_detail_page.dart' show CollectionDetailPage;
 export 'widgets/add_to_collection_sheet.dart' show AddToCollectionSheet;
+export 'widgets/collection_picker_row.dart' show CollectionPickerRow;
 export 'widgets/create_or_edit_collection_sheet.dart'
     show CreateOrEditCollectionSheet;

@@ -69,11 +69,15 @@ class CollectionRepository
       ref.read(localCollectionDataStoreProvider.future);
 
   Future<void> _loadData() async {
+    if (!ref.mounted) return;
     state = const AsyncValue.loading();
     try {
       final store = await _store;
+      if (!ref.mounted) return;
       final collections = await store.getAll();
+      if (!ref.mounted) return;
       final membershipIndex = await store.getMembershipIndex();
+      if (!ref.mounted) return;
       final counts = <String, int>{};
       for (final entry in membershipIndex.entries) {
         for (final cUuid in entry.value) {
@@ -87,6 +91,7 @@ class CollectionRepository
       ));
     } catch (e, st) {
       _log.severe('Error loading collections', e, st);
+      if (!ref.mounted) return;
       state = AsyncValue.error(e, st);
     }
   }

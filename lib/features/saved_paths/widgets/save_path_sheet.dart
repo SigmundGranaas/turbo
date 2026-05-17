@@ -5,6 +5,7 @@ import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/app_text_field.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/settings/api.dart';
 import '../models/saved_path.dart';
 import '../models/path_style.dart';
@@ -37,6 +38,7 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
   String? _selectedIconKey;
   late bool _isSmoothing;
   PathLineStyle _lineStyle = PathLineStyle.solid;
+  Set<String> _selectedCollectionUuids = {};
 
   @override
   void initState() {
@@ -134,6 +136,12 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
               initiallyExpanded: false,
             ),
             const SizedBox(height: 16),
+            CollectionPickerRow(
+              selectedUuids: _selectedCollectionUuids,
+              onChanged: (next) =>
+                  setState(() => _selectedCollectionUuids = next),
+            ),
+            const SizedBox(height: 16),
             Text(
               '${l10n.totalDistance}: ${(widget.distance / 1000).toStringAsFixed(2)} km',
               style: textTheme.bodyMedium?.copyWith(
@@ -180,6 +188,16 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
       );
 
       await ref.read(savedPathRepositoryProvider.notifier).addPath(path);
+
+      if (_selectedCollectionUuids.isNotEmpty) {
+        await ref.read(collectionRepositoryProvider.notifier).setMembership(
+              CollectionItemRef(
+                type: CollectionItemRef.typePath,
+                uuid: path.uuid,
+              ),
+              _selectedCollectionUuids,
+            );
+      }
 
       // Remember the style for the next save sheet.
       await ref.read(settingsProvider.notifier).setLastPathStyle(

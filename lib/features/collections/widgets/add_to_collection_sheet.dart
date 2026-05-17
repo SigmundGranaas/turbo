@@ -10,11 +10,25 @@ import '../models/collection.dart';
 import '../models/collection_item_ref.dart';
 import 'create_or_edit_collection_sheet.dart';
 
+/// Sheet for picking collections.
+///
+/// Two modes:
+/// - Binding mode (`itemRef != null`): writes membership directly to the
+///   repository on save and pops with no result.
+/// - Picker mode (`itemRef == null`): seeds the checkboxes from
+///   [initialSelected] and pops with the chosen `Set<String>`. Used by the
+///   create sheets where the item does not yet have a UUID.
 class AddToCollectionSheet extends ConsumerStatefulWidget {
-  final CollectionItemRef itemRef;
+  final CollectionItemRef? itemRef;
+  final Set<String> initialSelected;
 
-  const AddToCollectionSheet({super.key, required this.itemRef});
+  const AddToCollectionSheet({
+    super.key,
+    this.itemRef,
+    this.initialSelected = const {},
+  });
 
+  /// Binding mode — writes membership for [ref] when the user saves.
   static Future<void> show(BuildContext context, CollectionItemRef ref) {
     return showModalBottomSheet<void>(
       context: context,
@@ -24,6 +38,23 @@ class AddToCollectionSheet extends ConsumerStatefulWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => AddToCollectionSheet(itemRef: ref),
+    );
+  }
+
+  /// Picker mode — returns the selected collection UUIDs, or null if the
+  /// user dismissed the sheet without saving.
+  static Future<Set<String>?> pick(
+    BuildContext context, {
+    Set<String> initialSelected = const {},
+  }) {
+    return showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => AddToCollectionSheet(initialSelected: initialSelected),
     );
   }
 
@@ -39,7 +70,10 @@ class _AddToCollectionSheetState extends ConsumerState<AddToCollectionSheet> {
 
   void _initSelection(CollectionRepositoryState state) {
     if (_initialized) return;
-    _selected = state.collectionsFor(widget.itemRef).toSet();
+    final itemRef = widget.itemRef;
+    _selected = itemRef != null
+        ? state.collectionsFor(itemRef).toSet()
+        : widget.initialSelected.toSet();
     _initialized = true;
   }
 
@@ -52,11 +86,16 @@ class _AddToCollectionSheetState extends ConsumerState<AddToCollectionSheet> {
 
   Future<void> _save() async {
     final l10n = context.l10n;
+    final itemRef = widget.itemRef;
+    if (itemRef == null) {
+      Navigator.of(context).pop(_selected);
+      return;
+    }
     setState(() => _saving = true);
     try {
       await ref
           .read(collectionRepositoryProvider.notifier)
-          .setMembership(widget.itemRef, _selected);
+          .setMembership(itemRef, _selected);
       if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
@@ -139,12 +178,12 @@ class _AddToCollectionSheetState extends ConsumerState<AddToCollectionSheet> {
                     itemCount: collections.length,
                     itemBuilder: (context, i) {
                       final c = collections[i];
-                      return _CollectionCheckRow(
+                      return _CollectionSwitchRow(
                         collection: c,
                         selected: _selected.contains(c.uuid),
                         onChanged: (v) {
                           setState(() {
-                            if (v == true) {
+                            if (v) {
                               _selected.add(c.uuid);
                             } else {
                               _selected.remove(c.uuid);
@@ -168,12 +207,12 @@ class _AddToCollectionSheetState extends ConsumerState<AddToCollectionSheet> {
   }
 }
 
-class _CollectionCheckRow extends StatelessWidget {
+class _CollectionSwitchRow extends StatelessWidget {
   final Collection collection;
   final bool selected;
-  final ValueChanged<bool?> onChanged;
+  final ValueChanged<bool> onChanged;
 
-  const _CollectionCheckRow({
+  const _CollectionSwitchRow({
     required this.collection,
     required this.selected,
     required this.onChanged,
@@ -188,7 +227,7 @@ class _CollectionCheckRow extends StatelessWidget {
         ? iconService.getIcon(context, collection.iconKey)
         : null;
 
-    return CheckboxListTile(
+    return SwitchListTile(
       contentPadding: EdgeInsets.zero,
       value: selected,
       onChanged: onChanged,
