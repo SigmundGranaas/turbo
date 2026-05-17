@@ -284,6 +284,7 @@ abstract class AppLocalizations {
   String get offlineMaps;
   String get noOfflineMapsDownloaded;
   String get addOfflineRegion;
+  String get errorLoadingOfflineRegions;
   String get manage;
   String get download;
   String deleteRegionTitle(String name);
@@ -551,6 +552,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get offlineMaps => 'Offline Maps';
   @override String get noOfflineMapsDownloaded => 'No maps downloaded yet.\nTap the button below to download an area.';
   @override String get addOfflineRegion => 'Add offline region';
+  @override String get errorLoadingOfflineRegions => 'Could not load offline regions. Pull to refresh, or try again later.';
   @override String get manage => 'Manage';
   @override String get download => 'Download';
   @override String deleteRegionTitle(String name) => 'Delete $name?';
@@ -815,6 +817,7 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get offlineMaps => 'Offline-kart';
   @override String get noOfflineMapsDownloaded => 'Ingen kart lastet ned ennå.\nTrykk på knappen under for å laste ned et område.';
   @override String get addOfflineRegion => 'Legg til offline-område';
+  @override String get errorLoadingOfflineRegions => 'Kunne ikke laste offline-områder. Dra ned for å oppdatere, eller prøv igjen senere.';
   @override String get manage => 'Administrer';
   @override String get download => 'Last ned';
   @override String deleteRegionTitle(String name) => 'Slette $name?';
