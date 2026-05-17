@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:turbo/core/util/user_agent.dart';
 import 'package:turbo/features/tile_storage/tile_store/api.dart';
 
 // Internal provider for a singleton Dio instance. Can be overridden in tests.
@@ -14,7 +15,7 @@ final dioProvider = Provider<Dio>((ref) {
   dio.options.connectTimeout = const Duration(seconds: 10);
   dio.options.receiveTimeout = const Duration(seconds: 10);
   dio.options.headers = {
-    'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+    'User-Agent': kTurboUserAgent,
     'Accept': 'image/png,image/*;q=0.8,*/*;q=0.5',
     'Connection': 'keep-alive',
   };

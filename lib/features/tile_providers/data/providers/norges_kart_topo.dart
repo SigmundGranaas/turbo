@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/util/user_agent.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
@@ -24,6 +25,6 @@ class NorgeskartTopoConfig extends TileProviderConfig {
   double get maxZoom => 20.0;
   @override
   Map<String, String>? get headers => {
-    'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+    'User-Agent': kTurboUserAgent,
   };
 }
