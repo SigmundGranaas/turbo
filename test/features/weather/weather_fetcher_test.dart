@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/weather/api.dart';
-import 'package:turbo/features/weather/data/weather_fetcher.dart';
 
 class _RecordingAtm implements YrAtmosphericService {
   int calls = 0;

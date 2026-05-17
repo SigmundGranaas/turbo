@@ -13,3 +13,18 @@ export 'data/yr_atmospheric_service.dart'
 export 'data/yr_ocean_service.dart'
     show YrOceanService, MarineForecastResult;
 export 'data/weather_fetcher.dart' show WeatherFetcher;
+export 'data/marker_weather_prefs_store.dart'
+    show MarkerWeatherPrefsStore, markerWeatherPrefsTable;
+export 'data/marker_weather_prefs_notifier.dart'
+    show
+        markerWeatherPrefsProvider,
+        markerWeatherPrefsStoreProvider,
+        MarkerWeatherPrefsNotifier;
+export 'data/weather_notifier.dart'
+    show
+        WeatherRequest,
+        weatherForecastProvider,
+        weatherFetcherProvider,
+        yrAtmosphericServiceProvider,
+        yrOceanServiceProvider,
+        WeatherForecastNotifier;

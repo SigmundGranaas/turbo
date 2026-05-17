@@ -1,5 +1,3 @@
-import 'package:collection/collection.dart';
-
 import 'weather_metric.dart';
 
 /// User preference of which weather metrics to display for a given marker.
@@ -53,15 +51,21 @@ class MarkerWeatherPrefs {
     return MarkerWeatherPrefs(markerUuid: markerUuid, metrics: parsed);
   }
 
-  static const _setEquality = SetEquality<WeatherMetric>();
-
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is MarkerWeatherPrefs &&
           other.markerUuid == markerUuid &&
-          _setEquality.equals(other.metrics, metrics));
+          metrics.length == other.metrics.length &&
+          metrics.containsAll(other.metrics));
 
   @override
-  int get hashCode => Object.hash(markerUuid, _setEquality.hash(metrics));
+  int get hashCode {
+    var h = markerUuid.hashCode;
+    // Order-independent metric hash.
+    for (final m in metrics) {
+      h ^= m.hashCode;
+    }
+    return h;
+  }
 }

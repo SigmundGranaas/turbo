@@ -7,7 +7,6 @@ import 'package:http_parser/http_parser.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/core/util/user_agent.dart';
 import 'package:turbo/features/weather/api.dart';
-import 'package:turbo/features/weather/data/yr_ocean_service.dart';
 
 const _samplePayload = {
   'properties': {
