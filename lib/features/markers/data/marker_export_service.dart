@@ -3,26 +3,25 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/sharing/shareable_link_codec.dart';
 import '../models/marker.dart';
 import 'marker_geojson_serializer.dart';
 
 class MarkerExportService {
-  String shareText(Marker marker) {
-    final coords =
-        '${marker.position.latitude.toStringAsFixed(6)}, '
-        '${marker.position.longitude.toStringAsFixed(6)}';
-    final buffer = StringBuffer('${marker.title} ($coords)');
-    if (marker.description != null && marker.description!.isNotEmpty) {
-      buffer.write('\n${marker.description}');
-    }
-    return buffer.toString();
+  /// Encodes [marker] into a shareable web URL pointing at [webBaseUrl].
+  String buildShareLink(Marker marker, String webBaseUrl) {
+    return ShareableLinkCodec.encodeMarker(marker, webBaseUrl);
   }
 
-  Future<void> shareAsText(Marker marker) async {
-    await Share.share(shareText(marker));
+  /// Copies the share link to the clipboard and opens the system share sheet.
+  Future<void> shareAsLink(Marker marker, String webBaseUrl) async {
+    final url = buildShareLink(marker, webBaseUrl);
+    await Clipboard.setData(ClipboardData(text: url));
+    await Share.share(url, subject: marker.title);
   }
 
   String _buildFilename(Marker marker) {

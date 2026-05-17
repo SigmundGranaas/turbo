@@ -29,6 +29,19 @@ class EnvironmentConfig {
     }
   }
 
+  /// Base URL of the hosted Flutter-web frontend. Used to build shareable
+  /// links for markers and routes (e.g. `<webBaseUrl>/share/m?d=...`).
+  ///
+  /// Replace the production value with the real Cloudflare Pages domain
+  /// once it is known.
+  static String get webBaseUrl {
+    if (isDevelopment) {
+      return 'http://localhost:8080';
+    } else {
+      return 'https://kart.sandring.no';
+    }
+  }
+
   static String get googleServerClientId {
     if (isDevelopment) {
       return '863382325847-l4s030g7ruif29o6no75ugb19c380an0.apps.googleusercontent.com';

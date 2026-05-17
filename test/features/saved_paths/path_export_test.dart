@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/sharing/shareable_link_codec.dart';
 import 'package:turbo/features/saved_paths/data/gpx_serializer.dart';
 import 'package:turbo/features/saved_paths/data/geojson_serializer.dart';
 import 'package:turbo/features/saved_paths/data/path_export_service.dart';
@@ -209,6 +210,33 @@ void main() {
 
       final geoJson = service.serialize(path, ExportFormat.geoJson);
       expect(geoJson, contains('FeatureCollection'));
+    });
+  });
+
+  group('PathExportService.buildShareLink', () {
+    const base = 'https://example.test';
+    final service = PathExportService();
+
+    test('produces a /share/p URL that round-trips through the codec', () {
+      final path = _makePath(title: 'Loop');
+      final url = service.buildShareLink(path, base);
+
+      expect(url, startsWith('$base/share/p'));
+      final decoded = ShareableLinkCodec.decodeShareUrl(Uri.parse(url));
+      expect(decoded, isA<SharedPathPayload>());
+      expect((decoded as SharedPathPayload).path.title, 'Loop');
+    });
+
+    test('preserves point list in the encoded payload', () {
+      final pts = List<LatLng>.generate(
+        20,
+        (i) => LatLng(60.0 + i * 0.001, 10.0 + i * 0.001),
+      );
+      final url = service.buildShareLink(_makePath(points: pts), base);
+      final p = (ShareableLinkCodec.decodeShareUrl(Uri.parse(url))
+              as SharedPathPayload)
+          .path;
+      expect(p.points.length, pts.length);
     });
   });
 }
