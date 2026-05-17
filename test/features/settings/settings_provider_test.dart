@@ -159,5 +159,63 @@ void main() {
             kMinMarkerCacheTtlSeconds);
       });
     });
+
+    group('last path style memo', () {
+      test('starts null on a clean install', () async {
+        final container = createContainer({});
+        final state = await container.read(settingsProvider.future);
+        expect(state.lastPathColorHex, isNull);
+        expect(state.lastPathIconKey, isNull);
+        expect(state.lastPathSmoothing, isNull);
+        expect(state.lastPathLineStyleKey, isNull);
+      });
+
+      test('setLastPathStyle persists each field and a reload reads them back',
+          () async {
+        final container = createContainer({});
+        await container.read(settingsProvider.future);
+
+        await container.read(settingsProvider.notifier).setLastPathStyle(
+              colorHex: 'D32F2F',
+              iconKey: 'Fjell',
+              smoothing: true,
+              lineStyleKey: 'dashed',
+            );
+
+        // Same container: state reflects update.
+        final state = container.read(settingsProvider).value!;
+        expect(state.lastPathColorHex, 'D32F2F');
+        expect(state.lastPathIconKey, 'Fjell');
+        expect(state.lastPathSmoothing, isTrue);
+        expect(state.lastPathLineStyleKey, 'dashed');
+
+        // Fresh container loads the same persisted memo.
+        final container2 = ProviderContainer();
+        addTearDown(container2.dispose);
+        final reloaded = await container2.read(settingsProvider.future);
+        expect(reloaded.lastPathColorHex, 'D32F2F');
+        expect(reloaded.lastPathIconKey, 'Fjell');
+        expect(reloaded.lastPathSmoothing, isTrue);
+        expect(reloaded.lastPathLineStyleKey, 'dashed');
+      });
+
+      test('passing null clears the matching prefs entries', () async {
+        final container = createContainer({
+          'lastPathColor': 'D32F2F',
+          'lastPathIcon': 'Fjell',
+          'lastPathSmoothing': true,
+          'lastPathLineStyle': 'dashed',
+        });
+        await container.read(settingsProvider.future);
+
+        await container.read(settingsProvider.notifier).setLastPathStyle();
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.containsKey('lastPathColor'), isFalse);
+        expect(prefs.containsKey('lastPathIcon'), isFalse);
+        expect(prefs.containsKey('lastPathSmoothing'), isFalse);
+        expect(prefs.containsKey('lastPathLineStyle'), isFalse);
+      });
+    });
   });
 }
