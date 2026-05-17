@@ -116,6 +116,7 @@ abstract class AppLocalizations {
   String get searchHintMobile;
   String get noResultsFound;
   String get searchFailed;
+  String get searchOfflineHint;
   String get retry;
   String get menu;
 
@@ -400,6 +401,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get searchHintMobile => 'Search places...';
   @override String get noResultsFound => 'No results found.';
   @override String get searchFailed => 'Search failed. Check your connection and try again.';
+  @override String get searchOfflineHint => 'You\'re offline — only saved markers and paths will be searched.';
   @override String get retry => 'Retry';
   @override String get menu => 'Menu';
 
@@ -666,6 +668,7 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get searchHintMobile => 'Søk etter steder...';
   @override String get noResultsFound => 'Ingen resultater funnet.';
   @override String get searchFailed => 'Søket mislyktes. Sjekk nettforbindelsen og prøv igjen.';
+  @override String get searchOfflineHint => 'Du er offline — søket dekker kun lagrede markører og ruter.';
   @override String get retry => 'Prøv igjen';
   @override String get menu => 'Meny';
 

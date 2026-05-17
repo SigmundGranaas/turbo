@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:turbo/core/connectivity/connectivity_provider.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
@@ -194,6 +195,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
     return Consumer(
       builder: (context, ref, child) {
         final searchState = ref.watch(searchProvider);
+        final isOnline = ref.watch(connectivityProvider);
         final theme = Theme.of(context);
 
         if (_textController.text.trim().length < 2) {
@@ -207,7 +209,11 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
             borderRadius: BorderRadius.circular(28.0),
           ),
           clipBehavior: Clip.antiAlias,
-          child: searchState.when(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!isOnline) _OfflineHintBanner(l10n: l10n),
+              Flexible(child: searchState.when(
             loading: () => const Center(
               child: Padding(
                 padding: EdgeInsets.symmetric(vertical: 24.0),
@@ -268,6 +274,8 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
                 ),
               );
             },
+          )),
+            ],
           ),
         );
       },
@@ -279,5 +287,38 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
       return Icon(_iconService.getIcon(context, suggestion.icon!).icon);
     }
     return Text(suggestion.title.isNotEmpty ? suggestion.title[0] : '?');
+  }
+}
+
+class _OfflineHintBanner extends StatelessWidget {
+  final AppLocalizations l10n;
+  const _OfflineHintBanner({required this.l10n});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.tertiaryContainer,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 16,
+            color: theme.colorScheme.onTertiaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              l10n.searchOfflineHint,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onTertiaryContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
