@@ -23,3 +23,5 @@ export 'data/path_export_service.dart' show PathExportService, ExportFormat;
 export 'widgets/export_options_sheet.dart' show ExportOptionsSheet;
 export 'widgets/path_info_sheet.dart' show PathInfoSheet;
 export 'widgets/paths_list_page.dart' show PathsListPage;
+export 'widgets/trip_stats_page.dart' show TripStatsPage;
+export 'data/trip_stats.dart' show TripStats;

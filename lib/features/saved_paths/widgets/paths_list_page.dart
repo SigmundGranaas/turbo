@@ -14,6 +14,7 @@ import '../models/path_style.dart';
 import '../models/saved_path.dart';
 import 'path_detail_sheet.dart';
 import 'path_info_sheet.dart';
+import 'trip_stats_page.dart';
 
 class PathsListPage extends ConsumerWidget {
   const PathsListPage({super.key});
@@ -29,6 +30,13 @@ class PathsListPage extends ConsumerWidget {
       appBar: AppBar(
         title: Text(l10n.allPaths),
         actions: [
+          IconButton(
+            tooltip: 'Trip statistics',
+            icon: const Icon(Icons.insights_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TripStatsPage()),
+            ),
+          ),
           IconButton(
             tooltip: 'Import GPX / GeoJSON / KML',
             icon: const Icon(Icons.file_download_outlined),

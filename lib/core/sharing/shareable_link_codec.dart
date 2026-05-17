@@ -31,7 +31,7 @@ class SharedMarkerPayload extends SharedPayload {
   final Marker marker;
 
   /// Optional collection uuid to add the imported marker to. Carried via the
-  /// share URL so the recipient sees a "Will be added to <X>" hint and the
+  /// share URL so the recipient sees a "Will be added to" hint and the
   /// payload listener can wire up membership in one step.
   final String? targetCollectionId;
   const SharedMarkerPayload(this.marker, {this.targetCollectionId});
