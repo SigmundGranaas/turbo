@@ -33,6 +33,7 @@ class MarkerExportOptionsSheet extends StatelessWidget {
               IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
+                tooltip: l10n.close,
               ),
             ],
           ),
