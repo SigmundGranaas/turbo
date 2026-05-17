@@ -118,5 +118,50 @@ void main() {
 
       expect(await tileStoreService.get(providerId, coords), isNull);
     });
+
+    test(
+        'WMS providers cache by (providerId, coords) independent of the '
+        'per-tile URL — repeated fetches at the same tile coordinates with '
+        'differing bbox-substituted URLs share the same cache entry',
+        () async {
+      const wmsTemplate =
+          'https://example.com/wms?LAYERS=topo&FORMAT=image/png&'
+          'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&SRS=EPSG:3857&'
+          'BBOX={bbox}&WIDTH={width}&HEIGHT={height}';
+      final wmsProviderId = sanitizeProviderId(wmsTemplate);
+      const wmsCoords = TileCoordinates(5, 7, 9);
+      final wmsBytes = Uint8List.fromList([10, 20, 30]);
+
+      // First fetch: store empty -> network supplies bytes, store gets
+      // populated.
+      const firstUrl =
+          'https://example.com/wms?LAYERS=topo&FORMAT=image/png&'
+          'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&SRS=EPSG:3857&'
+          'BBOX=1,2,3,4&WIDTH=256&HEIGHT=256';
+      dioAdapter.onGet(firstUrl, (server) => server.reply(200, wmsBytes));
+
+      final first = await cacheService.getTileBytes(
+          wmsProviderId, wmsCoords, firstUrl, null);
+      expect(first, wmsBytes);
+
+      // Let the unawaited store.put finish before the second fetch.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Second fetch: URL string is slightly different (different bbox
+      // precision — common when the same tile is re-requested after a
+      // zoom-pan cycle), but providerId + coords match. The cache should
+      // serve from store WITHOUT touching the network.
+      const secondUrl =
+          'https://example.com/wms?LAYERS=topo&FORMAT=image/png&'
+          'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&SRS=EPSG:3857&'
+          'BBOX=1.00000001,2.00000001,3,4&WIDTH=256&HEIGHT=256';
+      // No dio handler registered for secondUrl — if the cache misses,
+      // this errors out.
+      final second = await cacheService.getTileBytes(
+          wmsProviderId, wmsCoords, secondUrl, null);
+      expect(second, wmsBytes,
+          reason:
+              'cache must serve by (providerId, coords); URL bytes-equality is not required');
+    });
   });
 }

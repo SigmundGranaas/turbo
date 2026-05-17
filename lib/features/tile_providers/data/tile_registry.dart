@@ -263,12 +263,11 @@ class TileRegistry extends Notifier<TileRegistryState> {
       if (config.category == TileProviderCategory.offline) {
         tileProvider = offlineNotifier.createTileProvider(
             region: (config as OfflineRegionProviderConfig).region);
-      } else if (wms != null) {
-        // WMS URLs aren't tile-keyed the way XYZ templates are — bypass the
-        // cache layer and let flutter_map's TileLayer compute per-tile URLs.
-        tileProvider = NetworkTileProvider(
-            headers: config.headers, silenceExceptions: true);
       } else {
+        // For WMS sources the urlTemplate doubles as a stable provider-id
+        // seed; flutter_map's TileLayer routes per-tile URL building through
+        // wmsOptions, so the cache still keys by (providerId, coords) and
+        // works end-to-end.
         tileProvider = cacheService?.createTileProvider(
           urlTemplate: config.urlTemplate,
           headers: config.headers,
