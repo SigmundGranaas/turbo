@@ -159,6 +159,15 @@ void main() {
       expect(find.byType(LoginScreen), findsOneWidget);
     });
 
+    testWidgets('login screen does NOT render the dead Forgot Password button',
+        (tester) async {
+      await _openLogin(tester);
+
+      // The button was wired to a no-op TODO callback that confused users.
+      // Until there's a real flow it shouldn't be visible.
+      expect(find.text('Forgot Password?'), findsNothing);
+    });
+
     testWidgets('tapping Sign In with valid credentials invokes login once '
         'and disables the button', (tester) async {
       final fake = await _openLogin(tester);

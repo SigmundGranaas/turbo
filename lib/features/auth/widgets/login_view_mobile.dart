@@ -75,14 +75,7 @@ class LoginViewMobile extends ConsumerWidget {
                       label: l10n.password,
                       validator: (val) => (val == null || val.isEmpty) ? l10n.pleaseEnterPassword : null,
                     ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () { /* TODO: Implement Forgot Password */ },
-                        child: Text(l10n.forgotPassword),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 24),
                     AppButton.primary(
                       text: l10n.signIn,
                       onPressed: onLogin,
