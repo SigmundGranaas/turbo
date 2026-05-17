@@ -45,4 +45,21 @@ class RegionRepository {
   Future<void> deleteRegion(String id) async {
     await db.delete(regionsTable, where: 'id = ?', whereArgs: [id]);
   }
+
+  /// Deletes every region whose `createdAt` is older than the cutoff. Returns
+  /// the ids that were removed so the caller can clean up associated tile
+  /// data (and surface a user-friendly count in the snackbar).
+  Future<List<String>> deleteOlderThan(DateTime cutoff) async {
+    final cutoffIso = cutoff.toIso8601String();
+    final maps = await db.query(
+      regionsTable,
+      columns: ['id'],
+      where: 'createdAt < ?',
+      whereArgs: [cutoffIso],
+    );
+    final ids = maps.map((m) => m['id'] as String).toList();
+    if (ids.isEmpty) return ids;
+    await db.delete(regionsTable, where: 'createdAt < ?', whereArgs: [cutoffIso]);
+    return ids;
+  }
 }

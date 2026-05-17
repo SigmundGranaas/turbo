@@ -16,6 +16,7 @@ as offline_api;
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/sharing/api.dart';
 
 import 'package:turbo/core/location/compass_mode_state.dart';
@@ -332,13 +333,21 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
 
   void _showPinOptionsSheet(BuildContext context, LatLng point) {
     final isNavigating = ref.read(navigationStateProvider).isActive;
+    // Kick off the reverse lookup in parallel with showing the sheet — the
+    // result pre-fills the marker name if the user chooses "Create marker".
+    final reverseFuture =
+        ref.read(reverseGeocoderProvider).findLocationByCoord(point);
     showModalBottomSheet(
       context: context,
       useSafeArea: true,
       builder: (BuildContext sheetContext) {
         return PinOptionsSheet(
           isNavigating: isNavigating,
-          onCreateMarker: () => _showCreateSheet(context, newLocation: point),
+          onCreateMarker: () => _showCreateSheet(
+            context,
+            newLocation: point,
+            namePreview: reverseFuture,
+          ),
           onMeasure: () => _navigateToMeasuring(point),
           onNavigate: () => ref
               .read(navigationStateProvider.notifier)
@@ -368,18 +377,42 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     }
   }
 
-  void _showCreateSheet(BuildContext context, {LatLng? newLocation}) async {
+  void _showCreateSheet(
+    BuildContext context, {
+    LatLng? newLocation,
+    Future<LocationSearchResult?>? namePreview,
+  }) async {
     if (newLocation != null) {
       animatedMapMove(
           newLocation, _mapController.camera.zoom, _mapController, this);
     }
 
+    String? prefillName;
+    if (namePreview != null) {
+      // Await up to 1.5s for reverse-geo; longer than that and the user has
+      // already pressed "Create marker" and is waiting on us. Fall back to
+      // empty if Kartverket has no nearby placename or times out.
+      try {
+        final result = await namePreview.timeout(
+          const Duration(milliseconds: 1500),
+          onTimeout: () => null,
+        );
+        prefillName = result?.title;
+      } catch (_) {
+        prefillName = null;
+      }
+    }
+
+    if (!context.mounted) return;
     final result = await showModalBottomSheet<marker_model.Marker>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (BuildContext context) {
-        return marker_model.CreateLocationSheet(newLocation: newLocation);
+        return marker_model.CreateLocationSheet(
+          newLocation: newLocation,
+          initialName: prefillName,
+        );
       },
     );
 

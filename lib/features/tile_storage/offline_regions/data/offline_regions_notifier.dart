@@ -81,6 +81,19 @@ class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
     await jobQueue.enqueueJobs(jobs);
   }
 
+  /// Removes every region older than [cutoff]. Each deletion goes through
+  /// [deleteRegion] so tile reference counts and the in-flight job queue are
+  /// kept consistent. Returns the number of regions deleted.
+  Future<int> deleteOlderThan(DateTime cutoff) async {
+    if (kIsWeb) return 0;
+    final current = state.value ?? [];
+    final stale = current.where((r) => r.createdAt.isBefore(cutoff)).toList();
+    for (final r in stale) {
+      await deleteRegion(r.id);
+    }
+    return stale.length;
+  }
+
   Future<void> deleteRegion(String regionId) async {
     if (kIsWeb) return;
 

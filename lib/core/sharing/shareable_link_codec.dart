@@ -29,12 +29,18 @@ sealed class SharedPayload {
 
 class SharedMarkerPayload extends SharedPayload {
   final Marker marker;
-  const SharedMarkerPayload(this.marker);
+
+  /// Optional collection uuid to add the imported marker to. Carried via the
+  /// share URL so the recipient sees a "Will be added to <X>" hint and the
+  /// payload listener can wire up membership in one step.
+  final String? targetCollectionId;
+  const SharedMarkerPayload(this.marker, {this.targetCollectionId});
 }
 
 class SharedPathPayload extends SharedPayload {
   final SavedPath path;
-  const SharedPathPayload(this.path);
+  final String? targetCollectionId;
+  const SharedPathPayload(this.path, {this.targetCollectionId});
 }
 
 class LinkTooLargeException implements Exception {
@@ -68,12 +74,14 @@ class UnsupportedShareVersionException implements Exception {
 class ShareableLinkCodec {
   ShareableLinkCodec._();
 
-  static String encodeMarker(Marker marker, String webBaseUrl) {
+  static String encodeMarker(Marker marker, String webBaseUrl,
+      {String? targetCollectionId}) {
     final json = <String, dynamic>{
       'v': _kPayloadVersion,
       't': marker.title,
       if (_nonEmpty(marker.description)) 'd': marker.description,
       if (_nonEmpty(marker.icon)) 'i': marker.icon,
+      if (_nonEmpty(targetCollectionId)) 'col': targetCollectionId,
       'p': [
         _round6(marker.position.latitude),
         _round6(marker.position.longitude),
@@ -82,7 +90,8 @@ class ShareableLinkCodec {
     return _buildUrl(webBaseUrl, _kMarkerKind, json);
   }
 
-  static String encodePath(SavedPath path, String webBaseUrl) {
+  static String encodePath(SavedPath path, String webBaseUrl,
+      {String? targetCollectionId}) {
     final json = <String, dynamic>{
       'v': _kPayloadVersion,
       't': path.title,
@@ -91,6 +100,7 @@ class ShareableLinkCodec {
       if (_nonEmpty(path.iconKey)) 'i': path.iconKey,
       if (path.smoothing) 's': true,
       if (_nonEmpty(path.lineStyleKey)) 'l': path.lineStyleKey,
+      if (_nonEmpty(targetCollectionId)) 'col': targetCollectionId,
       'pts': [
         for (final pt in path.points)
           [_round6(pt.latitude), _round6(pt.longitude)],
@@ -127,9 +137,12 @@ class ShareableLinkCodec {
     if (version != _kPayloadVersion) {
       throw UnsupportedShareVersionException(version);
     }
+    final col = json['col'] as String?;
     return switch (kind) {
-      _kMarkerKind => SharedMarkerPayload(_markerFromJson(json)),
-      _kPathKind => SharedPathPayload(_pathFromJson(json)),
+      _kMarkerKind =>
+        SharedMarkerPayload(_markerFromJson(json), targetCollectionId: col),
+      _kPathKind =>
+        SharedPathPayload(_pathFromJson(json), targetCollectionId: col),
       _ => throw InvalidShareLinkException('unknown share kind "$kind"'),
     };
   }

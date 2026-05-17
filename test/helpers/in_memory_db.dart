@@ -137,7 +137,8 @@ Future<Database> createFullSchemaDb() async {
       color_hex TEXT,
       icon_key TEXT,
       created_at TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      saved_filter TEXT
     )
   ''');
   batch.execute('''
@@ -168,7 +169,8 @@ Future<Database> createCollectionsDb() async {
       color_hex TEXT,
       icon_key TEXT,
       created_at TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      saved_filter TEXT
     )
   ''');
   batch.execute('''

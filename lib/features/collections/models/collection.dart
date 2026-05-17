@@ -1,5 +1,7 @@
 import 'package:uuid/uuid.dart';
 
+import 'saved_filter.dart';
+
 class Collection {
   final String uuid;
   final String name;
@@ -9,6 +11,11 @@ class Collection {
   final DateTime createdAt;
   final int sortOrder;
 
+  /// When non-null, the collection is a "smart" collection — membership is
+  /// computed from this filter on demand instead of from the explicit
+  /// `collection_items` join table.
+  final SavedFilter? savedFilter;
+
   Collection({
     String? uuid,
     required this.name,
@@ -17,8 +24,11 @@ class Collection {
     this.iconKey,
     DateTime? createdAt,
     this.sortOrder = 0,
+    this.savedFilter,
   })  : uuid = uuid ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
+
+  bool get isSmart => savedFilter != null;
 
   Collection copyWith({
     String? uuid,
@@ -31,6 +41,8 @@ class Collection {
     bool clearIconKey = false,
     DateTime? createdAt,
     int? sortOrder,
+    SavedFilter? savedFilter,
+    bool clearSavedFilter = false,
   }) {
     return Collection(
       uuid: uuid ?? this.uuid,
@@ -41,6 +53,8 @@ class Collection {
       iconKey: clearIconKey ? null : (iconKey ?? this.iconKey),
       createdAt: createdAt ?? this.createdAt,
       sortOrder: sortOrder ?? this.sortOrder,
+      savedFilter:
+          clearSavedFilter ? null : (savedFilter ?? this.savedFilter),
     );
   }
 
@@ -53,6 +67,7 @@ class Collection {
       iconKey: map['icon_key'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
       sortOrder: (map['sort_order'] as num?)?.toInt() ?? 0,
+      savedFilter: SavedFilter.fromJsonString(map['saved_filter'] as String?),
     );
   }
 
@@ -65,6 +80,7 @@ class Collection {
       'icon_key': iconKey,
       'created_at': createdAt.toIso8601String(),
       'sort_order': sortOrder,
+      'saved_filter': savedFilter?.toJsonString(),
     };
   }
 
@@ -79,7 +95,8 @@ class Collection {
           colorHex == other.colorHex &&
           iconKey == other.iconKey &&
           createdAt == other.createdAt &&
-          sortOrder == other.sortOrder;
+          sortOrder == other.sortOrder &&
+          savedFilter == other.savedFilter;
 
   @override
   int get hashCode => Object.hash(
@@ -90,5 +107,6 @@ class Collection {
         iconKey,
         createdAt,
         sortOrder,
+        savedFilter,
       );
 }

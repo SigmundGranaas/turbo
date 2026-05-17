@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 7;
+const int _dbVersion = 8;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -156,7 +156,8 @@ Future<void> _createDb(Database db, int version) async {
       color_hex TEXT,
       icon_key TEXT,
       created_at TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      saved_filter TEXT
     )
   ''');
   batch.execute('''
@@ -202,7 +203,19 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV5ToV6(db);
       case 7:
         await _migrateV6ToV7(db);
+      case 8:
+        await _migrateV7ToV8(db);
     }
+  }
+}
+
+Future<void> _migrateV7ToV8(Database db) async {
+  final columns = (await db.rawQuery('PRAGMA table_info($collectionsTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!columns.contains('saved_filter')) {
+    await db.execute(
+        'ALTER TABLE $collectionsTable ADD COLUMN saved_filter TEXT');
   }
 }
 

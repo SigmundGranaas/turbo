@@ -5,6 +5,7 @@ import 'location_service.dart';
 
 class KartverketLocationService extends LocationService {
   static const String baseUrl = 'https://ws.geonorge.no/stedsnavn/v1/navn';
+  static const String pointUrl = 'https://ws.geonorge.no/stedsnavn/v1/punkt';
 
   /// Allows tests to inject a mock HTTP client. Defaults to a fresh
   /// `http.Client` in production.
@@ -37,6 +38,28 @@ class KartverketLocationService extends LocationService {
       }
     } catch (e) {
       return [];
+    }
+  }
+
+  /// Reverse geocodes a coordinate via Kartverket's `/punkt` endpoint.
+  /// Returns the closest named feature, or `null` if Kartverket has no name
+  /// nearby (common outside Norway). Network or parse errors collapse to
+  /// `null` — the caller can fall back to raw coordinates.
+  Future<LocationSearchResult?> findLocationByCoord(LatLng coord,
+      {double radiusMeters = 500}) async {
+    try {
+      final uri = Uri.parse('$pointUrl'
+          '?nord=${coord.latitude}&ost=${coord.longitude}'
+          '&koordsys=4258&radius=${radiusMeters.toInt()}&treffPerSide=1');
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) return null;
+      final decoded = utf8.decode(response.bodyBytes);
+      final json = jsonDecode(decoded) as Map<String, dynamic>;
+      final navnList = (json['navn'] as List?) ?? const [];
+      if (navnList.isEmpty) return null;
+      return _parseLocation(navnList.first as Map<String, dynamic>);
+    } catch (_) {
+      return null;
     }
   }
 
