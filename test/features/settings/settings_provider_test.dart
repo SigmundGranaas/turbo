@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:turbo/core/util/distance_formatter.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -89,6 +90,74 @@ void main() {
       // Assert - Persistence
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.containsKey('themeMode'), isFalse);
+    });
+
+    group('advanced settings', () {
+      test('defaults are metric, concurrency=8, marker TTL=30 s when empty',
+          () async {
+        final container = createContainer({});
+        final state = await container.read(settingsProvider.future);
+        expect(state.distanceUnit, DistanceUnit.metric);
+        expect(state.maxConcurrentDownloads, 8);
+        expect(state.markerCacheTtlSeconds, 30);
+      });
+
+      test('loaded values are clamped to the supported range', () async {
+        final container = createContainer({
+          'maxConcurrentDownloads': 999,
+          'markerCacheTtlSeconds': -50,
+        });
+        final state = await container.read(settingsProvider.future);
+        expect(state.maxConcurrentDownloads, kMaxDownloadConcurrency);
+        expect(state.markerCacheTtlSeconds, kMinMarkerCacheTtlSeconds);
+      });
+
+      test('setDistanceUnit updates state and persists by name', () async {
+        final container = createContainer({});
+        await container.read(settingsProvider.future);
+
+        await container
+            .read(settingsProvider.notifier)
+            .setDistanceUnit(DistanceUnit.imperial);
+
+        expect(container.read(settingsProvider).value?.distanceUnit,
+            DistanceUnit.imperial);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('distanceUnit'), 'imperial');
+      });
+
+      test('setMaxConcurrentDownloads clamps and persists', () async {
+        final container = createContainer({});
+        await container.read(settingsProvider.future);
+        final notifier = container.read(settingsProvider.notifier);
+
+        await notifier.setMaxConcurrentDownloads(99);
+        expect(container.read(settingsProvider).value?.maxConcurrentDownloads,
+            kMaxDownloadConcurrency);
+
+        await notifier.setMaxConcurrentDownloads(-3);
+        expect(container.read(settingsProvider).value?.maxConcurrentDownloads,
+            kMinDownloadConcurrency);
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getInt('maxConcurrentDownloads'),
+            kMinDownloadConcurrency);
+      });
+
+      test('setMarkerCacheTtlSeconds clamps and persists', () async {
+        final container = createContainer({});
+        await container.read(settingsProvider.future);
+
+        await container
+            .read(settingsProvider.notifier)
+            .setMarkerCacheTtlSeconds(2);
+
+        expect(container.read(settingsProvider).value?.markerCacheTtlSeconds,
+            kMinMarkerCacheTtlSeconds);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getInt('markerCacheTtlSeconds'),
+            kMinMarkerCacheTtlSeconds);
+      });
     });
   });
 }

@@ -3,6 +3,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/util/user_agent.dart';
+import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/data/region_repository.dart';
 import 'package:turbo/features/tile_storage/offline_regions/data/tile_job_queue.dart';
 import 'package:turbo/core/service/logger.dart';
@@ -16,6 +18,10 @@ final downloadOrchestratorProvider = Provider<DownloadOrchestrator?>((ref) {
   final jobQueueAsync = ref.watch(tileJobQueueProvider);
   final tileStoreAsync = ref.watch(tileStoreServiceProvider);
   final regionRepoAsync = ref.watch(regionRepositoryProvider);
+  // Read the user-configured concurrency cap; falls back to default when
+  // settings aren't loaded yet.
+  final maxConcurrent = ref.watch(settingsProvider
+      .select((s) => s.value?.maxConcurrentDownloads ?? 8));
 
   // If any of them are not ready, return null.
   if (jobQueueAsync.isLoading || tileStoreAsync.isLoading || regionRepoAsync.isLoading) {
@@ -33,6 +39,7 @@ final downloadOrchestratorProvider = Provider<DownloadOrchestrator?>((ref) {
     tileStore: tileStoreAsync.value!,
     regionRepository: regionRepoAsync.value!,
     regionNotifier: ref.read(offlineRegionsProvider.notifier),
+    maxConcurrentDownloads: maxConcurrent,
   );
 
   orchestrator.start();
@@ -51,8 +58,8 @@ class DownloadOrchestrator {
   Timer? _timer;
   bool _isRunning = false;
   bool _isTicking = false;
-  
-  static const int maxConcurrentDownloads = 8;
+
+  final int maxConcurrentDownloads;
   int _activeDownloadCount = 0;
 
   // Circuit breaker state
@@ -64,6 +71,7 @@ class DownloadOrchestrator {
     required TileStoreService tileStore,
     required RegionRepository regionRepository,
     required OfflineRegionsNotifier regionNotifier,
+    this.maxConcurrentDownloads = 8,
   })  : _jobQueue = jobQueue,
         _tileStore = tileStore,
         _regionRepository = regionRepository,
@@ -73,7 +81,7 @@ class DownloadOrchestrator {
           connectTimeout: const Duration(seconds: 10),
           receiveTimeout: const Duration(seconds: 10),
           headers: {
-            'User-Agent': 'turbo_map_app/1.0.18 (+https://github.com/sigmundgranaas/turbo)',
+            'User-Agent': kTurboUserAgent,
             'Accept': 'image/png,image/*;q=0.8,*/*;q=0.5',
           },
         ));

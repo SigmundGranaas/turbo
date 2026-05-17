@@ -180,6 +180,16 @@ abstract class AppLocalizations {
   String get drawing;
   String get drawSensitivity;
 
+  // Advanced settings
+  String get advanced;
+  String get distanceUnit;
+  String get distanceUnitMetric;
+  String get distanceUnitImperial;
+  String get maxConcurrentDownloads;
+  String get maxConcurrentDownloadsDescription;
+  String get markerCacheTtl;
+  String get markerCacheTtlDescription;
+
   // My Location settings
   String get myLocation;
   String get locationIcon;
@@ -445,6 +455,15 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get drawing => 'Drawing';
   @override String get drawSensitivity => 'Draw Sensitivity';
 
+  @override String get advanced => 'Advanced';
+  @override String get distanceUnit => 'Distance unit';
+  @override String get distanceUnitMetric => 'Metric (km / m)';
+  @override String get distanceUnitImperial => 'Imperial (mi / ft)';
+  @override String get maxConcurrentDownloads => 'Max parallel downloads';
+  @override String get maxConcurrentDownloadsDescription => 'Higher values finish faster but stress the tile server.';
+  @override String get markerCacheTtl => 'Marker cache lifetime';
+  @override String get markerCacheTtlDescription => 'How long viewport markers stay cached before refetching.';
+
   @override String get myLocation => 'My Location';
   @override String get locationIcon => 'Icon';
   @override String get chooseIcon => 'Choose Icon';
@@ -695,6 +714,15 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get drawMode => 'Tegnemodus';
   @override String get drawing => 'Tegning';
   @override String get drawSensitivity => 'Tegnefølsomhet';
+
+  @override String get advanced => 'Avansert';
+  @override String get distanceUnit => 'Avstandsenhet';
+  @override String get distanceUnitMetric => 'Metrisk (km / m)';
+  @override String get distanceUnitImperial => 'Imperial (mi / ft)';
+  @override String get maxConcurrentDownloads => 'Maks parallelle nedlastinger';
+  @override String get maxConcurrentDownloadsDescription => 'Høyere verdier går raskere, men belaster kartserveren mer.';
+  @override String get markerCacheTtl => 'Markør-mellomlager';
+  @override String get markerCacheTtlDescription => 'Hvor lenge viewport-markører holdes før ny henting.';
 
   @override String get myLocation => 'Min posisjon';
   @override String get locationIcon => 'Ikon';
