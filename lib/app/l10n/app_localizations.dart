@@ -629,8 +629,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get collectionName => 'Collection name';
   @override String get noCollectionsYet => 'No collections yet';
   @override String get noCollectionsHint => 'Group markers and paths together so you can toggle, browse, and export them as a unit.';
-  @override String get allMarkers => 'All markers';
-  @override String get allPaths => 'All paths';
+  @override String get allMarkers => 'Markers';
+  @override String get allPaths => 'Paths';
   @override String get addToCollection => 'Add to collection';
   @override String get markersSection => 'Markers';
   @override String get pathsSection => 'Paths';
@@ -943,8 +943,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get collectionName => 'Samlingsnavn';
   @override String get noCollectionsYet => 'Ingen samlinger ennå';
   @override String get noCollectionsHint => 'Grupper punkter og ruter slik at du kan slå dem av/på, bla gjennom og eksportere dem sammen.';
-  @override String get allMarkers => 'Alle punkter';
-  @override String get allPaths => 'Alle ruter';
+  @override String get allMarkers => 'Punkter';
+  @override String get allPaths => 'Ruter';
   @override String get addToCollection => 'Legg til i samling';
   @override String get markersSection => 'Punkter';
   @override String get pathsSection => 'Ruter';
