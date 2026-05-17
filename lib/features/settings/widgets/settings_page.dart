@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:turbo/app/location_marker_tokens.dart';
 import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/util/distance_formatter.dart';
 import 'package:turbo/core/widgets/app_grouped_card.dart';
 import 'package:turbo/core/widgets/app_section_header.dart';
 import 'package:turbo/core/widgets/color_circle.dart';
@@ -84,7 +85,115 @@ class SettingsPage extends ConsumerWidget {
             ref.read(settingsProvider.notifier).setMarkerOutlineColor(color);
           },
         ),
+        const SizedBox(height: AppSpacing.xl),
+        AppSectionHeader(l10n.advanced),
+        _buildDistanceUnitSelector(context, ref, settings.distanceUnit, l10n),
+        const SizedBox(height: AppSpacing.s),
+        _buildIntSliderCard(
+          context,
+          ref,
+          icon: Icons.cloud_download_outlined,
+          title: l10n.maxConcurrentDownloads,
+          description: l10n.maxConcurrentDownloadsDescription,
+          value: settings.maxConcurrentDownloads,
+          min: kMinDownloadConcurrency,
+          max: kMaxDownloadConcurrency,
+          suffix: '',
+          onChanged: (v) => ref
+              .read(settingsProvider.notifier)
+              .setMaxConcurrentDownloads(v),
+        ),
+        const SizedBox(height: AppSpacing.s),
+        _buildIntSliderCard(
+          context,
+          ref,
+          icon: Icons.timer_outlined,
+          title: l10n.markerCacheTtl,
+          description: l10n.markerCacheTtlDescription,
+          value: settings.markerCacheTtlSeconds,
+          min: kMinMarkerCacheTtlSeconds,
+          max: kMaxMarkerCacheTtlSeconds,
+          suffix: 's',
+          onChanged: (v) => ref
+              .read(settingsProvider.notifier)
+              .setMarkerCacheTtlSeconds(v),
+        ),
       ],
+    );
+  }
+
+  Widget _buildDistanceUnitSelector(BuildContext context, WidgetRef ref,
+      DistanceUnit currentUnit, AppLocalizations l10n) {
+    return SegmentedButton<DistanceUnit>(
+      segments: <ButtonSegment<DistanceUnit>>[
+        ButtonSegment<DistanceUnit>(
+          value: DistanceUnit.metric,
+          label: Text(l10n.distanceUnitMetric),
+        ),
+        ButtonSegment<DistanceUnit>(
+          value: DistanceUnit.imperial,
+          label: Text(l10n.distanceUnitImperial),
+        ),
+      ],
+      selected: {currentUnit},
+      onSelectionChanged: (Set<DistanceUnit> newSelection) {
+        ref.read(settingsProvider.notifier).setDistanceUnit(newSelection.first);
+      },
+    );
+  }
+
+  Widget _buildIntSliderCard(
+    BuildContext context,
+    WidgetRef ref, {
+    required IconData icon,
+    required String title,
+    required String description,
+    required int value,
+    required int min,
+    required int max,
+    required String suffix,
+    required ValueChanged<int> onChanged,
+  }) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    return AppGroupedCard(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.l, vertical: AppSpacing.s),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20),
+              const SizedBox(width: AppSpacing.m),
+              Expanded(
+                child: Text(title, style: textTheme.bodyLarge),
+              ),
+              Text(
+                '$value$suffix',
+                style: textTheme.bodySmall,
+              ),
+            ],
+          ),
+          Slider(
+            value: value.toDouble(),
+            min: min.toDouble(),
+            max: max.toDouble(),
+            divisions: max - min,
+            label: '$value$suffix',
+            onChanged: (v) => onChanged(v.round()),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.s),
+            child: Text(
+              description,
+              style: textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

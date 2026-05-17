@@ -5,6 +5,7 @@ import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/collections/api.dart';
+import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/saved_paths/api.dart' show hexToColor;
 import '../data/icon_service.dart';
 import '../data/location_repository.dart';
@@ -12,7 +13,7 @@ import '../models/marker.dart';
 import 'edit_location_sheet.dart';
 import 'marker_export_options_sheet.dart';
 
-enum MarkerInfoResult { updated, deleted }
+enum MarkerInfoResult { updated, deleted, navigationStarted }
 
 class MarkerInfoSheet extends ConsumerStatefulWidget {
   final Marker marker;
@@ -78,6 +79,7 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
               IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
+                tooltip: l10n.close,
               ),
             ],
           ),
@@ -114,6 +116,7 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
               type: CollectionItemRef.typeMarker,
               uuid: _marker.uuid,
             ),
+            onTap: _openAddToCollection,
           ),
           const SizedBox(height: 16),
 
@@ -122,14 +125,14 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               ActionButton(
+                icon: Icons.navigation_outlined,
+                label: l10n.navigateToHere,
+                onTap: _startNavigation,
+              ),
+              ActionButton(
                 icon: Icons.edit_outlined,
                 label: l10n.edit,
                 onTap: _openEdit,
-              ),
-              ActionButton(
-                icon: Icons.folder_outlined,
-                label: l10n.addToCollection,
-                onTap: _openAddToCollection,
               ),
               ActionButton(
                 icon: Icons.ios_share_outlined,
@@ -156,6 +159,34 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
         uuid: _marker.uuid,
       ),
     );
+  }
+
+  Future<void> _startNavigation() async {
+    final l10n = context.l10n;
+    final notifier = ref.read(navigationStateProvider.notifier);
+    final currentState = ref.read(navigationStateProvider);
+
+    // Same target → no-op; just tell the user.
+    if (currentState.isActive && currentState.target == _marker.position) {
+      AppSnackbars.info(context, l10n.alreadyNavigatingHere);
+      return;
+    }
+
+    // Different target active → confirm before replacing.
+    if (currentState.isActive && currentState.target != _marker.position) {
+      final confirmed = await AppDialog.confirm(
+        context,
+        title: l10n.replaceNavigationTitle,
+        content: l10n.replaceNavigationMessage,
+        confirmLabel: l10n.replace,
+      );
+      if (!confirmed || !mounted) return;
+    }
+
+    notifier.startNavigation(_marker.position);
+    if (mounted) {
+      Navigator.of(context).pop(MarkerInfoResult.navigationStarted);
+    }
   }
 
   Future<void> _openEdit() async {
@@ -225,38 +256,63 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
 
 class _CollectionChipStrip extends ConsumerWidget {
   final CollectionItemRef itemRef;
+  final VoidCallback onTap;
 
-  const _CollectionChipStrip({required this.itemRef});
+  const _CollectionChipStrip({required this.itemRef, required this.onTap});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final colorScheme = Theme.of(context).colorScheme;
     final asyncState = ref.watch(collectionRepositoryProvider);
     return asyncState.maybeWhen(
       data: (state) {
         final uuids = state.collectionsFor(itemRef);
-        if (uuids.isEmpty) return const SizedBox.shrink();
         final byUuid = {for (final c in state.collections) c.uuid: c};
-        final colorScheme = Theme.of(context).colorScheme;
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final id in uuids)
-                if (byUuid[id] != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Chip(
-                      avatar: Icon(
-                        Icons.folder_outlined,
-                        size: 16,
-                        color: hexToColor(byUuid[id]!.colorHex) ??
-                            colorScheme.primary,
-                      ),
-                      label: Text(byUuid[id]!.name),
-                      visualDensity: VisualDensity.compact,
+        return SizedBox(
+          height: 36,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                if (uuids.isEmpty)
+                  ActionChip(
+                    avatar: Icon(
+                      Icons.folder_outlined,
+                      size: 16,
+                      color: colorScheme.primary,
                     ),
+                    label: Text(l10n.addToCollection),
+                    onPressed: onTap,
+                    visualDensity: VisualDensity.compact,
+                  )
+                else ...[
+                  for (final id in uuids)
+                    if (byUuid[id] != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ActionChip(
+                          avatar: Icon(
+                            Icons.folder_outlined,
+                            size: 16,
+                            color: hexToColor(byUuid[id]!.colorHex) ??
+                                colorScheme.primary,
+                          ),
+                          label: Text(byUuid[id]!.name),
+                          onPressed: onTap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                  IconButton(
+                    tooltip: l10n.addToCollection,
+                    iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: onTap,
                   ),
-            ],
+                ],
+              ],
+            ),
           ),
         );
       },

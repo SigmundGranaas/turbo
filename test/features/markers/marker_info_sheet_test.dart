@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart';
+import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
 /// Minimal fake repository that records delete calls. The sheet only needs
@@ -43,13 +44,30 @@ Marker _marker() => Marker(
 
 Future<_FakeRepo> _openSheet(WidgetTester tester, {Marker? marker}) async {
   final repo = _FakeRepo();
+  await _openSheetWith(tester, marker: marker, repo: repo);
+  return repo;
+}
+
+/// Variant that returns the [ProviderContainer] so tests can inspect or seed
+/// providers (e.g. start a navigation before opening the sheet).
+Future<ProviderContainer> _openSheetWith(
+  WidgetTester tester, {
+  Marker? marker,
+  _FakeRepo? repo,
+}) async {
+  final fakeRepo = repo ?? _FakeRepo();
   final m = marker ?? _marker();
+  final container = ProviderContainer(
+    overrides: [
+      locationRepositoryProvider.overrideWith(() => fakeRepo),
+      collectionRepositoryProvider.overrideWith(() => _FakeCollectionRepo()),
+    ],
+  );
+  addTearDown(container.dispose);
+
   await tester.pumpWidget(
-    ProviderScope(
-      overrides: [
-        locationRepositoryProvider.overrideWith(() => repo),
-        collectionRepositoryProvider.overrideWith(() => _FakeCollectionRepo()),
-      ],
+    UncontrolledProviderScope(
+      container: container,
       child: MaterialApp(
         localizationsDelegates: const [
           AppLocalizations.delegate,
@@ -77,7 +95,7 @@ Future<_FakeRepo> _openSheet(WidgetTester tester, {Marker? marker}) async {
   await tester.pumpAndSettle();
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
-  return repo;
+  return container;
 }
 
 void main() {
@@ -139,6 +157,100 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repo.deleteCallCount, 0);
+      expect(find.byType(MarkerInfoSheet), findsOneWidget);
+    });
+  });
+
+  group('MarkerInfoSheet Navigate Here action', () {
+    testWidgets('renders 4 action buttons including Navigate Here',
+        (tester) async {
+      await _openSheet(tester);
+
+      expect(find.text('Navigate Here'), findsOneWidget);
+      expect(find.text('Edit'), findsOneWidget);
+      expect(find.text('Export'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
+      expect(find.byIcon(Icons.navigation_outlined), findsOneWidget);
+    });
+
+    testWidgets('tapping Navigate Here starts navigation, closes the sheet, '
+        'and seeds the target', (tester) async {
+      final container = await _openSheetWith(tester);
+
+      // Initially inactive.
+      expect(container.read(navigationStateProvider).isActive, isFalse);
+
+      await tester.tap(find.text('Navigate Here'));
+      await tester.pumpAndSettle();
+
+      final navState = container.read(navigationStateProvider);
+      expect(navState.isActive, isTrue);
+      expect(navState.target, const LatLng(63.4, 10.4));
+      expect(find.byType(MarkerInfoSheet), findsNothing,
+          reason: 'sheet should close after starting navigation');
+    });
+
+    testWidgets('tapping Navigate Here while already navigating to the same '
+        'target is a no-op with a snackbar', (tester) async {
+      final container = await _openSheetWith(tester);
+
+      // Pre-seed: already navigating to the same coordinates.
+      container
+          .read(navigationStateProvider.notifier)
+          .startNavigation(const LatLng(63.4, 10.4));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Navigate Here'));
+      await tester.pumpAndSettle();
+
+      // Sheet stays open.
+      expect(find.byType(MarkerInfoSheet), findsOneWidget);
+      // Snackbar with the friendly hint shows.
+      expect(find.text('Already navigating here'), findsOneWidget);
+    });
+
+    testWidgets('tapping Navigate Here while navigating elsewhere prompts a '
+        'confirm dialog; confirm replaces the target', (tester) async {
+      final container = await _openSheetWith(tester);
+
+      container
+          .read(navigationStateProvider.notifier)
+          .startNavigation(const LatLng(59.9, 10.7));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Navigate Here'));
+      await tester.pumpAndSettle();
+
+      // Dialog appears.
+      expect(find.text('Replace navigation target?'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Replace'));
+      await tester.pumpAndSettle();
+
+      final navState = container.read(navigationStateProvider);
+      expect(navState.target, const LatLng(63.4, 10.4),
+          reason: 'target should be replaced with the marker position');
+      expect(find.byType(MarkerInfoSheet), findsNothing);
+    });
+
+    testWidgets('cancelling the replace-target dialog leaves the original '
+        'target untouched', (tester) async {
+      final container = await _openSheetWith(tester);
+
+      container
+          .read(navigationStateProvider.notifier)
+          .startNavigation(const LatLng(59.9, 10.7));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Navigate Here'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      final navState = container.read(navigationStateProvider);
+      expect(navState.target, const LatLng(59.9, 10.7),
+          reason: 'cancel leaves the original target in place');
       expect(find.byType(MarkerInfoSheet), findsOneWidget);
     });
   });

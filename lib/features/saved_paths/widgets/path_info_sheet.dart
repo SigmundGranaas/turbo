@@ -132,6 +132,7 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
               type: CollectionItemRef.typePath,
               uuid: _path.uuid,
             ),
+            onTap: _openAddToCollection,
           ),
           const SizedBox(height: 16),
 
@@ -143,11 +144,6 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
                 icon: Icons.edit_outlined,
                 label: l10n.edit,
                 onTap: _openEdit,
-              ),
-              ActionButton(
-                icon: Icons.folder_outlined,
-                label: l10n.addToCollection,
-                onTap: _openAddToCollection,
               ),
               ActionButton(
                 icon: Icons.ios_share_outlined,
@@ -243,38 +239,63 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
 
 class _PathCollectionChipStrip extends ConsumerWidget {
   final CollectionItemRef itemRef;
+  final VoidCallback onTap;
 
-  const _PathCollectionChipStrip({required this.itemRef});
+  const _PathCollectionChipStrip({required this.itemRef, required this.onTap});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final colorScheme = Theme.of(context).colorScheme;
     final asyncState = ref.watch(collectionRepositoryProvider);
     return asyncState.maybeWhen(
       data: (state) {
         final uuids = state.collectionsFor(itemRef);
-        if (uuids.isEmpty) return const SizedBox.shrink();
         final byUuid = {for (final c in state.collections) c.uuid: c};
-        final colorScheme = Theme.of(context).colorScheme;
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final id in uuids)
-                if (byUuid[id] != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Chip(
-                      avatar: Icon(
-                        Icons.folder_outlined,
-                        size: 16,
-                        color: hexToColor(byUuid[id]!.colorHex) ??
-                            colorScheme.primary,
-                      ),
-                      label: Text(byUuid[id]!.name),
-                      visualDensity: VisualDensity.compact,
+        return SizedBox(
+          height: 36,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                if (uuids.isEmpty)
+                  ActionChip(
+                    avatar: Icon(
+                      Icons.folder_outlined,
+                      size: 16,
+                      color: colorScheme.primary,
                     ),
+                    label: Text(l10n.addToCollection),
+                    onPressed: onTap,
+                    visualDensity: VisualDensity.compact,
+                  )
+                else ...[
+                  for (final id in uuids)
+                    if (byUuid[id] != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ActionChip(
+                          avatar: Icon(
+                            Icons.folder_outlined,
+                            size: 16,
+                            color: hexToColor(byUuid[id]!.colorHex) ??
+                                colorScheme.primary,
+                          ),
+                          label: Text(byUuid[id]!.name),
+                          onPressed: onTap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                  IconButton(
+                    tooltip: l10n.addToCollection,
+                    iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: onTap,
                   ),
-            ],
+                ],
+              ],
+            ),
           ),
         );
       },

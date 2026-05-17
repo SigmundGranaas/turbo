@@ -2,12 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/connectivity/connectivity_provider.dart';
 import 'package:turbo/features/search/data/composite_search_service.dart';
 import 'package:turbo/features/search/data/location_service.dart';
 import 'package:turbo/features/search/widgets/search_bar_mobile.dart';
 
 import '../../helpers/fakes/fake_location_service.dart';
 import '../../helpers/pump_app.dart';
+
+/// Stub that lets the test pin connectivity to a chosen boolean — the real
+/// ConnectivityNotifier subscribes to a stream we don't want in unit tests.
+class _StubConnectivity extends ConnectivityNotifier {
+  _StubConnectivity(this._initial);
+  final bool _initial;
+  @override
+  bool build() => _initial;
+}
 
 LocationSearchResult _r(String title, String source) => LocationSearchResult(
       title: title,
@@ -234,6 +244,49 @@ void main() {
       await tester.tap(find.byIcon(Icons.menu));
       await tester.pumpAndSettle();
       expect(menuPresses, 1);
+    });
+
+    testWidgets('offline banner appears in the suggestion overlay when '
+        'connectivity is false', (tester) async {
+      await pumpTestApp(
+        tester,
+        _Host(onMenu: () {}),
+        overrides: [
+          compositeSearchServiceProvider
+              .overrideWithValue(_FakeComposite(FakeLocationService())),
+          connectivityProvider.overrideWith(() => _StubConnectivity(false)),
+        ],
+      );
+
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'os');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.textContaining('only saved markers and paths'), findsOneWidget,
+          reason: 'offline hint should render when connectivityProvider == false');
+    });
+
+    testWidgets('offline banner is absent when online', (tester) async {
+      await pumpTestApp(
+        tester,
+        _Host(onMenu: () {}),
+        overrides: [
+          compositeSearchServiceProvider
+              .overrideWithValue(_FakeComposite(FakeLocationService())),
+          connectivityProvider.overrideWith(() => _StubConnectivity(true)),
+        ],
+      );
+
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'os');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('only saved markers and paths'), findsNothing);
     });
   });
 }

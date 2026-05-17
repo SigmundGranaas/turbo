@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:logging/logging.dart';
 import 'package:turbo/core/config/env_config.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/auth_providers.dart';
+
+final _log = Logger('GoogleSignInButton');
 
 class GoogleSignInButton extends ConsumerWidget {
   final bool isLoading;
@@ -56,14 +59,12 @@ class GoogleSignInButton extends ConsumerWidget {
         }
         final serverAuthCode = auth.serverAuthCode;
 
-        if (kDebugMode) {
-          print('Native Google Sign-In successful. Sending serverAuthCode to backend.');
-        }
+        _log.fine('Native Google Sign-In successful; sending serverAuthCode to backend');
         // The auth notifier will handle the API call and update the state.
         ref.read(authStateProvider.notifier).processOAuthCallback(serverAuthCode);
       }
     } catch (e) {
-      if (kDebugMode) print('Google sign-in error: $e');
+      _log.warning('Google sign-in error', e);
       if (context.mounted) {
         AppSnackbars.error(context, context.l10n.signInFailed(e.toString()));
       }

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'dart:async';
 
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../data/auth_providers.dart';
+
+final _log = Logger('GoogleAuthCallback');
 
 class GoogleAuthCallbackPage extends ConsumerStatefulWidget {
   const GoogleAuthCallbackPage({super.key});
@@ -36,17 +38,13 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
 
   Future<void> _processAuthCallback() async {
     final l10n = context.l10n;
-    if (kDebugMode) {
-      print('Processing Google auth callback');
-    }
+    _log.fine('Processing Google auth callback');
 
     try {
       final uri = Uri.base;
       final code = uri.queryParameters['code'];
 
-      if (kDebugMode) {
-        print('Auth code from URL: ${code?.substring(0, 10)}...');
-      }
+      _log.fine(() => 'Auth code from URL: ${code?.substring(0, 10)}...');
 
       if (code != null) {
         await ref.read(authStateProvider.notifier).processOAuthCallback(code);
@@ -80,9 +78,7 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
         });
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error processing auth callback: $e');
-      }
+      _log.warning('Error processing auth callback', e);
 
       setState(() {
         _message = l10n.errorProcessingLogin(e.toString());

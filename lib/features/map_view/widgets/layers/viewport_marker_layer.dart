@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'package:turbo/app/shadows.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/collections/api.dart';
@@ -10,6 +11,8 @@ import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+
+final _log = Logger('ViewportMarkers');
 
 class ViewportMarkers extends ConsumerStatefulWidget {
   final MapController mapController;
@@ -79,6 +82,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
     if (!isVisible) return const SizedBox.shrink();
 
     final viewportMarkersAsync = ref.watch(viewportMarkerNotifierProvider);
+    final selection = ref.watch(markerSelectionProvider);
     final iconService = IconService();
     final collectionState =
         ref.watch(collectionRepositoryProvider).asData?.value ??
@@ -99,67 +103,67 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
           .toList();
     }
 
-    return viewportMarkersAsync.when(
-      data: (raw) {
-        final locations = applyFilter(raw);
-        return MarkerLayer(
-          markers: locations.map((location) {
-            final namedIcon = iconService.getIcon(context ,location.icon);
-            const double markerScale = 1.0;
-            const double markerHeight = (MapMarkerWidget.baseHeight * markerScale);
+    Marker buildMarker(marker_model.Marker location, double offsetY) {
+      final namedIcon = iconService.getIcon(context, location.icon);
+      const double markerScale = 1.0;
+      const double markerHeight = MapMarkerWidget.baseHeight * markerScale;
+      final isSelected = selection.contains(location.uuid);
+      return Marker(
+        width: MapMarkerWidget.baseWidth * markerScale,
+        height: markerHeight,
+        point: location.position,
+        alignment: Alignment.bottomCenter,
+        child: Transform.translate(
+          offset: Offset(0, offsetY),
+          child: MapMarkerWidget(
+            namedIcon: namedIcon,
+            title: location.title,
+            isSelected: isSelected,
+            onTap: () => _handleMarkerTap(context, location),
+            onLongPress: () => ref
+                .read(markerSelectionProvider.notifier)
+                .toggle(location.uuid),
+            scale: markerScale,
+          ),
+        ),
+      );
+    }
 
-            return Marker(
-              width: MapMarkerWidget.baseWidth * markerScale,
-              height: markerHeight,
-              point: location.position,
-              alignment: Alignment.bottomCenter,
-              child: Transform.translate(
-                offset: const Offset(0, -markerHeight),
-                child: MapMarkerWidget(
-                  namedIcon: namedIcon,
-                  title: location.title,
-                  onTap: () => _showInfoSheet(context, ref, location),
-                  scale: markerScale,
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
+    return viewportMarkersAsync.when(
+      data: (locations) => MarkerLayer(
+        markers: applyFilter(locations)
+            .map((l) =>
+                buildMarker(l, -MapMarkerWidget.baseHeight))
+            .toList(),
+      ),
       loading: () {
         final previousData =
             ref.read(viewportMarkerNotifierProvider).asData?.value;
         if (previousData != null && previousData.isNotEmpty) {
-          final filteredPrev = applyFilter(previousData);
           return MarkerLayer(
-            markers: filteredPrev.map((location) {
-              final namedIcon = iconService.getIcon(context, location.icon);
-              const double markerScale = 1.0;
-              const double markerHeight = MapMarkerWidget.baseHeight * markerScale;
-              return Marker(
-                width: MapMarkerWidget.baseWidth * markerScale,
-                height: markerHeight,
-                point: location.position,
-                alignment: Alignment.bottomCenter,
-                child: Transform.translate(
-                  offset: const Offset(0, -markerHeight / 2),
-                  child: MapMarkerWidget(
-                      namedIcon: namedIcon,
-                      title: location.title,
-                      onTap: () => _showInfoSheet(context, ref, location),
-                      scale: markerScale),
-                ),
-              );
-            }).toList(),
+            markers: applyFilter(previousData)
+                .map((l) => buildMarker(l, -MapMarkerWidget.baseHeight / 2))
+                .toList(),
           );
         }
         return const SizedBox.shrink();
       },
       error: (error, stack) {
-        debugPrint("Error loading viewport markers: $error\n$stack");
+        _log.warning('Error loading viewport markers', error, stack);
         return const SizedBox.shrink();
       },
     );
+  }
+
+  void _handleMarkerTap(BuildContext context, marker_model.Marker location) {
+    final selection = ref.read(markerSelectionProvider);
+    // While selection mode is active, a plain tap toggles selection rather
+    // than opening the info sheet — matches the desktop-mail / files paradigm.
+    if (selection.isNotEmpty) {
+      ref.read(markerSelectionProvider.notifier).toggle(location.uuid);
+      return;
+    }
+    _showInfoSheet(context, ref, location);
   }
 
   void _showInfoSheet(
@@ -188,6 +192,8 @@ class MapMarkerWidget extends StatefulWidget {
   final NamedIcon namedIcon;
   final String title;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool isSelected;
   final double scale;
 
   static const double baseWidth = 40.0;
@@ -199,6 +205,8 @@ class MapMarkerWidget extends StatefulWidget {
     required this.namedIcon,
     required this.title,
     required this.onTap,
+    this.onLongPress,
+    this.isSelected = false,
     this.scale = 1.0,
   });
 
@@ -218,18 +226,23 @@ class _MapMarkerWidgetState extends State<MapMarkerWidget> {
     final height = MapMarkerWidget.baseHeight * widget.scale;
     final iconSizeScaled = MapMarkerWidget.iconSize * widget.scale;
     final circleRadius = width / 2;
+    final pinColor = widget.isSelected
+        ? colorScheme.secondaryContainer
+        : colorScheme.surface;
 
     final pinWidget = CustomPaint(
       size: Size(width, height),
       painter: DropletPainter(
-        color: colorScheme.surface,
+        color: pinColor,
       ),
       child: Center(
         child: Padding(
           padding: EdgeInsets.only(bottom: height - (circleRadius * 2)),
           child: Icon(
             widget.namedIcon.icon,
-            color: colorScheme.primary,
+            color: widget.isSelected
+                ? colorScheme.onSecondaryContainer
+                : colorScheme.primary,
             size: iconSizeScaled,
           ),
         ),
@@ -267,6 +280,7 @@ class _MapMarkerWidgetState extends State<MapMarkerWidget> {
       height: height,
       child: GestureDetector(
         onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
           onEnter: (_) => setState(() => _isHovering = true),
