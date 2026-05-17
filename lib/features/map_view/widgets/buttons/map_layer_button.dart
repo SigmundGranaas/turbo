@@ -146,6 +146,8 @@ class LayerSelectionSheet extends ConsumerWidget {
                     .toggleOfflineLayer(id),
                 isOffline: true,
               ),
+              const Divider(height: 24, indent: 24, endIndent: 24),
+              _buildAddCustomMapTile(context, ref),
               const SizedBox(height: 24),
             ],
           ),
@@ -345,6 +347,21 @@ class LayerSelectionSheet extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildAddCustomMapTile(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final colorScheme = Theme.of(context).colorScheme;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+      leading: Icon(Icons.add_link, color: colorScheme.primary),
+      title: Text(l10n.addCustomMap),
+      subtitle: Text(
+        l10n.customMapUrlHelp,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      onTap: () => showAddCustomMapDialog(context, ref),
     );
   }
 

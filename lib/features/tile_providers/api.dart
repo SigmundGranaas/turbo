@@ -19,3 +19,10 @@ export 'data/tile_layer_providers.dart'
         localLayersProvider,
         overlayLayersProvider,
         offlineLayersProvider;
+
+// Custom (user-defined) tile providers.
+export 'data/custom_provider_store.dart'
+    show customProviderStoreProvider, CustomProviderStore;
+export 'models/custom_tile_provider.dart'
+    show CustomTileProvider, CustomTileProviderConfig;
+export 'widgets/add_custom_map_dialog.dart' show showAddCustomMapDialog;
