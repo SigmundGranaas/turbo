@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/features/measuring/widgets/measuring_controls.dart';
 import 'package:turbo/features/measuring/widgets/measuring_map_page.dart';
 
@@ -56,16 +57,23 @@ class _MeasuringFlowHarness extends ConsumerWidget {
 
 void main() {
   group('Measuring flow end-to-end', () {
-    /// Pulls the rendered distance label out of the controls.
-    /// Format is `'<n>.<nn> km'`; we return the numeric portion.
+    /// Pulls the rendered distance label out of the controls and returns the
+    /// distance in kilometers. Handles both metric formats: `"<n> m"` (used
+    /// below 1 km) and `"<n>.<nn> km"` (used at or above 1 km).
     double distanceKm(WidgetTester tester) {
+      final kmRe = RegExp(r'^\d+\.\d{2} km$');
+      final mRe = RegExp(r'^\d+ m$');
       final text = tester
           .widgetList<Text>(find.byType(Text))
           .map((t) => t.data)
-          .firstWhere((s) => s != null && RegExp(r'^\d+\.\d{2} km$').hasMatch(s),
+          .firstWhere(
+              (s) => s != null && (kmRe.hasMatch(s) || mRe.hasMatch(s)),
               orElse: () => null);
-      expect(text, isNotNull, reason: 'No "<n>.<nn> km" label rendered');
-      return double.parse(text!.split(' ').first);
+      expect(text, isNotNull,
+          reason: 'No "<n>.<nn> km" or "<n> m" label rendered');
+      final parts = text!.split(' ');
+      final value = double.parse(parts.first);
+      return parts.last == 'km' ? value : value / 1000.0;
     }
 
     testWidgets('distance display updates as points are added', (tester) async {
@@ -214,6 +222,37 @@ void main() {
 
       undoBtn = tester.widget<IconButton>(undoFinder);
       expect(undoBtn.onPressed, isNotNull); // enabled
+    });
+
+    testWidgets(
+        'distance label respects the imperial distance unit setting',
+        (tester) async {
+      // Seed prefs with imperial before pumping (and don't let the helper
+      // reset them).
+      SharedPreferences.setMockInitialValues({'distanceUnit': 'imperial'});
+      await pumpTestApp(
+        tester,
+        const _MeasuringFlowHarness(),
+        resetSharedPrefs: false,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('add-1')));
+      await tester.tap(find.byKey(const ValueKey('add-2')));
+      await tester.pumpAndSettle();
+
+      // Should render "<n>.<nn> mi" not km.
+      final imperialLabel = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data)
+          .firstWhere(
+              (s) => s != null && RegExp(r'^\d+\.\d{2} mi$').hasMatch(s),
+              orElse: () => null);
+      expect(imperialLabel, isNotNull,
+          reason: 'Expected a "<n>.<nn> mi" label when unit is imperial');
+      // ~11 km ≈ 6.84 mi.
+      final miles = double.parse(imperialLabel!.split(' ').first);
+      expect(miles, greaterThan(6.0));
+      expect(miles, lessThan(8.0));
     });
   });
 }

@@ -1,7 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'location_service.dart';
 import 'package:turbo/features/markers/api.dart';
+
+final _log = Logger('MarkerSearchService');
 
 final markerSearchServiceProvider = Provider<MarkerSearchService>((ref) {
   return MarkerSearchService(ref);
@@ -27,11 +29,7 @@ class MarkerSearchService extends LocationService {
       final List<LocationSearchResult> mapped = res.map((el) => from(el)).toList();
       return mapped;
     } catch (e) {
-      // If the database fails, we don't want to crash the search.
-      // Just return no local results.
-      if (kDebugMode) {
-        print("Error searching local markers: $e");
-      }
+      _log.warning('Error searching local markers', e);
       return [];
     }
   }

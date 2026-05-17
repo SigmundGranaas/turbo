@@ -227,6 +227,12 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
 
     final overlayWidgets = <Widget>[
       const ModeIndicator(),
+      const Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        child: marker_model.MarkerSelectionBar(),
+      ),
     ];
     final offlineRegionsAsync = ref.watch(offline_api.offlineRegionsProvider);
     final activeDownloads = offlineRegionsAsync.value

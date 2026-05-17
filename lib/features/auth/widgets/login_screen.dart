@@ -1,12 +1,14 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import '../data/auth_providers.dart';
 import './register_screen.dart';
 
 import 'login_view_desktop.dart';
 import 'login_view_mobile.dart';
+
+final _log = Logger('LoginScreen');
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -60,7 +62,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     ref.listenManual<AuthState>(authStateProvider, (previous, next) {
       if (next.status == AuthStatus.authenticated) {
-        if (kDebugMode) print("Login successful, closing screen.");
+        _log.fine('Login successful, closing screen');
         if (Navigator.of(context).canPop()) {
           Navigator.of(context).pop();
         }

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/settings/api.dart';
 
-class MeasuringControls extends StatelessWidget {
+class MeasuringControls extends ConsumerWidget {
   final double distance;
   final VoidCallback onReset;
   final VoidCallback onUndo;
@@ -29,10 +31,12 @@ class MeasuringControls extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final unit = ref.watch(settingsProvider
+        .select((s) => s.value?.distanceUnit ?? DistanceUnit.metric));
 
     final selectedStyle = IconButton.styleFrom(
       backgroundColor: colorScheme.primaryContainer,
@@ -66,7 +70,7 @@ class MeasuringControls extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '${(distance / 1000).toStringAsFixed(2)} km',
+                        formatDistance(distance, unit),
                         style: textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                           color: colorScheme.onSurface,

@@ -4,13 +4,14 @@ import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/navigation/api.dart';
 import '../data/icon_service.dart';
 import '../data/location_repository.dart';
 import '../models/marker.dart';
 import 'edit_location_sheet.dart';
 import 'marker_export_options_sheet.dart';
 
-enum MarkerInfoResult { updated, deleted }
+enum MarkerInfoResult { updated, deleted, navigationStarted }
 
 class MarkerInfoSheet extends ConsumerStatefulWidget {
   final Marker marker;
@@ -76,6 +77,7 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
               IconButton(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
+                tooltip: l10n.close,
               ),
             ],
           ),
@@ -113,6 +115,11 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               ActionButton(
+                icon: Icons.navigation_outlined,
+                label: l10n.navigateToHere,
+                onTap: _startNavigation,
+              ),
+              ActionButton(
                 icon: Icons.edit_outlined,
                 label: l10n.edit,
                 onTap: _openEdit,
@@ -132,6 +139,34 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
         ],
       ),
     );
+  }
+
+  Future<void> _startNavigation() async {
+    final l10n = context.l10n;
+    final notifier = ref.read(navigationStateProvider.notifier);
+    final currentState = ref.read(navigationStateProvider);
+
+    // Same target → no-op; just tell the user.
+    if (currentState.isActive && currentState.target == _marker.position) {
+      AppSnackbars.info(context, l10n.alreadyNavigatingHere);
+      return;
+    }
+
+    // Different target active → confirm before replacing.
+    if (currentState.isActive && currentState.target != _marker.position) {
+      final confirmed = await AppDialog.confirm(
+        context,
+        title: l10n.replaceNavigationTitle,
+        content: l10n.replaceNavigationMessage,
+        confirmLabel: l10n.replace,
+      );
+      if (!confirmed || !mounted) return;
+    }
+
+    notifier.startNavigation(_marker.position);
+    if (mounted) {
+      Navigator.of(context).pop(MarkerInfoResult.navigationStarted);
+    }
   }
 
   Future<void> _openEdit() async {

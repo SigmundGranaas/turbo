@@ -43,11 +43,28 @@ class MarkerExportService {
   }
 
   Future<void> shareAsGeoJson(Marker marker) async {
-    final content = markerToGeoJson(marker);
-    final filename = _buildFilename(marker);
+    await _shareGeoJsonContent(
+      content: markerToGeoJson(marker),
+      filename: _buildFilename(marker),
+    );
+  }
+
+  /// Bulk variant: shares a single FeatureCollection holding every marker.
+  /// Filename is derived from the first marker's title plus the count.
+  Future<void> shareManyAsGeoJson(List<Marker> markers) async {
+    if (markers.isEmpty) return;
+    final content = markersToGeoJson(markers);
+    final base = _buildFilename(markers.first).replaceAll('.geojson', '');
+    final filename = '$base-${markers.length}.geojson';
+    await _shareGeoJsonContent(content: content, filename: filename);
+  }
+
+  Future<void> _shareGeoJsonContent({
+    required String content,
+    required String filename,
+  }) async {
     const mimeType = 'application/geo+json';
     final bytes = Uint8List.fromList(content.codeUnits);
-
     if (kIsWeb) {
       final xFile = XFile.fromData(bytes, name: filename, mimeType: mimeType);
       await Share.shareXFiles([xFile]);

@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/core/api/api_client.dart';
+
+final _log = Logger('AuthService');
 
 class AuthService {
   final ApiClient apiClient;
@@ -106,14 +109,10 @@ class AuthService {
   Future<bool> isLoggedIn() async {
     if (kIsWeb) {
       try {
-        if (kDebugMode) {
-          print("Checking logged-in status via session check...");
-        }
+        _log.fine('Checking logged-in status via session check');
         return await _performSessionCheck();
       } catch (e) {
-        if (kDebugMode) {
-          print("isLoggedIn check failed after interceptor attempt: $e");
-        }
+        _log.warning('isLoggedIn check failed after interceptor attempt', e);
         return false;
       }
     } else {

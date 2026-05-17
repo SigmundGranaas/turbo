@@ -246,6 +246,29 @@ class LocationRepository extends Notifier<AsyncValue<List<Marker>>> {
     }
   }
 
+  /// Deletes a batch of markers in one repository operation. Local deletes
+  /// are committed via [MarkerDataStore.deleteAll] so the underlying datastore
+  /// can apply them transactionally; server deletes still happen one at a time
+  /// (the API has no bulk endpoint) and any failures are queued for retry.
+  Future<void> deleteMarkers(List<String> uuids) async {
+    if (uuids.isEmpty) return;
+    final localStore = await _localStore;
+    final currentAuthStatus = ref.read(authStateProvider).status;
+    state = const AsyncValue.loading();
+    final pending = await _pendingDeletes;
+    for (final uuid in uuids) {
+      if (currentAuthStatus != AuthStatus.authenticated) continue;
+      try {
+        await _apiService.deleteLocation(uuid);
+      } catch (e, st) {
+        _log.warning('Server bulk-delete failed for $uuid, queuing', e, st);
+        await pending.add(uuid);
+      }
+    }
+    await localStore.deleteAll(uuids);
+    await _loadData(authStatus: currentAuthStatus);
+  }
+
   /// Drains the pending delete queue, sending each delete to the server.
   Future<void> _processPendingDeletes() async {
     final deleteStore = await _pendingDeletes;

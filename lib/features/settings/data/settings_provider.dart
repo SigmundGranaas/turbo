@@ -5,7 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:turbo/core/util/distance_formatter.dart';
 import 'package:turbo/features/saved_paths/api.dart';
+
+/// Range bounds for the advanced settings, surfaced so the UI sliders and
+/// the persistence layer share the same source of truth.
+const int kMinDownloadConcurrency = 1;
+const int kMaxDownloadConcurrency = 16;
+const int kMinMarkerCacheTtlSeconds = 5;
+const int kMaxMarkerCacheTtlSeconds = 300;
 
 /// Defines the state for all user-configurable settings.
 @immutable
@@ -37,6 +45,22 @@ class SettingsState {
   /// Hex string for icon outline/border color (null = white default).
   final String? markerOutlineColorHex;
 
+  /// Unit used when rendering distances in the UI.
+  final DistanceUnit distanceUnit;
+
+  /// Cap on concurrent tile-region downloads. Read by `DownloadOrchestrator`.
+  final int maxConcurrentDownloads;
+
+  /// How long the viewport marker cache holds a query result before refetch.
+  final int markerCacheTtlSeconds;
+
+  /// Last-used path-customization style. Pre-seeds the save sheet so the
+  /// user's previous choices don't reset on every new path.
+  final String? lastPathColorHex;
+  final String? lastPathIconKey;
+  final bool? lastPathSmoothing;
+  final String? lastPathLineStyleKey;
+
   const SettingsState({
     required this.themeMode,
     required this.locale,
@@ -50,6 +74,13 @@ class SettingsState {
     this.showHeadingArrow = false,
     this.markerArrowColorHex,
     this.markerOutlineColorHex,
+    this.distanceUnit = DistanceUnit.metric,
+    this.maxConcurrentDownloads = 8,
+    this.markerCacheTtlSeconds = 30,
+    this.lastPathColorHex,
+    this.lastPathIconKey,
+    this.lastPathSmoothing,
+    this.lastPathLineStyleKey,
   });
 
   // Default initial state
@@ -74,6 +105,13 @@ class SettingsState {
     bool? showHeadingArrow,
     String? Function()? markerArrowColorHex,
     String? Function()? markerOutlineColorHex,
+    DistanceUnit? distanceUnit,
+    int? maxConcurrentDownloads,
+    int? markerCacheTtlSeconds,
+    String? Function()? lastPathColorHex,
+    String? Function()? lastPathIconKey,
+    bool? Function()? lastPathSmoothing,
+    String? Function()? lastPathLineStyleKey,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -88,6 +126,13 @@ class SettingsState {
       showHeadingArrow: showHeadingArrow ?? this.showHeadingArrow,
       markerArrowColorHex: markerArrowColorHex != null ? markerArrowColorHex() : this.markerArrowColorHex,
       markerOutlineColorHex: markerOutlineColorHex != null ? markerOutlineColorHex() : this.markerOutlineColorHex,
+      distanceUnit: distanceUnit ?? this.distanceUnit,
+      maxConcurrentDownloads: maxConcurrentDownloads ?? this.maxConcurrentDownloads,
+      markerCacheTtlSeconds: markerCacheTtlSeconds ?? this.markerCacheTtlSeconds,
+      lastPathColorHex: lastPathColorHex != null ? lastPathColorHex() : this.lastPathColorHex,
+      lastPathIconKey: lastPathIconKey != null ? lastPathIconKey() : this.lastPathIconKey,
+      lastPathSmoothing: lastPathSmoothing != null ? lastPathSmoothing() : this.lastPathSmoothing,
+      lastPathLineStyleKey: lastPathLineStyleKey != null ? lastPathLineStyleKey() : this.lastPathLineStyleKey,
     );
   }
 }
@@ -109,6 +154,13 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _showHeadingArrowKey = 'showHeadingArrow';
   static const _markerArrowColorKey = 'markerArrowColor';
   static const _markerOutlineColorKey = 'markerOutlineColor';
+  static const _distanceUnitKey = 'distanceUnit';
+  static const _maxConcurrentDownloadsKey = 'maxConcurrentDownloads';
+  static const _markerCacheTtlSecondsKey = 'markerCacheTtlSeconds';
+  static const _lastPathColorKey = 'lastPathColor';
+  static const _lastPathIconKey = 'lastPathIcon';
+  static const _lastPathSmoothingKey = 'lastPathSmoothing';
+  static const _lastPathLineStyleKey = 'lastPathLineStyle';
 
   @override
   Future<SettingsState> build() async {
@@ -149,6 +201,13 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     final markerArrowColorHex = prefs.getString(_markerArrowColorKey);
     final markerOutlineColorHex = prefs.getString(_markerOutlineColorKey);
 
+    // Load Advanced settings
+    final distanceUnit = DistanceUnit.fromName(prefs.getString(_distanceUnitKey));
+    final maxConcurrentDownloads = (prefs.getInt(_maxConcurrentDownloadsKey) ?? 8)
+        .clamp(kMinDownloadConcurrency, kMaxDownloadConcurrency);
+    final markerCacheTtlSeconds = (prefs.getInt(_markerCacheTtlSecondsKey) ?? 30)
+        .clamp(kMinMarkerCacheTtlSeconds, kMaxMarkerCacheTtlSeconds);
+
     return SettingsState(
       themeMode: themeMode,
       locale: locale,
@@ -162,6 +221,13 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
       showHeadingArrow: showHeadingArrow,
       markerArrowColorHex: markerArrowColorHex,
       markerOutlineColorHex: markerOutlineColorHex,
+      distanceUnit: distanceUnit,
+      maxConcurrentDownloads: maxConcurrentDownloads,
+      markerCacheTtlSeconds: markerCacheTtlSeconds,
+      lastPathColorHex: prefs.getString(_lastPathColorKey),
+      lastPathIconKey: prefs.getString(_lastPathIconKey),
+      lastPathSmoothing: prefs.getBool(_lastPathSmoothingKey),
+      lastPathLineStyleKey: prefs.getString(_lastPathLineStyleKey),
     );
   }
 
@@ -311,6 +377,74 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
       await prefs.setString(_markerOutlineColorKey, hex);
     } else {
       await prefs.remove(_markerOutlineColorKey);
+    }
+  }
+
+  /// Persists the user's distance unit choice.
+  Future<void> setDistanceUnit(DistanceUnit unit) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(distanceUnit: unit));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_distanceUnitKey, unit.name);
+  }
+
+  /// Persists the max concurrent download cap, clamped to the supported range.
+  Future<void> setMaxConcurrentDownloads(int value) async {
+    if (state.value == null) return;
+    final clamped =
+        value.clamp(kMinDownloadConcurrency, kMaxDownloadConcurrency);
+    state = AsyncData(state.value!.copyWith(maxConcurrentDownloads: clamped));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_maxConcurrentDownloadsKey, clamped);
+  }
+
+  /// Persists the marker viewport cache TTL in seconds.
+  Future<void> setMarkerCacheTtlSeconds(int value) async {
+    if (state.value == null) return;
+    final clamped =
+        value.clamp(kMinMarkerCacheTtlSeconds, kMaxMarkerCacheTtlSeconds);
+    state = AsyncData(state.value!.copyWith(markerCacheTtlSeconds: clamped));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_markerCacheTtlSecondsKey, clamped);
+  }
+
+  /// Records the path style the user just chose so the next save sheet
+  /// can pre-fill the same values. Each argument is overwritten on every
+  /// call — passing null clears the matching slot rather than leaving the
+  /// previous value in place.
+  Future<void> setLastPathStyle({
+    String? colorHex,
+    String? iconKey,
+    bool? smoothing,
+    String? lineStyleKey,
+  }) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(
+      lastPathColorHex: () => colorHex,
+      lastPathIconKey: () => iconKey,
+      lastPathSmoothing: () => smoothing,
+      lastPathLineStyleKey: () => lineStyleKey,
+    ));
+    final prefs = await SharedPreferences.getInstance();
+    if (colorHex == null) {
+      await prefs.remove(_lastPathColorKey);
+    } else {
+      await prefs.setString(_lastPathColorKey, colorHex);
+    }
+    if (iconKey == null) {
+      await prefs.remove(_lastPathIconKey);
+    } else {
+      await prefs.setString(_lastPathIconKey, iconKey);
+    }
+    if (smoothing == null) {
+      await prefs.remove(_lastPathSmoothingKey);
+    } else {
+      await prefs.setBool(_lastPathSmoothingKey, smoothing);
+    }
+    if (lineStyleKey == null) {
+      await prefs.remove(_lastPathLineStyleKey);
+    } else {
+      await prefs.setString(_lastPathLineStyleKey, lineStyleKey);
     }
   }
 }

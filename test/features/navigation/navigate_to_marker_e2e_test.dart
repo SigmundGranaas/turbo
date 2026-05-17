@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
@@ -118,6 +119,69 @@ void main() {
       await tester.tap(find.text('open sheet'));
       await tester.pumpAndSettle();
       expect(find.text('Navigate Here'), findsOneWidget);
+    });
+
+    testWidgets(
+        'NavigationInfoChip renders the formatted distance to target in km '
+        'when metric is selected', (tester) async {
+      // (59.9,10.7) → (60.0,11.0) ≈ 21 km, well above the 1 km threshold.
+      await pumpTestApp(
+        tester,
+        const _NavigateFlowHarness(target: target),
+        overrides: [
+          locationStateProvider
+              .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
+          compassStateProvider
+              .overrideWith((ref) => const Stream<double?>.empty()),
+        ],
+      );
+
+      await tester.tap(find.text('open sheet'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Navigate Here'));
+      await tester.pumpAndSettle();
+
+      // Chip should now render — find any "<n>.<nn> km" text.
+      final kmRe = RegExp(r'^\d+\.\d{2} km$');
+      final found = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data)
+          .where((s) => s != null && kmRe.hasMatch(s))
+          .toList();
+      expect(found, isNotEmpty,
+          reason: 'Distance label "<n>.<nn> km" must render in the chip');
+    });
+
+    testWidgets(
+        'NavigationInfoChip respects the imperial distance unit setting',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({'distanceUnit': 'imperial'});
+      await pumpTestApp(
+        tester,
+        const _NavigateFlowHarness(target: target),
+        resetSharedPrefs: false,
+        overrides: [
+          locationStateProvider
+              .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
+          compassStateProvider
+              .overrideWith((ref) => const Stream<double?>.empty()),
+        ],
+      );
+
+      await tester.tap(find.text('open sheet'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Navigate Here'));
+      await tester.pumpAndSettle();
+
+      // Chip should render in miles, not km.
+      final miRe = RegExp(r'^\d+\.\d{2} mi$');
+      final found = tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data)
+          .where((s) => s != null && miRe.hasMatch(s))
+          .toList();
+      expect(found, isNotEmpty,
+          reason: 'Distance label "<n>.<nn> mi" must render in the chip');
     });
 
     testWidgets('cycle: navigate → stop → navigate again with a new target',

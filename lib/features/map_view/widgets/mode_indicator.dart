@@ -11,6 +11,7 @@ import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
 class ModeIndicator extends ConsumerWidget {
@@ -107,9 +108,9 @@ class _NavigationInfoChip extends ConsumerWidget {
     if (userPosition == null) return const SizedBox.shrink();
 
     final distanceM = const Distance().distance(userPosition, target);
-    final distanceText = distanceM >= 1000
-        ? '${(distanceM / 1000).toStringAsFixed(2)} km'
-        : '${distanceM.round()} m';
+    final unit = ref.watch(settingsProvider
+        .select((s) => s.value?.distanceUnit ?? DistanceUnit.metric));
+    final distanceText = formatDistance(distanceM, unit);
 
     final bearingToTarget = const Distance().bearing(userPosition, target);
 

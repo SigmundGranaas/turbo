@@ -3,6 +3,7 @@ export 'models/named_icon.dart' show NamedIcon;
 export 'data/location_repository.dart' show locationRepositoryProvider, LocationRepository,
     localMarkerDataStoreProvider, apiLocationServiceProvider;
 export 'data/viewport_marker_provider.dart' show viewportMarkerNotifierProvider, ViewportMarkerNotifier;
+export 'data/marker_selection_provider.dart' show markerSelectionProvider, MarkerSelectionNotifier;
 export 'data/icon_service.dart' show IconService;
 export 'data/marker_data_store.dart' show MarkerDataStore;
 export 'widgets/create_location_sheet.dart' show CreateLocationSheet;
@@ -10,5 +11,6 @@ export 'widgets/edit_location_sheet.dart' show EditLocationSheet;
 export 'widgets/icon_selection_page.dart' show IconSelectionPage;
 export 'widgets/marker_info_sheet.dart' show MarkerInfoSheet, MarkerInfoResult;
 export 'widgets/marker_export_options_sheet.dart' show MarkerExportOptionsSheet;
+export 'widgets/marker_selection_bar.dart' show MarkerSelectionBar;
 export 'data/marker_export_service.dart' show MarkerExportService;
-export 'data/marker_geojson_serializer.dart' show markerToGeoJson;
+export 'data/marker_geojson_serializer.dart' show markerToGeoJson, markersToGeoJson;
