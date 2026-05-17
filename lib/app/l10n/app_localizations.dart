@@ -363,6 +363,26 @@ abstract class AppLocalizations {
   String get drawArea;
   String get clearDrawing;
   String get hide;
+
+  // Weather feature
+  String get weatherForecast;
+  String get weatherCustomize;
+  String get weatherAttribution;
+  String get weatherLoadError;
+  String get weatherRetry;
+  String get weatherAtmospheric;
+  String get weatherMarine;
+  String get metricTemperature;
+  String get metricPrecipitation;
+  String get metricSnow;
+  String get metricWind;
+  String get metricHumidity;
+  String get metricPressure;
+  String get metricCloudCover;
+  String get metricUv;
+  String get metricWaveHeight;
+  String get metricWaveDirection;
+  String get metricWaterTemperature;
 }
 
 // English translations
@@ -690,6 +710,26 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get drawArea => 'Draw area';
   @override String get clearDrawing => 'Clear drawing';
   @override String get hide => 'Hide';
+
+  // Weather feature
+  @override String get weatherForecast => 'Forecast';
+  @override String get weatherCustomize => 'Customize';
+  @override String get weatherAttribution => 'Weather data from MET Norway / yr.no';
+  @override String get weatherLoadError => "Couldn't load weather";
+  @override String get weatherRetry => 'Retry';
+  @override String get weatherAtmospheric => 'Atmospheric';
+  @override String get weatherMarine => 'Marine';
+  @override String get metricTemperature => 'Temperature';
+  @override String get metricPrecipitation => 'Precipitation';
+  @override String get metricSnow => 'Snow';
+  @override String get metricWind => 'Wind';
+  @override String get metricHumidity => 'Humidity';
+  @override String get metricPressure => 'Pressure';
+  @override String get metricCloudCover => 'Cloud cover';
+  @override String get metricUv => 'UV index';
+  @override String get metricWaveHeight => 'Wave height';
+  @override String get metricWaveDirection => 'Wave direction';
+  @override String get metricWaterTemperature => 'Water temperature';
 }
 
 // Norwegian translations
@@ -1014,6 +1054,26 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get drawArea => 'Tegn område';
   @override String get clearDrawing => 'Tøm tegning';
   @override String get hide => 'Skjul';
+
+  // Weather feature
+  @override String get weatherForecast => 'Værvarsel';
+  @override String get weatherCustomize => 'Tilpass';
+  @override String get weatherAttribution => 'Værdata fra Meteorologisk institutt / yr.no';
+  @override String get weatherLoadError => 'Kunne ikke laste vær';
+  @override String get weatherRetry => 'Prøv igjen';
+  @override String get weatherAtmospheric => 'Atmosfære';
+  @override String get weatherMarine => 'Hav';
+  @override String get metricTemperature => 'Temperatur';
+  @override String get metricPrecipitation => 'Nedbør';
+  @override String get metricSnow => 'Snø';
+  @override String get metricWind => 'Vind';
+  @override String get metricHumidity => 'Luftfuktighet';
+  @override String get metricPressure => 'Lufttrykk';
+  @override String get metricCloudCover => 'Skydekke';
+  @override String get metricUv => 'UV-indeks';
+  @override String get metricWaveHeight => 'Bølgehøyde';
+  @override String get metricWaveDirection => 'Bølgeretning';
+  @override String get metricWaterTemperature => 'Sjøtemperatur';
 }
 
 // The delegate

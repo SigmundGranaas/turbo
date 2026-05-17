@@ -8,5 +8,9 @@ abstract class MarkerWeatherPrefsStore {
   Future<void> delete(String markerUuid);
 }
 
-/// SQL/IndexedDB table name shared across implementations.
+/// SQL/IndexedDB store name shared across implementations.
+///
+/// Mirrors `markerWeatherPrefsTableName` in
+/// `lib/core/data/database_provider.dart` — keeping them in sync is checked
+/// at startup when the DB opens.
 const String markerWeatherPrefsTable = 'marker_weather_prefs';

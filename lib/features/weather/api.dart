@@ -28,3 +28,5 @@ export 'data/weather_notifier.dart'
         yrAtmosphericServiceProvider,
         yrOceanServiceProvider,
         WeatherForecastNotifier;
+export 'widgets/weather_metrics_sheet.dart' show WeatherMetricsSheet;
+export 'widgets/weather_section.dart' show WeatherSection;
