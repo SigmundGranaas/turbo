@@ -1,11 +1,12 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/sharing/shareable_link_codec.dart';
 import '../models/saved_path.dart';
 import 'geojson_serializer.dart';
 import 'gpx_serializer.dart';
@@ -13,6 +14,20 @@ import 'gpx_serializer.dart';
 enum ExportFormat { gpx, geoJson }
 
 class PathExportService {
+  /// Encodes [path] into a shareable web URL pointing at [webBaseUrl].
+  /// Throws [LinkTooLargeException] for paths whose encoded URL exceeds the
+  /// safe URL-length budget — callers should fall back to GPX sharing.
+  String buildShareLink(SavedPath path, String webBaseUrl) {
+    return ShareableLinkCodec.encodePath(path, webBaseUrl);
+  }
+
+  /// Copies the share link to the clipboard and opens the system share sheet.
+  Future<void> shareAsLink(SavedPath path, String webBaseUrl) async {
+    final url = buildShareLink(path, webBaseUrl);
+    await Clipboard.setData(ClipboardData(text: url));
+    await Share.share(url, subject: path.title);
+  }
+
   String serialize(SavedPath path, ExportFormat format) {
     return switch (format) {
       ExportFormat.gpx => savedPathToGpx(path),

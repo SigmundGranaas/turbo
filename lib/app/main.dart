@@ -9,6 +9,7 @@ import 'package:turbo/core/data/database_provider.dart';
 import 'package:turbo/core/service/logger.dart';
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/markers/api.dart';
+import 'package:turbo/features/sharing/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
     as offline_regions;
 
@@ -18,6 +19,10 @@ void main() {
 
   final container = ProviderContainer();
   unawaited(_kickOffBackgroundInit(container));
+  // Parse any share URL embedded in the initial location (web cold-start
+  // or platform deep-link). Has to happen before the first frame so the
+  // map can react.
+  ShareRouteHandler(container).handle(Uri.base);
 
   runApp(
     UncontrolledProviderScope(
@@ -40,4 +45,6 @@ Future<void> _kickOffBackgroundInit(ProviderContainer container) async {
   }
   container.read(authStateProvider);
   container.read(localMarkerDataStoreProvider);
+  // Start watching app links for share URLs (no-op on web).
+  container.read(shareLinkListenerProvider);
 }

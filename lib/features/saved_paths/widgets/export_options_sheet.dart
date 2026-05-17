@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/sharing/api.dart';
 import 'package:turbo/core/widgets/app_list_card.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
@@ -6,13 +8,13 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 import '../data/path_export_service.dart';
 import '../models/saved_path.dart';
 
-class ExportOptionsSheet extends StatelessWidget {
+class ExportOptionsSheet extends ConsumerWidget {
   final SavedPath path;
 
   const ExportOptionsSheet({super.key, required this.path});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final textTheme = Theme.of(context).textTheme;
     final mediaQuery = MediaQuery.of(context);
@@ -39,6 +41,19 @@ class ExportOptionsSheet extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           AppListCard(
+            icon: Icons.link,
+            title: l10n.shareAsLink,
+            subtitle: l10n.linkDescription,
+            trailing: [
+              IconButton(
+                icon: const Icon(Icons.share),
+                tooltip: l10n.share,
+                onPressed: () => _shareLink(context, ref),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AppListCard(
             icon: Icons.route,
             title: 'GPX',
             subtitle: l10n.gpxDescription,
@@ -47,33 +62,13 @@ class ExportOptionsSheet extends StatelessWidget {
                 icon: const Icon(Icons.share),
                 tooltip: l10n.share,
                 onPressed: () =>
-                    _export(context, ExportFormat.gpx, share: true),
+                    _exportFile(context, ExportFormat.gpx, share: true),
               ),
               IconButton(
                 icon: const Icon(Icons.save_alt),
                 tooltip: l10n.saveToFile,
                 onPressed: () =>
-                    _export(context, ExportFormat.gpx, share: false),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          AppListCard(
-            icon: Icons.data_object,
-            title: 'GeoJSON',
-            subtitle: l10n.geoJsonDescription,
-            trailing: [
-              IconButton(
-                icon: const Icon(Icons.share),
-                tooltip: l10n.share,
-                onPressed: () =>
-                    _export(context, ExportFormat.geoJson, share: true),
-              ),
-              IconButton(
-                icon: const Icon(Icons.save_alt),
-                tooltip: l10n.saveToFile,
-                onPressed: () =>
-                    _export(context, ExportFormat.geoJson, share: false),
+                    _exportFile(context, ExportFormat.gpx, share: false),
               ),
             ],
           ),
@@ -82,7 +77,26 @@ class ExportOptionsSheet extends StatelessWidget {
     );
   }
 
-  Future<void> _export(
+  Future<void> _shareLink(BuildContext context, WidgetRef ref) async {
+    final l10n = context.l10n;
+    final navigator = Navigator.of(context);
+    final webBaseUrl = ref.read(webBaseUrlProvider);
+
+    try {
+      await PathExportService().shareAsLink(path, webBaseUrl);
+      if (!context.mounted) return;
+      navigator.pop();
+      AppSnackbars.success(context, l10n.linkCopied);
+    } on LinkTooLargeException {
+      if (!context.mounted) return;
+      AppSnackbars.error(context, l10n.linkTooLargeShareGpxInstead);
+    } catch (error) {
+      if (!context.mounted) return;
+      AppSnackbars.error(context, l10n.errorExportingPath(error.toString()));
+    }
+  }
+
+  Future<void> _exportFile(
     BuildContext context,
     ExportFormat format, {
     required bool share,
@@ -107,4 +121,3 @@ class ExportOptionsSheet extends StatelessWidget {
     }
   }
 }
-
