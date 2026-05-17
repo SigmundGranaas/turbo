@@ -291,6 +291,11 @@ abstract class AppLocalizations {
   String get markerExported;
   String get markerDeleted;
   String get markerUpdated;
+  String markersSelected(int count);
+  String get confirmBulkDeleteTitle;
+  String confirmBulkDeleteMessage(int count);
+  String get bulkDeleteSuccess;
+  String get bulkExport;
   String errorExportingMarker(String error);
 
   // Offline Maps
@@ -573,6 +578,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get markerExported => 'Marker saved';
   @override String get markerDeleted => 'Marker deleted';
   @override String get markerUpdated => 'Marker updated';
+  @override String markersSelected(int count) => '$count selected';
+  @override String get confirmBulkDeleteTitle => 'Delete selected markers?';
+  @override String confirmBulkDeleteMessage(int count) => 'This will permanently delete $count marker(s).';
+  @override String get bulkDeleteSuccess => 'Markers deleted';
+  @override String get bulkExport => 'Export';
   @override String errorExportingMarker(String error) => 'Error exporting marker: $error';
 
   @override String get offlineMaps => 'Offline Maps';
@@ -851,6 +861,11 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get markerExported => 'Punkt lagret';
   @override String get markerDeleted => 'Punkt slettet';
   @override String get markerUpdated => 'Punkt oppdatert';
+  @override String markersSelected(int count) => '$count valgt';
+  @override String get confirmBulkDeleteTitle => 'Slette valgte punkter?';
+  @override String confirmBulkDeleteMessage(int count) => 'Dette sletter $count punkt(er) permanent.';
+  @override String get bulkDeleteSuccess => 'Punkter slettet';
+  @override String get bulkExport => 'Eksporter';
   @override String errorExportingMarker(String error) => 'Feil ved eksportering av punkt: $error';
 
   @override String get offlineMaps => 'Offline-kart';
