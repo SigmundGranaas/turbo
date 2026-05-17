@@ -14,6 +14,29 @@ String savedPathToGeoJson(SavedPath path) {
     properties['description'] = path.description;
   }
 
+  final recordedAt = path.recordedAt;
+  if (recordedAt != null) {
+    properties['recordedAt'] = recordedAt.toUtc().toIso8601String();
+  }
+  if (path.ascent != null) properties['ascent'] = path.ascent;
+  if (path.descent != null) properties['descent'] = path.descent;
+  if (path.movingTimeSeconds != null) {
+    properties['movingTimeSeconds'] = path.movingTimeSeconds;
+  }
+
+  final elevations = path.elevations;
+  final hasElevations = elevations != null && elevations.length == path.points.length;
+
+  final coordinates = <List<double>>[];
+  for (var i = 0; i < path.points.length; i++) {
+    final p = path.points[i];
+    if (hasElevations) {
+      coordinates.add([p.longitude, p.latitude, elevations[i]]);
+    } else {
+      coordinates.add([p.longitude, p.latitude]);
+    }
+  }
+
   final featureCollection = {
     'type': 'FeatureCollection',
     'features': [
@@ -21,10 +44,8 @@ String savedPathToGeoJson(SavedPath path) {
         'type': 'Feature',
         'geometry': {
           'type': 'LineString',
-          // RFC 7946: coordinates are [longitude, latitude]
-          'coordinates': path.points
-              .map((p) => [p.longitude, p.latitude])
-              .toList(),
+          // RFC 7946: coordinates are [longitude, latitude] (+ optional altitude).
+          'coordinates': coordinates,
         },
         'properties': properties,
       },

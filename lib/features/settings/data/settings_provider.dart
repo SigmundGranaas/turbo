@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:turbo/core/location/gps_accuracy_mode.dart';
 import 'package:turbo/core/util/distance_formatter.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 
@@ -61,6 +62,12 @@ class SettingsState {
   final bool? lastPathSmoothing;
   final String? lastPathLineStyleKey;
 
+  /// Keep the screen awake while a recording is active.
+  final bool keepScreenOnWhileRecording;
+
+  /// Tradeoff between GPS accuracy and battery use during recording.
+  final GpsAccuracyMode gpsAccuracyMode;
+
   const SettingsState({
     required this.themeMode,
     required this.locale,
@@ -81,6 +88,8 @@ class SettingsState {
     this.lastPathIconKey,
     this.lastPathSmoothing,
     this.lastPathLineStyleKey,
+    this.keepScreenOnWhileRecording = true,
+    this.gpsAccuracyMode = GpsAccuracyMode.high,
   });
 
   // Default initial state
@@ -112,6 +121,8 @@ class SettingsState {
     String? Function()? lastPathIconKey,
     bool? Function()? lastPathSmoothing,
     String? Function()? lastPathLineStyleKey,
+    bool? keepScreenOnWhileRecording,
+    GpsAccuracyMode? gpsAccuracyMode,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -133,6 +144,8 @@ class SettingsState {
       lastPathIconKey: lastPathIconKey != null ? lastPathIconKey() : this.lastPathIconKey,
       lastPathSmoothing: lastPathSmoothing != null ? lastPathSmoothing() : this.lastPathSmoothing,
       lastPathLineStyleKey: lastPathLineStyleKey != null ? lastPathLineStyleKey() : this.lastPathLineStyleKey,
+      keepScreenOnWhileRecording: keepScreenOnWhileRecording ?? this.keepScreenOnWhileRecording,
+      gpsAccuracyMode: gpsAccuracyMode ?? this.gpsAccuracyMode,
     );
   }
 }
@@ -161,6 +174,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _lastPathIconKey = 'lastPathIcon';
   static const _lastPathSmoothingKey = 'lastPathSmoothing';
   static const _lastPathLineStyleKey = 'lastPathLineStyle';
+  static const _keepScreenOnWhileRecordingKey = 'keepScreenOnWhileRecording';
+  static const _gpsAccuracyModeKey = 'gpsAccuracyMode';
 
   @override
   Future<SettingsState> build() async {
@@ -228,7 +243,27 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
       lastPathIconKey: prefs.getString(_lastPathIconKey),
       lastPathSmoothing: prefs.getBool(_lastPathSmoothingKey),
       lastPathLineStyleKey: prefs.getString(_lastPathLineStyleKey),
+      keepScreenOnWhileRecording:
+          prefs.getBool(_keepScreenOnWhileRecordingKey) ?? true,
+      gpsAccuracyMode:
+          GpsAccuracyMode.fromName(prefs.getString(_gpsAccuracyModeKey)),
     );
+  }
+
+  /// Toggles the keep-screen-on-while-recording preference.
+  Future<void> setKeepScreenOnWhileRecording(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(keepScreenOnWhileRecording: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keepScreenOnWhileRecordingKey, value);
+  }
+
+  /// Updates the GPS accuracy mode used for live recording.
+  Future<void> setGpsAccuracyMode(GpsAccuracyMode mode) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(gpsAccuracyMode: mode));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_gpsAccuracyModeKey, mode.name);
   }
 
   /// Updates the draw sensitivity and persists it.

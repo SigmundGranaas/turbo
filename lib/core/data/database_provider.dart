@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 5;
+const int _dbVersion = 6;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -119,7 +119,7 @@ Future<void> _createDb(Database db, int version) async {
     )
   ''');
 
-  // Saved paths (v3, extended in v4)
+  // Saved paths (v3, extended in v4 and v6).
   batch.execute('''
     CREATE TABLE $savedPathsTable(
       uuid TEXT PRIMARY KEY,
@@ -135,7 +135,12 @@ Future<void> _createDb(Database db, int version) async {
       color_hex TEXT,
       icon_key TEXT,
       smoothing INTEGER NOT NULL DEFAULT 0,
-      line_style TEXT
+      line_style TEXT,
+      elevations TEXT,
+      recorded_at TEXT,
+      ascent REAL,
+      descent REAL,
+      moving_time_seconds INTEGER
     )
   ''');
   batch.execute('CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
@@ -179,7 +184,30 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV3ToV4(db);
       case 5:
         await _migrateV4ToV5(db);
+      case 6:
+        await _migrateV5ToV6(db);
     }
+  }
+}
+
+Future<void> _migrateV5ToV6(Database db) async {
+  final columns = (await db.rawQuery('PRAGMA table_info($savedPathsTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!columns.contains('elevations')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN elevations TEXT');
+  }
+  if (!columns.contains('recorded_at')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN recorded_at TEXT');
+  }
+  if (!columns.contains('ascent')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN ascent REAL');
+  }
+  if (!columns.contains('descent')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN descent REAL');
+  }
+  if (!columns.contains('moving_time_seconds')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN moving_time_seconds INTEGER');
   }
 }
 

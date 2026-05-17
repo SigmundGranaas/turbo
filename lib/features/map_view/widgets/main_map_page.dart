@@ -9,6 +9,7 @@ import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_mobile.dart';
 import 'package:turbo/features/measuring/api.dart';
+import 'package:turbo/features/path_recording/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_api;
@@ -233,6 +234,17 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         right: 0,
         bottom: 0,
         child: marker_model.MarkerSelectionBar(),
+      ),
+      const Positioned(
+        top: 56,
+        left: 0,
+        right: 0,
+        child: RecordingHud(),
+      ),
+      const Positioned(
+        right: 16,
+        bottom: 96,
+        child: RecordingFab(),
       ),
     ];
     final offlineRegionsAsync = ref.watch(offline_api.offlineRegionsProvider);

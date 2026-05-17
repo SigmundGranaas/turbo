@@ -25,7 +25,12 @@ Future<Database> createSavedPathsDb() async {
       color_hex TEXT,
       icon_key TEXT,
       smoothing INTEGER NOT NULL DEFAULT 0,
-      line_style TEXT
+      line_style TEXT,
+      elevations TEXT,
+      recorded_at TEXT,
+      ascent REAL,
+      descent REAL,
+      moving_time_seconds INTEGER
     )
   ''');
   await db.execute(
@@ -104,7 +109,12 @@ Future<Database> createFullSchemaDb() async {
       color_hex TEXT,
       icon_key TEXT,
       smoothing INTEGER NOT NULL DEFAULT 0,
-      line_style TEXT
+      line_style TEXT,
+      elevations TEXT,
+      recorded_at TEXT,
+      ascent REAL,
+      descent REAL,
+      moving_time_seconds INTEGER
     )
   ''');
   batch.execute(

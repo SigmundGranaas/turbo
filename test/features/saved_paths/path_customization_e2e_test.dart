@@ -1009,6 +1009,12 @@ void main() {
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN icon_key TEXT');
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN smoothing INTEGER NOT NULL DEFAULT 0');
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN line_style TEXT');
+      // Run v6 migration (recording + elevation columns).
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN elevations TEXT');
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN recorded_at TEXT');
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN ascent REAL');
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN descent REAL');
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN moving_time_seconds INTEGER');
 
       // All 3 paths should survive and have default customization values
       final store = SQLiteSavedPathDataStore(migrationDb);

@@ -1,5 +1,7 @@
 export 'models/saved_path.dart' show SavedPath;
 export 'models/path_style.dart' show PathLineStyle, pathColorPalette, colorToHex, hexToColor;
+export 'models/elevation_stats.dart' show ElevationStats;
+export 'widgets/elevation_profile.dart' show ElevationProfile;
 export 'widgets/path_customization_controls.dart' show PathCustomizationControls;
 export 'data/saved_path_data_store.dart' show SavedPathDataStore;
 export 'data/saved_path_repository.dart' show savedPathRepositoryProvider, SavedPathRepository,
