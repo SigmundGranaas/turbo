@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
@@ -20,6 +21,15 @@ class _FakeRepo extends SavedPathRepository {
   }
 }
 
+class _FakeCollectionRepo extends CollectionRepository {
+  @override
+  AsyncValue<CollectionRepositoryState> build() =>
+      const AsyncData(CollectionRepositoryState.empty());
+
+  @override
+  Future<void> handleItemDeleted(CollectionItemRef ref) async {}
+}
+
 SavedPath _path() => SavedPath(
       uuid: 'p1',
       title: 'Morning Run',
@@ -34,7 +44,10 @@ Future<_FakeRepo> _openSheet(WidgetTester tester) async {
   final p = _path();
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [savedPathRepositoryProvider.overrideWith(() => repo)],
+      overrides: [
+        savedPathRepositoryProvider.overrideWith(() => repo),
+        collectionRepositoryProvider.overrideWith(() => _FakeCollectionRepo()),
+      ],
       child: MaterialApp(
         localizationsDelegates: const [
           AppLocalizations.delegate,

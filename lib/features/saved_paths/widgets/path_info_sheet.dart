@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../data/saved_path_repository.dart';
@@ -125,7 +126,14 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
             ),
           ],
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          _PathCollectionChipStrip(
+            itemRef: CollectionItemRef(
+              type: CollectionItemRef.typePath,
+              uuid: _path.uuid,
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // Actions row
           Row(
@@ -135,6 +143,11 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
                 icon: Icons.edit_outlined,
                 label: l10n.edit,
                 onTap: _openEdit,
+              ),
+              ActionButton(
+                icon: Icons.folder_outlined,
+                label: l10n.addToCollection,
+                onTap: _openAddToCollection,
               ),
               ActionButton(
                 icon: Icons.ios_share_outlined,
@@ -149,6 +162,16 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openAddToCollection() async {
+    await AddToCollectionSheet.show(
+      context,
+      CollectionItemRef(
+        type: CollectionItemRef.typePath,
+        uuid: _path.uuid,
       ),
     );
   }
@@ -197,6 +220,12 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
       await ref
           .read(savedPathRepositoryProvider.notifier)
           .deletePath(_path.uuid);
+      await ref
+          .read(collectionRepositoryProvider.notifier)
+          .handleItemDeleted(CollectionItemRef(
+            type: CollectionItemRef.typePath,
+            uuid: _path.uuid,
+          ));
       if (mounted) {
         Navigator.of(context).pop(PathDetailResult.deleted);
       }
@@ -209,5 +238,47 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
         setState(() => _isDeleting = false);
       }
     }
+  }
+}
+
+class _PathCollectionChipStrip extends ConsumerWidget {
+  final CollectionItemRef itemRef;
+
+  const _PathCollectionChipStrip({required this.itemRef});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncState = ref.watch(collectionRepositoryProvider);
+    return asyncState.maybeWhen(
+      data: (state) {
+        final uuids = state.collectionsFor(itemRef);
+        if (uuids.isEmpty) return const SizedBox.shrink();
+        final byUuid = {for (final c in state.collections) c.uuid: c};
+        final colorScheme = Theme.of(context).colorScheme;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final id in uuids)
+                if (byUuid[id] != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Chip(
+                      avatar: Icon(
+                        Icons.folder_outlined,
+                        size: 16,
+                        color: hexToColor(byUuid[id]!.colorHex) ??
+                            colorScheme.primary,
+                      ),
+                      label: Text(byUuid[id]!.name),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+            ],
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
   }
 }

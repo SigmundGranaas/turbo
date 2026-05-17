@@ -4,6 +4,8 @@ import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/collections/api.dart';
+import 'package:turbo/features/saved_paths/api.dart' show hexToColor;
 import '../data/icon_service.dart';
 import '../data/location_repository.dart';
 import '../models/marker.dart';
@@ -106,7 +108,14 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             ),
           ],
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          _CollectionChipStrip(
+            itemRef: CollectionItemRef(
+              type: CollectionItemRef.typeMarker,
+              uuid: _marker.uuid,
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // Actions row
           Row(
@@ -116,6 +125,11 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
                 icon: Icons.edit_outlined,
                 label: l10n.edit,
                 onTap: _openEdit,
+              ),
+              ActionButton(
+                icon: Icons.folder_outlined,
+                label: l10n.addToCollection,
+                onTap: _openAddToCollection,
               ),
               ActionButton(
                 icon: Icons.ios_share_outlined,
@@ -130,6 +144,16 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openAddToCollection() async {
+    await AddToCollectionSheet.show(
+      context,
+      CollectionItemRef(
+        type: CollectionItemRef.typeMarker,
+        uuid: _marker.uuid,
       ),
     );
   }
@@ -178,6 +202,12 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
       await ref
           .read(locationRepositoryProvider.notifier)
           .deleteMarker(_marker.uuid);
+      await ref
+          .read(collectionRepositoryProvider.notifier)
+          .handleItemDeleted(CollectionItemRef(
+            type: CollectionItemRef.typeMarker,
+            uuid: _marker.uuid,
+          ));
       if (mounted) {
         Navigator.of(context).pop(MarkerInfoResult.deleted);
       }
@@ -190,6 +220,48 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
         setState(() => _isDeleting = false);
       }
     }
+  }
+}
+
+class _CollectionChipStrip extends ConsumerWidget {
+  final CollectionItemRef itemRef;
+
+  const _CollectionChipStrip({required this.itemRef});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncState = ref.watch(collectionRepositoryProvider);
+    return asyncState.maybeWhen(
+      data: (state) {
+        final uuids = state.collectionsFor(itemRef);
+        if (uuids.isEmpty) return const SizedBox.shrink();
+        final byUuid = {for (final c in state.collections) c.uuid: c};
+        final colorScheme = Theme.of(context).colorScheme;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final id in uuids)
+                if (byUuid[id] != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Chip(
+                      avatar: Icon(
+                        Icons.folder_outlined,
+                        size: 16,
+                        color: hexToColor(byUuid[id]!.colorHex) ??
+                            colorScheme.primary,
+                      ),
+                      label: Text(byUuid[id]!.name),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+            ],
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
   }
 }
 

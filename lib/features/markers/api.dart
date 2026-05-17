@@ -9,6 +9,7 @@ export 'widgets/create_location_sheet.dart' show CreateLocationSheet;
 export 'widgets/edit_location_sheet.dart' show EditLocationSheet;
 export 'widgets/icon_selection_page.dart' show IconSelectionPage;
 export 'widgets/marker_info_sheet.dart' show MarkerInfoSheet, MarkerInfoResult;
+export 'widgets/markers_list_page.dart' show MarkersListPage;
 export 'widgets/marker_export_options_sheet.dart' show MarkerExportOptionsSheet;
 export 'data/marker_export_service.dart' show MarkerExportService;
 export 'data/marker_geojson_serializer.dart' show markerToGeoJson;

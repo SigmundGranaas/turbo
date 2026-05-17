@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 4;
+const int _dbVersion = 5;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -15,6 +15,8 @@ const String tileStoreTable = 'tile_store';
 const String markersTable = 'markers';
 const String pendingDeletesTable = 'pending_deletes';
 const String savedPathsTable = 'saved_paths';
+const String collectionsTable = 'collections';
+const String collectionItemsTable = 'collection_items';
 
 
 /// A provider that creates and holds the single instance of the app's database.
@@ -138,6 +140,31 @@ Future<void> _createDb(Database db, int version) async {
   ''');
   batch.execute('CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
 
+  // Collections + join table (v5). The join table is keyed by (type, uuid)
+  // so future item types do not require schema changes.
+  batch.execute('''
+    CREATE TABLE $collectionsTable(
+      uuid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      color_hex TEXT,
+      icon_key TEXT,
+      created_at TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )
+  ''');
+  batch.execute('''
+    CREATE TABLE $collectionItemsTable(
+      collection_uuid TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      item_uuid TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (collection_uuid, item_type, item_uuid),
+      FOREIGN KEY (collection_uuid) REFERENCES $collectionsTable(uuid) ON DELETE CASCADE
+    )
+  ''');
+  batch.execute('CREATE INDEX idx_collection_items_item ON $collectionItemsTable(item_type, item_uuid)');
+
   await batch.commit(noResult: true);
 }
 
@@ -150,8 +177,35 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV2ToV3(db);
       case 4:
         await _migrateV3ToV4(db);
+      case 5:
+        await _migrateV4ToV5(db);
     }
   }
+}
+
+Future<void> _migrateV4ToV5(Database db) async {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $collectionsTable(
+      uuid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      color_hex TEXT,
+      icon_key TEXT,
+      created_at TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $collectionItemsTable(
+      collection_uuid TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      item_uuid TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (collection_uuid, item_type, item_uuid),
+      FOREIGN KEY (collection_uuid) REFERENCES $collectionsTable(uuid) ON DELETE CASCADE
+    )
+  ''');
+  await db.execute('CREATE INDEX IF NOT EXISTS idx_collection_items_item ON $collectionItemsTable(item_type, item_uuid)');
 }
 
 Future<void> _migrateV3ToV4(Database db) async {

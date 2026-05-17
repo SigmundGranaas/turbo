@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/shadows.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
 import 'package:turbo/features/saved_paths/api.dart';
@@ -79,9 +80,28 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
 
     final viewportMarkersAsync = ref.watch(viewportMarkerNotifierProvider);
     final iconService = IconService();
+    final collectionState =
+        ref.watch(collectionRepositoryProvider).asData?.value ??
+            const CollectionRepositoryState.empty();
+    final visibility = ref.watch(collectionVisibilityProvider);
+
+    List<marker_model.Marker> applyFilter(List<marker_model.Marker> input) {
+      if (collectionState.membershipIndex.isEmpty) return input;
+      return input
+          .where((m) => isItemVisibleForCollections(
+                ref: CollectionItemRef(
+                  type: CollectionItemRef.typeMarker,
+                  uuid: m.uuid,
+                ),
+                collectionState: collectionState,
+                visibility: visibility,
+              ))
+          .toList();
+    }
 
     return viewportMarkersAsync.when(
-      data: (locations) {
+      data: (raw) {
+        final locations = applyFilter(raw);
         return MarkerLayer(
           markers: locations.map((location) {
             final namedIcon = iconService.getIcon(context ,location.icon);
@@ -110,8 +130,9 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
         final previousData =
             ref.read(viewportMarkerNotifierProvider).asData?.value;
         if (previousData != null && previousData.isNotEmpty) {
+          final filteredPrev = applyFilter(previousData);
           return MarkerLayer(
-            markers: previousData.map((location) {
+            markers: filteredPrev.map((location) {
               final namedIcon = iconService.getIcon(context, location.icon);
               const double markerScale = 1.0;
               const double markerHeight = MapMarkerWidget.baseHeight * markerScale;

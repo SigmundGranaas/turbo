@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/util/catmull_rom_spline.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart' hide Marker;
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../data/data_visibility_provider.dart';
@@ -91,17 +92,38 @@ class _SavedPathsLayerState extends ConsumerState<SavedPathsLayer> {
 
     final pathsAsync = ref.watch(viewportSavedPathNotifierProvider);
     final colorScheme = Theme.of(context).colorScheme;
+    final collectionState =
+        ref.watch(collectionRepositoryProvider).asData?.value ??
+            const CollectionRepositoryState.empty();
+    final visibility = ref.watch(collectionVisibilityProvider);
+
+    List<SavedPath> applyFilter(List<SavedPath> input) {
+      if (collectionState.membershipIndex.isEmpty) return input;
+      return input
+          .where((p) => isItemVisibleForCollections(
+                ref: CollectionItemRef(
+                  type: CollectionItemRef.typePath,
+                  uuid: p.uuid,
+                ),
+                collectionState: collectionState,
+                visibility: visibility,
+              ))
+          .toList();
+    }
 
     return pathsAsync.when(
       data: (paths) {
-        if (paths.isEmpty) return const SizedBox.shrink();
-        return _buildLayer(paths, colorScheme);
+        final filtered = applyFilter(paths);
+        if (filtered.isEmpty) return const SizedBox.shrink();
+        return _buildLayer(filtered, colorScheme);
       },
       loading: () {
         final previousData =
             ref.read(viewportSavedPathNotifierProvider).asData?.value;
         if (previousData != null && previousData.isNotEmpty) {
-          return _buildLayer(previousData, colorScheme);
+          final filteredPrev = applyFilter(previousData);
+          if (filteredPrev.isEmpty) return const SizedBox.shrink();
+          return _buildLayer(filteredPrev, colorScheme);
         }
         return const SizedBox.shrink();
       },

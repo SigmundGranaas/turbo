@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
@@ -24,6 +25,15 @@ class _FakeRepo extends LocationRepository {
   }
 }
 
+class _FakeCollectionRepo extends CollectionRepository {
+  @override
+  AsyncValue<CollectionRepositoryState> build() =>
+      const AsyncData(CollectionRepositoryState.empty());
+
+  @override
+  Future<void> handleItemDeleted(CollectionItemRef ref) async {}
+}
+
 Marker _marker() => Marker(
       uuid: 'm1',
       title: 'My Pin',
@@ -36,7 +46,10 @@ Future<_FakeRepo> _openSheet(WidgetTester tester, {Marker? marker}) async {
   final m = marker ?? _marker();
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [locationRepositoryProvider.overrideWith(() => repo)],
+      overrides: [
+        locationRepositoryProvider.overrideWith(() => repo),
+        collectionRepositoryProvider.overrideWith(() => _FakeCollectionRepo()),
+      ],
       child: MaterialApp(
         localizationsDelegates: const [
           AppLocalizations.delegate,
