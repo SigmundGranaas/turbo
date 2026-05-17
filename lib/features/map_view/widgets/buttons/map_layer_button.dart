@@ -361,7 +361,12 @@ class LayerSelectionSheet extends ConsumerWidget {
         l10n.customMapUrlHelp,
         style: Theme.of(context).textTheme.bodySmall,
       ),
-      onTap: () => showAddCustomMapDialog(context),
+      onTap: () {
+        // Close the layer-selection sheet first so the new page replaces
+        // it instead of stacking on top of a modal scrim.
+        Navigator.of(context).pop();
+        pushAddCustomMapPage(context);
+      },
     );
   }
 

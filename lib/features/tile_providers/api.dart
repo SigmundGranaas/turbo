@@ -25,4 +25,5 @@ export 'data/custom_provider_store.dart'
     show customProviderStoreProvider, CustomProviderStore;
 export 'models/custom_tile_provider.dart'
     show CustomTileProvider, CustomTileProviderConfig;
-export 'widgets/add_custom_map_dialog.dart' show showAddCustomMapDialog;
+export 'widgets/add_custom_map_page.dart'
+    show AddCustomMapPage, pushAddCustomMapPage;
