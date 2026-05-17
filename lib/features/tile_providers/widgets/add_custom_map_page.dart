@@ -29,21 +29,33 @@ class _AddCustomMapPageState extends ConsumerState<AddCustomMapPage> {
   bool _saving = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Rebuild on each keystroke so the "Detected: XYZ/WMS" hint updates live.
+    _urlController.addListener(_onUrlChanged);
+  }
+
+  @override
   void dispose() {
+    _urlController.removeListener(_onUrlChanged);
     _nameController.dispose();
     _urlController.dispose();
     super.dispose();
   }
 
+  void _onUrlChanged() => setState(() {});
+
   Future<void> _submit() async {
     if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
+    final template = _urlController.text.trim();
     final provider = CustomTileProvider(
       id: 'custom_${DateTime.now().microsecondsSinceEpoch}',
       displayName: _nameController.text.trim(),
-      urlTemplate: _urlController.text.trim(),
+      urlTemplate: template,
       category: _category,
+      urlKind: CustomUrlKind.detect(template),
     );
     await ref.read(customProviderStoreProvider.notifier).add(provider);
     if (!mounted) return;
@@ -114,11 +126,19 @@ class _AddCustomMapPageState extends ConsumerState<AddCustomMapPage> {
               ),
               minLines: 1,
               maxLines: 3,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               validator: (v) {
                 final err = CustomTileProvider
                     .validateUrlTemplate(v ?? '');
-                if (err != null) return l10n.customMapInvalidUrl;
-                return null;
+                if (err == null) return null;
+                switch (err) {
+                  case 'missing_wms_service':
+                    return l10n.customMapMissingWmsService;
+                  case 'missing_wms_layers':
+                    return l10n.customMapMissingWmsLayers;
+                  default:
+                    return l10n.customMapInvalidUrl;
+                }
               },
             ),
             const SizedBox(height: AppSpacing.s),
@@ -128,6 +148,18 @@ class _AddCustomMapPageState extends ConsumerState<AddCustomMapPage> {
                 color: colorScheme.onSurfaceVariant,
               ),
             ),
+            if (_urlController.text.trim().isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                CustomUrlKind.detect(_urlController.text) == CustomUrlKind.wms
+                    ? l10n.customMapKindWms
+                    : l10n.customMapKindXyz,
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.xl),
 
             // --- Category ---

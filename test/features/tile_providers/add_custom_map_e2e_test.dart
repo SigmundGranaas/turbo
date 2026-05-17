@@ -134,14 +134,86 @@ void main() {
 
       // Validator error renders below the field; page is still mounted.
       expect(
-          find.textContaining(
-              'Invalid URL template. It must contain {z}, {x}, and {y}.'),
-          findsOneWidget);
+          find.textContaining('Invalid URL template'), findsOneWidget);
       expect(find.byType(AddCustomMapPage), findsOneWidget);
 
       // Nothing persisted.
       final stored = await SharedPreferences.getInstance();
       expect(stored.containsKey('custom_tile_providers'), isFalse);
+    });
+
+    testWidgets(
+        'submitting a WMS GetMap URL persists with urlKind=wms and the live '
+        '"Detected: WMS server" hint is rendered', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = FakeLayerPreferenceService(initialLocal: ['topo']);
+
+      await _pumpLayerHost(
+        tester,
+        overrides: [
+          layerPreferenceServiceProvider.overrideWithValue(prefs),
+          offlineRegionsProvider.overrideWith(() => _StubOfflineRegions()),
+        ],
+      );
+      await tester.dragUntilVisible(
+        find.text('Add custom map…'),
+        find.byType(SingleChildScrollView),
+        const Offset(0, -200),
+      );
+      await tester.tap(find.text('Add custom map…'));
+      await tester.pumpAndSettle();
+
+      const wmsUrl =
+          'https://minkarta.lantmateriet.se/map/topowebb/v1/wms?'
+          'LAYERS=topowebbkartan&FORMAT=image/png&TRANSPARENT=TRUE&'
+          'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&SRS=EPSG:3857&'
+          'BBOX={bbox}&WIDTH={width}&HEIGHT={height}';
+      await tester.enterText(
+          find.byType(TextFormField).first, 'Lantmäteriet topo');
+      await tester.enterText(find.byType(TextFormField).at(1), wmsUrl);
+      await tester.pumpAndSettle();
+
+      // Live hint reflects the detected kind.
+      expect(find.text('Detected: WMS server'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Add'));
+      await tester.pumpAndSettle();
+
+      // Persisted with urlKind=wms.
+      final stored = await SharedPreferences.getInstance();
+      final raw = stored.getString('custom_tile_providers');
+      expect(raw, isNotNull);
+      expect(raw, contains('Lantmäteriet topo'));
+      expect(raw, contains('"urlKind":"wms"'));
+    });
+
+    testWidgets(
+        'typing an XYZ URL surfaces the "Detected: XYZ tile server" hint',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = FakeLayerPreferenceService(initialLocal: ['topo']);
+
+      await _pumpLayerHost(
+        tester,
+        overrides: [
+          layerPreferenceServiceProvider.overrideWithValue(prefs),
+          offlineRegionsProvider.overrideWith(() => _StubOfflineRegions()),
+        ],
+      );
+      await tester.dragUntilVisible(
+        find.text('Add custom map…'),
+        find.byType(SingleChildScrollView),
+        const Offset(0, -200),
+      );
+      await tester.tap(find.text('Add custom map…'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).at(1),
+          'https://tiles.example.com/{z}/{x}/{y}.png');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Detected: XYZ tile server'), findsOneWidget);
+      expect(find.text('Detected: WMS server'), findsNothing);
     });
 
     testWidgets(

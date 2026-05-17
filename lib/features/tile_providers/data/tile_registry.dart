@@ -219,9 +219,12 @@ class TileRegistry extends Notifier<TileRegistryState> {
         final config = state.availableProviders[id];
         if (config == null) continue;
 
+        final wms = config.wmsOptions;
         layers.add(TileLayer(
-          tileProvider: NetworkTileProvider(headers: config.headers, silenceExceptions: true),
-          urlTemplate: config.urlTemplate,
+          tileProvider: NetworkTileProvider(
+              headers: config.headers, silenceExceptions: true),
+          urlTemplate: wms == null ? config.urlTemplate : null,
+          wmsOptions: wms,
           minZoom: config.minZoom,
           maxZoom: 22, // Allow overzooming visually
           maxNativeZoom: config.maxZoom.toInt(),
@@ -255,18 +258,28 @@ class TileRegistry extends Notifier<TileRegistryState> {
       final config = state.availableProviders[id];
       if (config == null) continue;
 
-      final tileProvider = config.category == TileProviderCategory.offline
-          ? offlineNotifier.createTileProvider(
-          region: (config as OfflineRegionProviderConfig).region)
-          : cacheService?.createTileProvider(
-        urlTemplate: config.urlTemplate,
-        headers: config.headers,
-      );
+      final wms = config.wmsOptions;
+      final TileProvider? tileProvider;
+      if (config.category == TileProviderCategory.offline) {
+        tileProvider = offlineNotifier.createTileProvider(
+            region: (config as OfflineRegionProviderConfig).region);
+      } else if (wms != null) {
+        // WMS URLs aren't tile-keyed the way XYZ templates are — bypass the
+        // cache layer and let flutter_map's TileLayer compute per-tile URLs.
+        tileProvider = NetworkTileProvider(
+            headers: config.headers, silenceExceptions: true);
+      } else {
+        tileProvider = cacheService?.createTileProvider(
+          urlTemplate: config.urlTemplate,
+          headers: config.headers,
+        );
+      }
 
       if (tileProvider != null) {
         layers.add(TileLayer(
           tileProvider: tileProvider,
-          urlTemplate: config.urlTemplate,
+          urlTemplate: wms == null ? config.urlTemplate : null,
+          wmsOptions: wms,
           minZoom: config.minZoom,
           maxZoom: 22,
           maxNativeZoom: config.maxZoom.toInt(),

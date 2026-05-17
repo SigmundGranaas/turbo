@@ -14,7 +14,7 @@ CustomTileProvider _p(String id, {String? url, TileProviderCategory? category}) 
     );
 
 void main() {
-  group('CustomTileProvider.validateUrlTemplate', () {
+  group('CustomTileProvider.validateUrlTemplate (XYZ)', () {
     test('accepts a well-formed https template', () {
       expect(
           CustomTileProvider.validateUrlTemplate(
@@ -54,6 +54,84 @@ void main() {
           CustomTileProvider.validateUrlTemplate(
               'file:///tmp/{z}/{x}/{y}.png'),
           'bad_scheme');
+    });
+  });
+
+  group('CustomTileProvider.validateUrlTemplate (WMS)', () {
+    const lantmateriet =
+        'https://minkarta.lantmateriet.se/map/topowebb/v1/wms?'
+        'LAYERS=topowebbkartan&FORMAT=image/png&TRANSPARENT=TRUE&'
+        'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&SRS=EPSG:3857&'
+        'BBOX={bbox}&WIDTH={width}&HEIGHT={height}';
+
+    test('accepts the Lantmäteriet WMS URL', () {
+      expect(CustomTileProvider.validateUrlTemplate(lantmateriet), isNull);
+    });
+
+    test('detects the URL kind as WMS', () {
+      expect(CustomUrlKind.detect(lantmateriet), CustomUrlKind.wms);
+      expect(
+          CustomUrlKind.detect(
+              'https://example.com/tiles/{z}/{x}/{y}.png'),
+          CustomUrlKind.xyz);
+    });
+
+    test('WMS without {bbox} fails with missing_placeholders', () {
+      expect(
+          CustomTileProvider.validateUrlTemplate(
+              'https://example.com/wms?SERVICE=WMS&LAYERS=foo'),
+          'missing_placeholders');
+    });
+
+    test('WMS with {bbox} but missing service=wms surfaces the right error',
+        () {
+      expect(
+          CustomTileProvider.validateUrlTemplate(
+              'https://example.com/wms?LAYERS=foo&BBOX={bbox}'),
+          'missing_wms_service');
+    });
+
+    test('WMS missing the layers parameter surfaces the right error', () {
+      expect(
+          CustomTileProvider.validateUrlTemplate(
+              'https://example.com/wms?SERVICE=WMS&BBOX={bbox}'),
+          'missing_wms_layers');
+    });
+  });
+
+  group('CustomTileProviderConfig.wmsOptions', () {
+    test('parses the Lantmäteriet URL into the expected options', () {
+      const url =
+          'https://minkarta.lantmateriet.se/map/topowebb/v1/wms?'
+          'LAYERS=topowebbkartan&FORMAT=image/png&TRANSPARENT=TRUE&'
+          'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&SRS=EPSG:3857&'
+          'BBOX={bbox}&WIDTH={width}&HEIGHT={height}';
+      final cfg = CustomTileProviderConfig(CustomTileProvider(
+        id: 'custom_lm',
+        displayName: 'LM',
+        urlTemplate: url,
+        category: TileProviderCategory.global,
+        urlKind: CustomUrlKind.wms,
+      ));
+
+      final opts = cfg.wmsOptions!;
+      expect(opts.layers, ['topowebbkartan']);
+      expect(opts.format, 'image/png');
+      expect(opts.version, '1.1.1');
+      expect(opts.transparent, isTrue);
+      expect(opts.baseUrl, startsWith('https://minkarta.lantmateriet.se'));
+      expect(opts.baseUrl, endsWith('?'),
+          reason: 'baseUrl ends with ? per flutter_map convention');
+    });
+
+    test('returns null for XYZ providers', () {
+      final cfg = CustomTileProviderConfig(CustomTileProvider(
+        id: 'custom_xyz',
+        displayName: 'XYZ',
+        urlTemplate: 'https://example.com/{z}/{x}/{y}.png',
+        category: TileProviderCategory.global,
+      ));
+      expect(cfg.wmsOptions, isNull);
     });
   });
 
