@@ -221,6 +221,10 @@ abstract class AppLocalizations {
   String navigationTurnLeft(int degrees);
   String navigationTurnRight(int degrees);
   String get youHaveArrived;
+  String get alreadyNavigatingHere;
+  String get replaceNavigationTitle;
+  String get replaceNavigationMessage;
+  String get replace;
 
   // Saved Paths
   String get savedPaths;
@@ -489,6 +493,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String navigationTurnLeft(int degrees) => '$degrees° left';
   @override String navigationTurnRight(int degrees) => '$degrees° right';
   @override String get youHaveArrived => 'You have arrived!';
+  @override String get alreadyNavigatingHere => 'Already navigating here';
+  @override String get replaceNavigationTitle => 'Replace navigation target?';
+  @override String get replaceNavigationMessage => 'You\'re currently navigating to another location. Replace the target with this marker?';
+  @override String get replace => 'Replace';
 
   @override String get savedPaths => 'Saved Paths';
   @override String get savePath => 'Save Path';
@@ -749,6 +757,10 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String navigationTurnLeft(int degrees) => '$degrees° venstre';
   @override String navigationTurnRight(int degrees) => '$degrees° høyre';
   @override String get youHaveArrived => 'Du har ankommet!';
+  @override String get alreadyNavigatingHere => 'Navigerer allerede hit';
+  @override String get replaceNavigationTitle => 'Erstatt navigasjonsmål?';
+  @override String get replaceNavigationMessage => 'Du navigerer allerede til et annet sted. Vil du erstatte målet med denne markøren?';
+  @override String get replace => 'Erstatt';
 
   @override String get savedPaths => 'Lagrede ruter';
   @override String get savePath => 'Lagre rute';
