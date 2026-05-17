@@ -4,7 +4,9 @@ import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/saved_paths/api.dart' show hexToColor;
 import '../data/icon_service.dart';
 import '../data/location_repository.dart';
 import '../models/marker.dart';
@@ -108,7 +110,15 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             ),
           ],
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          _CollectionChipStrip(
+            itemRef: CollectionItemRef(
+              type: CollectionItemRef.typeMarker,
+              uuid: _marker.uuid,
+            ),
+            onTap: _openAddToCollection,
+          ),
+          const SizedBox(height: 16),
 
           // Actions row
           Row(
@@ -137,6 +147,16 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openAddToCollection() async {
+    await AddToCollectionSheet.show(
+      context,
+      CollectionItemRef(
+        type: CollectionItemRef.typeMarker,
+        uuid: _marker.uuid,
       ),
     );
   }
@@ -213,6 +233,12 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
       await ref
           .read(locationRepositoryProvider.notifier)
           .deleteMarker(_marker.uuid);
+      await ref
+          .read(collectionRepositoryProvider.notifier)
+          .handleItemDeleted(CollectionItemRef(
+            type: CollectionItemRef.typeMarker,
+            uuid: _marker.uuid,
+          ));
       if (mounted) {
         Navigator.of(context).pop(MarkerInfoResult.deleted);
       }
@@ -225,6 +251,77 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
         setState(() => _isDeleting = false);
       }
     }
+  }
+}
+
+class _CollectionChipStrip extends ConsumerWidget {
+  final CollectionItemRef itemRef;
+  final VoidCallback onTap;
+
+  const _CollectionChipStrip({required this.itemRef, required this.onTap});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final colorScheme = Theme.of(context).colorScheme;
+    final asyncState = ref.watch(collectionRepositoryProvider);
+    return asyncState.maybeWhen(
+      data: (state) {
+        final uuids = state.collectionsFor(itemRef);
+        final byUuid = {for (final c in state.collections) c.uuid: c};
+        return SizedBox(
+          height: 36,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                if (uuids.isEmpty)
+                  ActionChip(
+                    avatar: Icon(
+                      Icons.folder_outlined,
+                      size: 16,
+                      color: colorScheme.primary,
+                    ),
+                    label: Text(l10n.addToCollection),
+                    onPressed: onTap,
+                    shape: const StadiumBorder(),
+                    side: BorderSide(color: colorScheme.outlineVariant),
+                    visualDensity: VisualDensity.compact,
+                  )
+                else ...[
+                  for (final id in uuids)
+                    if (byUuid[id] != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ActionChip(
+                          avatar: Icon(
+                            Icons.folder_outlined,
+                            size: 16,
+                            color: hexToColor(byUuid[id]!.colorHex) ??
+                                colorScheme.primary,
+                          ),
+                          label: Text(byUuid[id]!.name),
+                          onPressed: onTap,
+                          shape: const StadiumBorder(),
+                          side: BorderSide(color: colorScheme.outlineVariant),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                  IconButton(
+                    tooltip: l10n.addToCollection,
+                    iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: onTap,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
   }
 }
 

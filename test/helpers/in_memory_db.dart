@@ -109,6 +109,59 @@ Future<Database> createFullSchemaDb() async {
   ''');
   batch.execute(
       'CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
+  batch.execute('''
+    CREATE TABLE $collectionsTable(
+      uuid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      color_hex TEXT,
+      icon_key TEXT,
+      created_at TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )
+  ''');
+  batch.execute('''
+    CREATE TABLE $collectionItemsTable(
+      collection_uuid TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      item_uuid TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (collection_uuid, item_type, item_uuid)
+    )
+  ''');
+  batch.execute(
+      'CREATE INDEX idx_collection_items_item ON $collectionItemsTable(item_type, item_uuid)');
+  await batch.commit(noResult: true);
+  return db;
+}
+
+/// Opens a fresh in-memory SQLite database with only the collections schema.
+Future<Database> createCollectionsDb() async {
+  initSqfliteFfi();
+  final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+  final batch = db.batch();
+  batch.execute('''
+    CREATE TABLE $collectionsTable(
+      uuid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      color_hex TEXT,
+      icon_key TEXT,
+      created_at TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )
+  ''');
+  batch.execute('''
+    CREATE TABLE $collectionItemsTable(
+      collection_uuid TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      item_uuid TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (collection_uuid, item_type, item_uuid)
+    )
+  ''');
+  batch.execute(
+      'CREATE INDEX idx_collection_items_item ON $collectionItemsTable(item_type, item_uuid)');
   await batch.commit(noResult: true);
   return db;
 }

@@ -311,6 +311,34 @@ abstract class AppLocalizations {
   String get bulkExport;
   String errorExportingMarker(String error);
 
+  // Collections
+  String get collections;
+  String get collection;
+  String get newCollection;
+  String get editCollection;
+  String get deleteCollection;
+  String get collectionName;
+  String get noCollectionsYet;
+  String get noCollectionsHint;
+  String get allMarkers;
+  String get allPaths;
+  String get addToCollection;
+  String get markersSection;
+  String get pathsSection;
+  String memberCount(int count);
+  String get noMembersInCollection;
+  String get confirmDeleteCollectionTitle;
+  String get confirmDeleteCollectionMessage;
+  String get collectionCreated;
+  String get collectionUpdated;
+  String get collectionDeleted;
+  String errorSavingCollection(String error);
+  String errorDeletingCollection(String error);
+  String get visibleOnMap;
+  String get hiddenOnMap;
+  String get color;
+  String get removeColor;
+
   // Offline Maps
   String get offlineMaps;
   String get noOfflineMapsDownloaded;
@@ -612,6 +640,33 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get bulkExport => 'Export';
   @override String errorExportingMarker(String error) => 'Error exporting marker: $error';
 
+  @override String get collections => 'Collections';
+  @override String get collection => 'Collection';
+  @override String get newCollection => 'New Collection';
+  @override String get editCollection => 'Edit Collection';
+  @override String get deleteCollection => 'Delete Collection';
+  @override String get collectionName => 'Collection name';
+  @override String get noCollectionsYet => 'No collections yet';
+  @override String get noCollectionsHint => 'Group markers and paths together so you can toggle, browse, and export them as a unit.';
+  @override String get allMarkers => 'Markers';
+  @override String get allPaths => 'Paths';
+  @override String get addToCollection => 'Add to collection';
+  @override String get markersSection => 'Markers';
+  @override String get pathsSection => 'Paths';
+  @override String memberCount(int count) => count == 1 ? '1 item' : '$count items';
+  @override String get noMembersInCollection => 'No markers or paths in this collection yet.';
+  @override String get confirmDeleteCollectionTitle => 'Delete collection?';
+  @override String get confirmDeleteCollectionMessage => 'The markers and paths inside will remain — only the collection is removed.';
+  @override String get collectionCreated => 'Collection created';
+  @override String get collectionUpdated => 'Collection updated';
+  @override String get collectionDeleted => 'Collection deleted';
+  @override String errorSavingCollection(String error) => 'Error saving collection: $error';
+  @override String errorDeletingCollection(String error) => 'Error deleting collection: $error';
+  @override String get visibleOnMap => 'Visible on map';
+  @override String get hiddenOnMap => 'Hidden on map';
+  @override String get color => 'Color';
+  @override String get removeColor => 'Remove color';
+
   @override String get offlineMaps => 'Offline Maps';
   @override String get noOfflineMapsDownloaded => 'No maps downloaded yet.\nTap the button below to download an area.';
   @override String get addOfflineRegion => 'Add offline region';
@@ -908,6 +963,33 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get bulkDeleteSuccess => 'Punkter slettet';
   @override String get bulkExport => 'Eksporter';
   @override String errorExportingMarker(String error) => 'Feil ved eksportering av punkt: $error';
+
+  @override String get collections => 'Samlinger';
+  @override String get collection => 'Samling';
+  @override String get newCollection => 'Ny samling';
+  @override String get editCollection => 'Rediger samling';
+  @override String get deleteCollection => 'Slett samling';
+  @override String get collectionName => 'Samlingsnavn';
+  @override String get noCollectionsYet => 'Ingen samlinger ennå';
+  @override String get noCollectionsHint => 'Grupper punkter og ruter slik at du kan slå dem av/på, bla gjennom og eksportere dem sammen.';
+  @override String get allMarkers => 'Punkter';
+  @override String get allPaths => 'Ruter';
+  @override String get addToCollection => 'Legg til i samling';
+  @override String get markersSection => 'Punkter';
+  @override String get pathsSection => 'Ruter';
+  @override String memberCount(int count) => count == 1 ? '1 element' : '$count elementer';
+  @override String get noMembersInCollection => 'Ingen punkter eller ruter i denne samlingen ennå.';
+  @override String get confirmDeleteCollectionTitle => 'Slette samlingen?';
+  @override String get confirmDeleteCollectionMessage => 'Punktene og rutene blir værende — bare samlingen blir fjernet.';
+  @override String get collectionCreated => 'Samling opprettet';
+  @override String get collectionUpdated => 'Samling oppdatert';
+  @override String get collectionDeleted => 'Samling slettet';
+  @override String errorSavingCollection(String error) => 'Feil ved lagring av samling: $error';
+  @override String errorDeletingCollection(String error) => 'Feil ved sletting av samling: $error';
+  @override String get visibleOnMap => 'Synlig på kartet';
+  @override String get hiddenOnMap => 'Skjult på kartet';
+  @override String get color => 'Farge';
+  @override String get removeColor => 'Fjern farge';
 
   @override String get offlineMaps => 'Offline-kart';
   @override String get noOfflineMapsDownloaded => 'Ingen kart lastet ned ennå.\nTrykk på knappen under for å laste ned et område.';

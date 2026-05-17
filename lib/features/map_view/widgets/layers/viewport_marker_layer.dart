@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:turbo/app/shadows.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
 import 'package:turbo/features/saved_paths/api.dart';
@@ -83,6 +84,24 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
     final viewportMarkersAsync = ref.watch(viewportMarkerNotifierProvider);
     final selection = ref.watch(markerSelectionProvider);
     final iconService = IconService();
+    final collectionState =
+        ref.watch(collectionRepositoryProvider).asData?.value ??
+            const CollectionRepositoryState.empty();
+    final visibility = ref.watch(collectionVisibilityProvider);
+
+    List<marker_model.Marker> applyFilter(List<marker_model.Marker> input) {
+      if (collectionState.membershipIndex.isEmpty) return input;
+      return input
+          .where((m) => isItemVisibleForCollections(
+                ref: CollectionItemRef(
+                  type: CollectionItemRef.typeMarker,
+                  uuid: m.uuid,
+                ),
+                collectionState: collectionState,
+                visibility: visibility,
+              ))
+          .toList();
+    }
 
     Marker buildMarker(marker_model.Marker location, double offsetY) {
       final namedIcon = iconService.getIcon(context, location.icon);
@@ -112,7 +131,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
 
     return viewportMarkersAsync.when(
       data: (locations) => MarkerLayer(
-        markers: locations
+        markers: applyFilter(locations)
             .map((l) =>
                 buildMarker(l, -MapMarkerWidget.baseHeight))
             .toList(),
@@ -122,7 +141,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
             ref.read(viewportMarkerNotifierProvider).asData?.value;
         if (previousData != null && previousData.isNotEmpty) {
           return MarkerLayer(
-            markers: previousData
+            markers: applyFilter(previousData)
                 .map((l) => buildMarker(l, -MapMarkerWidget.baseHeight / 2))
                 .toList(),
           );

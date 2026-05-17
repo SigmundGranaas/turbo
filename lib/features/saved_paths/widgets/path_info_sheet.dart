@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../data/saved_path_repository.dart';
@@ -125,7 +126,15 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
             ),
           ],
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          _PathCollectionChipStrip(
+            itemRef: CollectionItemRef(
+              type: CollectionItemRef.typePath,
+              uuid: _path.uuid,
+            ),
+            onTap: _openAddToCollection,
+          ),
+          const SizedBox(height: 16),
 
           // Actions row
           Row(
@@ -149,6 +158,16 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openAddToCollection() async {
+    await AddToCollectionSheet.show(
+      context,
+      CollectionItemRef(
+        type: CollectionItemRef.typePath,
+        uuid: _path.uuid,
       ),
     );
   }
@@ -197,6 +216,12 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
       await ref
           .read(savedPathRepositoryProvider.notifier)
           .deletePath(_path.uuid);
+      await ref
+          .read(collectionRepositoryProvider.notifier)
+          .handleItemDeleted(CollectionItemRef(
+            type: CollectionItemRef.typePath,
+            uuid: _path.uuid,
+          ));
       if (mounted) {
         Navigator.of(context).pop(PathDetailResult.deleted);
       }
@@ -209,5 +234,76 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
         setState(() => _isDeleting = false);
       }
     }
+  }
+}
+
+class _PathCollectionChipStrip extends ConsumerWidget {
+  final CollectionItemRef itemRef;
+  final VoidCallback onTap;
+
+  const _PathCollectionChipStrip({required this.itemRef, required this.onTap});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final colorScheme = Theme.of(context).colorScheme;
+    final asyncState = ref.watch(collectionRepositoryProvider);
+    return asyncState.maybeWhen(
+      data: (state) {
+        final uuids = state.collectionsFor(itemRef);
+        final byUuid = {for (final c in state.collections) c.uuid: c};
+        return SizedBox(
+          height: 36,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                if (uuids.isEmpty)
+                  ActionChip(
+                    avatar: Icon(
+                      Icons.folder_outlined,
+                      size: 16,
+                      color: colorScheme.primary,
+                    ),
+                    label: Text(l10n.addToCollection),
+                    onPressed: onTap,
+                    shape: const StadiumBorder(),
+                    side: BorderSide(color: colorScheme.outlineVariant),
+                    visualDensity: VisualDensity.compact,
+                  )
+                else ...[
+                  for (final id in uuids)
+                    if (byUuid[id] != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ActionChip(
+                          avatar: Icon(
+                            Icons.folder_outlined,
+                            size: 16,
+                            color: hexToColor(byUuid[id]!.colorHex) ??
+                                colorScheme.primary,
+                          ),
+                          label: Text(byUuid[id]!.name),
+                          onPressed: onTap,
+                          shape: const StadiumBorder(),
+                          side: BorderSide(color: colorScheme.outlineVariant),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                  IconButton(
+                    tooltip: l10n.addToCollection,
+                    iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: onTap,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
   }
 }

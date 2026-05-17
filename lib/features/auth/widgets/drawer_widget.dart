@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
+import 'package:turbo/features/collections/api.dart';
+import 'package:turbo/features/markers/api.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
@@ -22,6 +25,9 @@ class AppDrawer extends ConsumerWidget {
 
     final List<Map<String, dynamic>> destinations = [
       {'key': 'map', 'icon': Icons.map_outlined, 'selectedIcon': Icons.map, 'label': l10n.map},
+      {'key': 'collections', 'icon': Icons.folder_outlined, 'selectedIcon': Icons.folder, 'label': l10n.collections},
+      {'key': 'all_markers', 'icon': Icons.place_outlined, 'selectedIcon': Icons.place, 'label': l10n.allMarkers},
+      {'key': 'all_paths', 'icon': Icons.route_outlined, 'selectedIcon': Icons.route, 'label': l10n.allPaths},
       {'key': 'offline_maps', 'icon': Icons.download_for_offline_outlined, 'selectedIcon': Icons.download_for_offline, 'label': l10n.offlineMaps},
       {'key': 'settings', 'icon': Icons.settings_outlined, 'selectedIcon': Icons.settings, 'label': l10n.settings},
       if (isAuthenticated)
@@ -113,6 +119,24 @@ class AppDrawer extends ConsumerWidget {
                 switch (selectedKey) {
                   case 'map':
                   // Already on map, do nothing
+                    break;
+                  case 'collections':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const CollectionsPage()),
+                    );
+                    break;
+                  case 'all_markers':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const MarkersListPage()),
+                    );
+                    break;
+                  case 'all_paths':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const PathsListPage()),
+                    );
                     break;
                   case 'offline_maps':
                     Navigator.push(
