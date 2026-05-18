@@ -18,7 +18,6 @@ import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/sharing/api.dart';
-import 'package:turbo/features/weather/api.dart' show MarineWindStrip;
 
 import 'package:turbo/core/location/compass_mode_state.dart';
 import 'package:turbo/core/location/compass_state.dart';
@@ -26,9 +25,9 @@ import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
+import 'package:turbo/features/map_view/widgets/marine_overlay.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
 import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
-import 'package:turbo/features/map_view/widgets/underway_hud.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 
 class MainMapPage extends ConsumerStatefulWidget {
@@ -239,18 +238,10 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final overlayWidgets = <Widget>[
       const ModeIndicator(),
       const Positioned(
-        top: 0,
         left: 0,
         right: 0,
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              MarineWindStrip(),
-              UnderwayHud(),
-            ],
-          ),
-        ),
+        bottom: 80,
+        child: MarineOverlay(),
       ),
       const Positioned(
         left: 0,

@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/location/location_state.dart';
+import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/features/settings/api.dart';
 
 import '../api.dart';
@@ -96,33 +97,12 @@ class _StripFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(
-        left: AppSpacing.l,
-        right: AppSpacing.l,
-        top: AppSpacing.s,
+    return AppPill(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.l,
+        vertical: AppSpacing.s,
       ),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colorScheme.surface.withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x22000000),
-              blurRadius: 6,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.l,
-            vertical: AppSpacing.s,
-          ),
-          child: child,
-        ),
-      ),
+      child: child,
     );
   }
 }
