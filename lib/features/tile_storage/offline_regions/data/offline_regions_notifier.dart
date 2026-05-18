@@ -31,7 +31,15 @@ class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
     return repo.getAllRegions();
   }
 
-  Future<void> createRegion({
+  /// Persists a new offline region and enqueues its tile jobs.
+  ///
+  /// Returns `true` when the region was scheduled, `false` when the platform
+  /// cannot run the offline download pipeline (currently web, which has no
+  /// sqflite database or filesystem to back the tile store / job queue).
+  /// Returns `false` for a degenerate bounds × zoom range that yields zero
+  /// tiles. Callers can use the result to surface user-facing feedback
+  /// instead of silently popping back to the root.
+  Future<bool> createRegion({
     required String name,
     required LatLngBounds bounds,
     required int minZoom,
@@ -40,10 +48,10 @@ class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
     required String tileProviderId,
     required String tileProviderName,
   }) async {
-    if (kIsWeb) return;
+    if (kIsWeb) return false;
 
     final coords = _calculateCoordsForRegion(bounds, minZoom, maxZoom);
-    if (coords.isEmpty) return;
+    if (coords.isEmpty) return false;
 
     final repo = await ref.read(regionRepositoryProvider.future);
     final jobQueue = await ref.read(tileJobQueueProvider.future);
@@ -79,6 +87,7 @@ class OfflineRegionsNotifier extends AsyncNotifier<List<OfflineRegion>> {
       );
     }).toList();
     await jobQueue.enqueueJobs(jobs);
+    return true;
   }
 
   /// Removes every region older than [cutoff]. Each deletion goes through

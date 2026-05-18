@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -15,6 +16,47 @@ class OfflineRegionsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final offlineRegionsAsync = ref.watch(offlineRegionsProvider);
+
+    if (kIsWeb) {
+      final colorScheme = Theme.of(context).colorScheme;
+      final textTheme = Theme.of(context).textTheme;
+      return Scaffold(
+        appBar: AppBar(title: Text(l10n.offlineMaps)),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Column(
+              key: const Key('offline_regions_web_unavailable'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.cloud_off_outlined,
+                  size: 56,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: AppSpacing.l),
+                Text(
+                  l10n.offlineMapsNotAvailableOnWebTitle,
+                  textAlign: TextAlign.center,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.s),
+                Text(
+                  l10n.offlineMapsNotAvailableOnWeb,
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodyMedium?.copyWith(
+                    height: 1.45,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
