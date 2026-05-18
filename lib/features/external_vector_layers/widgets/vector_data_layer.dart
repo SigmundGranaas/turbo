@@ -20,6 +20,9 @@ class VectorDataLayer extends ConsumerStatefulWidget {
   /// Vector sources below this zoom return absurd feature counts (a WFS
   /// bbox spanning the whole country can be tens of thousands of trails).
   /// We skip fetching until the viewport is reasonably tight.
+  ///
+  /// Default 8 matches the WMS overlay's minZoom — by the time the user can
+  /// see the raster preview, the vector layer can pull a manageable slice.
   final double minZoom;
 
   const VectorDataLayer({
@@ -27,7 +30,7 @@ class VectorDataLayer extends ConsumerStatefulWidget {
     required this.source,
     required this.mapController,
     this.visible = true,
-    this.minZoom = 9,
+    this.minZoom = 8,
   });
 
   @override

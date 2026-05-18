@@ -2,7 +2,11 @@
 library;
 
 export 'models/avalanche_warning.dart'
-    show AvalancheWarning, AvalancheDangerLevel, AvalancheProblem;
+    show
+        AvalancheWarning,
+        AvalancheDangerLevel,
+        AvalancheProblem,
+        shouldShowAvalancheWarning;
 export 'data/varsom_service.dart'
     show VarsomService, VarsomServiceException;
 export 'data/avalanche_forecast_notifier.dart'

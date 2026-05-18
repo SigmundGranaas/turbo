@@ -3,12 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/weather/api.dart' show weatherForecastProvider;
 import '../data/avalanche_forecast_notifier.dart';
 import '../models/avalanche_warning.dart';
 import 'show_avalanche_warning_sheet.dart';
 
 /// Full-width banner card rendered inside the weather sheet when Varsom has
-/// a forecast for the queried coordinate. Tap to open the detail sheet.
+/// a relevant forecast for the queried coordinate. Tap to open the detail
+/// sheet.
+///
+/// Display is gated by [shouldShowAvalancheWarning]: the widget reads the
+/// matching weather forecast so it can hide low-severity warnings at warm
+/// locations.
 class AvalancheWarningBadge extends ConsumerWidget {
   final LatLng position;
   const AvalancheWarningBadge({super.key, required this.position});
@@ -16,11 +22,16 @@ class AvalancheWarningBadge extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(avalancheForecastProvider(position));
+    final weather = ref.watch(weatherForecastProvider(position));
     return async.when(
       loading: () => const SizedBox.shrink(),
       error: (_, _) => const SizedBox.shrink(),
       data: (w) {
         if (w == null) return const SizedBox.shrink();
+        final temp = weather.asData?.value.currentAtmospheric?.airTemperatureC;
+        if (!shouldShowAvalancheWarning(w, currentAirTempC: temp)) {
+          return const SizedBox.shrink();
+        }
         return _Card(warning: w, position: position);
       },
     );

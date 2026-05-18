@@ -75,3 +75,30 @@ class AvalancheWarning {
     required this.problems,
   });
 }
+
+/// Heuristic for whether an avalanche [warning] is worth surfacing to the
+/// user in the weather sheet.
+///
+/// Varsom's coverage is regional — a "Moderate (2)" warning for a region
+/// like Salten can legitimately fire all the way into late spring because
+/// the high mountains still hold snow. For a user standing in a forested
+/// valley in the same region the same warning is noise. This function
+/// applies two gates:
+///
+///  - Level 1 ("Low") is suppressed entirely — Varsom describes it as
+///    "generally safe" and a banner just trains the user to ignore them.
+///  - Level 2 ("Moderate") is suppressed when the current air temperature
+///    at the user's point is warmer than ~5°C, which is a strong signal
+///    that the user is below the snow line.
+///
+/// Levels 3+ always pass through; they're rare and consequential enough to
+/// always be worth the screen real estate.
+bool shouldShowAvalancheWarning(
+  AvalancheWarning warning, {
+  required double? currentAirTempC,
+}) {
+  if (warning.dangerLevel == AvalancheDangerLevel.low) return false;
+  if (warning.dangerLevel.numeric >= 3) return true;
+  if (currentAirTempC != null && currentAirTempC > 5) return false;
+  return true;
+}
