@@ -10,6 +10,8 @@ import 'package:flutter_map/flutter_map.dart';
 
 import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
+import 'package:turbo/features/path_recording/api.dart';
+import 'package:turbo/features/saved_paths/api.dart' show SavePathSheet;
 import 'map_control_button_base.dart';
 
 class LocationButton extends ConsumerStatefulWidget {
@@ -21,39 +23,21 @@ class LocationButton extends ConsumerStatefulWidget {
 }
 
 class LocationButtonState extends ConsumerState<LocationButton> with TickerProviderStateMixin {
-  bool _resolvingFix = false;
-
   @override
   Widget build(BuildContext context) {
     final isFollowing = ref.watch(followModeProvider);
-    final locationAsync = ref.watch(locationStateProvider);
     final colorScheme = Theme.of(context).colorScheme;
-    // Treat "loading" and "an explicit pending tap" as the spinner state so
-    // the user gets feedback instead of an instant error dialog.
-    final showSpinner = _resolvingFix || locationAsync.isLoading;
 
     return MapControlButtonBase(
-      onPressed: () {
-        if (showSpinner) return;
-        _moveToCurrentLocation();
-      },
+      onPressed: _moveToCurrentLocation,
       onLongPress: () => _showLocationSheet(context),
       isActive: isFollowing,
-      child: showSpinner
-          ? SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.4,
-                color: colorScheme.primary,
-              ),
-            )
-          : Icon(
-              isFollowing ? Icons.my_location : Icons.location_on,
-              color: isFollowing
-                  ? colorScheme.onTertiaryContainer
-                  : colorScheme.primary,
-            ),
+      child: Icon(
+        isFollowing ? Icons.my_location : Icons.location_on,
+        color: isFollowing
+            ? colorScheme.onTertiaryContainer
+            : colorScheme.primary,
+      ),
     );
   }
 
@@ -66,6 +50,8 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
         return Consumer(
           builder: (context, ref, _) {
             final isFollowing = ref.watch(followModeProvider);
+            final isRecording =
+                ref.watch(recordingNotifierProvider).isActive;
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -89,6 +75,28 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
                         }
                       },
                     ),
+                    ListTile(
+                      leading: Icon(
+                        isRecording ? Icons.stop_circle : Icons.fiber_manual_record,
+                        color: isRecording
+                            ? Theme.of(context).colorScheme.error
+                            : null,
+                      ),
+                      title: Text(
+                        isRecording ? 'Stop recording' : 'Start recording a path',
+                      ),
+                      subtitle: isRecording
+                          ? const Text('Tap to save your track.')
+                          : const Text('Or long-press the location marker.'),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        if (isRecording) {
+                          await _stopRecordingAndSave(context, ref);
+                        } else {
+                          await startRecordingFlow(context, ref);
+                        }
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -96,6 +104,32 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
           },
         );
       },
+    );
+  }
+
+  Future<void> _stopRecordingAndSave(BuildContext context, WidgetRef ref) async {
+    final result =
+        await ref.read(recordingNotifierProvider.notifier).stop();
+    if (!context.mounted) return;
+    if (result == null || result.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('No track to save — not enough fixes.')),
+      );
+      return;
+    }
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SavePathSheet(
+        points: result.points,
+        distance: result.distanceMeters,
+        elevations: result.elevations,
+        recordedAt: result.recordedAt,
+        ascent: result.ascent,
+        descent: result.descent,
+        movingTimeSeconds: result.movingTimeSeconds,
+      ),
     );
   }
 
@@ -128,7 +162,6 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
       return;
     }
 
-    setState(() => _resolvingFix = true);
     try {
       // If we got an error from the previous run, retry — this also covers
       // the "permissions just granted from system prompt" case.
@@ -150,8 +183,6 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
       if (mounted) {
         _showErrorDialog(_translateLocationError(context, error.toString()));
       }
-    } finally {
-      if (mounted) setState(() => _resolvingFix = false);
     }
   }
 
