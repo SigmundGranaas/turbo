@@ -19,6 +19,18 @@ class OfflineRegionsPage extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.offlineMaps),
+        actions: [
+          PopupMenuButton<int>(
+            tooltip: 'Cleanup',
+            icon: const Icon(Icons.cleaning_services_outlined),
+            onSelected: (days) => _confirmCleanup(context, ref, days),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 30, child: Text('Delete older than 30 days')),
+              PopupMenuItem(value: 90, child: Text('Delete older than 90 days')),
+              PopupMenuItem(value: 180, child: Text('Delete older than 180 days')),
+            ],
+          ),
+        ],
       ),
       body: offlineRegionsAsync.when(
         data: (regions) {
@@ -207,4 +219,26 @@ class _RegionListTile extends ConsumerWidget {
         return Icon(Icons.queue, color: colors.onSecondaryContainer);
     }
   }
+}
+
+Future<void> _confirmCleanup(
+    BuildContext context, WidgetRef ref, int days) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final confirmed = await AppDialog.confirm(
+    context,
+    title: 'Delete old regions?',
+    content:
+        'This will remove every downloaded region created more than $days days ago.',
+    confirmLabel: 'Delete',
+  );
+  if (!confirmed) return;
+  final cutoff = DateTime.now().subtract(Duration(days: days));
+  final removed = await ref
+      .read(offlineRegionsProvider.notifier)
+      .deleteOlderThan(cutoff);
+  messenger?.showSnackBar(SnackBar(
+    content: Text(removed == 0
+        ? 'No regions matched.'
+        : 'Deleted $removed region${removed == 1 ? '' : 's'}.'),
+  ));
 }

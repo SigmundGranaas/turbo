@@ -16,12 +16,22 @@ class SavePathSheet extends ConsumerStatefulWidget {
   final List<LatLng> points;
   final double distance;
   final bool isSmoothing;
+  final List<double?>? elevations;
+  final DateTime? recordedAt;
+  final double? ascent;
+  final double? descent;
+  final int? movingTimeSeconds;
 
   const SavePathSheet({
     super.key,
     required this.points,
     required this.distance,
     this.isSmoothing = false,
+    this.elevations,
+    this.recordedAt,
+    this.ascent,
+    this.descent,
+    this.movingTimeSeconds,
   });
 
   @override
@@ -174,6 +184,12 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
     setState(() => _isLoading = true);
 
     try {
+      final elevations = widget.elevations;
+      // SavedPath persists elevations as List<double>; samples with no fix
+      // get filled with NaN so positional alignment with points is preserved.
+      final elevationsForSave =
+          elevations?.map((e) => e ?? double.nan).toList(growable: false);
+
       final path = SavedPath(
         title: _nameController.text.trim(),
         description: _descriptionController.text.trim().isEmpty
@@ -185,6 +201,11 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
         iconKey: _selectedIconKey,
         smoothing: _isSmoothing,
         lineStyleKey: _lineStyle == PathLineStyle.solid ? null : _lineStyle.key,
+        elevations: elevationsForSave,
+        recordedAt: widget.recordedAt,
+        ascent: widget.ascent,
+        descent: widget.descent,
+        movingTimeSeconds: widget.movingTimeSeconds,
       );
 
       await ref.read(savedPathRepositoryProvider.notifier).addPath(path);

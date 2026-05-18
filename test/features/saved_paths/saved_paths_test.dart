@@ -243,7 +243,7 @@ void main() {
       'synced': 1,
     });
 
-    // Apply the same migration as _migrateV2ToV3
+    // Apply migrations up through the current schema (v3 + v4 + v6 columns).
     await migrationDb.execute('''
       CREATE TABLE $savedPathsTable(
         uuid TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT,
@@ -253,7 +253,12 @@ void main() {
         created_at TEXT NOT NULL,
         color_hex TEXT, icon_key TEXT,
         smoothing INTEGER NOT NULL DEFAULT 0,
-        line_style TEXT
+        line_style TEXT,
+        elevations TEXT,
+        recorded_at TEXT,
+        ascent REAL,
+        descent REAL,
+        moving_time_seconds INTEGER
       )
     ''');
     await migrationDb.execute(

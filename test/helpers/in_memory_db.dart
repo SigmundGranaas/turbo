@@ -25,7 +25,12 @@ Future<Database> createSavedPathsDb() async {
       color_hex TEXT,
       icon_key TEXT,
       smoothing INTEGER NOT NULL DEFAULT 0,
-      line_style TEXT
+      line_style TEXT,
+      elevations TEXT,
+      recorded_at TEXT,
+      ascent REAL,
+      descent REAL,
+      moving_time_seconds INTEGER
     )
   ''');
   await db.execute(
@@ -58,6 +63,16 @@ Future<Database> createMarkersDb() async {
       created_at TEXT NOT NULL
     )
   ''');
+  await db.execute('''
+    CREATE TABLE $markerPhotosTable(
+      uuid TEXT PRIMARY KEY,
+      marker_uuid TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  ''');
+  await db.execute(
+      'CREATE INDEX idx_marker_photos_marker ON $markerPhotosTable(marker_uuid)');
   return db;
 }
 
@@ -104,7 +119,12 @@ Future<Database> createFullSchemaDb() async {
       color_hex TEXT,
       icon_key TEXT,
       smoothing INTEGER NOT NULL DEFAULT 0,
-      line_style TEXT
+      line_style TEXT,
+      elevations TEXT,
+      recorded_at TEXT,
+      ascent REAL,
+      descent REAL,
+      moving_time_seconds INTEGER
     )
   ''');
   batch.execute(
@@ -117,7 +137,8 @@ Future<Database> createFullSchemaDb() async {
       color_hex TEXT,
       icon_key TEXT,
       created_at TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      saved_filter TEXT
     )
   ''');
   batch.execute('''
@@ -148,7 +169,8 @@ Future<Database> createCollectionsDb() async {
       color_hex TEXT,
       icon_key TEXT,
       created_at TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      saved_filter TEXT
     )
   ''');
   batch.execute('''

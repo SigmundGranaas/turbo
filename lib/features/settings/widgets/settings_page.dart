@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:turbo/app/location_marker_tokens.dart';
 import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/location/gps_accuracy_mode.dart';
 import 'package:turbo/core/util/distance_formatter.dart';
 import 'package:turbo/core/widgets/app_grouped_card.dart';
 import 'package:turbo/core/widgets/app_section_header.dart';
@@ -86,6 +87,11 @@ class SettingsPage extends ConsumerWidget {
           },
         ),
         const SizedBox(height: AppSpacing.xl),
+        const AppSectionHeader('Recording'),
+        _buildKeepScreenOnToggle(context, ref, settings.keepScreenOnWhileRecording),
+        const SizedBox(height: AppSpacing.s),
+        _buildGpsAccuracySelector(context, ref, settings.gpsAccuracyMode),
+        const SizedBox(height: AppSpacing.xl),
         AppSectionHeader(l10n.advanced),
         _buildDistanceUnitSelector(context, ref, settings.distanceUnit, l10n),
         const SizedBox(height: AppSpacing.s),
@@ -119,6 +125,61 @@ class SettingsPage extends ConsumerWidget {
               .setMarkerCacheTtlSeconds(v),
         ),
       ],
+    );
+  }
+
+  Widget _buildKeepScreenOnToggle(
+      BuildContext context, WidgetRef ref, bool value) {
+    return AppGroupedCard(
+      child: SwitchListTile(
+        secondary: const Icon(Icons.screen_lock_portrait_outlined),
+        title: const Text('Keep screen on while recording'),
+        subtitle: const Text(
+            'Prevents the screen from sleeping during an active recording.'),
+        value: value,
+        onChanged: (v) =>
+            ref.read(settingsProvider.notifier).setKeepScreenOnWhileRecording(v),
+      ),
+    );
+  }
+
+  Widget _buildGpsAccuracySelector(
+      BuildContext context, WidgetRef ref, GpsAccuracyMode current) {
+    return AppGroupedCard(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.l, vertical: AppSpacing.s),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.gps_fixed),
+              const SizedBox(width: AppSpacing.s),
+              Text('GPS accuracy', style: Theme.of(context).textTheme.bodyLarge),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s),
+          SegmentedButton<GpsAccuracyMode>(
+            segments: const [
+              ButtonSegment(
+                  value: GpsAccuracyMode.high, label: Text('High')),
+              ButtonSegment(
+                  value: GpsAccuracyMode.balanced, label: Text('Balanced')),
+              ButtonSegment(
+                  value: GpsAccuracyMode.batterySaver, label: Text('Saver')),
+            ],
+            selected: {current},
+            onSelectionChanged: (s) => ref
+                .read(settingsProvider.notifier)
+                .setGpsAccuracyMode(s.first),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'High = best track, more battery. Saver = longer battery, sparser points.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
     );
   }
 

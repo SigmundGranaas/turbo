@@ -40,10 +40,11 @@ Future<_FakeNav> _pump(
   double? heading,
 }) async {
   final navNotifier = _FakeNav(nav);
+  final initial = follow ? FollowMode.active : FollowMode.off;
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        followModeProvider.overrideWith(() => _SeededFollow(follow)),
+        followModeProvider.overrideWith(() => _SeededFollow(initial)),
         compassModeProvider.overrideWith(() => _SeededCompass(compass)),
         navigationStateProvider.overrideWith(() => navNotifier),
         locationStateProvider.overrideWith(() => _FakeLocation(location)),
@@ -67,10 +68,10 @@ Future<_FakeNav> _pump(
 }
 
 class _SeededFollow extends FollowModeNotifier {
-  final bool _seed;
+  final FollowMode _seed;
   _SeededFollow(this._seed);
   @override
-  bool build() => _seed;
+  FollowMode build() => _seed;
 }
 
 class _SeededCompass extends CompassModeNotifier {

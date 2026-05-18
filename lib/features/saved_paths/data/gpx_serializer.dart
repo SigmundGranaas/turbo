@@ -26,10 +26,20 @@ String savedPathToGpx(SavedPath path) {
   buffer.writeln('  <trk>');
   buffer.writeln('    <name>${_escapeXml(path.title)}</name>');
   buffer.writeln('    <trkseg>');
-  for (final point in path.points) {
-    buffer.writeln(
-      '      <trkpt lat="${point.latitude}" lon="${point.longitude}"/>',
-    );
+  final elevations = path.elevations;
+  for (var i = 0; i < path.points.length; i++) {
+    final point = path.points[i];
+    final ele = (elevations != null && i < elevations.length) ? elevations[i] : null;
+    if (ele != null) {
+      buffer.writeln(
+        '      <trkpt lat="${point.latitude}" lon="${point.longitude}">'
+        '<ele>$ele</ele></trkpt>',
+      );
+    } else {
+      buffer.writeln(
+        '      <trkpt lat="${point.latitude}" lon="${point.longitude}"/>',
+      );
+    }
   }
   buffer.writeln('    </trkseg>');
   buffer.writeln('  </trk>');

@@ -11,6 +11,7 @@ import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/app/location_marker_tokens.dart';
 import 'package:turbo/features/markers/api.dart' hide Marker;
+import 'package:turbo/features/path_recording/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/api.dart';
 
@@ -46,6 +47,8 @@ class CurrentLocationLayer extends ConsumerWidget {
           heading = null;
         }
 
+        final isRecording =
+            ref.watch(recordingNotifierProvider).isActive;
         return MarkerLayer(
           markers: [
             Marker(
@@ -54,6 +57,13 @@ class CurrentLocationLayer extends ConsumerWidget {
               point: location,
               child: GestureDetector(
                 onTap: () => showLocationIconPickerSheet(context, ref),
+                // Long-press on the marker is the discoverable way to start
+                // a recording — keeps the chrome uncluttered and contextual.
+                // If a recording is already in flight, the bottom panel is
+                // the control surface; long-press is a no-op there.
+                onLongPress: isRecording
+                    ? null
+                    : () => startRecordingFlow(context, ref),
                 child: CurrentLocationMarker(
                   iconType: settings?.locationIconType ?? 'default',
                   iconKey: settings?.locationIconKey,
@@ -63,6 +73,7 @@ class CurrentLocationLayer extends ConsumerWidget {
                   headingDegrees: heading,
                   arrowColor: arrowColor,
                   outlineColor: outlineColor,
+                  isRecording: isRecording,
                 ),
               ),
             ),
@@ -84,6 +95,7 @@ class CurrentLocationMarker extends StatelessWidget {
   final double? headingDegrees;
   final Color arrowColor;
   final Color outlineColor;
+  final bool isRecording;
 
   const CurrentLocationMarker({
     super.key,
@@ -95,6 +107,7 @@ class CurrentLocationMarker extends StatelessWidget {
     this.headingDegrees,
     this.arrowColor = LocationMarkerTokens.defaultFill,
     this.outlineColor = LocationMarkerTokens.defaultOutline,
+    this.isRecording = false,
   });
 
   @override
@@ -102,7 +115,15 @@ class CurrentLocationMarker extends StatelessWidget {
     final dotSize = 16.0 * scale;
     final haloSize = 32.0 * scale;
 
-    final iconWidget = _buildIcon(context, dotSize, haloSize);
+    Widget iconWidget = _buildIcon(context, dotSize, haloSize);
+
+    if (isRecording) {
+      iconWidget = _RecordingHalo(
+        baseSize: haloSize,
+        color: Theme.of(context).colorScheme.error,
+        child: iconWidget,
+      );
+    }
 
     if (!showHeading || headingDegrees == null) {
       return iconWidget;
@@ -289,5 +310,69 @@ class HeadingIndicatorPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant HeadingIndicatorPainter oldDelegate) {
     return oldDelegate.color != color;
+  }
+}
+
+/// Pulsing colored ring drawn behind the location marker while a recording
+/// is active. Surfaces "we are recording" visually without adding chrome.
+class _RecordingHalo extends StatefulWidget {
+  final double baseSize;
+  final Color color;
+  final Widget child;
+
+  const _RecordingHalo({
+    required this.baseSize,
+    required this.color,
+    required this.child,
+  });
+
+  @override
+  State<_RecordingHalo> createState() => _RecordingHaloState();
+}
+
+class _RecordingHaloState extends State<_RecordingHalo>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1400),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        AnimatedBuilder(
+          animation: _controller,
+          builder: (_, _) {
+            final t = _controller.value;
+            // Halo grows from 1.0x → 1.8x base and fades out as it expands.
+            final size = widget.baseSize * (1.0 + t * 0.8);
+            final opacity = (1.0 - t).clamp(0.0, 1.0) * 0.45;
+            return Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.color.withValues(alpha: opacity),
+              ),
+            );
+          },
+        ),
+        widget.child,
+      ],
+    );
   }
 }

@@ -9,6 +9,21 @@ import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/weather/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
+class _NoopPhotoStore implements MarkerPhotoDataStore {
+  @override
+  Future<void> init() async {}
+  @override
+  Future<void> insert(MarkerPhoto photo) async {}
+  @override
+  Future<List<MarkerPhoto>> getByMarker(String markerUuid) async => [];
+  @override
+  Future<MarkerPhoto?> getByUuid(String uuid) async => null;
+  @override
+  Future<void> delete(String uuid) async {}
+  @override
+  Future<void> deleteAllForMarker(String markerUuid) async {}
+}
+
 /// Minimal fake repository that records delete calls. The sheet only needs
 /// `deleteMarker`; the rest of [LocationRepository] is unused in this flow.
 class _FakeRepo extends LocationRepository {
@@ -102,6 +117,8 @@ Future<ProviderContainer> _openSheetWith(
     overrides: [
       locationRepositoryProvider.overrideWith(() => fakeRepo),
       collectionRepositoryProvider.overrideWith(() => _FakeCollectionRepo()),
+      localMarkerPhotoDataStoreProvider
+          .overrideWith((ref) async => _NoopPhotoStore()),
       // Weather block is included in MarkerInfoSheet; stub the fetcher so
       // existing tests don't make network calls.
       weatherFetcherProvider.overrideWith((ref) => _StubFetcher()),

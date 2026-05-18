@@ -1,5 +1,7 @@
 export 'models/saved_path.dart' show SavedPath;
 export 'models/path_style.dart' show PathLineStyle, pathColorPalette, colorToHex, hexToColor;
+export 'models/elevation_stats.dart' show ElevationStats;
+export 'widgets/elevation_profile.dart' show ElevationProfile;
 export 'widgets/path_customization_controls.dart' show PathCustomizationControls;
 export 'data/saved_path_data_store.dart' show SavedPathDataStore;
 export 'data/saved_path_repository.dart' show savedPathRepositoryProvider, SavedPathRepository,
@@ -12,7 +14,14 @@ export 'widgets/saved_paths_layer.dart' show SavedPathsLayer;
 export 'data/viewport_saved_path_provider.dart' show viewportSavedPathNotifierProvider;
 export 'data/gpx_serializer.dart' show savedPathToGpx;
 export 'data/geojson_serializer.dart' show savedPathToGeoJson;
+export 'data/gpx_parser.dart' show parseGpx;
+export 'data/geojson_parser.dart' show parseGeoJson;
+export 'data/kml_parser.dart' show parseKml;
+export 'data/path_importer.dart'
+    show importPathContent, ImportFormat, PathImportException;
 export 'data/path_export_service.dart' show PathExportService, ExportFormat;
 export 'widgets/export_options_sheet.dart' show ExportOptionsSheet;
 export 'widgets/path_info_sheet.dart' show PathInfoSheet;
 export 'widgets/paths_list_page.dart' show PathsListPage;
+export 'widgets/trip_stats_page.dart' show TripStatsPage;
+export 'data/trip_stats.dart' show TripStats;

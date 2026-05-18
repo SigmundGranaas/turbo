@@ -19,12 +19,13 @@ class ModeIndicator extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isFollowing = ref.watch(followModeProvider);
+    final followMode = ref.watch(followModeProvider);
     final isCompassMode = ref.watch(compassModeProvider);
     final compassHeading = ref.watch(compassStateProvider).value;
     final navState = ref.watch(navigationStateProvider);
 
-    final showModeChips = isFollowing || isCompassMode;
+    final showFollow = followMode.isOnOrPaused;
+    final showModeChips = showFollow || isCompassMode;
     final showNavChip = navState.isActive && navState.target != null;
 
     if (!showModeChips && !showNavChip) {
@@ -53,15 +54,23 @@ class ModeIndicator extends ConsumerWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (isFollowing)
+                if (showFollow)
                   _ModeChip(
-                    icon: Icons.my_location,
-                    label: l10n.following,
+                    icon: followMode == FollowMode.paused
+                        ? Icons.location_searching
+                        : Icons.my_location,
+                    label: followMode == FollowMode.paused
+                        ? '${l10n.following} · paused'
+                        : l10n.following,
                     colorScheme: colorScheme,
+                    onTap: followMode == FollowMode.paused
+                        ? () =>
+                            ref.read(followModeProvider.notifier).resume()
+                        : null,
                     onDismiss: () =>
                         ref.read(followModeProvider.notifier).disable(),
                   ),
-                if (isFollowing && isCompassMode)
+                if (showFollow && isCompassMode)
                   const SizedBox(width: 8),
                 if (isCompassMode)
                   _ModeChip(
@@ -193,40 +202,50 @@ class _ModeChip extends StatelessWidget {
   final ColorScheme colorScheme;
   final VoidCallback onDismiss;
 
+  /// When non-null, the chip body itself is tappable (used for the paused
+  /// follow chip — tapping resumes). The X always dismisses.
+  final VoidCallback? onTap;
+
   const _ModeChip({
     required this.icon,
     required this.label,
     required this.colorScheme,
     required this.onDismiss,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
 
-    return AppPill(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: colorScheme.onSurfaceVariant),
-          const SizedBox(width: AppSpacing.m),
-          Text(
-            label,
-            style: textTheme.titleSmall?.copyWith(
-              color: colorScheme.onSurface,
-            ),
+    final body = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: colorScheme.onSurfaceVariant),
+        const SizedBox(width: AppSpacing.m),
+        Text(
+          label,
+          style: textTheme.titleSmall?.copyWith(
+            color: colorScheme.onSurface,
           ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            onPressed: onDismiss,
-            icon: Icon(
-              Icons.close,
-              size: 20,
-              color: colorScheme.onSurfaceVariant,
-            ),
+        ),
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          onPressed: onDismiss,
+          icon: Icon(
+            Icons.close,
+            size: 20,
+            color: colorScheme.onSurfaceVariant,
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+
+    if (onTap == null) return AppPill(child: body);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.xl),
+      child: AppPill(child: body),
     );
   }
 }

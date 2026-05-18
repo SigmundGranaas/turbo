@@ -15,6 +15,11 @@ class SavedPath {
   final String? iconKey;
   final bool smoothing;
   final String? lineStyleKey;
+  final List<double>? elevations;
+  final DateTime? recordedAt;
+  final double? ascent;
+  final double? descent;
+  final int? movingTimeSeconds;
 
   SavedPath({
     String? uuid,
@@ -27,6 +32,11 @@ class SavedPath {
     this.iconKey,
     this.smoothing = false,
     this.lineStyleKey,
+    this.elevations,
+    this.recordedAt,
+    this.ascent,
+    this.descent,
+    this.movingTimeSeconds,
   })  : uuid = uuid ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
@@ -44,6 +54,16 @@ class SavedPath {
     bool? smoothing,
     String? lineStyleKey,
     bool clearLineStyleKey = false,
+    List<double>? elevations,
+    bool clearElevations = false,
+    DateTime? recordedAt,
+    bool clearRecordedAt = false,
+    double? ascent,
+    bool clearAscent = false,
+    double? descent,
+    bool clearDescent = false,
+    int? movingTimeSeconds,
+    bool clearMovingTimeSeconds = false,
   }) {
     return SavedPath(
       uuid: uuid ?? this.uuid,
@@ -56,6 +76,12 @@ class SavedPath {
       iconKey: clearIconKey ? null : (iconKey ?? this.iconKey),
       smoothing: smoothing ?? this.smoothing,
       lineStyleKey: clearLineStyleKey ? null : (lineStyleKey ?? this.lineStyleKey),
+      elevations: clearElevations ? null : (elevations ?? this.elevations),
+      recordedAt: clearRecordedAt ? null : (recordedAt ?? this.recordedAt),
+      ascent: clearAscent ? null : (ascent ?? this.ascent),
+      descent: clearDescent ? null : (descent ?? this.descent),
+      movingTimeSeconds:
+          clearMovingTimeSeconds ? null : (movingTimeSeconds ?? this.movingTimeSeconds),
     );
   }
 
@@ -81,17 +107,35 @@ class SavedPath {
         .map((p) => LatLng((p as List)[0] as double, p[1] as double))
         .toList();
 
+    List<double>? elevations;
+    final elevRaw = map['elevations'];
+    if (elevRaw is String && elevRaw.isNotEmpty) {
+      final decoded = jsonDecode(elevRaw) as List;
+      elevations = decoded.map((e) => (e as num).toDouble()).toList();
+    }
+
+    DateTime? recordedAt;
+    final recRaw = map['recorded_at'];
+    if (recRaw is String && recRaw.isNotEmpty) {
+      recordedAt = DateTime.parse(recRaw);
+    }
+
     return SavedPath(
       uuid: map['uuid'] as String,
       title: map['title'] as String,
       description: map['description'] as String?,
       points: points,
-      distance: map['distance'] as double,
+      distance: (map['distance'] as num).toDouble(),
       createdAt: DateTime.parse(map['created_at'] as String),
       colorHex: map['color_hex'] as String?,
       iconKey: map['icon_key'] as String?,
       smoothing: map['smoothing'] == 1 || map['smoothing'] == true,
       lineStyleKey: map['line_style'] as String?,
+      elevations: elevations,
+      recordedAt: recordedAt,
+      ascent: (map['ascent'] as num?)?.toDouble(),
+      descent: (map['descent'] as num?)?.toDouble(),
+      movingTimeSeconds: (map['moving_time_seconds'] as num?)?.toInt(),
     );
   }
 
@@ -112,6 +156,11 @@ class SavedPath {
       'icon_key': iconKey,
       'smoothing': smoothing ? 1 : 0,
       'line_style': lineStyleKey,
+      'elevations': elevations == null ? null : jsonEncode(elevations),
+      'recorded_at': recordedAt?.toIso8601String(),
+      'ascent': ascent,
+      'descent': descent,
+      'moving_time_seconds': movingTimeSeconds,
     };
   }
 
@@ -128,7 +177,11 @@ class SavedPath {
           colorHex == other.colorHex &&
           iconKey == other.iconKey &&
           smoothing == other.smoothing &&
-          lineStyleKey == other.lineStyleKey;
+          lineStyleKey == other.lineStyleKey &&
+          recordedAt == other.recordedAt &&
+          ascent == other.ascent &&
+          descent == other.descent &&
+          movingTimeSeconds == other.movingTimeSeconds;
 
   @override
   int get hashCode =>
@@ -140,5 +193,9 @@ class SavedPath {
       colorHex.hashCode ^
       iconKey.hashCode ^
       smoothing.hashCode ^
-      lineStyleKey.hashCode;
+      lineStyleKey.hashCode ^
+      recordedAt.hashCode ^
+      ascent.hashCode ^
+      descent.hashCode ^
+      movingTimeSeconds.hashCode;
 }

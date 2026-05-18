@@ -3,6 +3,7 @@ library;
 
 export 'models/collection.dart' show Collection;
 export 'models/collection_item_ref.dart' show CollectionItemRef;
+export 'models/saved_filter.dart' show SavedFilter;
 export 'data/collection_data_store.dart' show CollectionDataStore;
 export 'data/collection_repository.dart'
     show

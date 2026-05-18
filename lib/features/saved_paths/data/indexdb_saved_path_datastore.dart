@@ -8,7 +8,7 @@ class ShimDBSavedPathDataStore implements SavedPathDataStore {
   final IdbFactory _idbFactory;
   static const String dbName = 'SavedPathsDatabaseV1';
   static const String storeName = 'saved_paths';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   ShimDBSavedPathDataStore({IdbFactory? idbFactory})
       : _idbFactory = idbFactory ?? getIdbFactory()!;

@@ -12,8 +12,15 @@ import 'components.dart';
 
 class CreateLocationSheet extends ConsumerStatefulWidget {
   final LatLng? newLocation;
+  final String? initialName;
+  final String? initialDescription;
 
-  const CreateLocationSheet({super.key, this.newLocation});
+  const CreateLocationSheet({
+    super.key,
+    this.newLocation,
+    this.initialName,
+    this.initialDescription,
+  });
 
   @override
   ConsumerState<CreateLocationSheet> createState() =>
@@ -31,8 +38,9 @@ class CreateLocationSheetState extends ConsumerState<CreateLocationSheet> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController();
-    _descriptionController = TextEditingController();
+    _nameController = TextEditingController(text: widget.initialName ?? '');
+    _descriptionController =
+        TextEditingController(text: widget.initialDescription ?? '');
   }
 
   @override

@@ -45,5 +45,17 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Turkart shows your location on the map.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Turkart records your hike's GPS track in the background so the trace continues when your phone is locked or the app is hidden.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Turkart uses the camera so you can attach photos from your hike to a marker.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Turkart needs access to your photo library so you can attach photos to your markers.</string>
 </dict>
 </plist>

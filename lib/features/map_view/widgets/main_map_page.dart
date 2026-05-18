@@ -9,12 +9,14 @@ import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_mobile.dart';
 import 'package:turbo/features/measuring/api.dart';
+import 'package:turbo/features/path_recording/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_api;
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/sharing/api.dart';
 
 import 'package:turbo/core/location/compass_mode_state.dart';
@@ -154,7 +156,10 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         event.source == MapEventSource.onMultiFinger ||
         event.source == MapEventSource.flingAnimationController) {
       if (event is MapEventWithMove || event is MapEventMoveStart) {
-        ref.read(followModeProvider.notifier).disable();
+        // Manual drag pauses follow rather than disabling it — the user's
+        // intent (snap-to-me) is preserved and a single tap on the location
+        // button resumes. The mode chip's close button still fully disables.
+        ref.read(followModeProvider.notifier).pause();
       }
     }
 
@@ -172,7 +177,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     // Follow mode: smoothly move map when location updates
     ref.listen<AsyncValue<LatLng?>>(locationStateProvider, (previous, next) {
       final position = next.value;
-      if (position != null && ref.read(followModeProvider)) {
+      if (position != null && ref.read(followModeProvider).isOn) {
         _smoothMoveTo(position);
       }
     });
@@ -219,6 +224,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final commonMapLayers = <Widget>[
       ...tileLayers,
       ...attributions,
+      // Recording trace renders below the location marker so the dot stays
+      // visually on top of its own track.
+      const RecordingTraceLayer(),
       const CurrentLocationLayer(),
       const NavigationPolylineLayer(),
       const NavigationTargetMarker(),
@@ -233,6 +241,12 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         right: 0,
         bottom: 0,
         child: marker_model.MarkerSelectionBar(),
+      ),
+      const Positioned(
+        left: 0,
+        right: 0,
+        bottom: 20,
+        child: Center(child: RecordingPanel()),
       ),
     ];
     final offlineRegionsAsync = ref.watch(offline_api.offlineRegionsProvider);
@@ -320,13 +334,21 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
 
   void _showPinOptionsSheet(BuildContext context, LatLng point) {
     final isNavigating = ref.read(navigationStateProvider).isActive;
+    // Kick off the reverse lookup in parallel with showing the sheet — the
+    // result pre-fills the marker name if the user chooses "Create marker".
+    final reverseFuture =
+        ref.read(reverseGeocoderProvider).findLocationByCoord(point);
     showModalBottomSheet(
       context: context,
       useSafeArea: true,
       builder: (BuildContext sheetContext) {
         return PinOptionsSheet(
           isNavigating: isNavigating,
-          onCreateMarker: () => _showCreateSheet(context, newLocation: point),
+          onCreateMarker: () => _showCreateSheet(
+            context,
+            newLocation: point,
+            namePreview: reverseFuture,
+          ),
           onMeasure: () => _navigateToMeasuring(point),
           onNavigate: () => ref
               .read(navigationStateProvider.notifier)
@@ -356,18 +378,42 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     }
   }
 
-  void _showCreateSheet(BuildContext context, {LatLng? newLocation}) async {
+  void _showCreateSheet(
+    BuildContext context, {
+    LatLng? newLocation,
+    Future<LocationSearchResult?>? namePreview,
+  }) async {
     if (newLocation != null) {
       animatedMapMove(
           newLocation, _mapController.camera.zoom, _mapController, this);
     }
 
+    String? prefillName;
+    if (namePreview != null) {
+      // Await up to 1.5s for reverse-geo; longer than that and the user has
+      // already pressed "Create marker" and is waiting on us. Fall back to
+      // empty if Kartverket has no nearby placename or times out.
+      try {
+        final result = await namePreview.timeout(
+          const Duration(milliseconds: 1500),
+          onTimeout: () => null,
+        );
+        prefillName = result?.title;
+      } catch (_) {
+        prefillName = null;
+      }
+    }
+
+    if (!context.mounted) return;
     final result = await showModalBottomSheet<marker_model.Marker>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (BuildContext context) {
-        return marker_model.CreateLocationSheet(newLocation: newLocation);
+        return marker_model.CreateLocationSheet(
+          newLocation: newLocation,
+          initialName: prefillName,
+        );
       },
     );
 

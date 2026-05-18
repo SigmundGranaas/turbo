@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
@@ -10,8 +9,19 @@ import 'package:flutter_map/flutter_map.dart';
 
 import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
+import 'package:turbo/features/path_recording/api.dart';
+import 'package:turbo/features/saved_paths/api.dart' show SavePathSheet;
 import 'map_control_button_base.dart';
 
+/// Two distinct gestures:
+///   * Tap — pan once to the current fix. Doesn't change snap state.
+///   * Long-press — sheet with two explicit toggles:
+///     - "Snap to my location" (follow mode). When on, the map sticks to
+///       your fix until you drag. When off, the map is free.
+///     - "Record a path" (Start / Stop).
+///
+/// The icon still reflects the current snap state so the user can see at a
+/// glance which mode the map is in.
 class LocationButton extends ConsumerStatefulWidget {
   final MapController mapController;
   const LocationButton({super.key, required this.mapController});
@@ -20,54 +30,141 @@ class LocationButton extends ConsumerStatefulWidget {
   ConsumerState<LocationButton> createState() => LocationButtonState();
 }
 
-class LocationButtonState extends ConsumerState<LocationButton> with TickerProviderStateMixin {
+class LocationButtonState extends ConsumerState<LocationButton>
+    with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
-    final isFollowing = ref.watch(followModeProvider);
+    final followMode = ref.watch(followModeProvider);
     final colorScheme = Theme.of(context).colorScheme;
 
+    final IconData icon;
+    final Color iconColor;
+    switch (followMode) {
+      case FollowMode.active:
+        icon = Icons.my_location;
+        iconColor = colorScheme.onTertiaryContainer;
+      case FollowMode.paused:
+        icon = Icons.location_searching;
+        iconColor = colorScheme.primary;
+      case FollowMode.off:
+        icon = Icons.location_on;
+        iconColor = colorScheme.primary;
+    }
+
     return MapControlButtonBase(
-      onPressed: () => _moveToCurrentLocation(),
+      onPressed: _onTap,
       onLongPress: () => _showLocationSheet(context),
-      isActive: isFollowing,
-      child: Icon(
-        isFollowing ? Icons.my_location : Icons.location_on,
-        color: isFollowing
-            ? colorScheme.onTertiaryContainer
-            : colorScheme.primary,
-      ),
+      isActive: followMode == FollowMode.active,
+      child: Icon(icon, color: iconColor),
     );
   }
 
-  void _showLocationSheet(BuildContext context) {
+  /// Tap behavior:
+  ///   * If paused (was following, user dragged) — resume snapping and re-pan.
+  ///   * Otherwise — pan once to the current fix without touching state.
+  /// The explicit enable/disable toggle lives in the long-press sheet.
+  Future<void> _onTap() async {
+    if (!kIsWeb && Platform.isLinux) {
+      _showLinuxDialog();
+      return;
+    }
+    final wasPaused = ref.read(followModeProvider) == FollowMode.paused;
+    if (wasPaused) {
+      ref.read(followModeProvider.notifier).resume();
+    }
+    await _panToCurrentLocation();
+  }
+
+  Future<void> _panToCurrentLocation() async {
+    final cached = ref.read(locationStateProvider).value;
+    if (cached != null) {
+      animatedMapMove(cached, 15, widget.mapController, this);
+      return;
+    }
     final l10n = context.l10n;
+    try {
+      ref.read(locationStateProvider.notifier).requestLocationPermission();
+      final position = await ref.read(locationStateProvider.future);
+      if (!mounted) return;
+      if (position != null) {
+        animatedMapMove(position, 15, widget.mapController, this);
+      } else {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(l10n.locationServicesUnavailable),
+          duration: const Duration(seconds: 3),
+        ));
+      }
+    } catch (error) {
+      if (mounted) {
+        _showErrorDialog(_translateLocationError(context, error.toString()));
+      }
+    }
+  }
+
+  void _showLocationSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       useSafeArea: true,
       builder: (BuildContext context) {
         return Consumer(
           builder: (context, ref, _) {
-            final isFollowing = ref.watch(followModeProvider);
+            final followMode = ref.watch(followModeProvider);
+            final isRecording =
+                ref.watch(recordingNotifierProvider).isActive;
+            final colorScheme = Theme.of(context).colorScheme;
+            // Paused counts as "on enough" for the switch — the user opted
+            // in. They can resume by tapping the location button or fully
+            // exit via this switch / the mode chip's close.
+            final switchOn = followMode.isOnOrPaused;
             return SafeArea(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    SwitchListTile(
+                      secondary: Icon(
+                        followMode == FollowMode.active
+                            ? Icons.my_location
+                            : Icons.location_searching,
+                      ),
+                      title: const Text('Snap to my location'),
+                      subtitle: Text(
+                        followMode == FollowMode.paused
+                            ? 'Paused — tap the location button to resume.'
+                            : 'Keeps the map centered on your position.',
+                      ),
+                      value: switchOn,
+                      onChanged: (next) {
+                        if (next) {
+                          ref.read(followModeProvider.notifier).enable();
+                          _panAfterEnablingFollow();
+                        } else {
+                          ref.read(followModeProvider.notifier).disable();
+                        }
+                      },
+                    ),
                     ListTile(
                       leading: Icon(
-                        isFollowing ? Icons.location_off : Icons.my_location,
+                        isRecording
+                            ? Icons.stop_circle
+                            : Icons.fiber_manual_record,
+                        color: isRecording ? colorScheme.error : null,
                       ),
                       title: Text(
-                        isFollowing
-                            ? l10n.stopFollowing
-                            : l10n.followMyLocation,
+                        isRecording
+                            ? 'Stop recording'
+                            : 'Record a path',
                       ),
-                      onTap: () {
+                      subtitle: isRecording
+                          ? const Text('Tap to save your track.')
+                          : const Text('Or long-press the location marker.'),
+                      onTap: () async {
                         Navigator.pop(context);
-                        ref.read(followModeProvider.notifier).toggle();
-                        if (!isFollowing) {
-                          _moveToCurrentLocation();
+                        if (isRecording) {
+                          await _stopRecordingAndSave(context, ref);
+                        } else {
+                          await startRecordingFlow(context, ref);
                         }
                       },
                     ),
@@ -78,6 +175,61 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
           },
         );
       },
+    );
+  }
+
+  /// When the user flips the snap switch on, we politely pan to the cached
+  /// fix (or wait for one) so the toggle has immediate visible effect.
+  /// Failure quietly disables follow so the icon doesn't lie.
+  Future<void> _panAfterEnablingFollow() async {
+    final cached = ref.read(locationStateProvider).value;
+    if (cached != null) {
+      animatedMapMove(cached, 15, widget.mapController, this);
+      return;
+    }
+    final l10n = context.l10n;
+    try {
+      ref.read(locationStateProvider.notifier).requestLocationPermission();
+      final position = await ref.read(locationStateProvider.future);
+      if (!mounted) return;
+      if (position != null) {
+        animatedMapMove(position, 15, widget.mapController, this);
+      } else {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(l10n.locationServicesUnavailable),
+          duration: const Duration(seconds: 3),
+        ));
+        ref.read(followModeProvider.notifier).disable();
+      }
+    } catch (_) {
+      if (mounted) ref.read(followModeProvider.notifier).disable();
+    }
+  }
+
+  Future<void> _stopRecordingAndSave(
+      BuildContext context, WidgetRef ref) async {
+    final result =
+        await ref.read(recordingNotifierProvider.notifier).stop();
+    if (!context.mounted) return;
+    if (result == null || result.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('No track to save — not enough fixes.')),
+      );
+      return;
+    }
+    await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SavePathSheet(
+        points: result.points,
+        distance: result.distanceMeters,
+        elevations: result.elevations,
+        recordedAt: result.recordedAt,
+        ascent: result.ascent,
+        descent: result.descent,
+        movingTimeSeconds: result.movingTimeSeconds,
+      ),
     );
   }
 
@@ -93,29 +245,6 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
         return l10n.locationPermissionsDeniedForever;
       default:
         return error;
-    }
-  }
-
-  Future<void> _moveToCurrentLocation() async {
-    if (!kIsWeb && Platform.isLinux) {
-      _showLinuxDialog();
-      return;
-    }
-
-    try {
-      final LatLng? position = await ref.read(locationStateProvider.future);
-      if (position != null) {
-        animatedMapMove(position, 15, widget.mapController, this);
-      } else {
-        if (mounted) {
-          _showErrorDialog(context.l10n.locationServicesUnavailable);
-        }
-      }
-    } catch (error) {
-      if (mounted) {
-        _showErrorDialog(_translateLocationError(context, error.toString()));
-      }
-      ref.read(locationStateProvider.notifier).requestLocationPermission();
     }
   }
 
