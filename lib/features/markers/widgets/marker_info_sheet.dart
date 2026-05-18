@@ -390,7 +390,7 @@ class _PhotoStrip extends ConsumerWidget {
 
     return async.when(
       loading: () => const SizedBox.shrink(),
-      error: (e, _) => Text('Photo error: $e', style: theme.textTheme.bodySmall),
+      error: (_, _) => Text(context.l10n.photoLoadError, style: theme.textTheme.bodySmall),
       data: (photos) {
         if (photos.isEmpty) return const SizedBox.shrink();
         return Padding(

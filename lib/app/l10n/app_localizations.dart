@@ -379,6 +379,10 @@ abstract class AppLocalizations {
   String get weatherPresetHourly;
   String get weatherEmptyDay;
   String get weatherMarineEmpty;
+
+  // Generic error states
+  String get genericLoadError;
+  String get photoLoadError;
 }
 
 // English translations
@@ -722,6 +726,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get weatherPresetHourly => 'Hourly';
   @override String get weatherEmptyDay => 'No data for this day';
   @override String get weatherMarineEmpty => 'No sea data for this day';
+
+  @override String get genericLoadError => "Couldn't load. Please try again.";
+  @override String get photoLoadError => "Couldn't load photo.";
 }
 
 // Norwegian translations
@@ -1062,6 +1069,9 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get weatherPresetHourly => 'Time for time';
   @override String get weatherEmptyDay => 'Ingen data for denne dagen';
   @override String get weatherMarineEmpty => 'Ingen sjødata for denne dagen';
+
+  @override String get genericLoadError => 'Kunne ikke laste. Prøv igjen.';
+  @override String get photoLoadError => 'Kunne ikke laste bilde.';
 }
 
 // The delegate
