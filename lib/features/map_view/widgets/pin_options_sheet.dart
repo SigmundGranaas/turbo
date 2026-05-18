@@ -244,11 +244,13 @@ class _PlaceInfoHeader extends StatelessWidget {
   }
 
   String _resolveSubtitle(AppLocalizations l10n) {
+    final elev = description?.elevationMeters;
     final parts = <String>[
       if (description?.secondary != null &&
           description!.secondary!.isNotEmpty)
         description!.secondary!,
       _formatCoord(point),
+      if (elev != null) '${elev.toStringAsFixed(0)} m',
     ];
     return parts.join(' · ');
   }

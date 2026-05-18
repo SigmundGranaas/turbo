@@ -14,11 +14,16 @@ import 'package:turbo/features/search/api.dart';
 /// Each backend is constructed with the same `MockClient`; the
 /// client routes by URL to simulate the three upstream services.
 
-KartverketReverseGeocoder _geocoder(http.Client client) {
+KartverketReverseGeocoder _geocoder(
+  http.Client client, {
+  bool withEnrichment = false,
+}) {
   return KartverketReverseGeocoder(
     stedsnavn: StedsnavnBackend(client: client),
     protectedArea: ProtectedAreaBackend(client: client),
     kommune: KommuneBackend(client: client),
+    address: withEnrichment ? AddressBackend(client: client) : null,
+    elevation: withEnrichment ? ElevationBackend(client: client) : null,
   );
 }
 
@@ -488,6 +493,120 @@ void main() {
         expect(entry.value, contains('turbo'),
             reason: '${entry.key} UA must identify the app');
       }
+    });
+
+    /// Enrichment chain: elevation merges into the winning description;
+    /// the address backend slots in between protected-area and kommune.
+
+    test('elevation is merged into the winning description', () async {
+      const tap = LatLng(61.6363, 8.3120);
+      final client = MockClient((req) async {
+        if (req.url.path == '/hoydedata/v1/punkt') {
+          return http.Response(
+              jsonEncode({
+                'punkter': [
+                  {'x': 8.3120, 'y': 61.6363, 'z': 2469.0}
+                ]
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        if (req.url.host == 'kart.miljodirektoratet.no') {
+          return http.Response(jsonEncode({'results': []}), 200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              mockPoint('Galdhøpiggen', 'Fjelltopp', 61.6363, 8.3120),
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final d =
+          await _geocoder(client, withEnrichment: true).describe(tap);
+      expect(d!.title, 'Galdhøpiggen');
+      expect(d.elevationMeters, 2469.0);
+    });
+
+    test('address backend wins between protected-area and kommune '
+        '(valley populated, no peak, no park)', () async {
+      const tap = LatLng(61.840, 8.566);
+      var calledKommune = false;
+      final client = MockClient((req) async {
+        if (req.url.path == '/adresser/v1/punktsok') {
+          return http.Response(
+            jsonEncode({
+              'adresser': [
+                {
+                  'adressetekst': 'Storgården 4',
+                  'postnummer': '2686',
+                  'poststed': 'LOM',
+                }
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (req.url.path.startsWith('/kommuneinfo')) {
+          calledKommune = true;
+          return http.Response(
+            jsonEncode({'kommunenavn': 'Lom', 'fylkesnavn': 'Innlandet'}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final d =
+          await _geocoder(client, withEnrichment: true).describe(tap);
+      expect(d!.title, 'Storgården 4');
+      expect(d.qualifier, LocationQualifier.near);
+      expect(d.secondary, '2686 LOM');
+      expect(calledKommune, isFalse,
+          reason: 'address fallback must outrank the kommune lookup');
+    });
+
+    test('elevation enrichment is applied even when the address backend '
+        'wins', () async {
+      const tap = LatLng(61.840, 8.566);
+      final client = MockClient((req) async {
+        if (req.url.path == '/hoydedata/v1/punkt') {
+          return http.Response(
+              jsonEncode({
+                'punkter': [
+                  {'x': 8.566, 'y': 61.84, 'z': 380.0}
+                ]
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        if (req.url.path == '/adresser/v1/punktsok') {
+          return http.Response(
+            jsonEncode({
+              'adresser': [
+                {
+                  'adressetekst': 'Storgården 4',
+                  'postnummer': '2686',
+                  'poststed': 'LOM',
+                }
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final d =
+          await _geocoder(client, withEnrichment: true).describe(tap);
+      expect(d!.title, 'Storgården 4');
+      expect(d.elevationMeters, 380.0);
     });
   });
 }

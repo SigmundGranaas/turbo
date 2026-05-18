@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'backends/address_backend.dart';
+import 'backends/elevation_backend.dart';
 import 'backends/kommune_backend.dart';
 import 'backends/protected_area_backend.dart';
 import 'backends/stedsnavn_backend.dart';
@@ -28,6 +30,14 @@ final kommuneBackendProvider = Provider<KommuneBackend>(
   (ref) => KommuneBackend(),
 );
 
+final addressBackendProvider = Provider<AddressBackend>(
+  (ref) => AddressBackend(),
+);
+
+final elevationBackendProvider = Provider<ElevationBackend>(
+  (ref) => ElevationBackend(),
+);
+
 /// Riverpod-managed singleton orchestrator. Returns the [ReverseGeocoder]
 /// interface so consumers don't depend on the concrete Kartverket
 /// implementation.
@@ -36,6 +46,8 @@ final reverseGeocoderProvider = Provider<ReverseGeocoder>((ref) {
     stedsnavn: ref.watch(stedsnavnBackendProvider),
     protectedArea: ref.watch(protectedAreaBackendProvider),
     kommune: ref.watch(kommuneBackendProvider),
+    address: ref.watch(addressBackendProvider),
+    elevation: ref.watch(elevationBackendProvider),
   );
 });
 

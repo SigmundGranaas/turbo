@@ -17,10 +17,14 @@ export 'data/reverse_geocoder.dart'
         GeoQuery,
         stedsnavnBackendProvider,
         protectedAreaBackendProvider,
-        kommuneBackendProvider;
+        kommuneBackendProvider,
+        addressBackendProvider,
+        elevationBackendProvider;
 export 'data/kartverket_reverse_geocoder.dart' show KartverketReverseGeocoder;
 export 'data/backends/stedsnavn_backend.dart' show StedsnavnBackend;
 export 'data/backends/protected_area_backend.dart' show ProtectedAreaBackend;
 export 'data/backends/kommune_backend.dart' show KommuneBackend;
+export 'data/backends/address_backend.dart' show AddressBackend;
+export 'data/backends/elevation_backend.dart' show ElevationBackend;
 export 'widgets/search_bar_mobile.dart' show MobileSearchBar;
 export 'widgets/search_bar_desktop.dart' show DesktopSearchBar;

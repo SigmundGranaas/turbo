@@ -51,10 +51,32 @@ class LocationDescription {
   /// (kommune, park) rather than a point feature.
   final double? distanceMeters;
 
+  /// Elevation in metres above sea level at the queried coordinate
+  /// (from Kartverket Høydedata). The orchestrator enriches every
+  /// returned description with this when available.
+  final double? elevationMeters;
+
   const LocationDescription({
     required this.title,
     this.qualifier,
     this.secondary,
     this.distanceMeters,
+    this.elevationMeters,
   });
+
+  LocationDescription copyWith({
+    String? title,
+    LocationQualifier? qualifier,
+    String? secondary,
+    double? distanceMeters,
+    double? elevationMeters,
+  }) {
+    return LocationDescription(
+      title: title ?? this.title,
+      qualifier: qualifier ?? this.qualifier,
+      secondary: secondary ?? this.secondary,
+      distanceMeters: distanceMeters ?? this.distanceMeters,
+      elevationMeters: elevationMeters ?? this.elevationMeters,
+    );
+  }
 }
