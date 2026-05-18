@@ -36,15 +36,6 @@ class _FakeCollectionRepo extends CollectionRepository {
   Future<void> handleItemDeleted(CollectionItemRef ref) async {}
 }
 
-class _NoopPrefsStore implements MarkerWeatherPrefsStore {
-  @override
-  Future<MarkerWeatherPrefs?> get(String _) async => null;
-  @override
-  Future<void> upsert(MarkerWeatherPrefs _) async {}
-  @override
-  Future<void> delete(String _) async {}
-}
-
 class _StubFetcher implements WeatherFetcher {
   @override
   YrAtmosphericService get atmospheric => throw UnimplementedError();
@@ -53,8 +44,7 @@ class _StubFetcher implements WeatherFetcher {
 
   @override
   Future<WeatherForecast> fetch(
-    LatLng position,
-    Set<WeatherMetricSource> sources, {
+    LatLng position, {
     WeatherForecast? previous,
   }) async {
     final now = DateTime.now().toUtc();
@@ -112,10 +102,8 @@ Future<ProviderContainer> _openSheetWith(
     overrides: [
       locationRepositoryProvider.overrideWith(() => fakeRepo),
       collectionRepositoryProvider.overrideWith(() => _FakeCollectionRepo()),
-      // Weather block is included in MarkerInfoSheet; stub its deps so the
-      // existing tests don't make network calls or touch real storage.
-      markerWeatherPrefsStoreProvider
-          .overrideWith((ref) async => _NoopPrefsStore()),
+      // Weather block is included in MarkerInfoSheet; stub the fetcher so
+      // existing tests don't make network calls.
       weatherFetcherProvider.overrideWith((ref) => _StubFetcher()),
     ],
   );

@@ -6,6 +6,8 @@ class _RecordingAtm implements YrAtmosphericService {
   int calls = 0;
   AtmosphericForecastResult? next;
   Object? error;
+  String? lastIfModifiedSince;
+  AtmosphericForecastResult? lastPrevious;
 
   @override
   Future<AtmosphericForecastResult> fetch(
@@ -14,6 +16,8 @@ class _RecordingAtm implements YrAtmosphericService {
     AtmosphericForecastResult? previous,
   }) async {
     calls++;
+    lastIfModifiedSince = ifModifiedSince;
+    lastPrevious = previous;
     if (error != null) throw error!;
     return next!;
   }
@@ -23,6 +27,8 @@ class _RecordingOcean implements YrOceanService {
   int calls = 0;
   MarineForecastResult? next;
   Object? error;
+  String? lastIfModifiedSince;
+  MarineForecastResult? lastPrevious;
 
   @override
   Future<MarineForecastResult?> fetch(
@@ -31,6 +37,8 @@ class _RecordingOcean implements YrOceanService {
     MarineForecastResult? previous,
   }) async {
     calls++;
+    lastIfModifiedSince = ifModifiedSince;
+    lastPrevious = previous;
     if (error != null) throw error!;
     return next;
   }
@@ -54,7 +62,7 @@ AtmosphericForecastResult _atmFixture() => AtmosphericForecastResult(
         )
       ],
       expiresAt: DateTime.utc(2026, 5, 17, 12, 30),
-      lastModified: 'Sun, 17 May 2026 11:55:00 GMT',
+      lastModified: 'atm-tag',
     );
 
 MarineForecastResult _marineFixture() => MarineForecastResult(
@@ -68,77 +76,49 @@ MarineForecastResult _marineFixture() => MarineForecastResult(
         )
       ],
       expiresAt: DateTime.utc(2026, 5, 17, 12, 30),
-      lastModified: 'Sun, 17 May 2026 11:55:00 GMT',
+      lastModified: 'marine-tag',
     );
 
 void main() {
   group('WeatherFetcher.fetch', () {
-    test('atmospheric-only request hits only the atmospheric service',
+    test('always hits both services in parallel', () async {
+      final atm = _RecordingAtm()..next = _atmFixture();
+      final ocean = _RecordingOcean()..next = _marineFixture();
+      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
+
+      final f = await fetcher.fetch(const LatLng(60, 5));
+
+      expect(atm.calls, 1);
+      expect(ocean.calls, 1);
+      expect(f.atmospheric, hasLength(1));
+      expect(f.marine, hasLength(1));
+      expect(f.hasMarineData, isTrue);
+    });
+
+    test('marine returning null leaves marine empty, atmospheric intact',
         () async {
       final atm = _RecordingAtm()..next = _atmFixture();
-      final ocean = _RecordingOcean();
+      final ocean = _RecordingOcean()..next = null;
       final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
 
-      final forecast = await fetcher.fetch(
-        const LatLng(60, 5),
-        const {WeatherMetricSource.atmospheric},
-      );
+      final f = await fetcher.fetch(const LatLng(60, 5));
 
-      expect(atm.calls, 1);
-      expect(ocean.calls, 0);
-      expect(forecast.atmospheric, hasLength(1));
-      expect(forecast.marine, isEmpty);
-      expect(forecast.atmosphericExpiresAt, atm.next!.expiresAt);
-      expect(forecast.marineExpiresAt, isNull);
+      expect(f.atmospheric, hasLength(1));
+      expect(f.marine, isEmpty);
+      expect(f.hasMarineData, isFalse);
+      expect(f.marineExpiresAt, isNull);
     });
 
-    test('marine-only request hits only the ocean service', () async {
-      final atm = _RecordingAtm();
-      final ocean = _RecordingOcean()..next = _marineFixture();
-      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
-
-      final forecast = await fetcher.fetch(
-        const LatLng(60, 5),
-        const {WeatherMetricSource.marine},
-      );
-
-      expect(atm.calls, 0);
-      expect(ocean.calls, 1);
-      expect(forecast.marine, hasLength(1));
-      expect(forecast.atmospheric, isEmpty);
-      expect(forecast.marineExpiresAt, ocean.next!.expiresAt);
-    });
-
-    test('both-source request hits both services in parallel', () async {
-      final atm = _RecordingAtm()..next = _atmFixture();
-      final ocean = _RecordingOcean()..next = _marineFixture();
-      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
-
-      final forecast = await fetcher.fetch(
-        const LatLng(60, 5),
-        const {WeatherMetricSource.atmospheric, WeatherMetricSource.marine},
-      );
-
-      expect(atm.calls, 1);
-      expect(ocean.calls, 1);
-      expect(forecast.atmospheric, hasLength(1));
-      expect(forecast.marine, hasLength(1));
-      expect(forecast.hasMarineData, isTrue);
-    });
-
-    test('marine failure does not corrupt the atmospheric side', () async {
+    test('marine throwing is swallowed; atmospheric data still returned',
+        () async {
       final atm = _RecordingAtm()..next = _atmFixture();
       final ocean = _RecordingOcean()..error = Exception('marine boom');
       final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
 
-      final forecast = await fetcher.fetch(
-        const LatLng(60, 5),
-        const {WeatherMetricSource.atmospheric, WeatherMetricSource.marine},
-      );
+      final f = await fetcher.fetch(const LatLng(60, 5));
 
-      expect(forecast.atmospheric, hasLength(1));
-      expect(forecast.marine, isEmpty);
-      expect(forecast.marineExpiresAt, isNull);
+      expect(f.atmospheric, hasLength(1));
+      expect(f.marine, isEmpty);
     });
 
     test('atmospheric failure surfaces as a thrown exception', () async {
@@ -147,102 +127,33 @@ void main() {
       final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
 
       expect(
-        () => fetcher.fetch(
-          const LatLng(60, 5),
-          const {WeatherMetricSource.atmospheric, WeatherMetricSource.marine},
-        ),
+        () => fetcher.fetch(const LatLng(60, 5)),
         throwsA(isA<YrServiceException>()),
       );
     });
 
-    test('marine endpoint returning null leaves marine empty', () async {
-      final atm = _RecordingAtm()..next = _atmFixture();
-      final ocean = _RecordingOcean()..next = null;
-      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
-
-      final forecast = await fetcher.fetch(
-        const LatLng(60, 5),
-        const {WeatherMetricSource.atmospheric, WeatherMetricSource.marine},
-      );
-
-      expect(forecast.hasMarineData, isFalse);
-      expect(forecast.marineExpiresAt, isNull);
-    });
-
-    test('forwards previous result so conditional requests can revalidate',
+    test('forwards previous Last-Modified for conditional revalidation',
         () async {
-      String? atmIfMod;
-      String? marineIfMod;
-      AtmosphericForecastResult? atmPrev;
-      MarineForecastResult? marinePrev;
-
       final atm = _RecordingAtm()..next = _atmFixture();
       final ocean = _RecordingOcean()..next = _marineFixture();
-
-      // Replace the simple fakes with capturing ones for this test.
-      final capturingAtm = _CapturingAtm()..next = _atmFixture();
-      final capturingOcean = _CapturingOcean()..next = _marineFixture();
-      final fetcher =
-          WeatherFetcher(atmospheric: capturingAtm, ocean: capturingOcean);
+      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
 
       final previous = WeatherForecast(
         position: const LatLng(60, 5),
         fetchedAt: DateTime.utc(2026, 5, 17, 11),
         atmosphericExpiresAt: DateTime.utc(2026, 5, 17, 11, 30),
         marineExpiresAt: DateTime.utc(2026, 5, 17, 11, 30),
-        atmosphericLastModified: 'atm-tag',
-        marineLastModified: 'marine-tag',
+        atmosphericLastModified: 'atm-prev',
+        marineLastModified: 'marine-prev',
         atmospheric: atm.next!.points,
         marine: ocean.next!.points,
       );
-      await fetcher.fetch(
-        const LatLng(60, 5),
-        const {WeatherMetricSource.atmospheric, WeatherMetricSource.marine},
-        previous: previous,
-      );
-      atmIfMod = capturingAtm.lastIfModifiedSince;
-      marineIfMod = capturingOcean.lastIfModifiedSince;
-      atmPrev = capturingAtm.lastPrevious;
-      marinePrev = capturingOcean.lastPrevious;
+      await fetcher.fetch(const LatLng(60, 5), previous: previous);
 
-      expect(atmIfMod, 'atm-tag');
-      expect(marineIfMod, 'marine-tag');
-      expect(atmPrev, isNotNull);
-      expect(marinePrev, isNotNull);
+      expect(atm.lastIfModifiedSince, 'atm-prev');
+      expect(ocean.lastIfModifiedSince, 'marine-prev');
+      expect(atm.lastPrevious, isNotNull);
+      expect(ocean.lastPrevious, isNotNull);
     });
   });
-}
-
-class _CapturingAtm implements YrAtmosphericService {
-  String? lastIfModifiedSince;
-  AtmosphericForecastResult? lastPrevious;
-  AtmosphericForecastResult? next;
-
-  @override
-  Future<AtmosphericForecastResult> fetch(
-    LatLng position, {
-    String? ifModifiedSince,
-    AtmosphericForecastResult? previous,
-  }) async {
-    lastIfModifiedSince = ifModifiedSince;
-    lastPrevious = previous;
-    return next!;
-  }
-}
-
-class _CapturingOcean implements YrOceanService {
-  String? lastIfModifiedSince;
-  MarineForecastResult? lastPrevious;
-  MarineForecastResult? next;
-
-  @override
-  Future<MarineForecastResult?> fetch(
-    LatLng position, {
-    String? ifModifiedSince,
-    MarineForecastResult? previous,
-  }) async {
-    lastIfModifiedSince = ifModifiedSince;
-    lastPrevious = previous;
-    return next;
-  }
 }
