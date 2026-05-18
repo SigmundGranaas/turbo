@@ -73,7 +73,10 @@ Future<void> _pump(
   if (error != null) fetcher.error = error;
   await pumpTestApp(
     tester,
-    WeatherSummaryRow(marker: _mkMarker()),
+    WeatherSummaryRow(
+      position: _mkMarker().position,
+      title: _mkMarker().title,
+    ),
     overrides: [
       weatherFetcherProvider.overrideWith((ref) => fetcher),
     ],

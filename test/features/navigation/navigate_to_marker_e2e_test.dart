@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/core/location/compass_state.dart';
@@ -15,12 +14,9 @@ import 'package:turbo/features/weather/api.dart';
 
 import '../../helpers/pump_app.dart';
 
-class _NoopGeocoder extends KartverketLocationService {
-  _NoopGeocoder() : super(client: http.Client());
+class _NoopGeocoder implements ReverseGeocoder {
   @override
-  Future<LocationSearchResult?> findLocationByCoord(LatLng coord,
-          {double radiusMeters = 500}) async =>
-      null;
+  Future<LocationDescription?> describe(LatLng coord) async => null;
 }
 
 class _NoopWeatherFetcher implements WeatherFetcher {
@@ -47,7 +43,7 @@ class _NoopWeatherFetcher implements WeatherFetcher {
 }
 
 List<Override> _sheetOverrides() => [
-      reverseGeocoderProvider.overrideWithValue(_NoopGeocoder()),
+      reverseGeocoderProvider.overrideWith((ref) => _NoopGeocoder()),
       weatherFetcherProvider.overrideWith((ref) => _NoopWeatherFetcher()),
     ];
 

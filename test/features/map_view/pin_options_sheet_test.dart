@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
 import 'package:turbo/features/search/api.dart';
@@ -13,14 +12,12 @@ class _Callbacks {
   int create = 0, measure = 0, navigate = 0, stop = 0;
 }
 
-class _StubGeocoder extends KartverketLocationService {
-  _StubGeocoder({this.description})
-      : super(client: http.Client());
+class _StubGeocoder implements ReverseGeocoder {
+  _StubGeocoder({this.description});
   final LocationDescription? description;
 
   @override
-  Future<LocationDescription?> describeLocation(LatLng coord) async =>
-      description;
+  Future<LocationDescription?> describe(LatLng coord) async => description;
 }
 
 class _StubWeatherFetcher implements WeatherFetcher {
@@ -80,7 +77,7 @@ Future<_Callbacks> _open(
     ),
     overrides: [
       reverseGeocoderProvider
-          .overrideWithValue(_StubGeocoder(description: description)),
+          .overrideWith((ref) => _StubGeocoder(description: description)),
       weatherFetcherProvider.overrideWith((ref) => _StubWeatherFetcher()),
     ],
   );

@@ -4,7 +4,6 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/app/tokens.dart';
-import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/weather/api.dart';
 
@@ -45,36 +44,28 @@ class PinOptionsSheet extends ConsumerStatefulWidget {
 }
 
 class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
-  late final Future<LocationDescription?> _descriptionFuture;
-  LocationDescription? _description;
-  bool _resolving = true;
+  late final GeoQuery _query = GeoQuery(widget.point);
 
-  @override
-  void initState() {
-    super.initState();
-    _descriptionFuture = ref
-        .read(reverseGeocoderProvider)
-        .describeLocation(widget.point);
-    _descriptionFuture.then((value) {
-      if (!mounted) return;
-      setState(() {
-        _description = value;
-        _resolving = false;
-      });
-    }).catchError((_) {
-      if (!mounted) return;
-      setState(() => _resolving = false);
-    });
+  /// Synchronous accessor for the resolved description (or `null` if
+  /// it hasn't finished yet) — used by the create-marker callback to
+  /// pre-fill the new-marker name without re-firing the lookup.
+  LocationDescription? _currentDescription() {
+    final async = ref.read(describeLocationProvider(_query));
+    return async.maybeWhen(data: (v) => v, orElse: () => null);
   }
 
-  String _safeMarkerTitle(AppLocalizations l10n) {
-    final title = _description?.title.trim() ?? '';
+  String _safeMarkerTitle(
+      AppLocalizations l10n, LocationDescription? description) {
+    final title = description?.title.trim() ?? '';
     return title.isEmpty ? l10n.pinSheetSelectedLocation : title;
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final async = ref.watch(describeLocationProvider(_query));
+    final description = async.maybeWhen(data: (v) => v, orElse: () => null);
+    final resolving = async.isLoading && !async.hasValue;
     return DraggableScrollableSheet(
       initialChildSize: 0.55,
       minChildSize: 0.4,
@@ -103,18 +94,16 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
                     children: [
                       _PlaceInfoHeader(
                         point: widget.point,
-                        description: _description,
-                        resolving: _resolving,
+                        description: description,
+                        resolving: resolving,
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(AppSpacing.l,
                             AppSpacing.s, AppSpacing.l, AppSpacing.s),
                         child: WeatherSummaryRow(
                           key: const Key('pin-sheet-weather-surface'),
-                          marker: marker_model.Marker(
-                            title: _safeMarkerTitle(l10n),
-                            position: widget.point,
-                          ),
+                          position: widget.point,
+                          title: _safeMarkerTitle(l10n, description),
                         ),
                       ),
                     ],
@@ -131,7 +120,7 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
                       title: Text(l10n.createNewMarkerHere),
                       onTap: () {
                         Navigator.pop(context);
-                        widget.onCreateMarker(_description?.title);
+                        widget.onCreateMarker(_currentDescription()?.title);
                       },
                     ),
                     ListTile(

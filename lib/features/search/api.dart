@@ -7,6 +7,20 @@ export 'data/location_service.dart'
         LocationQualifier;
 export 'data/composite_search_service.dart' show compositeSearchServiceProvider;
 export 'data/kartverket_location_service.dart' show KartverketLocationService;
-export 'data/reverse_geocoder.dart' show reverseGeocoderProvider;
+export 'data/stedsnavn_descriptors.dart'
+    show LocationMatchTier, StedsnavnHit, describeFeature, readPlaceName;
+export 'data/reverse_geocoder.dart'
+    show
+        ReverseGeocoder,
+        reverseGeocoderProvider,
+        describeLocationProvider,
+        GeoQuery,
+        stedsnavnBackendProvider,
+        protectedAreaBackendProvider,
+        kommuneBackendProvider;
+export 'data/kartverket_reverse_geocoder.dart' show KartverketReverseGeocoder;
+export 'data/backends/stedsnavn_backend.dart' show StedsnavnBackend;
+export 'data/backends/protected_area_backend.dart' show ProtectedAreaBackend;
+export 'data/backends/kommune_backend.dart' show KommuneBackend;
 export 'widgets/search_bar_mobile.dart' show MobileSearchBar;
 export 'widgets/search_bar_desktop.dart' show DesktopSearchBar;

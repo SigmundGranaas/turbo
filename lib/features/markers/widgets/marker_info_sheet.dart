@@ -119,7 +119,10 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
           ],
 
           const SizedBox(height: 16),
-          WeatherSummaryRow(marker: _marker),
+          WeatherSummaryRow(
+            position: _marker.position,
+            title: _marker.title,
+          ),
           _PhotoStrip(markerUuid: _marker.uuid),
 
           const SizedBox(height: 12),

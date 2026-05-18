@@ -4,43 +4,28 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/core/util/user_agent.dart';
+import '../location_service.dart';
 
-/// One protected-area hit at a coordinate.
-class ProtectedArea {
-  /// e.g. "Saltfjellet–Svartisen nasjonalpark".
-  final String name;
-
-  /// Protection class — `verneform` from the ArcGIS attributes when
-  /// present (the canonical enumeration: "Nasjonalpark", "Naturreservat",
-  /// "Landskapsvernområde"), falling back to the ArcGIS `layerName`.
-  final String kind;
-
-  const ProtectedArea({required this.name, required this.kind});
-
-  bool get isNationalPark => kind.toLowerCase().contains('nasjonalpark');
-  bool get isNatureReserve => kind.toLowerCase().contains('naturreservat');
-}
-
-/// Queries Miljødirektoratet's Vern (Naturbase) ArcGIS service for
-/// national parks, nature reserves, and landscape-protection areas
-/// containing a point. The Stedsnavn API doesn't carry these — they
-/// live in a completely different dataset — so without this query
-/// the pin sheet can never produce "In Jotunheimen" etc.
+/// Wraps Miljødirektoratet's Vern (Naturbase) ArcGIS Identify service
+/// — the authoritative source for national parks, nature reserves,
+/// and landscape-protected areas (`verneområder`). The Stedsnavn API
+/// does not carry these polygons, so without this backend the
+/// orchestrator cannot produce "In Jotunheimen nasjonalpark".
 ///
 /// Endpoint:
 ///   https://kart.miljodirektoratet.no/arcgis/rest/services/vern/MapServer/identify
 ///
-/// Out-of-coverage / network errors → `null` list, never throws.
-class MiljodirektoratetVernService {
+/// Out-of-coverage / network errors → `null`, never throws.
+class ProtectedAreaBackend {
   static const String _host = 'kart.miljodirektoratet.no';
   static const String _path = '/arcgis/rest/services/vern/MapServer/identify';
 
   final http.Client _client;
 
-  MiljodirektoratetVernService({http.Client? client})
+  ProtectedAreaBackend({http.Client? client})
       : _client = client ?? http.Client();
 
-  Future<List<ProtectedArea>> identifyAt(LatLng coord) async {
+  Future<LocationDescription?> identifyAt(LatLng coord) async {
     try {
       const halfSpan = 0.005; // ~500 m at Nordic latitudes
       final extent = {
@@ -60,41 +45,61 @@ class MiljodirektoratetVernService {
         'geometryType': 'esriGeometryPoint',
         'sr': '4326',
         'tolerance': '1',
-        // Layer 1 is the protection-class-split polygons (Nasjonalpark,
-        // Naturreservat, Landskapsvernområde). The unscoped `all` also
-        // returned boundary lines (layer 3) and *proposed* areas
-        // (layers 4–5), causing false / duplicate hits.
+        // Layer 1 is the protection-class-split polygons. Unscoped
+        // `all` also returned boundary lines (layer 3) and proposed
+        // areas (layers 4–5), causing false / duplicate hits.
         'layers': 'all:1',
         'mapExtent': jsonEncode(extent),
         'imageDisplay': '400,400,96',
         'returnGeometry': 'false',
         'f': 'json',
       });
-
       final response = await _client.get(uri, headers: const {
         'Accept': 'application/json',
         'User-Agent': kTurboUserAgent,
       });
-      if (response.statusCode != 200) return const [];
+      if (response.statusCode != 200) return null;
       final json = jsonDecode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
       final results = (json['results'] as List?) ?? const [];
-      final areas = <ProtectedArea>[];
+      final areas = <_Area>[];
       for (final r in results.whereType<Map<String, dynamic>>()) {
         final name = _readName(r);
         if (name == null) continue;
         final kind = _readKind(r);
         if (kind == null) continue;
-        areas.add(ProtectedArea(name: name, kind: kind));
+        areas.add(_Area(name, kind));
       }
-      return areas;
+      return _pickArea(areas);
     } catch (_) {
-      return const [];
+      return null;
     }
   }
 
+  /// National park → nature reserve → landscape-protected area →
+  /// anything else returned by the service.
+  static LocationDescription? _pickArea(List<_Area> areas) {
+    if (areas.isEmpty) return null;
+    _Area? choice;
+    for (final a in areas) {
+      if (a.isNationalPark) {
+        choice = a;
+        break;
+      }
+    }
+    choice ??= areas.firstWhere(
+      (a) => a.isNatureReserve,
+      orElse: () => areas.first,
+    );
+    return LocationDescription(
+      title: choice.name,
+      qualifier: LocationQualifier.inArea,
+      secondary: choice.kind,
+    );
+  }
+
   /// ArcGIS identify returns the display value either in `value` or
-  /// in `attributes[displayFieldName]`. Naturbase commonly uses
+  /// `attributes[displayFieldName]`. Naturbase commonly uses
   /// "navn" / "Navn" / "områdenavn" / "OMRÅDENAVN".
   static String? _readName(Map<String, dynamic> result) {
     final value = result['value'];
@@ -120,11 +125,10 @@ class MiljodirektoratetVernService {
     return null;
   }
 
-  /// `verneform` carries Naturbase's canonical protection-class label
-  /// ("Nasjonalpark", "Naturreservat", "Landskapsvernområde", …). Falls
-  /// back to the ArcGIS `layerName` only when `verneform` is missing —
-  /// the latter is presentation-layer text and can drift independently
-  /// of the data.
+  /// `verneform` is Naturbase's canonical protection-class label
+  /// ("Nasjonalpark", "Naturreservat", "Landskapsvernområde", …).
+  /// Falls back to ArcGIS `layerName` only when `verneform` is
+  /// missing — the latter is presentation-layer text and can drift.
   static String? _readKind(Map<String, dynamic> result) {
     final attrs = result['attributes'] as Map<String, dynamic>?;
     if (attrs != null) {
@@ -138,4 +142,12 @@ class MiljodirektoratetVernService {
     final layerName = (result['layerName'] as String?)?.trim() ?? '';
     return layerName.isEmpty ? null : layerName;
   }
+}
+
+class _Area {
+  final String name;
+  final String kind;
+  const _Area(this.name, this.kind);
+  bool get isNationalPark => kind.toLowerCase().contains('nasjonalpark');
+  bool get isNatureReserve => kind.toLowerCase().contains('naturreservat');
 }
