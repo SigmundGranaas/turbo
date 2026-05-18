@@ -186,4 +186,73 @@ void main() {
     await container.read(recordingNotifierProvider.notifier).start();
     expect(fake.lastMode, GpsAccuracyMode.batterySaver);
   });
+
+  test('low-accuracy samples are dropped (only when accuracy is reported)',
+      () async {
+    await waitForSettings();
+    final notifier = container.read(recordingNotifierProvider.notifier);
+    await notifier.start();
+
+    final t0 = DateTime(2026, 5, 17);
+    // Good fix → accepted.
+    fake.controller.add(RecordingSample(
+      position: const LatLng(61.50000, 8.75000),
+      timestamp: t0,
+      elevation: 1000,
+      accuracyMeters: 5,
+    ));
+    // Bad fix (40 m accuracy, mode is high → 25 m cap) → dropped.
+    fake.controller.add(RecordingSample(
+      position: const LatLng(61.55000, 8.85000),
+      timestamp: t0.add(const Duration(seconds: 1)),
+      elevation: 1010,
+      accuracyMeters: 40,
+    ));
+    // Another good fix, ~5m further along — well under the 50 m/s ceiling
+    // so the jump filter leaves it alone.
+    fake.controller.add(RecordingSample(
+      position: const LatLng(61.50005, 8.75005),
+      timestamp: t0.add(const Duration(seconds: 2)),
+      elevation: 1005,
+      accuracyMeters: 8,
+    ));
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    final result = await notifier.stop();
+    expect(result, isNotNull);
+    expect(result!.points.length, 2,
+        reason: 'low-accuracy middle sample should be dropped');
+    expect(result.points.first, const LatLng(61.50000, 8.75000));
+    expect(result.points.last, const LatLng(61.50005, 8.75005));
+  });
+
+  test('teleport-speed jumps are rejected when accuracy is reported',
+      () async {
+    await waitForSettings();
+    final notifier = container.read(recordingNotifierProvider.notifier);
+    await notifier.start();
+
+    final t0 = DateTime(2026, 5, 17);
+    fake.controller.add(RecordingSample(
+      position: const LatLng(61.50, 8.75),
+      timestamp: t0,
+      accuracyMeters: 5,
+    ));
+    // 1 km in 1 second = 1000 m/s, well above the 50 m/s ceiling.
+    fake.controller.add(RecordingSample(
+      position: const LatLng(61.51, 8.75),
+      timestamp: t0.add(const Duration(seconds: 1)),
+      accuracyMeters: 5,
+    ));
+    fake.controller.add(RecordingSample(
+      position: const LatLng(61.5001, 8.7501),
+      timestamp: t0.add(const Duration(seconds: 2)),
+      accuracyMeters: 5,
+    ));
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    final result = await notifier.stop();
+    expect(result!.points.length, 2,
+        reason: 'teleport middle sample should be dropped');
+  });
 }

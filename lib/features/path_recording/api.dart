@@ -13,4 +13,5 @@ export 'models/recording_result.dart' show RecordingResult;
 export 'models/recording_sample.dart' show RecordingSample;
 export 'models/recording_state.dart' show RecordingState, RecordingStatus;
 export 'widgets/recording_panel.dart' show RecordingPanel;
+export 'widgets/recording_trace_layer.dart' show RecordingTraceLayer;
 export 'widgets/start_recording_flow.dart' show startRecordingFlow;

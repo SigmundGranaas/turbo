@@ -151,7 +151,44 @@ class RecordingNotifier extends Notifier<RecordingState> {
     );
   }
 
+  /// Per-mode horizontal accuracy threshold (meters). Samples reporting a
+  /// worse fix are dropped — these are typically the cold-start handful of
+  /// readings where the chip is still picking up satellites and the track
+  /// would otherwise zig-zag around the actual start location.
+  double _maxAcceptableAccuracy(GpsAccuracyMode mode) {
+    return switch (mode) {
+      GpsAccuracyMode.high => 25.0,
+      GpsAccuracyMode.balanced => 50.0,
+      GpsAccuracyMode.batterySaver => 100.0,
+    };
+  }
+
   void _onSample(RecordingSample sample) {
+    // Drop low-accuracy fixes. Only filter when the source actually reports
+    // accuracy (real geolocator samples do; tests intentionally don't, so
+    // synthetic fixtures stay deterministic).
+    final accuracy = sample.accuracyMeters;
+    if (accuracy != null) {
+      final mode = ref.read(settingsProvider).value?.gpsAccuracyMode ??
+          GpsAccuracyMode.high;
+      if (accuracy > _maxAcceptableAccuracy(mode)) {
+        _log.fine('Dropping low-accuracy sample (±${accuracy.toStringAsFixed(1)} m)');
+        return;
+      }
+      // Reject implausible jumps — only when we have an accuracy report so
+      // we know this is a real device sample, not a test fixture. > 50 m/s
+      // (180 km/h) is past anything hike/bike/ski use cases involve.
+      if (_points.isNotEmpty && _lastSampleAt != null) {
+        final segment = _distanceCalc.distance(_points.last, sample.position);
+        final dtMs = sample.timestamp.difference(_lastSampleAt!).inMilliseconds;
+        if (dtMs > 0 && segment / (dtMs / 1000.0) > 50) {
+          _log.fine(
+              'Dropping jump sample (${segment.toStringAsFixed(0)} m in ${dtMs}ms)');
+          return;
+        }
+      }
+    }
+
     final now = sample.timestamp;
     _lastFixAt = now;
 

@@ -224,6 +224,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final commonMapLayers = <Widget>[
       ...tileLayers,
       ...attributions,
+      // Recording trace renders below the location marker so the dot stays
+      // visually on top of its own track.
+      const RecordingTraceLayer(),
       const CurrentLocationLayer(),
       const NavigationPolylineLayer(),
       const NavigationTargetMarker(),
