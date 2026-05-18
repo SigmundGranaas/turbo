@@ -17,11 +17,17 @@ class VectorDataLayer extends ConsumerStatefulWidget {
   final MapController mapController;
   final bool visible;
 
+  /// Vector sources below this zoom return absurd feature counts (a WFS
+  /// bbox spanning the whole country can be tens of thousands of trails).
+  /// We skip fetching until the viewport is reasonably tight.
+  final double minZoom;
+
   const VectorDataLayer({
     super.key,
     required this.source,
     required this.mapController,
     this.visible = true,
+    this.minZoom = 9,
   });
 
   @override
@@ -59,10 +65,15 @@ class _VectorDataLayerState extends ConsumerState<VectorDataLayer> {
 
   void _refresh() {
     if (!mounted || !widget.visible) return;
+    final camera = widget.mapController.camera;
+    if (camera.zoom < widget.minZoom) {
+      _bootstrapped = true;
+      return;
+    }
     final notifier = ref.read(
         viewportVectorFeaturesProvider(widget.source.id).notifier);
     notifier.setSource(widget.source);
-    notifier.requestBounds(widget.mapController.camera.visibleBounds);
+    notifier.requestBounds(camera.visibleBounds);
     _bootstrapped = true;
   }
 

@@ -217,6 +217,7 @@ void main() {
     );
     expect(uri.host, 'wfs.geonorge.no');
     expect(uri.queryParameters['REQUEST'], 'GetFeature');
-    expect(uri.queryParameters['BBOX'], contains('60.0,5.0,60.5,5.5'));
+    expect(uri.queryParameters['TYPENAMES'], contains('fotrute'));
+    expect(uri.queryParameters['BBOX'], startsWith('60.0,5.0,60.5,5.5'));
   });
 }

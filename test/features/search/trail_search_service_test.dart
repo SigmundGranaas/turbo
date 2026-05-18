@@ -29,11 +29,12 @@ void main() {
           200,
         );
       });
-      await TrailSearchService(client: client).findLocationsBy('Galdhø');
+      await TrailSearchService(client: client).findLocationsBy('Galdho');
       expect(captured!.host, 'wfs.geonorge.no');
       expect(captured!.queryParameters['REQUEST'], 'GetFeature');
+      expect(captured!.queryParameters['TYPENAMES'], 'fotrute');
       expect(captured!.queryParameters['CQL_FILTER'],
-          "navn ILIKE '%Galdhø%'");
+          "navn ILIKE '%Galdho%'");
     });
 
     test('parses LineString features into LocationSearchResult', () async {

@@ -7,8 +7,8 @@ import '../data/avalanche_forecast_notifier.dart';
 import '../models/avalanche_warning.dart';
 import 'show_avalanche_warning_sheet.dart';
 
-/// Compact danger-level chip rendered in the weather sheet header when
-/// Varsom has a forecast for the requested coordinate.
+/// Full-width banner card rendered inside the weather sheet when Varsom has
+/// a forecast for the queried coordinate. Tap to open the detail sheet.
 class AvalancheWarningBadge extends ConsumerWidget {
   final LatLng position;
   const AvalancheWarningBadge({super.key, required this.position});
@@ -21,21 +21,23 @@ class AvalancheWarningBadge extends ConsumerWidget {
       error: (_, _) => const SizedBox.shrink(),
       data: (w) {
         if (w == null) return const SizedBox.shrink();
-        return _Badge(warning: w, position: position);
+        return _Card(warning: w, position: position);
       },
     );
   }
 }
 
-class _Badge extends StatelessWidget {
+class _Card extends StatelessWidget {
   final AvalancheWarning warning;
   final LatLng position;
-  const _Badge({required this.warning, required this.position});
+  const _Card({required this.warning, required this.position});
 
   @override
   Widget build(BuildContext context) {
     final colors = _colorsFor(context, warning.dangerLevel);
-    final label = _levelLabel(context, warning.dangerLevel);
+    final levelLabel = _levelLabel(context, warning.dangerLevel);
+    final tt = Theme.of(context).textTheme;
+
     return Material(
       color: colors.bg,
       borderRadius: BorderRadius.circular(12),
@@ -44,24 +46,36 @@ class _Badge extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: () => showAvalancheWarningSheet(context, position),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.terrain, color: colors.fg, size: 18),
-              const SizedBox(width: 6),
-              Text(
-                context.l10n.avalancheForecast,
-                style: TextStyle(color: colors.fg),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: colors.fg,
-                  fontWeight: FontWeight.w700,
+              Icon(Icons.terrain, color: colors.fg, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.l10n.avalancheForecast,
+                      style: tt.titleSmall?.copyWith(
+                        color: colors.fg,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '$levelLabel · ${warning.regionName}',
+                      style: tt.bodySmall?.copyWith(
+                        color: colors.fg.withValues(alpha: 0.85),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
+              Icon(Icons.chevron_right, color: colors.fg.withValues(alpha: 0.7)),
             ],
           ),
         ),
@@ -89,8 +103,8 @@ class _Badge extends StatelessWidget {
     switch (level) {
       case AvalancheDangerLevel.low:
         return const _DangerColors(
-          bg: Color(0xFFCCE6CC),
-          fg: Color(0xFF005000),
+          bg: Color(0xFFD6EBD6),
+          fg: Color(0xFF1B5E20),
         );
       case AvalancheDangerLevel.moderate:
         return const _DangerColors(
@@ -103,13 +117,13 @@ class _Badge extends StatelessWidget {
           fg: Color(0xFF7A3B00),
         );
       case AvalancheDangerLevel.high:
-        return const _DangerColors(
-          bg: Color(0xFFFFCCCC),
-          fg: Color(0xFF800000),
+        return _DangerColors(
+          bg: Theme.of(context).colorScheme.errorContainer,
+          fg: Theme.of(context).colorScheme.onErrorContainer,
         );
       case AvalancheDangerLevel.extreme:
         return const _DangerColors(
-          bg: Color(0xFF202020),
+          bg: Color(0xFF1A1A1A),
           fg: Color(0xFFFFFFFF),
         );
     }

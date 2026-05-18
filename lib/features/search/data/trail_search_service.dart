@@ -29,9 +29,9 @@ class TrailSearchService extends LocationService {
       'SERVICE': 'WFS',
       'VERSION': '2.0.0',
       'REQUEST': 'GetFeature',
-      'TYPENAMES': 'app:Fotrute',
+      'TYPENAMES': 'fotrute',
       'OUTPUTFORMAT': 'application/json',
-      'SRSNAME': 'EPSG:4326',
+      'SRSNAME': 'urn:ogc:def:crs:EPSG::4326',
       'COUNT': '10',
       'CQL_FILTER': "navn ILIKE '%${_escape(trimmed)}%'",
     });

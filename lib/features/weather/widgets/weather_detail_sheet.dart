@@ -142,25 +142,18 @@ class _WeatherDetailSheetState extends ConsumerState<WeatherDetailSheet>
       children: [
         const _DragHandle(),
         _Header(title: widget.marker.title),
-        if (f.hasActiveAlerts) ...[
-          const SizedBox(height: 4),
+        if (f.hasActiveAlerts)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
             child: MetAlertBanner(alert: f.topAlert!),
           ),
-        ],
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: AvalancheWarningBadge(position: widget.marker.position),
-          ),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: AvalancheWarningBadge(position: widget.marker.position),
         ),
-        if (sunForDay != null) ...[
-          const SizedBox(height: 8),
-          SunStrip(sun: sunForDay, moon: moonForDay),
-        ],
-        const SizedBox(height: 8),
+        if (sunForDay != null)
+          _SunRow(sun: sunForDay, moon: moonForDay),
+        const SizedBox(height: 4),
         _DayStrip(
           days: daily,
           selectedIndex: clampedDay,
@@ -619,12 +612,13 @@ class _SeaRow extends StatelessWidget {
   }
 }
 
-/// Compact strip showing sunrise / sunset / daylight (plus moon phase) for
-/// the currently-selected day in the detail sheet.
-class SunStrip extends StatelessWidget {
+/// Inline sun / moon summary for the selected day. One row, no pills — just
+/// icons with their time/value, matching the visual rhythm of the marker
+/// info sheet's other detail rows.
+class _SunRow extends StatelessWidget {
   final SunEvent sun;
   final MoonEvent? moon;
-  const SunStrip({super.key, required this.sun, this.moon});
+  const _SunRow({required this.sun, this.moon});
 
   @override
   Widget build(BuildContext context) {
@@ -632,73 +626,67 @@ class SunStrip extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    final children = <Widget>[];
-
+    final segments = <_SunSegment>[];
     if (sun.polarDay) {
-      children.add(_SunChip(
+      segments.add(_SunSegment(
         icon: Icons.wb_sunny_outlined,
-        label: l10n.weatherSunPolarDay,
-        value: '',
+        text: l10n.weatherSunPolarDay,
       ));
     } else if (sun.polarNight) {
-      children.add(_SunChip(
+      segments.add(_SunSegment(
         icon: Icons.nightlight_outlined,
-        label: l10n.weatherSunPolarNight,
-        value: '',
+        text: l10n.weatherSunPolarNight,
       ));
     } else {
       if (sun.sunrise != null) {
-        children.add(_SunChip(
+        segments.add(_SunSegment(
           icon: Icons.wb_twilight,
-          label: l10n.weatherSunSunrise,
-          value: _hourMinute(sun.sunrise!),
+          text: _hourMinute(sun.sunrise!),
         ));
       }
       if (sun.sunset != null) {
-        children.add(_SunChip(
-          icon: Icons.brightness_3_outlined,
-          label: l10n.weatherSunSunset,
-          value: _hourMinute(sun.sunset!),
+        segments.add(_SunSegment(
+          icon: Icons.bedtime_outlined,
+          text: _hourMinute(sun.sunset!),
         ));
       }
       final daylight = sun.daylight;
       if (daylight != null) {
-        children.add(_SunChip(
+        segments.add(_SunSegment(
           icon: Icons.timelapse,
-          label: l10n.weatherSunDaylight,
-          value: _formatDuration(daylight),
+          text: _formatDuration(daylight),
         ));
       }
     }
     final m = moon;
     if (m != null && m.illumination != null) {
-      children.add(_SunChip(
+      segments.add(_SunSegment(
         icon: Icons.brightness_2_outlined,
-        label: l10n.weatherSunMoon,
-        value: '${(m.illumination! * 100).round()}%',
+        text: '${(m.illumination! * 100).round()}%',
       ));
     }
+    if (segments.isEmpty) return const SizedBox.shrink();
 
-    return SizedBox(
-      key: const Key('weather-detail-sun-strip'),
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: children.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (_, i) => Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: DefaultTextStyle.merge(
-              style: tt.bodySmall!,
-              child: children[i],
-            ),
-          ),
+    return Padding(
+      key: const Key('weather-detail-sun-row'),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+      child: DefaultTextStyle.merge(
+        style: tt.bodyMedium!.copyWith(color: scheme.onSurface),
+        child: Wrap(
+          spacing: 18,
+          runSpacing: 4,
+          children: [
+            for (final seg in segments)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(seg.icon,
+                      size: 18, color: scheme.onSurfaceVariant),
+                  const SizedBox(width: 6),
+                  Text(seg.text),
+                ],
+              ),
+          ],
         ),
       ),
     );
@@ -718,37 +706,10 @@ class SunStrip extends StatelessWidget {
   }
 }
 
-class _SunChip extends StatelessWidget {
+class _SunSegment {
   final IconData icon;
-  final String label;
-  final String value;
-  const _SunChip({required this.icon, required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: colorScheme.onSurfaceVariant),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(color: colorScheme.onSurfaceVariant),
-        ),
-        if (value.isNotEmpty) ...[
-          const SizedBox(width: 6),
-          Text(
-            value,
-            style: TextStyle(
-              color: colorScheme.onSurface,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
+  final String text;
+  const _SunSegment({required this.icon, required this.text});
 }
 
 class _AttributionFooter extends StatelessWidget {

@@ -3,12 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../../models/vector_layer_source.dart';
 
-/// Source descriptor for the Geonorge / Kartverket "Nasjonal turbase"
-/// (national trail register) served as a WFS feed.
+/// Source descriptor for Geonorge "Nasjonal turbase" (national trail
+/// registry) served as a WFS feed.
 ///
-/// We hit the WFS GetFeature endpoint with a `bbox=` filter; the response is
-/// a GeoJSON FeatureCollection of LineString geometries representing the
-/// marked trail network. Property names are Norwegian (e.g. `navn`,
+/// The WFS GetFeature endpoint accepts a bbox filter and returns a GeoJSON
+/// FeatureCollection. Property names are Norwegian (e.g. `navn`,
 /// `rutenummer`).
 VectorLayerSource nasjonalTurbaseVectorSource() {
   return VectorLayerSource(
@@ -22,16 +21,18 @@ VectorLayerSource nasjonalTurbaseVectorSource() {
       required maxLon,
       maxFeatures,
     }) {
+      // Geonorge WFS 2.0.0 with EPSG:4326 expects bbox in lat,lon order.
+      // Drop the namespace prefix on TYPENAMES — the canonical capabilities
+      // document publishes them under the default namespace.
       return Uri.https('wfs.geonorge.no', '/skwms1/wfs.friluftsruter2', {
         'SERVICE': 'WFS',
         'VERSION': '2.0.0',
         'REQUEST': 'GetFeature',
-        'TYPENAMES': 'app:Fotrute,app:Skiloype,app:Annenrute',
+        'TYPENAMES': 'fotrute,skiloype,andreruter,sykkelrute',
         'OUTPUTFORMAT': 'application/json',
-        'SRSNAME': 'EPSG:4326',
-        // WFS expects bbox as minLat,minLon,maxLat,maxLon when SRSNAME is in
-        // EPSG:4326 (lat,lon ordering, per WFS 2.0).
-        'BBOX': '$minLat,$minLon,$maxLat,$maxLon,EPSG:4326',
+        'SRSNAME': 'urn:ogc:def:crs:EPSG::4326',
+        'BBOX':
+            '$minLat,$minLon,$maxLat,$maxLon,urn:ogc:def:crs:EPSG::4326',
         'COUNT': '${maxFeatures ?? 300}',
       });
     },
