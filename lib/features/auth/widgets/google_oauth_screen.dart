@@ -66,7 +66,7 @@ class _GoogleAuthCallbackPageState extends ConsumerState<GoogleAuthCallbackPage>
           });
         } else {
           setState(() {
-            _message = l10n.loginFailed(authState.errorMessage ?? 'Unknown error');
+            _message = l10n.loginFailed(authState.errorMessage ?? l10n.unknownError);
             _isProcessing = false;
             _processingComplete = true;
           });
