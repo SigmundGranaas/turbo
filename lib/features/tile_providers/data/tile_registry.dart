@@ -28,7 +28,10 @@ class TileRegistry extends Notifier<TileRegistryState> {
       OsmConfig(),
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),
-      NasjonalTurbaseOverlayConfig(),
+      TrailsFootOverlayConfig(),
+      TrailsSkiOverlayConfig(),
+      TrailsBikeOverlayConfig(),
+      TrailsOtherOverlayConfig(),
     ];
     final initialProviders = <String, TileProviderConfig>{
       for (var p in builtInProviders) p.id: p,

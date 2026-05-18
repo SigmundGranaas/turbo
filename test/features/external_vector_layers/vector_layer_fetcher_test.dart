@@ -205,19 +205,39 @@ void main() {
     });
   });
 
-  // Ensure the trail helper builds a real WFS-ish URI.
-  test('nasjonalTurbaseVectorSource builds a WFS URI with a bbox', () {
-    WidgetsFlutterBinding.ensureInitialized();
-    final source = nasjonalTurbaseVectorSource();
-    final uri = source.buildUri(
-      minLat: 60.0,
-      minLon: 5.0,
-      maxLat: 60.5,
-      maxLon: 5.5,
-    );
-    expect(uri.host, 'wfs.geonorge.no');
-    expect(uri.queryParameters['REQUEST'], 'GetFeature');
-    expect(uri.queryParameters['TYPENAMES'], contains('fotrute'));
-    expect(uri.queryParameters['BBOX'], startsWith('60.0,5.0,60.5,5.5'));
+  group('trailVectorSource', () {
+    test('each subtype produces a distinct id, TYPENAMES and colour', () {
+      WidgetsFlutterBinding.ensureInitialized();
+      final foot = trailVectorSource(TrailSubtype.foot);
+      final ski = trailVectorSource(TrailSubtype.ski);
+      final bike = trailVectorSource(TrailSubtype.bike);
+      final other = trailVectorSource(TrailSubtype.other);
+
+      expect({foot.id, ski.id, bike.id, other.id}, hasLength(4));
+      expect({foot.color, ski.color, bike.color, other.color}, hasLength(4));
+
+      Map<String, String> queryFor(VectorLayerSource s) => s
+          .buildUri(minLat: 60, minLon: 5, maxLat: 60.5, maxLon: 5.5)
+          .queryParameters;
+
+      expect(queryFor(foot)['TYPENAMES'], 'fotrute');
+      expect(queryFor(ski)['TYPENAMES'], 'skiloype');
+      expect(queryFor(bike)['TYPENAMES'], 'sykkelrute');
+      expect(queryFor(other)['TYPENAMES'], 'andreruter');
+    });
+
+    test('builds a WFS URI with bbox in lat,lon order', () {
+      WidgetsFlutterBinding.ensureInitialized();
+      final source = trailVectorSource(TrailSubtype.foot);
+      final uri = source.buildUri(
+        minLat: 60.0,
+        minLon: 5.0,
+        maxLat: 60.5,
+        maxLon: 5.5,
+      );
+      expect(uri.host, 'wfs.geonorge.no');
+      expect(uri.queryParameters['REQUEST'], 'GetFeature');
+      expect(uri.queryParameters['BBOX'], startsWith('60.0,5.0,60.5,5.5'));
+    });
   });
 }

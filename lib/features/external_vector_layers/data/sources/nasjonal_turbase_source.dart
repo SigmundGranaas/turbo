@@ -3,17 +3,30 @@ import 'package:flutter/material.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../../models/vector_layer_source.dart';
 
-/// Source descriptor for Geonorge "Nasjonal turbase" (national trail
-/// registry) served as a WFS feed.
-///
-/// The WFS GetFeature endpoint accepts a bbox filter and returns a GeoJSON
-/// FeatureCollection. Property names are Norwegian (e.g. `navn`,
-/// `rutenummer`).
-VectorLayerSource nasjonalTurbaseVectorSource() {
+/// One Nasjonal turbase trail subtype rendered as a vector layer.
+enum TrailSubtype {
+  /// `fotrute` — marked footpaths / hiking trails (DNT-red on the map).
+  foot,
+
+  /// `skiloype` — prepared ski tracks (blue on the map).
+  ski,
+
+  /// `sykkelrute` — designated bike routes (green on the map).
+  bike,
+
+  /// `andreruter` — everything else (horse, paddling, ...).
+  other,
+}
+
+/// Build a vector source for a single trail subtype. Each subtype targets
+/// the matching Geonorge WFS TYPENAMES, gets its own colour, and registers
+/// under its own ID so the in-memory + persistent caches don't collide.
+VectorLayerSource trailVectorSource(TrailSubtype subtype) {
+  final spec = _specs[subtype]!;
   return VectorLayerSource(
-    id: 'nasjonal_turbase_vector',
-    name: (c) => c.l10n.layerNameTrails,
-    color: const Color(0xFFD32F2F),
+    id: 'trails_${spec.idSuffix}_vector',
+    name: spec.name,
+    color: spec.color,
     buildUri: ({
       required minLat,
       required minLon,
@@ -21,14 +34,11 @@ VectorLayerSource nasjonalTurbaseVectorSource() {
       required maxLon,
       maxFeatures,
     }) {
-      // Geonorge WFS 2.0.0 with EPSG:4326 expects bbox in lat,lon order.
-      // Drop the namespace prefix on TYPENAMES — the canonical capabilities
-      // document publishes them under the default namespace.
       return Uri.https('wfs.geonorge.no', '/skwms1/wfs.friluftsruter2', {
         'SERVICE': 'WFS',
         'VERSION': '2.0.0',
         'REQUEST': 'GetFeature',
-        'TYPENAMES': 'fotrute,skiloype,andreruter,sykkelrute',
+        'TYPENAMES': spec.typeName,
         'OUTPUTFORMAT': 'application/json',
         'SRSNAME': 'urn:ogc:def:crs:EPSG::4326',
         'BBOX':
@@ -38,6 +48,56 @@ VectorLayerSource nasjonalTurbaseVectorSource() {
     },
   );
 }
+
+class _TrailSpec {
+  final String idSuffix;
+  final String typeName;
+  final Color color;
+  final String Function(BuildContext) name;
+  const _TrailSpec({
+    required this.idSuffix,
+    required this.typeName,
+    required this.color,
+    required this.name,
+  });
+}
+
+final Map<TrailSubtype, _TrailSpec> _specs = {
+  TrailSubtype.foot: _TrailSpec(
+    idSuffix: 'foot',
+    typeName: 'fotrute',
+    color: const Color(0xFFE63946),
+    name: (c) => c.l10n.layerNameTrailsFoot,
+  ),
+  TrailSubtype.ski: _TrailSpec(
+    idSuffix: 'ski',
+    typeName: 'skiloype',
+    color: const Color(0xFF1976D2),
+    name: (c) => c.l10n.layerNameTrailsSki,
+  ),
+  TrailSubtype.bike: _TrailSpec(
+    idSuffix: 'bike',
+    typeName: 'sykkelrute',
+    color: const Color(0xFF388E3C),
+    name: (c) => c.l10n.layerNameTrailsBike,
+  ),
+  TrailSubtype.other: _TrailSpec(
+    idSuffix: 'other',
+    typeName: 'andreruter',
+    color: const Color(0xFFFB8C00),
+    name: (c) => c.l10n.layerNameTrailsOther,
+  ),
+};
+
+/// Maps the registry overlay id (toggled via the layer picker) to the
+/// matching vector source. Trail subtype IDs are aligned across the WMS
+/// overlay and the vector source: `trails_<subtype>` activates both.
+const Map<String, TrailSubtype> trailOverlayIdToSubtype = {
+  'trails_foot': TrailSubtype.foot,
+  'trails_ski': TrailSubtype.ski,
+  'trails_bike': TrailSubtype.bike,
+  'trails_other': TrailSubtype.other,
+};
 
 /// Property keys we surface in the trail-info sheet. Anything else in the
 /// feature payload is hidden so the sheet stays useful at a glance.

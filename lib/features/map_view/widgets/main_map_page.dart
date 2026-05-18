@@ -222,8 +222,15 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     ))
         .toList();
 
-    final trailsOverlayActive = tileRegistryState.activeOverlayIds
-        .contains('nasjonal_turbase');
+    final activeOverlayIds = tileRegistryState.activeOverlayIds.toSet();
+    final trailVectorLayers = <Widget>[
+      for (final entry in trailOverlayIdToSubtype.entries)
+        VectorDataLayer(
+          source: trailVectorSource(entry.value),
+          mapController: _mapController,
+          visible: activeOverlayIds.contains(entry.key),
+        ),
+    ];
 
     final commonMapLayers = <Widget>[
       ...tileLayers,
@@ -235,11 +242,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       const NavigationPolylineLayer(),
       const NavigationTargetMarker(),
       SavedPathsLayer(mapController: _mapController),
-      VectorDataLayer(
-        source: nasjonalTurbaseVectorSource(),
-        mapController: _mapController,
-        visible: trailsOverlayActive,
-      ),
+      ...trailVectorLayers,
       ViewportMarkers(mapController: _mapController),
     ];
 

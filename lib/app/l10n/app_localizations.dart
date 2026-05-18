@@ -400,9 +400,15 @@ abstract class AppLocalizations {
   String get avalancheProblemsTitle;
   String get avalancheLoadError;
 
-  // Trails / Tur- og friluftsruter
-  String get layerNameTrails;
-  String get layerDescriptionTrails;
+  // Trails / Tur- og friluftsruter (split by subtype)
+  String get layerNameTrailsFoot;
+  String get layerDescriptionTrailsFoot;
+  String get layerNameTrailsSki;
+  String get layerDescriptionTrailsSki;
+  String get layerNameTrailsBike;
+  String get layerDescriptionTrailsBike;
+  String get layerNameTrailsOther;
+  String get layerDescriptionTrailsOther;
   String get trailsAttribution;
   String get trailDifficultyLabel;
   String get trailLengthLabel;
@@ -781,8 +787,14 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get avalancheProblemsTitle => 'Avalanche problems';
   @override String get avalancheLoadError => "Couldn't load avalanche forecast";
 
-  @override String get layerNameTrails => 'Trail network';
-  @override String get layerDescriptionTrails => 'Official Norwegian hiking and ski trails (Geonorge / DNT)';
+  @override String get layerNameTrailsFoot => 'Hiking trails';
+  @override String get layerDescriptionTrailsFoot => 'Marked footpaths (Nasjonal turbase fotrute)';
+  @override String get layerNameTrailsSki => 'Ski tracks';
+  @override String get layerDescriptionTrailsSki => 'Prepared ski tracks (Nasjonal turbase skiløype)';
+  @override String get layerNameTrailsBike => 'Bike routes';
+  @override String get layerDescriptionTrailsBike => 'Designated bike routes (Nasjonal turbase sykkelrute)';
+  @override String get layerNameTrailsOther => 'Other routes';
+  @override String get layerDescriptionTrailsOther => 'Horse, paddling and other routes (Nasjonal turbase)';
   @override String get trailsAttribution => 'Trails © Kartverket / DNT — Nasjonal turbase';
   @override String get trailDifficultyLabel => 'Difficulty';
   @override String get trailLengthLabel => 'Length';
@@ -1156,8 +1168,14 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get avalancheProblemsTitle => 'Skredproblemer';
   @override String get avalancheLoadError => 'Kunne ikke laste snøskredvarsel';
 
-  @override String get layerNameTrails => 'Turruter';
-  @override String get layerDescriptionTrails => 'Offisielle turstier og skiløyper (Geonorge / DNT)';
+  @override String get layerNameTrailsFoot => 'Turstier';
+  @override String get layerDescriptionTrailsFoot => 'Merkede turstier (Nasjonal turbase fotrute)';
+  @override String get layerNameTrailsSki => 'Skiløyper';
+  @override String get layerDescriptionTrailsSki => 'Preparerte skiløyper (Nasjonal turbase skiløype)';
+  @override String get layerNameTrailsBike => 'Sykkelruter';
+  @override String get layerDescriptionTrailsBike => 'Anbefalte sykkelruter (Nasjonal turbase sykkelrute)';
+  @override String get layerNameTrailsOther => 'Andre ruter';
+  @override String get layerDescriptionTrailsOther => 'Riding, padling og andre ruter (Nasjonal turbase)';
   @override String get trailsAttribution => 'Turdata © Kartverket / DNT — Nasjonal turbase';
   @override String get trailDifficultyLabel => 'Vanskelighet';
   @override String get trailLengthLabel => 'Lengde';

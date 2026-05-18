@@ -72,7 +72,10 @@ void main() {
         'osm',
         'gs',
         'avalanche_danger',
-        'nasjonal_turbase',
+        'trails_foot',
+        'trails_ski',
+        'trails_bike',
+        'trails_other',
       });
       expect(
           state.availableProviders['topo']!.category,
@@ -83,9 +86,16 @@ void main() {
       expect(
           state.availableProviders['avalanche_danger']!.category,
           TileProviderCategory.overlay);
-      expect(
-          state.availableProviders['nasjonal_turbase']!.category,
-          TileProviderCategory.overlay);
+      for (final id in [
+        'trails_foot',
+        'trails_ski',
+        'trails_bike',
+        'trails_other',
+      ]) {
+        expect(state.availableProviders[id]!.category,
+            TileProviderCategory.overlay,
+            reason: 'expected $id to be an overlay');
+      }
     });
 
     test(

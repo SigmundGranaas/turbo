@@ -26,7 +26,9 @@ export 'widgets/vector_feature_sheet.dart'
     show VectorFeatureSheet, showVectorFeatureSheet;
 export 'data/sources/nasjonal_turbase_source.dart'
     show
-        nasjonalTurbaseVectorSource,
+        TrailSubtype,
+        trailVectorSource,
+        trailOverlayIdToSubtype,
         trailPropertyKeys,
         trailPropertyLabels;
 export 'data/sources/met_alerts_source.dart' show metAlertsVectorSource;
