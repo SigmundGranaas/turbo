@@ -50,12 +50,13 @@ class _FakeOfflineNotifier extends OfflineRegionsNotifier {
   int createCallCount = 0;
   String? lastName;
   String? lastProviderId;
+  bool createRegionReturns = true;
 
   @override
   Future<List<OfflineRegion>> build() async => const [];
 
   @override
-  Future<void> createRegion({
+  Future<bool> createRegion({
     required String name,
     required LatLngBounds bounds,
     required int minZoom,
@@ -67,6 +68,7 @@ class _FakeOfflineNotifier extends OfflineRegionsNotifier {
     createCallCount++;
     lastName = name;
     lastProviderId = tileProviderId;
+    return createRegionReturns;
   }
 }
 
@@ -150,6 +152,27 @@ void main() {
       expect(notifier.createCallCount, 1);
       expect(notifier.lastName, 'Trondheim local');
       expect(notifier.lastProviderId, 'osm');
+    });
+
+    testWidgets(
+        'when createRegion reports the platform cannot start a download '
+        '(the kIsWeb branch in OfflineRegionsNotifier), the sheet surfaces '
+        'a snackbar instead of silently popping to the root',
+        (tester) async {
+      final notifier = await _openSheet(tester);
+      notifier.createRegionReturns = false;
+
+      await tester.enterText(find.byType(TextFormField), 'My region');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start Download'));
+      await tester.pump(); // start the snackbar's enter animation
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // The user sees a snackbar explaining why nothing started.
+      expect(find.textContaining('Offline maps are not available on web'),
+          findsOneWidget);
+      // And the sheet stays open so the choices the user made aren't lost.
+      expect(find.byType(DownloadDetailsSheet), findsOneWidget);
     });
   });
 }

@@ -115,18 +115,26 @@ class _DownloadDetailsSheetState extends ConsumerState<DownloadDetailsSheet> {
     ref.read(tileRegistryProvider).availableProviders[_selectedProviderId!];
     if (provider == null) return;
 
-    // No need to await, the process runs in the background.
-    ref.read(offline_api.offlineRegionsProvider.notifier).createRegion(
-      name: _nameController.text.trim(),
-      bounds: widget.bounds,
-      minZoom: _zoomRange.start.round(),
-      maxZoom: _zoomRange.end.round(),
-      urlTemplate: provider.urlTemplate,
-      tileProviderId: provider.id,
-      tileProviderName: provider.name(context),
-    );
+    final scheduled =
+        await ref.read(offline_api.offlineRegionsProvider.notifier).createRegion(
+              name: _nameController.text.trim(),
+              bounds: widget.bounds,
+              minZoom: _zoomRange.start.round(),
+              maxZoom: _zoomRange.end.round(),
+              urlTemplate: provider.urlTemplate,
+              tileProviderId: provider.id,
+              tileProviderName: provider.name(context),
+            );
 
     if (!mounted) return;
+    if (!scheduled) {
+      // The platform refused the download (web has no local tile store) —
+      // tell the user instead of silently popping back to the root.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.offlineMapsNotAvailableOnWeb)),
+      );
+      return;
+    }
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 

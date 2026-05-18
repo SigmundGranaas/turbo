@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -15,6 +16,25 @@ class OfflineRegionsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final offlineRegionsAsync = ref.watch(offlineRegionsProvider);
+
+    if (kIsWeb) {
+      return Scaffold(
+        appBar: AppBar(title: Text(l10n.offlineMaps)),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.l),
+            child: Text(
+              l10n.offlineMapsNotAvailableOnWeb,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    height: 1.5,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(

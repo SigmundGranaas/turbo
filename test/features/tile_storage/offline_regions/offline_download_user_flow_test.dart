@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -18,7 +17,6 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/data/database_provider.dart';
 import 'package:turbo/core/service/logger.dart';
 import 'package:turbo/features/tile_providers/api.dart';
-import 'package:turbo/features/tile_providers/data/tile_registry.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/data/region_repository.dart';
 import 'package:turbo/features/tile_storage/offline_regions/data/tile_job_queue.dart';
