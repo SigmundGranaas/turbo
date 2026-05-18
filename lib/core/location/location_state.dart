@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/service/logger.dart';
 
 final locationStateProvider =
 AsyncNotifierProvider.autoDispose<LocationState, LatLng?>(
@@ -27,12 +28,12 @@ class LocationState extends AsyncNotifier<LatLng?> {
       return await _setupLocationListener().timeout(
         const Duration(seconds: 5),
         onTimeout: () {
-          debugPrint("Location initialization timed out.");
+          log.warning('Location initialization timed out.');
           return null;
         },
       );
-    } catch (e) {
-      debugPrint("Error in LocationState.build: $e");
+    } catch (e, st) {
+      log.warning('Error in LocationState.build', e, st);
       return null;
     }
   }
@@ -78,13 +79,13 @@ class LocationState extends AsyncNotifier<LatLng?> {
           state = AsyncData(LatLng(position.latitude, position.longitude));
         },
         onError: (error, stackTrace) {
-          debugPrint("Location stream error: $error");
+          log.warning('Location stream error', error, stackTrace);
         },
       );
 
       return LatLng(position.latitude, position.longitude);
-    } catch (e) {
-      debugPrint("Location setup failed: $e");
+    } catch (e, st) {
+      log.warning('Location setup failed', e, st);
       return null;
     }
   }
