@@ -363,6 +363,22 @@ abstract class AppLocalizations {
   String get drawArea;
   String get clearDrawing;
   String get hide;
+
+  // Weather feature
+  String get weatherForecast;
+  String get weatherAttribution;
+  String get weatherLoadError;
+  String get weatherRetry;
+  String get weatherMarineSection;
+  String get weatherWindLabel;
+  String get weatherPrecipitationLabel;
+  String get weatherWaveHeightLabel;
+  String get weatherWaterTempLabel;
+  String get weatherNext24h;
+  String get weatherNext9days;
+  String get weatherPresetHourly;
+  String get weatherEmptyDay;
+  String get weatherMarineEmpty;
 }
 
 // English translations
@@ -690,6 +706,22 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get drawArea => 'Draw area';
   @override String get clearDrawing => 'Clear drawing';
   @override String get hide => 'Hide';
+
+  // Weather feature
+  @override String get weatherForecast => 'Forecast';
+  @override String get weatherAttribution => 'Weather data from MET Norway / yr.no';
+  @override String get weatherLoadError => "Couldn't load weather";
+  @override String get weatherRetry => 'Retry';
+  @override String get weatherMarineSection => 'Sea conditions';
+  @override String get weatherWindLabel => 'Wind';
+  @override String get weatherPrecipitationLabel => 'Precipitation';
+  @override String get weatherWaveHeightLabel => 'Waves';
+  @override String get weatherWaterTempLabel => 'Sea';
+  @override String get weatherNext24h => 'Next 24 hours';
+  @override String get weatherNext9days => 'Next 9 days';
+  @override String get weatherPresetHourly => 'Hourly';
+  @override String get weatherEmptyDay => 'No data for this day';
+  @override String get weatherMarineEmpty => 'No sea data for this day';
 }
 
 // Norwegian translations
@@ -1014,6 +1046,22 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get drawArea => 'Tegn område';
   @override String get clearDrawing => 'Tøm tegning';
   @override String get hide => 'Skjul';
+
+  // Weather feature
+  @override String get weatherForecast => 'Værvarsel';
+  @override String get weatherAttribution => 'Værdata fra Meteorologisk institutt / yr.no';
+  @override String get weatherLoadError => 'Kunne ikke laste vær';
+  @override String get weatherRetry => 'Prøv igjen';
+  @override String get weatherMarineSection => 'Sjøforhold';
+  @override String get weatherWindLabel => 'Vind';
+  @override String get weatherPrecipitationLabel => 'Nedbør';
+  @override String get weatherWaveHeightLabel => 'Bølger';
+  @override String get weatherWaterTempLabel => 'Sjø';
+  @override String get weatherNext24h => 'Neste 24 timer';
+  @override String get weatherNext9days => 'Neste 9 dager';
+  @override String get weatherPresetHourly => 'Time for time';
+  @override String get weatherEmptyDay => 'Ingen data for denne dagen';
+  @override String get weatherMarineEmpty => 'Ingen sjødata for denne dagen';
 }
 
 // The delegate

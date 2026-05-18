@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/weather/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
 class _NoopPhotoStore implements MarkerPhotoDataStore {
@@ -50,6 +51,46 @@ class _FakeCollectionRepo extends CollectionRepository {
   Future<void> handleItemDeleted(CollectionItemRef ref) async {}
 }
 
+class _StubFetcher implements WeatherFetcher {
+  @override
+  YrAtmosphericService get atmospheric => throw UnimplementedError();
+  @override
+  YrOceanService get ocean => throw UnimplementedError();
+
+  @override
+  Future<WeatherForecast> fetch(
+    LatLng position, {
+    WeatherForecast? previous,
+  }) async {
+    final now = DateTime.now().toUtc();
+    return WeatherForecast(
+      position: position,
+      fetchedAt: now,
+      atmosphericExpiresAt: now.add(const Duration(minutes: 30)),
+      marineExpiresAt: null,
+      atmosphericLastModified: null,
+      marineLastModified: null,
+      atmospheric: [
+        AtmosphericPoint(
+          timeUtc: now,
+          airTemperatureC: 12.0,
+          windSpeedMs: 3.0,
+          windFromDeg: 180,
+          humidity: null,
+          pressureHpa: null,
+          cloudCoverPercent: null,
+          uvIndex: null,
+          precipitation1hMm: 0.0,
+          symbol1h: null,
+          symbol6h: null,
+          symbol12h: null,
+        ),
+      ],
+      marine: const [],
+    );
+  }
+}
+
 Marker _marker() => Marker(
       uuid: 'm1',
       title: 'My Pin',
@@ -78,6 +119,9 @@ Future<ProviderContainer> _openSheetWith(
       collectionRepositoryProvider.overrideWith(() => _FakeCollectionRepo()),
       localMarkerPhotoDataStoreProvider
           .overrideWith((ref) async => _NoopPhotoStore()),
+      // Weather block is included in MarkerInfoSheet; stub the fetcher so
+      // existing tests don't make network calls.
+      weatherFetcherProvider.overrideWith((ref) => _StubFetcher()),
     ],
   );
   addTearDown(container.dispose);
@@ -100,6 +144,11 @@ Future<ProviderContainer> _openSheetWith(
                 child: const Text('open'),
                 onPressed: () => showModalBottomSheet<MarkerInfoResult>(
                   context: ctx,
+                  // Mirrors production callers (e.g. viewport_marker_layer):
+                  // the sheet contains a WeatherSection that grows beyond
+                  // the default half-screen modal height.
+                  isScrollControlled: true,
+                  useSafeArea: true,
                   builder: (_) => MarkerInfoSheet(marker: m),
                 ),
               ),

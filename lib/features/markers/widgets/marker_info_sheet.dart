@@ -11,6 +11,7 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/saved_paths/api.dart' show hexToColor;
+import 'package:turbo/features/weather/api.dart' show WeatherSummaryRow;
 import '../data/icon_service.dart';
 import '../data/location_repository.dart';
 import '../data/marker_photo_repository.dart';
@@ -53,7 +54,8 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPadding),
-      child: Column(
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -116,6 +118,8 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             ),
           ],
 
+          const SizedBox(height: 16),
+          WeatherSummaryRow(marker: _marker),
           _PhotoStrip(markerUuid: _marker.uuid),
 
           const SizedBox(height: 12),
@@ -161,6 +165,7 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
             ],
           ),
         ],
+      ),
       ),
     );
   }
