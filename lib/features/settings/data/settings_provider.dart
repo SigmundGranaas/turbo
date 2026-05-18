@@ -68,6 +68,11 @@ class SettingsState {
   /// Tradeoff between GPS accuracy and battery use during recording.
   final GpsAccuracyMode gpsAccuracyMode;
 
+  /// When true, the main map shows a compact HUD with course-over-ground,
+  /// speed-over-ground, and magnetic heading. Off by default; intended for
+  /// marine use.
+  final bool showUnderwayHud;
+
   const SettingsState({
     required this.themeMode,
     required this.locale,
@@ -90,6 +95,7 @@ class SettingsState {
     this.lastPathLineStyleKey,
     this.keepScreenOnWhileRecording = true,
     this.gpsAccuracyMode = GpsAccuracyMode.high,
+    this.showUnderwayHud = false,
   });
 
   // Default initial state
@@ -123,6 +129,7 @@ class SettingsState {
     String? Function()? lastPathLineStyleKey,
     bool? keepScreenOnWhileRecording,
     GpsAccuracyMode? gpsAccuracyMode,
+    bool? showUnderwayHud,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -146,6 +153,7 @@ class SettingsState {
       lastPathLineStyleKey: lastPathLineStyleKey != null ? lastPathLineStyleKey() : this.lastPathLineStyleKey,
       keepScreenOnWhileRecording: keepScreenOnWhileRecording ?? this.keepScreenOnWhileRecording,
       gpsAccuracyMode: gpsAccuracyMode ?? this.gpsAccuracyMode,
+      showUnderwayHud: showUnderwayHud ?? this.showUnderwayHud,
     );
   }
 }
@@ -176,6 +184,7 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _lastPathLineStyleKey = 'lastPathLineStyle';
   static const _keepScreenOnWhileRecordingKey = 'keepScreenOnWhileRecording';
   static const _gpsAccuracyModeKey = 'gpsAccuracyMode';
+  static const _showUnderwayHudKey = 'showUnderwayHud';
 
   @override
   Future<SettingsState> build() async {
@@ -247,7 +256,16 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
           prefs.getBool(_keepScreenOnWhileRecordingKey) ?? true,
       gpsAccuracyMode:
           GpsAccuracyMode.fromName(prefs.getString(_gpsAccuracyModeKey)),
+      showUnderwayHud: prefs.getBool(_showUnderwayHudKey) ?? false,
     );
+  }
+
+  /// Toggles the underway HUD (course/speed/heading overlay).
+  Future<void> setShowUnderwayHud(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(showUnderwayHud: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showUnderwayHudKey, value);
   }
 
   /// Toggles the keep-screen-on-while-recording preference.

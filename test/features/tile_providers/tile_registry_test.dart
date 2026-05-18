@@ -63,7 +63,7 @@ OfflineRegion _region(String id, {String name = 'Region'}) => OfflineRegion(
 
 void main() {
   group('TileRegistry initial state', () {
-    test('registers the four built-in providers synchronously', () {
+    test('registers the five built-in providers synchronously', () {
       final c = makeRegistryContainer();
       final state = c.container.read(tileRegistryProvider);
 
@@ -72,6 +72,7 @@ void main() {
         'osm',
         'gs',
         'avalanche_danger',
+        'openseamap',
       });
       expect(
           state.availableProviders['topo']!.category,
@@ -81,6 +82,9 @@ void main() {
           TileProviderCategory.global);
       expect(
           state.availableProviders['avalanche_danger']!.category,
+          TileProviderCategory.overlay);
+      expect(
+          state.availableProviders['openseamap']!.category,
           TileProviderCategory.overlay);
     });
 

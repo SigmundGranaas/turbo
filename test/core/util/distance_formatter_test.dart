@@ -35,12 +35,57 @@ void main() {
     });
   });
 
+  group('formatDistance(nautical)', () {
+    test('uses m below 1 NM (1852 m), rounded to the nearest meter', () {
+      expect(formatDistance(0, DistanceUnit.nautical), '0 m');
+      expect(formatDistance(500, DistanceUnit.nautical), '500 m');
+      expect(formatDistance(1851.4, DistanceUnit.nautical), '1851 m');
+    });
+
+    test('switches to NM at 1 NM, formatted with 2 decimals', () {
+      expect(formatDistance(1852, DistanceUnit.nautical), '1.00 NM');
+      expect(formatDistance(3704, DistanceUnit.nautical), '2.00 NM');
+      // 10 NM
+      expect(formatDistance(18520, DistanceUnit.nautical), '10.00 NM');
+    });
+  });
+
   group('formatDistance(edge cases)', () {
     test('NaN and infinity render as a placeholder', () {
       expect(formatDistance(double.nan, DistanceUnit.metric), '—');
       expect(formatDistance(double.infinity, DistanceUnit.imperial), '—');
+      expect(formatDistance(double.nan, DistanceUnit.nautical), '—');
       expect(
           formatDistance(double.negativeInfinity, DistanceUnit.metric), '—');
+    });
+  });
+
+  group('formatSpeed', () {
+    test('metric renders km/h with one decimal', () {
+      expect(formatSpeed(0, DistanceUnit.metric), '0.0 km/h');
+      // 10 m/s = 36.0 km/h
+      expect(formatSpeed(10, DistanceUnit.metric), '36.0 km/h');
+    });
+
+    test('imperial renders mph with one decimal', () {
+      // 10 m/s ≈ 22.4 mph
+      expect(formatSpeed(10, DistanceUnit.imperial), '22.4 mph');
+    });
+
+    test('nautical renders knots with one decimal', () {
+      // 1 knot = 0.514444 m/s, so 10 m/s ≈ 19.4 kn
+      expect(formatSpeed(10, DistanceUnit.nautical), '19.4 kn');
+      // 1 m/s ≈ 1.9 kn
+      expect(formatSpeed(1, DistanceUnit.nautical), '1.9 kn');
+    });
+
+    test('NaN/infinity render as a placeholder', () {
+      expect(formatSpeed(double.nan, DistanceUnit.nautical), '—');
+      expect(formatSpeed(double.infinity, DistanceUnit.metric), '—');
+    });
+
+    test('negative speeds are clamped to zero', () {
+      expect(formatSpeed(-5, DistanceUnit.nautical), '0.0 kn');
     });
   });
 
@@ -48,6 +93,7 @@ void main() {
     test('round-trips the canonical names', () {
       expect(DistanceUnit.fromName('metric'), DistanceUnit.metric);
       expect(DistanceUnit.fromName('imperial'), DistanceUnit.imperial);
+      expect(DistanceUnit.fromName('nautical'), DistanceUnit.nautical);
     });
 
     test('unknown or null name falls back to metric', () {

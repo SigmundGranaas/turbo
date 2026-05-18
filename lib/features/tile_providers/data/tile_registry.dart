@@ -7,6 +7,7 @@ import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.d
 import 'package:turbo/features/tile_providers/data/providers/google_sattelite.dart';
 import 'package:turbo/features/tile_providers/data/providers/norges_kart_topo.dart';
 import 'package:turbo/features/tile_providers/data/providers/offline_region_provider_config.dart';
+import 'package:turbo/features/tile_providers/data/providers/openseamap_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart';
 import 'package:turbo/features/tile_providers/models/custom_tile_provider.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
@@ -27,6 +28,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
       OsmConfig(),
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),
+      OpenSeaMapOverlayConfig(),
     ];
     final initialProviders = <String, TileProviderConfig>{
       for (var p in builtInProviders) p.id: p,

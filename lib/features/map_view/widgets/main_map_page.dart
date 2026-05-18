@@ -27,6 +27,7 @@ import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
 import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
+import 'package:turbo/features/map_view/widgets/underway_hud.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 
 class MainMapPage extends ConsumerStatefulWidget {
@@ -236,6 +237,12 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
 
     final overlayWidgets = <Widget>[
       const ModeIndicator(),
+      const Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        child: UnderwayHud(),
+      ),
       const Positioned(
         left: 0,
         right: 0,

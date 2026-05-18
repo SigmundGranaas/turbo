@@ -150,6 +150,8 @@ abstract class AppLocalizations {
   String get layerDescriptionGoogleSatellite;
   String get layerNameAvalanche;
   String get layerDescriptionAvalanche;
+  String get layerNameSeamarks;
+  String get layerDescriptionSeamarks;
 
   // Measuring Tool
   String get totalDistance;
@@ -202,6 +204,14 @@ abstract class AppLocalizations {
   String get distanceUnit;
   String get distanceUnitMetric;
   String get distanceUnitImperial;
+  String get distanceUnitNautical;
+
+  // Underway HUD (marine)
+  String get showUnderwayHud;
+  String get underwayHudDescription;
+  String get hudLabelSog;
+  String get hudLabelCog;
+  String get hudLabelHdg;
   String get maxConcurrentDownloads;
   String get maxConcurrentDownloadsDescription;
   String get markerCacheTtl;
@@ -512,6 +522,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get layerDescriptionGoogleSatellite => 'Satellite imagery from Google';
   @override String get layerNameAvalanche => 'Avalanche Danger';
   @override String get layerDescriptionAvalanche => 'Overlay of slope steepness and run-out zones';
+  @override String get layerNameSeamarks => 'Seamarks (OpenSeaMap)';
+  @override String get layerDescriptionSeamarks => 'Nautical overlay: buoys, lights, harbors, depths';
 
   @override String get totalDistance => 'Total Distance';
   @override String get undoLastPoint => 'Undo Last Point';
@@ -558,6 +570,12 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get distanceUnit => 'Distance unit';
   @override String get distanceUnitMetric => 'Metric (km / m)';
   @override String get distanceUnitImperial => 'Imperial (mi / ft)';
+  @override String get distanceUnitNautical => 'Nautical (NM / kn)';
+  @override String get showUnderwayHud => 'Underway HUD';
+  @override String get underwayHudDescription => 'Show course, speed, and heading from GPS — useful at sea.';
+  @override String get hudLabelSog => 'SOG';
+  @override String get hudLabelCog => 'COG';
+  @override String get hudLabelHdg => 'HDG';
   @override String get maxConcurrentDownloads => 'Max parallel downloads';
   @override String get maxConcurrentDownloadsDescription => 'Higher values finish faster but stress the tile server.';
   @override String get markerCacheTtl => 'Marker cache lifetime';
@@ -857,6 +875,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get layerDescriptionGoogleSatellite => 'Satellittbilder fra Google';
   @override String get layerNameAvalanche => 'Snøskredfare';
   @override String get layerDescriptionAvalanche => 'Oversikt over bratthet og utløpssoner';
+  @override String get layerNameSeamarks => 'Sjømerker (OpenSeaMap)';
+  @override String get layerDescriptionSeamarks => 'Nautisk lag: bøyer, lykter, havner, dybder';
 
   @override String get totalDistance => 'Total distanse';
   @override String get undoLastPoint => 'Angre siste punkt';
@@ -900,6 +920,12 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get distanceUnit => 'Avstandsenhet';
   @override String get distanceUnitMetric => 'Metrisk (km / m)';
   @override String get distanceUnitImperial => 'Imperial (mi / ft)';
+  @override String get distanceUnitNautical => 'Nautisk (nm / kn)';
+  @override String get showUnderwayHud => 'Maritimt HUD';
+  @override String get underwayHudDescription => 'Vis kurs, fart og kompasskurs fra GPS — nyttig til sjøs.';
+  @override String get hudLabelSog => 'SOG';
+  @override String get hudLabelCog => 'COG';
+  @override String get hudLabelHdg => 'HDG';
   @override String get maxConcurrentDownloads => 'Maks parallelle nedlastinger';
   @override String get maxConcurrentDownloadsDescription => 'Høyere verdier går raskere, men belaster kartserveren mer.';
   @override String get markerCacheTtl => 'Markør-mellomlager';
