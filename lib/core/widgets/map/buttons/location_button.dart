@@ -13,15 +13,15 @@ import 'package:turbo/features/path_recording/api.dart';
 import 'package:turbo/features/saved_paths/api.dart' show SavePathSheet;
 import 'map_control_button_base.dart';
 
-/// Single primary action: toggle "snap the map to my location" mode.
-///   * Off (icon `location_on`): map is free — drag anywhere.
-///   * On  (icon `my_location`): map snaps to your fix and keeps tracking
-///     it until you drag (manual drag automatically disengages — handled
-///     in `MainMapPage._onMapEvent`).
+/// Two distinct gestures:
+///   * Tap — pan once to the current fix. Doesn't change snap state.
+///   * Long-press — sheet with two explicit toggles:
+///     - "Snap to my location" (follow mode). When on, the map sticks to
+///       your fix until you drag. When off, the map is free.
+///     - "Record a path" (Start / Stop).
 ///
-/// Long-press opens recording controls (Start / Stop). Recording is the
-/// only thing on the long-press sheet now — Follow lives on the tap, so
-/// the two concepts aren't fighting for the same gesture.
+/// The icon still reflects the current snap state so the user can see at a
+/// glance which mode the map is in.
 class LocationButton extends ConsumerStatefulWidget {
   final MapController mapController;
   const LocationButton({super.key, required this.mapController});
@@ -38,8 +38,8 @@ class LocationButtonState extends ConsumerState<LocationButton>
     final colorScheme = Theme.of(context).colorScheme;
 
     return MapControlButtonBase(
-      onPressed: _toggleFollow,
-      onLongPress: () => _showRecordingSheet(context),
+      onPressed: _panToCurrentLocation,
+      onLongPress: () => _showLocationSheet(context),
       isActive: isFollowing,
       child: Icon(
         isFollowing ? Icons.my_location : Icons.location_on,
@@ -50,19 +50,13 @@ class LocationButtonState extends ConsumerState<LocationButton>
     );
   }
 
-  /// Tap behavior: toggle follow mode. Enabling also pans the camera to the
-  /// current fix so the user gets immediate feedback that snapping is on.
-  Future<void> _toggleFollow() async {
+  /// Tap behavior: pan once to the current fix. Does NOT enable follow —
+  /// that's an explicit toggle in the long-press sheet.
+  Future<void> _panToCurrentLocation() async {
     if (!kIsWeb && Platform.isLinux) {
       _showLinuxDialog();
       return;
     }
-    final wasFollowing = ref.read(followModeProvider);
-    ref.read(followModeProvider.notifier).toggle();
-    if (wasFollowing) return; // Just turned off — nothing more to do.
-
-    // Just turned on — pan to the user. If a fix is already cached, the pan
-    // is instant; otherwise we wait for the provider to resolve.
     final cached = ref.read(locationStateProvider).value;
     if (cached != null) {
       animatedMapMove(cached, 15, widget.mapController, this);
@@ -80,46 +74,59 @@ class LocationButtonState extends ConsumerState<LocationButton>
           content: Text(l10n.locationServicesUnavailable),
           duration: const Duration(seconds: 3),
         ));
-        // Couldn't actually snap — back out of follow mode so the icon
-        // doesn't lie about the current state.
-        ref.read(followModeProvider.notifier).disable();
       }
     } catch (error) {
       if (mounted) {
         _showErrorDialog(_translateLocationError(context, error.toString()));
       }
-      if (mounted) ref.read(followModeProvider.notifier).disable();
     }
   }
 
-  void _showRecordingSheet(BuildContext context) {
+  void _showLocationSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       useSafeArea: true,
       builder: (BuildContext context) {
         return Consumer(
           builder: (context, ref, _) {
+            final isFollowing = ref.watch(followModeProvider);
             final isRecording =
                 ref.watch(recordingNotifierProvider).isActive;
+            final colorScheme = Theme.of(context).colorScheme;
             return SafeArea(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    SwitchListTile(
+                      secondary: Icon(
+                        isFollowing ? Icons.my_location : Icons.location_searching,
+                      ),
+                      title: const Text('Snap to my location'),
+                      subtitle: const Text(
+                          'Keeps the map centered on your position.'),
+                      value: isFollowing,
+                      onChanged: (next) {
+                        if (next) {
+                          ref.read(followModeProvider.notifier).enable();
+                          _panAfterEnablingFollow();
+                        } else {
+                          ref.read(followModeProvider.notifier).disable();
+                        }
+                      },
+                    ),
                     ListTile(
                       leading: Icon(
                         isRecording
                             ? Icons.stop_circle
                             : Icons.fiber_manual_record,
-                        color: isRecording
-                            ? Theme.of(context).colorScheme.error
-                            : null,
+                        color: isRecording ? colorScheme.error : null,
                       ),
                       title: Text(
                         isRecording
                             ? 'Stop recording'
-                            : 'Start recording a path',
+                            : 'Record a path',
                       ),
                       subtitle: isRecording
                           ? const Text('Tap to save your track.')
@@ -141,6 +148,34 @@ class LocationButtonState extends ConsumerState<LocationButton>
         );
       },
     );
+  }
+
+  /// When the user flips the snap switch on, we politely pan to the cached
+  /// fix (or wait for one) so the toggle has immediate visible effect.
+  /// Failure quietly disables follow so the icon doesn't lie.
+  Future<void> _panAfterEnablingFollow() async {
+    final cached = ref.read(locationStateProvider).value;
+    if (cached != null) {
+      animatedMapMove(cached, 15, widget.mapController, this);
+      return;
+    }
+    final l10n = context.l10n;
+    try {
+      ref.read(locationStateProvider.notifier).requestLocationPermission();
+      final position = await ref.read(locationStateProvider.future);
+      if (!mounted) return;
+      if (position != null) {
+        animatedMapMove(position, 15, widget.mapController, this);
+      } else {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(l10n.locationServicesUnavailable),
+          duration: const Duration(seconds: 3),
+        ));
+        ref.read(followModeProvider.notifier).disable();
+      }
+    } catch (_) {
+      if (mounted) ref.read(followModeProvider.notifier).disable();
+    }
   }
 
   Future<void> _stopRecordingAndSave(
