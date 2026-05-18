@@ -328,12 +328,13 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         alignment: Alignment.topCenter,
       );
     });
-    // Centre on the pin, biased upward so it stays visible above the
-    // ~55%-tall sheet. Lift the target by ~30% of the latitudinal span
-    // visible at the current zoom — cheap, no pixel unprojection needed.
+    // Centre on the pin so it sits in the middle of the top half of the
+    // screen — the sheet covers the bottom half. Shifting the camera
+    // target south by 25 % of the visible latitudinal span puts the pin
+    // exactly at 25 % from the top edge of the viewport.
     final camera = _mapController.camera;
     final latSpan = camera.visibleBounds.north - camera.visibleBounds.south;
-    final target = LatLng(point.latitude - latSpan * 0.30, point.longitude);
+    final target = LatLng(point.latitude - latSpan * 0.25, point.longitude);
     animatedMapMove(target, camera.zoom, _mapController, this);
     _showPinOptionsSheet(context, point);
   }
