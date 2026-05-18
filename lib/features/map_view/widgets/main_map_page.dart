@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/map_view/widgets/layers/current_location_layer.dart';
 import 'package:turbo/features/map_view/widgets/layers/viewport_marker_layer.dart';
+import 'package:turbo/features/external_vector_layers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_mobile.dart';
@@ -221,6 +222,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     ))
         .toList();
 
+    final trailsOverlayActive = tileRegistryState.activeOverlayIds
+        .contains('nasjonal_turbase');
+
     final commonMapLayers = <Widget>[
       ...tileLayers,
       ...attributions,
@@ -231,6 +235,11 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       const NavigationPolylineLayer(),
       const NavigationTargetMarker(),
       SavedPathsLayer(mapController: _mapController),
+      VectorDataLayer(
+        source: nasjonalTurbaseVectorSource(),
+        mapController: _mapController,
+        visible: trailsOverlayActive,
+      ),
       ViewportMarkers(mapController: _mapController),
     ];
 

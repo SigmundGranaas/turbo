@@ -1,0 +1,32 @@
+/// Public API for the External Vector Layers feature — runtime GeoJSON / WFS
+/// layers (trails, weather warnings, protected areas, ...).
+library;
+
+export 'models/vector_feature.dart'
+    show VectorFeature, VectorGeometryKind;
+export 'models/vector_layer_source.dart' show VectorLayerSource;
+export 'data/vector_layer_fetcher.dart'
+    show VectorLayerFetcher, VectorLayerFetchException;
+export 'data/vector_layer_cache.dart' show VectorLayerCache;
+export 'data/vector_tile_store.dart'
+    show VectorTileStore, StoredVectorTile, NoopVectorTileStore;
+export 'data/sqlite_vector_tile_store.dart' show SqliteVectorTileStore;
+export 'data/vector_layer_repository.dart'
+    show
+        VectorLayerRepository,
+        vectorTileStoreProvider,
+        vectorLayerFetcherProvider,
+        vectorLayerRepositoryProvider;
+export 'data/vector_layer_notifier.dart'
+    show
+        viewportVectorFeaturesProvider,
+        ViewportVectorFeaturesNotifier;
+export 'widgets/vector_data_layer.dart' show VectorDataLayer;
+export 'widgets/vector_feature_sheet.dart'
+    show VectorFeatureSheet, showVectorFeatureSheet;
+export 'data/sources/nasjonal_turbase_source.dart'
+    show
+        nasjonalTurbaseVectorSource,
+        trailPropertyKeys,
+        trailPropertyLabels;
+export 'data/sources/met_alerts_source.dart' show metAlertsVectorSource;

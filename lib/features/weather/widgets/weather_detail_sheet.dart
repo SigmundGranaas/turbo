@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/avalanche_forecast/api.dart'
+    show AvalancheWarningBadge;
 import 'package:turbo/features/markers/api.dart' show Marker;
 
 import '../api.dart';
@@ -124,10 +126,40 @@ class _WeatherDetailSheetState extends ConsumerState<WeatherDetailSheet>
     final presets = _availablePresets(f);
     final clampedPreset = _presetIndex.clamp(0, presets.length - 1);
 
+    final selectedDay = daily[clampedDay].date;
+    final sunForDay = f.sun[DateTime(
+      selectedDay.year,
+      selectedDay.month,
+      selectedDay.day,
+    )];
+    final moonForDay = f.moon[DateTime(
+      selectedDay.year,
+      selectedDay.month,
+      selectedDay.day,
+    )];
+
     return Column(
       children: [
         const _DragHandle(),
         _Header(title: widget.marker.title),
+        if (f.hasActiveAlerts) ...[
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: MetAlertBanner(alert: f.topAlert!),
+          ),
+        ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: AvalancheWarningBadge(position: widget.marker.position),
+          ),
+        ),
+        if (sunForDay != null) ...[
+          const SizedBox(height: 8),
+          SunStrip(sun: sunForDay, moon: moonForDay),
+        ],
         const SizedBox(height: 8),
         _DayStrip(
           days: daily,
@@ -583,6 +615,138 @@ class _SeaRow extends StatelessWidget {
                 style: textTheme.titleSmall),
         ],
       ),
+    );
+  }
+}
+
+/// Compact strip showing sunrise / sunset / daylight (plus moon phase) for
+/// the currently-selected day in the detail sheet.
+class SunStrip extends StatelessWidget {
+  final SunEvent sun;
+  final MoonEvent? moon;
+  const SunStrip({super.key, required this.sun, this.moon});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    final children = <Widget>[];
+
+    if (sun.polarDay) {
+      children.add(_SunChip(
+        icon: Icons.wb_sunny_outlined,
+        label: l10n.weatherSunPolarDay,
+        value: '',
+      ));
+    } else if (sun.polarNight) {
+      children.add(_SunChip(
+        icon: Icons.nightlight_outlined,
+        label: l10n.weatherSunPolarNight,
+        value: '',
+      ));
+    } else {
+      if (sun.sunrise != null) {
+        children.add(_SunChip(
+          icon: Icons.wb_twilight,
+          label: l10n.weatherSunSunrise,
+          value: _hourMinute(sun.sunrise!),
+        ));
+      }
+      if (sun.sunset != null) {
+        children.add(_SunChip(
+          icon: Icons.brightness_3_outlined,
+          label: l10n.weatherSunSunset,
+          value: _hourMinute(sun.sunset!),
+        ));
+      }
+      final daylight = sun.daylight;
+      if (daylight != null) {
+        children.add(_SunChip(
+          icon: Icons.timelapse,
+          label: l10n.weatherSunDaylight,
+          value: _formatDuration(daylight),
+        ));
+      }
+    }
+    final m = moon;
+    if (m != null && m.illumination != null) {
+      children.add(_SunChip(
+        icon: Icons.brightness_2_outlined,
+        label: l10n.weatherSunMoon,
+        value: '${(m.illumination! * 100).round()}%',
+      ));
+    }
+
+    return SizedBox(
+      key: const Key('weather-detail-sun-strip'),
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: children.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, i) => Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: DefaultTextStyle.merge(
+              style: tt.bodySmall!,
+              child: children[i],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _hourMinute(DateTime t) {
+    final local = t.toLocal();
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  static String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    return '${h}h ${m.toString().padLeft(2, '0')}m';
+  }
+}
+
+class _SunChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _SunChip({required this.icon, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: colorScheme.onSurfaceVariant),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(color: colorScheme.onSurfaceVariant),
+        ),
+        if (value.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          Text(
+            value,
+            style: TextStyle(
+              color: colorScheme.onSurface,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

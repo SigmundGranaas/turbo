@@ -28,7 +28,7 @@ LocationSearchResult _r(String title, String source) => LocationSearchResult(
 /// Thin [CompositeSearchService] stand-in backed by a single [FakeLocationService].
 class _FakeComposite extends CompositeSearchService {
   final LocationService inner;
-  _FakeComposite(this.inner) : super(inner, inner, inner);
+  _FakeComposite(this.inner) : super(inner, inner, inner, inner);
   @override
   Future<List<LocationSearchResult>> findLocationsBy(String name) =>
       inner.findLocationsBy(name);

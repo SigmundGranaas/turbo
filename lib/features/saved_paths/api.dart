@@ -19,6 +19,13 @@ export 'data/geojson_parser.dart' show parseGeoJson;
 export 'data/kml_parser.dart' show parseKml;
 export 'data/path_importer.dart'
     show importPathContent, ImportFormat, PathImportException;
+export 'data/hoydedata_service.dart'
+    show HoydedataService, HoydedataServiceException;
+export 'data/elevation_backfill.dart'
+    show
+        backfillElevations,
+        ElevationBackfillResult,
+        ElevationBackfillStatus;
 export 'data/path_export_service.dart' show PathExportService, ExportFormat;
 export 'widgets/export_options_sheet.dart' show ExportOptionsSheet;
 export 'widgets/path_info_sheet.dart' show PathInfoSheet;
