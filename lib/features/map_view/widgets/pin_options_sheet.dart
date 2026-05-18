@@ -93,7 +93,17 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
                 description: _description,
                 resolving: _resolving,
               ),
-              const SizedBox(height: AppSpacing.s),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.l, AppSpacing.s, AppSpacing.l, AppSpacing.s),
+                child: WeatherSummaryRow(
+                  key: const Key('pin-sheet-weather-surface'),
+                  marker: marker_model.Marker(
+                    title: _description?.title ?? l10n.pinSheetSelectedLocation,
+                    position: widget.point,
+                  ),
+                ),
+              ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.add_location_alt_outlined),
@@ -124,17 +134,6 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
                     widget.onNavigate();
                   }
                 },
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.l, AppSpacing.s, AppSpacing.l, AppSpacing.l),
-                child: WeatherSummaryRow(
-                  key: const Key('pin-sheet-weather-surface'),
-                  marker: marker_model.Marker(
-                    title: _description?.title ?? l10n.pinSheetSelectedLocation,
-                    position: widget.point,
-                  ),
-                ),
               ),
             ],
           ),
