@@ -7,7 +7,7 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/saved_paths/api.dart' show hexToColor;
-import 'package:turbo/features/weather/api.dart' show WeatherSection;
+import 'package:turbo/features/weather/api.dart' show WeatherSummaryRow;
 import '../data/icon_service.dart';
 import '../data/location_repository.dart';
 import '../models/marker.dart';
@@ -113,7 +113,7 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
           ],
 
           const SizedBox(height: 16),
-          WeatherSection(marker: _marker),
+          WeatherSummaryRow(marker: _marker),
 
           const SizedBox(height: 12),
           _CollectionChipStrip(

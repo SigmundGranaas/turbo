@@ -374,6 +374,8 @@ abstract class AppLocalizations {
   String get weatherPrecipitationLabel;
   String get weatherWaveHeightLabel;
   String get weatherWaterTempLabel;
+  String get weatherNext24h;
+  String get weatherNext9days;
 }
 
 // English translations
@@ -712,6 +714,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get weatherPrecipitationLabel => 'Precipitation';
   @override String get weatherWaveHeightLabel => 'Waves';
   @override String get weatherWaterTempLabel => 'Sea';
+  @override String get weatherNext24h => 'Next 24 hours';
+  @override String get weatherNext9days => 'Next 9 days';
 }
 
 // Norwegian translations
@@ -1047,6 +1051,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get weatherPrecipitationLabel => 'Nedbør';
   @override String get weatherWaveHeightLabel => 'Bølger';
   @override String get weatherWaterTempLabel => 'Sjø';
+  @override String get weatherNext24h => 'Neste 24 timer';
+  @override String get weatherNext9days => 'Neste 9 dager';
 }
 
 // The delegate
