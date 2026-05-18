@@ -21,21 +21,39 @@ class LocationButton extends ConsumerStatefulWidget {
 }
 
 class LocationButtonState extends ConsumerState<LocationButton> with TickerProviderStateMixin {
+  bool _resolvingFix = false;
+
   @override
   Widget build(BuildContext context) {
     final isFollowing = ref.watch(followModeProvider);
+    final locationAsync = ref.watch(locationStateProvider);
     final colorScheme = Theme.of(context).colorScheme;
+    // Treat "loading" and "an explicit pending tap" as the spinner state so
+    // the user gets feedback instead of an instant error dialog.
+    final showSpinner = _resolvingFix || locationAsync.isLoading;
 
     return MapControlButtonBase(
-      onPressed: () => _moveToCurrentLocation(),
+      onPressed: () {
+        if (showSpinner) return;
+        _moveToCurrentLocation();
+      },
       onLongPress: () => _showLocationSheet(context),
       isActive: isFollowing,
-      child: Icon(
-        isFollowing ? Icons.my_location : Icons.location_on,
-        color: isFollowing
-            ? colorScheme.onTertiaryContainer
-            : colorScheme.primary,
-      ),
+      child: showSpinner
+          ? SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: colorScheme.primary,
+              ),
+            )
+          : Icon(
+              isFollowing ? Icons.my_location : Icons.location_on,
+              color: isFollowing
+                  ? colorScheme.onTertiaryContainer
+                  : colorScheme.primary,
+            ),
     );
   }
 
@@ -101,21 +119,39 @@ class LocationButtonState extends ConsumerState<LocationButton> with TickerProvi
       _showLinuxDialog();
       return;
     }
+    final l10n = context.l10n;
 
+    // Fast path: if we already have a recent fix, just pan to it.
+    final cached = ref.read(locationStateProvider).value;
+    if (cached != null) {
+      animatedMapMove(cached, 15, widget.mapController, this);
+      return;
+    }
+
+    setState(() => _resolvingFix = true);
     try {
+      // If we got an error from the previous run, retry — this also covers
+      // the "permissions just granted from system prompt" case.
+      ref.read(locationStateProvider.notifier).requestLocationPermission();
       final LatLng? position = await ref.read(locationStateProvider.future);
+      if (!mounted) return;
       if (position != null) {
         animatedMapMove(position, 15, widget.mapController, this);
       } else {
-        if (mounted) {
-          _showErrorDialog(context.l10n.locationServicesUnavailable);
-        }
+        // Loaded with no error and no position — likely services off or the
+        // OS still warming up the GPS. A friendly snackbar is less jarring
+        // than an alert dialog; the user can tap again in a second.
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+          content: Text(l10n.locationServicesUnavailable),
+          duration: const Duration(seconds: 3),
+        ));
       }
     } catch (error) {
       if (mounted) {
         _showErrorDialog(_translateLocationError(context, error.toString()));
       }
-      ref.read(locationStateProvider.notifier).requestLocationPermission();
+    } finally {
+      if (mounted) setState(() => _resolvingFix = false);
     }
   }
 

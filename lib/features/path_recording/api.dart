@@ -12,6 +12,5 @@ export 'data/recording_notifier.dart'
 export 'models/recording_result.dart' show RecordingResult;
 export 'models/recording_sample.dart' show RecordingSample;
 export 'models/recording_state.dart' show RecordingState, RecordingStatus;
-export 'widgets/recording_fab.dart' show RecordingFab;
-export 'widgets/recording_hud.dart' show RecordingHud;
-export 'widgets/recording_controls.dart' show RecordingControlsSheet;
+export 'widgets/recording_panel.dart' show RecordingPanel;
+export 'widgets/start_recording_flow.dart' show startRecordingFlow;

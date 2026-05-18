@@ -237,15 +237,10 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         child: marker_model.MarkerSelectionBar(),
       ),
       const Positioned(
-        top: 56,
         left: 0,
         right: 0,
-        child: RecordingHud(),
-      ),
-      const Positioned(
-        right: 16,
-        bottom: 96,
-        child: RecordingFab(),
+        bottom: 20,
+        child: Center(child: RecordingPanel()),
       ),
     ];
     final offlineRegionsAsync = ref.watch(offline_api.offlineRegionsProvider);
