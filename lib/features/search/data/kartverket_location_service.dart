@@ -34,7 +34,11 @@ class KartverketLocationService extends LocationService {
         final List<dynamic> navnList = json['navn'] ?? [];
 
 
-        return navnList.map((item) => _parseLocation(item)).toList();
+        // Drop anonymous entries — they used to surface as "Unknown".
+        return navnList
+            .map((item) => _parseLocation(item))
+            .where((r) => r.title.isNotEmpty)
+            .toList();
       } else {
         return [];
       }
@@ -102,18 +106,19 @@ class KartverketLocationService extends LocationService {
 
     // Score each candidate. Lower score wins.
     Map<String, dynamic>? bestItem;
+    String? bestName;
     double? bestScore;
     LocationQualifier? bestQualifier;
     double? bestDistance;
 
     for (final item in items) {
       // Kartverket occasionally returns features with no `skrivemåte`
-      // (or an empty one) — typically anonymous Gard/Haug entries. The
-      // old `_parseLocation` fallback would surface those as the literal
-      // string "Unknown", so skip them at the picker and let the next
-      // candidate or the kommune lookup take over.
-      final name = (item['skrivemåte'] as String?)?.trim();
-      if (name == null || name.isEmpty) continue;
+      // (or an empty one, or the literal "Ukjent" / "Unknown") —
+      // typically anonymous Gard/Haug entries. The old `_parseLocation`
+      // fallback would surface those as "Unknown", so skip them at the
+      // picker and let the next candidate or the kommune lookup win.
+      final name = _readPlaceName(item);
+      if (name == null) continue;
       final pt = item['representasjonspunkt'] as Map<String, dynamic>?;
       if (pt == null) continue;
       final lat = (pt['nord'] as num?)?.toDouble();
@@ -129,19 +134,56 @@ class KartverketLocationService extends LocationService {
       if (bestScore == null || score < bestScore) {
         bestScore = score;
         bestItem = item;
+        bestName = name;
         bestQualifier = qualifier;
         bestDistance = d;
       }
     }
 
-    if (bestItem == null) return null;
+    if (bestItem == null || bestName == null) return null;
     final parsed = _parseLocation(bestItem);
     return LocationDescription(
-      title: parsed.title,
+      // Use the validated name from the picker loop, not `parsed.title` —
+      // `_parseLocation` legacy-falls-back to the literal "Unknown",
+      // which would defeat the whole filter if the cast ever shifted.
+      title: bestName,
       qualifier: bestQualifier,
-      secondary: parsed.description,
+      secondary: (parsed.description?.isEmpty ?? true) ? null : parsed.description,
       distanceMeters: bestDistance,
     );
+  }
+
+  /// Returns a usable place name from a Kartverket `navn[]` item, or
+  /// `null` when the entry is anonymous / mislabelled. Tolerates the
+  /// field being missing, empty, whitespace, non-string, or the literal
+  /// strings "Unknown" / "Ukjent" (Kartverket has been seen returning
+  /// the latter for some unnamed terrain features).
+  static String? _readPlaceName(Map<String, dynamic> item) {
+    final raw = item['skrivemåte'];
+    String? candidate;
+    if (raw is String) {
+      candidate = raw.trim();
+    } else if (raw is List && raw.isNotEmpty) {
+      // Future-proof: some Kartverket endpoints expose `skrivemåte` as a
+      // list of language variants. Take the first non-empty entry.
+      for (final v in raw) {
+        if (v is String && v.trim().isNotEmpty) {
+          candidate = v.trim();
+          break;
+        }
+        if (v is Map && v['skrivemåte'] is String) {
+          final s = (v['skrivemåte'] as String).trim();
+          if (s.isNotEmpty) {
+            candidate = s;
+            break;
+          }
+        }
+      }
+    }
+    if (candidate == null || candidate.isEmpty) return null;
+    final lc = candidate.toLowerCase();
+    if (lc == 'unknown' || lc == 'ukjent') return null;
+    return candidate;
   }
 
   /// Returns (priority, qualifier) for a Kartverket feature type at a
@@ -231,8 +273,11 @@ class KartverketLocationService extends LocationService {
     final double lat = (representasjonspunkt['nord'] ?? 0.0).toDouble();
     final double lng = (representasjonspunkt['øst'] ?? 0.0).toDouble();
 
-    // Extract location name
-    final String name = item['skrivemåte'] ?? 'Unknown';
+    // Extract location name. Pulled through the same defensive reader
+    // the picker uses, with an empty-string fallback (callers MUST
+    // guard for empty titles — search filters them; describeLocation
+    // uses its own validated name).
+    final String name = _readPlaceName(item) ?? '';
 
     // Build description from available data
     final List<String> descriptionParts = [];

@@ -67,6 +67,11 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
     });
   }
 
+  String _safeMarkerTitle(AppLocalizations l10n) {
+    final title = _description?.title.trim() ?? '';
+    return title.isEmpty ? l10n.pinSheetSelectedLocation : title;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -99,7 +104,7 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
                 child: WeatherSummaryRow(
                   key: const Key('pin-sheet-weather-surface'),
                   marker: marker_model.Marker(
-                    title: _description?.title ?? l10n.pinSheetSelectedLocation,
+                    title: _safeMarkerTitle(l10n),
                     position: widget.point,
                   ),
                 ),
@@ -223,7 +228,7 @@ class _PlaceInfoHeader extends StatelessWidget {
 
   String _resolveTitle(AppLocalizations l10n) {
     final d = description;
-    if (d == null) {
+    if (d == null || d.title.trim().isEmpty) {
       return resolving ? l10n.pinSheetResolving : l10n.pinSheetSelectedLocation;
     }
     final prefix = _qualifierLabel(l10n, d.qualifier);

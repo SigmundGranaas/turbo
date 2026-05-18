@@ -425,6 +425,75 @@ void main() {
       expect(d.qualifier, LocationQualifier.on);
     });
 
+    test('rejects items whose skrivemåte is literally "Unknown" or "Ukjent"',
+        () async {
+      // Defence in depth: even if Kartverket itself returns the literal
+      // English/Norwegian word "Unknown" / "Ukjent" as a feature name,
+      // the picker must treat it like a nameless entry and fall through.
+      const tap = LatLng(67.22846, 14.49496);
+      final client = MockClient((req) async {
+        if (req.url.path.startsWith('/kommuneinfo')) {
+          return http.Response(
+            jsonEncode({
+              'kommunenavn': 'Bodø',
+              'fylkesnavn': 'Nordland',
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              mockPoint('Unknown', 'Gard', tap.latitude, tap.longitude),
+              mockPoint('Ukjent', 'Haug',
+                  tap.latitude + 0.0001, tap.longitude + 0.0001),
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final service = KartverketLocationService(client: client);
+
+      final d = await service.describeLocation(tap);
+      expect(d!.title.toLowerCase(), isNot('unknown'));
+      expect(d.title.toLowerCase(), isNot('ukjent'));
+      expect(d.title, 'Bodø');
+    });
+
+    test('handles skrivemåte returned as a list of language variants',
+        () async {
+      const tap = LatLng(69.65, 18.95);
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              {
+                // Future-proofing: the v2-shape `skrivemåte` is a list.
+                'skrivemåte': ['Storsteinnes', 'Stuoraviika'],
+                'navneobjekttype': 'Tettsted',
+                'representasjonspunkt': {
+                  'nord': tap.latitude,
+                  'øst': tap.longitude,
+                },
+                'kommuner': const [],
+                'fylker': const [],
+                'stedsnummer': 1,
+                'stedstatus': 'aktiv',
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final service = KartverketLocationService(client: client);
+
+      final d = await service.describeLocation(tap);
+      expect(d!.title, 'Storsteinnes');
+    });
+
     test('returns null outside Norway when kommune lookup also fails',
         () async {
       // Stedsnavn returns no nearby toponym; kommuneinfo 404s outside Norway.
