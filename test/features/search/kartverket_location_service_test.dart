@@ -270,13 +270,79 @@ void main() {
       expect(d.qualifier, LocationQualifier.closeTo);
     });
 
-    test('chooses a protected area as "in" when no nearby peak', () async {
-      const tap = LatLng(61.500, 8.400);
-      final client = MockClient((_) async {
+    test('protected-area lookup hits Miljødirektoratet when Stedsnavn is '
+        'empty (regression: "in Bodø/Fauske" replaced by "In Saltfjellet–'
+        'Svartisen nasjonalpark")', () async {
+      const tap = LatLng(66.6500, 14.3500); // Inside Saltfjellet–Svartisen
+      var calledKommune = false;
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no') {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {
+                  'layerId': 0,
+                  'layerName': 'Nasjonalpark',
+                  'value': 'Saltfjellet–Svartisen nasjonalpark',
+                  'displayFieldName': 'navn',
+                  'attributes': {
+                    'navn': 'Saltfjellet–Svartisen nasjonalpark',
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (req.url.path.startsWith('/kommuneinfo')) {
+          calledKommune = true;
+          return http.Response(
+            jsonEncode({'kommunenavn': 'Bodø', 'fylkesnavn': 'Nordland'}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        // Stedsnavn returns nothing in the wilderness.
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final service = KartverketLocationService(client: client);
+
+      final d = await service.describeLocation(tap);
+      expect(d!.title, 'Saltfjellet–Svartisen nasjonalpark');
+      expect(d.qualifier, LocationQualifier.inArea);
+      expect(calledKommune, isFalse,
+          reason:
+              'Vern hit must outrank the kommune fallback so the park name '
+              'is shown instead of "In Bodø"');
+    });
+
+    test('protected-area lookup is bypassed when Stedsnavn returns a tight '
+        '(class 0–2) match like a peak or settlement', () async {
+      const tap = LatLng(61.6360, 8.3120);
+      var calledVern = false;
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no') {
+          calledVern = true;
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {
+                  'layerName': 'Nasjonalpark',
+                  'value': 'Jotunheimen',
+                  'attributes': const {},
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
         return http.Response(
           jsonEncode({
             'navn': [
-              mockPoint('Jotunheimen', 'Nasjonalpark', 61.500, 8.400),
+              mockPoint('Galdhøpiggen', 'Fjelltopp', 61.6363, 8.3120),
             ],
           }),
           200,
@@ -286,8 +352,12 @@ void main() {
       final service = KartverketLocationService(client: client);
 
       final d = await service.describeLocation(tap);
-      expect(d!.title, 'Jotunheimen');
-      expect(d.qualifier, LocationQualifier.inArea);
+      // A tight peak hit must outrank the containing park.
+      expect(d!.title, 'Galdhøpiggen');
+      expect(d.qualifier, LocationQualifier.on);
+      // It's fine for the parallel Vern call to happen, but its result is
+      // ignored — assert that only by checking the title above.
+      expect(calledVern, isTrue);
     });
 
     test('falls back to the kommune lookup when no nearby toponym',

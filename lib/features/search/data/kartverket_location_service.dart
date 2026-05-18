@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'location_service.dart';
+import 'miljodirektoratet_vern_service.dart';
 
 class KartverketLocationService extends LocationService {
   static const String baseUrl = 'https://ws.geonorge.no/stedsnavn/v1/navn';
@@ -12,9 +13,14 @@ class KartverketLocationService extends LocationService {
   /// Allows tests to inject a mock HTTP client. Defaults to a fresh
   /// `http.Client` in production.
   final http.Client _client;
+  final MiljodirektoratetVernService _vernService;
 
-  KartverketLocationService({http.Client? client})
-      : _client = client ?? http.Client();
+  KartverketLocationService({
+    http.Client? client,
+    MiljodirektoratetVernService? vernService,
+  })  : _client = client ?? http.Client(),
+        _vernService =
+            vernService ?? MiljodirektoratetVernService(client: client);
 
   @override
   Future<List<LocationSearchResult>> findLocationsBy(String name) async {
@@ -70,36 +76,88 @@ class KartverketLocationService extends LocationService {
   }
 
   /// Lenient reverse geocode for a coord: returns a [LocationDescription]
-  /// that's always informative on Norwegian terrain. Strategy:
-  ///   1. Pull up to 25 nearby toponyms within ~2 km.
-  ///   2. Prefer peak / mountain features within 100 m ("On X"), then
-  ///      within 1 km ("Close to X").
-  ///   3. Otherwise prefer protected areas ("In Jotunheimen"), then
-  ///      settlements / waters / other named features.
-  ///   4. If nothing nearby, fall back to the containing kommune via
-  ///      `/kommuneinfo/v1/punkt` ("In Lom").
-  ///   5. Last resort: `null` so the UI can fall back to raw coords.
+  /// that's always informative on Norwegian terrain. Three data sources
+  /// are queried in parallel and the best contextual answer is picked:
+  ///
+  ///   • Kartverket Stedsnavn (`/stedsnavn/v1/punkt`) — toponyms:
+  ///     peaks, settlements, water bodies, farms.
+  ///   • Miljødirektoratet Vern (Naturbase) — national parks, nature
+  ///     reserves, landscape-protected areas. **Required** for "in a
+  ///     national park" to ever resolve, since Stedsnavn doesn't carry
+  ///     these polygons.
+  ///   • Kartverket Kommuneinfo (`/kommuneinfo/v1/punkt`) — the
+  ///     municipality containing the point, used as a final fallback.
+  ///
+  /// Resolution priority:
+  ///   1. A tight Stedsnavn hit (class 0–2: on a peak / in a settlement
+  ///      / close to a peak) wins outright.
+  ///   2. Otherwise a containing national park / nature reserve wins.
+  ///   3. Otherwise a looser Stedsnavn hit (class 3–4) wins.
+  ///   4. Otherwise the kommune fallback.
+  ///   5. `null` only if every source is empty (e.g. outside Norway).
   Future<LocationDescription?> describeLocation(LatLng coord) async {
+    final stedsnavnFuture = _fetchStedsnavn(coord);
+    final vernFuture = _vernService.identifyAt(coord);
+
+    final stedsnavn = await stedsnavnFuture;
+    final tightHit = stedsnavn != null && (stedsnavn.$2 ?? 999) <= 2
+        ? stedsnavn.$1
+        : null;
+    if (tightHit != null) return tightHit;
+
+    final vernHits = await vernFuture;
+    final vernHit = _pickProtectedArea(vernHits);
+    if (vernHit != null) return vernHit;
+
+    if (stedsnavn != null) return stedsnavn.$1;
+
+    return _kommuneAt(coord);
+  }
+
+  /// Returns `(description, score-class)` for the best Stedsnavn match,
+  /// or `null` when none of the nearby toponyms qualify. The
+  /// score-class lets the caller decide whether to prefer this hit
+  /// outright vs. defer to a protected-area match.
+  Future<(LocationDescription, int?)?> _fetchStedsnavn(LatLng coord) async {
     try {
       final uri = Uri.parse('$pointUrl'
           '?nord=${coord.latitude}&ost=${coord.longitude}'
           '&koordsys=4258&radius=2000&treffPerSide=25');
       final response = await _client.get(uri);
-      if (response.statusCode == 200) {
-        final decoded = utf8.decode(response.bodyBytes);
-        final json = jsonDecode(decoded) as Map<String, dynamic>;
-        final navnList = ((json['navn'] as List?) ?? const [])
-            .cast<Map<String, dynamic>>();
-        final described = _pickBestDescription(coord, navnList);
-        if (described != null) return described;
-      }
+      if (response.statusCode != 200) return null;
+      final decoded = utf8.decode(response.bodyBytes);
+      final json = jsonDecode(decoded) as Map<String, dynamic>;
+      final navnList = ((json['navn'] as List?) ?? const [])
+          .cast<Map<String, dynamic>>();
+      return _pickBestDescription(coord, navnList);
     } catch (_) {
-      // Network or parse error — fall through to kommune lookup.
+      return null;
     }
-    return _kommuneAt(coord);
   }
 
-  LocationDescription? _pickBestDescription(
+  LocationDescription? _pickProtectedArea(List<ProtectedArea> areas) {
+    if (areas.isEmpty) return null;
+    // Prefer national parks → nature reserves → landscape-protected
+    // areas → anything else returned by the service.
+    ProtectedArea? choice;
+    for (final area in areas) {
+      if (area.isNationalPark) {
+        choice = area;
+        break;
+      }
+    }
+    choice ??= areas.firstWhere(
+      (a) => a.isNatureReserve,
+      orElse: () => areas.first,
+    );
+    return LocationDescription(
+      title: choice.name,
+      qualifier: LocationQualifier.inArea,
+      secondary: choice.kind,
+    );
+  }
+
+  (LocationDescription, int?)? _pickBestDescription(
       LatLng coord, List<Map<String, dynamic>> items) {
     if (items.isEmpty) return null;
     final distance = const Distance();
@@ -108,6 +166,7 @@ class KartverketLocationService extends LocationService {
     Map<String, dynamic>? bestItem;
     String? bestName;
     double? bestScore;
+    int? bestPriority;
     LocationQualifier? bestQualifier;
     double? bestDistance;
 
@@ -135,6 +194,7 @@ class KartverketLocationService extends LocationService {
         bestScore = score;
         bestItem = item;
         bestName = name;
+        bestPriority = priority;
         bestQualifier = qualifier;
         bestDistance = d;
       }
@@ -142,15 +202,17 @@ class KartverketLocationService extends LocationService {
 
     if (bestItem == null || bestName == null) return null;
     final parsed = _parseLocation(bestItem);
-    return LocationDescription(
+    final description = LocationDescription(
       // Use the validated name from the picker loop, not `parsed.title` —
       // `_parseLocation` legacy-falls-back to the literal "Unknown",
       // which would defeat the whole filter if the cast ever shifted.
       title: bestName,
       qualifier: bestQualifier,
-      secondary: (parsed.description?.isEmpty ?? true) ? null : parsed.description,
+      secondary:
+          (parsed.description?.isEmpty ?? true) ? null : parsed.description,
       distanceMeters: bestDistance,
     );
+    return (description, bestPriority);
   }
 
   /// Returns a usable place name from a Kartverket `navn[]` item, or
@@ -212,14 +274,9 @@ class KartverketLocationService extends LocationService {
       'nut',
       'pigg',
     };
-    // Protected areas — always phrased as "In X".
-    const areaKinds = {
-      'nasjonalpark',
-      'naturreservat',
-      'landskapsvernområde',
-      'naturminne',
-      'verneområde',
-    };
+    // (Protected areas / national parks come from Miljødirektoratet's
+    // Vern service, queried separately — Stedsnavn does not carry them
+    // as toponym types, so listing them here would be dead code.)
     // Water features.
     const waterKinds = {'innsjø', 'vann', 'elv', 'fjord', 'bekk', 'tjern'};
     // Settlements — what people call "their town".
@@ -257,12 +314,8 @@ class KartverketLocationService extends LocationService {
       return (2, LocationQualifier.closeTo);
     }
 
-    // Class 3 — containing area / national park. Kartverket reports a
-    // single representasjonspunkt for the whole polygon, often deep
-    // inside, so distance is uninformative; we just accept the match.
-    if (areaKinds.contains(kind)) {
-      return (3, LocationQualifier.inArea);
-    }
+    // (Class 3 — protected areas — comes from the Vern service, not
+    // Stedsnavn.)
 
     // Class 4 — wider periphery, useful in rural areas where Kartverket
     // mostly knows farms / cabins.
