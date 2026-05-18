@@ -34,29 +34,48 @@ class LocationButtonState extends ConsumerState<LocationButton>
     with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
-    final isFollowing = ref.watch(followModeProvider);
+    final followMode = ref.watch(followModeProvider);
     final colorScheme = Theme.of(context).colorScheme;
 
+    final IconData icon;
+    final Color iconColor;
+    switch (followMode) {
+      case FollowMode.active:
+        icon = Icons.my_location;
+        iconColor = colorScheme.onTertiaryContainer;
+      case FollowMode.paused:
+        icon = Icons.location_searching;
+        iconColor = colorScheme.primary;
+      case FollowMode.off:
+        icon = Icons.location_on;
+        iconColor = colorScheme.primary;
+    }
+
     return MapControlButtonBase(
-      onPressed: _panToCurrentLocation,
+      onPressed: _onTap,
       onLongPress: () => _showLocationSheet(context),
-      isActive: isFollowing,
-      child: Icon(
-        isFollowing ? Icons.my_location : Icons.location_on,
-        color: isFollowing
-            ? colorScheme.onTertiaryContainer
-            : colorScheme.primary,
-      ),
+      isActive: followMode == FollowMode.active,
+      child: Icon(icon, color: iconColor),
     );
   }
 
-  /// Tap behavior: pan once to the current fix. Does NOT enable follow —
-  /// that's an explicit toggle in the long-press sheet.
-  Future<void> _panToCurrentLocation() async {
+  /// Tap behavior:
+  ///   * If paused (was following, user dragged) — resume snapping and re-pan.
+  ///   * Otherwise — pan once to the current fix without touching state.
+  /// The explicit enable/disable toggle lives in the long-press sheet.
+  Future<void> _onTap() async {
     if (!kIsWeb && Platform.isLinux) {
       _showLinuxDialog();
       return;
     }
+    final wasPaused = ref.read(followModeProvider) == FollowMode.paused;
+    if (wasPaused) {
+      ref.read(followModeProvider.notifier).resume();
+    }
+    await _panToCurrentLocation();
+  }
+
+  Future<void> _panToCurrentLocation() async {
     final cached = ref.read(locationStateProvider).value;
     if (cached != null) {
       animatedMapMove(cached, 15, widget.mapController, this);
@@ -89,10 +108,14 @@ class LocationButtonState extends ConsumerState<LocationButton>
       builder: (BuildContext context) {
         return Consumer(
           builder: (context, ref, _) {
-            final isFollowing = ref.watch(followModeProvider);
+            final followMode = ref.watch(followModeProvider);
             final isRecording =
                 ref.watch(recordingNotifierProvider).isActive;
             final colorScheme = Theme.of(context).colorScheme;
+            // Paused counts as "on enough" for the switch — the user opted
+            // in. They can resume by tapping the location button or fully
+            // exit via this switch / the mode chip's close.
+            final switchOn = followMode.isOnOrPaused;
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -101,12 +124,17 @@ class LocationButtonState extends ConsumerState<LocationButton>
                   children: [
                     SwitchListTile(
                       secondary: Icon(
-                        isFollowing ? Icons.my_location : Icons.location_searching,
+                        followMode == FollowMode.active
+                            ? Icons.my_location
+                            : Icons.location_searching,
                       ),
                       title: const Text('Snap to my location'),
-                      subtitle: const Text(
-                          'Keeps the map centered on your position.'),
-                      value: isFollowing,
+                      subtitle: Text(
+                        followMode == FollowMode.paused
+                            ? 'Paused — tap the location button to resume.'
+                            : 'Keeps the map centered on your position.',
+                      ),
+                      value: switchOn,
                       onChanged: (next) {
                         if (next) {
                           ref.read(followModeProvider.notifier).enable();

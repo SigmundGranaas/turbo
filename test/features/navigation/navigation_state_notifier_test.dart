@@ -33,13 +33,13 @@ void main() {
       addTearDown(container.dispose);
 
       // Read followMode first so the notifier exists and we can observe it.
-      expect(container.read(followModeProvider), isFalse);
+      expect(container.read(followModeProvider), FollowMode.off);
 
       container
           .read(navigationStateProvider.notifier)
           .startNavigation(const LatLng(0, 0));
 
-      expect(container.read(followModeProvider), isTrue);
+      expect(container.read(followModeProvider), FollowMode.active);
     });
 
     test('stopNavigation returns to NavigationState.inactive', () {
@@ -63,10 +63,10 @@ void main() {
       final notifier = container.read(navigationStateProvider.notifier);
 
       notifier.startNavigation(const LatLng(1, 2));
-      expect(container.read(followModeProvider), isTrue);
+      expect(container.read(followModeProvider), FollowMode.active);
 
       notifier.stopNavigation();
-      expect(container.read(followModeProvider), isFalse);
+      expect(container.read(followModeProvider), FollowMode.off);
     });
 
     test('starting a second navigation replaces the target', () {

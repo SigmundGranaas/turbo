@@ -156,7 +156,10 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         event.source == MapEventSource.onMultiFinger ||
         event.source == MapEventSource.flingAnimationController) {
       if (event is MapEventWithMove || event is MapEventMoveStart) {
-        ref.read(followModeProvider.notifier).disable();
+        // Manual drag pauses follow rather than disabling it — the user's
+        // intent (snap-to-me) is preserved and a single tap on the location
+        // button resumes. The mode chip's close button still fully disables.
+        ref.read(followModeProvider.notifier).pause();
       }
     }
 
@@ -174,7 +177,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     // Follow mode: smoothly move map when location updates
     ref.listen<AsyncValue<LatLng?>>(locationStateProvider, (previous, next) {
       final position = next.value;
-      if (position != null && ref.read(followModeProvider)) {
+      if (position != null && ref.read(followModeProvider).isOn) {
         _smoothMoveTo(position);
       }
     });

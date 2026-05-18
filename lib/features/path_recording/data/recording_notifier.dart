@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:logging/logging.dart';
+import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/features/saved_paths/api.dart' show ElevationStats;
 import 'package:turbo/features/settings/api.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -62,6 +63,12 @@ class RecordingNotifier extends Notifier<RecordingState> {
     final keepScreenOn = settings?.keepScreenOnWhileRecording ?? true;
 
     if (keepScreenOn) await _enableWakelock();
+
+    // Starting a recording is the strongest possible "I want to see myself
+    // on the map" signal — engage snap mode so the map tracks the user. If
+    // they drag during the hike, follow goes to paused (per FollowModeNotifier);
+    // tapping the location button resumes.
+    ref.read(followModeProvider.notifier).enable();
 
     final source = ref.read(positionSourceProvider);
     _subscribe(source.stream(mode));
