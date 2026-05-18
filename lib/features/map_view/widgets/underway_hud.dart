@@ -28,19 +28,14 @@ class UnderwayHud extends ConsumerWidget {
     final compassHeading = ref.watch(compassStateProvider).value;
     final l10n = AppLocalizations.of(context);
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.only(top: AppSpacing.s),
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: _HudCard(
-            sog: snapshot?.speedMps,
-            cog: snapshot?.courseDeg,
-            hdg: compassHeading,
-            unit: unit,
-            l10n: l10n,
-          ),
-        ),
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.s),
+      child: _HudCard(
+        sog: snapshot?.speedMps,
+        cog: snapshot?.courseDeg,
+        hdg: compassHeading,
+        unit: unit,
+        l10n: l10n,
       ),
     );
   }

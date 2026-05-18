@@ -63,12 +63,13 @@ OfflineRegion _region(String id, {String name = 'Region'}) => OfflineRegion(
 
 void main() {
   group('TileRegistry initial state', () {
-    test('registers the five built-in providers synchronously', () {
+    test('registers the six built-in providers synchronously', () {
       final c = makeRegistryContainer();
       final state = c.container.read(tileRegistryProvider);
 
       expect(state.availableProviders.keys, {
         'topo',
+        'sjokart',
         'osm',
         'gs',
         'avalanche_danger',
@@ -76,6 +77,9 @@ void main() {
       });
       expect(
           state.availableProviders['topo']!.category,
+          TileProviderCategory.local);
+      expect(
+          state.availableProviders['sjokart']!.category,
           TileProviderCategory.local);
       expect(
           state.availableProviders['osm']!.category,

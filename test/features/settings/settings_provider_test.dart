@@ -200,6 +200,27 @@ void main() {
         final reloaded = await container2.read(settingsProvider.future);
         expect(reloaded.showUnderwayHud, isTrue);
       });
+
+      test('showWindStrip defaults to off and round-trips through prefs',
+          () async {
+        final container = createContainer({});
+        var state = await container.read(settingsProvider.future);
+        expect(state.showWindStrip, isFalse);
+
+        await container
+            .read(settingsProvider.notifier)
+            .setShowWindStrip(true);
+        state = container.read(settingsProvider).value!;
+        expect(state.showWindStrip, isTrue);
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool('showWindStrip'), isTrue);
+
+        final container2 = ProviderContainer();
+        addTearDown(container2.dispose);
+        final reloaded = await container2.read(settingsProvider.future);
+        expect(reloaded.showWindStrip, isTrue);
+      });
     });
 
     group('last path style memo', () {

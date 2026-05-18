@@ -9,6 +9,7 @@ import 'package:turbo/features/tile_providers/data/providers/norges_kart_topo.da
 import 'package:turbo/features/tile_providers/data/providers/offline_region_provider_config.dart';
 import 'package:turbo/features/tile_providers/data/providers/openseamap_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart';
+import 'package:turbo/features/tile_providers/data/providers/sjokart_raster.dart';
 import 'package:turbo/features/tile_providers/models/custom_tile_provider.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 import 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
@@ -25,6 +26,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
     // --- 1. Register built-in providers ---
     final builtInProviders = [
       NorgeskartTopoConfig(),
+      SjokartRasterConfig(),
       OsmConfig(),
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),

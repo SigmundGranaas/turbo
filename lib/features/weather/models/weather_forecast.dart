@@ -7,6 +7,11 @@ class AtmosphericPoint {
   final DateTime timeUtc;
   final double airTemperatureC;
   final double windSpeedMs;
+
+  /// Peak wind gust in m/s when MET reports one. Optional in the
+  /// locationforecast payload — small-boat users care about gusts more than
+  /// sustained wind, so we surface it explicitly.
+  final double? windGustMs;
   final double? windFromDeg;
   final double? humidity;
   final double? pressureHpa;
@@ -21,6 +26,7 @@ class AtmosphericPoint {
     required this.timeUtc,
     required this.airTemperatureC,
     required this.windSpeedMs,
+    this.windGustMs,
     required this.windFromDeg,
     required this.humidity,
     required this.pressureHpa,
@@ -59,6 +65,7 @@ class AtmosphericPoint {
       timeUtc: DateTime.parse(json['time'] as String).toUtc(),
       airTemperatureC: (instant['air_temperature'] as num).toDouble(),
       windSpeedMs: (instant['wind_speed'] as num).toDouble(),
+      windGustMs: _asDouble(instant['wind_speed_of_gust']),
       windFromDeg: _asDouble(instant['wind_from_direction']),
       humidity: _asDouble(instant['relative_humidity']),
       pressureHpa: _asDouble(instant['air_pressure_at_sea_level']),

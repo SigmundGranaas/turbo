@@ -97,6 +97,8 @@ class SettingsPage extends ConsumerWidget {
         const SizedBox(height: AppSpacing.s),
         _buildUnderwayHudToggle(context, ref, settings.showUnderwayHud, l10n),
         const SizedBox(height: AppSpacing.s),
+        _buildWindStripToggle(context, ref, settings.showWindStrip, l10n),
+        const SizedBox(height: AppSpacing.s),
         _buildIntSliderCard(
           context,
           ref,
@@ -219,6 +221,20 @@ class SettingsPage extends ConsumerWidget {
         value: value,
         onChanged: (v) =>
             ref.read(settingsProvider.notifier).setShowUnderwayHud(v),
+      ),
+    );
+  }
+
+  Widget _buildWindStripToggle(
+      BuildContext context, WidgetRef ref, bool value, AppLocalizations l10n) {
+    return AppGroupedCard(
+      child: SwitchListTile(
+        secondary: const Icon(Icons.air),
+        title: Text(l10n.showWindStrip),
+        subtitle: Text(l10n.windStripDescription),
+        value: value,
+        onChanged: (v) =>
+            ref.read(settingsProvider.notifier).setShowWindStrip(v),
       ),
     );
   }

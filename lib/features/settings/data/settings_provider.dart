@@ -73,6 +73,10 @@ class SettingsState {
   /// marine use.
   final bool showUnderwayHud;
 
+  /// When true, a compact wind/gust strip is shown at the top of the main
+  /// map for the current GPS position. Off by default.
+  final bool showWindStrip;
+
   const SettingsState({
     required this.themeMode,
     required this.locale,
@@ -96,6 +100,7 @@ class SettingsState {
     this.keepScreenOnWhileRecording = true,
     this.gpsAccuracyMode = GpsAccuracyMode.high,
     this.showUnderwayHud = false,
+    this.showWindStrip = false,
   });
 
   // Default initial state
@@ -130,6 +135,7 @@ class SettingsState {
     bool? keepScreenOnWhileRecording,
     GpsAccuracyMode? gpsAccuracyMode,
     bool? showUnderwayHud,
+    bool? showWindStrip,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -154,6 +160,7 @@ class SettingsState {
       keepScreenOnWhileRecording: keepScreenOnWhileRecording ?? this.keepScreenOnWhileRecording,
       gpsAccuracyMode: gpsAccuracyMode ?? this.gpsAccuracyMode,
       showUnderwayHud: showUnderwayHud ?? this.showUnderwayHud,
+      showWindStrip: showWindStrip ?? this.showWindStrip,
     );
   }
 }
@@ -185,6 +192,7 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _keepScreenOnWhileRecordingKey = 'keepScreenOnWhileRecording';
   static const _gpsAccuracyModeKey = 'gpsAccuracyMode';
   static const _showUnderwayHudKey = 'showUnderwayHud';
+  static const _showWindStripKey = 'showWindStrip';
 
   @override
   Future<SettingsState> build() async {
@@ -257,6 +265,7 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
       gpsAccuracyMode:
           GpsAccuracyMode.fromName(prefs.getString(_gpsAccuracyModeKey)),
       showUnderwayHud: prefs.getBool(_showUnderwayHudKey) ?? false,
+      showWindStrip: prefs.getBool(_showWindStripKey) ?? false,
     );
   }
 
@@ -266,6 +275,14 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     state = AsyncData(state.value!.copyWith(showUnderwayHud: value));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_showUnderwayHudKey, value);
+  }
+
+  /// Toggles the marine wind/gust strip at the top of the map.
+  Future<void> setShowWindStrip(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(showWindStrip: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showWindStripKey, value);
   }
 
   /// Toggles the keep-screen-on-while-recording preference.

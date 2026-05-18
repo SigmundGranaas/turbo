@@ -21,3 +21,4 @@ export 'data/weather_notifier.dart'
 export 'widgets/weather_summary_row.dart' show WeatherSummaryRow;
 export 'widgets/weather_detail_sheet.dart'
     show WeatherDetailSheet, showWeatherDetailSheet;
+export 'widgets/marine_wind_strip.dart' show MarineWindStrip;

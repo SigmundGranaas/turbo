@@ -152,6 +152,8 @@ abstract class AppLocalizations {
   String get layerDescriptionAvalanche;
   String get layerNameSeamarks;
   String get layerDescriptionSeamarks;
+  String get layerNameSjokart;
+  String get layerDescriptionSjokart;
 
   // Measuring Tool
   String get totalDistance;
@@ -212,6 +214,12 @@ abstract class AppLocalizations {
   String get hudLabelSog;
   String get hudLabelCog;
   String get hudLabelHdg;
+
+  // Marine wind strip
+  String get showWindStrip;
+  String get windStripDescription;
+  String get windStripGustLabel;
+  String get windStripNoData;
   String get maxConcurrentDownloads;
   String get maxConcurrentDownloadsDescription;
   String get markerCacheTtl;
@@ -524,6 +532,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get layerDescriptionAvalanche => 'Overlay of slope steepness and run-out zones';
   @override String get layerNameSeamarks => 'Seamarks (OpenSeaMap)';
   @override String get layerDescriptionSeamarks => 'Nautical overlay: buoys, lights, harbors, depths';
+  @override String get layerNameSjokart => 'Sjøkart (Kartverket)';
+  @override String get layerDescriptionSjokart => 'Norwegian nautical chart with depth contours and soundings';
 
   @override String get totalDistance => 'Total Distance';
   @override String get undoLastPoint => 'Undo Last Point';
@@ -576,6 +586,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get hudLabelSog => 'SOG';
   @override String get hudLabelCog => 'COG';
   @override String get hudLabelHdg => 'HDG';
+  @override String get showWindStrip => 'Wind & gust strip';
+  @override String get windStripDescription => 'Compact wind speed, direction, and 6-hour trend at the top of the map.';
+  @override String get windStripGustLabel => 'gust';
+  @override String get windStripNoData => 'No wind data for this location';
   @override String get maxConcurrentDownloads => 'Max parallel downloads';
   @override String get maxConcurrentDownloadsDescription => 'Higher values finish faster but stress the tile server.';
   @override String get markerCacheTtl => 'Marker cache lifetime';
@@ -877,6 +891,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get layerDescriptionAvalanche => 'Oversikt over bratthet og utløpssoner';
   @override String get layerNameSeamarks => 'Sjømerker (OpenSeaMap)';
   @override String get layerDescriptionSeamarks => 'Nautisk lag: bøyer, lykter, havner, dybder';
+  @override String get layerNameSjokart => 'Sjøkart (Kartverket)';
+  @override String get layerDescriptionSjokart => 'Norsk sjøkart med dybdekoter og loddskudd';
 
   @override String get totalDistance => 'Total distanse';
   @override String get undoLastPoint => 'Angre siste punkt';
@@ -926,6 +942,10 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get hudLabelSog => 'SOG';
   @override String get hudLabelCog => 'COG';
   @override String get hudLabelHdg => 'HDG';
+  @override String get showWindStrip => 'Vindstripe';
+  @override String get windStripDescription => 'Vindstyrke, retning og 6-timers trend øverst på kartet.';
+  @override String get windStripGustLabel => 'kast';
+  @override String get windStripNoData => 'Ingen vinddata for denne posisjonen';
   @override String get maxConcurrentDownloads => 'Maks parallelle nedlastinger';
   @override String get maxConcurrentDownloadsDescription => 'Høyere verdier går raskere, men belaster kartserveren mer.';
   @override String get markerCacheTtl => 'Markør-mellomlager';

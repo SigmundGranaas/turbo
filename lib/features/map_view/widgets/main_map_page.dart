@@ -18,6 +18,7 @@ import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/sharing/api.dart';
+import 'package:turbo/features/weather/api.dart' show MarineWindStrip;
 
 import 'package:turbo/core/location/compass_mode_state.dart';
 import 'package:turbo/core/location/compass_state.dart';
@@ -241,7 +242,15 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         top: 0,
         left: 0,
         right: 0,
-        child: UnderwayHud(),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MarineWindStrip(),
+              UnderwayHud(),
+            ],
+          ),
+        ),
       ),
       const Positioned(
         left: 0,
