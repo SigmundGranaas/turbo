@@ -14,14 +14,13 @@ class _Callbacks {
 }
 
 class _StubGeocoder extends KartverketLocationService {
-  _StubGeocoder({this.result})
+  _StubGeocoder({this.description})
       : super(client: http.Client());
-  final LocationSearchResult? result;
+  final LocationDescription? description;
 
   @override
-  Future<LocationSearchResult?> findLocationByCoord(LatLng coord,
-          {double radiusMeters = 500}) async =>
-      result;
+  Future<LocationDescription?> describeLocation(LatLng coord) async =>
+      description;
 }
 
 class _StubWeatherFetcher implements WeatherFetcher {
@@ -50,7 +49,7 @@ class _StubWeatherFetcher implements WeatherFetcher {
 Future<_Callbacks> _open(
   WidgetTester tester, {
   bool isNavigating = false,
-  LocationSearchResult? geocode,
+  LocationDescription? description,
 }) async {
   final cbs = _Callbacks();
   await pumpTestApp(
@@ -81,7 +80,7 @@ Future<_Callbacks> _open(
     ),
     overrides: [
       reverseGeocoderProvider
-          .overrideWithValue(_StubGeocoder(result: geocode)),
+          .overrideWithValue(_StubGeocoder(description: description)),
       weatherFetcherProvider.overrideWith((ref) => _StubWeatherFetcher()),
     ],
   );
@@ -92,12 +91,23 @@ Future<_Callbacks> _open(
 
 void main() {
   group('PinOptionsSheet', () {
-    testWidgets('shows the three action rows with localized labels',
+    testWidgets('shows the three action rows by default (no tabs)',
         (tester) async {
       await _open(tester);
       expect(find.text('Create New Marker Here'), findsOneWidget);
       expect(find.text('Measure Distance From Here'), findsOneWidget);
       expect(find.text('Navigate Here'), findsOneWidget);
+      // No Info/Weather tab bar.
+      expect(find.byKey(const Key('pin-tab-info')), findsNothing);
+      expect(find.byKey(const Key('pin-tab-weather')), findsNothing);
+    });
+
+    testWidgets('renders the weather summary surface that opens the forecast',
+        (tester) async {
+      await _open(tester);
+      // The weather summary widget is embedded as a button surface.
+      expect(find.byKey(const Key('pin-sheet-weather-surface')),
+          findsOneWidget);
     });
 
     testWidgets('when navigation is active, the third row reads "Stop"',
@@ -120,43 +130,42 @@ void main() {
       expect(find.byType(PinOptionsSheet), findsNothing);
     });
 
-    testWidgets('header shows resolved place name', (tester) async {
+    testWidgets('header shows resolved title with qualifier prefix',
+        (tester) async {
       await _open(
         tester,
-        geocode: LocationSearchResult(
-          title: 'Bryggen',
-          description: 'tettsted, Bergen',
-          position: const LatLng(60.39, 5.32),
-          source: 'kartverket',
+        description: const LocationDescription(
+          title: 'Galdhøpiggen',
+          qualifier: LocationQualifier.on,
+          secondary: 'Lom, Innlandet',
+          distanceMeters: 24,
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Bryggen'), findsOneWidget);
+      // English locale → "On Galdhøpiggen"
+      expect(find.text('On Galdhøpiggen'), findsOneWidget);
     });
 
-    testWidgets('create marker passes resolved name as prefill',
+    testWidgets('header falls back to a friendly "Selected location" label '
+        'when reverse-geo returns null', (tester) async {
+      await _open(tester);
+      // Header never reads "Unknown" — either resolving or selected-location.
+      expect(find.text('Selected location'), findsOneWidget);
+    });
+
+    testWidgets('create marker passes resolved title as prefill',
         (tester) async {
       final cbs = await _open(
         tester,
-        geocode: LocationSearchResult(
+        description: const LocationDescription(
           title: 'Bryggen',
-          position: const LatLng(60.39, 5.32),
-          source: 'kartverket',
+          qualifier: LocationQualifier.inArea,
         ),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Create New Marker Here'));
       await tester.pumpAndSettle();
       expect(cbs.lastCreatePrefill, 'Bryggen');
-    });
-
-    testWidgets('tapping Weather tab swaps in the embedded weather body',
-        (tester) async {
-      await _open(tester);
-      await tester.tap(find.byKey(const Key('pin-tab-weather')));
-      await tester.pumpAndSettle();
-      // After switching tabs the info-body list is no longer mounted.
-      expect(find.text('Create New Marker Here'), findsNothing);
     });
 
     testWidgets('tapping Measure pops sheet and fires onMeasure',

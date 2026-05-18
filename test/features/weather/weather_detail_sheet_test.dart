@@ -178,14 +178,42 @@ void main() {
       expect(find.textContaining('1.2 m'), findsWidgets);
     });
 
-    testWidgets('Ocean pill also appears when only tide data is available',
-        (tester) async {
+    testWidgets('Ocean pill is hidden when only tide data is present '
+        '(no marine waves)', (tester) async {
       final stamps = _hoursOver3Days();
       final tideTime = stamps.first.add(const Duration(hours: 6));
       await _openSheet(
         tester,
         supply: () => _forecast(
           atm: [for (final t in stamps) _atm(t)],
+          // no marine data
+        ),
+        tide: () => TideForecast(
+          stationName: 'Bergen',
+          extrema: [
+            TideExtremum(
+                timeUtc: tideTime, levelCm: 95, kind: TideKind.high),
+          ],
+          fetchedAt: DateTime.now().toUtc(),
+          expiresAt:
+              DateTime.now().toUtc().add(const Duration(hours: 6)),
+        ),
+      );
+
+      // Without marine waves the ocean tab itself shouldn't appear, even
+      // if Kartverket has a nearby tide station.
+      expect(find.byKey(const Key('preset-chip-ocean')), findsNothing);
+    });
+
+    testWidgets('tide table shows up inside the Ocean tab when both marine '
+        'and tide data are present', (tester) async {
+      final stamps = _hoursOver3Days();
+      final tideTime = stamps.first.add(const Duration(hours: 6));
+      await _openSheet(
+        tester,
+        supply: () => _forecast(
+          atm: [for (final t in stamps) _atm(t)],
+          marine: [for (final t in stamps) _marine(t)],
         ),
         tide: () => TideForecast(
           stationName: 'Bergen',
@@ -206,7 +234,6 @@ void main() {
       expect(find.byKey(const Key('preset-chip-ocean')), findsOneWidget);
       await tester.tap(find.byKey(const Key('preset-chip-ocean')));
       await tester.pumpAndSettle();
-      // Tide card title shows up.
       expect(find.text('Tide'), findsOneWidget);
       expect(find.text('High'), findsOneWidget);
       expect(find.text('Low'), findsOneWidget);

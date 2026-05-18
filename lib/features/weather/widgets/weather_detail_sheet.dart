@@ -197,7 +197,10 @@ class _EmbeddedWeatherBodyState extends ConsumerState<EmbeddedWeatherBody>
 
   List<_Preset> _availablePresets(WeatherForecast f, TideForecast? tide) => [
         _Preset.weather,
-        if (f.hasMarineData || tide != null) _Preset.ocean,
+        // Ocean tab requires actual marine (waves / sea temp) data. Tide
+        // alone — which Kartverket can return for marginal inland coords
+        // near a station — isn't enough to justify the tab.
+        if (f.hasMarineData) _Preset.ocean,
       ];
 }
 

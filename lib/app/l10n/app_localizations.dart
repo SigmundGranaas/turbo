@@ -391,6 +391,11 @@ abstract class AppLocalizations {
   String get pinSheetTabWeather;
   String get pinSheetSelectedLocation;
   String get pinSheetResolving;
+  String get locationOn;
+  String get locationCloseTo;
+  String get locationAt;
+  String get locationIn;
+  String get locationNear;
 }
 
 // English translations
@@ -746,6 +751,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get pinSheetTabWeather => 'Weather';
   @override String get pinSheetSelectedLocation => 'Selected location';
   @override String get pinSheetResolving => 'Looking up place…';
+  @override String get locationOn => 'On';
+  @override String get locationCloseTo => 'Close to';
+  @override String get locationAt => 'At';
+  @override String get locationIn => 'In';
+  @override String get locationNear => 'Near';
 }
 
 // Norwegian translations
@@ -1098,6 +1108,11 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get pinSheetTabWeather => 'Vær';
   @override String get pinSheetSelectedLocation => 'Valgt punkt';
   @override String get pinSheetResolving => 'Slår opp stedsnavn…';
+  @override String get locationOn => 'På';
+  @override String get locationCloseTo => 'Nær';
+  @override String get locationAt => 'Ved';
+  @override String get locationIn => 'I';
+  @override String get locationNear => 'I nærheten av';
 }
 
 // The delegate

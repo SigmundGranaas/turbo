@@ -4,22 +4,24 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/app/tokens.dart';
-import 'package:turbo/core/widgets/app_selection_pill.dart';
+import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/weather/api.dart';
 
-/// Tabbed action sheet shown when the user long-presses the map.
+/// Action sheet shown when the user long-presses the map.
 ///
 /// Layout:
 ///   • Drag handle
-///   • Place-info header (reverse-geocoded name + coords + close button)
-///   • Two pills: Info | Weather
-///   • Body: either the three action rows or an embedded weather forecast.
+///   • Place-info header — reverse-geocoded title (peak / area / kommune)
+///     with a "On / Close to / In" qualifier, then coordinates.
+///   • Three action rows (create marker / measure / navigate)
+///   • Weather summary surface — same widget the marker info sheet uses,
+///     tapping opens the full forecast.
 ///
-/// The reverse-geocoded name is also surfaced to the parent via
-/// [onCreateMarker] as a pre-filled name; the sheet itself owns the
-/// lookup so the [MainMapPage] doesn't have to thread a `Future` through
-/// to `CreateLocationSheet` any more.
+/// The sheet itself owns the reverse-geocode lookup so the [MainMapPage]
+/// doesn't need to thread a `Future` through to [CreateLocationSheet];
+/// the resolved title is also passed back through [onCreateMarker] as
+/// the new-marker name prefill.
 class PinOptionsSheet extends ConsumerStatefulWidget {
   final LatLng point;
   final bool isNavigating;
@@ -42,26 +44,32 @@ class PinOptionsSheet extends ConsumerStatefulWidget {
   ConsumerState<PinOptionsSheet> createState() => _PinOptionsSheetState();
 }
 
-enum _PinTab { info, weather }
-
 class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
-  _PinTab _tab = _PinTab.info;
-  late final Future<LocationSearchResult?> _reverseGeo;
-  LocationSearchResult? _resolvedName;
+  late final Future<LocationDescription?> _descriptionFuture;
+  LocationDescription? _description;
+  bool _resolving = true;
 
   @override
   void initState() {
     super.initState();
-    _reverseGeo =
-        ref.read(reverseGeocoderProvider).findLocationByCoord(widget.point);
-    _reverseGeo.then((value) {
+    _descriptionFuture = ref
+        .read(reverseGeocoderProvider)
+        .describeLocation(widget.point);
+    _descriptionFuture.then((value) {
       if (!mounted) return;
-      setState(() => _resolvedName = value);
+      setState(() {
+        _description = value;
+        _resolving = false;
+      });
+    }).catchError((_) {
+      if (!mounted) return;
+      setState(() => _resolving = false);
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return DraggableScrollableSheet(
       initialChildSize: 0.55,
       minChildSize: 0.4,
@@ -75,47 +83,58 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
               top: Radius.circular(AppRadius.xl),
             ),
           ),
-          child: Column(
+          child: ListView(
+            controller: scrollController,
+            padding: EdgeInsets.zero,
             children: [
               const _DragHandle(),
               _PlaceInfoHeader(
                 point: widget.point,
-                resolved: _resolvedName,
-                resolving: _resolvedName == null,
+                description: _description,
+                resolving: _resolving,
               ),
               const SizedBox(height: AppSpacing.s),
-              _PinTabBar(
-                selected: _tab,
-                onSelect: (t) => setState(() => _tab = t),
-              ),
-              const SizedBox(height: AppSpacing.s),
-              Expanded(
-                child: switch (_tab) {
-                  _PinTab.info => _InfoBody(
-                      scrollController: scrollController,
-                      isNavigating: widget.isNavigating,
-                      onCreateMarker: () {
-                        Navigator.pop(context);
-                        widget.onCreateMarker(_resolvedName?.title);
-                      },
-                      onMeasure: () {
-                        Navigator.pop(context);
-                        widget.onMeasure();
-                      },
-                      onNavigate: () {
-                        Navigator.pop(context);
-                        if (widget.isNavigating) {
-                          widget.onStopNavigation();
-                        } else {
-                          widget.onNavigate();
-                        }
-                      },
-                    ),
-                  _PinTab.weather => EmbeddedWeatherBody(
-                      position: widget.point,
-                      scrollController: scrollController,
-                    ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.add_location_alt_outlined),
+                title: Text(l10n.createNewMarkerHere),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onCreateMarker(_description?.title);
                 },
+              ),
+              ListTile(
+                leading: const Icon(Icons.straighten),
+                title: Text(l10n.measureDistanceFromHere),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onMeasure();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.navigation_outlined),
+                title: Text(widget.isNavigating
+                    ? l10n.stopNavigation
+                    : l10n.navigateToHere),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (widget.isNavigating) {
+                    widget.onStopNavigation();
+                  } else {
+                    widget.onNavigate();
+                  }
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.l, AppSpacing.s, AppSpacing.l, AppSpacing.l),
+                child: WeatherSummaryRow(
+                  key: const Key('pin-sheet-weather-surface'),
+                  marker: marker_model.Marker(
+                    title: _description?.title ?? l10n.pinSheetSelectedLocation,
+                    position: widget.point,
+                  ),
+                ),
               ),
             ],
           ),
@@ -149,12 +168,12 @@ class _DragHandle extends StatelessWidget {
 
 class _PlaceInfoHeader extends StatelessWidget {
   final LatLng point;
-  final LocationSearchResult? resolved;
+  final LocationDescription? description;
   final bool resolving;
 
   const _PlaceInfoHeader({
     required this.point,
-    required this.resolved,
+    required this.description,
     required this.resolving,
   });
 
@@ -163,13 +182,8 @@ class _PlaceInfoHeader extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
     final l10n = context.l10n;
-    final title =
-        resolved?.title ?? (resolving ? l10n.pinSheetResolving : l10n.pinSheetSelectedLocation);
-    final subtitleParts = <String>[
-      if (resolved?.description != null && resolved!.description!.isNotEmpty)
-        resolved!.description!,
-      _formatCoord(point),
-    ];
+    final title = _resolveTitle(l10n);
+    final subtitle = _resolveSubtitle(l10n);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.l, AppSpacing.xs, AppSpacing.s, AppSpacing.xs),
@@ -189,7 +203,7 @@ class _PlaceInfoHeader extends StatelessWidget {
                   maxLines: 1,
                 ),
                 Text(
-                  subtitleParts.join(' · '),
+                  subtitle,
                   style: textTheme.bodySmall
                       ?.copyWith(color: colorScheme.onSurfaceVariant),
                   overflow: TextOverflow.ellipsis,
@@ -208,85 +222,38 @@ class _PlaceInfoHeader extends StatelessWidget {
     );
   }
 
+  String _resolveTitle(AppLocalizations l10n) {
+    final d = description;
+    if (d == null) {
+      return resolving ? l10n.pinSheetResolving : l10n.pinSheetSelectedLocation;
+    }
+    final prefix = _qualifierLabel(l10n, d.qualifier);
+    return prefix == null ? d.title : '$prefix ${d.title}';
+  }
+
+  String _resolveSubtitle(AppLocalizations l10n) {
+    final parts = <String>[
+      if (description?.secondary != null &&
+          description!.secondary!.isNotEmpty)
+        description!.secondary!,
+      _formatCoord(point),
+    ];
+    return parts.join(' · ');
+  }
+
   static String _formatCoord(LatLng p) {
     return '${p.latitude.toStringAsFixed(5)}, ${p.longitude.toStringAsFixed(5)}';
   }
-}
 
-class _PinTabBar extends StatelessWidget {
-  final _PinTab selected;
-  final ValueChanged<_PinTab> onSelect;
-  const _PinTabBar({required this.selected, required this.onSelect});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
-      child: Row(
-        children: [
-          AppSelectionPill(
-            key: const Key('pin-tab-info'),
-            selected: selected == _PinTab.info,
-            onTap: () => onSelect(_PinTab.info),
-            leadingIcon: Icons.list_alt_outlined,
-            child: Text(l10n.pinSheetTabInfo),
-          ),
-          const SizedBox(width: AppSpacing.s),
-          AppSelectionPill(
-            key: const Key('pin-tab-weather'),
-            selected: selected == _PinTab.weather,
-            onTap: () => onSelect(_PinTab.weather),
-            leadingIcon: Icons.wb_sunny_outlined,
-            child: Text(l10n.pinSheetTabWeather),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoBody extends StatelessWidget {
-  final ScrollController scrollController;
-  final bool isNavigating;
-  final VoidCallback onCreateMarker;
-  final VoidCallback onMeasure;
-  final VoidCallback onNavigate;
-
-  const _InfoBody({
-    required this.scrollController,
-    required this.isNavigating,
-    required this.onCreateMarker,
-    required this.onMeasure,
-    required this.onNavigate,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return ListView(
-      key: const Key('pin-info-body'),
-      controller: scrollController,
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s),
-      children: [
-        ListTile(
-          leading: const Icon(Icons.add_location_alt_outlined),
-          title: Text(l10n.createNewMarkerHere),
-          onTap: onCreateMarker,
-        ),
-        ListTile(
-          leading: const Icon(Icons.straighten),
-          title: Text(l10n.measureDistanceFromHere),
-          onTap: onMeasure,
-        ),
-        ListTile(
-          leading: const Icon(Icons.navigation_outlined),
-          title: Text(isNavigating
-              ? l10n.stopNavigation
-              : l10n.navigateToHere),
-          onTap: onNavigate,
-        ),
-      ],
-    );
+  static String? _qualifierLabel(
+      AppLocalizations l10n, LocationQualifier? q) {
+    return switch (q) {
+      LocationQualifier.on => l10n.locationOn,
+      LocationQualifier.closeTo => l10n.locationCloseTo,
+      LocationQualifier.atPlace => l10n.locationAt,
+      LocationQualifier.inArea => l10n.locationIn,
+      LocationQualifier.near => l10n.locationNear,
+      null => null,
+    };
   }
 }

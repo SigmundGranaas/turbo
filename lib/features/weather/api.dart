@@ -28,7 +28,4 @@ export 'data/tide_notifier.dart'
         TideForecastNotifier;
 export 'widgets/weather_summary_row.dart' show WeatherSummaryRow;
 export 'widgets/weather_detail_sheet.dart'
-    show
-        WeatherDetailSheet,
-        showWeatherDetailSheet,
-        EmbeddedWeatherBody;
+    show WeatherDetailSheet, showWeatherDetailSheet;
