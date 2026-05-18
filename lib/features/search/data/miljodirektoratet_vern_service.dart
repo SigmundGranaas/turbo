@@ -3,12 +3,16 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
+import 'package:turbo/core/util/user_agent.dart';
+
 /// One protected-area hit at a coordinate.
 class ProtectedArea {
   /// e.g. "Saltfjellet–Svartisen nasjonalpark".
   final String name;
 
-  /// e.g. "Nasjonalpark", "Naturreservat", "Landskapsvernområde".
+  /// Protection class — `verneform` from the ArcGIS attributes when
+  /// present (the canonical enumeration: "Nasjonalpark", "Naturreservat",
+  /// "Landskapsvernområde"), falling back to the ArcGIS `layerName`.
   final String kind;
 
   const ProtectedArea({required this.name, required this.kind});
@@ -56,7 +60,11 @@ class MiljodirektoratetVernService {
         'geometryType': 'esriGeometryPoint',
         'sr': '4326',
         'tolerance': '1',
-        'layers': 'all',
+        // Layer 1 is the protection-class-split polygons (Nasjonalpark,
+        // Naturreservat, Landskapsvernområde). The unscoped `all` also
+        // returned boundary lines (layer 3) and *proposed* areas
+        // (layers 4–5), causing false / duplicate hits.
+        'layers': 'all:1',
         'mapExtent': jsonEncode(extent),
         'imageDisplay': '400,400,96',
         'returnGeometry': 'false',
@@ -65,6 +73,7 @@ class MiljodirektoratetVernService {
 
       final response = await _client.get(uri, headers: const {
         'Accept': 'application/json',
+        'User-Agent': kTurboUserAgent,
       });
       if (response.statusCode != 200) return const [];
       final json = jsonDecode(utf8.decode(response.bodyBytes))
@@ -72,11 +81,11 @@ class MiljodirektoratetVernService {
       final results = (json['results'] as List?) ?? const [];
       final areas = <ProtectedArea>[];
       for (final r in results.whereType<Map<String, dynamic>>()) {
-        final layerName = (r['layerName'] as String?)?.trim() ?? '';
-        if (layerName.isEmpty) continue;
         final name = _readName(r);
         if (name == null) continue;
-        areas.add(ProtectedArea(name: name, kind: layerName));
+        final kind = _readKind(r);
+        if (kind == null) continue;
+        areas.add(ProtectedArea(name: name, kind: kind));
       }
       return areas;
     } catch (_) {
@@ -94,12 +103,39 @@ class MiljodirektoratetVernService {
     }
     final attrs = result['attributes'] as Map<String, dynamic>?;
     if (attrs == null) return null;
-    for (final key in const ['navn', 'Navn', 'NAVN', 'områdenavn', 'OMRÅDENAVN', 'NAME']) {
+    for (final key in const [
+      'navn',
+      'Navn',
+      'NAVN',
+      'områdenavn',
+      'OMRÅDENAVN',
+      'omradenavn',
+      'NAME',
+    ]) {
       final v = attrs[key];
       if (v is String && v.trim().isNotEmpty && v != 'Null') {
         return v.trim();
       }
     }
     return null;
+  }
+
+  /// `verneform` carries Naturbase's canonical protection-class label
+  /// ("Nasjonalpark", "Naturreservat", "Landskapsvernområde", …). Falls
+  /// back to the ArcGIS `layerName` only when `verneform` is missing —
+  /// the latter is presentation-layer text and can drift independently
+  /// of the data.
+  static String? _readKind(Map<String, dynamic> result) {
+    final attrs = result['attributes'] as Map<String, dynamic>?;
+    if (attrs != null) {
+      for (final key in const ['verneform', 'Verneform', 'VERNEFORM']) {
+        final v = attrs[key];
+        if (v is String && v.trim().isNotEmpty && v != 'Null') {
+          return v.trim();
+        }
+      }
+    }
+    final layerName = (result['layerName'] as String?)?.trim() ?? '';
+    return layerName.isEmpty ? null : layerName;
   }
 }

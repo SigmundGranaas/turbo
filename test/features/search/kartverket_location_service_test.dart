@@ -644,5 +644,123 @@ void main() {
       final d = await service.describeLocation(const LatLng(51.5, -0.1));
       expect(d, isNull);
     });
+
+    /// Phase A — API-hygiene contract regressions.
+    /// Every outbound Geonorge / Miljødirektoratet request must carry
+    /// the `User-Agent` header and the Stedsnavn / Vern queries must
+    /// include the params we added to reduce noise (`navnestatus=hovednavn`,
+    /// `filtrer`, `layers=all:1`).
+
+    test('Stedsnavn punkt query includes navnestatus=hovednavn and a '
+        'sparse fieldset filtrer', () async {
+      Uri? capturedPunkt;
+      final client = MockClient((req) async {
+        if (req.url.host == 'ws.geonorge.no' &&
+            req.url.path == '/stedsnavn/v1/punkt') {
+          capturedPunkt = req.url;
+        }
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final service = KartverketLocationService(client: client);
+
+      await service.describeLocation(const LatLng(60.0, 10.0));
+
+      expect(capturedPunkt, isNotNull,
+          reason: 'describeLocation must hit /stedsnavn/v1/punkt');
+      expect(capturedPunkt!.queryParameters['navnestatus'], 'hovednavn');
+      final filtrer = capturedPunkt!.queryParameters['filtrer'] ?? '';
+      expect(filtrer, contains('navn.skrivemåte'));
+      expect(filtrer, contains('navn.navneobjekttype'));
+      expect(filtrer, contains('navn.representasjonspunkt'));
+    });
+
+    test('Vern identify call uses layers=all:1 (only the class-split '
+        'polygons), not the unscoped "all"', () async {
+      Uri? capturedVern;
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no') {
+          capturedVern = req.url;
+        }
+        return http.Response(jsonEncode({'results': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final service = KartverketLocationService(client: client);
+
+      await service.describeLocation(const LatLng(66.65, 14.35));
+
+      expect(capturedVern, isNotNull);
+      expect(capturedVern!.queryParameters['layers'], 'all:1');
+    });
+
+    test('Vern result prefers attributes[verneform] over layerName for '
+        'the protection-class label', () async {
+      const tap = LatLng(66.6500, 14.3500);
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no') {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {
+                  // layerName is a presentation-layer string ("klasse 1");
+                  // verneform is the canonical data label and must win.
+                  'layerName': 'naturvern_klasser_omrade.1',
+                  'value': 'Junkerdal nasjonalpark',
+                  'attributes': {
+                    'navn': 'Junkerdal nasjonalpark',
+                    'verneform': 'Nasjonalpark',
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final service = KartverketLocationService(client: client);
+
+      final d = await service.describeLocation(tap);
+      expect(d!.title, 'Junkerdal nasjonalpark');
+      // Subtitle (secondary) carries the canonical kind from verneform.
+      expect(d.secondary, 'Nasjonalpark');
+    });
+
+    test('every outbound request to Geonorge / Miljødirektoratet carries '
+        'the kTurboUserAgent header', () async {
+      final seenHosts = <String, String?>{};
+      final client = MockClient((req) async {
+        seenHosts[req.url.host] = req.headers['User-Agent'] ??
+            req.headers['user-agent'];
+        if (req.url.path.startsWith('/kommuneinfo')) {
+          return http.Response(
+              jsonEncode({'kommunenavn': 'Lom', 'fylkesnavn': 'Innlandet'}),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        if (req.url.host == 'kart.miljodirektoratet.no') {
+          return http.Response(jsonEncode({'results': []}), 200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final service = KartverketLocationService(client: client);
+      await service.describeLocation(const LatLng(60.0, 10.0));
+
+      // Stedsnavn, Vern, and Kommune should all have been hit.
+      expect(seenHosts.keys, containsAll(<String>[
+        'ws.geonorge.no',
+        'kart.miljodirektoratet.no',
+      ]));
+      for (final entry in seenHosts.entries) {
+        expect(entry.value, isNotNull,
+            reason: '${entry.key} request must carry User-Agent');
+        expect(entry.value, contains('turbo'),
+            reason: '${entry.key} UA must identify the app');
+      }
+    });
   });
 }

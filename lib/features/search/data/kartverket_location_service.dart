@@ -1,8 +1,17 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/util/user_agent.dart';
 import 'location_service.dart';
 import 'miljodirektoratet_vern_service.dart';
+
+/// Headers sent on every outgoing Geonorge / Miljødirektoratet request.
+/// Geonorge's terms ask clients to identify themselves; without a UA
+/// header you risk being throttled or blocked as traffic scales.
+const Map<String, String> _kGeoHeaders = {
+  'Accept': 'application/json',
+  'User-Agent': kTurboUserAgent,
+};
 
 class KartverketLocationService extends LocationService {
   static const String baseUrl = 'https://ws.geonorge.no/stedsnavn/v1/navn';
@@ -31,7 +40,7 @@ class KartverketLocationService extends LocationService {
       final encodedName = Uri.encodeComponent(name);
       final uri = Uri.parse('$baseUrl?sok=$encodedName*&fuzzy=true&treffPerSide=10');
 
-      final response = await _client.get(uri);
+      final response = await _client.get(uri, headers: _kGeoHeaders);
 
       if (response.statusCode == 200) {
         // Kartverket API returns UTF-8, but sometimes the http package needs help decoding.
@@ -63,7 +72,7 @@ class KartverketLocationService extends LocationService {
       final uri = Uri.parse('$pointUrl'
           '?nord=${coord.latitude}&ost=${coord.longitude}'
           '&koordsys=4258&radius=${radiusMeters.toInt()}&treffPerSide=1');
-      final response = await _client.get(uri);
+      final response = await _client.get(uri, headers: _kGeoHeaders);
       if (response.statusCode != 200) return null;
       final decoded = utf8.decode(response.bodyBytes);
       final json = jsonDecode(decoded) as Map<String, dynamic>;
@@ -120,10 +129,22 @@ class KartverketLocationService extends LocationService {
   /// outright vs. defer to a protected-area match.
   Future<(LocationDescription, int?)?> _fetchStedsnavn(LatLng coord) async {
     try {
-      final uri = Uri.parse('$pointUrl'
-          '?nord=${coord.latitude}&ost=${coord.longitude}'
-          '&koordsys=4258&radius=2000&treffPerSide=25');
-      final response = await _client.get(uri);
+      // `navnestatus=hovednavn` drops historic / secondary / disused
+      // spellings, which is the entire source of the "Close to Unknown"
+      // class of noise we used to surface. `filtrer` is the sparse
+      // fieldset — request only the fields the picker actually reads,
+      // ~60% smaller payload.
+      final uri = Uri.https('ws.geonorge.no', '/stedsnavn/v1/punkt', {
+        'nord': coord.latitude.toString(),
+        'ost': coord.longitude.toString(),
+        'koordsys': '4258',
+        'radius': '2000',
+        'treffPerSide': '25',
+        'navnestatus': 'hovednavn',
+        'filtrer': 'navn.skrivemåte,navn.navneobjekttype,'
+            'navn.representasjonspunkt,navn.kommuner,navn.fylker,navn.språk',
+      });
+      final response = await _client.get(uri, headers: _kGeoHeaders);
       if (response.statusCode != 200) return null;
       final decoded = utf8.decode(response.bodyBytes);
       final json = jsonDecode(decoded) as Map<String, dynamic>;
@@ -349,7 +370,7 @@ class KartverketLocationService extends LocationService {
       final uri = Uri.parse('$kommuneUrl'
           '?nord=${coord.latitude}&ost=${coord.longitude}'
           '&koordsys=4258');
-      final response = await _client.get(uri);
+      final response = await _client.get(uri, headers: _kGeoHeaders);
       if (response.statusCode != 200) return null;
       final decoded = utf8.decode(response.bodyBytes);
       final json = jsonDecode(decoded) as Map<String, dynamic>;
