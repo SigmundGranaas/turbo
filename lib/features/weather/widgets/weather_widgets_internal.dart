@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -59,25 +61,60 @@ class WeatherChip extends StatelessWidget {
   }
 }
 
-/// 8-point compass label from a "from" bearing.
-String compassDir(double deg) {
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  final idx = ((deg % 360) / 45).round() % 8;
-  return dirs[idx];
-}
+/// Rotated arrow pointing in the direction the wind is *going* (downstream).
+/// MET reports `fromDeg` as the bearing wind is coming from — the arrow head
+/// is therefore rotated `fromDeg + 180°` from north. `null` direction renders
+/// a centered dot so the row layout stays stable.
+class WindArrow extends StatelessWidget {
+  final double? fromDeg;
+  final double size;
+  final Color? color;
+  const WindArrow({
+    super.key,
+    required this.fromDeg,
+    this.size = 18,
+    this.color,
+  });
 
-String formatWind(AtmosphericPoint p) {
-  final dir = p.windFromDeg == null ? '' : ' ${compassDir(p.windFromDeg!)}';
-  return '${p.windSpeedMs.toStringAsFixed(1)} m/s$dir';
-}
-
-/// Short, single-line headline for the now-cast — used by the in-sheet summary
-/// row. Wind always shown; precipitation appended when measurable.
-String nowcastSummary(AtmosphericPoint p) {
-  final wind = formatWind(p);
-  final precip = p.precipitation1hMm;
-  if (precip != null && precip > 0) {
-    return '$wind  ·  ${precip.toStringAsFixed(1)} mm/h';
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? Theme.of(context).colorScheme.primary;
+    final from = fromDeg;
+    if (from == null) {
+      return Icon(Icons.circle, size: size * 0.4, color: c);
+    }
+    final goingRad = ((from + 180) % 360) * math.pi / 180;
+    return Transform.rotate(
+      angle: goingRad,
+      child: Icon(Icons.navigation, size: size, color: c),
+    );
   }
-  return wind;
+}
+
+/// Compact wind readout: arrow + "N m/s". Used on the right side of the
+/// summary row and in detail-page hour rows.
+class WindReadout extends StatelessWidget {
+  final AtmosphericPoint point;
+  final double arrowSize;
+  final TextStyle? textStyle;
+  const WindReadout({
+    super.key,
+    required this.point,
+    this.arrowSize = 16,
+    this.textStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style =
+        textStyle ?? Theme.of(context).textTheme.bodyMedium;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        WindArrow(fromDeg: point.windFromDeg, size: arrowSize),
+        const SizedBox(width: 4),
+        Text('${point.windSpeedMs.toStringAsFixed(1)} m/s', style: style),
+      ],
+    );
+  }
 }

@@ -84,7 +84,8 @@ Future<void> _pump(
 
 void main() {
   group('WeatherSummaryRow', () {
-    testWidgets('data state shows symbol, temperature, summary, chevron',
+    testWidgets(
+        'data state: symbol on left, temp, wind arrow + speed on right, chevron',
         (tester) async {
       final base = DateTime.now().toUtc();
       await _pump(
@@ -95,15 +96,18 @@ void main() {
       );
       expect(find.byKey(const Key('weather-summary-row')), findsOneWidget);
       expect(find.text('14°'), findsOneWidget);
-      // Wind summary line includes "m/s" and the compass.
-      expect(find.textContaining('3.0 m/s'), findsOneWidget);
+      // Right-aligned wind: arrow icon + speed text.
+      expect(find.byIcon(Icons.navigation), findsOneWidget);
+      expect(find.text('3.0 m/s'), findsOneWidget);
+      // No compass cardinal text anymore.
+      expect(find.textContaining('m/s S'), findsNothing);
       expect(find.byIcon(Icons.chevron_right), findsOneWidget);
-      // SVG resolved for the known symbol.
       expect(find.byKey(const Key('weather-symbol-clearsky_day')),
           findsOneWidget);
     });
 
-    testWidgets('tapping the row pushes the detail page', (tester) async {
+    testWidgets('tapping the row opens the detail bottom sheet',
+        (tester) async {
       final base = DateTime.now().toUtc();
       await _pump(
         tester,
@@ -117,10 +121,10 @@ void main() {
       await tester.tap(find.byKey(const Key('weather-summary-row')));
       await tester.pumpAndSettle();
 
-      // Detail page header text & first now-cast card render.
-      expect(find.byKey(const Key('weather-detail-nowcast')), findsOneWidget);
-      expect(find.text('Next 24 hours'), findsOneWidget);
-      expect(find.text('Next 9 days'), findsOneWidget);
+      // Sheet's day strip + preset tabs render.
+      expect(find.byKey(const Key('weather-detail-day-strip')), findsOneWidget);
+      expect(find.byKey(const Key('weather-detail-preset-tabs')),
+          findsOneWidget);
     });
 
     testWidgets('error state shows retry; tapping triggers refresh',

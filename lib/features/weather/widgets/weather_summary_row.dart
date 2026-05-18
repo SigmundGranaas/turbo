@@ -53,11 +53,7 @@ class _DataRow extends StatelessWidget {
       child: InkWell(
         key: const Key('weather-summary-row'),
         borderRadius: BorderRadius.circular(12),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => WeatherDetailPage(marker: marker),
-          ),
-        ),
+        onTap: () => showWeatherDetailSheet(context, marker),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
@@ -71,15 +67,15 @@ class _DataRow extends StatelessWidget {
                   color: colorScheme.onSurface,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  nowcastSummary(point),
-                  overflow: TextOverflow.ellipsis,
-                  style: textTheme.bodyMedium
-                      ?.copyWith(color: colorScheme.onSurfaceVariant),
+              const Spacer(),
+              WindReadout(
+                point: point,
+                arrowSize: 18,
+                textStyle: textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ),
+              const SizedBox(width: 8),
               Icon(
                 Icons.chevron_right,
                 color: colorScheme.onSurfaceVariant,

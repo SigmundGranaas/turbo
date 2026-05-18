@@ -376,6 +376,9 @@ abstract class AppLocalizations {
   String get weatherWaterTempLabel;
   String get weatherNext24h;
   String get weatherNext9days;
+  String get weatherPresetHourly;
+  String get weatherEmptyDay;
+  String get weatherMarineEmpty;
 }
 
 // English translations
@@ -716,6 +719,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get weatherWaterTempLabel => 'Sea';
   @override String get weatherNext24h => 'Next 24 hours';
   @override String get weatherNext9days => 'Next 9 days';
+  @override String get weatherPresetHourly => 'Hourly';
+  @override String get weatherEmptyDay => 'No data for this day';
+  @override String get weatherMarineEmpty => 'No sea data for this day';
 }
 
 // Norwegian translations
@@ -1053,6 +1059,9 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get weatherWaterTempLabel => 'Sjø';
   @override String get weatherNext24h => 'Neste 24 timer';
   @override String get weatherNext9days => 'Neste 9 dager';
+  @override String get weatherPresetHourly => 'Time for time';
+  @override String get weatherEmptyDay => 'Ingen data for denne dagen';
+  @override String get weatherMarineEmpty => 'Ingen sjødata for denne dagen';
 }
 
 // The delegate

@@ -19,4 +19,5 @@ export 'data/weather_notifier.dart'
         yrOceanServiceProvider,
         WeatherForecastNotifier;
 export 'widgets/weather_summary_row.dart' show WeatherSummaryRow;
-export 'widgets/weather_detail_page.dart' show WeatherDetailPage;
+export 'widgets/weather_detail_sheet.dart'
+    show WeatherDetailSheet, showWeatherDetailSheet;
