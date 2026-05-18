@@ -381,6 +381,16 @@ abstract class AppLocalizations {
   String get weatherPresetHourly;
   String get weatherEmptyDay;
   String get weatherMarineEmpty;
+  String get weatherTabWeather;
+  String get weatherTabOcean;
+  String get weatherTideLabel;
+  String get weatherTideHigh;
+  String get weatherTideLow;
+  String get weatherTideNoData;
+  String get pinSheetTabInfo;
+  String get pinSheetTabWeather;
+  String get pinSheetSelectedLocation;
+  String get pinSheetResolving;
 }
 
 // English translations
@@ -726,6 +736,16 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get weatherPresetHourly => 'Hourly';
   @override String get weatherEmptyDay => 'No data for this day';
   @override String get weatherMarineEmpty => 'No sea data for this day';
+  @override String get weatherTabWeather => 'Weather';
+  @override String get weatherTabOcean => 'Ocean';
+  @override String get weatherTideLabel => 'Tide';
+  @override String get weatherTideHigh => 'High';
+  @override String get weatherTideLow => 'Low';
+  @override String get weatherTideNoData => 'Tide forecast unavailable here';
+  @override String get pinSheetTabInfo => 'Info';
+  @override String get pinSheetTabWeather => 'Weather';
+  @override String get pinSheetSelectedLocation => 'Selected location';
+  @override String get pinSheetResolving => 'Looking up place…';
 }
 
 // Norwegian translations
@@ -1068,6 +1088,16 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get weatherPresetHourly => 'Time for time';
   @override String get weatherEmptyDay => 'Ingen data for denne dagen';
   @override String get weatherMarineEmpty => 'Ingen sjødata for denne dagen';
+  @override String get weatherTabWeather => 'Vær';
+  @override String get weatherTabOcean => 'Sjø';
+  @override String get weatherTideLabel => 'Tidevann';
+  @override String get weatherTideHigh => 'Høyvann';
+  @override String get weatherTideLow => 'Lavvann';
+  @override String get weatherTideNoData => 'Ingen tidevannsdata her';
+  @override String get pinSheetTabInfo => 'Info';
+  @override String get pinSheetTabWeather => 'Vær';
+  @override String get pinSheetSelectedLocation => 'Valgt punkt';
+  @override String get pinSheetResolving => 'Slår opp stedsnavn…';
 }
 
 // The delegate

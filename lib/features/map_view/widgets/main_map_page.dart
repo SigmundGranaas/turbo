@@ -16,7 +16,6 @@ as offline_api;
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
-import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/sharing/api.dart';
 
 import 'package:turbo/core/location/compass_mode_state.dart';
@@ -329,25 +328,31 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         alignment: Alignment.topCenter,
       );
     });
+    // Centre on the pin, biased upward so it stays visible above the
+    // ~55%-tall sheet. Lift the target by ~30% of the latitudinal span
+    // visible at the current zoom — cheap, no pixel unprojection needed.
+    final camera = _mapController.camera;
+    final latSpan = camera.visibleBounds.north - camera.visibleBounds.south;
+    final target = LatLng(point.latitude - latSpan * 0.30, point.longitude);
+    animatedMapMove(target, camera.zoom, _mapController, this);
     _showPinOptionsSheet(context, point);
   }
 
   void _showPinOptionsSheet(BuildContext context, LatLng point) {
     final isNavigating = ref.read(navigationStateProvider).isActive;
-    // Kick off the reverse lookup in parallel with showing the sheet — the
-    // result pre-fills the marker name if the user chooses "Create marker".
-    final reverseFuture =
-        ref.read(reverseGeocoderProvider).findLocationByCoord(point);
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       useSafeArea: true,
+      backgroundColor: Colors.transparent,
       builder: (BuildContext sheetContext) {
         return PinOptionsSheet(
+          point: point,
           isNavigating: isNavigating,
-          onCreateMarker: () => _showCreateSheet(
+          onCreateMarker: (namePreview) => _showCreateSheet(
             context,
             newLocation: point,
-            namePreview: reverseFuture,
+            prefillName: namePreview,
           ),
           onMeasure: () => _navigateToMeasuring(point),
           onNavigate: () => ref
@@ -381,27 +386,11 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   void _showCreateSheet(
     BuildContext context, {
     LatLng? newLocation,
-    Future<LocationSearchResult?>? namePreview,
+    String? prefillName,
   }) async {
     if (newLocation != null) {
       animatedMapMove(
           newLocation, _mapController.camera.zoom, _mapController, this);
-    }
-
-    String? prefillName;
-    if (namePreview != null) {
-      // Await up to 1.5s for reverse-geo; longer than that and the user has
-      // already pressed "Create marker" and is waiting on us. Fall back to
-      // empty if Kartverket has no nearby placename or times out.
-      try {
-        final result = await namePreview.timeout(
-          const Duration(milliseconds: 1500),
-          onTimeout: () => null,
-        );
-        prefillName = result?.title;
-      } catch (_) {
-        prefillName = null;
-      }
     }
 
     if (!context.mounted) return;

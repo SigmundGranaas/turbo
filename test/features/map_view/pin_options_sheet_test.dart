@@ -1,46 +1,90 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
-import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/search/api.dart';
+import 'package:turbo/features/weather/api.dart';
+
+import '../../helpers/pump_app.dart';
 
 class _Callbacks {
+  String? lastCreatePrefill;
   int create = 0, measure = 0, navigate = 0, stop = 0;
 }
 
-Future<_Callbacks> _open(WidgetTester tester, {bool isNavigating = false}) async {
+class _StubGeocoder extends KartverketLocationService {
+  _StubGeocoder({this.result})
+      : super(client: http.Client());
+  final LocationSearchResult? result;
+
+  @override
+  Future<LocationSearchResult?> findLocationByCoord(LatLng coord,
+          {double radiusMeters = 500}) async =>
+      result;
+}
+
+class _StubWeatherFetcher implements WeatherFetcher {
+  @override
+  YrAtmosphericService get atmospheric => throw UnimplementedError();
+  @override
+  YrOceanService get ocean => throw UnimplementedError();
+
+  @override
+  Future<WeatherForecast> fetch(LatLng position,
+      {WeatherForecast? previous}) async {
+    final now = DateTime.now().toUtc();
+    return WeatherForecast(
+      position: position,
+      fetchedAt: now,
+      atmosphericExpiresAt: now.add(const Duration(minutes: 30)),
+      marineExpiresAt: null,
+      atmosphericLastModified: null,
+      marineLastModified: null,
+      atmospheric: const [],
+      marine: const [],
+    );
+  }
+}
+
+Future<_Callbacks> _open(
+  WidgetTester tester, {
+  bool isNavigating = false,
+  LocationSearchResult? geocode,
+}) async {
   final cbs = _Callbacks();
-  await tester.pumpWidget(
-    MaterialApp(
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(
-        body: Builder(
-          builder: (ctx) => Center(
-            child: ElevatedButton(
-              child: const Text('open'),
-              onPressed: () => showModalBottomSheet(
-                context: ctx,
-                builder: (_) => PinOptionsSheet(
-                  isNavigating: isNavigating,
-                  onCreateMarker: () => cbs.create++,
-                  onMeasure: () => cbs.measure++,
-                  onNavigate: () => cbs.navigate++,
-                  onStopNavigation: () => cbs.stop++,
-                ),
-              ),
+  await pumpTestApp(
+    tester,
+    Builder(
+      builder: (ctx) => Center(
+        child: ElevatedButton(
+          child: const Text('open'),
+          onPressed: () => showModalBottomSheet(
+            context: ctx,
+            isScrollControlled: true,
+            useSafeArea: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => PinOptionsSheet(
+              point: const LatLng(60.39, 5.32),
+              isNavigating: isNavigating,
+              onCreateMarker: (name) {
+                cbs.create++;
+                cbs.lastCreatePrefill = name;
+              },
+              onMeasure: () => cbs.measure++,
+              onNavigate: () => cbs.navigate++,
+              onStopNavigation: () => cbs.stop++,
             ),
           ),
         ),
       ),
     ),
+    overrides: [
+      reverseGeocoderProvider
+          .overrideWithValue(_StubGeocoder(result: geocode)),
+      weatherFetcherProvider.overrideWith((ref) => _StubWeatherFetcher()),
+    ],
   );
-  await tester.pumpAndSettle();
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
   return cbs;
@@ -74,6 +118,45 @@ void main() {
       expect(cbs.navigate, 0);
       expect(cbs.stop, 0);
       expect(find.byType(PinOptionsSheet), findsNothing);
+    });
+
+    testWidgets('header shows resolved place name', (tester) async {
+      await _open(
+        tester,
+        geocode: LocationSearchResult(
+          title: 'Bryggen',
+          description: 'tettsted, Bergen',
+          position: const LatLng(60.39, 5.32),
+          source: 'kartverket',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Bryggen'), findsOneWidget);
+    });
+
+    testWidgets('create marker passes resolved name as prefill',
+        (tester) async {
+      final cbs = await _open(
+        tester,
+        geocode: LocationSearchResult(
+          title: 'Bryggen',
+          position: const LatLng(60.39, 5.32),
+          source: 'kartverket',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create New Marker Here'));
+      await tester.pumpAndSettle();
+      expect(cbs.lastCreatePrefill, 'Bryggen');
+    });
+
+    testWidgets('tapping Weather tab swaps in the embedded weather body',
+        (tester) async {
+      await _open(tester);
+      await tester.tap(find.byKey(const Key('pin-tab-weather')));
+      await tester.pumpAndSettle();
+      // After switching tabs the info-body list is no longer mounted.
+      expect(find.text('Create New Marker Here'), findsNothing);
     });
 
     testWidgets('tapping Measure pops sheet and fires onMeasure',

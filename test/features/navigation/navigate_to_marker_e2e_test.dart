@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/core/location/compass_state.dart';
@@ -8,8 +10,46 @@ import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
 import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/search/api.dart';
+import 'package:turbo/features/weather/api.dart';
 
 import '../../helpers/pump_app.dart';
+
+class _NoopGeocoder extends KartverketLocationService {
+  _NoopGeocoder() : super(client: http.Client());
+  @override
+  Future<LocationSearchResult?> findLocationByCoord(LatLng coord,
+          {double radiusMeters = 500}) async =>
+      null;
+}
+
+class _NoopWeatherFetcher implements WeatherFetcher {
+  @override
+  YrAtmosphericService get atmospheric => throw UnimplementedError();
+  @override
+  YrOceanService get ocean => throw UnimplementedError();
+
+  @override
+  Future<WeatherForecast> fetch(LatLng position,
+      {WeatherForecast? previous}) async {
+    final now = DateTime.now().toUtc();
+    return WeatherForecast(
+      position: position,
+      fetchedAt: now,
+      atmosphericExpiresAt: now.add(const Duration(minutes: 30)),
+      marineExpiresAt: null,
+      atmosphericLastModified: null,
+      marineLastModified: null,
+      atmospheric: const [],
+      marine: const [],
+    );
+  }
+}
+
+List<Override> _sheetOverrides() => [
+      reverseGeocoderProvider.overrideWithValue(_NoopGeocoder()),
+      weatherFetcherProvider.overrideWith((ref) => _NoopWeatherFetcher()),
+    ];
 
 class _StubLocation extends LocationState {
   _StubLocation(this._pos);
@@ -36,9 +76,13 @@ class _NavigateFlowHarness extends ConsumerWidget {
             child: const Text('open sheet'),
             onPressed: () => showModalBottomSheet(
               context: context,
+              isScrollControlled: true,
+              useSafeArea: true,
+              backgroundColor: Colors.transparent,
               builder: (_) => PinOptionsSheet(
+                point: target,
                 isNavigating: navState.isActive,
-                onCreateMarker: () {},
+                onCreateMarker: (_) {},
                 onMeasure: () {},
                 onNavigate: () => ref
                     .read(navigationStateProvider.notifier)
@@ -71,6 +115,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 
@@ -98,6 +143,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 
@@ -133,6 +179,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 
@@ -165,6 +212,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 
@@ -196,6 +244,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 

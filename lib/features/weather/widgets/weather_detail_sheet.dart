@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/app_selection_pill.dart';
 import 'package:turbo/features/markers/api.dart' show Marker;
 
 import '../api.dart';
@@ -24,24 +27,69 @@ Future<void> showWeatherDetailSheet(BuildContext context, Marker marker) {
 
 /// Bottom sheet showing the full forecast for [marker].
 ///
-/// Layout:
-///   • Day strip (horizontal) — tap a day to load its hours.
-///   • Preset tabs (Hourly / Wind / Precipitation / Sea*) — swipeable.
-///   • Hour list for `(selectedDay, selectedPreset)`.
-///
-/// (* Sea preset is only present when MET has marine data for the coord.)
-class WeatherDetailSheet extends ConsumerStatefulWidget {
+/// Layout: drag handle → place header → embedded [EmbeddedWeatherBody]
+/// (day strip + Weather/Ocean tabs) → attribution footer.
+class WeatherDetailSheet extends StatelessWidget {
   final Marker marker;
   const WeatherDetailSheet({super.key, required this.marker});
 
   @override
-  ConsumerState<WeatherDetailSheet> createState() =>
-      _WeatherDetailSheetState();
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+          ),
+          child: Column(
+            children: [
+              const WeatherDragHandle(),
+              _Header(title: marker.title),
+              const SizedBox(height: AppSpacing.s),
+              Expanded(
+                child: EmbeddedWeatherBody(
+                  position: marker.position,
+                  scrollController: scrollController,
+                ),
+              ),
+              const _AttributionFooter(),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
-enum _Preset { hourly, wind, precipitation, sea }
+/// The "guts" of the weather sheet — day strip, Weather/Ocean tab pills,
+/// and the swipeable preset body. Designed to be embedded in any
+/// container that supplies its own header (e.g. the long-press
+/// [PinOptionsSheet] embeds this under its Weather tab).
+class EmbeddedWeatherBody extends ConsumerStatefulWidget {
+  final LatLng position;
+  final ScrollController? scrollController;
 
-class _WeatherDetailSheetState extends ConsumerState<WeatherDetailSheet>
+  const EmbeddedWeatherBody({
+    super.key,
+    required this.position,
+    this.scrollController,
+  });
+
+  @override
+  ConsumerState<EmbeddedWeatherBody> createState() =>
+      _EmbeddedWeatherBodyState();
+}
+
+enum _Preset { weather, ocean }
+
+class _EmbeddedWeatherBodyState extends ConsumerState<EmbeddedWeatherBody>
     with SingleTickerProviderStateMixin {
   int _dayIndex = 0;
   int _presetIndex = 0;
@@ -61,80 +109,60 @@ class _WeatherDetailSheetState extends ConsumerState<WeatherDetailSheet>
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final forecast =
-        ref.watch(weatherForecastProvider(widget.marker.position));
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: forecast.when(
-            loading: () => _loadingShell(),
-            error: (_, _) => _errorShell(),
-            data: (f) => _dataShell(f, scrollController),
-          ),
-        );
-      },
+    final forecast = ref.watch(weatherForecastProvider(widget.position));
+    final tide = ref.watch(tideForecastProvider(widget.position));
+    final tideValue = tide.maybeWhen(data: (v) => v, orElse: () => null);
+    return forecast.when(
+      loading: _loadingShell,
+      error: (_, _) => _errorShell(context),
+      data: (f) => _dataShell(context, f, tideValue),
     );
   }
 
-  Widget _loadingShell() => Column(
-        children: const [
-          _DragHandle(),
-          SizedBox(height: 200),
-          Center(child: CircularProgressIndicator()),
-        ],
-      );
+  Widget _loadingShell() =>
+      const Center(child: CircularProgressIndicator());
 
-  Widget _errorShell() {
+  Widget _errorShell(BuildContext context) {
     final l10n = context.l10n;
     final colorScheme = Theme.of(context).colorScheme;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const _DragHandle(),
-        const SizedBox(height: 60),
-        Icon(Icons.cloud_off_outlined, size: 48, color: colorScheme.error),
-        const SizedBox(height: 12),
-        Text(l10n.weatherLoadError),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: () => ref
-              .read(weatherForecastProvider(widget.marker.position).notifier)
-              .refresh(),
-          child: Text(l10n.weatherRetry),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.l),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_outlined, size: 48, color: colorScheme.error),
+            const SizedBox(height: AppSpacing.m),
+            Text(l10n.weatherLoadError),
+            const SizedBox(height: AppSpacing.m),
+            FilledButton(
+              onPressed: () => ref
+                  .read(weatherForecastProvider(widget.position).notifier)
+                  .refresh(),
+              child: Text(l10n.weatherRetry),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
-  Widget _dataShell(WeatherForecast f, ScrollController scrollController) {
+  Widget _dataShell(
+      BuildContext context, WeatherForecast f, TideForecast? tide) {
     final daily = f.dailySummaries().take(9).toList();
-    if (daily.isEmpty) return _errorShell();
+    if (daily.isEmpty) return _errorShell(context);
     final clampedDay = _dayIndex.clamp(0, daily.length - 1);
-    final presets = _availablePresets(f);
+    final presets = _availablePresets(f, tide);
     final clampedPreset = _presetIndex.clamp(0, presets.length - 1);
 
     return Column(
       children: [
-        const _DragHandle(),
-        _Header(title: widget.marker.title),
-        const SizedBox(height: 8),
         _DayStrip(
           days: daily,
           selectedIndex: clampedDay,
           onSelect: (i) => setState(() => _dayIndex = i),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: AppSpacing.s),
         _PresetTabs(
           presets: presets,
           selectedIndex: clampedPreset,
@@ -142,12 +170,12 @@ class _WeatherDetailSheetState extends ConsumerState<WeatherDetailSheet>
             setState(() => _presetIndex = i);
             _presetController.animateToPage(
               i,
-              duration: const Duration(milliseconds: 220),
+              duration: AppMotion.normal,
               curve: Curves.easeOut,
             );
           },
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: AppSpacing.xs),
         Expanded(
           child: PageView.builder(
             controller: _presetController,
@@ -156,26 +184,25 @@ class _WeatherDetailSheetState extends ConsumerState<WeatherDetailSheet>
             itemBuilder: (context, i) => _PresetBody(
               preset: presets[i],
               forecast: f,
+              tide: tide,
               day: daily[clampedDay].date,
-              scrollController: scrollController,
+              scrollController:
+                  i == 0 ? widget.scrollController : null,
             ),
           ),
         ),
-        const _AttributionFooter(),
       ],
     );
   }
 
-  List<_Preset> _availablePresets(WeatherForecast f) => [
-        _Preset.hourly,
-        _Preset.wind,
-        _Preset.precipitation,
-        if (f.hasMarineData) _Preset.sea,
+  List<_Preset> _availablePresets(WeatherForecast f, TideForecast? tide) => [
+        _Preset.weather,
+        if (f.hasMarineData || tide != null) _Preset.ocean,
       ];
 }
 
-class _DragHandle extends StatelessWidget {
-  const _DragHandle();
+class WeatherDragHandle extends StatelessWidget {
+  const WeatherDragHandle({super.key});
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -188,7 +215,7 @@ class _DragHandle extends StatelessWidget {
             color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(
                   alpha: 0.4,
                 ),
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(AppRadius.s),
           ),
         ),
       ),
@@ -253,9 +280,9 @@ class _DayStrip extends StatelessWidget {
       height: 128,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
         itemCount: days.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.s),
         itemBuilder: (context, i) => _DayChip(
           summary: days[i],
           selected: i == selectedIndex,
@@ -281,29 +308,27 @@ class _DayChip extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final bg = selected
-        ? colorScheme.primaryContainer
+        ? colorScheme.primary
         : colorScheme.surfaceContainerHigh;
-    final fg = selected
-        ? colorScheme.onPrimaryContainer
-        : colorScheme.onSurface;
+    final fg = selected ? colorScheme.onPrimary : colorScheme.onSurface;
     final dayLabel = DateFormat('EEE d').format(summary.date);
     return Material(
       color: bg,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(AppRadius.pill),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
         child: Container(
           width: 84,
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(dayLabel,
                   style: textTheme.bodyMedium?.copyWith(color: fg)),
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpacing.xs),
               WeatherSymbolIcon(symbol: summary.middaySymbol, size: 28),
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpacing.xs),
               Text(
                 '${summary.maxTempC.toStringAsFixed(0)}° / ${summary.minTempC.toStringAsFixed(0)}°',
                 style: textTheme.bodySmall?.copyWith(color: fg),
@@ -333,29 +358,35 @@ class _PresetTabs extends StatelessWidget {
       height: 40,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
         itemCount: presets.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.s),
         itemBuilder: (context, i) {
           final preset = presets[i];
-          return ChoiceChip(
+          return AppSelectionPill(
             key: Key('preset-chip-${preset.name}'),
-            label: Text(_labelFor(context, preset)),
             selected: i == selectedIndex,
-            onSelected: (_) => onSelect(i),
+            onTap: () => onSelect(i),
+            leadingIcon: _iconFor(preset),
+            child: Text(_labelFor(context, preset)),
           );
         },
       ),
     );
   }
 
+  IconData _iconFor(_Preset preset) {
+    return switch (preset) {
+      _Preset.weather => Icons.wb_sunny_outlined,
+      _Preset.ocean => Icons.sailing_outlined,
+    };
+  }
+
   String _labelFor(BuildContext context, _Preset preset) {
     final l10n = context.l10n;
     return switch (preset) {
-      _Preset.hourly => l10n.weatherPresetHourly,
-      _Preset.wind => l10n.weatherWindLabel,
-      _Preset.precipitation => l10n.weatherPrecipitationLabel,
-      _Preset.sea => l10n.weatherMarineSection,
+      _Preset.weather => l10n.weatherTabWeather,
+      _Preset.ocean => l10n.weatherTabOcean,
     };
   }
 }
@@ -363,56 +394,164 @@ class _PresetTabs extends StatelessWidget {
 class _PresetBody extends StatelessWidget {
   final _Preset preset;
   final WeatherForecast forecast;
+  final TideForecast? tide;
   final DateTime day;
-  final ScrollController scrollController;
+  final ScrollController? scrollController;
   const _PresetBody({
     required this.preset,
     required this.forecast,
+    required this.tide,
     required this.day,
     required this.scrollController,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (preset == _Preset.ocean) {
+      return _OceanBody(
+        forecast: forecast,
+        tide: tide,
+        day: day,
+        scrollController: scrollController,
+      );
+    }
     final atmHours = forecast.atmospheric
         .where((p) => _sameLocalDay(p.timeUtc, day))
         .toList();
-    final marineHours = forecast.marine
-        .where((p) => _sameLocalDay(p.timeUtc, day))
-        .toList();
-    if (preset == _Preset.sea) {
-      if (marineHours.isEmpty) {
-        return _EmptyPreset(label: context.l10n.weatherMarineEmpty);
-      }
-      return ListView.separated(
-        controller: scrollController,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-        itemCount: marineHours.length,
-        separatorBuilder: (_, _) => const Divider(height: 1),
-        itemBuilder: (context, i) => _SeaRow(point: marineHours[i]),
-      );
-    }
     if (atmHours.isEmpty) {
       return _EmptyPreset(label: context.l10n.weatherEmptyDay);
     }
     return ListView.separated(
       key: Key('preset-body-${preset.name}'),
       controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.l, AppSpacing.s, AppSpacing.l, AppSpacing.s),
       itemCount: atmHours.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, i) {
-        final p = atmHours[i];
-        return switch (preset) {
-          _Preset.hourly => _HourlyRow(point: p),
-          _Preset.wind => _WindRow(point: p),
-          _Preset.precipitation => _PrecipRow(point: p),
-          _Preset.sea => const SizedBox.shrink(),
-        };
-      },
+      itemBuilder: (context, i) => _WeatherRow(point: atmHours[i]),
     );
   }
 }
+
+class _OceanBody extends StatelessWidget {
+  final WeatherForecast forecast;
+  final TideForecast? tide;
+  final DateTime day;
+  final ScrollController? scrollController;
+
+  const _OceanBody({
+    required this.forecast,
+    required this.tide,
+    required this.day,
+    required this.scrollController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final marineHours =
+        forecast.marine.where((p) => _sameLocalDay(p.timeUtc, day)).toList();
+    final tideRows = tide?.forLocalDay(day) ?? const <TideExtremum>[];
+
+    if (marineHours.isEmpty && tideRows.isEmpty) {
+      return _EmptyPreset(label: context.l10n.weatherMarineEmpty);
+    }
+
+    return ListView(
+      key: const Key('preset-body-ocean'),
+      controller: scrollController,
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.l, AppSpacing.s, AppSpacing.l, AppSpacing.s),
+      children: [
+        _TideCard(tideRows: tideRows, tideAvailable: tide != null),
+        if (marineHours.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.m),
+          for (int i = 0; i < marineHours.length; i++) ...[
+            _OceanRow(point: marineHours[i]),
+            if (i < marineHours.length - 1) const Divider(height: 1),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _TideCard extends StatelessWidget {
+  final List<TideExtremum> tideRows;
+  final bool tideAvailable;
+  const _TideCard({required this.tideRows, required this.tideAvailable});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!tideAvailable) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.s),
+        child: Text(
+          context.l10n.weatherTideNoData,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+      );
+    }
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      key: const Key('weather-detail-tide-card'),
+      padding: const EdgeInsets.all(AppSpacing.m),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(AppRadius.l),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.show_chart, size: 18),
+              const SizedBox(width: AppSpacing.s),
+              Text(context.l10n.weatherTideLabel,
+                  style: textTheme.titleSmall),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s),
+          if (tideRows.isEmpty)
+            Text(context.l10n.weatherMarineEmpty,
+                style: textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ))
+          else
+            for (final row in tideRows)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Icon(tideBucketIcon(row.kind),
+                        size: 18, color: colorScheme.primary),
+                    const SizedBox(width: AppSpacing.s),
+                    SizedBox(
+                      width: 56,
+                      child: Text(
+                        row.kind == TideKind.high
+                            ? context.l10n.weatherTideHigh
+                            : context.l10n.weatherTideLow,
+                        style: textTheme.bodyMedium,
+                      ),
+                    ),
+                    Text(_hourLabel(row.timeUtc), style: textTheme.bodyMedium),
+                    const Spacer(),
+                    Text('${row.levelCm.toStringAsFixed(0)} cm',
+                        style: textTheme.titleSmall),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+IconData tideBucketIcon(TideKind kind) =>
+    kind == TideKind.high ? Icons.arrow_upward : Icons.arrow_downward;
 
 bool _sameLocalDay(DateTime utc, DateTime localDay) {
   final l = utc.toLocal();
@@ -430,7 +569,7 @@ class _EmptyPreset extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xl),
         child: Text(
           label,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -442,16 +581,17 @@ class _EmptyPreset extends StatelessWidget {
   }
 }
 
-class _HourlyRow extends StatelessWidget {
+class _WeatherRow extends StatelessWidget {
   final AtmosphericPoint point;
-  const _HourlyRow({required this.point});
+  const _WeatherRow({required this.point});
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final colorScheme = Theme.of(context).colorScheme;
+    final precip = point.precipitation1hMm ?? 0;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s),
       child: Row(
         children: [
           SizedBox(
@@ -459,7 +599,7 @@ class _HourlyRow extends StatelessWidget {
             child: Text(_hourLabel(point.timeUtc), style: textTheme.bodyMedium),
           ),
           WeatherSymbolIcon(symbol: point.symbol1h, size: 28),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpacing.m),
           SizedBox(
             width: 48,
             child: Text(
@@ -468,92 +608,35 @@ class _HourlyRow extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          if ((point.precipitation1hMm ?? 0) > 0) ...[
+          if (precip > 0) ...[
+            Icon(
+              precipBucketIcon(precip, snow: point.isSnowing),
+              size: 18,
+              color: colorScheme.primary,
+            ),
+            const SizedBox(width: AppSpacing.xs),
             Text(
-              '${point.precipitation1hMm!.toStringAsFixed(1)} mm',
+              '${precip.toStringAsFixed(1)} mm',
               style: textTheme.bodySmall?.copyWith(color: colorScheme.primary),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppSpacing.m),
           ],
-          WindReadout(point: point),
+          WindArrow(
+            fromDeg: point.windFromDeg,
+            size: windArrowSize(point.windSpeedMs),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Text('${point.windSpeedMs.toStringAsFixed(1)} m/s',
+              style: textTheme.bodyMedium),
         ],
       ),
     );
   }
 }
 
-class _WindRow extends StatelessWidget {
-  final AtmosphericPoint point;
-  const _WindRow({required this.point});
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 56,
-            child: Text(_hourLabel(point.timeUtc), style: textTheme.bodyMedium),
-          ),
-          WindArrow(fromDeg: point.windFromDeg, size: 28),
-          const SizedBox(width: 16),
-          Text(
-            '${point.windSpeedMs.toStringAsFixed(1)} m/s',
-            style: textTheme.titleSmall,
-          ),
-          const Spacer(),
-        ],
-      ),
-    );
-  }
-}
-
-class _PrecipRow extends StatelessWidget {
-  final AtmosphericPoint point;
-  const _PrecipRow({required this.point});
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final colorScheme = Theme.of(context).colorScheme;
-    final precip = point.precipitation1hMm ?? 0;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 56,
-            child: Text(_hourLabel(point.timeUtc), style: textTheme.bodyMedium),
-          ),
-          Icon(
-            point.isSnowing ? Icons.ac_unit : Icons.water_drop_outlined,
-            size: 22,
-            color: precip > 0
-                ? colorScheme.primary
-                : colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-          ),
-          const SizedBox(width: 16),
-          Text(
-            precip > 0 ? '${precip.toStringAsFixed(1)} mm' : '—',
-            style: textTheme.titleSmall?.copyWith(
-              color: precip > 0
-                  ? colorScheme.primary
-                  : colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const Spacer(),
-          WeatherSymbolIcon(symbol: point.symbol1h, size: 22),
-        ],
-      ),
-    );
-  }
-}
-
-class _SeaRow extends StatelessWidget {
+class _OceanRow extends StatelessWidget {
   final MarinePoint point;
-  const _SeaRow({required this.point});
+  const _OceanRow({required this.point});
 
   @override
   Widget build(BuildContext context) {
@@ -562,7 +645,7 @@ class _SeaRow extends StatelessWidget {
     final wave = point.waveHeightM;
     final water = point.seaWaterTemperatureC;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s + 2),
       child: Row(
         children: [
           SizedBox(
@@ -570,11 +653,15 @@ class _SeaRow extends StatelessWidget {
             child: Text(_hourLabel(point.timeUtc), style: textTheme.bodyMedium),
           ),
           if (wave != null) ...[
-            Icon(Icons.waves, size: 18, color: colorScheme.primary),
-            const SizedBox(width: 4),
+            Icon(
+              waveBucketIcon(wave),
+              size: wave < 0.5 ? 18 : (wave < 2.0 ? 22 : 26),
+              color: colorScheme.primary,
+            ),
+            const SizedBox(width: AppSpacing.xs),
             Text('${wave.toStringAsFixed(1)} m', style: textTheme.titleSmall),
           ],
-          const SizedBox(width: 16),
+          const SizedBox(width: AppSpacing.l),
           if (point.waveFromDeg != null)
             WindArrow(fromDeg: point.waveFromDeg, size: 22),
           const Spacer(),
@@ -603,7 +690,8 @@ class _AttributionFooter extends StatelessWidget {
           mode: LaunchMode.externalApplication,
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.l, vertical: AppSpacing.s),
           child: Text(
             l10n.weatherAttribution,
             style: textTheme.bodySmall
