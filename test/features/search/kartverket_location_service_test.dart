@@ -425,6 +425,71 @@ void main() {
       expect(d.qualifier, LocationQualifier.on);
     });
 
+    test('a town within 1.5 km wins over a far-away peak (regression)',
+        () async {
+      // Reproduces the user complaint: pin in a town used to fall
+      // through to the kommune because the only "high-priority" item
+      // matched within range was a peak ~800 m away. The town name must
+      // win — that's what hikers actually care about.
+      const tap = LatLng(69.6500, 18.9500);
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              // Tettsted (town) ~400 m away.
+              mockPoint('Storsteinnes', 'Tettsted',
+                  tap.latitude + 0.0036, tap.longitude),
+              // Peak ~900 m away.
+              mockPoint('Sennefjellet', 'Fjelltopp',
+                  tap.latitude + 0.0080, tap.longitude + 0.0040),
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final service = KartverketLocationService(client: client);
+
+      final d = await service.describeLocation(tap);
+      expect(d!.title, 'Storsteinnes');
+      expect(d.qualifier, LocationQualifier.inArea);
+    });
+
+    test('rural area: a farm ~300 m away is returned as "Close to" '
+        'instead of falling all the way to the kommune', () async {
+      // Same shape as Norwegian fjord coastlines: Kartverket only knows
+      // a couple of named Bruk / Gard features and the nearest tettsted
+      // is 10 km off. The old logic rejected the farm (>200 m) and
+      // pinned the kommune. The user wants the farm name back.
+      const tap = LatLng(67.20000, 14.47000);
+      final client = MockClient((req) async {
+        if (req.url.path.startsWith('/kommuneinfo')) {
+          // Kommune lookup MUST NOT be hit — the farm should win.
+          return http.Response(
+            jsonEncode({'kommunenavn': 'Bodø', 'fylkesnavn': 'Nordland'}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              // ~300 m away.
+              mockPoint('Storgården', 'Gard',
+                  tap.latitude + 0.0027, tap.longitude),
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final service = KartverketLocationService(client: client);
+
+      final d = await service.describeLocation(tap);
+      expect(d!.title, 'Storgården');
+      expect(d.qualifier, LocationQualifier.closeTo);
+    });
+
     test('rejects items whose skrivemåte is literally "Unknown" or "Ukjent"',
         () async {
       // Defence in depth: even if Kartverket itself returns the literal

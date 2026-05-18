@@ -88,57 +88,76 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
               top: Radius.circular(AppRadius.xl),
             ),
           ),
-          child: ListView(
-            controller: scrollController,
-            padding: EdgeInsets.zero,
+          // Single-page layout: header + weather scroll inside the
+          // upper area; the three action buttons stay anchored to the
+          // bottom of the sheet at any expansion level.
+          child: Column(
             children: [
               const _DragHandle(),
-              _PlaceInfoHeader(
-                point: widget.point,
-                description: _description,
-                resolving: _resolving,
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.l, AppSpacing.s, AppSpacing.l, AppSpacing.s),
-                child: WeatherSummaryRow(
-                  key: const Key('pin-sheet-weather-surface'),
-                  marker: marker_model.Marker(
-                    title: _safeMarkerTitle(l10n),
-                    position: widget.point,
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _PlaceInfoHeader(
+                        point: widget.point,
+                        description: _description,
+                        resolving: _resolving,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(AppSpacing.l,
+                            AppSpacing.s, AppSpacing.l, AppSpacing.s),
+                        child: WeatherSummaryRow(
+                          key: const Key('pin-sheet-weather-surface'),
+                          marker: marker_model.Marker(
+                            title: _safeMarkerTitle(l10n),
+                            position: widget.point,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.add_location_alt_outlined),
-                title: Text(l10n.createNewMarkerHere),
-                onTap: () {
-                  Navigator.pop(context);
-                  widget.onCreateMarker(_description?.title);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.straighten),
-                title: Text(l10n.measureDistanceFromHere),
-                onTap: () {
-                  Navigator.pop(context);
-                  widget.onMeasure();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.navigation_outlined),
-                title: Text(widget.isNavigating
-                    ? l10n.stopNavigation
-                    : l10n.navigateToHere),
-                onTap: () {
-                  Navigator.pop(context);
-                  if (widget.isNavigating) {
-                    widget.onStopNavigation();
-                  } else {
-                    widget.onNavigate();
-                  }
-                },
+              SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.add_location_alt_outlined),
+                      title: Text(l10n.createNewMarkerHere),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onCreateMarker(_description?.title);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.straighten),
+                      title: Text(l10n.measureDistanceFromHere),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onMeasure();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.navigation_outlined),
+                      title: Text(widget.isNavigating
+                          ? l10n.stopNavigation
+                          : l10n.navigateToHere),
+                      onTap: () {
+                        Navigator.pop(context);
+                        if (widget.isNavigating) {
+                          widget.onStopNavigation();
+                        } else {
+                          widget.onNavigate();
+                        }
+                      },
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

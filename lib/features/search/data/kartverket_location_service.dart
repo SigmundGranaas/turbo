@@ -187,10 +187,21 @@ class KartverketLocationService extends LocationService {
   }
 
   /// Returns (priority, qualifier) for a Kartverket feature type at a
-  /// given distance. Smaller priority wins. `null` priority means
-  /// "ignore this feature entirely".
+  /// given distance, or `(null, null)` when the candidate should be
+  /// ignored. Lower priority is better; ties break on raw distance.
+  ///
+  /// Score classes (lower = wins outright):
+  ///   0 — exact contact: on a peak, at a waterline, at a building.
+  ///   1 — in a settlement (Tettsted/By/Bygd/Grend/Bydel <= 1.5 km).
+  ///   2 — close to a peak (<= 1.5 km).
+  ///   3 — in a protected area / park (any distance — they're huge,
+  ///       so a "nearby" return implies containment).
+  ///   4 — wider periphery: near a settlement (<= 5 km), close to a
+  ///       farm / building / water body, or "at" another named feature.
+  /// Anything farther than that is dropped so we fall through to the
+  /// kommune lookup instead of pinning a stale label.
   (int?, LocationQualifier?) _categorize(String kind, double meters) {
-    // Peaks / mountains: best feature for hikers.
+    // Peaks / mountains.
     const peakKinds = {
       'fjelltopp',
       'topp',
@@ -201,7 +212,7 @@ class KartverketLocationService extends LocationService {
       'nut',
       'pigg',
     };
-    // Protected areas — only ever phrased as "In X".
+    // Protected areas — always phrased as "In X".
     const areaKinds = {
       'nasjonalpark',
       'naturreservat',
@@ -211,35 +222,71 @@ class KartverketLocationService extends LocationService {
     };
     // Water features.
     const waterKinds = {'innsjø', 'vann', 'elv', 'fjord', 'bekk', 'tjern'};
-    // Settlements.
-    const settlementKinds = {'tettsted', 'by', 'tettbebyggelse', 'bygd'};
-    // Built features.
-    const builtKinds = {'gard', 'bruk', 'seter', 'hytte'};
+    // Settlements — what people call "their town".
+    const settlementKinds = {
+      'tettsted',
+      'by',
+      'tettbebyggelse',
+      'bygd',
+      'grend',
+      'bydel',
+    };
+    // Built features (farms, cabins, single buildings).
+    const builtKinds = {'gard', 'bruk', 'seter', 'hytte', 'bygning'};
 
-    if (peakKinds.contains(kind)) {
-      if (meters <= 100) return (0, LocationQualifier.on);
-      if (meters <= 1000) return (1, LocationQualifier.closeTo);
-      return (3, LocationQualifier.near);
+    // Class 0 — exact contact (you are AT this thing).
+    if (peakKinds.contains(kind) && meters <= 100) {
+      return (0, LocationQualifier.on);
     }
+    if (waterKinds.contains(kind) && meters <= 100) {
+      return (0, LocationQualifier.atPlace);
+    }
+    if (builtKinds.contains(kind) && meters <= 50) {
+      return (0, LocationQualifier.atPlace);
+    }
+
+    // Class 1 — you are IN a town/settlement. This deliberately
+    // outranks a peak that's only "close to", because if the pin lands
+    // inside a town the user expects the town name.
+    if (settlementKinds.contains(kind) && meters <= 1500) {
+      return (1, LocationQualifier.inArea);
+    }
+
+    // Class 2 — you are CLOSE TO a real peak.
+    if (peakKinds.contains(kind) && meters <= 1500) {
+      return (2, LocationQualifier.closeTo);
+    }
+
+    // Class 3 — containing area / national park. Kartverket reports a
+    // single representasjonspunkt for the whole polygon, often deep
+    // inside, so distance is uninformative; we just accept the match.
     if (areaKinds.contains(kind)) {
-      return (2, LocationQualifier.inArea);
+      return (3, LocationQualifier.inArea);
     }
-    if (waterKinds.contains(kind)) {
-      if (meters <= 100) return (4, LocationQualifier.atPlace);
-      return (5, LocationQualifier.closeTo);
+
+    // Class 4 — wider periphery, useful in rural areas where Kartverket
+    // mostly knows farms / cabins.
+    if (settlementKinds.contains(kind) && meters <= 5000) {
+      return (4, LocationQualifier.near);
     }
-    if (settlementKinds.contains(kind)) {
-      if (meters <= 200) return (6, LocationQualifier.inArea);
-      return (7, LocationQualifier.near);
+    if (builtKinds.contains(kind) && meters <= 500) {
+      return (4, LocationQualifier.closeTo);
     }
-    if (builtKinds.contains(kind)) {
-      if (meters <= 50) return (8, LocationQualifier.atPlace);
-      return (9, LocationQualifier.closeTo);
+    if (builtKinds.contains(kind) && meters <= 2000) {
+      return (4, LocationQualifier.near);
     }
-    // Any other named feature: keep but at low priority.
-    if (kind.isEmpty) return (null, null);
-    if (meters <= 50) return (10, LocationQualifier.atPlace);
-    return (11, LocationQualifier.closeTo);
+    if (waterKinds.contains(kind) && meters <= 1000) {
+      return (4, LocationQualifier.closeTo);
+    }
+    // Any other named feature you're effectively standing on.
+    if (kind.isNotEmpty && meters <= 100) {
+      return (4, LocationQualifier.atPlace);
+    }
+    if (kind.isNotEmpty && meters <= 1000) {
+      return (4, LocationQualifier.near);
+    }
+
+    return (null, null);
   }
 
   /// Fallback: the kommune (municipality) containing [coord]. Returns
