@@ -590,6 +590,22 @@ class _SeaRow extends StatelessWidget {
 class _AttributionFooter extends StatelessWidget {
   const _AttributionFooter();
 
+  Future<void> _openAttribution(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final failureMessage = context.l10n.weatherAttributionLinkFailed;
+    try {
+      final launched = await launchUrl(
+        Uri.parse('https://www.met.no/en/free-meteorological-data'),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && messenger != null) {
+        messenger.showSnackBar(SnackBar(content: Text(failureMessage)));
+      }
+    } catch (_) {
+      messenger?.showSnackBar(SnackBar(content: Text(failureMessage)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -598,10 +614,7 @@ class _AttributionFooter extends StatelessWidget {
     return SafeArea(
       top: false,
       child: InkWell(
-        onTap: () => launchUrl(
-          Uri.parse('https://www.met.no/en/free-meteorological-data'),
-          mode: LaunchMode.externalApplication,
-        ),
+        onTap: () => _openAttribution(context),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text(

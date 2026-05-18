@@ -22,7 +22,7 @@ class NorgeskartTopoConfig extends TileProviderConfig {
   @override
   double get minZoom => 4.0;
   @override
-  double get maxZoom => 20.0;
+  double get maxZoom => 18.0;
   @override
   Map<String, String>? get headers => {
     'User-Agent': kTurboUserAgent,

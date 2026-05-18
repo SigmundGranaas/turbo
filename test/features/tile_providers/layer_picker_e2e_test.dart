@@ -73,9 +73,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Avalanche Danger'));
+      await tester.ensureVisible(find.text('Steepness & Run-out'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Avalanche Danger'));
+      await tester.tap(find.text('Steepness & Run-out'));
       await tester.pumpAndSettle();
 
       expect(prefs.overlays, ['avalanche_danger']);

@@ -69,12 +69,6 @@ class YrOceanService {
       // Out of marine coverage. Not an error.
       return null;
     }
-    if (response.statusCode >= 500) {
-      throw YrServiceException(
-        response.statusCode,
-        response.body.isEmpty ? 'Empty body' : response.body,
-      );
-    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw YrServiceException(
         response.statusCode,

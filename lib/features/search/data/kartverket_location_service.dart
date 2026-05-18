@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/util/user_agent.dart';
 import 'location_service.dart';
 
 class KartverketLocationService extends LocationService {
   static const String baseUrl = 'https://ws.geonorge.no/stedsnavn/v1/navn';
   static const String pointUrl = 'https://ws.geonorge.no/stedsnavn/v1/punkt';
+  static const Duration _defaultTimeout = Duration(seconds: 8);
 
   /// Allows tests to inject a mock HTTP client. Defaults to a fresh
   /// `http.Client` in production.
@@ -13,6 +15,11 @@ class KartverketLocationService extends LocationService {
 
   KartverketLocationService({http.Client? client})
       : _client = client ?? http.Client();
+
+  Map<String, String> get _headers => {
+        'User-Agent': kTurboUserAgent,
+        'Accept': 'application/json',
+      };
 
   @override
   Future<List<LocationSearchResult>> findLocationsBy(String name) async {
@@ -23,7 +30,8 @@ class KartverketLocationService extends LocationService {
       final encodedName = Uri.encodeComponent(name);
       final uri = Uri.parse('$baseUrl?sok=$encodedName*&fuzzy=true&treffPerSide=10');
 
-      final response = await _client.get(uri);
+      final response =
+          await _client.get(uri, headers: _headers).timeout(_defaultTimeout);
 
       if (response.statusCode == 200) {
         // Kartverket API returns UTF-8, but sometimes the http package needs help decoding.
@@ -48,10 +56,12 @@ class KartverketLocationService extends LocationService {
   Future<LocationSearchResult?> findLocationByCoord(LatLng coord,
       {double radiusMeters = 500}) async {
     try {
+      // koordsys=4326 (WGS84) matches what flutter_map's LatLng carries.
       final uri = Uri.parse('$pointUrl'
           '?nord=${coord.latitude}&ost=${coord.longitude}'
-          '&koordsys=4258&radius=${radiusMeters.toInt()}&treffPerSide=1');
-      final response = await _client.get(uri);
+          '&koordsys=4326&radius=${radiusMeters.toInt()}&treffPerSide=1');
+      final response =
+          await _client.get(uri, headers: _headers).timeout(_defaultTimeout);
       if (response.statusCode != 200) return null;
       final decoded = utf8.decode(response.bodyBytes);
       final json = jsonDecode(decoded) as Map<String, dynamic>;

@@ -369,6 +369,7 @@ abstract class AppLocalizations {
   // Weather feature
   String get weatherForecast;
   String get weatherAttribution;
+  String get weatherAttributionLinkFailed;
   String get weatherLoadError;
   String get weatherRetry;
   String get weatherMarineSection;
@@ -510,8 +511,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get layerDescriptionOsm => 'OpenStreetMap Standard';
   @override String get layerNameGoogleSatellite => 'Google Satellite';
   @override String get layerDescriptionGoogleSatellite => 'Satellite imagery from Google';
-  @override String get layerNameAvalanche => 'Avalanche Danger';
-  @override String get layerDescriptionAvalanche => 'Overlay of slope steepness and run-out zones';
+  @override String get layerNameAvalanche => 'Steepness & Run-out';
+  @override String get layerDescriptionAvalanche => 'Slope steepness and avalanche run-out zones (terrain only — not a danger forecast)';
 
   @override String get totalDistance => 'Total Distance';
   @override String get undoLastPoint => 'Undo Last Point';
@@ -714,6 +715,7 @@ class AppLocalizationsEn extends AppLocalizations {
   // Weather feature
   @override String get weatherForecast => 'Forecast';
   @override String get weatherAttribution => 'Weather data from MET Norway / yr.no';
+  @override String get weatherAttributionLinkFailed => "Couldn't open the MET Norway page";
   @override String get weatherLoadError => "Couldn't load weather";
   @override String get weatherRetry => 'Retry';
   @override String get weatherMarineSection => 'Sea conditions';
@@ -855,8 +857,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get layerDescriptionOsm => 'OpenStreetMap Standard';
   @override String get layerNameGoogleSatellite => 'Google Satellitt';
   @override String get layerDescriptionGoogleSatellite => 'Satellittbilder fra Google';
-  @override String get layerNameAvalanche => 'Snøskredfare';
-  @override String get layerDescriptionAvalanche => 'Oversikt over bratthet og utløpssoner';
+  @override String get layerNameAvalanche => 'Bratthet og utløp';
+  @override String get layerDescriptionAvalanche => 'Bratthet i terrenget og snøskredutløpssoner (terreng — ikke et fareskjønn)';
 
   @override String get totalDistance => 'Total distanse';
   @override String get undoLastPoint => 'Angre siste punkt';
@@ -1056,6 +1058,7 @@ class AppLocalizationsNo extends AppLocalizations {
   // Weather feature
   @override String get weatherForecast => 'Værvarsel';
   @override String get weatherAttribution => 'Værdata fra Meteorologisk institutt / yr.no';
+  @override String get weatherAttributionLinkFailed => 'Kunne ikke åpne MET-siden';
   @override String get weatherLoadError => 'Kunne ikke laste vær';
   @override String get weatherRetry => 'Prøv igjen';
   @override String get weatherMarineSection => 'Sjøforhold';

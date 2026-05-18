@@ -210,9 +210,11 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final initialMapState = ref.watch(mapViewStateProvider);
     final tileLayers = ref.watch(activeTileLayersProvider);
 
-    // Build attribution widgets for active layers
+    // Build attribution widgets for active layers (incl. overlays — NVE etc.
+    // have attribution requirements just like base layers).
     final attributions = tileRegistryState.activeGlobalIds
         .followedBy(tileRegistryState.activeLocalIds)
+        .followedBy(tileRegistryState.activeOverlayIds)
         .map((id) => tileRegistryState.availableProviders[id])
         .whereType<TileProviderConfig>()
         .map((provider) => RichAttributionWidget(
