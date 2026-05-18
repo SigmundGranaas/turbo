@@ -13,60 +13,10 @@ spec:
       labels:
         app: turboapi-auth
     spec:
-      initContainers:
-        # First init container: check if database is up and create it if it doesn't exist
-        - name: auth-db-check
-          image: jbergknoff/postgresql-client
-          imagePullPolicy: IfNotPresent
-          command: ['sh', '-c']
-          args:
-            - |
-              # Wait for the database to be ready
-              until psql "postgresql://$DB_USER:$DB_PASSWORD@auth-db:5432/postgres" -c '\q'; do
-                echo "Waiting for auth-db to be ready...";
-                sleep 2;
-              done;
-              
-              # Check if our database exists
-              echo "Checking if database exists...";
-              if ! psql "postgresql://$DB_USER:$DB_PASSWORD@auth-db:5432/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='auth'" | grep -q 1; then
-                echo "Database does not exist. Creating database auth...";
-                psql "postgresql://$DB_USER:$DB_PASSWORD@auth-db:5432/postgres" -c "CREATE DATABASE auth";
-                echo "Database auth created successfully.";
-              else
-                echo "Database auth already exists.";
-              fi
-          env:
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-secrets
-                  key: postgres-password
-        # Second init container: run migrations
-        - name: auth-db-migration
-          image: turboapi-auth-migration:latest
-          env:
-            - name: DB_HOST
-              value: "auth-db"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_NAME
-              value: "auth"
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-secrets
-                  key: postgres-password
+      # No init containers. The Auth host creates its database (if missing)
+      # and runs EF Core migrations at startup via
+      # MigrateModuleDatabaseAsync — concurrent replicas serialise on the
+      # __EFMigrationsHistory row lock.
       containers:
         - name: turboapi-auth
           image: turboapi-auth:latest
@@ -78,22 +28,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: ASPNETCORE_ENVIRONMENT
-            - name: DB_HOST
-              value: "auth-db"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_NAME
-              value: "auth"
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
+            - name: ConnectionStrings__Auth
               valueFrom:
                 secretKeyRef:
                   name: db-secrets
-                  key: postgres-password
+                  key: connectionstring-auth
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_SERVICE_NAME
@@ -101,8 +40,8 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: OTEL_SERVICE_NAME_AUTH
-            - name: Kafka__BootstrapServers
-              value: "kafka:29092"
+            - name: Nats__Url
+              value: "nats://nats:4222"
 ---
 # Geo service with lightweight db check and migration init containers
 apiVersion: apps/v1
@@ -119,60 +58,8 @@ spec:
       labels:
         app: turboapi-geo
     spec:
-      initContainers:
-        # First init container: check if database is up and create it if it doesn't exist
-        - name: geo-db-check
-          image: jbergknoff/postgresql-client
-          imagePullPolicy: IfNotPresent
-          command: ['sh', '-c']
-          args:
-            - |
-              # Wait for the database to be ready
-              until psql "postgresql://$DB_USER:$DB_PASSWORD@geo-db:5432/postgres" -c '\q'; do
-                echo "Waiting for geo-db to be ready...";
-                sleep 2;
-              done;
-              
-              # Check if our database exists
-              echo "Checking if database exists...";
-              if ! psql "postgresql://$DB_USER:$DB_PASSWORD@geo-db:5432/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='geo'" | grep -q 1; then
-                echo "Database does not exist. Creating database geo...";
-                psql "postgresql://$DB_USER:$DB_PASSWORD@geo-db:5432/postgres" -c "CREATE DATABASE geo";
-                echo "Database geo created successfully.";
-              else
-                echo "Database geo already exists.";
-              fi
-          env:
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-secrets
-                  key: postgres-password
-        # Second init container: run migrations
-        - name: geo-db-migration
-          image: turboapi-geo-migration:latest
-          env:
-            - name: DB_HOST
-              value: "geo-db"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_NAME
-              value: "geo"
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-secrets
-                  key: postgres-password
+      # No init containers — Geo migrates at startup. The PostGIS extension
+      # is created by an EF Core migration step in the InitialCreate.
       containers:
         - name: turboapi-geo
           image: turboapi-geo:latest
@@ -184,22 +71,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: ASPNETCORE_ENVIRONMENT
-            - name: DB_HOST
-              value: "geo-db"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_NAME
-              value: "geo"
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
+            - name: ConnectionStrings__Geo
               valueFrom:
                 secretKeyRef:
                   name: db-secrets
-                  key: postgres-password
+                  key: connectionstring-geo
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_SERVICE_NAME
@@ -207,8 +83,8 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: OTEL_SERVICE_NAME_GEO
-            - name: Kafka__BootstrapServers
-              value: "kafka:29092"
+            - name: Nats__Url
+              value: "nats://nats:4222"
 ---
 # Activity service with lightweight db check and migration init containers
 apiVersion: apps/v1
@@ -225,60 +101,7 @@ spec:
       labels:
         app: turboapi-activity
     spec:
-      initContainers:
-        # First init container: check if database is up and create it if it doesn't exist
-        - name: activity-db-check
-          image: jbergknoff/postgresql-client
-          imagePullPolicy: IfNotPresent
-          command: ['sh', '-c']
-          args:
-            - |
-              # Wait for the database to be ready
-              until psql "postgresql://$DB_USER:$DB_PASSWORD@activity-db:5432/postgres" -c '\q'; do
-                echo "Waiting for activity-db to be ready...";
-                sleep 2;
-              done;
-              
-              # Check if our database exists
-              echo "Checking if database exists...";
-              if ! psql "postgresql://$DB_USER:$DB_PASSWORD@activity-db:5432/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='activity'" | grep -q 1; then
-                echo "Database does not exist. Creating database activity...";
-                psql "postgresql://$DB_USER:$DB_PASSWORD@activity-db:5432/postgres" -c "CREATE DATABASE activity";
-                echo "Database activity created successfully.";
-              else
-                echo "Database activity already exists.";
-              fi
-          env:
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-secrets
-                  key: postgres-password
-        # Second init container: run migrations
-        - name: activity-db-migration
-          image: turboapi-activity-migration:latest
-          env:
-            - name: DB_HOST
-              value: "activity-db"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_NAME
-              value: "activity"
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-secrets
-                  key: postgres-password
+      # No init containers — Activity migrates at startup.
       containers:
         - name: turboapi-activity
           image: turboapi-activity:latest
@@ -290,22 +113,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: ASPNETCORE_ENVIRONMENT
-            - name: DB_HOST
-              value: "activity-db"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_NAME
-              value: "activity"
-            - name: DB_USER
-              valueFrom:
-                configMapKeyRef:
-                  name: db-config
-                  key: postgres-user
-            - name: DB_PASSWORD
+            - name: ConnectionStrings__Activity
               valueFrom:
                 secretKeyRef:
                   name: db-secrets
-                  key: postgres-password
+                  key: connectionstring-activity
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_SERVICE_NAME
@@ -313,5 +125,5 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: OTEL_SERVICE_NAME_ACTIVITY
-            - name: Kafka__BootstrapServers
-              value: "kafka:29092"
+            - name: Nats__Url
+              value: "nats://nats:4222"

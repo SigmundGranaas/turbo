@@ -6,15 +6,6 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
-  kafkametrics:
-    brokers: [kafka:29092]
-    protocol_version: 2.0.0
-    scrapers:
-      - brokers
-      - topics
-      - consumers
-    collection_interval: 10s
-
 processors:
   batch:
     timeout: 1s
@@ -24,12 +15,6 @@ processors:
     check_interval: 1s
     limit_mib: 1024
     spike_limit_mib: 128
-
-  resource:
-    attributes:
-      - key: service.name
-        value: "kafka"
-        action: upsert
 
 exporters:
   prometheus:
@@ -58,8 +43,8 @@ service:
       processors: [batch]
       exporters: [otlp/jaeger]
     metrics:
-      receivers: [otlp, kafkametrics]
-      processors: [batch, resource]
+      receivers: [otlp]
+      processors: [batch]
       exporters: [prometheus]
     logs:
       receivers: [otlp]

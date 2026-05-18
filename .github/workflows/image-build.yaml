@@ -15,19 +15,27 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [auth, geo, activity]
+        service: [auth, geo, activity, modulith, gateway]
         include:
           - service: auth
-            project_path: ./Turboapi-auth/Turboapi-auth.csproj
-            dockerfile: ./Turboapi-auth/Dockerfile
+            project_path: ./hosts/Turbo.Host.Auth/Turbo.Host.Auth.csproj
+            dockerfile: ./hosts/Turbo.Host.Auth/Dockerfile
             context: ./
           - service: geo
-            project_path: ./Turboapi-geo/Turboapi-geo.csproj
-            dockerfile: ./Turboapi-geo/Dockerfile
+            project_path: ./hosts/Turbo.Host.Geo/Turbo.Host.Geo.csproj
+            dockerfile: ./hosts/Turbo.Host.Geo/Dockerfile
             context: ./
           - service: activity
-            project_path: ./Turboapi-activity/Turboapi-activity.csproj
-            dockerfile: ./Turboapi-activity/Dockerfile
+            project_path: ./hosts/Turbo.Host.Activity/Turbo.Host.Activity.csproj
+            dockerfile: ./hosts/Turbo.Host.Activity/Dockerfile
+            context: ./
+          - service: modulith
+            project_path: ./hosts/Turbo.Host.Modulith/Turbo.Host.Modulith.csproj
+            dockerfile: ./hosts/Turbo.Host.Modulith/Dockerfile
+            context: ./
+          - service: gateway
+            project_path: ./src/Gateway/Turbo.Gateway.csproj
+            dockerfile: ./src/Gateway/Dockerfile
             context: ./
     steps:
       - name: Checkout code
@@ -44,10 +52,12 @@ jobs:
         id: get_version
         run: |
           sudo apt-get update && sudo apt-get install -y libxml2-utils
-          VERSION=$(xmllint --xpath "string(//Project/PropertyGroup/Version)" ${{ matrix.project_path }})
+          VERSION=$(xmllint --xpath "string(//Project/PropertyGroup/Version)" ${{ matrix.project_path }} || true)
           if [ -z "$VERSION" ]; then
-            echo "Error: The <Version> tag was not found in ${{ matrix.project_path }}"
-            exit 1
+            # Host projects don't carry a Version yet; fall back to the
+            # short commit SHA so the produced tag is at least unique.
+            VERSION="0.0.0-${GITHUB_SHA::7}"
+            echo "No <Version> in ${{ matrix.project_path }}; using ${VERSION}"
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Found version ${VERSION} for service ${{ matrix.service }}"
@@ -90,80 +100,10 @@ jobs:
 
       - name: Dry Run Info for Pull Request
         if: steps.check_image.outputs.exists == 'false' && github.event_name == 'pull_request'
-        run: echo "This is a pull request. A new image for ${{ matrix.service }} version ${{ steps.get_version.outputs.version }} would be built and pushed on merge."
-
-  build-and-push-migrations:
-    name: Build and Push Migration Image
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [auth, geo, activity]
-        include:
-          - service: auth
-            db_dir: ./Turboapi-auth/db
-          - service: geo
-            db_dir: ./Turboapi-geo/db
-          - service: activity
-            db_dir: ./Turboapi-activity/db
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Convert owner to lowercase
-        id: string
-        run: echo "owner_lc=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Calculate DB directory hash
-        id: get_hash
         run: |
-          if [ ! -d "${{ matrix.db_dir }}" ]; then
-            HASH="no-migrations-found-$(date +%s)"
-            echo "Warning: Directory ${{ matrix.db_dir }} not found. Using unique hash to force potential check."
-          else
-            HASH=$(find ${{ matrix.db_dir }} -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
-          fi
-          echo "hash=${HASH}" >> $GITHUB_OUTPUT
-          echo "Calculated hash for ${{ matrix.service }} migrations: ${HASH}"
+          echo "PR build: ${{ matrix.service }} :: ${{ steps.get_version.outputs.version }} would publish on merge."
+          docker buildx build --file ${{ matrix.dockerfile }} ${{ matrix.context }} > /dev/null
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if migration image with hash tag already exists
-        id: check_image
-        run: |
-          echo "Checking for image: ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}-migration:${{ steps.get_hash.outputs.hash }}"
-          if docker manifest inspect ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}-migration:${{ steps.get_hash.outputs.hash }} > /dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Migration image with this hash already exists."
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Migration image with this hash does not exist. A new image will be built."
-          fi
-
-      - name: Build and push migration Docker image
-        if: steps.check_image.outputs.exists == 'false' && github.event_name != 'pull_request'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: migrations/Dockerfile.migration
-          push: true
-          tags: ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}-migration:${{ steps.get_hash.outputs.hash }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            SERVICE_NAME=${{ matrix.service }}
-
-      - name: Migration image already exists
-        if: steps.check_image.outputs.exists == 'true'
-        run: echo "Migration image for service ${{ matrix.service }} with hash ${{ steps.get_hash.outputs.hash }} already exists. Skipping build."
-
-      - name: Dry Run Info for Pull Request
-        if: steps.check_image.outputs.exists == 'false' && github.event_name == 'pull_request'
-        run: echo "This is a pull request. A new migration image for ${{ matrix.service }} with hash ${{ steps.get_hash.outputs.hash }} would be built and pushed on merge."
+  # Migrations no longer have their own images — each host runs EF Core
+  # migrations in-process at startup. See
+  # src/Shared/Turbo.Hosting.Postgres/DatabaseInitialization.cs.

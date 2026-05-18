@@ -78,7 +78,10 @@ data:
   postgres-password: "yourpassword"
   postgres-user: "postgres"
 ---
-# Secrets (in a real environment, use proper secrets management)
+# Secrets (in a real environment, use proper secrets management).
+# postgres-password is still consumed by the per-DB Postgres pods + the
+# init/migration containers that need raw credentials; the application
+# containers consume the per-module connection-string entries.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -86,96 +89,68 @@ metadata:
 type: Opaque
 stringData:
   postgres-password: "yourpassword"
+  connectionstring-auth: "Host=auth-db;Port=5432;Database=auth;Username=postgres;Password=yourpassword"
+  connectionstring-geo: "Host=geo-db;Port=5435;Database=geo;Username=postgres;Password=yourpassword"
+  connectionstring-activity: "Host=activity-db;Port=5436;Database=activity;Username=postgres;Password=yourpassword"
 ---
-# KRaft mode Kafka deployment with localhost controller configuration
+# NATS JetStream deployment — replaces the previous Kafka broker.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kafka
+  name: nats
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: kafka
+      app: nats
   template:
     metadata:
       labels:
-        app: kafka
+        app: nats
     spec:
       containers:
-        - name: kafka
-          image: bitnami/kafka:latest
+        - name: nats
+          image: nats:2.10-alpine
+          args: ["-js", "-sd", "/data"]
           ports:
-            - containerPort: 9092
-            - containerPort: 29092
-            - containerPort: 9093
-          env:
-            - name: BITNAMI_DEBUG
-              value: "true"
-            - name: KAFKA_ENABLE_KRAFT
-              value: "yes"
-            - name: KAFKA_CFG_NODE_ID
-              value: "1"
-            - name: KAFKA_CFG_PROCESS_ROLES
-              value: "broker,controller"
-            - name: KAFKA_CFG_LISTENERS
-              value: "PLAINTEXT://:29092,CONTROLLER://:9093,EXTERNAL://:9092"
-            - name: KAFKA_CFG_ADVERTISED_LISTENERS
-              value: "PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092"
-            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
-              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
-            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
-              value: "1@localhost:9093"
-            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
-              value: "CONTROLLER"
-            - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
-              value: "PLAINTEXT"
-            - name: KAFKA_KRAFT_CLUSTER_ID
-              value: "MkU3OEVBNTcwNTJENDM2Qk"
-            - name: ALLOW_PLAINTEXT_LISTENER
-              value: "yes"
-            - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
-              value: "1"
-            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
-              value: "1"
-            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
-              value: "1"
+            - containerPort: 4222
+            - containerPort: 8222
           livenessProbe:
             tcpSocket:
-              port: 9092
-            initialDelaySeconds: 60
+              port: 4222
+            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           readinessProbe:
             tcpSocket:
-              port: 9092
-            initialDelaySeconds: 60
-            periodSeconds: 10
+              port: 4222
+            initialDelaySeconds: 5
+            periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 6
           volumeMounts:
-            - name: kafka-data
-              mountPath: /bitnami/kafka
+            - name: nats-data
+              mountPath: /data
       volumes:
-        - name: kafka-data
+        - name: nats-data
           emptyDir: {}
 ---
-# Kafka Service definition
+# NATS Service definition
 apiVersion: v1
 kind: Service
 metadata:
-  name: kafka
+  name: nats
 spec:
   selector:
-    app: kafka
+    app: nats
   ports:
-    - name: external
-      port: 9092
-      targetPort: 9092
-    - name: internal
-      port: 29092
-      targetPort: 29092
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitor
+      port: 8222
+      targetPort: 8222
   type: ClusterIP
 ---
 # Database Services
@@ -365,21 +340,7 @@ spec:
       labels:
         app: turboapi-auth
     spec:
-      initContainers:
-        - name: auth-db-migration
-          image: turboapi-auth-migration:latest  # Custom migration image
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: DB_HOST
-              value: "auth-db"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_NAME
-              value: "auth"
-            - name: DB_USER
-              value: "postgres"
-            - name: DB_PASSWORD
-              value: "yourpassword"
+      # Auth migrates at startup via MigrateModuleDatabaseAsync; no init container.
       containers:
         - name: turboapi-auth
           image: turboapi-auth:latest
@@ -389,14 +350,14 @@ spec:
           env:
             - name: ASPNETCORE_ENVIRONMENT
               value: "Development"
-            - name: ConnectionStrings__DefaultConnection
+            - name: ConnectionStrings__Auth
               value: "Host=auth-db;Port=5432;Database=auth;Username=postgres;Password=yourpassword"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_SERVICE_NAME
               value: "turboapi-auth"
-            - name: Kafka__BootstrapServers
-              value: "kafka:29092"
+            - name: Nats__Url
+              value: "nats://nats:4222"
 ---
 # Geo service with migration init container
 apiVersion: apps/v1
@@ -413,21 +374,7 @@ spec:
       labels:
         app: turboapi-geo
     spec:
-      initContainers:
-        - name: geo-db-migration
-          image: turboapi-geo-migration:latest  # Custom migration image
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: DB_HOST
-              value: "geo-db"
-            - name: DB_PORT
-              value: "5435"
-            - name: DB_NAME
-              value: "geo"
-            - name: DB_USER
-              value: "postgres"
-            - name: DB_PASSWORD
-              value: "yourpassword"
+      # Geo migrates at startup; the InitialCreate migration enables PostGIS.
       containers:
         - name: turboapi-geo
           image: turboapi-geo:latest
@@ -437,14 +384,14 @@ spec:
           env:
             - name: ASPNETCORE_ENVIRONMENT
               value: "Development"
-            - name: ConnectionStrings__DefaultConnection
+            - name: ConnectionStrings__Geo
               value: "Host=geo-db;Port=5435;Database=geo;Username=postgres;Password=yourpassword"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_SERVICE_NAME
               value: "turboapi-geo"
-            - name: Kafka__BootstrapServers
-              value: "kafka:29092"
+            - name: Nats__Url
+              value: "nats://nats:4222"
 ---
 # Activity service with migration init container
 apiVersion: apps/v1
@@ -461,21 +408,7 @@ spec:
       labels:
         app: turboapi-activity
     spec:
-      initContainers:
-        - name: activity-db-migration
-          image: turboapi-activity-migration:latest  # Custom migration image
-          imagePullPolicy: IfNotPresent
-          env:
-            - name: DB_HOST
-              value: "activity-db"
-            - name: DB_PORT
-              value: "5436"
-            - name: DB_NAME
-              value: "activity"
-            - name: DB_USER
-              value: "postgres"
-            - name: DB_PASSWORD
-              value: "yourpassword"
+      # Activity migrates at startup; no init container.
       containers:
         - name: turboapi-activity
           image: turboapi-activity:latest
@@ -485,14 +418,14 @@ spec:
           env:
             - name: ASPNETCORE_ENVIRONMENT
               value: "Development"
-            - name: ConnectionStrings__DefaultConnection
+            - name: ConnectionStrings__Activity
               value: "Host=activity-db;Port=5436;Database=activity;Username=postgres;Password=yourpassword"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector:4317"
             - name: OTEL_SERVICE_NAME
               value: "turboapi-activity"
-            - name: Kafka__BootstrapServers
-              value: "kafka:29092"
+            - name: Nats__Url
+              value: "nats://nats:4222"
 ---
 # Application Services
 apiVersion: v1

@@ -4,7 +4,7 @@ kind: Kustomization
 resources:
   - persistent-volumes.yaml
   - config.yaml
-  - kafka.yaml
+  - nats.yaml
   - databases.yaml
   - applications.yaml
   - services.yaml
