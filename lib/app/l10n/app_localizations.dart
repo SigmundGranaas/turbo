@@ -342,6 +342,7 @@ abstract class AppLocalizations {
   // Offline Maps
   String get offlineMaps;
   String get noOfflineMapsDownloaded;
+  String get offlineMapsNotAvailableOnWebTitle;
   String get offlineMapsNotAvailableOnWeb;
   String get addOfflineRegion;
   String get errorLoadingOfflineRegions;
@@ -686,7 +687,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override String get offlineMaps => 'Offline Maps';
   @override String get noOfflineMapsDownloaded => 'No maps downloaded yet.\nTap the button below to download an area.';
-  @override String get offlineMapsNotAvailableOnWeb => 'Offline maps are not available on web yet. Use the desktop or mobile app to download tiles.';
+  @override String get offlineMapsNotAvailableOnWebTitle => 'Not available in the browser';
+  @override String get offlineMapsNotAvailableOnWeb => 'Downloading map tiles for offline use needs the desktop or mobile app. The browser version can\'t persist tiles locally.';
   @override String get addOfflineRegion => 'Add offline region';
   @override String get errorLoadingOfflineRegions => 'Could not load offline regions. Pull to refresh, or try again later.';
   @override String get manage => 'Manage';
@@ -1027,7 +1029,8 @@ class AppLocalizationsNo extends AppLocalizations {
 
   @override String get offlineMaps => 'Offline-kart';
   @override String get noOfflineMapsDownloaded => 'Ingen kart lastet ned ennå.\nTrykk på knappen under for å laste ned et område.';
-  @override String get offlineMapsNotAvailableOnWeb => 'Offline-kart er ikke tilgjengelig på web ennå. Bruk desktop- eller mobilappen for å laste ned ruter.';
+  @override String get offlineMapsNotAvailableOnWebTitle => 'Ikke tilgjengelig i nettleseren';
+  @override String get offlineMapsNotAvailableOnWeb => 'Nedlasting av kart for offline bruk krever desktop- eller mobilappen. Nettleserversjonen kan ikke lagre kartdata lokalt.';
   @override String get addOfflineRegion => 'Legg til offline-område';
   @override String get errorLoadingOfflineRegions => 'Kunne ikke laste offline-områder. Dra ned for å oppdatere, eller prøv igjen senere.';
   @override String get manage => 'Administrer';

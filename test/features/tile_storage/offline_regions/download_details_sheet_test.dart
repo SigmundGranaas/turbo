@@ -169,8 +169,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // The user sees a snackbar explaining why nothing started.
-      expect(find.textContaining('Offline maps are not available on web'),
-          findsOneWidget);
+      expect(find.textContaining('desktop or mobile app'), findsOneWidget);
       // And the sheet stays open so the choices the user made aren't lost.
       expect(find.byType(DownloadDetailsSheet), findsOneWidget);
     });
