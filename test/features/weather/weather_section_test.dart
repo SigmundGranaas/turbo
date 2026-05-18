@@ -158,5 +158,19 @@ void main() {
       expect(find.text("Couldn't load weather"), findsOneWidget);
       expect(find.text('Retry'), findsOneWidget);
     });
+
+    testWidgets('renders MET SVG for known symbol codes', (tester) async {
+      final base = DateTime.now().toUtc();
+      await _pump(
+        tester,
+        supply: () => _forecast(
+          atm: [_atmAt(base, 10, symbol: WeatherSymbol.fromCode('clearsky_day'))],
+        ),
+      );
+      // The symbol appears in the now-cast, the hourly strip's first cell,
+      // and the daily strip's midday cell — same key, three sites.
+      expect(find.byKey(const Key('weather-symbol-clearsky_day')),
+          findsWidgets);
+    });
   });
 }

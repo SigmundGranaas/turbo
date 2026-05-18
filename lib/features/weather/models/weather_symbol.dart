@@ -1,14 +1,16 @@
 /// Wrapper around a MET Norway weather symbol code.
 ///
-/// MET ships ~90 distinct codes (e.g. `clearsky_day`, `lightrainshowers_night`,
+/// MET ships 83 distinct codes (e.g. `clearsky_day`, `lightrainshowers_night`,
 /// `heavysnowshowersandthunder_polartwilight`). Each one has a matching SVG
-/// asset under `assets/weather/`. Unknown codes (e.g. a future addition) fall
-/// back to a generic cloudy icon so the UI never crashes.
+/// asset under `assets/weather/`, bundled from metno/weathericons (MIT).
+/// Unknown codes (e.g. a future addition) fall back to a generic cloudy icon
+/// so the UI never crashes.
 class WeatherSymbol {
   /// All canonical symbol codes shipped by MET Norway.
   ///
-  /// Source: https://github.com/metno/weathericons (CC BY 4.0).
-  /// Encoded here to make membership tests cheap and to avoid filesystem I/O.
+  /// Source: https://github.com/metno/weathericons (MIT license — bundled at
+  /// `assets/weather/LICENSE`). Encoded here to make membership tests cheap
+  /// and to avoid filesystem I/O.
   static const Set<String> _knownCodes = {
     'clearsky_day',
     'clearsky_night',

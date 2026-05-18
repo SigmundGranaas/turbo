@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -135,8 +136,7 @@ class _NowCast extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(_iconForSymbol(point.symbol1h),
-            size: 40, color: colorScheme.primary),
+        _SymbolIcon(symbol: point.symbol1h, size: 56),
         const SizedBox(width: 12),
         Text(tempStr,
             style: textTheme.displaySmall?.copyWith(
@@ -199,8 +199,7 @@ class _HourlyStrip extends StatelessWidget {
                   style: textTheme.bodySmall
                       ?.copyWith(color: colorScheme.onSurfaceVariant)),
               const SizedBox(height: 2),
-              Icon(_iconForSymbol(p.symbol1h),
-                  size: 20, color: colorScheme.onSurface),
+              _SymbolIcon(symbol: p.symbol1h, size: 28),
               const SizedBox(height: 2),
               Text('${p.airTemperatureC.toStringAsFixed(0)}°',
                   style: textTheme.bodyMedium),
@@ -239,8 +238,7 @@ class _DailyStrip extends StatelessWidget {
                   style: textTheme.bodySmall
                       ?.copyWith(color: colorScheme.onSurfaceVariant)),
               const SizedBox(height: 2),
-              Icon(_iconForSymbol(s.middaySymbol),
-                  size: 22, color: colorScheme.onSurface),
+              _SymbolIcon(symbol: s.middaySymbol, size: 32),
               const SizedBox(height: 2),
               Text(
                 '${s.maxTempC.toStringAsFixed(0)}° / ${s.minTempC.toStringAsFixed(0)}°',
@@ -364,20 +362,27 @@ String _formatWind(AtmosphericPoint p) {
   return '${p.windSpeedMs.toStringAsFixed(1)} m/s$dir';
 }
 
-/// Maps a MET symbol code to a Material icon — a lossy stopgap until we bundle
-/// MET's official SVGs (CC BY 4.0). Categorizes by token search so all ~90
-/// variants land on something sensible.
-IconData _iconForSymbol(WeatherSymbol? s) {
-  if (s == null || s.isFallback) return Icons.cloud_queue;
-  final c = s.code;
-  if (c.contains('thunder')) return Icons.thunderstorm;
-  if (c.contains('snow')) return Icons.ac_unit;
-  if (c.contains('sleet')) return Icons.grain;
-  if (c.contains('rain')) return Icons.umbrella;
-  if (c.contains('fog')) return Icons.foggy;
-  if (c.contains('clearsky')) {
-    return c.contains('night') ? Icons.nightlight_round : Icons.wb_sunny;
+/// Renders MET Norway's official weather symbol SVG (bundled under
+/// `assets/weather/`, MIT-licensed via metno/weathericons). Falls back to a
+/// neutral cloud icon for null or unknown codes.
+class _SymbolIcon extends StatelessWidget {
+  final WeatherSymbol? symbol;
+  final double size;
+  const _SymbolIcon({required this.symbol, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = symbol;
+    final fallbackColor = Theme.of(context).colorScheme.onSurfaceVariant;
+    final fallback =
+        Icon(Icons.cloud_queue, size: size, color: fallbackColor);
+    if (s == null || s.isFallback) return fallback;
+    return SvgPicture.asset(
+      s.assetPath,
+      key: Key('weather-symbol-${s.code}'),
+      width: size,
+      height: size,
+      placeholderBuilder: (_) => fallback,
+    );
   }
-  if (c.contains('fair') || c.contains('partlycloudy')) return Icons.wb_cloudy;
-  return Icons.cloud;
 }
