@@ -107,6 +107,13 @@ class KartverketLocationService extends LocationService {
     double? bestDistance;
 
     for (final item in items) {
+      // Kartverket occasionally returns features with no `skrivemåte`
+      // (or an empty one) — typically anonymous Gard/Haug entries. The
+      // old `_parseLocation` fallback would surface those as the literal
+      // string "Unknown", so skip them at the picker and let the next
+      // candidate or the kommune lookup take over.
+      final name = (item['skrivemåte'] as String?)?.trim();
+      if (name == null || name.isEmpty) continue;
       final pt = item['representasjonspunkt'] as Map<String, dynamic>?;
       if (pt == null) continue;
       final lat = (pt['nord'] as num?)?.toDouble();

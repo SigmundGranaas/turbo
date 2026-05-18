@@ -325,6 +325,106 @@ void main() {
       expect(calledKommune, isTrue);
     });
 
+    test('skips items with no skrivemåte (no real name) and falls back '
+        'to the next-best candidate or the kommune lookup', () async {
+      // Reproduces the in-app screenshots: Kartverket returns Gard / Haug
+      // features near the coord but with an empty / missing `skrivemåte`,
+      // so the parser used to render "Close to Unknown". After the fix we
+      // skip nameless items entirely.
+      const tap = LatLng(67.22846, 14.49496);
+      var kommuneCalled = false;
+      final client = MockClient((req) async {
+        if (req.url.path.startsWith('/kommuneinfo')) {
+          kommuneCalled = true;
+          return http.Response(
+            jsonEncode({
+              'kommunenavn': 'Bodø',
+              'kommunenummer': '1804',
+              'fylkesnavn': 'Nordland',
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        // Stedsnavn returns two nameless features (a Gard and a Haug)
+        // — same shape as the failing screenshots.
+        final namelessGard = {
+          'navneobjekttype': 'Gard',
+          'representasjonspunkt': {
+            'nord': tap.latitude + 0.0002,
+            'øst': tap.longitude + 0.0002,
+          },
+          'kommuner': const [],
+          'fylker': const [],
+          'stedsnummer': 1,
+          'stedstatus': 'aktiv',
+          'språk': 'nor',
+          // No skrivemåte at all.
+        };
+        final namelessHaug = {
+          'skrivemåte': '', // explicitly empty
+          'navneobjekttype': 'Haug',
+          'representasjonspunkt': {
+            'nord': tap.latitude + 0.0003,
+            'øst': tap.longitude + 0.0001,
+          },
+          'kommuner': const [],
+          'fylker': const [],
+          'stedsnummer': 2,
+          'stedstatus': 'aktiv',
+          'språk': 'nor',
+        };
+        return http.Response(
+          jsonEncode({'navn': [namelessGard, namelessHaug]}),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final service = KartverketLocationService(client: client);
+
+      final d = await service.describeLocation(tap);
+      // The bug used to surface "Unknown" here. Now we expect the kommune
+      // fallback to kick in (no usable nearby toponym).
+      expect(d, isNotNull);
+      expect(d!.title, isNot('Unknown'));
+      expect(d.title, isNot(''));
+      expect(d.title, 'Bodø');
+      expect(kommuneCalled, isTrue,
+          reason: 'kommune fallback must run when all toponyms are nameless');
+    });
+
+    test('prefers a named neighbour over a nameless feature even when the '
+        'nameless one is closer', () async {
+      const tap = LatLng(61.6360, 8.3120);
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              // Closer, but no name → must be skipped.
+              {
+                'navneobjekttype': 'Haug',
+                'representasjonspunkt': {'nord': 61.63605, 'øst': 8.31205},
+                'kommuner': const [],
+                'fylker': const [],
+                'stedsnummer': 1,
+                'stedstatus': 'aktiv',
+                'språk': 'nor',
+              },
+              // Farther, but named → must win.
+              mockPoint('Galdhøpiggen', 'Fjelltopp', 61.6365, 8.3120),
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final service = KartverketLocationService(client: client);
+
+      final d = await service.describeLocation(tap);
+      expect(d!.title, 'Galdhøpiggen');
+      expect(d.qualifier, LocationQualifier.on);
+    });
+
     test('returns null outside Norway when kommune lookup also fails',
         () async {
       // Stedsnavn returns no nearby toponym; kommuneinfo 404s outside Norway.
