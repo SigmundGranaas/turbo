@@ -116,6 +116,27 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
               ),
             ],
           ),
+          if (_path.recordedAt != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.fiber_manual_record,
+                    size: 14, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.recordedOnDate(
+                    '${_path.recordedAt!.day.toString().padLeft(2, '0')}.'
+                    '${_path.recordedAt!.month.toString().padLeft(2, '0')}.'
+                    '${_path.recordedAt!.year}',
+                  ),
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
 
           if (_path.description != null &&
               _path.description!.isNotEmpty) ...[

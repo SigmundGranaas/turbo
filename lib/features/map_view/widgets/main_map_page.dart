@@ -372,7 +372,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   }
 
   void _navigateToMeasuring(LatLng startPoint) async {
-    final result = await Navigator.of(context).push<bool>(
+    final result = await Navigator.of(context).push<Object?>(
       MaterialPageRoute(
         builder: (context) => MeasuringMapPage(
           initialPosition: _mapController.camera.center,
@@ -380,8 +380,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         ),
       ),
     );
-    if (result == true && mounted) {
-      AppSnackbars.success(context, context.l10n.pathSaved);
+    if (!mounted) return;
+    if (result is SavedPath) {
+      showPathSavedFeedback(context, ref, result);
     }
   }
 

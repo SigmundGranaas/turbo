@@ -31,6 +31,16 @@ class _MarkersVisibleNotifier extends Notifier<bool> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsKey, state);
   }
+
+  /// Forces visibility to the requested value (idempotent). Used by the
+  /// post-write flow to guarantee a just-created item is actually visible
+  /// even if the user had previously turned the layer off.
+  Future<void> setVisible(bool value) async {
+    if (state == value) return;
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKey, value);
+  }
 }
 
 class _SavedPathsVisibleNotifier extends Notifier<bool> {
@@ -54,5 +64,15 @@ class _SavedPathsVisibleNotifier extends Notifier<bool> {
     state = !state;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsKey, state);
+  }
+
+  /// Forces visibility to the requested value (idempotent). Used by the
+  /// post-write flow to guarantee a just-created item is actually visible
+  /// even if the user had previously turned the layer off.
+  Future<void> setVisible(bool value) async {
+    if (state == value) return;
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKey, value);
   }
 }

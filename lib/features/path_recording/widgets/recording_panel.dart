@@ -155,7 +155,7 @@ class _RecordingPanelState extends ConsumerState<RecordingPanel> {
       return;
     }
     if (!context.mounted) return;
-    await showModalBottomSheet<bool>(
+    final outcome = await showModalBottomSheet<Object?>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -169,6 +169,10 @@ class _RecordingPanelState extends ConsumerState<RecordingPanel> {
         movingTimeSeconds: result.movingTimeSeconds,
       ),
     );
+    if (!context.mounted) return;
+    if (outcome is SavedPath) {
+      showPathSavedFeedback(context, ref, outcome);
+    }
   }
 
   Future<void> _confirmDiscard(BuildContext context) async {

@@ -174,7 +174,7 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
     final points = measuringState.points.map((p) => p.point).toList();
     final distance = measuringState.totalDistance;
 
-    final saved = await showModalBottomSheet<bool>(
+    final outcome = await showModalBottomSheet<Object?>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -186,12 +186,15 @@ class _MeasuringMapPageState extends ConsumerState<MeasuringMapPage>
     );
 
     if (!mounted) return;
-    if (saved == true) {
-      Navigator.of(context).pop(true);
-    } else if (saved == false) {
+    if (outcome is SavedPath) {
+      // Bubble the SavedPath up to the parent route so the post-save snackbar
+      // fires from a ScaffoldMessenger that survives the measuring page popping.
+      Navigator.of(context).pop(outcome);
+    } else if (outcome == false) {
+      // Explicit "Discard" button — exit the measuring tool.
       Navigator.of(context).pop(false);
     }
-    // saved == null (swipe-down dismiss) → do nothing, user continues editing
+    // outcome == null (swipe-down dismiss) → stay, user continues editing
   }
 
   void _handleMapTap(LatLng point) {

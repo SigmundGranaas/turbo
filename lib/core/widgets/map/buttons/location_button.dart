@@ -10,7 +10,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/features/path_recording/api.dart';
-import 'package:turbo/features/saved_paths/api.dart' show SavePathSheet;
+import 'package:turbo/features/saved_paths/api.dart'
+    show SavePathSheet, SavedPath, showPathSavedFeedback;
 import 'map_control_button_base.dart';
 
 /// Two distinct gestures:
@@ -217,7 +218,7 @@ class LocationButtonState extends ConsumerState<LocationButton>
       );
       return;
     }
-    await showModalBottomSheet<bool>(
+    final outcome = await showModalBottomSheet<Object?>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -231,6 +232,10 @@ class LocationButtonState extends ConsumerState<LocationButton>
         movingTimeSeconds: result.movingTimeSeconds,
       ),
     );
+    if (!context.mounted) return;
+    if (outcome is SavedPath) {
+      showPathSavedFeedback(context, ref, outcome);
+    }
   }
 
   String _translateLocationError(BuildContext context, String error) {
