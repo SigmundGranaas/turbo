@@ -1,7 +1,19 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'package:turbo/core/data/database_provider.dart';
 import 'vector_tile_store.dart';
+
+/// On mobile/desktop, returns a SQLite-backed [VectorTileStore] once the
+/// shared database is ready. On web (and in tests that don't set up the
+/// database) we fall back to a no-op store and let the in-memory cache
+/// carry the layer.
+final vectorTileStoreProvider = FutureProvider<VectorTileStore>((ref) async {
+  if (kIsWeb) return NoopVectorTileStore();
+  final db = await ref.watch(databaseProvider.future);
+  return SqliteVectorTileStore(db);
+});
 
 /// SQLite-backed [VectorTileStore]. One row per (source, z, x, y).
 class SqliteVectorTileStore implements VectorTileStore {

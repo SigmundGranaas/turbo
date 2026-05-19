@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -7,6 +8,11 @@ import 'package:turbo/core/util/gml/gml_to_geojson.dart';
 import 'package:turbo/core/util/user_agent.dart';
 import '../models/vector_feature.dart';
 import '../models/vector_layer_source.dart';
+
+/// One shared fetcher for every vector source (trails, MetAlerts, …).
+/// Stateless — features differ via [VectorLayerSource] descriptors.
+final vectorLayerFetcherProvider =
+    Provider<VectorLayerFetcher>((_) => VectorLayerFetcher());
 
 class VectorLayerFetchException implements Exception {
   final int statusCode;

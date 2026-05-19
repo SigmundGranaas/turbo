@@ -27,6 +27,58 @@ class VectorFeature {
     required this.rings,
     required this.properties,
   });
+
+  /// GeoJSON representation suitable for round-tripping through the
+  /// persistent cache. The persistent store writes the FeatureCollection
+  /// as a JSON string; the fetcher's GeoJSON parser inverts this on read.
+  Map<String, Object?> toGeoJson() {
+    return {
+      'type': 'Feature',
+      'id': id,
+      'properties': properties,
+      'geometry': _geometryJson(),
+    };
+  }
+
+  Map<String, Object?> _geometryJson() {
+    List<List<List<double>>> ringsAsCoords() => [
+          for (final ring in rings)
+            [
+              for (final p in ring) [p.longitude, p.latitude]
+            ]
+        ];
+    if (kind == VectorGeometryKind.line) {
+      if (rings.length == 1) {
+        return {
+          'type': 'LineString',
+          'coordinates': [
+            for (final p in rings.first) [p.longitude, p.latitude]
+          ],
+        };
+      }
+      return {
+        'type': 'MultiLineString',
+        'coordinates': ringsAsCoords(),
+      };
+    }
+    if (rings.length == 1) {
+      return {
+        'type': 'Polygon',
+        'coordinates': [
+          [for (final p in rings.first) [p.longitude, p.latitude]]
+        ],
+      };
+    }
+    return {
+      'type': 'MultiPolygon',
+      'coordinates': [
+        for (final ring in rings)
+          [
+            [for (final p in ring) [p.longitude, p.latitude]]
+          ],
+      ],
+    };
+  }
 }
 
 enum VectorGeometryKind { line, polygon }
