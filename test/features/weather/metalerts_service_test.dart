@@ -139,7 +139,7 @@ void main() {
     test('fetches the global feed (no bbox param — MetAlerts rejects it '
         'with HTTP 400) and filters client-side by polygon bbox', () async {
       http.Request? captured;
-      final feature = (String id, List<List<double>> ring) => {
+      Map<String, Object> feature(String id, List<List<double>> ring) => {
             'type': 'Feature',
             'properties': {
               'id': id,

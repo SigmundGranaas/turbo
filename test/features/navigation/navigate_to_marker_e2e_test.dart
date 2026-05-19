@@ -24,6 +24,10 @@ class _NoopWeatherFetcher implements WeatherFetcher {
   YrAtmosphericService get atmospheric => throw UnimplementedError();
   @override
   YrOceanService get ocean => throw UnimplementedError();
+  @override
+  YrSunriseService get sunrise => throw UnimplementedError();
+  @override
+  MetAlertsService get alerts => throw UnimplementedError();
 
   @override
   Future<WeatherForecast> fetch(LatLng position,

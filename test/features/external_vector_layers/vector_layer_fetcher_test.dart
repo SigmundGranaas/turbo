@@ -220,10 +220,14 @@ void main() {
           .buildUri(minLat: 60, minLon: 5, maxLat: 60.5, maxLon: 5.5)
           .queryParameters;
 
-      expect(queryFor(foot)['TYPENAMES'], 'fotrute');
-      expect(queryFor(ski)['TYPENAMES'], 'skiloype');
-      expect(queryFor(bike)['TYPENAMES'], 'sykkelrute');
-      expect(queryFor(other)['TYPENAMES'], 'andreruter');
+      // Capitalised + namespaced names as advertised by the canonical
+      // wfs.turogfriluftsruter GetCapabilities. The lowercase variants
+      // (fotrute / skiloype / sykkelrute / andreruter) the PR originally
+      // shipped don't exist on any WFS host.
+      expect(queryFor(foot)['TYPENAMES'], 'app:Fotrute');
+      expect(queryFor(ski)['TYPENAMES'], 'app:Skiløype');
+      expect(queryFor(bike)['TYPENAMES'], 'app:Sykkelrute');
+      expect(queryFor(other)['TYPENAMES'], 'app:AnnenRute');
     });
 
     test('builds a WFS URI with bbox in lat,lon order', () {
