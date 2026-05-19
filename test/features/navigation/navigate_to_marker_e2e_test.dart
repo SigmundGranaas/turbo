@@ -13,42 +13,16 @@ import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/weather/api.dart';
 
 import '../../helpers/pump_app.dart';
+import '../../helpers/test_weather_fetcher.dart';
 
 class _NoopGeocoder implements ReverseGeocoder {
   @override
   Future<LocationDescription?> describe(LatLng coord) async => null;
 }
 
-class _NoopWeatherFetcher implements WeatherFetcher {
-  @override
-  YrAtmosphericService get atmospheric => throw UnimplementedError();
-  @override
-  YrOceanService get ocean => throw UnimplementedError();
-  @override
-  YrSunriseService get sunrise => throw UnimplementedError();
-  @override
-  MetAlertsService get alerts => throw UnimplementedError();
-
-  @override
-  Future<WeatherForecast> fetch(LatLng position,
-      {WeatherForecast? previous}) async {
-    final now = DateTime.now().toUtc();
-    return WeatherForecast(
-      position: position,
-      fetchedAt: now,
-      atmosphericExpiresAt: now.add(const Duration(minutes: 30)),
-      marineExpiresAt: null,
-      atmosphericLastModified: null,
-      marineLastModified: null,
-      atmospheric: const [],
-      marine: const [],
-    );
-  }
-}
-
 List<Override> _sheetOverrides() => [
       reverseGeocoderProvider.overrideWith((ref) => _NoopGeocoder()),
-      weatherFetcherProvider.overrideWith((ref) => _NoopWeatherFetcher()),
+      weatherFetcherProvider.overrideWith((ref) => buildTestWeatherFetcher()),
     ];
 
 class _StubLocation extends LocationState {

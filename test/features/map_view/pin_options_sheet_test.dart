@@ -6,6 +6,7 @@ import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/weather/api.dart';
 
 import '../../helpers/pump_app.dart';
+import '../../helpers/test_weather_fetcher.dart';
 
 class _Callbacks {
   String? lastCreatePrefill;
@@ -18,33 +19,6 @@ class _StubGeocoder implements ReverseGeocoder {
 
   @override
   Future<LocationDescription?> describe(LatLng coord) async => description;
-}
-
-class _StubWeatherFetcher implements WeatherFetcher {
-  @override
-  YrAtmosphericService get atmospheric => throw UnimplementedError();
-  @override
-  YrOceanService get ocean => throw UnimplementedError();
-  @override
-  YrSunriseService get sunrise => throw UnimplementedError();
-  @override
-  MetAlertsService get alerts => throw UnimplementedError();
-
-  @override
-  Future<WeatherForecast> fetch(LatLng position,
-      {WeatherForecast? previous}) async {
-    final now = DateTime.now().toUtc();
-    return WeatherForecast(
-      position: position,
-      fetchedAt: now,
-      atmosphericExpiresAt: now.add(const Duration(minutes: 30)),
-      marineExpiresAt: null,
-      atmosphericLastModified: null,
-      marineLastModified: null,
-      atmospheric: const [],
-      marine: const [],
-    );
-  }
 }
 
 Future<_Callbacks> _open(
@@ -82,7 +56,7 @@ Future<_Callbacks> _open(
     overrides: [
       reverseGeocoderProvider
           .overrideWith((ref) => _StubGeocoder(description: description)),
-      weatherFetcherProvider.overrideWith((ref) => _StubWeatherFetcher()),
+      weatherFetcherProvider.overrideWith((ref) => buildTestWeatherFetcher()),
     ],
   );
   await tester.tap(find.text('open'));
