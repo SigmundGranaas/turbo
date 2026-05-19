@@ -181,7 +181,10 @@ class _EmbeddedWeatherBodyState extends ConsumerState<EmbeddedWeatherBody>
           ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-          child: AvalancheWarningBadge(position: widget.position),
+          child: AvalancheWarningBadge(
+            position: widget.position,
+            currentAirTempC: f.currentAtmospheric?.airTemperatureC,
+          ),
         ),
         if (sunForDay != null)
           _SunRow(sun: sunForDay, moon: moonForDay),

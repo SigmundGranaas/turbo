@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/app/tokens.dart';
 import '../data/vector_layer_notifier.dart';
 import '../models/vector_feature.dart';
 import '../models/vector_layer_source.dart';
@@ -96,7 +97,10 @@ class _VectorDataLayerState extends ConsumerState<VectorDataLayer> {
     if (features.isEmpty) return const SizedBox.shrink();
 
     final color = widget.source.color ??
-        Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.8);
+        Theme.of(context)
+            .colorScheme
+            .tertiary
+            .withValues(alpha: AppVectorOverlay.strokeAlpha);
 
     final polylines = <Polyline<String>>[];
     final polygons = <Polygon<String>>[];
@@ -108,7 +112,7 @@ class _VectorDataLayerState extends ConsumerState<VectorDataLayer> {
           polylines.add(Polyline(
             points: ring,
             color: color,
-            strokeWidth: 3,
+            strokeWidth: AppVectorOverlay.lineStrokeWidth,
             hitValue: f.id,
           ));
         }
@@ -116,9 +120,9 @@ class _VectorDataLayerState extends ConsumerState<VectorDataLayer> {
         for (final ring in f.rings) {
           polygons.add(Polygon(
             points: ring,
-            color: color.withValues(alpha: 0.18),
+            color: color.withValues(alpha: AppVectorOverlay.polygonFillAlpha),
             borderColor: color,
-            borderStrokeWidth: 1.5,
+            borderStrokeWidth: AppVectorOverlay.polygonBorderStrokeWidth,
             hitValue: f.id,
           ));
         }

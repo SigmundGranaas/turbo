@@ -5,12 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
-import 'package:turbo/core/api/kartverket_hoydedata_client.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/api.dart' show IconService;
 
 import '../data/elevation_backfill.dart';
-import '../data/hoydedata_service.dart';
 import '../data/path_importer.dart';
 import '../data/saved_path_repository.dart';
 import '../models/path_style.dart';
@@ -150,9 +148,7 @@ class PathsListPage extends ConsumerWidget {
     }
 
     final repo = ref.read(savedPathRepositoryProvider.notifier);
-    final service = HoydedataService(
-      client: ref.read(kartverketHoydedataClientProvider),
-    );
+    final backfill = ref.read(elevationBackfillServiceProvider);
     var anyBackfillFailed = false;
     var didBackfillToast = false;
     for (final p in parsed) {
@@ -170,7 +166,7 @@ class PathsListPage extends ConsumerWidget {
             duration: const Duration(seconds: 2),
           ));
         }
-        final result = await backfillElevations(p, service);
+        final result = await backfill.backfill(p);
         if (result.status == ElevationBackfillStatus.failed) {
           anyBackfillFailed = true;
         } else {
