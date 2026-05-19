@@ -109,8 +109,13 @@ String? _readFromStedsnavnArray(Object? raw) {
 
 /// Categorises a Kartverket feature type at a given distance. Returns
 /// the tier and the qualifier the UI should render with the name, or
-/// `(null, null)` when the candidate should be ignored entirely
-/// (e.g. a `haug` 5 km away).
+/// `(null, null)` when the candidate should be ignored entirely.
+///
+/// Distance bands deliberately tight: a pin 1 km from a feature isn't
+/// really "there", and showing it as such only fights the kommune
+/// fallback. Peripheral matches drop the qualifier word entirely in
+/// the UI (see pin_options_sheet `_qualifierLabel`), so we keep them
+/// only when they're close enough to feel useful.
 (LocationMatchTier?, LocationQualifier?) categorizeFeature(
     String kind, double meters) {
   // Peaks / mountains.
@@ -124,8 +129,27 @@ String? _readFromStedsnavnArray(Object? raw) {
     'nut',
     'pigg',
   };
-  // Water features.
-  const waterKinds = {'innsjø', 'vann', 'elv', 'fjord', 'bekk', 'tjern'};
+  // Glaciers and snowfields — you stand ON a glacier, same as a peak.
+  const glacierKinds = {'isbre', 'bre', 'snøfonn', 'jøkul'};
+  // Lakes, rivers, the sea. "Vatn" is the bokmål/nynorsk variant of
+  // "vann" Kartverket sometimes serves up.
+  const waterKinds = {
+    'innsjø',
+    'vann',
+    'vatn',
+    'tjern',
+    'elv',
+    'bekk',
+    'fjord',
+    'sund',
+    'vik',
+    'bukt',
+    'havn',
+    'pøl',
+  };
+  // Islands, islets, headlands — treated like peaks (you're ON the
+  // island, not "near" it). Common in Norwegian coastal trekking.
+  const landformKinds = {'øy', 'holme', 'skjær', 'nes', 'halvøy'};
   // Settlements — what people call "their town".
   const settlementKinds = {
     'tettsted',
@@ -138,8 +162,14 @@ String? _readFromStedsnavnArray(Object? raw) {
   // Built features (farms, cabins, single buildings).
   const builtKinds = {'gard', 'bruk', 'seter', 'hytte', 'bygning'};
 
-  // Class 0 — exact contact (you are AT this thing).
+  // Class 0 — exact contact (you are AT/ON this thing).
   if (peakKinds.contains(kind) && meters <= 100) {
+    return (LocationMatchTier.exactContact, LocationQualifier.on);
+  }
+  if (glacierKinds.contains(kind) && meters <= 200) {
+    return (LocationMatchTier.exactContact, LocationQualifier.on);
+  }
+  if (landformKinds.contains(kind) && meters <= 200) {
     return (LocationMatchTier.exactContact, LocationQualifier.on);
   }
   if (waterKinds.contains(kind) && meters <= 100) {
@@ -149,33 +179,42 @@ String? _readFromStedsnavnArray(Object? raw) {
     return (LocationMatchTier.exactContact, LocationQualifier.atPlace);
   }
 
-  // Class 1 — IN a settlement.
-  if (settlementKinds.contains(kind) && meters <= 1500) {
+  // Class 1 — IN a settlement. Tightened from 1.5 km → 800 m: a town
+  // centroid that's 1.5 km off is not where the pin actually sits.
+  if (settlementKinds.contains(kind) && meters <= 800) {
     return (LocationMatchTier.inSettlement, LocationQualifier.inArea);
   }
 
-  // Class 2 — close to a real peak.
-  if (peakKinds.contains(kind) && meters <= 1500) {
+  // Class 2 — close to a real peak. Tightened from 1.5 km → 800 m.
+  if (peakKinds.contains(kind) && meters <= 800) {
     return (LocationMatchTier.closeToPeak, LocationQualifier.closeTo);
   }
 
-  // Class 4 — wider periphery.
-  if (settlementKinds.contains(kind) && meters <= 5000) {
+  // Class 4 — wider periphery. Each cap tightened roughly 2× from the
+  // previous values; the qualifier word ("close to" / "near") is
+  // dropped in the UI anyway, so showing them at 5 km was misleading.
+  if (settlementKinds.contains(kind) && meters <= 2000) {
     return (LocationMatchTier.periphery, LocationQualifier.near);
   }
-  if (builtKinds.contains(kind) && meters <= 500) {
+  if (builtKinds.contains(kind) && meters <= 200) {
     return (LocationMatchTier.periphery, LocationQualifier.closeTo);
   }
-  if (builtKinds.contains(kind) && meters <= 2000) {
+  if (builtKinds.contains(kind) && meters <= 500) {
     return (LocationMatchTier.periphery, LocationQualifier.near);
   }
-  if (waterKinds.contains(kind) && meters <= 1000) {
+  if (waterKinds.contains(kind) && meters <= 500) {
+    return (LocationMatchTier.periphery, LocationQualifier.closeTo);
+  }
+  if (landformKinds.contains(kind) && meters <= 500) {
+    return (LocationMatchTier.periphery, LocationQualifier.closeTo);
+  }
+  if (glacierKinds.contains(kind) && meters <= 500) {
     return (LocationMatchTier.periphery, LocationQualifier.closeTo);
   }
   if (kind.isNotEmpty && meters <= 100) {
     return (LocationMatchTier.periphery, LocationQualifier.atPlace);
   }
-  if (kind.isNotEmpty && meters <= 1000) {
+  if (kind.isNotEmpty && meters <= 500) {
     return (LocationMatchTier.periphery, LocationQualifier.near);
   }
   return (null, null);

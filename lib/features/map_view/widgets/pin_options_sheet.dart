@@ -261,12 +261,16 @@ class _PlaceInfoHeader extends StatelessWidget {
 
   static String? _qualifierLabel(
       AppLocalizations l10n, LocationQualifier? q) {
+    // "Close to X" / "Near X" prefixes read as noise — the name alone is
+    // more useful when the pin isn't actually sitting on / inside the
+    // feature. Keep only the tight prefixes ("On Galdhøpiggen", "At
+    // Mjøsa", "In Lom") where the relationship really matters.
     return switch (q) {
       LocationQualifier.on => l10n.locationOn,
-      LocationQualifier.closeTo => l10n.locationCloseTo,
       LocationQualifier.atPlace => l10n.locationAt,
       LocationQualifier.inArea => l10n.locationIn,
-      LocationQualifier.near => l10n.locationNear,
+      LocationQualifier.closeTo => null,
+      LocationQualifier.near => null,
       null => null,
     };
   }

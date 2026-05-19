@@ -320,7 +320,67 @@ void main() {
       });
       final d = await _geocoder(client).describe(tap);
       expect(d!.title, 'Storgården');
-      expect(d.qualifier, LocationQualifier.closeTo);
+      // 300 m falls in the periphery `near` band after the narrowing
+      // pass (was `closeTo` when the cap was 500 m). Either way the UI
+      // drops the prefix and just shows "Storgården".
+      expect(d.qualifier, LocationQualifier.near);
+    });
+
+    test('water features: lake within 100 m is tagged "at"', () async {
+      const tap = LatLng(60.6900, 11.0000);
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              // Innsjø ~30 m away.
+              mockPoint('Mjøsa', 'Innsjø', 60.6903, 11.0000),
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final d = await _geocoder(client).describe(tap);
+      expect(d!.title, 'Mjøsa');
+      expect(d.qualifier, LocationQualifier.atPlace);
+    });
+
+    test('landforms: small island within 200 m is tagged "on"', () async {
+      const tap = LatLng(59.0000, 5.5000);
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              // Øy ~100 m away.
+              mockPoint('Bjørkøya', 'Øy', 59.0010, 5.5000),
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final d = await _geocoder(client).describe(tap);
+      expect(d!.title, 'Bjørkøya');
+      expect(d.qualifier, LocationQualifier.on);
+    });
+
+    test('glaciers: ice cap within 200 m is tagged "on"', () async {
+      const tap = LatLng(60.0500, 6.3000);
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              // Isbre ~100 m away.
+              mockPoint('Folgefonna', 'Isbre', 60.0510, 6.3000),
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final d = await _geocoder(client).describe(tap);
+      expect(d!.title, 'Folgefonna');
+      expect(d.qualifier, LocationQualifier.on);
     });
 
     test('rejects items whose skrivemåte is literally "Unknown" or "Ukjent"',

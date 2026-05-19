@@ -36,7 +36,10 @@ class StedsnavnBackend {
         'nord': coord.latitude.toString(),
         'ost': coord.longitude.toString(),
         'koordsys': '4258',
-        'radius': '2000',
+        // Tightened from 2 km → 1 km. The picker's class-4 ranges max
+        // out near 1 km anyway, and a smaller radius cuts noisy hits
+        // from anonymous Gard/Haug clusters at the periphery.
+        'radius': '1000',
         'treffPerSide': '25',
         'navnestatus': 'hovednavn',
       });
