@@ -5,22 +5,31 @@ import '../../models/vector_layer_source.dart';
 
 /// One Nasjonal turbase trail subtype rendered as a vector layer.
 enum TrailSubtype {
-  /// `fotrute` — marked footpaths / hiking trails (DNT-red on the map).
+  /// `Fotrute` — marked footpaths / hiking trails (DNT-red on the map).
   foot,
 
-  /// `skiloype` — prepared ski tracks (blue on the map).
+  /// `Skiløype` — prepared ski tracks (blue on the map).
   ski,
 
-  /// `sykkelrute` — designated bike routes (green on the map).
+  /// `Sykkelrute` — designated bike routes (green on the map).
   bike,
 
-  /// `andreruter` — everything else (horse, paddling, ...).
+  /// `AnnenRute` — everything else (horse, paddling, ...).
   other,
 }
 
-/// Build a vector source for a single trail subtype. Each subtype targets
-/// the matching Geonorge WFS TYPENAMES, gets its own colour, and registers
-/// under its own ID so the in-memory + persistent caches don't collide.
+/// Build a vector source for a single trail subtype.
+///
+/// Targets Geonorge's canonical WFS for the Turrutebasen dataset
+/// (`wfs.turogfriluftsruter`). The endpoint only emits GML 3.2.1
+/// (`application/json` is refused with HTTP 400), so the source asks
+/// for `text/xml; subtype=gml/3.2.1`; [VectorLayerFetcher] then
+/// detects the XML content-type and runs the body through
+/// [GmlToGeoJson] before the existing GeoJSON parser.
+///
+/// SRS is `urn:ogc:def:crs:EPSG::4326`, which under the urn form means
+/// **lat,lon** in the `gml:posList`. The converter normalises that to
+/// GeoJSON's `[lon, lat]`.
 VectorLayerSource trailVectorSource(TrailSubtype subtype) {
   final spec = _specs[subtype]!;
   return VectorLayerSource(
@@ -34,12 +43,13 @@ VectorLayerSource trailVectorSource(TrailSubtype subtype) {
       required maxLon,
       maxFeatures,
     }) {
-      return Uri.https('wfs.geonorge.no', '/skwms1/wfs.friluftsruter2', {
+      return Uri.https(
+          'wfs.geonorge.no', '/skwms1/wfs.turogfriluftsruter', {
         'SERVICE': 'WFS',
         'VERSION': '2.0.0',
         'REQUEST': 'GetFeature',
         'TYPENAMES': spec.typeName,
-        'OUTPUTFORMAT': 'application/json',
+        'OUTPUTFORMAT': 'text/xml; subtype=gml/3.2.1',
         'SRSNAME': 'urn:ogc:def:crs:EPSG::4326',
         'BBOX':
             '$minLat,$minLon,$maxLat,$maxLon,urn:ogc:def:crs:EPSG::4326',
@@ -62,28 +72,32 @@ class _TrailSpec {
   });
 }
 
+// Canonical (capitalised + namespaced) feature-type names as advertised
+// by the wfs.turogfriluftsruter GetCapabilities. The lowercase variants
+// (fotrute / skiloype / sykkelrute / andreruter) do not exist on any
+// Geonorge WFS host.
 final Map<TrailSubtype, _TrailSpec> _specs = {
   TrailSubtype.foot: _TrailSpec(
     idSuffix: 'foot',
-    typeName: 'fotrute',
+    typeName: 'app:Fotrute',
     color: const Color(0xFFE63946),
     name: (c) => c.l10n.layerNameTrailsFoot,
   ),
   TrailSubtype.ski: _TrailSpec(
     idSuffix: 'ski',
-    typeName: 'skiloype',
+    typeName: 'app:Skiløype',
     color: const Color(0xFF1976D2),
     name: (c) => c.l10n.layerNameTrailsSki,
   ),
   TrailSubtype.bike: _TrailSpec(
     idSuffix: 'bike',
-    typeName: 'sykkelrute',
+    typeName: 'app:Sykkelrute',
     color: const Color(0xFF388E3C),
     name: (c) => c.l10n.layerNameTrailsBike,
   ),
   TrailSubtype.other: _TrailSpec(
     idSuffix: 'other',
-    typeName: 'andreruter',
+    typeName: 'app:AnnenRute',
     color: const Color(0xFFFB8C00),
     name: (c) => c.l10n.layerNameTrailsOther,
   ),
@@ -99,28 +113,28 @@ const Map<String, TrailSubtype> trailOverlayIdToSubtype = {
   'trails_other': TrailSubtype.other,
 };
 
-/// Property keys we surface in the trail-info sheet. Anything else in the
-/// feature payload is hidden so the sheet stays useful at a glance.
+/// Property keys we surface in the trail-info sheet. Names match the
+/// SOSI/`Turrutebasen` schema (`app:rutenavn`, `app:merking`, etc.) after
+/// the converter strips the `app:` prefix.
 const trailPropertyKeys = <String>[
-  'navn',
+  'rutenavn',
   'rutenummer',
-  'merkemetode',
-  'vanskelighet',
+  'merking',
+  'gradering',
   'rutebredde',
-  'belegg',
-  'lengde',
+  'underlagstype',
   'sesong',
 ];
 
-/// Maps Norwegian property keys onto localised labels for [showVectorFeatureSheet].
+/// Maps Norwegian property keys onto localised labels for
+/// [showVectorFeatureSheet].
 Map<String, String> trailPropertyLabels(BuildContext context) {
   final l10n = context.l10n;
   return {
-    'navn': l10n.name,
+    'rutenavn': l10n.name,
     'rutenummer': l10n.trailRouteNumberLabel,
-    'merkemetode': l10n.trailMarkingLabel,
-    'vanskelighet': l10n.trailDifficultyLabel,
+    'merking': l10n.trailMarkingLabel,
+    'gradering': l10n.trailDifficultyLabel,
     'rutebredde': l10n.trailLengthLabel,
-    'lengde': l10n.trailLengthLabel,
   };
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
+import 'package:turbo/core/util/gml/gml_to_geojson.dart';
 import 'package:turbo/core/util/user_agent.dart';
 import '../models/vector_feature.dart';
 import '../models/vector_layer_source.dart';
@@ -37,23 +38,59 @@ class VectorLayerFetcher {
     );
     final response = await _client.get(uri, headers: {
       'User-Agent': kTurboUserAgent,
-      'Accept': 'application/json',
+      // WFS servers vary: some honour Accept, most ignore it and let
+      // OUTPUTFORMAT in the URL decide. Send both so a GeoJSON-capable
+      // server prefers JSON when given the choice.
+      'Accept': 'application/json, text/xml; subtype=gml/3.2.1, application/xml',
       ...?source.headers,
     });
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw VectorLayerFetchException(
-        response.statusCode,
-        response.body.isEmpty ? 'Empty body' : response.body,
-      );
+      // response.body would throw for some WFS Content-Type headers
+      // (e.g. "text/xml; subtype=gml/3.2.1;charset=UTF-8" trips
+      // MediaType.parse). Decode the bytes ourselves.
+      final msg = response.bodyBytes.isEmpty
+          ? 'Empty body'
+          : utf8.decode(response.bodyBytes, allowMalformed: true);
+      throw VectorLayerFetchException(response.statusCode, msg);
     }
-    final body = utf8.decode(response.bodyBytes);
+    final body = utf8.decode(response.bodyBytes, allowMalformed: true);
+    return _parse(response.headers['content-type'], body);
+  }
+
+  /// Dispatches on `Content-Type`: XML-shaped responses go through the
+  /// GML → GeoJSON converter first; everything else is parsed as
+  /// GeoJSON directly. As a final fallback (some servers omit
+  /// Content-Type) we sniff the first non-whitespace byte.
+  static List<VectorFeature> _parse(String? contentType, String body) {
+    final ct = (contentType ?? '').toLowerCase();
+    final looksXml = ct.contains('xml') ||
+        ct.contains('gml') ||
+        _bodyStartsWith(body, '<');
+    if (looksXml) {
+      final geojson = GmlToGeoJson.convert(body);
+      return _parseGeoJsonMap(geojson);
+    }
     return parseGeoJson(body);
+  }
+
+  static bool _bodyStartsWith(String body, String prefix) {
+    var i = 0;
+    while (i < body.length && body.codeUnitAt(i) <= 0x20) {
+      i++;
+    }
+    return body.startsWith(prefix, i);
   }
 
   /// Parses a GeoJSON `FeatureCollection` body into [VectorFeature]s.
   static List<VectorFeature> parseGeoJson(String body) {
     final json = jsonDecode(body);
     if (json is! Map<String, dynamic>) return const [];
+    return _parseGeoJsonMap(json);
+  }
+
+  /// Same as [parseGeoJson] but operating on an already-decoded map (used
+  /// by the GML path, which produces the same shape natively).
+  static List<VectorFeature> _parseGeoJsonMap(Map<String, dynamic> json) {
     final features = json['features'];
     if (features is! List) return const [];
     final out = <VectorFeature>[];
