@@ -5,20 +5,25 @@ import '../../models/vector_layer_source.dart';
 import '../../widgets/trail_feature_sheet.dart';
 import '../../widgets/trail_property_decoder.dart';
 
-/// Vector source for Kartverket's N50 `Sti` and `TraktorvegSti` features
-/// — the paths that Norgeskart bakes into its raster basemap. Unlike
-/// Turrutebasen this is *map data*, not curated route data: individual
-/// segments are rarely named and there are no difficulty/season fields.
-/// Use this when the user wants to see "everything Norgeskart shows".
+/// Vector source for Kartverket's FKB Traktorveg+Sti dataset — the
+/// tractor roads and footpaths that Norgeskart bakes into its basemap.
 ///
-/// Endpoint: the Geonorge `wfs.fkb-traktorveg-sti` service. Output is
-/// GML 3.2.1 (same as Turrutebasen) so the existing converter handles
-/// the response.
+/// Endpoint nuances (all observed against the live GetCapabilities):
+///   - The service is published under the `wms.geonorge.no` host
+///     (despite being a true WFS), at `wms.traktorveg_skogsbilveger`.
+///     The `wfs.geonorge.no` mirror is configured but returns HTTP 500
+///     for GetFeature today; the WMS host is the one that actually
+///     responds with GML.
+///   - Feature types are `ms:traktorveg_sti` (combined tractor roads +
+///     paths) and `ms:skogsbilveg` (forest roads). We pull both and
+///     differentiate via the `typeveg` property in the sheet.
+///   - SRS is `urn:ogc:def:crs:EPSG::4326` so the BBOX axis order is
+///     lat,lon — same as Turrutebasen.
 ///
-/// Attribution: © Kartverket (N50 Kartdata).
+/// Attribution: © Kartverket (FKB-Traktorveg+Sti).
 VectorLayerSource n50StiVectorSource() {
   return VectorLayerSource(
-    id: 'n50_sti_vector',
+    id: 'n50_sti',
     name: (c) => c.l10n.layerNameN50Sti,
     color: const Color(0xFF6D4C41),
     persist: true,
@@ -30,13 +35,13 @@ VectorLayerSource n50StiVectorSource() {
       maxFeatures,
     }) {
       return Uri.https(
-        'wfs.geonorge.no',
-        '/skwms1/wfs.fkb-traktorveg-sti',
+        'wms.geonorge.no',
+        '/skwms1/wms.traktorveg_skogsbilveger',
         {
           'SERVICE': 'WFS',
           'VERSION': '2.0.0',
           'REQUEST': 'GetFeature',
-          'TYPENAMES': 'app:Sti,app:TraktorvegSti',
+          'TYPENAMES': 'ms:traktorveg_sti,ms:skogsbilveg',
           'OUTPUTFORMAT': 'text/xml; subtype=gml/3.2.1',
           'SRSNAME': 'urn:ogc:def:crs:EPSG::4326',
           'BBOX':

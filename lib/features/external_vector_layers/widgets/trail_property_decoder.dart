@@ -124,27 +124,24 @@ class TrailProperties {
     );
   }
 
-  /// Project a Kartverket N50 `app:Sti` / `app:TraktorvegSti` feature.
-  /// Same SOSI family as Turrutebasen but a different subset of fields
-  /// — N50 features are map *segments*, not curated *routes*, so there
-  /// is rarely a name. We surface what's there and leave the rest blank.
+  /// Project a Kartverket FKB Traktorveg+Sti feature
+  /// (`ms:traktorveg_sti` / `ms:skogsbilveg`). This is the dataset that
+  /// drives Norgeskart's basemap paths: terse SOSI-flavoured properties
+  /// where most fields are blank. We surface what the live WFS actually
+  /// ships — `typeveg` (sti / traktorveg) and the road system reference
+  /// when present — and leave the rest of the sheet to the empty state.
   factory TrailProperties.fromN50Sti(
       VectorFeature feature, BuildContext context) {
-    final l10n = context.l10n;
     final p = feature.properties;
-    final maintainer =
-        _splitMaintainer(_string(p['vedlikeholdsansvarlig']));
+    final typeveg = _string(p['typeveg']);
+    final vegnr = _string(p['vegsystemreferanse_vegnummer']);
     return TrailProperties(
-      title: _string(p['navn']) ?? _string(p['stedsnavn']),
-      // `medium` and `objtype` describe the feature class — surface them
-      // as the "follows" line ("Path", "Tractor road").
-      follows: _decodeN50Medium(_string(p['medium']), context) ??
-          _decodeN50ObjType(_string(p['objtype']), context),
-      maintainer: maintainer,
-      notes: _string(p['informasjon']),
-      source: _string(p['opphav']) ?? 'N50',
-      updated: _formatDate(_string(p['oppdateringsdato'])),
-      marking: _decodeMarking(_string(p['merking']), l10n),
+      // FKB rows aren't curated routes; they're map segments. We never
+      // synthesise a name — the sheet's "Unnamed route" fallback fires.
+      title: null,
+      routeNumber: vegnr,
+      follows: _decodeFkbTypeveg(typeveg),
+      source: 'Kartverket FKB',
     );
   }
 
@@ -431,33 +428,22 @@ String? _formatOsmWidth(String? raw) {
   return '${n.toStringAsFixed(n == n.toInt() ? 0 : 1)} m';
 }
 
-// ─── N50 SOSI decoders ────────────────────────────────────────────────────
+// ─── FKB Traktorveg+Sti decoders ──────────────────────────────────────────
 
-String? _decodeN50Medium(String? medium, BuildContext context) {
-  if (medium == null) return null;
-  // SOSI Medium codes from the FKB schema.
-  switch (medium.toUpperCase()) {
-    case 'T':
-      return 'På terreng';
-    case 'L':
-      return 'I lufta';
-    case 'U':
-      return 'Under terreng';
-    case 'B':
-      return 'På bygning';
-  }
-  return medium;
-}
-
-String? _decodeN50ObjType(String? objType, BuildContext context) {
-  if (objType == null) return null;
-  switch (objType) {
-    case 'Sti':
+/// FKB `typeveg` codes observed on the live wms.traktorveg_skogsbilveger
+/// service: "sti" (path), "traktorveg" (tractor road), "skogsbilveg"
+/// (forest road).
+String? _decodeFkbTypeveg(String? typeveg) {
+  if (typeveg == null) return null;
+  switch (typeveg.toLowerCase()) {
+    case 'sti':
       return 'Sti';
-    case 'TraktorvegSti':
+    case 'traktorveg':
+    case 'traktorvei':
       return 'Traktorvei';
-    case 'Stibru':
-      return 'Stibru';
+    case 'skogsbilveg':
+    case 'skogsbilvei':
+      return 'Skogsbilvei';
   }
-  return objType;
+  return typeveg;
 }

@@ -248,12 +248,14 @@ void main() {
     });
   });
 
-  group('TrailFeatureSheet — N50 Sti vocabulary', () {
-    testWidgets('objtype=Sti → "Sti" in the follows row when no medium '
-        'is set', (tester) async {
+  group('TrailFeatureSheet — Kartverket FKB Traktorveg+Sti vocabulary', () {
+    testWidgets('typeveg=sti → "Sti" in the follows row', (tester) async {
       await _pumpWithBuilder(
         tester,
-        _trailFeature({'objtype': 'Sti'}),
+        _trailFeature({
+          'typeveg': 'sti',
+          'kommunenummer': '3434',
+        }),
         TrailProperties.fromN50Sti,
         accent: const Color(0xFF6D4C41),
         subtype: 'Paths (N50)',
@@ -262,18 +264,37 @@ void main() {
       expect(find.text('Follows'), findsOneWidget);
     });
 
-    testWidgets('N50 features without a name show the Unnamed-route fallback',
+    testWidgets('typeveg=traktorveg → "Traktorvei"', (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'typeveg': 'traktorveg'}),
+        TrailProperties.fromN50Sti,
+        accent: const Color(0xFF6D4C41),
+        subtype: 'Paths (N50)',
+      );
+      expect(find.text('Traktorvei'), findsOneWidget);
+    });
+
+    testWidgets('FKB features never carry a name — fallback fires',
         (tester) async {
       await _pumpWithBuilder(
         tester,
-        _trailFeature({'objtype': 'Sti', 'medium': 'T'}),
+        _trailFeature({'typeveg': 'sti'}),
         TrailProperties.fromN50Sti,
         accent: const Color(0xFF6D4C41),
         subtype: 'Paths (N50)',
       );
       expect(find.text('Unnamed route'), findsOneWidget);
-      // medium=T should decode to "På terreng".
-      expect(find.text('På terreng'), findsOneWidget);
+    });
+
+    testWidgets('source footer attributes to Kartverket FKB',
+        (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'typeveg': 'sti'}),
+        TrailProperties.fromN50Sti,
+      );
+      expect(find.textContaining('Kartverket FKB'), findsOneWidget);
     });
   });
 }
