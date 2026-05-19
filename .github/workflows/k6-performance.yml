@@ -19,7 +19,7 @@ jobs:
           apis=(
             "turboapi_auth"
             "turboapi_geo"
-            "turboapi_activity"
+            "turboapi_tracks"
           )
           
           for api in "${apis[@]}"; do

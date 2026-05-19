@@ -1,8 +1,8 @@
 name: turbo
 
 # Modulith deployment: a single Turbo.Host.Modulith process binding all three
-# modules against a single Postgres (three schemas — auth/geo/activity). The
-# gateway runs in Modulith topology so /api/auth/*, /api/geo/*, /api/activity/*
+# modules against a single Postgres (three schemas — auth/geo/tracks). The
+# gateway runs in Modulith topology so /api/auth/*, /api/geo/*, /api/tracks/*
 # all forward to the one host. No NATS — events flow in-process inside the host.
 #
 # Usage:
@@ -26,7 +26,8 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Auth=Host=${AUTH_DB_HOST:-auth-db};Port=${AUTH_DB_PORT:-5432};Database=${AUTH_DB_NAME:-auth};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
-      - ConnectionStrings__Activity=Host=${ACTIVITY_DB_HOST:-activity-db};Port=${ACTIVITY_DB_PORT:-5436};Database=${ACTIVITY_DB_NAME:-activity};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=turboapi-modulith
     healthcheck:

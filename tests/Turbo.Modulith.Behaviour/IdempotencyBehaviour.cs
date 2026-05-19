@@ -2,8 +2,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
 using Turboapi.Auth.Application.Contracts.V1.Auth;
-using Turboapi.Activity.controller;
-using Turboapi.Activity.domain;
+using Turboapi.Tracks.controller.request;
+using Turboapi.Tracks.controller.response;
 using Xunit;
 
 namespace Turbo.Modulith.Behaviour;
@@ -30,49 +30,57 @@ public sealed class IdempotencyBehaviour
     {
         var client = await RegisterAndAuthorizeAsync();
 
-        var request = new ActivityController.CreateActivityRequest(
-            new Position { Latitude = 1, Longitude = 2 },
-            $"Idempotent activity {Guid.NewGuid():N}",
-            "delivered twice",
-            "icon");
+        var request = new CreateTrackRequest
+        {
+            Geometry = new GeometryDto
+            {
+                Points = new()
+                {
+                    new PointDto { Longitude = 1, Latitude = 2 },
+                    new PointDto { Longitude = 1.01, Latitude = 2.01 },
+                },
+            },
+            Metadata = new MetadataDto { Name = $"Idempotent track {Guid.NewGuid():N}" },
+            Stats = new StatsDto { DistanceMeters = 100.0 },
+        };
 
-        var create = await client.PostAsJsonAsync("/api/activity", request);
+        var create = await client.PostAsJsonAsync("/api/tracks/Tracks", request);
         create.IsSuccessStatusCode.Should().BeTrue();
-        var created = (await create.Content.ReadFromJsonAsync<ActivityController.CreateActivityResponse>())!;
+        var created = (await create.Content.ReadFromJsonAsync<TrackResponse>())!;
 
         // Wait for the natural in-process delivery to land. The dedup row
         // for this event id is now present.
-        await Eventually.Returns<ActivityController.ActivityResponse>(async () =>
+        await Eventually.Returns<TrackResponse>(async () =>
         {
-            var r = await client.GetAsync($"/api/activity/{created.ActivityId}");
+            var r = await client.GetAsync($"/api/tracks/Tracks/{created.Id}");
             return r.IsSuccessStatusCode
-                ? await r.Content.ReadFromJsonAsync<ActivityController.ActivityResponse>()
+                ? await r.Content.ReadFromJsonAsync<TrackResponse>()
                 : null;
         }, description: "first delivery projects");
 
-        (await _host.CountActivityRowsAsync(created.ActivityId))
+        (await _host.CountTracksRowsAsync(created.Id))
             .Should().Be(1, "the first projection inserts exactly one row");
 
         // Simulate a broker redelivery: pull the original envelope out of
         // the outbox (with the SAME event id) and republish it through
         // the in-process bus. Without dedup the projection would either
         // insert a second row OR throw a PK violation on insert.
-        await _host.RedeliverLatestActivityEnvelopeAsync(nameof(Turboapi.Activity.domain.events.ActivityCreated));
+        await _host.RedeliverLatestTracksEnvelopeAsync(nameof(Turboapi.Tracks.domain.events.TrackCreated));
 
         // Give the bus + subscriber time to dispatch the redelivered
         // envelope. 500ms is generous — the bus loop tick is well under
         // that.
         await Task.Delay(500);
 
-        (await _host.CountActivityRowsAsync(created.ActivityId))
+        (await _host.CountTracksRowsAsync(created.Id))
             .Should().Be(1, "the dedup table must catch the duplicate event id; at-least-once delivery must not corrupt the read model");
 
         // And the public GET still returns the original body — no
         // transient error leaked out to the caller.
-        var fetch = await client.GetAsync($"/api/activity/{created.ActivityId}");
+        var fetch = await client.GetAsync($"/api/tracks/Tracks/{created.Id}");
         fetch.IsSuccessStatusCode.Should().BeTrue();
-        var body = await fetch.Content.ReadFromJsonAsync<ActivityController.ActivityResponse>();
-        body!.Name.Should().Be(request.Name);
+        var body = await fetch.Content.ReadFromJsonAsync<TrackResponse>();
+        body!.Metadata.Name.Should().Be(request.Metadata.Name);
     }
 
     private async Task<HttpClient> RegisterAndAuthorizeAsync()

@@ -24,8 +24,15 @@ public class DeleteLocationHandler
 
     public async Task Handle(DeleteLocationCommand command)
     {
+        var entity = await _locationReadRepository.GetEntityById(command.LocationId);
+        if (entity is null || entity.DeletedAt is not null)
+            throw new LocationNotFoundException($"Location with ID {command.LocationId} not found");
+
+        if (command.IfMatchVersion is { } expected && entity.Version != expected)
+            throw new OptimisticConcurrencyException(expected, entity.Version);
+
         var location = await _locationReadRepository.GetById(command.LocationId);
-        if (location == null)
+        if (location is null)
             throw new LocationNotFoundException($"Location with ID {command.LocationId} not found");
 
         location.Delete(command.UserId);

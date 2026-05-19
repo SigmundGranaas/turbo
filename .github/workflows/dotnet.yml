@@ -34,8 +34,11 @@ jobs:
       - name: Test Architecture
         run: dotnet test tests/Turbo.Architecture/Turbo.Architecture.csproj --no-build -c Release --logger "console;verbosity=minimal"
 
-      - name: Test Activity
-        run: dotnet test tests/Turbo.Activity.Behaviour/Turbo.Activity.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+      - name: Test Tracks
+        run: dotnet test tests/Turbo.Tracks.Behaviour/Turbo.Tracks.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Collections
+        run: dotnet test tests/Turbo.Collections.Behaviour/Turbo.Collections.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
 
       - name: Test Auth
         run: dotnet test tests/Turbo.Auth.Behaviour/Turbo.Auth.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"

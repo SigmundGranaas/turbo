@@ -18,6 +18,8 @@ COPY ["src/Shared/Turbo.Messaging.Abstractions/Turbo.Messaging.Abstractions.cspr
 COPY ["src/Shared/Turbo.Messaging.Nats/Turbo.Messaging.Nats.csproj", "src/Shared/Turbo.Messaging.Nats/"]
 COPY ["src/Shared/Turbo.Outbox.Abstractions/Turbo.Outbox.Abstractions.csproj", "src/Shared/Turbo.Outbox.Abstractions/"]
 COPY ["src/Shared/Turbo.Outbox.Postgres/Turbo.Outbox.Postgres.csproj", "src/Shared/Turbo.Outbox.Postgres/"]
+COPY ["src/Shared/Turbo.Hosting.Postgres/Turbo.Hosting.Postgres.csproj", "src/Shared/Turbo.Hosting.Postgres/"]
+COPY ["TurboAuthentication/TurboAuthentication.csproj", "TurboAuthentication/"]
 RUN dotnet restore "hosts/Turbo.Host.Auth/Turbo.Host.Auth.csproj"
 
 COPY . .

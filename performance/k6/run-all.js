@@ -5,7 +5,6 @@ import { config } from './config.js';
 // Import all test modules
 import * as authTest from './test-auth.js';
 import * as locationsTest from './test-locations.js';
-import * as activitiesTest from './test-activities.js';
 
 // Combine all thresholds
 export const options = {
@@ -20,17 +19,11 @@ export const options = {
             exec: 'runLocationTests',
             tags: { service: 'locations', ...scenarios.smoke.tags }
         },
-        activities: {
-            ...scenarios.smoke,
-            exec: 'runActivityTests',
-            tags: { service: 'activities', ...scenarios.smoke.tags }
-        },
     },
     thresholds: {
         // Combined thresholds from all tests
         ...authTest.options.thresholds,
         ...locationsTest.options.thresholds,
-        ...activitiesTest.options.thresholds,
     },
 };
 
@@ -39,7 +32,6 @@ export function setup() {
     return {
         auth: authTest.setup(),
         locations: locationsTest.setup(),
-        activities: activitiesTest.setup()
     };
 }
 
@@ -51,9 +43,4 @@ export function runAuthTests(data) {
 // Locations test executor
 export function runLocationTests(data) {
     locationsTest.default(data.locations);
-}
-
-// Activities test executor
-export function runActivityTests(data) {
-    activitiesTest.default(data.activities);
 }

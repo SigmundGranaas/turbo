@@ -26,7 +26,6 @@
     <ProjectReference Include="..\Turbo.Geo.Contracts\Turbo.Geo.Contracts.csproj" />
     <ProjectReference Include="..\..\Shared\Turbo.Messaging.Abstractions\Turbo.Messaging.Abstractions.csproj" />
     <ProjectReference Include="..\..\Shared\Turbo.Outbox.Postgres\Turbo.Outbox.Postgres.csproj" />
-    <ProjectReference Include="..\..\..\Turbo-pg-data\Turbo-pg-data.csproj" />
   </ItemGroup>
 
 </Project>

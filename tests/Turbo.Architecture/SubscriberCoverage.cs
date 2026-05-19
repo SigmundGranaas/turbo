@@ -9,13 +9,13 @@ using Xunit;
 namespace Turbo.Architecture;
 
 /// <summary>
-/// Closes review gap #4: a new <see cref="IDomainEvent"/> added to any
-/// module must either get a corresponding subscriber registered in
-/// <see cref="SubscriberWiring"/> or be opted in to the audit-only
-/// allowlist. Otherwise the event is published to the outbox, dispatched
-/// to the bus, and silently dropped because no subscriber binds the
-/// subject — a regression you wouldn't notice until someone asked why
-/// the read model isn't catching the new event.
+/// A new <see cref="IDomainEvent"/> added to any module must either get a
+/// corresponding subscriber registered in <see cref="SubscriberWiring"/>
+/// or be opted in to the audit-only allowlist. Otherwise the event is
+/// published to the outbox, dispatched to the bus, and silently dropped
+/// because no subscriber binds the subject — a regression you wouldn't
+/// notice until someone asked why the read model isn't catching the new
+/// event.
 /// </summary>
 public sealed class SubscriberCoverage
 {
@@ -84,15 +84,17 @@ public sealed class SubscriberCoverage
     private static HashSet<Type> ModuleEventInventory()
     {
         // Touch a known type from each module's assembly so it's loaded.
-        _ = typeof(Turboapi.Activity.domain.events.ActivityCreated);
+        _ = typeof(Turboapi.Tracks.domain.events.TrackCreated);
         _ = typeof(Turboapi.Geo.domain.events.LocationCreated);
         _ = typeof(Turboapi.Auth.Domain.Events.AccountCreatedEvent);
+        _ = typeof(Turboapi.Collections.domain.events.CollectionCreated);
 
         var moduleAssemblies = new[]
         {
-            typeof(Turboapi.Activity.domain.events.ActivityCreated).Assembly,
+            typeof(Turboapi.Tracks.domain.events.TrackCreated).Assembly,
             typeof(Turboapi.Geo.domain.events.LocationCreated).Assembly,
             typeof(Turboapi.Auth.Domain.Events.AccountCreatedEvent).Assembly,
+            typeof(Turboapi.Collections.domain.events.CollectionCreated).Assembly,
         };
 
         return moduleAssemblies

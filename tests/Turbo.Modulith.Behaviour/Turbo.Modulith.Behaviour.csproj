@@ -28,7 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\hosts\Turbo.Host.Modulith\Turbo.Host.Modulith.csproj" />
-    <ProjectReference Include="..\..\Turbo-pg-data\Turbo-pg-data.csproj" />
+    <ProjectReference Include="..\..\src\Tracks\Turbo.Tracks.Api\Turbo.Tracks.Api.csproj" />
     <ProjectReference Include="..\Turbo.Behaviour.Testing\Turbo.Behaviour.Testing.csproj" />
   </ItemGroup>
 

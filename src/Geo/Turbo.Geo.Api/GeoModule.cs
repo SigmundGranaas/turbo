@@ -48,6 +48,7 @@ public static class GeoModule
 
         services.AddScoped<GetLocationByIdHandler>();
         services.AddScoped<GetLocationsInExtentHandler>();
+        services.AddScoped<GetLocationsChangedSinceHandler>();
         services.AddScoped<CreateLocationHandler>();
         services.AddScoped<DeleteLocationHandler>();
         services.AddScoped<UpdateLocationHandler>();

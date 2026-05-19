@@ -29,21 +29,21 @@ public class EfLocationWriteRepository : ILocationWriteRepository
         var stopwatch = Stopwatch.StartNew();
         var result = await _context.Locations.FindAsync(id);
         stopwatch.Stop();
-        
-        _logger.LogDebug("GetById for {LocationId} completed in {ElapsedMs}ms", 
+
+        _logger.LogDebug("GetById for {LocationId} completed in {ElapsedMs}ms",
             id, stopwatch.ElapsedMilliseconds);
-        
+
         return result;
     }
-    
+
     public async Task Add(LocationEntity entity)
     {
         var stopwatch = Stopwatch.StartNew();
         _context.Locations.Add(entity);
         await _context.SaveChangesAsync();
         stopwatch.Stop();
-        
-        _logger.LogInformation("Added location {LocationId} in {ElapsedMs}ms", 
+
+        _logger.LogInformation("Added location {LocationId} in {ElapsedMs}ms",
             entity.Id, stopwatch.ElapsedMilliseconds);
     }
 
@@ -53,23 +53,12 @@ public class EfLocationWriteRepository : ILocationWriteRepository
         _context.Entry(entity).State = EntityState.Modified;
         await _context.SaveChangesAsync();
         stopwatch.Stop();
-        
-        _logger.LogInformation("Updated location {LocationId} (full update) in {ElapsedMs}ms", 
+
+        _logger.LogInformation("Updated location {LocationId} (full update) in {ElapsedMs}ms",
             entity.Id, stopwatch.ElapsedMilliseconds);
     }
-    
-    public async Task Delete(LocationEntity entity)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        _context.Locations.Remove(entity);
-        await _context.SaveChangesAsync();
-        stopwatch.Stop();
-        
-        _logger.LogInformation("Deleted location {LocationId} in {ElapsedMs}ms", 
-            entity.Id, stopwatch.ElapsedMilliseconds);
-    }
-    
-    public async Task UpdatePartial(Guid id, Coordinates? geometry, DisplayUpdate? displayInformation)
+
+    public async Task UpdatePartial(Guid id, Coordinates? geometry, DisplayUpdate? displayInformation, DateTime updatedAt)
     {
         var stopwatch = Stopwatch.StartNew();
 
@@ -84,11 +73,6 @@ public class EfLocationWriteRepository : ILocationWriteRepository
 
         if (displayInformation != null)
         {
-            // Only set the columns the changeset actually wants to change.
-            // A null field on the changeset means "keep current"; setting it
-            // unconditionally would clobber the row to null, which then
-            // breaks subsequent reads because LocationEntity declares the
-            // properties as non-nullable.
             if (displayInformation.Name is not null)
             {
                 await _context.Locations
@@ -111,12 +95,36 @@ public class EfLocationWriteRepository : ILocationWriteRepository
                         .SetProperty(l => l.Icon, displayInformation.Icon));
             }
         }
+
+        // Stamp the sync fields atomically: every committed update bumps
+        // UpdatedAt and Version so the delta endpoint and ETag stay
+        // consistent with what the projection just wrote.
+        await _context.Locations
+            .Where(l => l.Id == id)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(l => l.UpdatedAt, updatedAt)
+                .SetProperty(l => l.Version, l => l.Version + 1));
+
         stopwatch.Stop();
-        
-        _logger.LogInformation("Updated position for location {LocationId} in {ElapsedMs}ms", 
+
+        _logger.LogInformation("Updated position for location {LocationId} in {ElapsedMs}ms",
             id, stopwatch.ElapsedMilliseconds);
     }
 
+    public async Task SoftDelete(Guid id, DateTime deletedAt)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        await _context.Locations
+            .Where(l => l.Id == id)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(l => l.DeletedAt, deletedAt)
+                .SetProperty(l => l.UpdatedAt, deletedAt)
+                .SetProperty(l => l.Version, l => l.Version + 1));
+        stopwatch.Stop();
+
+        _logger.LogInformation("Soft-deleted location {LocationId} at {DeletedAt} in {ElapsedMs}ms",
+            id, deletedAt, stopwatch.ElapsedMilliseconds);
+    }
 
     public class EfLocationReadRepository : ILocationReadRepository
     {
@@ -127,19 +135,21 @@ public class EfLocationWriteRepository : ILocationWriteRepository
             _context = context;
         }
 
-
         public async Task<Location?> GetById(Guid id)
         {
             var location = await _context.Locations.FindAsync(id);
-
-            if (location == null)
-            {
+            if (location is null || location.DeletedAt is not null)
                 return null;
-            }
 
-            return Location.Reconstitute(location.Id, location.OwnerId, Coordinates.FromPoint(location.Geometry),
+            return Location.Reconstitute(
+                location.Id,
+                location.OwnerId,
+                Coordinates.FromPoint(location.Geometry),
                 new DisplayInformation(location.Name, location.Description, location.Icon));
         }
+
+        public async Task<LocationEntity?> GetEntityById(Guid id)
+            => await _context.Locations.AsNoTracking().FirstOrDefaultAsync(l => l.Id == id);
 
         public async Task<IEnumerable<Location>> GetLocationsInExtent(
             Guid ownerId,
@@ -162,12 +172,44 @@ public class EfLocationWriteRepository : ILocationWriteRepository
             var query = _context.Locations
                 .AsNoTracking()
                 .Where(l => l.OwnerId == ownerId)
+                .Where(l => l.DeletedAt == null)
                 .Where(l => extent.Contains(l.Geometry));
 
             var results = await query.ToListAsync();
 
             return results.Select(l => Location.Reconstitute(l.Id, l.OwnerId, Coordinates.FromPoint(l.Geometry),
                 new DisplayInformation(l.Name, l.Description, l.Icon)));
+        }
+
+        public async Task<IEnumerable<LocationEntity>> GetChangedSince(Guid ownerId, DateTime since, int limit)
+        {
+            var sinceUtc = DateTime.SpecifyKind(since.ToUniversalTime(), DateTimeKind.Utc);
+            return await _context.Locations
+                .AsNoTracking()
+                .Where(l => l.OwnerId == ownerId)
+                .Where(l => l.UpdatedAt > sinceUtc)
+                .OrderBy(l => l.UpdatedAt)
+                .Take(limit)
+                .ToListAsync();
+        }
+
+        public async Task<DateTime?> GetCurrentServerTime()
+        {
+            var conn = _context.Database.GetDbConnection();
+            var wasOpen = conn.State == System.Data.ConnectionState.Open;
+            if (!wasOpen) await conn.OpenAsync();
+            try
+            {
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT CURRENT_TIMESTAMP AT TIME ZONE 'UTC'";
+                var result = await cmd.ExecuteScalarAsync();
+                if (result is DateTime dt) return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                return null;
+            }
+            finally
+            {
+                if (!wasOpen) await conn.CloseAsync();
+            }
         }
     }
 }

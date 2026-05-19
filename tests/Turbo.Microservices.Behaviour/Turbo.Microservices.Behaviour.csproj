@@ -27,9 +27,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\hosts\Turbo.Host.Auth\Turbo.Host.Auth.csproj" />
-    <ProjectReference Include="..\..\hosts\Turbo.Host.Activity\Turbo.Host.Activity.csproj" />
+    <ProjectReference Include="..\..\hosts\Turbo.Host.Tracks\Turbo.Host.Tracks.csproj" />
     <ProjectReference Include="..\..\hosts\Turbo.Host.Geo\Turbo.Host.Geo.csproj" />
-    <ProjectReference Include="..\..\Turbo-pg-data\Turbo-pg-data.csproj" />
+    <ProjectReference Include="..\..\hosts\Turbo.Host.Collections\Turbo.Host.Collections.csproj" />
     <ProjectReference Include="..\Turbo.Behaviour.Testing\Turbo.Behaviour.Testing.csproj" />
   </ItemGroup>
 

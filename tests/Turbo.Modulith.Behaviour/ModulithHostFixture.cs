@@ -6,16 +6,17 @@ using Testcontainers.PostgreSql;
 using Turbo.Behaviour.Testing;
 using Turbo.Host.Modulith;
 using Turbo.Hosting.Postgres;
-using Turboapi.Activity.data;
 using Turboapi.Auth.Infrastructure.Persistence;
+using Turboapi.Collections.data;
 using Turboapi.Geo.domain.query.model;
+using Turboapi.Tracks.data;
 using Xunit;
 
 namespace Turbo.Modulith.Behaviour;
 
 /// <summary>
 /// Boots <c>Turbo.Host.Modulith</c> on one Postgres container with three
-/// separate databases (auth/activity/geo) — the modulith deploy topology.
+/// separate databases (auth/geo/tracks) — the modulith deploy topology.
 /// No NATS; the in-process transport delivers events.
 /// </summary>
 public sealed class ModulithHostFixture : IAsyncLifetime
@@ -31,27 +32,24 @@ public sealed class ModulithHostFixture : IAsyncLifetime
         await _postgres.StartAsync();
         var baseConn = _postgres.GetConnectionString();
 
-        // Modulith hosts three databases on one Postgres. EF Core's
-        // MigrateAsync creates schema but not the database itself; the host
-        // helper handles both at startup once the factory is up. The
-        // databases themselves are created lazily by MigrateModuleDatabaseAsync.
         var authConn = RepoLayout.WithDatabase(baseConn, "auth");
-        var activityConn = RepoLayout.WithDatabase(baseConn, "activity");
+        var tracksConn = RepoLayout.WithDatabase(baseConn, "tracks");
         var geoConn = RepoLayout.WithDatabase(baseConn, "geo");
+        var collectionsConn = RepoLayout.WithDatabase(baseConn, "collections");
 
         _factory = new WebApplicationFactory<ModulithProgram>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Test");
             builder.UseSetting("ConnectionStrings:Auth", authConn);
-            builder.UseSetting("ConnectionStrings:Activity", activityConn);
+            builder.UseSetting("ConnectionStrings:Tracks", tracksConn);
             builder.UseSetting("ConnectionStrings:Geo", geoConn);
+            builder.UseSetting("ConnectionStrings:Collections", collectionsConn);
         });
 
-        // The test factory doesn't execute Program.cs's top-level await, so
-        // the migrations have to run here against the test-overridden DbContexts.
         await _factory.Services.MigrateModuleDatabaseAsync<AuthDbContext>(authConn);
-        await _factory.Services.MigrateModuleDatabaseAsync<ActivityContext>(activityConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<TrackReadContext>(tracksConn);
         await _factory.Services.MigrateModuleDatabaseAsync<LocationReadContext>(geoConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<CollectionsReadContext>(collectionsConn);
     }
 
     public async Task DisposeAsync()
@@ -60,28 +58,23 @@ public sealed class ModulithHostFixture : IAsyncLifetime
         await _postgres.DisposeAsync();
     }
 
-    /// <summary>
-    /// Resolves the running modulith host's in-process bus so a test can
-    /// simulate at-least-once redelivery — publishing the same envelope
-    /// twice to assert the idempotency table dedupes.
-    /// </summary>
     public Turbo.Messaging.InProcess.InProcessMessageBus Bus
         => _factory!.Services.GetRequiredService<Turbo.Messaging.InProcess.InProcessMessageBus>();
 
     /// <summary>
-    /// Reads the most-recent activity-outbox row whose event type ends
+    /// Reads the most-recent tracks-outbox row whose event type ends
     /// with <paramref name="eventTypeSuffix"/> and republishes it on the
     /// in-process bus as if the broker had redelivered.
     /// </summary>
-    public async Task RedeliverLatestActivityEnvelopeAsync(string eventTypeSuffix)
+    public async Task RedeliverLatestTracksEnvelopeAsync(string eventTypeSuffix)
     {
-        var activityConn = RepoLayout.WithDatabase(_postgres.GetConnectionString(), "activity");
-        await using var conn = new NpgsqlConnection(activityConn);
+        var tracksConn = RepoLayout.WithDatabase(_postgres.GetConnectionString(), "tracks");
+        await using var conn = new NpgsqlConnection(tracksConn);
         await conn.OpenAsync();
 
         await using var cmd = new NpgsqlCommand(
             @"SELECT id, event_type, source, data_content_type, payload_json, headers_json, occurred_at
-              FROM activity.outbox
+              FROM tracks.outbox
               WHERE event_type LIKE @suffix
               ORDER BY position DESC
               LIMIT 1;", conn);
@@ -105,41 +98,39 @@ public sealed class ModulithHostFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Counts rows in the activity read model. Used by the idempotency
-    /// test as an authoritative check that a redelivery did not insert
-    /// a duplicate row.
+    /// Counts non-tombstoned rows in the tracks read model matching the id.
     /// </summary>
-    public async Task<int> CountActivityRowsAsync(Guid activityId)
+    public async Task<int> CountTracksRowsAsync(Guid trackId)
     {
-        var activityConn = RepoLayout.WithDatabase(_postgres.GetConnectionString(), "activity");
-        await using var conn = new NpgsqlConnection(activityConn);
+        var tracksConn = RepoLayout.WithDatabase(_postgres.GetConnectionString(), "tracks");
+        await using var conn = new NpgsqlConnection(tracksConn);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "SELECT COUNT(*) FROM activity_query WHERE activity_id = @id;", conn);
-        cmd.Parameters.AddWithValue("@id", activityId);
+            "SELECT COUNT(*) FROM tracks_read WHERE id = @id AND deleted_at IS NULL;", conn);
+        cmd.Parameters.AddWithValue("@id", trackId);
         var result = await cmd.ExecuteScalarAsync();
         return Convert.ToInt32(result);
     }
 
     /// <summary>
     /// Test-only simulation of the operator rebuild SOP: truncate the
-    /// activity read model + the activity dedup table, then mark every
-    /// activity outbox row as undispatched.
+    /// tracks read model + the tracks dedup table, then mark every
+    /// tracks outbox row as undispatched.
     /// </summary>
-    public async Task ResetActivityReadModelForReplayAsync()
+    public async Task ResetTracksReadModelForReplayAsync()
     {
-        var activityConn = RepoLayout.WithDatabase(_postgres.GetConnectionString(), "activity");
-        await using var conn = new NpgsqlConnection(activityConn);
+        var tracksConn = RepoLayout.WithDatabase(_postgres.GetConnectionString(), "tracks");
+        await using var conn = new NpgsqlConnection(tracksConn);
         await conn.OpenAsync();
 
-        await using var truncateReadModel = new NpgsqlCommand("TRUNCATE TABLE activity_query;", conn);
+        await using var truncateReadModel = new NpgsqlCommand("TRUNCATE TABLE tracks_read;", conn);
         await truncateReadModel.ExecuteNonQueryAsync();
 
-        await using var truncateDedup = new NpgsqlCommand("TRUNCATE TABLE activity.processed_events;", conn);
+        await using var truncateDedup = new NpgsqlCommand("TRUNCATE TABLE tracks.processed_events;", conn);
         await truncateDedup.ExecuteNonQueryAsync();
 
         await using var resetOutbox = new NpgsqlCommand(
-            "UPDATE activity.outbox SET dispatched_at = NULL, attempts = 0, last_error = NULL;", conn);
+            "UPDATE tracks.outbox SET dispatched_at = NULL, attempts = 0, last_error = NULL;", conn);
         await resetOutbox.ExecuteNonQueryAsync();
     }
 }

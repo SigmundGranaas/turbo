@@ -40,16 +40,16 @@ public sealed class ModuleLayering
     };
 
     [Fact]
-    public void Activity_Core_does_not_depend_on_infrastructure_packages()
+    public void Tracks_Core_does_not_depend_on_infrastructure_packages()
     {
-        AssertNoForbiddenReferences("Turbo.Activity.Core", ForbiddenInCore);
+        AssertNoForbiddenReferences("Turbo.Tracks.Core", ForbiddenInCore);
     }
 
     [Fact]
-    public void Activity_Contracts_does_not_depend_on_infrastructure_or_Core()
+    public void Tracks_Contracts_does_not_depend_on_infrastructure_or_Core()
     {
-        AssertNoForbiddenReferences("Turbo.Activity.Contracts",
-            ForbiddenInContracts.Concat(new[] { "Turbo.Activity.Core" }).ToArray());
+        AssertNoForbiddenReferences("Turbo.Tracks.Contracts",
+            ForbiddenInContracts.Concat(new[] { "Turbo.Tracks.Core" }).ToArray());
     }
 
     [Fact]
@@ -76,6 +76,19 @@ public sealed class ModuleLayering
     {
         AssertNoForbiddenReferences("Turbo.Auth.Contracts",
             ForbiddenInContracts.Concat(new[] { "Turbo.Auth.Core" }).ToArray());
+    }
+
+    [Fact]
+    public void Collections_Core_does_not_depend_on_infrastructure_packages()
+    {
+        AssertNoForbiddenReferences("Turbo.Collections.Core", ForbiddenInCore);
+    }
+
+    [Fact]
+    public void Collections_Contracts_does_not_depend_on_infrastructure_or_Core()
+    {
+        AssertNoForbiddenReferences("Turbo.Collections.Contracts",
+            ForbiddenInContracts.Concat(new[] { "Turbo.Collections.Core" }).ToArray());
     }
 
     private static void AssertNoForbiddenReferences(string assemblyName, string[] forbidden)

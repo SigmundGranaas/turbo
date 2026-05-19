@@ -3,12 +3,17 @@
 -- on subsequent runs (Postgres only executes /docker-entrypoint-initdb.d
 -- scripts when the data directory is empty).
 --
--- Flyway then populates each database from src/{Auth,Geo,Activity}/db/migrations.
+-- EF Core then creates the schema for each database in-process at host
+-- startup (see MigrateModuleDatabaseAsync in src/Shared/Turbo.Hosting.Postgres).
 
 CREATE DATABASE auth;
 CREATE DATABASE geo;
-CREATE DATABASE activity;
+CREATE DATABASE tracks;
+CREATE DATABASE collections;
 
--- PostGIS lives in the geo database only.
+-- PostGIS extension on the two spatial databases.
 \connect geo;
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+\connect tracks;
 CREATE EXTENSION IF NOT EXISTS postgis;

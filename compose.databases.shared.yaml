@@ -1,17 +1,17 @@
 name: turbo
 
 # Shared-database variant: one Postgres instance hosting auth, geo, and
-# activity as logical databases (geo carries the PostGIS extension). Use
-# instead of compose.yaml when the three modules should share a physical
-# instance — e.g. cost-constrained environments, dev/test where three
-# Postgres processes are wasteful.
+# tracks as logical databases (geo + tracks carry the PostGIS extension).
+# Use instead of compose.yaml when the three modules should share a
+# physical instance — e.g. cost-constrained environments, dev/test where
+# three Postgres processes are wasteful.
 #
 # Usage:
 #   docker compose --env-file .env.shared \
 #       -f compose.databases.shared.yaml \
 #       -f compose.services.yaml up
 #
-# The .env.shared file points AUTH_DB_HOST / GEO_DB_HOST / ACTIVITY_DB_HOST
+# The .env.shared file points AUTH_DB_HOST / GEO_DB_HOST / TRACKS_DB_HOST
 # at this `shared-db` service so the apps/migrations connect to the right
 # place; the per-service-DB defaults in compose.services.yaml /
 # compose.modulith.yaml are not active.

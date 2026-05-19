@@ -24,8 +24,15 @@ public class UpdateLocationHandler
 
     public async Task<Turboapi.Geo.domain.model.Location> Handle(UpdateLocationCommand command)
     {
+        var entity = await _repository.GetEntityById(command.LocationId);
+        if (entity is null || entity.DeletedAt is not null)
+            throw new LocationNotFoundException(command.LocationId.ToString());
+
+        if (command.IfMatchVersion is { } expected && entity.Version != expected)
+            throw new OptimisticConcurrencyException(expected, entity.Version);
+
         var location = await _repository.GetById(command.LocationId);
-        if (location == null)
+        if (location is null)
             throw new LocationNotFoundException(command.LocationId.ToString());
 
         location.Update(command.UserId, command.Updates);

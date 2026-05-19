@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetTopologySuite.Geometries;
 using Turbo.Messaging;
@@ -52,6 +53,9 @@ public class LocationCreatedHandler : ILocationEventHandler<LocationCreated>
                 Description = @event.Display.Description,
                 Icon = @event.Display.Icon,
                 CreatedAt = @event.OccurredAt,
+                UpdatedAt = @event.OccurredAt,
+                DeletedAt = null,
+                Version = 1,
             };
 
             await _repo.Add(entity);
@@ -103,7 +107,8 @@ public class LocationUpdatedHandler : ILocationEventHandler<LocationUpdated>
                 await _repo.UpdatePartial(
                     @event.LocationId,
                     @event.Updates.Coordinates,
-                    @event.Updates.Display);
+                    @event.Updates.Display,
+                    @event.OccurredAt);
             }
         }
         catch (Exception ex)
@@ -146,17 +151,8 @@ public class LocationDeletedHandler : ILocationEventHandler<LocationDeleted>
 
         try
         {
-            var location = await _repo.GetById(@event.LocationId);
-            if (location != null)
-            {
-                await _repo.Delete(location);
-                _logger.LogInformation("Deleted location {LocationId}", @event.LocationId);
-            }
-            else
-            {
-                _logger.LogWarning("Location {LocationId} not found for deletion",
-                    @event.LocationId);
-            }
+            await _repo.SoftDelete(@event.LocationId, @event.OccurredAt);
+            _logger.LogInformation("Tombstoned location {LocationId}", @event.LocationId);
         }
         catch (Exception ex)
         {

@@ -11,7 +11,7 @@ namespace Turbo.Architecture;
 /// handlers must reach storage only through the per-module
 /// <see cref="Turbo.Outbox.IUnitOfWork{TScope}"/> and
 /// <see cref="Turbo.Outbox.IOutbox{TScope}"/> abstractions — never via EF
-/// Core's DbContext, never via Npgsql. The marker types (ActivityScope,
+/// Core's DbContext, never via Npgsql. The marker types (TracksScope,
 /// GeoScope, AuthScope) keep handlers free of any EF type names.
 /// </summary>
 public sealed class HandlerPurity
@@ -21,8 +21,6 @@ public sealed class HandlerPurity
         var loaded = AppDomain.CurrentDomain.GetAssemblies()
             .FirstOrDefault(a => a.GetName().Name == assemblyName);
         if (loaded is not null) return loaded;
-        // Force-load via a known type from each module so the assembly is
-        // present even when only its types are referenced transitively.
         return Assembly.Load(assemblyName);
     }
 
@@ -36,21 +34,20 @@ public sealed class HandlerPurity
     };
 
     [Fact]
-    public void Activity_command_handlers_do_not_reference_EF_Core_or_Npgsql()
+    public void Tracks_command_handlers_do_not_reference_EF_Core_or_Npgsql()
     {
-        // Touch a type from the assembly so it loads.
-        _ = typeof(Turboapi.Activity.domain.handler.CreateActivityHandler);
-        var assembly = LoadByName("Turbo.Activity.Core");
+        _ = typeof(Turboapi.Tracks.domain.handler.CreateTrackHandler);
+        var assembly = LoadByName("Turbo.Tracks.Core");
 
         var result = Types.InAssembly(assembly)
             .That()
-            .ResideInNamespace("Turboapi.Activity.domain.handler")
+            .ResideInNamespace("Turboapi.Tracks.domain.handler")
             .ShouldNot()
             .HaveDependencyOnAny(ForbiddenInHandlers)
             .GetResult();
 
         result.IsSuccessful.Should().BeTrue(
-            $"Activity command handlers must talk to storage only through IUnitOfWork<ActivityScope> / IOutbox<ActivityScope>; offending: {Describe(result.FailingTypes)}");
+            $"Tracks command handlers must talk to storage only through IUnitOfWork<TracksScope> / IOutbox<TracksScope>; offending: {Describe(result.FailingTypes)}");
     }
 
     [Fact]
@@ -68,6 +65,23 @@ public sealed class HandlerPurity
 
         result.IsSuccessful.Should().BeTrue(
             $"Geo command handlers must talk to storage only through IUnitOfWork<GeoScope> / IOutbox<GeoScope>; offending: {Describe(result.FailingTypes)}");
+    }
+
+    [Fact]
+    public void Collections_command_handlers_do_not_reference_EF_Core_or_Npgsql()
+    {
+        _ = typeof(Turboapi.Collections.domain.handler.CreateCollectionHandler);
+        var assembly = LoadByName("Turbo.Collections.Core");
+
+        var result = Types.InAssembly(assembly)
+            .That()
+            .ResideInNamespace("Turboapi.Collections.domain.handler")
+            .ShouldNot()
+            .HaveDependencyOnAny(ForbiddenInHandlers)
+            .GetResult();
+
+        result.IsSuccessful.Should().BeTrue(
+            $"Collections command handlers must talk to storage only through IUnitOfWork<CollectionsScope> / IOutbox<CollectionsScope>; offending: {Describe(result.FailingTypes)}");
     }
 
     [Fact]

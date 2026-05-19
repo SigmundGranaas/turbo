@@ -5,8 +5,8 @@ using FluentAssertions;
 using Turboapi.Auth.Application.Contracts.V1.Auth;
 using Turboapi.Geo.controller.request;
 using Turboapi.Geo.controller.response;
-using Turboapi.Activity.controller;
-using Turboapi.Activity.domain;
+using Turboapi.Tracks.controller.request;
+using Turboapi.Tracks.controller.response;
 using Xunit;
 
 namespace Turbo.Modulith.Behaviour;
@@ -24,8 +24,22 @@ public sealed class ModulithBehaviour
     private readonly ModulithHostFixture _host;
     public ModulithBehaviour(ModulithHostFixture host) => _host = host;
 
+    private static CreateTrackRequest SampleTrack(string name = "via modulith") => new()
+    {
+        Geometry = new GeometryDto
+        {
+            Points = new()
+            {
+                new PointDto { Longitude = 12, Latitude = 13 },
+                new PointDto { Longitude = 12.01, Latitude = 13.01 },
+            },
+        },
+        Metadata = new MetadataDto { Name = name },
+        Stats = new StatsDto { DistanceMeters = 200.0 },
+    };
+
     [Fact]
-    public async Task a_jwt_issued_by_auth_authorizes_calls_to_activity_and_geo()
+    public async Task a_jwt_issued_by_auth_authorizes_calls_to_tracks_and_geo()
     {
         var client = _host.CreateClient();
         var email = $"modulith-{Guid.NewGuid():N}@example.com";
@@ -43,17 +57,10 @@ public sealed class ModulithBehaviour
         var authed = _host.CreateClient();
         authed.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
 
-        // Activity accepts the JWT issued by Auth
-        var activity = await authed.PostAsJsonAsync("/api/activity",
-            new ActivityController.CreateActivityRequest(
-                new Position { Latitude = 59.913, Longitude = 10.752 },
-                "Cross-module flow",
-                "registered via auth, posted via activity",
-                "run"));
-        activity.StatusCode.Should().Be(HttpStatusCode.Created,
-            $"activity rejected the auth-issued JWT: {await activity.Content.ReadAsStringAsync()}");
+        var tracks = await authed.PostAsJsonAsync("/api/tracks/Tracks", SampleTrack("Cross-module flow"));
+        tracks.StatusCode.Should().Be(HttpStatusCode.Created,
+            $"tracks rejected the auth-issued JWT: {await tracks.Content.ReadAsStringAsync()}");
 
-        // Geo accepts the same JWT
         var geo = await authed.PostAsJsonAsync("/api/geo/Locations",
             new CreateLocationRequest
             {
@@ -68,30 +75,25 @@ public sealed class ModulithBehaviour
     }
 
     [Fact]
-    public async Task creating_an_activity_makes_it_retrievable_through_the_modulith_pipeline()
+    public async Task creating_a_track_makes_it_retrievable_through_the_modulith_pipeline()
     {
         var client = await RegisterAsync();
-        var request = new ActivityController.CreateActivityRequest(
-            new Position { Latitude = 12, Longitude = 13 },
-            "via modulith",
-            "in-process delivery",
-            "icon");
+        var request = SampleTrack();
 
-        var create = await client.PostAsJsonAsync("/api/activity", request);
+        var create = await client.PostAsJsonAsync("/api/tracks/Tracks", request);
         create.StatusCode.Should().Be(HttpStatusCode.Created);
-        var created = await create.Content.ReadFromJsonAsync<ActivityController.CreateActivityResponse>();
+        var created = await create.Content.ReadFromJsonAsync<TrackResponse>();
 
-        // The projection runs through the in-process subscriber host, not NATS.
-        var fetched = await Eventually.Returns<ActivityController.ActivityResponse>(async () =>
+        var fetched = await Eventually.Returns<TrackResponse>(async () =>
         {
-            var r = await client.GetAsync($"/api/activity/{created!.ActivityId}");
+            var r = await client.GetAsync($"/api/tracks/Tracks/{created!.Id}");
             return r.IsSuccessStatusCode
-                ? await r.Content.ReadFromJsonAsync<ActivityController.ActivityResponse>()
+                ? await r.Content.ReadFromJsonAsync<TrackResponse>()
                 : null;
-        }, description: "Activity GET reflects POST after in-process projection");
+        }, description: "Tracks GET reflects POST after in-process projection");
 
-        fetched.Id.Should().Be(created!.ActivityId);
-        fetched.Name.Should().Be("via modulith");
+        fetched.Id.Should().Be(created!.Id);
+        fetched.Metadata.Name.Should().Be(request.Metadata.Name);
     }
 
     [Fact]
@@ -107,7 +109,6 @@ public sealed class ModulithBehaviour
         create.StatusCode.Should().Be(HttpStatusCode.Created);
         var created = await create.Content.ReadFromJsonAsync<LocationResponse>();
 
-        // The projection runs through the in-process subscriber chain.
         var body = await Eventually.Returns<LocationResponse>(async () =>
         {
             var r = await client.GetAsync($"/api/geo/Locations/{created!.Id}");

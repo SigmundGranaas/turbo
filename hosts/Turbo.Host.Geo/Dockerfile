@@ -14,11 +14,11 @@ COPY ["src/Geo/Turbo.Geo.Core/Turbo.Geo.Core.csproj", "src/Geo/Turbo.Geo.Core/"]
 COPY ["src/Geo/Turbo.Geo.Contracts/Turbo.Geo.Contracts.csproj", "src/Geo/Turbo.Geo.Contracts/"]
 COPY ["src/Geo/Turbo.Geo.Infrastructure/Turbo.Geo.Infrastructure.csproj", "src/Geo/Turbo.Geo.Infrastructure/"]
 COPY ["TurboAuthentication/TurboAuthentication.csproj", "TurboAuthentication/"]
-COPY ["Turbo-pg-data/Turbo-pg-data.csproj", "Turbo-pg-data/"]
 COPY ["src/Shared/Turbo.Messaging.Abstractions/Turbo.Messaging.Abstractions.csproj", "src/Shared/Turbo.Messaging.Abstractions/"]
 COPY ["src/Shared/Turbo.Messaging.Nats/Turbo.Messaging.Nats.csproj", "src/Shared/Turbo.Messaging.Nats/"]
 COPY ["src/Shared/Turbo.Outbox.Abstractions/Turbo.Outbox.Abstractions.csproj", "src/Shared/Turbo.Outbox.Abstractions/"]
 COPY ["src/Shared/Turbo.Outbox.Postgres/Turbo.Outbox.Postgres.csproj", "src/Shared/Turbo.Outbox.Postgres/"]
+COPY ["src/Shared/Turbo.Hosting.Postgres/Turbo.Hosting.Postgres.csproj", "src/Shared/Turbo.Hosting.Postgres/"]
 RUN dotnet restore "hosts/Turbo.Host.Geo/Turbo.Host.Geo.csproj"
 
 COPY . .

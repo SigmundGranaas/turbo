@@ -26,7 +26,6 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL.NetTopologySuite" />
     <ProjectReference Include="..\..\hosts\Turbo.Host.Geo\Turbo.Host.Geo.csproj" />
     <ProjectReference Include="..\..\src\Geo\Turbo.Geo.Api\Turbo.Geo.Api.csproj" />
-    <ProjectReference Include="..\..\Turbo-pg-data\Turbo-pg-data.csproj" />
     <ProjectReference Include="..\Turbo.Behaviour.Testing\Turbo.Behaviour.Testing.csproj" />
   </ItemGroup>
 

@@ -61,20 +61,47 @@ services:
     networks:
       - turbo
 
-  turboapi-activity:
+  turboapi-tracks:
     build:
       context: .
-      dockerfile: ./hosts/Turbo.Host.Activity/Dockerfile
-    container_name: turboapi_activity
-    hostname: activity
+      dockerfile: ./hosts/Turbo.Host.Tracks/Dockerfile
+    container_name: turboapi_tracks
+    hostname: tracks
     ports:
       - "5003:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__Activity=Host=${ACTIVITY_DB_HOST:-activity-db};Port=${ACTIVITY_DB_PORT:-5436};Database=${ACTIVITY_DB_NAME:-activity};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=turboapi-activity
+      - OTEL_SERVICE_NAME=turboapi-tracks
+      - Nats__Url=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - turbo
+
+  turboapi-collections:
+    build:
+      context: .
+      dockerfile: ./hosts/Turbo.Host.Collections/Dockerfile
+    container_name: turboapi_collections
+    hostname: collections
+    ports:
+      - "5004:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=turboapi-collections
       - Nats__Url=nats://nats:4222
     depends_on:
       nats:
@@ -104,7 +131,9 @@ services:
         condition: service_healthy
       turboapi-geo:
         condition: service_healthy
-      turboapi-activity:
+      turboapi-tracks:
+        condition: service_healthy
+      turboapi-collections:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
@@ -114,7 +143,7 @@ services:
       start_period: 10s
     networks:
       - turbo
-        
+
   # Migrations run in-process at each host's startup via EF Core
   # (see MigrateModuleDatabaseAsync in src/Shared/Turbo.Hosting.Postgres).
   # No separate migration containers needed.

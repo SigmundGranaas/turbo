@@ -24,7 +24,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\hosts\Turbo.Host.Auth\Turbo.Host.Auth.csproj" />
     <ProjectReference Include="..\..\src\Auth\Turbo.Auth.Api\Turbo.Auth.Api.csproj" />
-    <ProjectReference Include="..\..\Turbo-pg-data\Turbo-pg-data.csproj" />
     <ProjectReference Include="..\Turbo.Behaviour.Testing\Turbo.Behaviour.Testing.csproj" />
   </ItemGroup>
 

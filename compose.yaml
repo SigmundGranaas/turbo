@@ -1,4 +1,4 @@
-﻿name: turbo
+name: turbo
 
 services:
   auth-db:
@@ -19,7 +19,7 @@ services:
       - auth_data:/var/lib/postgresql/data
     networks:
       - turbo
-  
+
   geo-db:
     image: postgis/postgis:17-master
     container_name: geo-db
@@ -39,21 +39,41 @@ services:
       retries: 5
     networks:
       - turbo
-  
-  activity-db:
-    image: postgres:17-alpine
-    container_name: activity-db
+
+  tracks-db:
+    image: postgis/postgis:17-master
+    container_name: tracks-db
     ports:
-      - "5436:5436"
+      - "5437:5437"
     environment:
       POSTGRES_PASSWORD: yourpassword
-      POSTGRES_DB: activity
+      POSTGRES_DB: tracks
       POSTGRES_USER: postgres
     volumes:
-      - activity_data:/var/lib/postgresql/data
-    command: -p 5436
+      - tracks_data:/var/lib/postgresql/data
+    command: -p 5437
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d activity -p 5436"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tracks -p 5437"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  collections-db:
+    image: postgres:17-alpine
+    container_name: collections-db
+    ports:
+      - "5438:5438"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: collections
+      POSTGRES_USER: postgres
+    volumes:
+      - collections_data:/var/lib/postgresql/data
+    command: -p 5438
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d collections -p 5438"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -82,7 +102,8 @@ services:
 volumes:
   auth_data:
   geo_data:
-  activity_data:
+  tracks_data:
+  collections_data:
   nats_data:
 
 networks:

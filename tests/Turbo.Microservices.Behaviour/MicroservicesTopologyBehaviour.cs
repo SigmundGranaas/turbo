@@ -5,8 +5,8 @@ using FluentAssertions;
 using Turboapi.Auth.Application.Contracts.V1.Auth;
 using Turboapi.Geo.controller.request;
 using Turboapi.Geo.controller.response;
-using Turboapi.Activity.controller;
-using Turboapi.Activity.domain;
+using Turboapi.Tracks.controller.request;
+using Turboapi.Tracks.controller.response;
 using Xunit;
 
 namespace Turbo.Microservices.Behaviour;
@@ -15,7 +15,7 @@ namespace Turbo.Microservices.Behaviour;
 /// Cross-host behaviour: three independent HTTP services, no in-process
 /// composition. The user-visible contract must be identical to the
 /// modulith deploy — a JWT issued by the Auth host is accepted by the
-/// Activity and Geo hosts, and writes to Activity round-trip through the
+/// Tracks and Geo hosts, and writes to Tracks round-trip through the
 /// NATS-backed projection.
 /// </summary>
 [Collection("MicroservicesTopology")]
@@ -24,8 +24,22 @@ public sealed class MicroservicesTopologyBehaviour
     private readonly MicroservicesTopologyFixture _topology;
     public MicroservicesTopologyBehaviour(MicroservicesTopologyFixture topology) => _topology = topology;
 
+    private static CreateTrackRequest SampleTrack(string name = "Cross-host run") => new()
+    {
+        Geometry = new GeometryDto
+        {
+            Points = new()
+            {
+                new PointDto { Longitude = 10.752, Latitude = 59.913 },
+                new PointDto { Longitude = 10.753, Latitude = 59.914 },
+            },
+        },
+        Metadata = new MetadataDto { Name = name, IconKey = "run" },
+        Stats = new StatsDto { DistanceMeters = 100.0 },
+    };
+
     [Fact]
-    public async Task a_jwt_issued_by_the_auth_host_authorizes_the_activity_and_geo_hosts()
+    public async Task a_jwt_issued_by_the_auth_host_authorizes_the_tracks_and_geo_hosts()
     {
         var email = $"micro-{Guid.NewGuid():N}@example.com";
         const string password = "Sufficiently-Long-Passw0rd!";
@@ -36,17 +50,12 @@ public sealed class MicroservicesTopologyBehaviour
             $"register failed: {register.StatusCode}: {await register.Content.ReadAsStringAsync()}");
         var tokens = (await register.Content.ReadFromJsonAsync<AuthTokenResponse>())!;
 
-        var activityClient = _topology.ActivityClient;
-        activityClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
+        var tracksClient = _topology.TracksClient;
+        tracksClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
 
-        var activityPost = await activityClient.PostAsJsonAsync("/api/activity",
-            new ActivityController.CreateActivityRequest(
-                new Position { Latitude = 59.913, Longitude = 10.752 },
-                "Cross-host run",
-                "across three hosts via NATS",
-                "run"));
-        activityPost.StatusCode.Should().Be(HttpStatusCode.Created,
-            $"Activity host rejected the Auth-issued JWT: {await activityPost.Content.ReadAsStringAsync()}");
+        var tracksPost = await tracksClient.PostAsJsonAsync("/api/tracks/Tracks", SampleTrack());
+        tracksPost.StatusCode.Should().Be(HttpStatusCode.Created,
+            $"Tracks host rejected the Auth-issued JWT: {await tracksPost.Content.ReadAsStringAsync()}");
 
         var geoClient = _topology.GeoClient;
         geoClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokens.AccessToken);
@@ -61,7 +70,7 @@ public sealed class MicroservicesTopologyBehaviour
     }
 
     [Fact]
-    public async Task activity_post_eventually_appears_via_the_activity_hosts_projection_subscriber()
+    public async Task tracks_post_eventually_appears_via_the_tracks_hosts_projection_subscriber()
     {
         var email = $"micro-proj-{Guid.NewGuid():N}@example.com";
         const string password = "Sufficiently-Long-Passw0rd!";
@@ -70,27 +79,22 @@ public sealed class MicroservicesTopologyBehaviour
         reg.IsSuccessStatusCode.Should().BeTrue();
         var token = (await reg.Content.ReadFromJsonAsync<AuthTokenResponse>())!.AccessToken;
 
-        var client = _topology.ActivityClient;
+        var client = _topology.TracksClient;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        var create = await client.PostAsJsonAsync("/api/activity",
-            new ActivityController.CreateActivityRequest(
-                new Position { Latitude = 1, Longitude = 2 },
-                "Projected over NATS",
-                "outbox → dispatcher → NATS → subscriber → read model",
-                "run"));
+        var create = await client.PostAsJsonAsync("/api/tracks/Tracks", SampleTrack("Projected over NATS"));
         create.StatusCode.Should().Be(HttpStatusCode.Created);
-        var created = (await create.Content.ReadFromJsonAsync<ActivityController.CreateActivityResponse>())!;
+        var created = (await create.Content.ReadFromJsonAsync<TrackResponse>())!;
 
-        var fetched = await Eventually.Returns<ActivityController.ActivityResponse>(async () =>
+        var fetched = await Eventually.Returns<TrackResponse>(async () =>
         {
-            var r = await client.GetAsync($"/api/activity/{created.ActivityId}");
+            var r = await client.GetAsync($"/api/tracks/Tracks/{created.Id}");
             return r.IsSuccessStatusCode
-                ? await r.Content.ReadFromJsonAsync<ActivityController.ActivityResponse>()
+                ? await r.Content.ReadFromJsonAsync<TrackResponse>()
                 : null;
-        }, description: "Activity GET after NATS-delivered projection");
+        }, description: "Tracks GET after NATS-delivered projection");
 
-        fetched.Id.Should().Be(created.ActivityId);
-        fetched.Name.Should().Be("Projected over NATS");
+        fetched.Id.Should().Be(created.Id);
+        fetched.Metadata.Name.Should().Be("Projected over NATS");
     }
 }
