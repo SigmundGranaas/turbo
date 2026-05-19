@@ -28,6 +28,7 @@ class VectorLayerFetcher {
     required double maxLon,
     int maxFeatures = 200,
   }) async {
+    if (source.disabled) return const [];
     final uri = source.buildUri(
       minLat: minLat,
       minLon: minLon,

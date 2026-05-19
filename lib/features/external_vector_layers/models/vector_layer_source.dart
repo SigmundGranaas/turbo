@@ -35,6 +35,12 @@ class VectorLayerSource {
   /// offline availability.
   final bool persist;
 
+  /// When true, the fetcher returns an empty feature list without making a
+  /// network call. Used to keep layer-picker / registry wiring intact for
+  /// sources whose upstream is currently unavailable in a format we can
+  /// parse (e.g. trail data — see [trailVectorSource]).
+  final bool disabled;
+
   const VectorLayerSource({
     required this.id,
     required this.name,
@@ -42,5 +48,6 @@ class VectorLayerSource {
     this.headers,
     this.color,
     this.persist = true,
+    this.disabled = false,
   });
 }

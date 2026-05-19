@@ -18,15 +18,29 @@ enum TrailSubtype {
   other,
 }
 
-/// Build a vector source for a single trail subtype. Each subtype targets
-/// the matching Geonorge WFS TYPENAMES, gets its own colour, and registers
-/// under its own ID so the in-memory + persistent caches don't collide.
+/// Build a vector source for a single trail subtype.
+///
+/// **Currently disabled.** PR #75 originally pointed this at
+/// `wfs.geonorge.no/skwms1/wfs.friluftsruter2`, which doesn't exist (the
+/// server replies `UKJENT APPLIKASJON`). The canonical WFS for the
+/// Turrutebasen dataset is `wfs.geonorge.no/skwms1/wfs.turogfriluftsruter`,
+/// but that endpoint refuses `application/json` output and only emits
+/// GML 3.2.1 — which [VectorLayerFetcher] doesn't parse. Adding a GML
+/// parser is out of scope for the immediate fix, so [disabled] is set
+/// and the fetcher returns no features without making a request.
+///
+/// The trail data is still shown on the map via the WMS raster overlay
+/// at `wms.geonorge.no/skwms1/wms.friluftsruter2` (see
+/// `nasjonal_turbase_overlay.dart`) — that path is unaffected. The
+/// canonical URL is still built so debug logging and tests can verify
+/// the intended destination.
 VectorLayerSource trailVectorSource(TrailSubtype subtype) {
   final spec = _specs[subtype]!;
   return VectorLayerSource(
     id: 'trails_${spec.idSuffix}_vector',
     name: spec.name,
     color: spec.color,
+    disabled: true,
     buildUri: ({
       required minLat,
       required minLon,
@@ -34,12 +48,13 @@ VectorLayerSource trailVectorSource(TrailSubtype subtype) {
       required maxLon,
       maxFeatures,
     }) {
-      return Uri.https('wfs.geonorge.no', '/skwms1/wfs.friluftsruter2', {
+      return Uri.https(
+          'wfs.geonorge.no', '/skwms1/wfs.turogfriluftsruter', {
         'SERVICE': 'WFS',
         'VERSION': '2.0.0',
         'REQUEST': 'GetFeature',
         'TYPENAMES': spec.typeName,
-        'OUTPUTFORMAT': 'application/json',
+        'OUTPUTFORMAT': 'text/xml; subtype=gml/3.2.1',
         'SRSNAME': 'urn:ogc:def:crs:EPSG::4326',
         'BBOX':
             '$minLat,$minLon,$maxLat,$maxLon,urn:ogc:def:crs:EPSG::4326',
@@ -62,28 +77,30 @@ class _TrailSpec {
   });
 }
 
+// Canonical (capitalised + namespaced) feature-type names as advertised
+// by the WFS GetCapabilities for wfs.turogfriluftsruter.
 final Map<TrailSubtype, _TrailSpec> _specs = {
   TrailSubtype.foot: _TrailSpec(
     idSuffix: 'foot',
-    typeName: 'fotrute',
+    typeName: 'app:Fotrute',
     color: const Color(0xFFE63946),
     name: (c) => c.l10n.layerNameTrailsFoot,
   ),
   TrailSubtype.ski: _TrailSpec(
     idSuffix: 'ski',
-    typeName: 'skiloype',
+    typeName: 'app:Skiløype',
     color: const Color(0xFF1976D2),
     name: (c) => c.l10n.layerNameTrailsSki,
   ),
   TrailSubtype.bike: _TrailSpec(
     idSuffix: 'bike',
-    typeName: 'sykkelrute',
+    typeName: 'app:Sykkelrute',
     color: const Color(0xFF388E3C),
     name: (c) => c.l10n.layerNameTrailsBike,
   ),
   TrailSubtype.other: _TrailSpec(
     idSuffix: 'other',
-    typeName: 'andreruter',
+    typeName: 'app:AnnenRute',
     color: const Color(0xFFFB8C00),
     name: (c) => c.l10n.layerNameTrailsOther,
   ),
