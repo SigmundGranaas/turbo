@@ -1,10 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:turbo/app/app_theme.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/core/service/logger.dart';
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/settings/api.dart';
@@ -22,11 +22,9 @@ class TurboApp extends ConsumerWidget {
     final authState = ref.watch(authStateProvider);
     final settingsAsync = ref.watch(settingsProvider);
 
-    if (kDebugMode) {
-      // ignore: avoid_print
-      print('Building TurboApp. Auth Status: ${authState.status}, '
-          'Initializing: ${authState.isInitializing}');
-    }
+    log.fine(() =>
+        'Building TurboApp. Auth Status: ${authState.status}, '
+        'Initializing: ${authState.isInitializing}');
 
     final textTheme = createTextTheme(context, 'Roboto');
     final theme = MaterialTheme(textTheme);

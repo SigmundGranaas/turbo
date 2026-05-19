@@ -47,7 +47,7 @@ class PathsListPage extends ConsumerWidget {
       ),
       body: asyncPaths.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (_, _) => Center(child: Text(l10n.genericLoadError)),
         data: (paths) {
           if (paths.isEmpty) {
             return Center(

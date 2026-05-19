@@ -468,6 +468,14 @@ abstract class AppLocalizations {
   // Elevation backfill
   String get importBackfillingElevation;
   String get importBackfillElevationFailed;
+
+  // Generic error states
+  String get genericLoadError;
+  String get photoLoadError;
+  String get unknownError;
+
+  // Misc UI
+  String get cleanup;
 }
 
 // English translations
@@ -896,6 +904,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override String get importBackfillingElevation => 'Fetching elevation from Kartverket…';
   @override String get importBackfillElevationFailed => 'Elevation lookup failed; profile may be incomplete.';
+
+  @override String get genericLoadError => "Couldn't load. Please try again.";
+  @override String get photoLoadError => "Couldn't load photo.";
+  @override String get unknownError => 'Unknown error';
+
+  @override String get cleanup => 'Cleanup';
 }
 
 // Norwegian translations
@@ -1321,6 +1335,12 @@ class AppLocalizationsNo extends AppLocalizations {
 
   @override String get importBackfillingElevation => 'Henter høydedata fra Kartverket…';
   @override String get importBackfillElevationFailed => 'Høydedata kunne ikke hentes; profilen kan være ufullstendig.';
+
+  @override String get genericLoadError => 'Kunne ikke laste. Prøv igjen.';
+  @override String get photoLoadError => 'Kunne ikke laste bilde.';
+  @override String get unknownError => 'Ukjent feil';
+
+  @override String get cleanup => 'Opprydding';
 }
 
 // The delegate
