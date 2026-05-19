@@ -136,19 +136,65 @@ void main() {
   });
 
   group('MetAlertsService.currentInBounds', () {
-    test('encodes bbox parameter as lon,lat,lon,lat', () async {
+    test('fetches the global feed (no bbox param — MetAlerts rejects it '
+        'with HTTP 400) and filters client-side by polygon bbox', () async {
       http.Request? captured;
+      final feature = (String id, List<List<double>> ring) => {
+            'type': 'Feature',
+            'properties': {
+              'id': id,
+              'awareness_level': '2; yellow; Moderate',
+              'event': 'Wind',
+              'onset': '2026-05-19T00:00:00Z',
+              'expires': '2026-05-19T23:00:00Z',
+            },
+            'geometry': {
+              'type': 'Polygon',
+              // GeoJSON uses [lon, lat]
+              'coordinates': [ring],
+            },
+          };
       final client = MockClient((req) async {
         captured = req;
         return http.Response(
-          jsonEncode({'type': 'FeatureCollection', 'features': []}),
+          jsonEncode({
+            'type': 'FeatureCollection',
+            'features': [
+              // Southern Norway alert — should be kept.
+              feature('south', [
+                [5.0, 58.0],
+                [12.0, 58.0],
+                [12.0, 60.0],
+                [5.0, 60.0],
+                [5.0, 58.0],
+              ]),
+              // Far-northern alert — should be filtered out.
+              feature('north', [
+                [18.0, 69.0],
+                [20.0, 69.0],
+                [20.0, 71.0],
+                [18.0, 71.0],
+                [18.0, 69.0],
+              ]),
+            ],
+          }),
           200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
-      await MetAlertsService(client: client)
+
+      final result = await MetAlertsService(client: client)
           .currentInBounds(58.0, 5.0, 60.0, 12.0);
-      expect(captured!.url.queryParameters['bbox'],
-          '5.0000,58.0000,12.0000,60.0000');
+
+      // The API was called with no bbox query param (the previous
+      // implementation sent bbox=… which the API rejects with HTTP 400).
+      expect(captured!.url.queryParameters.containsKey('bbox'), isFalse,
+          reason:
+              'MetAlerts 2.0 current.json has no bbox parameter. Sending '
+              'one returns 400.');
+      // Client-side filter kept only the intersecting alert.
+      expect(result.alerts.map((a) => a.id), contains('south'));
+      expect(result.alerts.map((a) => a.id), isNot(contains('north')));
     });
   });
 }

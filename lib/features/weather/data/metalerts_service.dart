@@ -25,8 +25,11 @@ class MetAlertsResult {
 /// Two query modes are supported:
 ///  - `currentAtPoint(LatLng)`  — alerts intersecting a single coordinate
 ///    (used by the marker info sheet to show a contextual banner).
-///  - `currentInBounds(LatLngBounds)` — all alerts whose footprint
-///    intersects a viewport (used by the map overlay).
+///  - `currentInBounds(...)` — all alerts whose footprint intersects a
+///    viewport (used by the map overlay). MetAlerts has no bbox query
+///    parameter, so the service fetches the full feature set and filters
+///    by bbox client-side. The full set is ~1 MB and changes slowly, so
+///    the upstream cache layer absorbs the cost.
 class MetAlertsService {
   static const String _host = 'api.met.no';
   static const String _path = '/weatherapi/metalerts/2.0/current.json';
@@ -53,13 +56,32 @@ class MetAlertsService {
     double maxLat,
     double maxLon, {
     String? ifModifiedSince,
-  }) {
-    // MetAlerts uses a comma-separated bbox in lon,lat,lon,lat order.
-    final bbox =
-        '${minLon.toStringAsFixed(4)},${minLat.toStringAsFixed(4)},'
-        '${maxLon.toStringAsFixed(4)},${maxLat.toStringAsFixed(4)}';
-    final uri = Uri.https(_host, _path, {'bbox': bbox});
-    return _fetch(uri, ifModifiedSince: ifModifiedSince);
+  }) async {
+    // MetAlerts has no bbox parameter (the API rejects it with HTTP 400
+    // — "was not listed in the validation options: bbox"). Fetch the
+    // global set and filter client-side by polygon bbox.
+    final uri = Uri.https(_host, _path);
+    final result = await _fetch(uri, ifModifiedSince: ifModifiedSince);
+    final filtered = result.alerts.where((a) {
+      if (a.area.isEmpty) return true; // keep area-less alerts (national)
+      double minALat = double.infinity, minALon = double.infinity;
+      double maxALat = -double.infinity, maxALon = -double.infinity;
+      for (final p in a.area) {
+        if (p.latitude < minALat) minALat = p.latitude;
+        if (p.latitude > maxALat) maxALat = p.latitude;
+        if (p.longitude < minALon) minALon = p.longitude;
+        if (p.longitude > maxALon) maxALon = p.longitude;
+      }
+      return !(maxALat < minLat ||
+          minALat > maxLat ||
+          maxALon < minLon ||
+          minALon > maxLon);
+    }).toList(growable: false);
+    return MetAlertsResult(
+      alerts: filtered,
+      expiresAt: result.expiresAt,
+      lastModified: result.lastModified,
+    );
   }
 
   Future<MetAlertsResult> _fetch(Uri uri, {String? ifModifiedSince}) async {
