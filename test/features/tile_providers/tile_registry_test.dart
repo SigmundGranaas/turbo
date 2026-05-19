@@ -76,6 +76,8 @@ void main() {
         'trails_ski',
         'trails_bike',
         'trails_other',
+        'osm_paths',
+        'n50_sti',
       });
       expect(
           state.availableProviders['topo']!.category,

@@ -25,8 +25,8 @@ class TrailFeatureSheet extends StatelessWidget {
   final VectorFeature feature;
 
   /// Localised subtype label for the column above the name ("Hiking trail",
-  /// "Ski track", etc.). Supplied by the source so the sheet stays generic
-  /// across the four trail subtypes.
+  /// "Ski track", "OSM path", etc.). Supplied by the source so the sheet
+  /// stays generic across vendors.
   final String subtypeLabel;
 
   /// Source accent colour — used as the left-edge tick and for chip
@@ -34,11 +34,18 @@ class TrailFeatureSheet extends StatelessWidget {
   /// belongs to.
   final Color accent;
 
+  /// Optional pre-decoded properties. When null, the sheet falls back
+  /// to the Turrutebasen SOSI decoder for backwards compatibility.
+  /// Sources targeting other vocabularies (OSM tags, N50 SOSI) pass
+  /// their own [TrailProperties] instance here.
+  final TrailProperties? decoded;
+
   const TrailFeatureSheet({
     super.key,
     required this.feature,
     required this.subtypeLabel,
     required this.accent,
+    this.decoded,
   });
 
   @override
@@ -47,7 +54,7 @@ class TrailFeatureSheet extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     final l10n = context.l10n;
 
-    final decoded = TrailProperties.from(feature, context);
+    final decoded = this.decoded ?? TrailProperties.from(feature, context);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.45,

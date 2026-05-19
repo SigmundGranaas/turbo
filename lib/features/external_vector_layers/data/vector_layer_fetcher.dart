@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/core/util/gml/gml_to_geojson.dart';
+import 'package:turbo/core/util/overpass/overpass_to_geojson.dart';
 import 'package:turbo/core/util/user_agent.dart';
 import '../models/vector_feature.dart';
 import '../models/vector_layer_source.dart';
@@ -63,20 +64,38 @@ class VectorLayerFetcher {
     return _parse(response.headers['content-type'], body);
   }
 
-  /// Dispatches on `Content-Type`: XML-shaped responses go through the
-  /// GML → GeoJSON converter first; everything else is parsed as
-  /// GeoJSON directly. As a final fallback (some servers omit
-  /// Content-Type) we sniff the first non-whitespace byte.
+  /// Dispatches on body shape (and Content-Type as a hint):
+  ///   - XML/GML        → [GmlToGeoJson] → GeoJSON parser
+  ///   - Overpass JSON  → [OverpassToGeoJson] → GeoJSON parser
+  ///   - GeoJSON        → parsed directly
+  ///
+  /// Overpass detection: top-level JSON with an `elements` array and no
+  /// `features` array — that's the Overpass-API response envelope.
   static List<VectorFeature> _parse(String? contentType, String body) {
     final ct = (contentType ?? '').toLowerCase();
     final looksXml = ct.contains('xml') ||
         ct.contains('gml') ||
         _bodyStartsWith(body, '<');
     if (looksXml) {
-      final geojson = GmlToGeoJson.convert(body);
-      return _parseGeoJsonMap(geojson);
+      return _parseGeoJsonMap(GmlToGeoJson.convert(body));
+    }
+    if (_looksOverpass(body)) {
+      return _parseGeoJsonMap(OverpassToGeoJson.convert(body));
     }
     return parseGeoJson(body);
+  }
+
+  /// Body sniff: Overpass envelopes are `{… "elements": [...] …}` with
+  /// no `features` key. We do a partial decode to avoid pulling huge
+  /// GeoJSON twice.
+  static bool _looksOverpass(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) return false;
+      return decoded['elements'] is List && decoded['features'] is! List;
+    } on FormatException {
+      return false;
+    }
   }
 
   static bool _bodyStartsWith(String body, String prefix) {

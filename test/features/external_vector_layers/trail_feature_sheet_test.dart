@@ -15,13 +15,35 @@ VectorFeature _trailFeature(Map<String, Object?> props) {
 
 Future<void> _pumpSheet(WidgetTester tester, VectorFeature feature,
     {Color accent = const Color(0xFFE63946),
-    String subtype = 'Hiking trails'}) async {
+    String subtype = 'Hiking trails',
+    TrailProperties? decoded}) async {
   await tester.pumpWidget(buildTestApp(
     TrailFeatureSheet(
       feature: feature,
       subtypeLabel: subtype,
       accent: accent,
+      decoded: decoded,
     ),
+  ));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpWithBuilder(
+  WidgetTester tester,
+  VectorFeature feature,
+  TrailProperties Function(VectorFeature, BuildContext) builder, {
+  Color accent = const Color(0xFF8E44AD),
+  String subtype = 'OSM paths',
+}) async {
+  await tester.pumpWidget(buildTestApp(
+    Builder(builder: (ctx) {
+      return TrailFeatureSheet(
+        feature: feature,
+        subtypeLabel: subtype,
+        accent: accent,
+        decoded: builder(feature, ctx),
+      );
+    }),
   ));
   await tester.pumpAndSettle();
 }
@@ -156,6 +178,102 @@ void main() {
       expect(find.textContaining('2026-02-05'), findsOneWidget);
       // The time portion should be trimmed.
       expect(find.textContaining('14:55:26'), findsNothing);
+    });
+  });
+
+  group('TrailFeatureSheet — OSM vocabulary', () {
+    testWidgets('sac_scale=mountain_hiking → "Moderate" with blue tint',
+        (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'name': 'Besseggen', 'sac_scale': 'mountain_hiking'}),
+        TrailProperties.fromOsm,
+      );
+      expect(find.text('Besseggen'), findsOneWidget);
+      expect(find.text('Moderate'), findsOneWidget);
+      // Raw OSM value never leaks.
+      expect(find.text('mountain_hiking'), findsNothing);
+    });
+
+    testWidgets('osmc:symbol presence implies marked', (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({
+          'name': 'X',
+          'osmc:symbol': 'red:white:red_dot',
+        }),
+        TrailProperties.fromOsm,
+      );
+      expect(find.text('Marked'), findsOneWidget);
+      // The raw symbol spec is never displayed.
+      expect(find.textContaining('red:white'), findsNothing);
+    });
+
+    testWidgets('informal=yes is shown as unmarked', (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'name': 'X', 'informal': 'yes'}),
+        TrailProperties.fromOsm,
+      );
+      expect(find.text('Unmarked'), findsOneWidget);
+    });
+
+    testWidgets('highway=path → "Sti" in the follows row', (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'name': 'X', 'highway': 'path'}),
+        TrailProperties.fromOsm,
+      );
+      expect(find.text('Follows'), findsOneWidget);
+      expect(find.text('Sti'), findsOneWidget);
+    });
+
+    testWidgets('piste:type implies a winter season', (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'name': 'X', 'piste:type': 'nordic'}),
+        TrailProperties.fromOsm,
+      );
+      expect(find.text('Winter'), findsOneWidget);
+    });
+
+    testWidgets('OSM features attribute to OpenStreetMap in the footer',
+        (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'name': 'X'}),
+        TrailProperties.fromOsm,
+      );
+      expect(find.textContaining('OpenStreetMap'), findsOneWidget);
+    });
+  });
+
+  group('TrailFeatureSheet — N50 Sti vocabulary', () {
+    testWidgets('objtype=Sti → "Sti" in the follows row when no medium '
+        'is set', (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'objtype': 'Sti'}),
+        TrailProperties.fromN50Sti,
+        accent: const Color(0xFF6D4C41),
+        subtype: 'Paths (N50)',
+      );
+      expect(find.text('Sti'), findsOneWidget);
+      expect(find.text('Follows'), findsOneWidget);
+    });
+
+    testWidgets('N50 features without a name show the Unnamed-route fallback',
+        (tester) async {
+      await _pumpWithBuilder(
+        tester,
+        _trailFeature({'objtype': 'Sti', 'medium': 'T'}),
+        TrailProperties.fromN50Sti,
+        accent: const Color(0xFF6D4C41),
+        subtype: 'Paths (N50)',
+      );
+      expect(find.text('Unnamed route'), findsOneWidget);
+      // medium=T should decode to "På terreng".
+      expect(find.text('På terreng'), findsOneWidget);
     });
   });
 }

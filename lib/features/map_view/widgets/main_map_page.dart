@@ -229,6 +229,20 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
           mapController: _mapController,
           visible: activeOverlayIds.contains(entry.key),
         ),
+      // OSM Overpass paths and Kartverket N50 Sti — additional vector
+      // sources, toggled via their own overlay configs (vector-only,
+      // see `vector_path_overlays.dart`). They render alongside the
+      // Turrutebasen layers and reuse the same TrailFeatureSheet on tap.
+      VectorDataLayer(
+        source: osmPathVectorSource(),
+        mapController: _mapController,
+        visible: activeOverlayIds.contains('osm_paths'),
+      ),
+      VectorDataLayer(
+        source: n50StiVectorSource(),
+        mapController: _mapController,
+        visible: activeOverlayIds.contains('n50_sti'),
+      ),
     ];
 
     final commonMapLayers = <Widget>[

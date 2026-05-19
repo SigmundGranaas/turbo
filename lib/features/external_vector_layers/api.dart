@@ -27,4 +27,8 @@ export 'widgets/vector_feature_sheet.dart'
 export 'data/sources/nasjonal_turbase_source.dart'
     show TrailSubtype, trailVectorSource, trailOverlayIdToSubtype;
 export 'data/sources/met_alerts_source.dart' show metAlertsVectorSource;
+export 'data/sources/osm_path_source.dart' show osmPathVectorSource;
+export 'data/sources/n50_sti_source.dart' show n50StiVectorSource;
 export 'widgets/trail_feature_sheet.dart' show TrailFeatureSheet;
+export 'widgets/trail_property_decoder.dart'
+    show TrailProperties, TrailDifficulty;

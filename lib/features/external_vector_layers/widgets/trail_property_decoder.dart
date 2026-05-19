@@ -84,8 +84,17 @@ class TrailProperties {
       follows != null ||
       notes != null;
 
-  /// Project [feature]'s raw properties through the SOSI code tables.
-  factory TrailProperties.from(VectorFeature feature, BuildContext context) {
+  /// Default factory — Turrutebasen SOSI vocabulary. Kept as
+  /// `TrailProperties.from(...)` for source compatibility with the
+  /// existing trail sheet builder; new sources should call the more
+  /// explicit constructors below.
+  factory TrailProperties.from(VectorFeature feature, BuildContext context) =>
+      TrailProperties.fromTurrutebasen(feature, context);
+
+  /// Project a Turrutebasen `app:Fotrute` / `app:Skiløype` / etc. feature
+  /// through the SOSI code tables defined in the Geonorge schema.
+  factory TrailProperties.fromTurrutebasen(
+      VectorFeature feature, BuildContext context) {
     final l10n = context.l10n;
     final p = feature.properties;
 
@@ -112,6 +121,59 @@ class TrailProperties {
       notes: _string(p['informasjon']),
       source: _string(p['opphav']),
       updated: _formatDate(_string(p['oppdateringsdato'])),
+    );
+  }
+
+  /// Project a Kartverket N50 `app:Sti` / `app:TraktorvegSti` feature.
+  /// Same SOSI family as Turrutebasen but a different subset of fields
+  /// — N50 features are map *segments*, not curated *routes*, so there
+  /// is rarely a name. We surface what's there and leave the rest blank.
+  factory TrailProperties.fromN50Sti(
+      VectorFeature feature, BuildContext context) {
+    final l10n = context.l10n;
+    final p = feature.properties;
+    final maintainer =
+        _splitMaintainer(_string(p['vedlikeholdsansvarlig']));
+    return TrailProperties(
+      title: _string(p['navn']) ?? _string(p['stedsnavn']),
+      // `medium` and `objtype` describe the feature class — surface them
+      // as the "follows" line ("Path", "Tractor road").
+      follows: _decodeN50Medium(_string(p['medium']), context) ??
+          _decodeN50ObjType(_string(p['objtype']), context),
+      maintainer: maintainer,
+      notes: _string(p['informasjon']),
+      source: _string(p['opphav']) ?? 'N50',
+      updated: _formatDate(_string(p['oppdateringsdato'])),
+      marking: _decodeMarking(_string(p['merking']), l10n),
+    );
+  }
+
+  /// Project an OSM Overpass element. OSM uses key/value tags rather
+  /// than the SOSI code tables; vocabulary mapping is documented in
+  /// the [OpenStreetMap wiki](https://wiki.openstreetmap.org/wiki/Key:highway).
+  factory TrailProperties.fromOsm(
+      VectorFeature feature, BuildContext context) {
+    final l10n = context.l10n;
+    final p = feature.properties;
+    return TrailProperties(
+      title: _string(p['name']),
+      routeNumber: _string(p['ref']),
+      // OSM doesn't have a binary "marked" tag; presence of
+      // `osmc:symbol` or `marked_trail=yes` is the closest proxy.
+      marking: _decodeOsmMarking(p, l10n),
+      difficulty: _decodeOsmDifficulty(_string(p['sac_scale']), l10n),
+      season: _decodeOsmSeason(p, l10n),
+      preparation: _decodeOsmPreparation(p, l10n),
+      maintainer: _string(p['operator']),
+      surface: _string(p['surface']),
+      // `width` in OSM is metres; only show it for paths with an
+      // explicit value, otherwise drop the row.
+      width: _formatOsmWidth(_string(p['width'])),
+      follows: _decodeOsmHighway(_string(p['highway']), context),
+      notes: _string(p['description']) ?? _string(p['note']),
+      // OSM is its own attribution; we don't surface a per-feature
+      // source field here.
+      source: 'OpenStreetMap',
     );
   }
 }
@@ -264,4 +326,138 @@ String? _formatDate(String? raw) {
   if (raw == null) return null;
   final i = raw.indexOf('T');
   return (i > 0) ? raw.substring(0, i) : raw;
+}
+
+// ─── OSM tag decoders ─────────────────────────────────────────────────────
+
+String? _decodeOsmMarking(Map<String, Object?> tags, AppLocalizations l10n) {
+  // OSM convention: `osmc:symbol` carries the route-marker spec; its
+  // mere presence implies a marked trail. `marked_trail=yes/no` is also
+  // used regionally. `informal=yes` means an unofficial, unmarked path.
+  if (tags['marked_trail'] == 'yes') return l10n.trailMarkingYes;
+  if (tags['marked_trail'] == 'no' || tags['informal'] == 'yes') {
+    return l10n.trailMarkingNo;
+  }
+  if (tags['osmc:symbol'] is String &&
+      (tags['osmc:symbol'] as String).trim().isNotEmpty) {
+    return l10n.trailMarkingYes;
+  }
+  return null;
+}
+
+TrailDifficulty? _decodeOsmDifficulty(
+    String? sacScale, AppLocalizations l10n) {
+  if (sacScale == null) return null;
+  // SAC hiking scale — the canonical alpine difficulty grading used in
+  // the Alps and adopted across European hiking communities. Mapping
+  // chosen to match the DNT difficulty colours.
+  switch (sacScale) {
+    case 'hiking':
+      return TrailDifficulty(
+        label: l10n.trailDifficultyEasy,
+        color: const Color(0xFF2E7D32),
+      );
+    case 'mountain_hiking':
+      return TrailDifficulty(
+        label: l10n.trailDifficultyModerate,
+        color: const Color(0xFF1565C0),
+      );
+    case 'demanding_mountain_hiking':
+      return TrailDifficulty(
+        label: l10n.trailDifficultyDemanding,
+        color: const Color(0xFFC62828),
+      );
+    case 'alpine_hiking':
+    case 'demanding_alpine_hiking':
+    case 'difficult_alpine_hiking':
+      return TrailDifficulty(
+        label: l10n.trailDifficultyExpert,
+        color: const Color(0xFF212121),
+      );
+  }
+  return null;
+}
+
+String? _decodeOsmSeason(Map<String, Object?> tags, AppLocalizations l10n) {
+  // Piste tags imply winter usage.
+  if (tags['piste:type'] is String) return l10n.trailSeasonWinter;
+  if (tags['winter_road'] == 'yes' || tags['winter_only'] == 'yes') {
+    return l10n.trailSeasonWinter;
+  }
+  if (tags['seasonal'] == 'summer') return l10n.trailSeasonSummer;
+  return null;
+}
+
+String? _decodeOsmPreparation(
+    Map<String, Object?> tags, AppLocalizations l10n) {
+  final groomingValue = tags['piste:grooming'];
+  if (groomingValue is! String) return null;
+  switch (groomingValue) {
+    case 'classic':
+    case 'classic+skating':
+    case 'skating':
+    case 'mogul':
+      return l10n.trailPreparationGroomed;
+    case 'backcountry':
+      return l10n.trailPreparationUngroomed;
+    case 'scooter':
+      return l10n.trailPreparationSnowmobile;
+  }
+  return null;
+}
+
+String? _decodeOsmHighway(String? highway, BuildContext context) {
+  if (highway == null) return null;
+  switch (highway) {
+    case 'path':
+      return 'Sti';
+    case 'footway':
+      return 'Gangsti';
+    case 'track':
+      return 'Traktorvei';
+    case 'bridleway':
+      return 'Ridesti';
+    case 'cycleway':
+      return 'Sykkelvei';
+  }
+  return highway;
+}
+
+String? _formatOsmWidth(String? raw) {
+  if (raw == null) return null;
+  final n = num.tryParse(raw);
+  if (n == null) return raw; // pass through "1 m" / "2-3 m" / etc.
+  // OSM `width` is metres; convert to "x m" for terseness.
+  return '${n.toStringAsFixed(n == n.toInt() ? 0 : 1)} m';
+}
+
+// ─── N50 SOSI decoders ────────────────────────────────────────────────────
+
+String? _decodeN50Medium(String? medium, BuildContext context) {
+  if (medium == null) return null;
+  // SOSI Medium codes from the FKB schema.
+  switch (medium.toUpperCase()) {
+    case 'T':
+      return 'På terreng';
+    case 'L':
+      return 'I lufta';
+    case 'U':
+      return 'Under terreng';
+    case 'B':
+      return 'På bygning';
+  }
+  return medium;
+}
+
+String? _decodeN50ObjType(String? objType, BuildContext context) {
+  if (objType == null) return null;
+  switch (objType) {
+    case 'Sti':
+      return 'Sti';
+    case 'TraktorvegSti':
+      return 'Traktorvei';
+    case 'Stibru':
+      return 'Stibru';
+  }
+  return objType;
 }

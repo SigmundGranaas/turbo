@@ -424,6 +424,10 @@ abstract class AppLocalizations {
   String get layerDescriptionTrailsBike;
   String get layerNameTrailsOther;
   String get layerDescriptionTrailsOther;
+  String get layerNameOsmPaths;
+  String get layerDescriptionOsmPaths;
+  String get layerNameN50Sti;
+  String get layerDescriptionN50Sti;
   String get trailsAttribution;
   String get trailDifficultyLabel;
   String get trailLengthLabel;
@@ -851,6 +855,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get layerDescriptionTrailsBike => 'Designated bike routes (Nasjonal turbase sykkelrute)';
   @override String get layerNameTrailsOther => 'Other routes';
   @override String get layerDescriptionTrailsOther => 'Horse, paddling and other routes (Nasjonal turbase)';
+  @override String get layerNameOsmPaths => 'OSM paths';
+  @override String get layerDescriptionOsmPaths => 'Community-mapped paths and tracks (OpenStreetMap)';
+  @override String get layerNameN50Sti => 'Paths (N50)';
+  @override String get layerDescriptionN50Sti => 'Kartverket\'s base-map paths and tractor roads';
   @override String get trailsAttribution => 'Trails © Kartverket / DNT — Nasjonal turbase';
   @override String get trailDifficultyLabel => 'Difficulty';
   @override String get trailLengthLabel => 'Width';
@@ -1272,6 +1280,10 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get layerDescriptionTrailsBike => 'Anbefalte sykkelruter (Nasjonal turbase sykkelrute)';
   @override String get layerNameTrailsOther => 'Andre ruter';
   @override String get layerDescriptionTrailsOther => 'Riding, padling og andre ruter (Nasjonal turbase)';
+  @override String get layerNameOsmPaths => 'OSM-stier';
+  @override String get layerDescriptionOsmPaths => 'Stier og spor fra OpenStreetMap-fellesskapet';
+  @override String get layerNameN50Sti => 'Stier (N50)';
+  @override String get layerDescriptionN50Sti => 'Stier og traktorveier fra Kartverkets grunnkart';
   @override String get trailsAttribution => 'Turdata © Kartverket / DNT — Nasjonal turbase';
   @override String get trailDifficultyLabel => 'Vanskelighet';
   @override String get trailLengthLabel => 'Rutebredde';

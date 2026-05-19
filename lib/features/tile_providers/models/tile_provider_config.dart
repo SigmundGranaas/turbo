@@ -22,4 +22,11 @@ abstract class TileProviderConfig {
   /// Built-in providers leave this null; user-defined custom providers may
   /// supply parsed WMS options.
   WMSTileLayerOptions? get wmsOptions => null;
+
+  /// `true` for overlays that don't ship any raster tiles — they only
+  /// surface as a toggle so a vector-rendered layer elsewhere can ask
+  /// "am I currently active?". OSM Overpass paths and N50 Sti work this
+  /// way: the actual geometry is drawn by `VectorDataLayer`, the
+  /// registry just owns the on/off bit.
+  bool get isVectorOnly => false;
 }
