@@ -396,8 +396,9 @@ void main() {
 
     /// API-hygiene contract regressions.
 
-    test('Stedsnavn punkt query includes navnestatus=hovednavn and a '
-        'sparse fieldset filtrer', () async {
+    test('Stedsnavn punkt query keeps navnestatus=hovednavn and omits '
+        '`filtrer` (which the /punkt endpoint rejects with HTTP 400 for '
+        'the /navn-shaped fieldset)', () async {
       Uri? capturedPunkt;
       final client = MockClient((req) async {
         if (req.url.host == 'ws.geonorge.no' &&
@@ -410,10 +411,93 @@ void main() {
       await _geocoder(client).describe(const LatLng(60.0, 10.0));
       expect(capturedPunkt, isNotNull);
       expect(capturedPunkt!.queryParameters['navnestatus'], 'hovednavn');
-      final filtrer = capturedPunkt!.queryParameters['filtrer'] ?? '';
-      expect(filtrer, contains('navn.skrivemåte'));
-      expect(filtrer, contains('navn.navneobjekttype'));
-      expect(filtrer, contains('navn.representasjonspunkt'));
+      expect(capturedPunkt!.queryParameters.containsKey('filtrer'), isFalse,
+          reason:
+              'The /punkt endpoint rejects the /navn-shaped filter list '
+              '(skrivemåte/kommuner/fylker/språk) with HTTP 400. Omit it.');
+    });
+
+    test('handles the real /punkt response shape: skrivemåte under '
+        'navn[i].stedsnavn[hovednavn]', () async {
+      const tap = LatLng(61.6362, 8.3127);
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no') {
+          return http.Response(jsonEncode({'results': []}), 200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        // Exact /punkt envelope (verified against the live API).
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              {
+                'meterFraPunkt': 50,
+                'navneobjekttype': 'Fjelltopp',
+                'representasjonspunkt': {
+                  'nord': tap.latitude,
+                  'øst': tap.longitude,
+                },
+                'stedsnavn': [
+                  {
+                    'navnestatus': 'hovednavn',
+                    'skrivemåte': 'Galdhøpiggen',
+                    'skrivemåtestatus': 'godkjent og prioritert',
+                    'språk': 'Norsk',
+                    'stedsnavnnummer': 1,
+                  },
+                ],
+                'stedsnummer': 1,
+                'stedstatus': 'aktiv',
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final d = await _geocoder(client).describe(tap);
+      expect(d, isNotNull,
+          reason:
+              'before the fix: /punkt items have skrivemåte under '
+              'stedsnavn[], so readPlaceName returned null and the entire '
+              'Stedsnavn backend silently fell through to the kommune.');
+      expect(d!.title, 'Galdhøpiggen');
+      expect(d.qualifier, LocationQualifier.on);
+    });
+
+    test('/punkt response with multiple stedsnavn entries prefers hovednavn',
+        () async {
+      const tap = LatLng(69.65, 18.95);
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              {
+                'navneobjekttype': 'Tettsted',
+                'representasjonspunkt': {
+                  'nord': tap.latitude,
+                  'øst': tap.longitude,
+                },
+                'stedsnavn': [
+                  {
+                    'navnestatus': 'historisk',
+                    'skrivemåte': 'Old name',
+                  },
+                  {
+                    'navnestatus': 'hovednavn',
+                    'skrivemåte': 'Storsteinnes',
+                  },
+                ],
+                'stedsnummer': 1,
+                'stedstatus': 'aktiv',
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final d = await _geocoder(client).describe(tap);
+      expect(d!.title, 'Storsteinnes');
     });
 
     test('Vern identify call uses layers=all:1 (only the class-split '

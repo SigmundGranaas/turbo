@@ -25,8 +25,12 @@ class StedsnavnBackend {
     try {
       // `navnestatus=hovednavn` drops historic / secondary / disused
       // spellings (the root of the "Close to Unknown" noise).
-      // `filtrer` is the sparse fieldset — only the keys the picker
-      // actually reads, ~60% smaller payload.
+      //
+      // No `filtrer` — the /punkt endpoint's filter syntax differs from
+      // /navn (skrivemåte/språk live under `stedsnavn[]`; kommuner/fylker
+      // aren't returned at all) and asking for a /navn-shaped fieldset
+      // returns HTTP 400 ("Mulig feil i filtreringsparameter"). Payload is
+      // already ~8 KB; not worth the fragility.
       final uri = Uri.https(_host, _path, {
         'nord': coord.latitude.toString(),
         'ost': coord.longitude.toString(),
@@ -34,8 +38,6 @@ class StedsnavnBackend {
         'radius': '2000',
         'treffPerSide': '25',
         'navnestatus': 'hovednavn',
-        'filtrer': 'navn.skrivemåte,navn.navneobjekttype,'
-            'navn.representasjonspunkt,navn.kommuner,navn.fylker,navn.språk',
       });
       final response = await _client.get(uri, headers: const {
         'Accept': 'application/json',
