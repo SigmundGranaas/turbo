@@ -1,11 +1,11 @@
 {
-    "name": "turbo",
-    "short_name": "turbo",
+    "name": "Turbo",
+    "short_name": "Turbo",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#8f4c38",
+    "theme_color": "#8f4c38",
+    "description": "Offline-capable hiking and outdoors map with GPS recording, markers, and route planning.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

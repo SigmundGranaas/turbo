@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/features/settings/api.dart';
 
@@ -21,7 +22,7 @@ class TripStatsPage extends ConsumerWidget {
       appBar: AppBar(title: const Text('Trip statistics')),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (_, _) => Center(child: Text(context.l10n.genericLoadError)),
         data: (paths) {
           final stats = TripStats.from(paths);
           if (stats.totalPaths == 0) {
