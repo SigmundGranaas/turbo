@@ -20,7 +20,7 @@ void main() {
       final kartverket =
           FakeLocationService(results: [_r('Place 1', 'kartverket')]);
 
-      final composite = CompositeSearchService(kartverket, markers, paths);
+      final composite = CompositeSearchService(kartverket, markers, paths, FakeLocationService());
       final results = await composite.findLocationsBy('foo');
 
       expect(results.map((r) => r.source).toList(),
@@ -34,7 +34,7 @@ void main() {
       final paths = FakeLocationService();
       final kartverket = FakeLocationService();
 
-      final composite = CompositeSearchService(kartverket, markers, paths);
+      final composite = CompositeSearchService(kartverket, markers, paths, FakeLocationService());
       await composite.findLocationsBy('bergen');
 
       expect(markers.queries, ['bergen']);
@@ -44,6 +44,7 @@ void main() {
 
     test('returns empty list when no service finds anything', () async {
       final composite = CompositeSearchService(
+        FakeLocationService(),
         FakeLocationService(),
         FakeLocationService(),
         FakeLocationService(),
@@ -60,7 +61,7 @@ void main() {
       final paths = FakeLocationService(results: [_r('Path', 'path')]);
       final kartverket = FakeLocationService(results: [_r('Place', 'kartverket')]);
 
-      final composite = CompositeSearchService(kartverket, markers, paths);
+      final composite = CompositeSearchService(kartverket, markers, paths, FakeLocationService());
       expect(() => composite.findLocationsBy('foo'),
           throwsA(isA<StateError>()));
     });
@@ -82,7 +83,7 @@ void main() {
         responder: (_) => slow(const Duration(milliseconds: 100), 'kartverket'),
       );
 
-      final composite = CompositeSearchService(kartverket, markers, paths);
+      final composite = CompositeSearchService(kartverket, markers, paths, FakeLocationService());
       final sw = Stopwatch()..start();
       await composite.findLocationsBy('foo');
       sw.stop();

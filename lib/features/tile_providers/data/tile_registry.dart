@@ -5,9 +5,11 @@ import 'custom_provider_store.dart';
 import 'layer_preference_service.dart';
 import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/google_sattelite.dart';
+import 'package:turbo/features/tile_providers/data/providers/nasjonal_turbase_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/norges_kart_topo.dart';
 import 'package:turbo/features/tile_providers/data/providers/offline_region_provider_config.dart';
 import 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart';
+import 'package:turbo/features/tile_providers/data/providers/vector_path_overlays.dart';
 import 'package:turbo/features/tile_providers/models/custom_tile_provider.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 import 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
@@ -27,6 +29,12 @@ class TileRegistry extends Notifier<TileRegistryState> {
       OsmConfig(),
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),
+      TrailsFootOverlayConfig(),
+      TrailsSkiOverlayConfig(),
+      TrailsBikeOverlayConfig(),
+      TrailsOtherOverlayConfig(),
+      OsmPathsOverlayConfig(),
+      N50StiOverlayConfig(),
     ];
     final initialProviders = <String, TileProviderConfig>{
       for (var p in builtInProviders) p.id: p,
@@ -218,6 +226,9 @@ class TileRegistry extends Notifier<TileRegistryState> {
       for (final id in activeIds) {
         final config = state.availableProviders[id];
         if (config == null) continue;
+        // Vector-only configs are toggles for layers rendered elsewhere
+        // (VectorDataLayer); they have no raster URL of their own.
+        if (config.isVectorOnly) continue;
 
         final wms = config.wmsOptions;
         layers.add(TileLayer(
@@ -257,6 +268,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
     for (final id in activeIds) {
       final config = state.availableProviders[id];
       if (config == null) continue;
+      if (config.isVectorOnly) continue;
 
       final wms = config.wmsOptions;
       final TileProvider? tileProvider;

@@ -44,6 +44,45 @@ class _RecordingOcean implements YrOceanService {
   }
 }
 
+class _StubSunrise implements YrSunriseService {
+  @override
+  Future<SunriseForecastResult> fetch(
+    LatLng position, {
+    int days = 9,
+    DateTime? now,
+    String? ifModifiedSince,
+    SunriseForecastResult? previous,
+  }) async {
+    return SunriseForecastResult(
+      sun: const {},
+      moon: const {},
+      expiresAt: DateTime.utc(2026, 5, 17, 12, 30),
+      lastModified: null,
+    );
+  }
+}
+
+class _StubAlerts implements MetAlertsService {
+  @override
+  Future<MetAlertsResult> currentAtPoint(LatLng position,
+      {String? ifModifiedSince}) async {
+    return MetAlertsResult(
+      alerts: const [],
+      expiresAt: DateTime.utc(2026, 5, 17, 12, 30),
+      lastModified: null,
+    );
+  }
+}
+
+WeatherFetcher _fetcher(
+        _RecordingAtm atm, _RecordingOcean ocean) =>
+    WeatherFetcher(
+      atmospheric: atm,
+      ocean: ocean,
+      sunrise: _StubSunrise(),
+      alerts: _StubAlerts(),
+    );
+
 AtmosphericForecastResult _atmFixture() => AtmosphericForecastResult(
       points: [
         AtmosphericPoint(
@@ -84,7 +123,7 @@ void main() {
     test('always hits both services in parallel', () async {
       final atm = _RecordingAtm()..next = _atmFixture();
       final ocean = _RecordingOcean()..next = _marineFixture();
-      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
+      final fetcher = _fetcher(atm, ocean);
 
       final f = await fetcher.fetch(const LatLng(60, 5));
 
@@ -99,7 +138,7 @@ void main() {
         () async {
       final atm = _RecordingAtm()..next = _atmFixture();
       final ocean = _RecordingOcean()..next = null;
-      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
+      final fetcher = _fetcher(atm, ocean);
 
       final f = await fetcher.fetch(const LatLng(60, 5));
 
@@ -113,7 +152,7 @@ void main() {
         () async {
       final atm = _RecordingAtm()..next = _atmFixture();
       final ocean = _RecordingOcean()..error = Exception('marine boom');
-      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
+      final fetcher = _fetcher(atm, ocean);
 
       final f = await fetcher.fetch(const LatLng(60, 5));
 
@@ -124,7 +163,7 @@ void main() {
     test('atmospheric failure surfaces as a thrown exception', () async {
       final atm = _RecordingAtm()..error = const YrServiceException(503, 'x');
       final ocean = _RecordingOcean()..next = _marineFixture();
-      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
+      final fetcher = _fetcher(atm, ocean);
 
       expect(
         () => fetcher.fetch(const LatLng(60, 5)),
@@ -136,7 +175,7 @@ void main() {
         () async {
       final atm = _RecordingAtm()..next = _atmFixture();
       final ocean = _RecordingOcean()..next = _marineFixture();
-      final fetcher = WeatherFetcher(atmospheric: atm, ocean: ocean);
+      final fetcher = _fetcher(atm, ocean);
 
       final previous = WeatherForecast(
         position: const LatLng(60, 5),

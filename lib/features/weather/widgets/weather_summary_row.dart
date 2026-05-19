@@ -1,47 +1,67 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
-import 'package:turbo/features/markers/api.dart' show Marker;
+import 'package:turbo/features/markers/api.dart' as marker_model;
 
 import '../api.dart';
 import 'weather_widgets_internal.dart';
 
-/// Single-row weather summary embedded in `MarkerInfoSheet`. The row is a
-/// surface — tapping it pushes [WeatherDetailPage] with the full forecast.
+/// Single-row weather summary used by the marker info sheet and the
+/// long-press pin sheet. Tapping the row opens the full forecast.
 ///
-/// States the row can be in:
-/// - Loading: shows a quiet placeholder line.
-/// - Error: shows a compact error + tap-to-retry.
-/// - Data with current point: symbol + temperature + summary + chevron.
-/// - Data with no current point: hides the row (no atmospheric data).
+/// Takes a coordinate + title directly so callers don't have to mint a
+/// transient [marker_model.Marker] just to delegate the forecast call.
+/// The widget constructs a marker internally when it has to hand off to
+/// [showWeatherDetailSheet] (which is keyed on `Marker`).
 class WeatherSummaryRow extends ConsumerWidget {
-  final Marker marker;
-  const WeatherSummaryRow({super.key, required this.marker});
+  final LatLng position;
+  final String title;
+  const WeatherSummaryRow({
+    super.key,
+    required this.position,
+    required this.title,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final forecast = ref.watch(weatherForecastProvider(marker.position));
+    final forecast = ref.watch(weatherForecastProvider(position));
     return forecast.when(
       loading: () => const _LoadingRow(),
       error: (_, _) => _ErrorRow(
         onRetry: () => ref
-            .read(weatherForecastProvider(marker.position).notifier)
+            .read(weatherForecastProvider(position).notifier)
             .refresh(),
       ),
       data: (f) {
         final now = f.currentAtmospheric;
         if (now == null) return const SizedBox.shrink();
-        return _DataRow(marker: marker, point: now);
+        final row = _DataRow(position: position, title: title, point: now);
+        final alert = f.topAlert;
+        if (alert == null) return row;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MetAlertBanner(alert: alert),
+            const SizedBox(height: 8),
+            row,
+          ],
+        );
       },
     );
   }
 }
 
 class _DataRow extends StatelessWidget {
-  final Marker marker;
+  final LatLng position;
+  final String title;
   final AtmosphericPoint point;
-  const _DataRow({required this.marker, required this.point});
+  const _DataRow({
+    required this.position,
+    required this.title,
+    required this.point,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +73,10 @@ class _DataRow extends StatelessWidget {
       child: InkWell(
         key: const Key('weather-summary-row'),
         borderRadius: BorderRadius.circular(12),
-        onTap: () => showWeatherDetailSheet(context, marker),
+        onTap: () => showWeatherDetailSheet(
+          context,
+          marker_model.Marker(title: title, position: position),
+        ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(

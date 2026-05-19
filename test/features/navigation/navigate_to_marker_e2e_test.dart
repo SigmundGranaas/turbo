@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,8 +9,21 @@ import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
 import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/search/api.dart';
+import 'package:turbo/features/weather/api.dart';
 
 import '../../helpers/pump_app.dart';
+import '../../helpers/test_weather_fetcher.dart';
+
+class _NoopGeocoder implements ReverseGeocoder {
+  @override
+  Future<LocationDescription?> describe(LatLng coord) async => null;
+}
+
+List<Override> _sheetOverrides() => [
+      reverseGeocoderProvider.overrideWith((ref) => _NoopGeocoder()),
+      weatherFetcherProvider.overrideWith((ref) => buildTestWeatherFetcher()),
+    ];
 
 class _StubLocation extends LocationState {
   _StubLocation(this._pos);
@@ -36,9 +50,13 @@ class _NavigateFlowHarness extends ConsumerWidget {
             child: const Text('open sheet'),
             onPressed: () => showModalBottomSheet(
               context: context,
+              isScrollControlled: true,
+              useSafeArea: true,
+              backgroundColor: Colors.transparent,
               builder: (_) => PinOptionsSheet(
+                point: target,
                 isNavigating: navState.isActive,
-                onCreateMarker: () {},
+                onCreateMarker: (_) {},
                 onMeasure: () {},
                 onNavigate: () => ref
                     .read(navigationStateProvider.notifier)
@@ -71,6 +89,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 
@@ -98,6 +117,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 
@@ -133,6 +153,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 
@@ -165,6 +186,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 
@@ -196,6 +218,7 @@ void main() {
               .overrideWith(() => _StubLocation(const LatLng(59.9, 10.7))),
           compassStateProvider
               .overrideWith((ref) => const Stream<double?>.empty()),
+          ..._sheetOverrides(),
         ],
       );
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/weather/api.dart';
@@ -14,6 +15,10 @@ class _StubFetcher implements WeatherFetcher {
   YrAtmosphericService get atmospheric => throw UnimplementedError();
   @override
   YrOceanService get ocean => throw UnimplementedError();
+  @override
+  YrSunriseService get sunrise => throw UnimplementedError();
+  @override
+  MetAlertsService get alerts => throw UnimplementedError();
 
   @override
   Future<WeatherForecast> fetch(
@@ -22,6 +27,14 @@ class _StubFetcher implements WeatherFetcher {
   }) async {
     return supply!();
   }
+}
+
+class _StubTideService extends KartverketTideService {
+  _StubTideService(this.supply) : super(client: http.Client());
+  TideForecast? Function() supply;
+
+  @override
+  Future<TideForecast?> fetch(LatLng position) async => supply();
 }
 
 Marker _mkMarker() => Marker(
@@ -94,6 +107,7 @@ List<DateTime> _hoursOver3Days() {
 Future<void> _openSheet(
   WidgetTester tester, {
   required WeatherForecast Function() supply,
+  TideForecast? Function()? tide,
 }) async {
   tester.view.physicalSize = const Size(1200, 2400);
   tester.view.devicePixelRatio = 1.0;
@@ -114,6 +128,8 @@ Future<void> _openSheet(
     ),
     overrides: [
       weatherFetcherProvider.overrideWith((ref) => _StubFetcher(supply)),
+      kartverketTideServiceProvider
+          .overrideWithValue(_StubTideService(tide ?? () => null)),
     ],
     settle: false,
   );
@@ -124,7 +140,7 @@ Future<void> _openSheet(
 
 void main() {
   group('WeatherDetailSheet', () {
-    testWidgets('renders day strip, preset tabs, and hourly list',
+    testWidgets('renders day strip, two preset pills, and the weather list',
         (tester) async {
       final stamps = _hoursOver3Days();
       await _openSheet(
@@ -143,27 +159,12 @@ void main() {
       expect(find.byKey(const Key('weather-detail-day-strip')), findsOneWidget);
       expect(find.byKey(const Key('weather-detail-preset-tabs')),
           findsOneWidget);
-      // Default preset is hourly.
-      expect(find.byKey(const Key('preset-body-hourly')), findsOneWidget);
-      // No marine data → no sea chip.
-      expect(find.byKey(const Key('preset-chip-sea')), findsNothing);
+      expect(find.byKey(const Key('preset-chip-weather')), findsOneWidget);
+      // No marine data and no tide → no ocean pill.
+      expect(find.byKey(const Key('preset-chip-ocean')), findsNothing);
     });
 
-    testWidgets('selecting Wind preset swaps the body', (tester) async {
-      final stamps = _hoursOver3Days();
-      await _openSheet(
-        tester,
-        supply: () => _forecast(
-          atm: [for (final t in stamps) _atm(t)],
-        ),
-      );
-
-      await tester.tap(find.byKey(const Key('preset-chip-wind')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('preset-body-wind')), findsOneWidget);
-    });
-
-    testWidgets('Sea preset only appears when forecast has marine data',
+    testWidgets('Ocean pill appears when forecast has marine data',
         (tester) async {
       final stamps = _hoursOver3Days();
       await _openSheet(
@@ -174,11 +175,91 @@ void main() {
         ),
       );
 
-      expect(find.byKey(const Key('preset-chip-sea')), findsOneWidget);
-      await tester.tap(find.byKey(const Key('preset-chip-sea')));
+      expect(find.byKey(const Key('preset-chip-ocean')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('preset-chip-ocean')));
       await tester.pumpAndSettle();
-      // Sea rows show wave height in meters.
+      // Ocean rows show wave height in meters.
       expect(find.textContaining('1.2 m'), findsWidgets);
+    });
+
+    testWidgets('Ocean pill is hidden when only tide data is present '
+        '(no marine waves)', (tester) async {
+      final stamps = _hoursOver3Days();
+      final tideTime = stamps.first.add(const Duration(hours: 6));
+      await _openSheet(
+        tester,
+        supply: () => _forecast(
+          atm: [for (final t in stamps) _atm(t)],
+          // no marine data
+        ),
+        tide: () => TideForecast(
+          stationName: 'Bergen',
+          extrema: [
+            TideExtremum(
+                timeUtc: tideTime, levelCm: 95, kind: TideKind.high),
+          ],
+          fetchedAt: DateTime.now().toUtc(),
+          expiresAt:
+              DateTime.now().toUtc().add(const Duration(hours: 6)),
+        ),
+      );
+
+      // Without marine waves the ocean tab itself shouldn't appear, even
+      // if Kartverket has a nearby tide station.
+      expect(find.byKey(const Key('preset-chip-ocean')), findsNothing);
+    });
+
+    testWidgets('tide table shows up inside the Ocean tab when both marine '
+        'and tide data are present', (tester) async {
+      final stamps = _hoursOver3Days();
+      final tideTime = stamps.first.add(const Duration(hours: 6));
+      await _openSheet(
+        tester,
+        supply: () => _forecast(
+          atm: [for (final t in stamps) _atm(t)],
+          marine: [for (final t in stamps) _marine(t)],
+        ),
+        tide: () => TideForecast(
+          stationName: 'Bergen',
+          extrema: [
+            TideExtremum(
+                timeUtc: tideTime, levelCm: 95, kind: TideKind.high),
+            TideExtremum(
+                timeUtc: tideTime.add(const Duration(hours: 6)),
+                levelCm: 12,
+                kind: TideKind.low),
+          ],
+          fetchedAt: DateTime.now().toUtc(),
+          expiresAt:
+              DateTime.now().toUtc().add(const Duration(hours: 6)),
+        ),
+      );
+
+      expect(find.byKey(const Key('preset-chip-ocean')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('preset-chip-ocean')));
+      await tester.pumpAndSettle();
+      expect(find.text('Tide'), findsOneWidget);
+      expect(find.text('High'), findsOneWidget);
+      expect(find.text('Low'), findsOneWidget);
+    });
+
+    testWidgets('preset pill does NOT render a Material check icon',
+        (tester) async {
+      final stamps = _hoursOver3Days();
+      await _openSheet(
+        tester,
+        supply: () => _forecast(
+          atm: [for (final t in stamps) _atm(t)],
+        ),
+      );
+
+      // The whole preset row should contain zero checkmark icons,
+      // since we replaced ChoiceChip with AppSelectionPill.
+      final tabs = find.byKey(const Key('weather-detail-preset-tabs'));
+      expect(
+        find.descendant(of: tabs, matching: find.byIcon(Icons.check)),
+        findsNothing,
+      );
     });
 
     testWidgets('selecting day 2 filters hours to that day', (tester) async {
@@ -202,11 +283,7 @@ void main() {
       await tester.tap(dayChips.at(1));
       await tester.pumpAndSettle();
 
-      // The list contains only points whose local day == day 2; their unique
-      // temp is the second local day's day number * 10. We don't assert the
-      // exact value to stay tz-agnostic — just that the list is non-empty and
-      // that rows for "day 1's temp * 10" no longer dominate.
-      expect(find.byKey(const Key('preset-body-hourly')), findsOneWidget);
+      expect(find.byKey(const Key('preset-body-weather')), findsOneWidget);
     });
 
     testWidgets('drag handle is rendered for sheet semantics', (tester) async {
@@ -215,7 +292,6 @@ void main() {
         tester,
         supply: () => _forecast(atm: [for (final t in stamps) _atm(t)]),
       );
-      // The sheet itself uses DraggableScrollableSheet.
       expect(find.byType(DraggableScrollableSheet), findsOneWidget);
     });
   });
