@@ -61,15 +61,22 @@ class HoydedataService {
   }
 
   Future<List<double?>> _fetchBatch(List<LatLng> batch) async {
-    // The `punkt` endpoint also accepts comma-separated lists of points via
-    // `koordinater` for one round-trip per batch.
-    final coords = batch
-        .map((p) =>
-            '${p.latitude.toStringAsFixed(5)},${p.longitude.toStringAsFixed(5)}')
-        .join(';');
+    // The `/punkt` endpoint accepts a batch via `punkter`, but the value
+    // must be a JSON array of `[lon, lat]` pairs — not the
+    // semicolon-joined string Kartverket's older docs suggest. Sending
+    // the wrong shape returns HTTP 422 ('har ikke gyldig struktur. Det
+    // forventes en liste med lister med koordinater, f.eks.
+    // [[60,11],[61,12]]').
+    final punkter = jsonEncode([
+      for (final p in batch)
+        [
+          double.parse(p.longitude.toStringAsFixed(5)),
+          double.parse(p.latitude.toStringAsFixed(5)),
+        ],
+    ]);
     final uri = Uri.https(_host, _pointPath, {
       'koordsys': '4258',
-      'punkter': coords,
+      'punkter': punkter,
       'geojson': 'false',
     });
 
