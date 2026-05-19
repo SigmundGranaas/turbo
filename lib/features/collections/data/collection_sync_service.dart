@@ -1,9 +1,10 @@
-import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 
-import '../models/collection.dart';
 import '../models/collection_item_ref.dart';
 import 'api_collection_service.dart';
 import 'collection_data_store.dart';
+
+final _log = Logger('CollectionSyncService');
 
 /// High-water-mark cursor store for the collections delta-sync flow.
 /// Identical contract to the tracks / locations cursor stores so the
@@ -42,10 +43,7 @@ class CollectionSyncService {
     try {
       result = await _api.getCollectionsChangedSince(since: since);
     } catch (e, st) {
-      if (kDebugMode) {
-        // ignore: avoid_print
-        print('CollectionSyncService: delta pull failed: $e\n$st');
-      }
+      _log.warning('delta pull failed', e, st);
       return CollectionSyncOutcome.failed(e);
     }
 
@@ -109,10 +107,7 @@ class CollectionSyncService {
           await _reconcileItems(c.uuid, localItems, conflict.current!.items);
         }
       } catch (e, st) {
-        if (kDebugMode) {
-          // ignore: avoid_print
-          print('CollectionSyncService: push failed for ${c.uuid}: $e\n$st');
-        }
+        _log.warning('push failed for ${c.uuid}', e, st);
       }
     }
 

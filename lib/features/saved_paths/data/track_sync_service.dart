@@ -1,8 +1,9 @@
-import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 
-import '../models/saved_path.dart';
 import 'api_track_service.dart';
 import 'saved_path_data_store.dart';
+
+final _log = Logger('TrackSyncService');
 
 /// Holds the high-water-mark `serverTime` cursor between calls. The
 /// store is platform-agnostic: SharedPreferences on mobile/desktop,
@@ -41,10 +42,7 @@ class TrackSyncService {
     try {
       result = await _api.getTracksChangedSince(since: since);
     } catch (e, st) {
-      if (kDebugMode) {
-        // ignore: avoid_print
-        print('TrackSyncService: delta pull failed: $e\n$st');
-      }
+      _log.warning('delta pull failed', e, st);
       return TrackSyncOutcome.failed(e);
     }
 
@@ -98,10 +96,7 @@ class TrackSyncService {
           await _store.update(conflict.current!);
         }
       } catch (e, st) {
-        if (kDebugMode) {
-          // ignore: avoid_print
-          print('TrackSyncService: push failed for ${p.uuid}: $e\n$st');
-        }
+        _log.warning('push failed for ${p.uuid}', e, st);
       }
     }
 
