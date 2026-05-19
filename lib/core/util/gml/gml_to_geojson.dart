@@ -108,7 +108,13 @@ class GmlToGeoJson {
   /// elements. Wrappers (`app:identifikasjon > app:Identifikasjon > …`)
   /// are descended through. Geometry elements (`gml:*`) and their entire
   /// subtree are skipped — they belong to the geometry, not properties.
-  /// On duplicate key the first occurrence wins (document order).
+  ///
+  /// Duplicate-key policy: a real-data value wins over a "weak" value
+  /// (empty / "Ukjent" / "Unknown"). Otherwise first-in-document-order
+  /// wins. This matters for repeated wrappers like `<app:fotruteInfo>`
+  /// blocks where one carries `<app:rutenavn>Ukjent</…>` and a sibling
+  /// carries the real name — without this filter the first "Ukjent"
+  /// would shadow the real value.
   static Map<String, Object?> _extractProperties(XmlElement feature) {
     final out = <String, Object?>{};
 
@@ -124,7 +130,13 @@ class GmlToGeoJson {
         // Skip the feature element itself (the outermost call) — it
         // won't have child elements only if the GML is malformed.
         if (el == feature) return;
-        out.putIfAbsent(el.localName, () => text);
+        final key = el.localName;
+        final existing = out[key];
+        if (existing == null) {
+          out[key] = text;
+        } else if (_looksWeak(existing) && !_looksWeak(text)) {
+          out[key] = text;
+        }
         return;
       }
       for (final c in childElements) {
@@ -136,6 +148,15 @@ class GmlToGeoJson {
       visit(child);
     }
     return out;
+  }
+
+  /// "Weak" values are placeholders the producer used when the real value
+  /// wasn't known. Treating them as a tentative fill so a later concrete
+  /// value can take over.
+  static bool _looksWeak(Object? raw) {
+    if (raw is! String) return false;
+    final s = raw.trim().toLowerCase();
+    return s.isEmpty || s == 'ukjent' || s == 'unknown';
   }
 
   static String? _firstSrs(XmlElement root) {

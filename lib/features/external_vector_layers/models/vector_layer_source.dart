@@ -1,5 +1,15 @@
 import 'package:flutter/material.dart';
 
+import 'vector_feature.dart';
+
+/// Builds the bottom-sheet shown when a feature of this layer is tapped.
+/// Receives the tap context and the hit feature; should return the sheet
+/// body widget (without modal scaffolding — the caller wraps it).
+typedef VectorFeatureSheetBuilder = Widget Function(
+  BuildContext context,
+  VectorFeature feature,
+);
+
 /// Declarative description of an external GeoJSON / WFS layer.
 class VectorLayerSource {
   /// Stable identifier (used as the cache namespace).
@@ -35,6 +45,10 @@ class VectorLayerSource {
   /// offline availability.
   final bool persist;
 
+  /// Optional custom feature-detail sheet body. When null, the generic
+  /// key/value [VectorFeatureSheet] is used.
+  final VectorFeatureSheetBuilder? sheetBuilder;
+
   const VectorLayerSource({
     required this.id,
     required this.name,
@@ -42,5 +56,6 @@ class VectorLayerSource {
     this.headers,
     this.color,
     this.persist = true,
+    this.sheetBuilder,
   });
 }

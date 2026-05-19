@@ -4,12 +4,10 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 import '../models/vector_feature.dart';
 import '../models/vector_layer_source.dart';
 
-/// Generic bottom sheet showing the property bag of a tapped vector feature.
-///
-/// Sources can override individual property keys via [labelOverrides] so the
-/// raw GeoJSON field names (often Norwegian and abbreviated) appear with
-/// human-readable labels. Anything not listed in [shownKeys] is skipped to
-/// keep the sheet focused.
+/// Opens the bottom sheet for [feature]. If the [source] supplied a
+/// [VectorLayerSource.sheetBuilder] the source-specific layout is used
+/// (e.g. trails get the rich [TrailFeatureSheet]); otherwise the
+/// generic key/value [VectorFeatureSheet] takes over.
 Future<void> showVectorFeatureSheet(
   BuildContext context, {
   required VectorLayerSource source,
@@ -23,12 +21,16 @@ Future<void> showVectorFeatureSheet(
     showDragHandle: false,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => VectorFeatureSheet(
-      source: source,
-      feature: feature,
-      shownKeys: shownKeys,
-      labelOverrides: labelOverrides,
-    ),
+    builder: (sheetContext) {
+      final custom = source.sheetBuilder;
+      if (custom != null) return custom(sheetContext, feature);
+      return VectorFeatureSheet(
+        source: source,
+        feature: feature,
+        shownKeys: shownKeys,
+        labelOverrides: labelOverrides,
+      );
+    },
   );
 }
 

@@ -20,6 +20,61 @@ void main() {
       expect(result['features'], isEmpty);
     });
 
+    test('duplicate keys: a real value wins over a placeholder "Ukjent"', () {
+      const gml = '''
+<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"
+                       xmlns:gml="http://www.opengis.net/gml/3.2"
+                       xmlns:app="http://example.com/app">
+  <wfs:member>
+    <app:Trail gml:id="t1">
+      <app:fotruteInfo>
+        <app:FotruteInfo><app:rutenavn>Ukjent</app:rutenavn></app:FotruteInfo>
+        <app:FotruteInfo><app:rutenavn>Ukjent</app:rutenavn></app:FotruteInfo>
+        <app:FotruteInfo><app:rutenavn>Besseggen</app:rutenavn></app:FotruteInfo>
+      </app:fotruteInfo>
+      <app:senterlinje>
+        <gml:LineString srsName="urn:ogc:def:crs:EPSG::4326">
+          <gml:posList>61.0 8.0 61.1 8.1</gml:posList>
+        </gml:LineString>
+      </app:senterlinje>
+    </app:Trail>
+  </wfs:member>
+</wfs:FeatureCollection>
+''';
+      final result = GmlToGeoJson.convert(gml);
+      final features = result['features'] as List;
+      expect(features, hasLength(1));
+      final props = (features.first as Map)['properties'] as Map;
+      expect(props['rutenavn'], 'Besseggen');
+    });
+
+    test('duplicate keys: first non-placeholder value wins (later '
+        'duplicates do not overwrite)', () {
+      const gml = '''
+<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"
+                       xmlns:gml="http://www.opengis.net/gml/3.2"
+                       xmlns:app="http://example.com/app">
+  <wfs:member>
+    <app:Trail gml:id="t2">
+      <app:fotruteInfo>
+        <app:FotruteInfo><app:rutenavn>Besseggen</app:rutenavn></app:FotruteInfo>
+        <app:FotruteInfo><app:rutenavn>Other name</app:rutenavn></app:FotruteInfo>
+      </app:fotruteInfo>
+      <app:senterlinje>
+        <gml:LineString srsName="urn:ogc:def:crs:EPSG::4326">
+          <gml:posList>61.0 8.0 61.1 8.1</gml:posList>
+        </gml:LineString>
+      </app:senterlinje>
+    </app:Trail>
+  </wfs:member>
+</wfs:FeatureCollection>
+''';
+      final result = GmlToGeoJson.convert(gml);
+      final props = ((result['features'] as List).first as Map)['properties']
+          as Map;
+      expect(props['rutenavn'], 'Besseggen');
+    });
+
     test('LineString with urn-form SRS swaps lat,lon → [lon, lat]', () {
       const gml = '''
 <wfs:FeatureCollection
@@ -349,6 +404,14 @@ void main() {
       // SOSI uses "rutenavn"; the (imaginary) GeoJSON shape the PR
       // assumed used "navn". Document the real field name.
       expect(props['rutenavn'], isNotNull);
+
+      // Regression: the fixture has three <app:FotruteInfo> blocks with
+      // rutenavn "Ukjent", "Ukjent", "Bøverdalen" respectively. Before
+      // the duplicate-key fix, the first "Ukjent" shadowed everything;
+      // now the real name wins.
+      expect(props['rutenavn'], 'Bøverdalen',
+          reason: 'duplicate-key resolution must let a real name beat '
+              'an earlier placeholder');
     });
 
     test('three fotrute features each have a usable geometry', () {

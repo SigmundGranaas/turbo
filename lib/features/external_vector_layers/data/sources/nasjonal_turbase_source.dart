@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../../models/vector_layer_source.dart';
+import '../../widgets/trail_feature_sheet.dart';
 
 /// One Nasjonal turbase trail subtype rendered as a vector layer.
 enum TrailSubtype {
@@ -56,6 +57,11 @@ VectorLayerSource trailVectorSource(TrailSubtype subtype) {
         'COUNT': '${maxFeatures ?? 300}',
       });
     },
+    sheetBuilder: (context, feature) => TrailFeatureSheet(
+      feature: feature,
+      subtypeLabel: spec.name(context),
+      accent: spec.color,
+    ),
   );
 }
 
@@ -113,28 +119,6 @@ const Map<String, TrailSubtype> trailOverlayIdToSubtype = {
   'trails_other': TrailSubtype.other,
 };
 
-/// Property keys we surface in the trail-info sheet. Names match the
-/// SOSI/`Turrutebasen` schema (`app:rutenavn`, `app:merking`, etc.) after
-/// the converter strips the `app:` prefix.
-const trailPropertyKeys = <String>[
-  'rutenavn',
-  'rutenummer',
-  'merking',
-  'gradering',
-  'rutebredde',
-  'underlagstype',
-  'sesong',
-];
-
-/// Maps Norwegian property keys onto localised labels for
-/// [showVectorFeatureSheet].
-Map<String, String> trailPropertyLabels(BuildContext context) {
-  final l10n = context.l10n;
-  return {
-    'rutenavn': l10n.name,
-    'rutenummer': l10n.trailRouteNumberLabel,
-    'merking': l10n.trailMarkingLabel,
-    'gradering': l10n.trailDifficultyLabel,
-    'rutebredde': l10n.trailLengthLabel,
-  };
-}
+// Trail feature presentation lives in `widgets/trail_feature_sheet.dart`
+// + `widgets/trail_property_decoder.dart`. The trail source wires the
+// `TrailFeatureSheet` via `VectorLayerSource.sheetBuilder` above.
