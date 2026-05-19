@@ -1,0 +1,11 @@
+# Skip tests tagged @Tags(['live']) by default — they hit live external
+# APIs (Kartverket, met.no, …) and are intended for manual / pre-release
+# verification, not CI. Opt in via:
+#
+#     flutter test --tags=live <path>
+#
+# (`--run-skipped` is not strictly needed because `exclude_tags` is what
+# Flutter respects; pass `--tags=live` to actually run them.)
+tags:
+  live:
+    skip: "live-network test; run explicitly with --tags=live"
