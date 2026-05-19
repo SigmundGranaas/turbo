@@ -21,6 +21,23 @@ class SavedPath {
   final double? descent;
   final int? movingTimeSeconds;
 
+  /// Sync state: true once the row has been successfully written to the
+  /// server's read model. Locally-created paths default to false; the
+  /// sync orchestrator flips this to true after upload.
+  final bool synced;
+
+  /// Server-stamped monotonic version. Sent back as `If-Match` on
+  /// update/delete; null while the track has not yet synced.
+  final int? version;
+
+  /// Server-stamped wall-clock of the last successful projection write.
+  /// Drives the next `?since=` cursor for delta-sync.
+  final DateTime? updatedAt;
+
+  /// Server-side tombstone. The client uses this to recognise deletions
+  /// learnt via delta-sync; always null in the local store for live rows.
+  final DateTime? deletedAt;
+
   SavedPath({
     String? uuid,
     required this.title,
@@ -37,6 +54,10 @@ class SavedPath {
     this.ascent,
     this.descent,
     this.movingTimeSeconds,
+    this.synced = false,
+    this.version,
+    this.updatedAt,
+    this.deletedAt,
   })  : uuid = uuid ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
@@ -64,6 +85,13 @@ class SavedPath {
     bool clearDescent = false,
     int? movingTimeSeconds,
     bool clearMovingTimeSeconds = false,
+    bool? synced,
+    int? version,
+    bool clearVersion = false,
+    DateTime? updatedAt,
+    bool clearUpdatedAt = false,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return SavedPath(
       uuid: uuid ?? this.uuid,
@@ -82,6 +110,10 @@ class SavedPath {
       descent: clearDescent ? null : (descent ?? this.descent),
       movingTimeSeconds:
           clearMovingTimeSeconds ? null : (movingTimeSeconds ?? this.movingTimeSeconds),
+      synced: synced ?? this.synced,
+      version: clearVersion ? null : (version ?? this.version),
+      updatedAt: clearUpdatedAt ? null : (updatedAt ?? this.updatedAt),
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 
@@ -120,6 +152,11 @@ class SavedPath {
       recordedAt = DateTime.parse(recRaw);
     }
 
+    DateTime? parseOptional(dynamic raw) {
+      if (raw is String && raw.isNotEmpty) return DateTime.parse(raw);
+      return null;
+    }
+
     return SavedPath(
       uuid: map['uuid'] as String,
       title: map['title'] as String,
@@ -136,6 +173,10 @@ class SavedPath {
       ascent: (map['ascent'] as num?)?.toDouble(),
       descent: (map['descent'] as num?)?.toDouble(),
       movingTimeSeconds: (map['moving_time_seconds'] as num?)?.toInt(),
+      synced: map['synced'] == 1 || map['synced'] == true,
+      version: (map['version'] as num?)?.toInt(),
+      updatedAt: parseOptional(map['updated_at']),
+      deletedAt: parseOptional(map['deleted_at']),
     );
   }
 
@@ -161,6 +202,10 @@ class SavedPath {
       'ascent': ascent,
       'descent': descent,
       'moving_time_seconds': movingTimeSeconds,
+      'synced': synced ? 1 : 0,
+      'version': version,
+      'updated_at': updatedAt?.toIso8601String(),
+      'deleted_at': deletedAt?.toIso8601String(),
     };
   }
 

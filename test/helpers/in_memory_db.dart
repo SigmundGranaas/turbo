@@ -30,11 +30,17 @@ Future<Database> createSavedPathsDb() async {
       recorded_at TEXT,
       ascent REAL,
       descent REAL,
-      moving_time_seconds INTEGER
+      moving_time_seconds INTEGER,
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
   await db.execute(
       'CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
+  await db.execute(
+      'CREATE INDEX idx_saved_paths_updated_at ON $savedPathsTable(updated_at)');
   return db;
 }
 
@@ -50,13 +56,18 @@ Future<Database> createMarkersDb() async {
       icon TEXT,
       latitude REAL NOT NULL,
       longitude REAL NOT NULL,
-      synced INTEGER NOT NULL DEFAULT 0
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
   await db.execute(
       'CREATE INDEX idx_markers_coords ON $markersTable(latitude, longitude)');
   await db.execute(
       'CREATE INDEX idx_markers_synced ON $markersTable(synced)');
+  await db.execute(
+      'CREATE INDEX idx_markers_updated_at ON $markersTable(updated_at)');
   await db.execute('''
     CREATE TABLE $pendingDeletesTable(
       uuid TEXT PRIMARY KEY,
@@ -91,13 +102,18 @@ Future<Database> createFullSchemaDb() async {
       icon TEXT,
       latitude REAL NOT NULL,
       longitude REAL NOT NULL,
-      synced INTEGER NOT NULL DEFAULT 0
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
   batch.execute(
       'CREATE INDEX idx_markers_coords ON $markersTable(latitude, longitude)');
   batch.execute(
       'CREATE INDEX idx_markers_synced ON $markersTable(synced)');
+  batch.execute(
+      'CREATE INDEX idx_markers_updated_at ON $markersTable(updated_at)');
   batch.execute('''
     CREATE TABLE $pendingDeletesTable(
       uuid TEXT PRIMARY KEY,
@@ -124,11 +140,17 @@ Future<Database> createFullSchemaDb() async {
       recorded_at TEXT,
       ascent REAL,
       descent REAL,
-      moving_time_seconds INTEGER
+      moving_time_seconds INTEGER,
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
   batch.execute(
       'CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
+  batch.execute(
+      'CREATE INDEX idx_saved_paths_updated_at ON $savedPathsTable(updated_at)');
   batch.execute('''
     CREATE TABLE $collectionsTable(
       uuid TEXT PRIMARY KEY,
@@ -138,9 +160,15 @@ Future<Database> createFullSchemaDb() async {
       icon_key TEXT,
       created_at TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      saved_filter TEXT
+      saved_filter TEXT,
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
+  batch.execute(
+      'CREATE INDEX idx_collections_updated_at ON $collectionsTable(updated_at)');
   batch.execute('''
     CREATE TABLE $collectionItemsTable(
       collection_uuid TEXT NOT NULL,
@@ -170,9 +198,15 @@ Future<Database> createCollectionsDb() async {
       icon_key TEXT,
       created_at TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      saved_filter TEXT
+      saved_filter TEXT,
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
+  batch.execute(
+      'CREATE INDEX idx_collections_updated_at ON $collectionsTable(updated_at)');
   batch.execute('''
     CREATE TABLE $collectionItemsTable(
       collection_uuid TEXT NOT NULL,

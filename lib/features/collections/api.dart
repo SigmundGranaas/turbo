@@ -21,3 +21,12 @@ export 'widgets/add_to_collection_sheet.dart' show AddToCollectionSheet;
 export 'widgets/collection_picker_row.dart' show CollectionPickerRow;
 export 'widgets/create_or_edit_collection_sheet.dart'
     show CreateOrEditCollectionSheet;
+export 'data/api_collection_service.dart'
+    show
+        ApiCollectionService,
+        CollectionDeltaResult,
+        CollectionWithItems,
+        CollectionTombstone,
+        CollectionConflictException;
+export 'data/collection_sync_service.dart'
+    show CollectionSyncService, CollectionSyncCursorStore, CollectionSyncOutcome;
