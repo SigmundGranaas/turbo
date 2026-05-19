@@ -565,19 +565,79 @@ void main() {
       expect(d!.title, 'Storsteinnes');
     });
 
-    test('Vern identify call uses layers=all:1 (only the class-split '
-        'polygons)', () async {
-      Uri? capturedVern;
+    test('Vern identify falls back to layers=all:1 when the MapServer index '
+        'probe yields no usable polygon layer', () async {
+      Uri? lastIdentify;
       final client = MockClient((req) async {
-        if (req.url.host == 'kart.miljodirektoratet.no') {
-          capturedVern = req.url;
+        if (req.url.host == 'kart.miljodirektoratet.no' &&
+            req.url.path.endsWith('/identify')) {
+          lastIdentify = req.url;
         }
+        // Empty MapServer index → no polygon layer found → fallback.
+        // Same handler also serves the empty identify response.
         return http.Response(jsonEncode({'results': []}), 200,
             headers: {'content-type': 'application/json; charset=utf-8'});
       });
       await _geocoder(client).describe(const LatLng(66.65, 14.35));
-      expect(capturedVern, isNotNull);
-      expect(capturedVern!.queryParameters['layers'], 'all:1');
+      expect(lastIdentify, isNotNull);
+      expect(lastIdentify!.queryParameters['layers'], 'all:1');
+    });
+
+    test('Vern identify uses the discovered polygon layer id when the '
+        'MapServer index advertises one', () async {
+      Uri? lastIdentify;
+      var indexCalls = 0;
+      final client = MockClient((req) async {
+        if (req.url.host != 'kart.miljodirektoratet.no') {
+          return http.Response(jsonEncode({'navn': []}), 200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        final isIdentify = req.url.path.endsWith('/identify');
+        if (isIdentify) {
+          lastIdentify = req.url;
+          return http.Response(jsonEncode({'results': []}), 200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        // MapServer root index — pick the class-split polygon at id 2,
+        // not the line/proposed variants.
+        indexCalls++;
+        return http.Response(
+          jsonEncode({
+            'layers': [
+              {'id': 0, 'name': 'Naturvernkategorier', 'geometryType': 'esriGeometryPolygon'},
+              {'id': 2, 'name': 'Klasseinndelte verneområder', 'geometryType': 'esriGeometryPolygon'},
+              {'id': 3, 'name': 'Verneområder grenselinjer', 'geometryType': 'esriGeometryPolyline'},
+              {'id': 4, 'name': 'Foreslåtte verneområder', 'geometryType': 'esriGeometryPolygon'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      await _geocoder(client).describe(const LatLng(66.65, 14.35));
+      expect(indexCalls, 1);
+      expect(lastIdentify!.queryParameters['layers'], 'all:2',
+          reason:
+              'discovery should pick the "Klasseinndelte" polygon and skip '
+              'the line layer and "Foreslåtte" (proposed) variant');
+    });
+
+    test('MapServer index is probed once per backend instance, then cached',
+        () async {
+      var indexCalls = 0;
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no' &&
+            !req.url.path.endsWith('/identify')) {
+          indexCalls++;
+        }
+        return http.Response(jsonEncode({'results': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final geocoder = _geocoder(client);
+      await geocoder.describe(const LatLng(66.65, 14.35));
+      await geocoder.describe(const LatLng(61.84, 8.57));
+      expect(indexCalls, 1,
+          reason: 'second describe() must reuse the cached layer scope');
     });
 
     test('Vern result prefers attributes[verneform] over layerName for the '
