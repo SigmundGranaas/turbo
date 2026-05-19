@@ -28,7 +28,7 @@ class CollectionsPage extends ConsumerWidget {
       ),
       body: asyncState.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (_, _) => Center(child: Text(l10n.genericLoadError)),
         data: (state) {
           if (state.collections.isEmpty) {
             return _EmptyState();

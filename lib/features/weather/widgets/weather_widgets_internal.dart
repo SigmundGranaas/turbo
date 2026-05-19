@@ -91,6 +91,43 @@ class WindArrow extends StatelessWidget {
   }
 }
 
+/// Icon variant for a wave height in metres. Calm sea → still water,
+/// moderate seas → waves, big seas → a swell silhouette.
+IconData waveBucketIcon(double meters) {
+  if (meters < 0.5) return Icons.water;
+  if (meters < 2.0) return Icons.waves;
+  return Icons.tsunami;
+}
+
+/// Icon variant for a precipitation rate in mm/h. Snow gets its own ramp.
+IconData precipBucketIcon(double mmPerHour, {required bool snow}) {
+  if (snow) {
+    if (mmPerHour < 0.2) return Icons.ac_unit_outlined;
+    if (mmPerHour < 1.0) return Icons.ac_unit;
+    return Icons.snowing;
+  }
+  if (mmPerHour < 0.2) return Icons.water_drop_outlined;
+  if (mmPerHour < 2.0) return Icons.water_drop;
+  return Icons.umbrella;
+}
+
+/// Icon variant for a wind speed in m/s. Pairs with [WindArrow] (which
+/// keeps the rotation) — caller picks the bucket icon for badge slots
+/// that don't carry direction.
+IconData windBucketIcon(double ms) {
+  if (ms < 5) return Icons.air;
+  if (ms < 12) return Icons.air_outlined;
+  return Icons.storm;
+}
+
+/// Pixel size for a `WindArrow` based on speed. Light winds render
+/// smaller so a 1 m/s breeze looks meaningfully different from a gale.
+double windArrowSize(double ms) {
+  if (ms < 5) return 18;
+  if (ms < 12) return 24;
+  return 30;
+}
+
 /// Compact wind readout: arrow + "N m/s". Used on the right side of the
 /// summary row and in detail-page hour rows.
 class WindReadout extends StatelessWidget {

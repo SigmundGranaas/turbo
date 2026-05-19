@@ -1,23 +1,37 @@
 import 'package:flutter/material.dart';
-import 'package:turbo/app/tokens.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
+
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/app/tokens.dart';
+import 'package:turbo/features/search/api.dart';
+import 'package:turbo/features/weather/api.dart';
 
 /// Action sheet shown when the user long-presses the map.
 ///
-/// Three rows: create marker, measure distance, navigate to / stop navigating.
-/// The "navigate" row reads as "Stop navigation" when [isNavigating] is true.
+/// Layout:
+///   • Drag handle
+///   • Place-info header — reverse-geocoded title (peak / area / kommune)
+///     with a "On / Close to / In" qualifier, then coordinates.
+///   • Three action rows (create marker / measure / navigate)
+///   • Weather summary surface — same widget the marker info sheet uses,
+///     tapping opens the full forecast.
 ///
-/// Extracted from [MainMapPage] so the flow can be widget-tested without
-/// pumping the full map.
-class PinOptionsSheet extends StatelessWidget {
+/// The sheet itself owns the reverse-geocode lookup so the [MainMapPage]
+/// doesn't need to thread a `Future` through to [CreateLocationSheet];
+/// the resolved title is also passed back through [onCreateMarker] as
+/// the new-marker name prefill.
+class PinOptionsSheet extends ConsumerStatefulWidget {
+  final LatLng point;
   final bool isNavigating;
-  final VoidCallback onCreateMarker;
+  final void Function(String? namePreview) onCreateMarker;
   final VoidCallback onMeasure;
   final VoidCallback onNavigate;
   final VoidCallback onStopNavigation;
 
   const PinOptionsSheet({
     super.key,
+    required this.point,
     required this.isNavigating,
     required this.onCreateMarker,
     required this.onMeasure,
@@ -26,47 +40,256 @@ class PinOptionsSheet extends StatelessWidget {
   });
 
   @override
+  ConsumerState<PinOptionsSheet> createState() => _PinOptionsSheetState();
+}
+
+class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
+  late final GeoQuery _query = GeoQuery(widget.point);
+
+  /// Synchronous accessor for the resolved description (or `null` if
+  /// it hasn't finished yet) — used by the create-marker callback to
+  /// pre-fill the new-marker name without re-firing the lookup.
+  LocationDescription? _currentDescription() {
+    final async = ref.read(describeLocationProvider(_query));
+    return async.maybeWhen(data: (v) => v, orElse: () => null);
+  }
+
+  String _safeMarkerTitle(
+      AppLocalizations l10n, LocationDescription? description) {
+    final title = description?.title.trim() ?? '';
+    return title.isEmpty ? l10n.pinSheetSelectedLocation : title;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.l),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.add_location_alt_outlined),
-              title: Text(l10n.createNewMarkerHere),
-              onTap: () {
-                Navigator.pop(context);
-                onCreateMarker();
-              },
+    final async = ref.watch(describeLocationProvider(_query));
+    final description = async.maybeWhen(data: (v) => v, orElse: () => null);
+    final resolving = async.isLoading && !async.hasValue;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(AppRadius.xl),
             ),
-            ListTile(
-              leading: const Icon(Icons.straighten),
-              title: Text(l10n.measureDistanceFromHere),
-              onTap: () {
-                Navigator.pop(context);
-                onMeasure();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.navigation_outlined),
-              title: Text(isNavigating
-                  ? l10n.stopNavigation
-                  : l10n.navigateToHere),
-              onTap: () {
-                Navigator.pop(context);
-                if (isNavigating) {
-                  onStopNavigation();
-                } else {
-                  onNavigate();
-                }
-              },
-            ),
-          ],
+          ),
+          // Single-page layout: header + weather scroll inside the
+          // upper area; the three action buttons stay anchored to the
+          // bottom of the sheet at any expansion level.
+          child: Column(
+            children: [
+              const _DragHandle(),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _PlaceInfoHeader(
+                        point: widget.point,
+                        description: description,
+                        resolving: resolving,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(AppSpacing.l,
+                            AppSpacing.s, AppSpacing.l, AppSpacing.s),
+                        child: WeatherSummaryRow(
+                          key: const Key('pin-sheet-weather-surface'),
+                          position: widget.point,
+                          title: _safeMarkerTitle(l10n, description),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.add_location_alt_outlined),
+                      title: Text(l10n.createNewMarkerHere),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onCreateMarker(_currentDescription()?.title);
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.straighten),
+                      title: Text(l10n.measureDistanceFromHere),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onMeasure();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.navigation_outlined),
+                      title: Text(widget.isNavigating
+                          ? l10n.stopNavigation
+                          : l10n.navigateToHere),
+                      onTap: () {
+                        Navigator.pop(context);
+                        if (widget.isNavigating) {
+                          widget.onStopNavigation();
+                        } else {
+                          widget.onNavigate();
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DragHandle extends StatelessWidget {
+  const _DragHandle();
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 8),
+      child: Center(
+        child: Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.4,
+                ),
+            borderRadius: BorderRadius.circular(AppRadius.s),
+          ),
         ),
       ),
     );
+  }
+}
+
+class _PlaceInfoHeader extends StatelessWidget {
+  final LatLng point;
+  final LocationDescription? description;
+  final bool resolving;
+
+  const _PlaceInfoHeader({
+    required this.point,
+    required this.description,
+    required this.resolving,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    final l10n = context.l10n;
+    final title = _resolveTitle(l10n);
+    final subtitle = _resolveSubtitle(l10n);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.l, AppSpacing.xs, AppSpacing.s, AppSpacing.xs),
+      child: Row(
+        children: [
+          Icon(Icons.place, size: 28, color: colorScheme.primary),
+          const SizedBox(width: AppSpacing.s),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  key: const Key('pin-sheet-place-title'),
+                  style: textTheme.titleMedium,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+                Text(
+                  subtitle,
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.onSurfaceVariant),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: MaterialLocalizations.of(context).closeButtonLabel,
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _resolveTitle(AppLocalizations l10n) {
+    final d = description;
+    if (d == null || d.title.trim().isEmpty) {
+      return resolving ? l10n.pinSheetResolving : l10n.pinSheetSelectedLocation;
+    }
+    final prefix = _qualifierLabel(l10n, d.qualifier);
+    return prefix == null ? d.title : '$prefix ${d.title}';
+  }
+
+  String _resolveSubtitle(AppLocalizations l10n) {
+    final d = description;
+    final elev = d?.elevationMeters;
+    final dist = d?.distanceMeters;
+    final secondary = d?.secondary;
+    final kommuneText = _composeKommune(d);
+    final parts = <String>[
+      if (secondary != null && secondary.isNotEmpty) secondary,
+      ?kommuneText,
+      if (dist != null && dist > 30) _formatDistance(dist),
+      _formatCoord(point),
+      if (elev != null) '${elev.toStringAsFixed(0)} m',
+    ];
+    return parts.join(' · ');
+  }
+
+  static String? _composeKommune(LocationDescription? d) {
+    if (d == null) return null;
+    final k = d.kommune;
+    final f = d.fylke;
+    if (k == null || k.isEmpty) return null;
+    if (f == null || f.isEmpty) return k;
+    return '$k, $f';
+  }
+
+  static String _formatDistance(double meters) {
+    if (meters < 1000) return '${meters.round()} m';
+    return '${(meters / 1000).toStringAsFixed(1)} km';
+  }
+
+  static String _formatCoord(LatLng p) {
+    return '${p.latitude.toStringAsFixed(5)}, ${p.longitude.toStringAsFixed(5)}';
+  }
+
+  static String? _qualifierLabel(
+      AppLocalizations l10n, LocationQualifier? q) {
+    // "Close to X" / "Near X" prefixes read as noise — the name alone is
+    // more useful when the pin isn't actually sitting on / inside the
+    // feature. Keep only the tight prefixes ("On Galdhøpiggen", "At
+    // Mjøsa", "In Lom") where the relationship really matters.
+    return switch (q) {
+      LocationQualifier.on => l10n.locationOn,
+      LocationQualifier.atPlace => l10n.locationAt,
+      LocationQualifier.inArea => l10n.locationIn,
+      LocationQualifier.closeTo => null,
+      LocationQualifier.near => null,
+      null => null,
+    };
   }
 }

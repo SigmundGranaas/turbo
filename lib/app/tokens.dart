@@ -33,3 +33,23 @@ class AppMotion {
   static const Duration normal = Duration(milliseconds: 200);
   static const Duration slow = Duration(milliseconds: 300);
 }
+
+/// Stroke / fill tokens for the `external_vector_layers` overlays
+/// (trails, MetAlerts areas, etc.). Keeps the per-source colours
+/// theme-aware while pinning the geometry styling here instead of
+/// scattering literals across `VectorDataLayer`.
+class AppVectorOverlay {
+  /// Stroke width for line features (trails). 3 px reads at z=10–14.
+  static const double lineStrokeWidth = 3.0;
+
+  /// Stroke width for polygon outlines (MetAlerts areas, protected
+  /// areas). Thinner than lines because the fill provides emphasis.
+  static const double polygonBorderStrokeWidth = 1.5;
+
+  /// Alpha applied to the source colour for a polygon's fill — keeps
+  /// the underlying map readable.
+  static const double polygonFillAlpha = 0.18;
+
+  /// Alpha applied to the source colour for line strokes / borders.
+  static const double strokeAlpha = 0.8;
+}

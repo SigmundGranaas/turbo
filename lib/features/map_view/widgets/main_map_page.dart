@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/map_view/widgets/layers/current_location_layer.dart';
 import 'package:turbo/features/map_view/widgets/layers/viewport_marker_layer.dart';
+import 'package:turbo/features/external_vector_layers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_mobile.dart';
@@ -16,7 +17,6 @@ as offline_api;
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
-import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/sharing/api.dart';
 
 import 'package:turbo/core/location/compass_mode_state.dart';
@@ -221,6 +221,30 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     ))
         .toList();
 
+    final activeOverlayIds = tileRegistryState.activeOverlayIds.toSet();
+    final trailVectorLayers = <Widget>[
+      for (final entry in trailOverlayIdToSubtype.entries)
+        VectorDataLayer(
+          source: trailVectorSource(entry.value),
+          mapController: _mapController,
+          visible: activeOverlayIds.contains(entry.key),
+        ),
+      // OSM Overpass paths and Kartverket N50 Sti — additional vector
+      // sources, toggled via their own overlay configs (vector-only,
+      // see `vector_path_overlays.dart`). They render alongside the
+      // Turrutebasen layers and reuse the same TrailFeatureSheet on tap.
+      VectorDataLayer(
+        source: osmPathVectorSource(),
+        mapController: _mapController,
+        visible: activeOverlayIds.contains('osm_paths'),
+      ),
+      VectorDataLayer(
+        source: n50StiVectorSource(),
+        mapController: _mapController,
+        visible: activeOverlayIds.contains('n50_sti'),
+      ),
+    ];
+
     final commonMapLayers = <Widget>[
       ...tileLayers,
       ...attributions,
@@ -231,6 +255,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       const NavigationPolylineLayer(),
       const NavigationTargetMarker(),
       SavedPathsLayer(mapController: _mapController),
+      ...trailVectorLayers,
       ViewportMarkers(mapController: _mapController),
     ];
 
@@ -329,25 +354,32 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         alignment: Alignment.topCenter,
       );
     });
+    // Centre on the pin so it sits in the middle of the top half of the
+    // screen — the sheet covers the bottom half. Shifting the camera
+    // target south by 25 % of the visible latitudinal span puts the pin
+    // exactly at 25 % from the top edge of the viewport.
+    final camera = _mapController.camera;
+    final latSpan = camera.visibleBounds.north - camera.visibleBounds.south;
+    final target = LatLng(point.latitude - latSpan * 0.25, point.longitude);
+    animatedMapMove(target, camera.zoom, _mapController, this);
     _showPinOptionsSheet(context, point);
   }
 
   void _showPinOptionsSheet(BuildContext context, LatLng point) {
     final isNavigating = ref.read(navigationStateProvider).isActive;
-    // Kick off the reverse lookup in parallel with showing the sheet — the
-    // result pre-fills the marker name if the user chooses "Create marker".
-    final reverseFuture =
-        ref.read(reverseGeocoderProvider).findLocationByCoord(point);
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       useSafeArea: true,
+      backgroundColor: Colors.transparent,
       builder: (BuildContext sheetContext) {
         return PinOptionsSheet(
+          point: point,
           isNavigating: isNavigating,
-          onCreateMarker: () => _showCreateSheet(
+          onCreateMarker: (namePreview) => _showCreateSheet(
             context,
             newLocation: point,
-            namePreview: reverseFuture,
+            prefillName: namePreview,
           ),
           onMeasure: () => _navigateToMeasuring(point),
           onNavigate: () => ref
@@ -381,27 +413,11 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   void _showCreateSheet(
     BuildContext context, {
     LatLng? newLocation,
-    Future<LocationSearchResult?>? namePreview,
+    String? prefillName,
   }) async {
     if (newLocation != null) {
       animatedMapMove(
           newLocation, _mapController.camera.zoom, _mapController, this);
-    }
-
-    String? prefillName;
-    if (namePreview != null) {
-      // Await up to 1.5s for reverse-geo; longer than that and the user has
-      // already pressed "Create marker" and is waiting on us. Fall back to
-      // empty if Kartverket has no nearby placename or times out.
-      try {
-        final result = await namePreview.timeout(
-          const Duration(milliseconds: 1500),
-          onTimeout: () => null,
-        );
-        prefillName = result?.title;
-      } catch (_) {
-        prefillName = null;
-      }
     }
 
     if (!context.mounted) return;

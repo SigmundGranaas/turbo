@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 10;
+const int _dbVersion = 11;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -18,6 +18,7 @@ const String savedPathsTable = 'saved_paths';
 const String collectionsTable = 'collections';
 const String collectionItemsTable = 'collection_items';
 const String markerPhotosTable = 'marker_photos';
+const String vectorTileCacheTable = 'vector_tile_cache';
 
 
 /// A provider that creates and holds the single instance of the app's database.
@@ -41,7 +42,7 @@ final databaseProvider = FutureProvider<Database>((ref) async {
 Future<void> _createDb(Database db, int version) async {
   final batch = db.batch();
 
-  // From SQLiteMarkerDataStore — extended in v9 with sync columns
+  // From SQLiteMarkerDataStore — extended in v10 with sync columns
   // (version/updated_at/deleted_at) so the client can drive delta-sync
   // and optimistic-concurrency against the server.
   batch.execute('''
@@ -126,7 +127,7 @@ Future<void> _createDb(Database db, int version) async {
     )
   ''');
 
-  // Saved paths (v3, extended in v4, v6, and v9).
+  // Saved paths (v3, extended in v4, v6, and v10).
   batch.execute('''
     CREATE TABLE $savedPathsTable(
       uuid TEXT PRIMARY KEY,
@@ -166,7 +167,7 @@ Future<void> _createDb(Database db, int version) async {
     )
   ''');
 
-  // Collections + join table (v5, extended in v10 with sync columns).
+  // Collections + join table (v5, extended in v11 with sync columns).
   // The join table is keyed by (type, uuid) so future item types do
   // not require schema changes.
   batch.execute('''
@@ -211,6 +212,22 @@ Future<void> _createDb(Database db, int version) async {
   batch.execute(
       'CREATE INDEX idx_marker_photos_marker ON $markerPhotosTable(marker_uuid)');
 
+  // Vector tile cache (v9) — backing store for the external_vector_layers
+  // feature. One row per (source, z, x, y) viewport tile.
+  batch.execute('''
+    CREATE TABLE $vectorTileCacheTable(
+      source TEXT NOT NULL,
+      z INTEGER NOT NULL,
+      x INTEGER NOT NULL,
+      y INTEGER NOT NULL,
+      geojson TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (source, z, x, y)
+    )
+  ''');
+  batch.execute(
+      'CREATE INDEX idx_vector_tile_fetched ON $vectorTileCacheTable(fetched_at)');
+
   await batch.commit(noResult: true);
 }
 
@@ -235,13 +252,15 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV8ToV9(db);
       case 10:
         await _migrateV9ToV10(db);
+      case 11:
+        await _migrateV10ToV11(db);
     }
   }
 }
 
-/// v10 — sync columns on collections so they participate in the
+/// v11 — sync columns on collections so they participate in the
 /// delta-sync flow against the server (version + updated_at + deleted_at).
-Future<void> _migrateV9ToV10(Database db) async {
+Future<void> _migrateV10ToV11(Database db) async {
   final columns = (await db.rawQuery('PRAGMA table_info($collectionsTable)'))
       .map((row) => row['name'] as String)
       .toSet();
@@ -262,10 +281,10 @@ Future<void> _migrateV9ToV10(Database db) async {
       'CREATE INDEX IF NOT EXISTS idx_collections_updated_at ON $collectionsTable(updated_at)');
 }
 
-/// v9 — sync columns on markers and saved_paths to drive the delta-sync
+/// v10 — sync columns on markers and saved_paths to drive the delta-sync
 /// flow against the server (version + updated_at + deleted_at), plus a
 /// pending-deletes queue for tracks that mirrors the markers' one.
-Future<void> _migrateV8ToV9(Database db) async {
+Future<void> _migrateV9ToV10(Database db) async {
   final markerCols = (await db.rawQuery('PRAGMA table_info($markersTable)'))
       .map((row) => row['name'] as String)
       .toSet();
@@ -307,6 +326,23 @@ Future<void> _migrateV8ToV9(Database db) async {
       created_at TEXT NOT NULL
     )
   ''');
+}
+
+/// v9 — vector tile cache table backing the external_vector_layers feature.
+Future<void> _migrateV8ToV9(Database db) async {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $vectorTileCacheTable(
+      source TEXT NOT NULL,
+      z INTEGER NOT NULL,
+      x INTEGER NOT NULL,
+      y INTEGER NOT NULL,
+      geojson TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (source, z, x, y)
+    )
+  ''');
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_vector_tile_fetched ON $vectorTileCacheTable(fetched_at)');
 }
 
 Future<void> _migrateV7ToV8(Database db) async {

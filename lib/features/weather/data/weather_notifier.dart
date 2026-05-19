@@ -2,9 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models/weather_forecast.dart';
+import 'metalerts_service.dart';
 import 'weather_fetcher.dart';
 import 'yr_atmospheric_service.dart';
 import 'yr_ocean_service.dart';
+import 'yr_sunrise_service.dart';
 
 final yrAtmosphericServiceProvider =
     Provider<YrAtmosphericService>((ref) => YrAtmosphericService());
@@ -12,10 +14,18 @@ final yrAtmosphericServiceProvider =
 final yrOceanServiceProvider =
     Provider<YrOceanService>((ref) => YrOceanService());
 
+final yrSunriseServiceProvider =
+    Provider<YrSunriseService>((ref) => YrSunriseService());
+
+final metAlertsServiceProvider =
+    Provider<MetAlertsService>((ref) => MetAlertsService());
+
 final weatherFetcherProvider = Provider<WeatherFetcher>((ref) {
   return WeatherFetcher(
     atmospheric: ref.watch(yrAtmosphericServiceProvider),
     ocean: ref.watch(yrOceanServiceProvider),
+    sunrise: ref.watch(yrSunriseServiceProvider),
+    alerts: ref.watch(metAlertsServiceProvider),
   );
 });
 
