@@ -16,6 +16,24 @@ class Collection {
   /// `collection_items` join table.
   final SavedFilter? savedFilter;
 
+  /// Sync state: true once the row has been successfully written to the
+  /// server's read model. Locally-created collections default to false;
+  /// the sync orchestrator flips this to true after upload.
+  final bool synced;
+
+  /// Server-stamped monotonic version. Sent back as `If-Match` on
+  /// update/delete/add-item/remove-item; null while the collection has
+  /// not yet synced.
+  final int? version;
+
+  /// Server-stamped wall-clock of the last successful projection write.
+  /// Drives the next `?since=` cursor for delta-sync.
+  final DateTime? updatedAt;
+
+  /// Server-side tombstone. The client uses this to recognise deletions
+  /// learnt via delta-sync; always null in the local store for live rows.
+  final DateTime? deletedAt;
+
   Collection({
     String? uuid,
     required this.name,
@@ -25,6 +43,10 @@ class Collection {
     DateTime? createdAt,
     this.sortOrder = 0,
     this.savedFilter,
+    this.synced = false,
+    this.version,
+    this.updatedAt,
+    this.deletedAt,
   })  : uuid = uuid ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now();
 
@@ -43,6 +65,13 @@ class Collection {
     int? sortOrder,
     SavedFilter? savedFilter,
     bool clearSavedFilter = false,
+    bool? synced,
+    int? version,
+    bool clearVersion = false,
+    DateTime? updatedAt,
+    bool clearUpdatedAt = false,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return Collection(
       uuid: uuid ?? this.uuid,
@@ -55,10 +84,19 @@ class Collection {
       sortOrder: sortOrder ?? this.sortOrder,
       savedFilter:
           clearSavedFilter ? null : (savedFilter ?? this.savedFilter),
+      synced: synced ?? this.synced,
+      version: clearVersion ? null : (version ?? this.version),
+      updatedAt: clearUpdatedAt ? null : (updatedAt ?? this.updatedAt),
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 
   factory Collection.fromLocalMap(Map<String, dynamic> map) {
+    DateTime? parseOptional(dynamic raw) {
+      if (raw is String && raw.isNotEmpty) return DateTime.parse(raw);
+      return null;
+    }
+
     return Collection(
       uuid: map['uuid'] as String,
       name: map['name'] as String,
@@ -68,6 +106,10 @@ class Collection {
       createdAt: DateTime.parse(map['created_at'] as String),
       sortOrder: (map['sort_order'] as num?)?.toInt() ?? 0,
       savedFilter: SavedFilter.fromJsonString(map['saved_filter'] as String?),
+      synced: map['synced'] == 1 || map['synced'] == true,
+      version: (map['version'] as num?)?.toInt(),
+      updatedAt: parseOptional(map['updated_at']),
+      deletedAt: parseOptional(map['deleted_at']),
     );
   }
 
@@ -81,6 +123,10 @@ class Collection {
       'created_at': createdAt.toIso8601String(),
       'sort_order': sortOrder,
       'saved_filter': savedFilter?.toJsonString(),
+      'synced': synced ? 1 : 0,
+      'version': version,
+      'updated_at': updatedAt?.toIso8601String(),
+      'deleted_at': deletedAt?.toIso8601String(),
     };
   }
 
@@ -96,7 +142,11 @@ class Collection {
           iconKey == other.iconKey &&
           createdAt == other.createdAt &&
           sortOrder == other.sortOrder &&
-          savedFilter == other.savedFilter;
+          savedFilter == other.savedFilter &&
+          synced == other.synced &&
+          version == other.version &&
+          updatedAt == other.updatedAt &&
+          deletedAt == other.deletedAt;
 
   @override
   int get hashCode => Object.hash(
@@ -108,5 +158,9 @@ class Collection {
         createdAt,
         sortOrder,
         savedFilter,
+        synced,
+        version,
+        updatedAt,
+        deletedAt,
       );
 }

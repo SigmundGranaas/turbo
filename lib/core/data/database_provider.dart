@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 9;
+const int _dbVersion = 10;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -166,8 +166,9 @@ Future<void> _createDb(Database db, int version) async {
     )
   ''');
 
-  // Collections + join table (v5). The join table is keyed by (type, uuid)
-  // so future item types do not require schema changes.
+  // Collections + join table (v5, extended in v10 with sync columns).
+  // The join table is keyed by (type, uuid) so future item types do
+  // not require schema changes.
   batch.execute('''
     CREATE TABLE $collectionsTable(
       uuid TEXT PRIMARY KEY,
@@ -177,9 +178,14 @@ Future<void> _createDb(Database db, int version) async {
       icon_key TEXT,
       created_at TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      saved_filter TEXT
+      saved_filter TEXT,
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
+  batch.execute('CREATE INDEX idx_collections_updated_at ON $collectionsTable(updated_at)');
   batch.execute('''
     CREATE TABLE $collectionItemsTable(
       collection_uuid TEXT NOT NULL,
@@ -227,8 +233,33 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV7ToV8(db);
       case 9:
         await _migrateV8ToV9(db);
+      case 10:
+        await _migrateV9ToV10(db);
     }
   }
+}
+
+/// v10 — sync columns on collections so they participate in the
+/// delta-sync flow against the server (version + updated_at + deleted_at).
+Future<void> _migrateV9ToV10(Database db) async {
+  final columns = (await db.rawQuery('PRAGMA table_info($collectionsTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!columns.contains('synced')) {
+    await db.execute(
+        'ALTER TABLE $collectionsTable ADD COLUMN synced INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!columns.contains('version')) {
+    await db.execute('ALTER TABLE $collectionsTable ADD COLUMN version INTEGER');
+  }
+  if (!columns.contains('updated_at')) {
+    await db.execute('ALTER TABLE $collectionsTable ADD COLUMN updated_at TEXT');
+  }
+  if (!columns.contains('deleted_at')) {
+    await db.execute('ALTER TABLE $collectionsTable ADD COLUMN deleted_at TEXT');
+  }
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_collections_updated_at ON $collectionsTable(updated_at)');
 }
 
 /// v9 — sync columns on markers and saved_paths to drive the delta-sync
