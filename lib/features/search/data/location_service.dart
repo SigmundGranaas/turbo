@@ -43,8 +43,17 @@ class LocationDescription {
   final String title;
   final LocationQualifier? qualifier;
 
-  /// Optional secondary context (kommune + fylke, "350 m away", etc.).
+  /// Source-specific qualifier context (e.g. "Nasjonalpark" for a
+  /// protected-area hit, "2686 LOM" for an address hit). `null` for
+  /// toponym / kommune hits — those use [kommune]/[fylke] instead.
   final String? secondary;
+
+  /// Containing municipality, populated by the orchestrator when the
+  /// winning description didn't already include one. Lets the UI
+  /// render "Galdhøpiggen · Lom, Innlandet" without each backend
+  /// having to fetch the kommune itself.
+  final String? kommune;
+  final String? fylke;
 
   /// Distance in meters from the queried coordinate to the matched
   /// feature. `null` when the description came from a containing area
@@ -60,6 +69,8 @@ class LocationDescription {
     required this.title,
     this.qualifier,
     this.secondary,
+    this.kommune,
+    this.fylke,
     this.distanceMeters,
     this.elevationMeters,
   });
@@ -68,6 +79,8 @@ class LocationDescription {
     String? title,
     LocationQualifier? qualifier,
     String? secondary,
+    String? kommune,
+    String? fylke,
     double? distanceMeters,
     double? elevationMeters,
   }) {
@@ -75,6 +88,8 @@ class LocationDescription {
       title: title ?? this.title,
       qualifier: qualifier ?? this.qualifier,
       secondary: secondary ?? this.secondary,
+      kommune: kommune ?? this.kommune,
+      fylke: fylke ?? this.fylke,
       distanceMeters: distanceMeters ?? this.distanceMeters,
       elevationMeters: elevationMeters ?? this.elevationMeters,
     );

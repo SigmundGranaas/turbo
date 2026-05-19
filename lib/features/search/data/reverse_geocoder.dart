@@ -52,9 +52,12 @@ final reverseGeocoderProvider = Provider<ReverseGeocoder>((ref) {
 });
 
 /// Cache key for [describeLocationProvider]: quantises a [LatLng] to a
-/// ~500 m grid so taps on the same area share the cached lookup.
+/// ~250 m grid so taps on the same area share the cached lookup. 500 m
+/// was wide enough to alias adjacent peaks (Galdhøpiggen / Glittertind
+/// share a grid cell at that resolution); 250 m keeps the cache busy
+/// while still respecting feature granularity.
 class GeoQuery {
-  /// Quantised coordinate (~500 m grid).
+  /// Quantised coordinate (~250 m grid).
   final LatLng coord;
 
   GeoQuery(LatLng input)
@@ -63,7 +66,9 @@ class GeoQuery {
           _q(input.longitude),
         );
 
-  static double _q(double v) => (v * 200).round() / 200.0;
+  // 0.0025° latitude ≈ 277 m. Same step on longitude ≈ 130–170 m
+  // at Nordic latitudes — close enough to "~250 m" for cache purposes.
+  static double _q(double v) => (v * 400).round() / 400.0;
 
   @override
   bool operator ==(Object other) =>
@@ -77,8 +82,10 @@ class GeoQuery {
 
 /// Family-cached reverse-geocode: a `ref.watch(describeLocationProvider(
 /// GeoQuery(point)))` on the same area reuses the prior result instead
-/// of re-firing HTTP.
+/// of re-firing HTTP. `keepAlive` is explicit so the cache survives the
+/// sheet being closed and reopened.
 final describeLocationProvider =
     FutureProvider.family<LocationDescription?, GeoQuery>((ref, query) async {
+  ref.keepAlive();
   return ref.watch(reverseGeocoderProvider).describe(query.coord);
 });

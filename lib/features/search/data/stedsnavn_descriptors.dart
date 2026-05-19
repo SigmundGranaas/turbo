@@ -227,20 +227,31 @@ StedsnavnHit? describeFeature(LatLng queryCoord, Map<String, dynamic> item) {
   final name = readPlaceName(item);
   if (name == null) return null;
   final pt = item['representasjonspunkt'] as Map<String, dynamic>?;
-  if (pt == null) return null;
-  final lat = (pt['nord'] as num?)?.toDouble();
-  final lng = (pt['øst'] as num?)?.toDouble();
-  if (lat == null || lng == null) return null;
-  final distance = const Distance()
-      .as(LengthUnit.Meter, queryCoord, LatLng(lat, lng));
+
+  // Prefer the server-computed distance from `/punkt`'s response
+  // (`meterFraPunkt`). It's the canonical value and lets us skip
+  // parsing `representasjonspunkt` for items where it's missing.
+  final serverDistance = (item['meterFraPunkt'] as num?)?.toDouble();
+  double? distance = serverDistance;
+  if (distance == null) {
+    if (pt == null) return null;
+    final lat = (pt['nord'] as num?)?.toDouble();
+    final lng = (pt['øst'] as num?)?.toDouble();
+    if (lat == null || lng == null) return null;
+    distance = const Distance()
+        .as(LengthUnit.Meter, queryCoord, LatLng(lat, lng));
+  }
+
   final kind = (item['navneobjekttype'] as String?)?.toLowerCase() ?? '';
   final (tier, qualifier) = categorizeFeature(kind, distance);
   if (tier == null) return null;
 
-  // Build the human-readable secondary line ("Fjell, Lom, Innlandet").
+  // Stedsnavn /punkt doesn't return kommuner / fylker on each item,
+  // and `navneobjekttype` is redundant with the qualifier ("On" implies
+  // a peak/island/glacier, etc.). Leave secondary blank here — the
+  // orchestrator enriches the winning description with kommune+fylke
+  // from the parallel KommuneBackend call instead.
   final parts = <String>[];
-  final objectType = item['navneobjekttype'] as String?;
-  if (objectType != null && objectType.isNotEmpty) parts.add(objectType);
   final kommuner = (item['kommuner'] as List?) ?? const [];
   if (kommuner.isNotEmpty) {
     final k = (kommuner.first as Map?)?['kommunenavn'] as String?;
@@ -259,9 +270,17 @@ StedsnavnHit? describeFeature(LatLng queryCoord, Map<String, dynamic> item) {
     secondary: secondary,
     distanceMeters: distance,
   );
+  // Bias the score against inactive / disused features. Kartverket's
+  // `stedstatus=hovednavn` filter already drops most of these, but
+  // some `stedstatus='historisk'` / `'avslått'` entries still leak
+  // through and we'd rather pick a worse-typed live feature over a
+  // dead one.
+  final status = (item['stedstatus'] as String?)?.toLowerCase() ?? '';
+  final statusPenalty = status == 'aktiv' ? 0.0 : 50.0;
+
   return StedsnavnHit(
     description: description,
     tier: tier,
-    score: tier.index * 10000 + distance,
+    score: tier.index * 10000 + distance + statusPenalty,
   );
 }

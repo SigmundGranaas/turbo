@@ -123,12 +123,14 @@ void main() {
             headers: {'content-type': 'application/json; charset=utf-8'});
       });
       final d = await _geocoder(client).describe(tap);
+      // The Vern hit must be the TITLE (the park name), not the
+      // kommune. Kommune still fires in parallel as subtitle
+      // enrichment ("In Saltfjellet–Svartisen · Bodø, Nordland"), so
+      // we don't assert on the call count any more — only the title.
       expect(d!.title, 'Saltfjellet–Svartisen nasjonalpark');
       expect(d.qualifier, LocationQualifier.inArea);
-      expect(calledKommune, isFalse,
-          reason:
-              'Vern hit must outrank the kommune fallback so the park name '
-              'is shown instead of "In Bodø"');
+      expect(calledKommune, isTrue,
+          reason: 'Kommune is fetched in parallel for subtitle context.');
     });
 
     test('protected-area lookup is bypassed when Stedsnavn returns a tight '
@@ -188,7 +190,10 @@ void main() {
       final d = await _geocoder(client).describe(tap);
       expect(d, isNotNull);
       expect(d!.title, 'Lom');
-      expect(d.qualifier, LocationQualifier.inArea);
+      // No qualifier on the kommune fallback — "In Bodø" reads weird
+      // when the kommune is a giant rural polygon. Genuine containment
+      // (settlement / park) still keeps "In".
+      expect(d.qualifier, isNull);
       expect(d.secondary, 'Innlandet');
       expect(calledKommune, isTrue);
     });
@@ -708,11 +713,14 @@ void main() {
       });
       final d =
           await _geocoder(client, withEnrichment: true).describe(tap);
+      // The address backend is the TITLE source. Kommune still fires in
+      // parallel as subtitle enrichment, so calledKommune is now
+      // true — what we assert is that address won the title slot.
       expect(d!.title, 'Storgården 4');
       expect(d.qualifier, LocationQualifier.near);
       expect(d.secondary, '2686 LOM');
-      expect(calledKommune, isFalse,
-          reason: 'address fallback must outrank the kommune lookup');
+      expect(calledKommune, isTrue,
+          reason: 'Kommune is fetched in parallel for subtitle context.');
     });
 
     test('elevation enrichment is applied even when the address backend '

@@ -42,7 +42,13 @@ class KommuneBackend {
       if (kommune == null || kommune.isEmpty) return null;
       return LocationDescription(
         title: kommune,
-        qualifier: LocationQualifier.inArea,
+        // No qualifier: "In Bodø" reads correctly for a tettsted but
+        // weird for the kommune (which can be a giant rural polygon).
+        // The bare kommune name is enough context as a final fallback;
+        // genuine containment ("In Lom (town)" / "In Saltfjellet–
+        // Svartisen nasjonalpark") still keeps the prefix via the
+        // Stedsnavn and Vern backends respectively.
+        qualifier: null,
         secondary: (fylke == null || fylke.isEmpty) ? null : fylke,
       );
     } catch (_) {

@@ -37,6 +37,11 @@ import 'reverse_geocoder.dart';
 ///   5. Otherwise the kommune fallback.
 ///   6. `null` only when every source is empty (e.g. outside Norway).
 class KartverketReverseGeocoder implements ReverseGeocoder {
+  /// Belt-and-braces ceiling on the whole fan-out. Each backend has its
+  /// own 8 s timeout, but a stalled call shouldn't keep the pin header
+  /// in a perpetual loading state — bail and let the UI show coords.
+  static const Duration _overallTimeout = Duration(seconds: 6);
+
   final StedsnavnBackend _stedsnavn;
   final ProtectedAreaBackend _protectedArea;
   final KommuneBackend _kommune;
@@ -57,17 +62,42 @@ class KartverketReverseGeocoder implements ReverseGeocoder {
 
   @override
   Future<LocationDescription?> describe(LatLng coord) async {
-    // Fan-out the network-bound sources. Elevation is an enrichment
-    // that's merged into whichever description wins.
+    try {
+      return await _describeUnbounded(coord).timeout(_overallTimeout);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<LocationDescription?> _describeUnbounded(LatLng coord) async {
+    // Fan-out the network-bound sources. Elevation and kommune are
+    // enrichments — fired in parallel and merged onto whichever
+    // description wins so the subtitle always carries containing-area
+    // context, not just whatever the winning source happened to return.
     final stedsnavnFuture = _stedsnavn.find(coord);
     final vernFuture = _protectedArea.identifyAt(coord);
     final addressFuture = _address?.nearestAddress(coord);
     final elevationFuture = _elevation?.elevationAt(coord);
+    final kommuneFuture = _kommune.lookup(coord);
 
     Future<LocationDescription?> enrich(LocationDescription? d) async {
       if (d == null) return null;
+      var result = d;
       final elev = await elevationFuture;
-      return elev == null ? d : d.copyWith(elevationMeters: elev);
+      if (elev != null) result = result.copyWith(elevationMeters: elev);
+      // Add containing kommune/fylke when the winning description
+      // didn't already carry one (the kommune lookup uses its own
+      // `title`/`secondary` slots when it IS the winner).
+      if (result.kommune == null) {
+        final komm = await kommuneFuture;
+        if (komm != null) {
+          result = result.copyWith(
+            kommune: komm.title,
+            fylke: komm.secondary,
+          );
+        }
+      }
+      return result;
     }
 
     final hit = await stedsnavnFuture;
@@ -83,6 +113,11 @@ class KartverketReverseGeocoder implements ReverseGeocoder {
     final address = await (addressFuture ?? Future.value(null));
     if (address != null) return enrich(address);
 
-    return enrich(await _kommune.lookup(coord));
+    // Kommune-as-winner: bypass enrich's kommune merge by setting
+    // the field on the description itself so enrich() sees it filled.
+    final komm = await kommuneFuture;
+    if (komm == null) return null;
+    final asWinner = komm.copyWith(kommune: komm.title);
+    return enrich(asWinner);
   }
 }

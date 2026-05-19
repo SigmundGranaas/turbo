@@ -244,15 +244,33 @@ class _PlaceInfoHeader extends StatelessWidget {
   }
 
   String _resolveSubtitle(AppLocalizations l10n) {
-    final elev = description?.elevationMeters;
+    final d = description;
+    final elev = d?.elevationMeters;
+    final dist = d?.distanceMeters;
+    final secondary = d?.secondary;
+    final kommuneText = _composeKommune(d);
     final parts = <String>[
-      if (description?.secondary != null &&
-          description!.secondary!.isNotEmpty)
-        description!.secondary!,
+      if (secondary != null && secondary.isNotEmpty) secondary,
+      ?kommuneText,
+      if (dist != null && dist > 30) _formatDistance(dist),
       _formatCoord(point),
       if (elev != null) '${elev.toStringAsFixed(0)} m',
     ];
     return parts.join(' · ');
+  }
+
+  static String? _composeKommune(LocationDescription? d) {
+    if (d == null) return null;
+    final k = d.kommune;
+    final f = d.fylke;
+    if (k == null || k.isEmpty) return null;
+    if (f == null || f.isEmpty) return k;
+    return '$k, $f';
+  }
+
+  static String _formatDistance(double meters) {
+    if (meters < 1000) return '${meters.round()} m';
+    return '${(meters / 1000).toStringAsFixed(1)} km';
   }
 
   static String _formatCoord(LatLng p) {

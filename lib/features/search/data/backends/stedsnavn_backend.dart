@@ -60,13 +60,25 @@ class StedsnavnBackend {
 
   static StedsnavnHit? _pickBest(
       LatLng coord, List<Map<String, dynamic>> items) {
-    StedsnavnHit? best;
+    // Kartverket regularly returns several entries for the same toponym
+    // (e.g. "Galdhøpiggen" classified as both `Fjell` and `Fjelltopp`).
+    // Dedupe on lowercased title BEFORE scoring so the duplicates
+    // collapse to a single, best-typed candidate — the tier ordering
+    // in `categorizeFeature` does the right thing (Fjelltopp beats
+    // Fjell at the same distance because the matched range is tighter).
+    final bestPerTitle = <String, StedsnavnHit>{};
     for (final item in items) {
       final hit = describeFeature(coord, item);
       if (hit == null) continue;
-      if (best == null || hit.score < best.score) {
-        best = hit;
+      final key = hit.description.title.toLowerCase();
+      final prior = bestPerTitle[key];
+      if (prior == null || hit.score < prior.score) {
+        bestPerTitle[key] = hit;
       }
+    }
+    StedsnavnHit? best;
+    for (final hit in bestPerTitle.values) {
+      if (best == null || hit.score < best.score) best = hit;
     }
     return best;
   }
