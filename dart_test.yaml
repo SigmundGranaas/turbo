@@ -1,0 +1,11 @@
+# Live network tests hit real third-party services (Geonorge / Kartverket /
+# MET Norway / Varsom). They are excluded from the default suite because
+# CI, the Claude Code remote-execution environment, and most contributor
+# laptops on restricted networks can't reach those hosts.
+#
+# To verify the real endpoints from a machine with open outbound network:
+#
+#     flutter test --tags=live
+tags:
+  live:
+    skip: "tagged 'live' — run explicitly with `flutter test --tags=live`"

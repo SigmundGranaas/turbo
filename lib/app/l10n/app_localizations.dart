@@ -381,6 +381,49 @@ abstract class AppLocalizations {
   String get weatherPresetHourly;
   String get weatherEmptyDay;
   String get weatherMarineEmpty;
+  String get weatherSunSunrise;
+  String get weatherSunSunset;
+  String get weatherSunDaylight;
+  String get weatherSunMoon;
+  String get weatherSunPolarDay;
+  String get weatherSunPolarNight;
+
+  // Avalanche forecast (Varsom)
+  String get avalancheForecast;
+  String get avalancheAttribution;
+  String get avalancheRegionLabel;
+  String get avalancheDangerLevel1;
+  String get avalancheDangerLevel2;
+  String get avalancheDangerLevel3;
+  String get avalancheDangerLevel4;
+  String get avalancheDangerLevel5;
+  String get avalancheProblemsTitle;
+  String get avalancheLoadError;
+
+  // Trails / Tur- og friluftsruter (split by subtype)
+  String get layerNameTrailsFoot;
+  String get layerDescriptionTrailsFoot;
+  String get layerNameTrailsSki;
+  String get layerDescriptionTrailsSki;
+  String get layerNameTrailsBike;
+  String get layerDescriptionTrailsBike;
+  String get layerNameTrailsOther;
+  String get layerDescriptionTrailsOther;
+  String get trailsAttribution;
+  String get trailDifficultyLabel;
+  String get trailLengthLabel;
+  String get trailRouteNumberLabel;
+  String get trailMarkingLabel;
+  String get trailSearchSource;
+  String get trailDetailEmpty;
+
+  // Weather warnings (MetAlerts overlay)
+  String get layerNameWeatherAlerts;
+  String get layerDescriptionWeatherAlerts;
+
+  // Elevation backfill
+  String get importBackfillingElevation;
+  String get importBackfillElevationFailed;
 }
 
 // English translations
@@ -726,6 +769,45 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get weatherPresetHourly => 'Hourly';
   @override String get weatherEmptyDay => 'No data for this day';
   @override String get weatherMarineEmpty => 'No sea data for this day';
+  @override String get weatherSunSunrise => 'Sunrise';
+  @override String get weatherSunSunset => 'Sunset';
+  @override String get weatherSunDaylight => 'Daylight';
+  @override String get weatherSunMoon => 'Moon';
+  @override String get weatherSunPolarDay => 'Sun never sets';
+  @override String get weatherSunPolarNight => 'Sun never rises';
+
+  @override String get avalancheForecast => 'Avalanche forecast';
+  @override String get avalancheAttribution => 'Avalanche forecast from Varsom (NVE)';
+  @override String get avalancheRegionLabel => 'Region';
+  @override String get avalancheDangerLevel1 => 'Low (1)';
+  @override String get avalancheDangerLevel2 => 'Moderate (2)';
+  @override String get avalancheDangerLevel3 => 'Considerable (3)';
+  @override String get avalancheDangerLevel4 => 'High (4)';
+  @override String get avalancheDangerLevel5 => 'Extreme (5)';
+  @override String get avalancheProblemsTitle => 'Avalanche problems';
+  @override String get avalancheLoadError => "Couldn't load avalanche forecast";
+
+  @override String get layerNameTrailsFoot => 'Hiking trails';
+  @override String get layerDescriptionTrailsFoot => 'Marked footpaths (Nasjonal turbase fotrute)';
+  @override String get layerNameTrailsSki => 'Ski tracks';
+  @override String get layerDescriptionTrailsSki => 'Prepared ski tracks (Nasjonal turbase skiløype)';
+  @override String get layerNameTrailsBike => 'Bike routes';
+  @override String get layerDescriptionTrailsBike => 'Designated bike routes (Nasjonal turbase sykkelrute)';
+  @override String get layerNameTrailsOther => 'Other routes';
+  @override String get layerDescriptionTrailsOther => 'Horse, paddling and other routes (Nasjonal turbase)';
+  @override String get trailsAttribution => 'Trails © Kartverket / DNT — Nasjonal turbase';
+  @override String get trailDifficultyLabel => 'Difficulty';
+  @override String get trailLengthLabel => 'Length';
+  @override String get trailRouteNumberLabel => 'Route number';
+  @override String get trailMarkingLabel => 'Marking';
+  @override String get trailSearchSource => 'Trail';
+  @override String get trailDetailEmpty => 'No additional details available for this trail.';
+
+  @override String get layerNameWeatherAlerts => 'Weather warnings';
+  @override String get layerDescriptionWeatherAlerts => 'Active MET Norway severe-weather warnings';
+
+  @override String get importBackfillingElevation => 'Fetching elevation from Kartverket…';
+  @override String get importBackfillElevationFailed => 'Elevation lookup failed; profile may be incomplete.';
 }
 
 // Norwegian translations
@@ -1068,6 +1150,45 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get weatherPresetHourly => 'Time for time';
   @override String get weatherEmptyDay => 'Ingen data for denne dagen';
   @override String get weatherMarineEmpty => 'Ingen sjødata for denne dagen';
+  @override String get weatherSunSunrise => 'Soloppgang';
+  @override String get weatherSunSunset => 'Solnedgang';
+  @override String get weatherSunDaylight => 'Dagslys';
+  @override String get weatherSunMoon => 'Måne';
+  @override String get weatherSunPolarDay => 'Sola går ikke ned';
+  @override String get weatherSunPolarNight => 'Sola står ikke opp';
+
+  @override String get avalancheForecast => 'Snøskredvarsel';
+  @override String get avalancheAttribution => 'Snøskredvarsel fra Varsom (NVE)';
+  @override String get avalancheRegionLabel => 'Region';
+  @override String get avalancheDangerLevel1 => 'Liten (1)';
+  @override String get avalancheDangerLevel2 => 'Moderat (2)';
+  @override String get avalancheDangerLevel3 => 'Betydelig (3)';
+  @override String get avalancheDangerLevel4 => 'Stor (4)';
+  @override String get avalancheDangerLevel5 => 'Meget stor (5)';
+  @override String get avalancheProblemsTitle => 'Skredproblemer';
+  @override String get avalancheLoadError => 'Kunne ikke laste snøskredvarsel';
+
+  @override String get layerNameTrailsFoot => 'Turstier';
+  @override String get layerDescriptionTrailsFoot => 'Merkede turstier (Nasjonal turbase fotrute)';
+  @override String get layerNameTrailsSki => 'Skiløyper';
+  @override String get layerDescriptionTrailsSki => 'Preparerte skiløyper (Nasjonal turbase skiløype)';
+  @override String get layerNameTrailsBike => 'Sykkelruter';
+  @override String get layerDescriptionTrailsBike => 'Anbefalte sykkelruter (Nasjonal turbase sykkelrute)';
+  @override String get layerNameTrailsOther => 'Andre ruter';
+  @override String get layerDescriptionTrailsOther => 'Riding, padling og andre ruter (Nasjonal turbase)';
+  @override String get trailsAttribution => 'Turdata © Kartverket / DNT — Nasjonal turbase';
+  @override String get trailDifficultyLabel => 'Vanskelighet';
+  @override String get trailLengthLabel => 'Lengde';
+  @override String get trailRouteNumberLabel => 'Rutenummer';
+  @override String get trailMarkingLabel => 'Merking';
+  @override String get trailSearchSource => 'Tur';
+  @override String get trailDetailEmpty => 'Ingen ytterligere detaljer for denne ruten.';
+
+  @override String get layerNameWeatherAlerts => 'Værvarsler';
+  @override String get layerDescriptionWeatherAlerts => 'Aktive farevarsler fra Meteorologisk institutt';
+
+  @override String get importBackfillingElevation => 'Henter høydedata fra Kartverket…';
+  @override String get importBackfillElevationFailed => 'Høydedata kunne ikke hentes; profilen kan være ufullstendig.';
 }
 
 // The delegate

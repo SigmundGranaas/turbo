@@ -32,7 +32,17 @@ class WeatherSummaryRow extends ConsumerWidget {
       data: (f) {
         final now = f.currentAtmospheric;
         if (now == null) return const SizedBox.shrink();
-        return _DataRow(marker: marker, point: now);
+        final alert = f.topAlert;
+        final row = _DataRow(marker: marker, point: now);
+        if (alert == null) return row;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MetAlertBanner(alert: alert),
+            const SizedBox(height: 8),
+            row,
+          ],
+        );
       },
     );
   }

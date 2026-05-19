@@ -4,21 +4,29 @@ import 'dart:developer' as developer;
 import 'package:latlong2/latlong.dart';
 
 import '../models/weather_forecast.dart';
+import 'metalerts_service.dart';
 import 'yr_atmospheric_service.dart';
 import 'yr_ocean_service.dart';
+import 'yr_sunrise_service.dart';
 
-/// Combines the MET atmospheric + ocean endpoints into a single
-/// [WeatherForecast].
+/// Combines the MET atmospheric + ocean + sunrise + alerts endpoints into a
+/// single [WeatherForecast].
 ///
-/// Both endpoints are always tried in parallel. Atmospheric failures bubble
-/// up (we have no useful UI without it). Marine failures are swallowed and
-/// translate to an empty marine list — the marker is simply inland or out of
-/// MET's marine coverage, which is the common case.
+/// Atmospheric is the only required side — failures bubble up because the UI
+/// has nothing useful to show without it. Marine, sun, moon, and alert
+/// failures are swallowed and degrade silently.
 class WeatherFetcher {
   final YrAtmosphericService atmospheric;
   final YrOceanService ocean;
+  final YrSunriseService sunrise;
+  final MetAlertsService alerts;
 
-  WeatherFetcher({required this.atmospheric, required this.ocean});
+  WeatherFetcher({
+    required this.atmospheric,
+    required this.ocean,
+    required this.sunrise,
+    required this.alerts,
+  });
 
   Future<WeatherForecast> fetch(
     LatLng position, {
@@ -36,9 +44,13 @@ class WeatherFetcher {
             ),
     );
     final marineFuture = _safeMarineFetch(position, previous);
+    final sunFuture = _safeSunFetch(position);
+    final alertsFuture = _safeAlertsFetch(position);
 
     final atmResult = await atmFuture;
     final marineResult = await marineFuture;
+    final sunResult = await sunFuture;
+    final alertsResult = await alertsFuture;
 
     return WeatherForecast(
       position: position,
@@ -49,6 +61,9 @@ class WeatherFetcher {
       marineLastModified: marineResult?.lastModified,
       atmospheric: atmResult.points,
       marine: marineResult?.points ?? const [],
+      sun: sunResult?.sun ?? const {},
+      moon: sunResult?.moon ?? const {},
+      alerts: alertsResult?.alerts ?? const [],
     );
   }
 
@@ -70,6 +85,34 @@ class WeatherFetcher {
     } catch (e, st) {
       developer.log(
         'Marine fetch failed; hiding marine rows',
+        name: 'WeatherFetcher',
+        error: e,
+        stackTrace: st,
+      );
+      return null;
+    }
+  }
+
+  Future<SunriseForecastResult?> _safeSunFetch(LatLng position) async {
+    try {
+      return await sunrise.fetch(position);
+    } catch (e, st) {
+      developer.log(
+        'Sunrise fetch failed; hiding sun strip',
+        name: 'WeatherFetcher',
+        error: e,
+        stackTrace: st,
+      );
+      return null;
+    }
+  }
+
+  Future<MetAlertsResult?> _safeAlertsFetch(LatLng position) async {
+    try {
+      return await alerts.currentAtPoint(position);
+    } catch (e, st) {
+      developer.log(
+        'MetAlerts fetch failed; hiding alert banner',
         name: 'WeatherFetcher',
         error: e,
         stackTrace: st,

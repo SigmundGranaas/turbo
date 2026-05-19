@@ -5,6 +5,7 @@ import 'custom_provider_store.dart';
 import 'layer_preference_service.dart';
 import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/google_sattelite.dart';
+import 'package:turbo/features/tile_providers/data/providers/nasjonal_turbase_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/norges_kart_topo.dart';
 import 'package:turbo/features/tile_providers/data/providers/offline_region_provider_config.dart';
 import 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart';
@@ -27,6 +28,10 @@ class TileRegistry extends Notifier<TileRegistryState> {
       OsmConfig(),
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),
+      TrailsFootOverlayConfig(),
+      TrailsSkiOverlayConfig(),
+      TrailsBikeOverlayConfig(),
+      TrailsOtherOverlayConfig(),
     ];
     final initialProviders = <String, TileProviderConfig>{
       for (var p in builtInProviders) p.id: p,

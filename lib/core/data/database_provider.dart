@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 8;
+const int _dbVersion = 9;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -18,6 +18,7 @@ const String savedPathsTable = 'saved_paths';
 const String collectionsTable = 'collections';
 const String collectionItemsTable = 'collection_items';
 const String markerPhotosTable = 'marker_photos';
+const String vectorTileCacheTable = 'vector_tile_cache';
 
 
 /// A provider that creates and holds the single instance of the app's database.
@@ -185,6 +186,22 @@ Future<void> _createDb(Database db, int version) async {
   batch.execute(
       'CREATE INDEX idx_marker_photos_marker ON $markerPhotosTable(marker_uuid)');
 
+  // Vector tile cache (v9) — backing store for the external_vector_layers
+  // feature. One row per (source, z, x, y) viewport tile.
+  batch.execute('''
+    CREATE TABLE $vectorTileCacheTable(
+      source TEXT NOT NULL,
+      z INTEGER NOT NULL,
+      x INTEGER NOT NULL,
+      y INTEGER NOT NULL,
+      geojson TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (source, z, x, y)
+    )
+  ''');
+  batch.execute(
+      'CREATE INDEX idx_vector_tile_fetched ON $vectorTileCacheTable(fetched_at)');
+
   await batch.commit(noResult: true);
 }
 
@@ -205,8 +222,26 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV6ToV7(db);
       case 8:
         await _migrateV7ToV8(db);
+      case 9:
+        await _migrateV8ToV9(db);
     }
   }
+}
+
+Future<void> _migrateV8ToV9(Database db) async {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $vectorTileCacheTable(
+      source TEXT NOT NULL,
+      z INTEGER NOT NULL,
+      x INTEGER NOT NULL,
+      y INTEGER NOT NULL,
+      geojson TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (source, z, x, y)
+    )
+  ''');
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_vector_tile_fetched ON $vectorTileCacheTable(fetched_at)');
 }
 
 Future<void> _migrateV7ToV8(Database db) async {
