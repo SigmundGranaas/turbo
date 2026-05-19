@@ -640,6 +640,138 @@ void main() {
           reason: 'second describe() must reuse the cached layer scope');
     });
 
+    test('Vern title skips the Naturbase area code when value is "VV…" and '
+        'falls through to attributes.navn (regression: pin showed '
+        '"In VV00002858" instead of the park name)', () async {
+      const tap = LatLng(67.39548, 15.13003);
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no' &&
+            req.url.path.endsWith('/identify')) {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {
+                  'layerName': 'Verneområder',
+                  // Some Vern sub-layers configure displayFieldName as
+                  // `områdenr`, so the identify "value" arrives as a
+                  // Naturbase code. The real name lives in attributes.
+                  'value': 'VV00002858',
+                  'attributes': {
+                    'områdenr': 'VV00002858',
+                    'navn': 'Saltfjellet–Svartisen nasjonalpark',
+                    'verneform': 'Nasjonalpark',
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final d = await _geocoder(client).describe(tap);
+      expect(d!.title, 'Saltfjellet–Svartisen nasjonalpark');
+      expect(d.title, isNot(matches(r'^[A-Z]{1,5}\d+$')),
+          reason: 'titles must never be raw Naturbase codes');
+    });
+
+    test('Vern returns null when no attribute carries a usable name and '
+        'the displayFieldName value is just a code', () async {
+      const tap = LatLng(67.0, 15.0);
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no' &&
+            req.url.path.endsWith('/identify')) {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {
+                  'layerName': 'Verneområder',
+                  'value': 'VV00009999',
+                  'attributes': {
+                    'områdenr': 'VV00009999',
+                    'verneform': 'Naturreservat',
+                    // No `navn` / `områdenavn` field — the only readable
+                    // candidate is the code, which we reject.
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final d = await _geocoder(client).describe(tap);
+      // No park name available → orchestrator falls through to kommune
+      // (which the mock client doesn't supply here), so describe()
+      // returns null rather than "VV00009999".
+      expect(d, isNull);
+    });
+
+    test('a town centroid 1.2 km away still wins over a containing national '
+        'park (in-settlement range covers edge-of-town pins)', () async {
+      // Pin sits 1.2 km from the town centroid — well inside the
+      // populated extent of a Tettsted, but outside the previous 800 m
+      // tight cap. Without the widened range the pin would have read
+      // "In Saltfjellet–Svartisen nasjonalpark".
+      const town = LatLng(67.2828, 14.4050);
+      final tap = LatLng(town.latitude + 0.011, town.longitude); // ~1.22 km N
+      final client = MockClient((req) async {
+        if (req.url.host == 'kart.miljodirektoratet.no' &&
+            req.url.path.endsWith('/identify')) {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {
+                  'layerName': 'Verneområder',
+                  'value': 'Saltfjellet–Svartisen nasjonalpark',
+                  'attributes': {
+                    'navn': 'Saltfjellet–Svartisen nasjonalpark',
+                    'verneform': 'Nasjonalpark',
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (req.url.host == 'ws.geonorge.no' &&
+            req.url.path.endsWith('/stedsnavn/v1/punkt')) {
+          return http.Response(
+            jsonEncode({
+              'navn': [
+                {
+                  'skrivemåte': 'Bodø',
+                  'navneobjekttype': 'Tettsted',
+                  'representasjonspunkt': {
+                    'nord': town.latitude,
+                    'øst': town.longitude,
+                  },
+                  'kommuner': const [],
+                  'fylker': const [],
+                  'stedsnummer': 1,
+                  'stedstatus': 'aktiv',
+                  'språk': 'nor',
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(jsonEncode({'navn': []}), 200,
+            headers: {'content-type': 'application/json; charset=utf-8'});
+      });
+      final d = await _geocoder(client).describe(tap);
+      expect(d!.title, 'Bodø');
+      expect(d.qualifier, LocationQualifier.inArea);
+    });
+
     test('Vern result prefers attributes[verneform] over layerName for the '
         'protection-class label', () async {
       const tap = LatLng(66.6500, 14.3500);

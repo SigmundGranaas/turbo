@@ -176,29 +176,44 @@ class ProtectedAreaBackend {
   /// ArcGIS identify returns the display value either in `value` or
   /// `attributes[displayFieldName]`. Naturbase commonly uses
   /// "navn" / "Navn" / "områdenavn" / "OMRÅDENAVN".
+  ///
+  /// For some Vern sub-layers `displayFieldName` is set to the **area
+  /// code** field (`områdenr` → "VV00002858"), so `value` arrives as
+  /// the code, not a human name. We probe the attribute name keys
+  /// first, then fall through to `value` only if no named attribute
+  /// carried a real string. As a final guard, code-shaped strings are
+  /// rejected outright so a misconfigured response can't surface
+  /// "In VV00002858" in the pin header.
   static String? _readName(Map<String, dynamic> result) {
-    final value = result['value'];
-    if (value is String && value.trim().isNotEmpty && value != 'Null') {
-      return value.trim();
-    }
     final attrs = result['attributes'] as Map<String, dynamic>?;
-    if (attrs == null) return null;
-    for (final key in const [
-      'navn',
-      'Navn',
-      'NAVN',
-      'områdenavn',
-      'OMRÅDENAVN',
-      'omradenavn',
-      'NAME',
-    ]) {
-      final v = attrs[key];
-      if (v is String && v.trim().isNotEmpty && v != 'Null') {
-        return v.trim();
-      }
+    final candidates = <Object?>[
+      if (attrs != null) ...[
+        attrs['navn'],
+        attrs['Navn'],
+        attrs['NAVN'],
+        attrs['områdenavn'],
+        attrs['OMRÅDENAVN'],
+        attrs['omradenavn'],
+        attrs['Name'],
+        attrs['NAME'],
+      ],
+      result['value'],
+    ];
+    for (final raw in candidates) {
+      if (raw is! String) continue;
+      final s = raw.trim();
+      if (s.isEmpty || s == 'Null') continue;
+      if (_looksLikeNaturbaseCode(s)) continue;
+      return s;
     }
     return null;
   }
+
+  /// Identifies Naturbase area codes like `VV00002858`, `NR1234`, or
+  /// `LVO00567` — uppercase prefix + digits, no spaces. These belong
+  /// in metadata, never in the pin title.
+  static bool _looksLikeNaturbaseCode(String s) =>
+      RegExp(r'^[A-Z]{1,5}\d{3,}$').hasMatch(s);
 
   /// `verneform` is Naturbase's canonical protection-class label
   /// ("Nasjonalpark", "Naturreservat", "Landskapsvernområde", …).

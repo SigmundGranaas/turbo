@@ -179,9 +179,14 @@ String? _readFromStedsnavnArray(Object? raw) {
     return (LocationMatchTier.exactContact, LocationQualifier.atPlace);
   }
 
-  // Class 1 — IN a settlement. Tightened from 1.5 km → 800 m: a town
-  // centroid that's 1.5 km off is not where the pin actually sits.
-  if (settlementKinds.contains(kind) && meters <= 800) {
+  // Class 1 — IN a settlement. A Tettsted's representation point is
+  // its centroid; the populated area extends well past that, so a
+  // 1500 m radius keeps "edge-of-town" pins reading as the town name
+  // rather than getting overridden by a containing national park
+  // (Vern) or a far peak. Smaller settlements (Bygd / Grend) are
+  // genuinely point-shaped, but they're also rare enough that the
+  // false positives don't accumulate.
+  if (settlementKinds.contains(kind) && meters <= 1500) {
     return (LocationMatchTier.inSettlement, LocationQualifier.inArea);
   }
 
@@ -193,7 +198,7 @@ String? _readFromStedsnavnArray(Object? raw) {
   // Class 4 — wider periphery. Each cap tightened roughly 2× from the
   // previous values; the qualifier word ("close to" / "near") is
   // dropped in the UI anyway, so showing them at 5 km was misleading.
-  if (settlementKinds.contains(kind) && meters <= 2000) {
+  if (settlementKinds.contains(kind) && meters <= 4000) {
     return (LocationMatchTier.periphery, LocationQualifier.near);
   }
   if (builtKinds.contains(kind) && meters <= 200) {
