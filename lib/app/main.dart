@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/app.dart';
 import 'package:turbo/core/data/database_provider.dart';
 import 'package:turbo/core/service/logger.dart';
+import 'package:turbo/features/activities/api.dart' as activities;
+import 'package:turbo/features/activity_fishing/api.dart' as activity_fishing;
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/sharing/api.dart';
@@ -17,7 +19,18 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   setupLogging();
 
-  final container = ProviderContainer();
+  // Compose the activity kind registry from each kind feature's descriptor.
+  // Adding a kind = add its descriptor here and ship its feature module.
+  // The shell never imports a specific kind feature beyond this list.
+  final activityKinds = activities.ActivityKindRegistry([
+    activity_fishing.fishingActivityKindDescriptor,
+  ]);
+
+  final container = ProviderContainer(
+    overrides: [
+      activities.activityKindRegistryProvider.overrideWithValue(activityKinds),
+    ],
+  );
   unawaited(_kickOffBackgroundInit(container));
   // Parse any share URL embedded in the initial location (web cold-start
   // or platform deep-link). Has to happen before the first frame so the
