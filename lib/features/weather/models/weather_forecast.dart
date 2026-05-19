@@ -1,5 +1,7 @@
 import 'package:latlong2/latlong.dart';
 
+import 'met_alert.dart';
+import 'sun_event.dart';
 import 'weather_symbol.dart';
 
 /// One point in MET's atmospheric `locationforecast/2.0` timeseries.
@@ -135,6 +137,17 @@ class WeatherForecast {
   final List<AtmosphericPoint> atmospheric;
   final List<MarinePoint> marine;
 
+  /// Sun events keyed by local date (midnight). Empty when the Sunrise 3
+  /// fetch failed or is still pending — the UI hides the sun strip in that
+  /// case.
+  final Map<DateTime, SunEvent> sun;
+
+  /// Moon events keyed by local date. Optional, may be empty.
+  final Map<DateTime, MoonEvent> moon;
+
+  /// Active MetAlerts that intersect [position]. Empty when none.
+  final List<MetAlert> alerts;
+
   const WeatherForecast({
     required this.position,
     required this.fetchedAt,
@@ -144,9 +157,23 @@ class WeatherForecast {
     required this.marineLastModified,
     required this.atmospheric,
     required this.marine,
+    this.sun = const {},
+    this.moon = const {},
+    this.alerts = const [],
   });
 
   bool get hasMarineData => marine.isNotEmpty;
+  bool get hasSunData => sun.isNotEmpty;
+  bool get hasActiveAlerts => alerts.isNotEmpty;
+
+  /// The highest-severity active alert, or null if none. Used by the
+  /// summary-row banner where only one alert fits.
+  MetAlert? get topAlert {
+    if (alerts.isEmpty) return null;
+    return alerts.reduce(
+      (a, b) => a.level.index >= b.level.index ? a : b,
+    );
+  }
 
   /// True when every fetched side's `Expires` lies after [now]. A marine side
   /// that was never fetched (`marineExpiresAt == null`) doesn't gate freshness.
@@ -215,6 +242,9 @@ class WeatherForecast {
     String? marineLastModified,
     List<AtmosphericPoint>? atmospheric,
     List<MarinePoint>? marine,
+    Map<DateTime, SunEvent>? sun,
+    Map<DateTime, MoonEvent>? moon,
+    List<MetAlert>? alerts,
   }) {
     return WeatherForecast(
       position: position ?? this.position,
@@ -227,6 +257,9 @@ class WeatherForecast {
       marineLastModified: marineLastModified ?? this.marineLastModified,
       atmospheric: atmospheric ?? this.atmospheric,
       marine: marine ?? this.marine,
+      sun: sun ?? this.sun,
+      moon: moon ?? this.moon,
+      alerts: alerts ?? this.alerts,
     );
   }
 }

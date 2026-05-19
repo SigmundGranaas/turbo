@@ -26,5 +26,7 @@ export 'data/backends/protected_area_backend.dart' show ProtectedAreaBackend;
 export 'data/backends/kommune_backend.dart' show KommuneBackend;
 export 'data/backends/address_backend.dart' show AddressBackend;
 export 'data/backends/elevation_backend.dart' show ElevationBackend;
+export 'data/trail_search_service.dart'
+    show TrailSearchService, trailSearchServiceProvider;
 export 'widgets/search_bar_mobile.dart' show MobileSearchBar;
 export 'widgets/search_bar_desktop.dart' show DesktopSearchBar;

@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_selection_pill.dart';
+import 'package:turbo/features/avalanche_forecast/api.dart'
+    show AvalancheWarningBadge;
 import 'package:turbo/features/markers/api.dart' show Marker;
 
 import '../api.dart';
@@ -155,8 +157,32 @@ class _EmbeddedWeatherBodyState extends ConsumerState<EmbeddedWeatherBody>
     final presets = _availablePresets(f, tide);
     final clampedPreset = _presetIndex.clamp(0, presets.length - 1);
 
+    final selectedDay = daily[clampedDay].date;
+    final sunForDay = f.sun[DateTime(
+      selectedDay.year,
+      selectedDay.month,
+      selectedDay.day,
+    )];
+    final moonForDay = f.moon[DateTime(
+      selectedDay.year,
+      selectedDay.month,
+      selectedDay.day,
+    )];
+
     return Column(
       children: [
+        if (f.hasActiveAlerts)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            child: MetAlertBanner(alert: f.topAlert!),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: AvalancheWarningBadge(position: widget.position),
+        ),
+        if (sunForDay != null)
+          _SunRow(sun: sunForDay, moon: moonForDay),
+        const SizedBox(height: 4),
         _DayStrip(
           days: daily,
           selectedIndex: clampedDay,
@@ -675,6 +701,106 @@ class _OceanRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Inline sun / moon summary for the selected day. One row, no pills — just
+/// icons with their time/value, matching the visual rhythm of the marker
+/// info sheet's other detail rows.
+class _SunRow extends StatelessWidget {
+  final SunEvent sun;
+  final MoonEvent? moon;
+  const _SunRow({required this.sun, this.moon});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    final segments = <_SunSegment>[];
+    if (sun.polarDay) {
+      segments.add(_SunSegment(
+        icon: Icons.wb_sunny_outlined,
+        text: l10n.weatherSunPolarDay,
+      ));
+    } else if (sun.polarNight) {
+      segments.add(_SunSegment(
+        icon: Icons.nightlight_outlined,
+        text: l10n.weatherSunPolarNight,
+      ));
+    } else {
+      if (sun.sunrise != null) {
+        segments.add(_SunSegment(
+          icon: Icons.wb_twilight,
+          text: _hourMinute(sun.sunrise!),
+        ));
+      }
+      if (sun.sunset != null) {
+        segments.add(_SunSegment(
+          icon: Icons.bedtime_outlined,
+          text: _hourMinute(sun.sunset!),
+        ));
+      }
+      final daylight = sun.daylight;
+      if (daylight != null) {
+        segments.add(_SunSegment(
+          icon: Icons.timelapse,
+          text: _formatDuration(daylight),
+        ));
+      }
+    }
+    final m = moon;
+    if (m != null && m.illumination != null) {
+      segments.add(_SunSegment(
+        icon: Icons.brightness_2_outlined,
+        text: '${(m.illumination! * 100).round()}%',
+      ));
+    }
+    if (segments.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      key: const Key('weather-detail-sun-row'),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+      child: DefaultTextStyle.merge(
+        style: tt.bodyMedium!.copyWith(color: scheme.onSurface),
+        child: Wrap(
+          spacing: 18,
+          runSpacing: 4,
+          children: [
+            for (final seg in segments)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(seg.icon,
+                      size: 18, color: scheme.onSurfaceVariant),
+                  const SizedBox(width: 6),
+                  Text(seg.text),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _hourMinute(DateTime t) {
+    final local = t.toLocal();
+    final h = local.hour.toString().padLeft(2, '0');
+    final m = local.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  static String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    return '${h}h ${m.toString().padLeft(2, '0')}m';
+  }
+}
+
+class _SunSegment {
+  final IconData icon;
+  final String text;
+  const _SunSegment({required this.icon, required this.text});
 }
 
 class _AttributionFooter extends StatelessWidget {
