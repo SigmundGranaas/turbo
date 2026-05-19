@@ -17,6 +17,7 @@ import '../location_service.dart';
 class KommuneBackend {
   static const String _host = 'ws.geonorge.no';
   static const String _path = '/kommuneinfo/v1/punkt';
+  static const Duration _timeout = Duration(seconds: 8);
 
   final http.Client _client;
 
@@ -32,7 +33,7 @@ class KommuneBackend {
       final response = await _client.get(uri, headers: const {
         'Accept': 'application/json',
         'User-Agent': kTurboUserAgent,
-      });
+      }).timeout(_timeout);
       if (response.statusCode != 200) return null;
       final json = jsonDecode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;

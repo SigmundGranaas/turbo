@@ -19,6 +19,7 @@ import '../location_service.dart';
 class ProtectedAreaBackend {
   static const String _host = 'kart.miljodirektoratet.no';
   static const String _path = '/arcgis/rest/services/vern/MapServer/identify';
+  static const Duration _timeout = Duration(seconds: 8);
 
   final http.Client _client;
 
@@ -57,7 +58,7 @@ class ProtectedAreaBackend {
       final response = await _client.get(uri, headers: const {
         'Accept': 'application/json',
         'User-Agent': kTurboUserAgent,
-      });
+      }).timeout(_timeout);
       if (response.statusCode != 200) return null;
       final json = jsonDecode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;

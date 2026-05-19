@@ -15,6 +15,7 @@ class KartverketTideService {
   static const String _host = 'vannstand.kartverket.no';
   static const String _path = '/tideapi.php';
   static const Duration _cacheTtl = Duration(hours: 6);
+  static const Duration _timeout = Duration(seconds: 8);
 
   final http.Client _client;
 
@@ -40,13 +41,18 @@ class KartverketTideService {
       'tide_request': 'locationdata',
     });
 
-    final response = await _client.get(
-      uri,
-      headers: const {
-        'User-Agent': kTurboUserAgent,
-        'Accept': 'application/xml,text/xml',
-      },
-    );
+    final http.Response response;
+    try {
+      response = await _client.get(
+        uri,
+        headers: const {
+          'User-Agent': kTurboUserAgent,
+          'Accept': 'application/xml,text/xml',
+        },
+      ).timeout(_timeout);
+    } catch (_) {
+      return null;
+    }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       return null;
@@ -112,10 +118,32 @@ class KartverketTideService {
     return location?.getAttribute('name');
   }
 
-  /// Kartverket wants `yyyy-MM-ddTHH:mm` without seconds or zone.
+  /// Kartverket wants `yyyy-MM-ddTHH:mm` without seconds or zone, interpreted
+  /// in **Norwegian local time** — not the user's device timezone. A traveller
+  /// on a PST device asking for "now" would otherwise request a window 9 h
+  /// behind Norway and get the wrong extrema (or none).
   static String _formatApiTime(DateTime t) {
-    final l = t.toLocal();
+    final oslo = _toOsloLocal(t.toUtc());
     String p(int n) => n.toString().padLeft(2, '0');
-    return '${l.year}-${p(l.month)}-${p(l.day)}T${p(l.hour)}:${p(l.minute)}';
+    return '${oslo.year}-${p(oslo.month)}-${p(oslo.day)}'
+        'T${p(oslo.hour)}:${p(oslo.minute)}';
+  }
+
+  /// Shifts [utc] into Norwegian wall-clock time. Norway is CET (UTC+1) and
+  /// CEST (UTC+2) from the last Sunday of March at 01:00 UTC to the last
+  /// Sunday of October at 01:00 UTC. Implemented inline to avoid pulling in
+  /// the `timezone` package for one use site.
+  static DateTime _toOsloLocal(DateTime utc) {
+    final dstStart = _lastSundayOf(utc.year, 3).add(const Duration(hours: 1));
+    final dstEnd = _lastSundayOf(utc.year, 10).add(const Duration(hours: 1));
+    final isDst = utc.isAfter(dstStart) && utc.isBefore(dstEnd);
+    return utc.add(Duration(hours: isDst ? 2 : 1));
+  }
+
+  static DateTime _lastSundayOf(int year, int month) {
+    // Day 0 of the next month is the last day of [month].
+    final lastDay = DateTime.utc(year, month + 1, 0);
+    // weekday: Monday=1..Sunday=7 → days back to the previous Sunday.
+    return lastDay.subtract(Duration(days: lastDay.weekday % 7));
   }
 }

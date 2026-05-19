@@ -70,5 +70,50 @@ void main() {
       final result = await service.fetch(const LatLng(0, 0));
       expect(result, isNull);
     });
+
+    test('fromtime/totime are formatted in Europe/Oslo, not the device tz',
+        () async {
+      // The sehavniva endpoint interprets unzoned timestamps as Norwegian
+      // local time. A device in a non-Norway timezone must still produce a
+      // Norway-time window. We assert the URL's fromtime matches what
+      // Europe/Oslo should be for `now - 6h`, within a generous tolerance to
+      // account for time elapsed during the call.
+      Uri? captured;
+      final client = MockClient((req) async {
+        captured = req.url;
+        return http.Response(
+          '<?xml version="1.0"?><tide><locationdata/></tide>',
+          200,
+        );
+      });
+      await KartverketTideService(client: client)
+          .fetch(const LatLng(60.4, 5.32));
+
+      final fromtime = captured!.queryParameters['fromtime']!;
+      final sent = DateTime.parse(fromtime); // unzoned → local DateTime
+      // What Oslo wall-clock time _should_ be for (UTC now − 6h):
+      final utc = DateTime.now().toUtc().subtract(const Duration(hours: 6));
+      // Manual Oslo offset (DST: last Sunday of March 01:00 UTC ↔ last
+      // Sunday of October 01:00 UTC). Matches the service implementation.
+      DateTime lastSun(int y, int m) {
+        final lastDay = DateTime.utc(y, m + 1, 0);
+        return lastDay.subtract(Duration(days: lastDay.weekday % 7));
+      }
+      final dstStart = lastSun(utc.year, 3).add(const Duration(hours: 1));
+      final dstEnd = lastSun(utc.year, 10).add(const Duration(hours: 1));
+      final isDst = utc.isAfter(dstStart) && utc.isBefore(dstEnd);
+      final expectedOslo = utc.add(Duration(hours: isDst ? 2 : 1));
+
+      final expectedNaive = DateTime(
+        expectedOslo.year,
+        expectedOslo.month,
+        expectedOslo.day,
+        expectedOslo.hour,
+        expectedOslo.minute,
+      );
+      // ±2 minutes catches elapsed wall-time in the test without permitting
+      // a full hour of timezone drift.
+      expect(sent.difference(expectedNaive).inMinutes.abs(), lessThan(2));
+    });
   });
 }

@@ -15,6 +15,7 @@ import 'stedsnavn_descriptors.dart';
 /// `backends/`.
 class KartverketLocationService extends LocationService {
   static const String _baseUrl = 'https://ws.geonorge.no/stedsnavn/v1/navn';
+  static const Duration _timeout = Duration(seconds: 8);
 
   final http.Client _client;
 
@@ -33,7 +34,7 @@ class KartverketLocationService extends LocationService {
       final response = await _client.get(uri, headers: const {
         'Accept': 'application/json',
         'User-Agent': kTurboUserAgent,
-      });
+      }).timeout(_timeout);
       if (response.statusCode != 200) return [];
       final decoded = utf8.decode(response.bodyBytes);
       final json = jsonDecode(decoded) as Map<String, dynamic>;
