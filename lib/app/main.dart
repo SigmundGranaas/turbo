@@ -8,6 +8,8 @@ import 'package:turbo/app/app.dart';
 import 'package:turbo/core/data/database_provider.dart';
 import 'package:turbo/core/service/logger.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
+import 'package:turbo/features/activity_backcountry_ski/api.dart'
+    as activity_backcountry_ski;
 import 'package:turbo/features/activity_fishing/api.dart' as activity_fishing;
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/markers/api.dart';
@@ -24,6 +26,7 @@ void main() {
   // The shell never imports a specific kind feature beyond this list.
   final activityKinds = activities.ActivityKindRegistry([
     activity_fishing.fishingActivityKindDescriptor,
+    activity_backcountry_ski.backcountrySkiActivityKindDescriptor,
   ]);
 
   final container = ProviderContainer(
