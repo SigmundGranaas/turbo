@@ -51,36 +51,60 @@ class StedsnavnHit {
 }
 
 /// Returns a usable place name from a Kartverket `navn[]` item, or
-/// `null` when the entry is anonymous / mislabelled. Tolerates the
-/// field being missing, empty, whitespace, non-string, or the literal
-/// strings "Unknown" / "Ukjent" (Kartverket has been seen returning
-/// the latter for some unnamed terrain features).
+/// `null` when the entry is anonymous / mislabelled.
+///
+/// Handles both response shapes this codebase consumes:
+///   - `/stedsnavn/v1/navn` (forward search): `skrivemåte` is a top-level
+///     string on `navn[i]`.
+///   - `/stedsnavn/v1/punkt` (reverse geocode): `skrivemåte` is a string
+///     under `navn[i].stedsnavn[0]`. With `navnestatus=hovednavn` the
+///     first entry is already the primary spelling, but the helper falls
+///     back gracefully if a different shape sneaks through.
+///
+/// Tolerates the field being missing, empty, whitespace, non-string, or
+/// the literal strings "Unknown" / "Ukjent" (Kartverket has been seen
+/// returning the latter for some unnamed terrain features).
 String? readPlaceName(Map<String, dynamic> item) {
-  final raw = item['skrivemåte'];
-  String? candidate;
-  if (raw is String) {
-    candidate = raw.trim();
-  } else if (raw is List && raw.isNotEmpty) {
-    // Future-proof: some Kartverket endpoints expose `skrivemåte` as a
-    // list of language variants. Take the first non-empty entry.
-    for (final v in raw) {
-      if (v is String && v.trim().isNotEmpty) {
-        candidate = v.trim();
-        break;
-      }
-      if (v is Map && v['skrivemåte'] is String) {
-        final s = (v['skrivemåte'] as String).trim();
-        if (s.isNotEmpty) {
-          candidate = s;
-          break;
-        }
-      }
-    }
-  }
+  final candidate = _readSkrivemaate(item['skrivemåte']) ??
+      _readFromStedsnavnArray(item['stedsnavn']);
   if (candidate == null || candidate.isEmpty) return null;
   final lc = candidate.toLowerCase();
   if (lc == 'unknown' || lc == 'ukjent') return null;
   return candidate;
+}
+
+String? _readSkrivemaate(Object? raw) {
+  if (raw is String) {
+    final t = raw.trim();
+    return t.isEmpty ? null : t;
+  }
+  if (raw is List && raw.isNotEmpty) {
+    // Some endpoints expose `skrivemåte` as a list of language variants.
+    for (final v in raw) {
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+      if (v is Map && v['skrivemåte'] is String) {
+        final s = (v['skrivemåte'] as String).trim();
+        if (s.isNotEmpty) return s;
+      }
+    }
+  }
+  return null;
+}
+
+String? _readFromStedsnavnArray(Object? raw) {
+  if (raw is! List || raw.isEmpty) return null;
+  // Prefer the `hovednavn` entry; fall back to any with a usable
+  // skrivemåte. /punkt called with `navnestatus=hovednavn` already
+  // filters non-primary spellings out, so this is mostly defensive.
+  String? fallback;
+  for (final v in raw) {
+    if (v is! Map) continue;
+    final s = _readSkrivemaate(v['skrivemåte']);
+    if (s == null) continue;
+    if (v['navnestatus'] == 'hovednavn') return s;
+    fallback ??= s;
+  }
+  return fallback;
 }
 
 /// Categorises a Kartverket feature type at a given distance. Returns
