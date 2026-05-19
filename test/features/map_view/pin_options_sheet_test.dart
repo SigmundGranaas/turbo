@@ -10,7 +10,7 @@ import '../../helpers/test_weather_fetcher.dart';
 
 class _Callbacks {
   String? lastCreatePrefill;
-  int create = 0, measure = 0, navigate = 0, stop = 0;
+  int create = 0, activity = 0, measure = 0, navigate = 0, stop = 0;
 }
 
 class _StubGeocoder implements ReverseGeocoder {
@@ -45,6 +45,7 @@ Future<_Callbacks> _open(
                 cbs.create++;
                 cbs.lastCreatePrefill = name;
               },
+              onCreateActivity: () => cbs.activity++,
               onMeasure: () => cbs.measure++,
               onNavigate: () => cbs.navigate++,
               onStopNavigation: () => cbs.stop++,

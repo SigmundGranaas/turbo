@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/map_view/widgets/layers/current_location_layer.dart';
 import 'package:turbo/features/map_view/widgets/layers/viewport_marker_layer.dart';
+import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/external_vector_layers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
@@ -257,6 +258,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       SavedPathsLayer(mapController: _mapController),
       ...trailVectorLayers,
       ViewportMarkers(mapController: _mapController),
+      const activities.ActivitiesMapLayer(),
     ];
 
     final overlayWidgets = <Widget>[
@@ -381,6 +383,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
             newLocation: point,
             prefillName: namePreview,
           ),
+          onCreateActivity: () => _showActivityCreatePicker(context, point),
           onMeasure: () => _navigateToMeasuring(point),
           onNavigate: () => ref
               .read(navigationStateProvider.notifier)
@@ -394,6 +397,18 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         setState(() => _temporaryPin = null);
       }
     });
+  }
+
+  /// Open the cross-kind activity picker seeded at the tapped point.
+  /// The picker dispatches to the selected kind's create screen via its
+  /// descriptor — the map page stays unaware of which kinds exist.
+  void _showActivityCreatePicker(BuildContext context, LatLng point) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetCtx) => activities.ActivityCreatePicker(seedLocation: point),
+    );
   }
 
   void _navigateToMeasuring(LatLng startPoint) async {

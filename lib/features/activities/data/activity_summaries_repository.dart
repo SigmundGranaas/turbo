@@ -39,7 +39,7 @@ class ActivitySummariesRepository
   Future<void> refresh() async {
     try {
       final delta = await _api.getChanges(since: _cursor);
-      final current = Map<String, ActivitySummary>.from(state.valueOrNull ?? {});
+      final current = Map<String, ActivitySummary>.from(state.value ?? {});
       for (final item in delta.items) {
         current[item.id] = item;
       }
@@ -52,7 +52,7 @@ class ActivitySummariesRepository
       _log.warning('Failed to refresh activity summaries', e, st);
       // Keep previous data on transient failures; surface error only if we
       // have nothing yet.
-      if (state.valueOrNull == null) {
+      if (state.value == null) {
         state = AsyncValue.error(e, st);
       }
     }
@@ -63,14 +63,14 @@ class ActivitySummariesRepository
   /// create/update so the map updates without waiting for the next delta
   /// sync round-trip.
   void upsertLocal(ActivitySummary summary) {
-    final current = Map<String, ActivitySummary>.from(state.valueOrNull ?? {});
+    final current = Map<String, ActivitySummary>.from(state.value ?? {});
     current[summary.id] = summary;
     state = AsyncValue.data(current);
   }
 
   /// Remove one summary locally.
   void removeLocal(String id) {
-    final current = Map<String, ActivitySummary>.from(state.valueOrNull ?? {});
+    final current = Map<String, ActivitySummary>.from(state.value ?? {});
     current.remove(id);
     state = AsyncValue.data(current);
   }

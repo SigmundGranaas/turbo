@@ -20,7 +20,7 @@ class FishingApi {
   }) async {
     final body = {
       'name': name,
-      if (description != null) 'description': description,
+      'description': ?description,
       'longitude': position.longitude,
       'latitude': position.latitude,
       'details': details.toJson(),
@@ -48,11 +48,11 @@ class FishingApi {
     FishingDetails? details,
   }) async {
     final body = <String, dynamic>{
-      if (name != null) 'name': name,
-      if (description != null) 'description': description,
-      if (position != null) 'longitude': position.longitude,
-      if (position != null) 'latitude': position.latitude,
-      if (details != null) 'details': details.toJson(),
+      'name': ?name,
+      'description': ?description,
+      'longitude': ?position?.longitude,
+      'latitude': ?position?.latitude,
+      'details': ?details?.toJson(),
     };
     final r = await _client.put('/api/activities/fishing/$id', data: body);
     if (r.statusCode != 204) {

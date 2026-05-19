@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/activity_kind_registry.dart';
 import '../data/activity_summaries_repository.dart';
-import '../models/activity_geometry.dart';
 import '../models/activity_summary.dart';
 
 /// Renders cross-kind activity summaries on the map. For each summary,
@@ -18,7 +17,7 @@ class ActivitiesMapLayer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final summariesAsync = ref.watch(activitySummariesRepositoryProvider);
     final registry = ref.watch(activityKindRegistryProvider);
-    final summaries = summariesAsync.valueOrNull ?? const {};
+    final summaries = summariesAsync.value ?? const {};
 
     final markers = <Marker>[];
     for (final s in summaries.values) {
