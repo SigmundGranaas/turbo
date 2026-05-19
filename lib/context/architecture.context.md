@@ -102,6 +102,27 @@ export 'widgets/login_screen.dart' show LoginScreen;
 
 The seeded-`AsyncValue` pattern (third row) is used **deliberately** by `LocationRepository`, `SavedPathRepository`, `ViewportMarkerNotifier`, and `ViewportSavedPathNotifier` to avoid a startup loading flicker. Do not "normalize" them to `AsyncNotifierProvider` — it would change observable behavior.
 
+### Family notifiers (the `Notifier(this.arg)` form)
+
+`AsyncNotifierProvider.family<N, T, Arg>(N.new)` in this codebase accepts a notifier whose constructor takes the family argument positionally:
+
+```dart
+final weatherForecastProvider = AsyncNotifierProvider.family<
+    WeatherForecastNotifier, WeatherForecast, LatLng>(
+  WeatherForecastNotifier.new,
+);
+
+class WeatherForecastNotifier extends AsyncNotifier<WeatherForecast> {
+  WeatherForecastNotifier(this.position);
+  final LatLng position;
+
+  @override
+  Future<WeatherForecast> build() async { /* uses `position` */ }
+}
+```
+
+The family-builder factory signature is `N Function(Arg)`, so the tear-off `Notifier.new` matches as long as the constructor takes exactly the family arg. This is the project convention for keyed AsyncNotifiers (see `weather_forecast`, `tide`, `avalanche_forecast`, `external_vector_layers/vector_layer_notifier`). Don't switch to `FamilyAsyncNotifier`/`this.arg` — the explicit field reads better at call sites and is easier to grep for.
+
 ### No code generation
 
 This codebase does not use `@riverpod`, `freezed`, or `build_runner`. State classes are immutable with hand-written `const` constructors and `copyWith`. Provider types are written out explicitly:
