@@ -37,7 +37,17 @@ class WeatherSummaryRow extends ConsumerWidget {
       data: (f) {
         final now = f.currentAtmospheric;
         if (now == null) return const SizedBox.shrink();
-        return _DataRow(position: position, title: title, point: now);
+        final row = _DataRow(position: position, title: title, point: now);
+        final alert = f.topAlert;
+        if (alert == null) return row;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MetAlertBanner(alert: alert),
+            const SizedBox(height: 8),
+            row,
+          ],
+        );
       },
     );
   }
