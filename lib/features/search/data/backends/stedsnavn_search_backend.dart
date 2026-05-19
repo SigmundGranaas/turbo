@@ -4,22 +4,23 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/core/util/user_agent.dart';
 
-import 'location_service.dart';
-import 'stedsnavn_descriptors.dart';
+import '../location_service.dart';
+import '../stedsnavn_descriptors.dart';
 
-/// Kartverket Stedsnavn search — the typed-query side of the API.
-/// Used by the search bar to look up places by name.
+/// Kartverket Stedsnavn forward-search backend — the typed-query side of
+/// the API. Sits alongside the reverse-geocode `StedsnavnBackend`
+/// (`/stedsnavn/v1/punkt`); this one hits `/stedsnavn/v1/navn` for the
+/// search bar.
 ///
-/// Reverse-geocoding (coord → place) is handled separately by
-/// [reverseGeocoderProvider] and the per-source backends in
-/// `backends/`.
-class KartverketLocationService extends LocationService {
+/// Implements [LocationService] so the composite search service can
+/// treat marker / path / Kartverket sources uniformly.
+class StedsnavnSearchBackend extends LocationService {
   static const String _baseUrl = 'https://ws.geonorge.no/stedsnavn/v1/navn';
   static const Duration _timeout = Duration(seconds: 8);
 
   final http.Client _client;
 
-  KartverketLocationService({http.Client? client})
+  StedsnavnSearchBackend({http.Client? client})
       : _client = client ?? http.Client();
 
   @override

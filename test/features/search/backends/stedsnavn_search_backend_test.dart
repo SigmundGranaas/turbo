@@ -10,7 +10,7 @@ import 'package:turbo/features/search/api.dart';
 /// `kartverket_reverse_geocoder_test.dart` in the Phase B split.
 
 void main() {
-  group('KartverketLocationService HTTP layer', () {
+  group('StedsnavnSearchBackend HTTP layer', () {
     test('encodes the query and hits the Stedsnavn endpoint', () async {
       Uri? captured;
       final client = MockClient((req) async {
@@ -18,7 +18,7 @@ void main() {
         return http.Response(jsonEncode({'navn': []}), 200,
             headers: {'content-type': 'application/json; charset=utf-8'});
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       await service.findLocationsBy('Oslo fjord');
 
@@ -57,7 +57,7 @@ void main() {
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final results = await service.findLocationsBy('oslo');
 
@@ -113,7 +113,7 @@ void main() {
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final r = await service.findLocationsBy('x');
       expect(r.map((e) => e.icon).toList(), ['mountain', 'water', 'water']);
@@ -140,7 +140,7 @@ void main() {
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final r = await service.findLocationsBy('x');
       expect(r.first.icon, 'place');
@@ -148,14 +148,14 @@ void main() {
 
     test('returns empty list on non-200 responses', () async {
       final client = MockClient((_) async => http.Response('', 503));
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       expect(await service.findLocationsBy('oslo'), isEmpty);
     });
 
     test('returns empty list when the client throws', () async {
       final client = MockClient((_) async => throw Exception('socket fail'));
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       // Defensive try/catch in the service swallows the error to keep search
       // resilient. Verified contract.
@@ -169,7 +169,7 @@ void main() {
         called = true;
         return http.Response('{}', 200);
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       expect(await service.findLocationsBy(''), isEmpty);
       expect(await service.findLocationsBy('   '), isEmpty);
@@ -198,7 +198,7 @@ void main() {
             200,
             headers: {'content-type': 'application/json'},
           ));
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final r = await service.findLocationsBy('æ');
       expect(r.first.title, 'Ærfugløya');
@@ -237,7 +237,7 @@ void main() {
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final r = await service.findLocationsBy('x');
       expect(r, hasLength(1));

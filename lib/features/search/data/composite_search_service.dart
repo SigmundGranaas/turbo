@@ -1,21 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/features/saved_paths/api.dart';
-import 'kartverket_location_service.dart';
+import 'backends/stedsnavn_search_backend.dart';
 import 'location_service.dart';
 import 'marker_search_service.dart';
 import 'trail_search_service.dart';
 
-final kartverketLocationServiceProvider = Provider<KartverketLocationService>((ref) {
-  return KartverketLocationService();
-});
+/// Forward-search backend (Kartverket Stedsnavn `/navn`). Distinct from
+/// `stedsnavnBackendProvider` in `reverse_geocoder.dart`, which is the
+/// reverse-geocode `/punkt` backend — same vendor, different endpoint.
+final stedsnavnSearchBackendProvider = Provider<StedsnavnSearchBackend>(
+  (ref) => StedsnavnSearchBackend(),
+);
 
 final compositeSearchServiceProvider = Provider<CompositeSearchService>((ref) {
-  final kartverketService = ref.watch(kartverketLocationServiceProvider);
+  final stedsnavn = ref.watch(stedsnavnSearchBackendProvider);
   final markerService = ref.watch(markerSearchServiceProvider);
   final pathService = ref.watch(pathSearchServiceProvider);
   final trailService = ref.watch(trailSearchServiceProvider);
   return CompositeSearchService(
-    kartverketService,
+    stedsnavn,
     markerService,
     pathService,
     trailService,
