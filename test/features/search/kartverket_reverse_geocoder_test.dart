@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/api/kartverket_hoydedata_client.dart';
 import 'package:turbo/features/search/api.dart';
 
 /// Tests for the three-backend orchestrator. Verifies the
@@ -23,7 +24,11 @@ KartverketReverseGeocoder _geocoder(
     protectedArea: ProtectedAreaBackend(client: client),
     kommune: KommuneBackend(client: client),
     address: withEnrichment ? AddressBackend(client: client) : null,
-    elevation: withEnrichment ? ElevationBackend(client: client) : null,
+    elevation: withEnrichment
+        ? ElevationBackend(
+            client: KartverketHoydedataClient(client: client),
+          )
+        : null,
   );
 }
 

@@ -135,20 +135,8 @@ void main() {
     });
   });
 
-  group('MetAlertsService.currentInBounds', () {
-    test('encodes bbox parameter as lon,lat,lon,lat', () async {
-      http.Request? captured;
-      final client = MockClient((req) async {
-        captured = req;
-        return http.Response(
-          jsonEncode({'type': 'FeatureCollection', 'features': []}),
-          200,
-        );
-      });
-      await MetAlertsService(client: client)
-          .currentInBounds(58.0, 5.0, 60.0, 12.0);
-      expect(captured!.url.queryParameters['bbox'],
-          '5.0000,58.0000,12.0000,60.0000');
-    });
-  });
+  // currentInBounds was removed — MET's /current.json rejects the `bbox`
+  // parameter with HTTP 400. Viewport consumers go through
+  // `external_vector_layers/metalerts_vector_source` which fetches the
+  // small global feed and filters client-side.
 }

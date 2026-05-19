@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/core/api/kartverket_hoydedata_client.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/api.dart' show IconService;
 
@@ -149,7 +150,9 @@ class PathsListPage extends ConsumerWidget {
     }
 
     final repo = ref.read(savedPathRepositoryProvider.notifier);
-    final service = HoydedataService();
+    final service = HoydedataService(
+      client: ref.read(kartverketHoydedataClientProvider),
+    );
     var anyBackfillFailed = false;
     var didBackfillToast = false;
     for (final p in parsed) {

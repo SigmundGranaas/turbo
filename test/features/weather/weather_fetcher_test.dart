@@ -72,21 +72,6 @@ class _StubAlerts implements MetAlertsService {
       lastModified: null,
     );
   }
-
-  @override
-  Future<MetAlertsResult> currentInBounds(
-    double minLat,
-    double minLon,
-    double maxLat,
-    double maxLon, {
-    String? ifModifiedSince,
-  }) async {
-    return MetAlertsResult(
-      alerts: const [],
-      expiresAt: DateTime.utc(2026, 5, 17, 12, 30),
-      lastModified: null,
-    );
-  }
 }
 
 WeatherFetcher _fetcher(

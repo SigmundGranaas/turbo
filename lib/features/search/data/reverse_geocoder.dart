@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'package:turbo/core/api/kartverket_hoydedata_client.dart';
 import 'backends/address_backend.dart';
 import 'backends/elevation_backend.dart';
 import 'backends/kommune_backend.dart';
@@ -34,9 +35,14 @@ final addressBackendProvider = Provider<AddressBackend>(
   (ref) => AddressBackend(),
 );
 
-final elevationBackendProvider = Provider<ElevationBackend>(
-  (ref) => ElevationBackend(),
-);
+final elevationBackendProvider = Provider<ElevationBackend>((ref) {
+  // Share the underlying Hoydedata client with the saved-paths
+  // backfill so overrides (and the HTTP connection pool) flow through
+  // a single point.
+  return ElevationBackend(
+    client: ref.watch(kartverketHoydedataClientProvider),
+  );
+});
 
 /// Riverpod-managed singleton orchestrator. Returns the [ReverseGeocoder]
 /// interface so consumers don't depend on the concrete Kartverket

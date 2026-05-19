@@ -22,11 +22,11 @@ class MetAlertsResult {
 
 /// Wrapper around MET Norway's MetAlerts 2.0 endpoint.
 ///
-/// Two query modes are supported:
-///  - `currentAtPoint(LatLng)`  — alerts intersecting a single coordinate
-///    (used by the marker info sheet to show a contextual banner).
-///  - `currentInBounds(LatLngBounds)` — all alerts whose footprint
-///    intersects a viewport (used by the map overlay).
+/// Only the point-lookup form is exposed: the endpoint accepts `lat`/`lon`
+/// for intersecting-feature filtering but rejects `bbox` with HTTP 400.
+/// Viewport / map-overlay consumers fetch the full global feed via
+/// `external_vector_layers` (the per-day payload is small enough that the
+/// in-memory tile cache keeps the cost trivial) and filter client-side.
 class MetAlertsService {
   static const String _host = 'api.met.no';
   static const String _path = '/weatherapi/metalerts/2.0/current.json';
@@ -44,21 +44,6 @@ class MetAlertsService {
       'lat': position.latitude.toStringAsFixed(4),
       'lon': position.longitude.toStringAsFixed(4),
     });
-    return _fetch(uri, ifModifiedSince: ifModifiedSince);
-  }
-
-  Future<MetAlertsResult> currentInBounds(
-    double minLat,
-    double minLon,
-    double maxLat,
-    double maxLon, {
-    String? ifModifiedSince,
-  }) {
-    // MetAlerts uses a comma-separated bbox in lon,lat,lon,lat order.
-    final bbox =
-        '${minLon.toStringAsFixed(4)},${minLat.toStringAsFixed(4)},'
-        '${maxLon.toStringAsFixed(4)},${maxLat.toStringAsFixed(4)}';
-    final uri = Uri.https(_host, _path, {'bbox': bbox});
     return _fetch(uri, ifModifiedSince: ifModifiedSince);
   }
 
