@@ -36,6 +36,8 @@ void main() {
       expect(p.timeUtc, DateTime.utc(2026, 5, 17, 12));
       expect(p.airTemperatureC, 14.2);
       expect(p.windSpeedMs, 3.1);
+      expect(p.windGustMs, isNull,
+          reason: 'no wind_speed_of_gust in this fixture');
       expect(p.windFromDeg, 215.0);
       expect(p.humidity, 67.0);
       expect(p.pressureHpa, 1012.4);
@@ -67,6 +69,24 @@ void main() {
       expect(p.symbol1h, isNull);
       expect(p.symbol6h, isNull);
       expect(p.uvIndex, isNull);
+    });
+
+    test('parses wind_speed_of_gust into windGustMs when MET reports it', () {
+      final p = AtmosphericPoint.fromJson({
+        'time': '2026-05-17T16:00:00Z',
+        'data': {
+          'instant': {
+            'details': {
+              'air_temperature': 9.0,
+              'wind_speed': 6.5,
+              'wind_speed_of_gust': 11.2,
+              'wind_from_direction': 320.0,
+            },
+          },
+        },
+      });
+      expect(p.windSpeedMs, 6.5);
+      expect(p.windGustMs, 11.2);
     });
 
     test('isSnowing reflects the 1h symbol when present', () {

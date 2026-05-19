@@ -150,6 +150,10 @@ abstract class AppLocalizations {
   String get layerDescriptionGoogleSatellite;
   String get layerNameAvalanche;
   String get layerDescriptionAvalanche;
+  String get layerNameSeamarks;
+  String get layerDescriptionSeamarks;
+  String get layerNameSjokart;
+  String get layerDescriptionSjokart;
 
   // Measuring Tool
   String get totalDistance;
@@ -202,6 +206,20 @@ abstract class AppLocalizations {
   String get distanceUnit;
   String get distanceUnitMetric;
   String get distanceUnitImperial;
+  String get distanceUnitNautical;
+
+  // Underway HUD (marine)
+  String get showUnderwayHud;
+  String get underwayHudDescription;
+  String get hudLabelSog;
+  String get hudLabelCog;
+  String get hudLabelHdg;
+
+  // Marine wind strip
+  String get showWindStrip;
+  String get windStripDescription;
+  String get windStripGustLabel;
+  String get windStripNoData;
   String get maxConcurrentDownloads;
   String get maxConcurrentDownloadsDescription;
   String get markerCacheTtl;
@@ -250,6 +268,17 @@ abstract class AppLocalizations {
   String get deletePath;
   String get pathName;
   String get pathSaved;
+  String pathSavedNamed(String name);
+  String get undo;
+  String get recordedBadge;
+  String recordedOnDate(String date);
+  String get pathsFilterAll;
+  String get pathsFilterRecorded;
+  String get pathsFilterImported;
+  String get pathsGroupToday;
+  String get pathsGroupYesterday;
+  String get pathsGroupThisWeek;
+  String get pathsGroupThisMonth;
   String get confirmDeletePathTitle;
   String get discardPath;
   String get dataLayers;
@@ -607,6 +636,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get layerDescriptionGoogleSatellite => 'Satellite imagery from Google';
   @override String get layerNameAvalanche => 'Avalanche Danger';
   @override String get layerDescriptionAvalanche => 'Overlay of slope steepness and run-out zones';
+  @override String get layerNameSeamarks => 'Seamarks (OpenSeaMap)';
+  @override String get layerDescriptionSeamarks => 'Nautical overlay: buoys, lights, harbors, depths';
+  @override String get layerNameSjokart => 'Sjøkart (Kartverket)';
+  @override String get layerDescriptionSjokart => 'Norwegian nautical chart with depth contours and soundings';
 
   @override String get totalDistance => 'Total Distance';
   @override String get undoLastPoint => 'Undo Last Point';
@@ -653,6 +686,16 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get distanceUnit => 'Distance unit';
   @override String get distanceUnitMetric => 'Metric (km / m)';
   @override String get distanceUnitImperial => 'Imperial (mi / ft)';
+  @override String get distanceUnitNautical => 'Nautical (NM / kn)';
+  @override String get showUnderwayHud => 'Underway HUD';
+  @override String get underwayHudDescription => 'Show course, speed, and heading from GPS — useful at sea.';
+  @override String get hudLabelSog => 'SOG';
+  @override String get hudLabelCog => 'COG';
+  @override String get hudLabelHdg => 'HDG';
+  @override String get showWindStrip => 'Wind & gust strip';
+  @override String get windStripDescription => 'Compact wind speed, direction, and 6-hour trend at the top of the map.';
+  @override String get windStripGustLabel => 'gust';
+  @override String get windStripNoData => 'No wind data for this location';
   @override String get maxConcurrentDownloads => 'Max parallel downloads';
   @override String get maxConcurrentDownloadsDescription => 'Higher values finish faster but stress the tile server.';
   @override String get markerCacheTtl => 'Marker cache lifetime';
@@ -694,6 +737,17 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get deletePath => 'Delete Path';
   @override String get pathName => 'Path Name';
   @override String get pathSaved => 'Path saved';
+  @override String pathSavedNamed(String name) => 'Saved "$name"';
+  @override String get undo => 'Undo';
+  @override String get recordedBadge => 'Recorded';
+  @override String recordedOnDate(String date) => 'Recorded $date';
+  @override String get pathsFilterAll => 'All';
+  @override String get pathsFilterRecorded => 'Recorded';
+  @override String get pathsFilterImported => 'Imported';
+  @override String get pathsGroupToday => 'Today';
+  @override String get pathsGroupYesterday => 'Yesterday';
+  @override String get pathsGroupThisWeek => 'This week';
+  @override String get pathsGroupThisMonth => 'This month';
   @override String get confirmDeletePathTitle => 'Delete Path?';
   @override String get discardPath => 'Discard';
   @override String get dataLayers => 'Data';
@@ -1041,6 +1095,10 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get layerDescriptionGoogleSatellite => 'Satellittbilder fra Google';
   @override String get layerNameAvalanche => 'Snøskredfare';
   @override String get layerDescriptionAvalanche => 'Oversikt over bratthet og utløpssoner';
+  @override String get layerNameSeamarks => 'Sjømerker (OpenSeaMap)';
+  @override String get layerDescriptionSeamarks => 'Nautisk lag: bøyer, lykter, havner, dybder';
+  @override String get layerNameSjokart => 'Sjøkart (Kartverket)';
+  @override String get layerDescriptionSjokart => 'Norsk sjøkart med dybdekoter og loddskudd';
 
   @override String get totalDistance => 'Total distanse';
   @override String get undoLastPoint => 'Angre siste punkt';
@@ -1084,6 +1142,16 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get distanceUnit => 'Avstandsenhet';
   @override String get distanceUnitMetric => 'Metrisk (km / m)';
   @override String get distanceUnitImperial => 'Imperial (mi / ft)';
+  @override String get distanceUnitNautical => 'Nautisk (nm / kn)';
+  @override String get showUnderwayHud => 'Maritimt HUD';
+  @override String get underwayHudDescription => 'Vis kurs, fart og kompasskurs fra GPS — nyttig til sjøs.';
+  @override String get hudLabelSog => 'SOG';
+  @override String get hudLabelCog => 'COG';
+  @override String get hudLabelHdg => 'HDG';
+  @override String get showWindStrip => 'Vindstripe';
+  @override String get windStripDescription => 'Vindstyrke, retning og 6-timers trend øverst på kartet.';
+  @override String get windStripGustLabel => 'kast';
+  @override String get windStripNoData => 'Ingen vinddata for denne posisjonen';
   @override String get maxConcurrentDownloads => 'Maks parallelle nedlastinger';
   @override String get maxConcurrentDownloadsDescription => 'Høyere verdier går raskere, men belaster kartserveren mer.';
   @override String get markerCacheTtl => 'Markør-mellomlager';
@@ -1125,6 +1193,17 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get deletePath => 'Slett rute';
   @override String get pathName => 'Rutenavn';
   @override String get pathSaved => 'Rute lagret';
+  @override String pathSavedNamed(String name) => 'Lagret «$name»';
+  @override String get undo => 'Angre';
+  @override String get recordedBadge => 'Innspilt';
+  @override String recordedOnDate(String date) => 'Innspilt $date';
+  @override String get pathsFilterAll => 'Alle';
+  @override String get pathsFilterRecorded => 'Innspilte';
+  @override String get pathsFilterImported => 'Importerte';
+  @override String get pathsGroupToday => 'I dag';
+  @override String get pathsGroupYesterday => 'I går';
+  @override String get pathsGroupThisWeek => 'Denne uka';
+  @override String get pathsGroupThisMonth => 'Denne måneden';
   @override String get confirmDeletePathTitle => 'Slette ruten?';
   @override String get discardPath => 'Forkast';
   @override String get dataLayers => 'Data';

@@ -69,9 +69,11 @@ void main() {
 
       expect(state.availableProviders.keys, {
         'topo',
+        'sjokart',
         'osm',
         'gs',
         'avalanche_danger',
+        'openseamap',
         'trails_foot',
         'trails_ski',
         'trails_bike',
@@ -83,10 +85,16 @@ void main() {
           state.availableProviders['topo']!.category,
           TileProviderCategory.local);
       expect(
+          state.availableProviders['sjokart']!.category,
+          TileProviderCategory.local);
+      expect(
           state.availableProviders['osm']!.category,
           TileProviderCategory.global);
       expect(
           state.availableProviders['avalanche_danger']!.category,
+          TileProviderCategory.overlay);
+      expect(
+          state.availableProviders['openseamap']!.category,
           TileProviderCategory.overlay);
       for (final id in [
         'trails_foot',

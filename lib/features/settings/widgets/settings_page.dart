@@ -95,6 +95,10 @@ class SettingsPage extends ConsumerWidget {
         AppSectionHeader(l10n.advanced),
         _buildDistanceUnitSelector(context, ref, settings.distanceUnit, l10n),
         const SizedBox(height: AppSpacing.s),
+        _buildUnderwayHudToggle(context, ref, settings.showUnderwayHud, l10n),
+        const SizedBox(height: AppSpacing.s),
+        _buildWindStripToggle(context, ref, settings.showWindStrip, l10n),
+        const SizedBox(height: AppSpacing.s),
         _buildIntSliderCard(
           context,
           ref,
@@ -195,11 +199,43 @@ class SettingsPage extends ConsumerWidget {
           value: DistanceUnit.imperial,
           label: Text(l10n.distanceUnitImperial),
         ),
+        ButtonSegment<DistanceUnit>(
+          value: DistanceUnit.nautical,
+          label: Text(l10n.distanceUnitNautical),
+        ),
       ],
       selected: {currentUnit},
       onSelectionChanged: (Set<DistanceUnit> newSelection) {
         ref.read(settingsProvider.notifier).setDistanceUnit(newSelection.first);
       },
+    );
+  }
+
+  Widget _buildUnderwayHudToggle(
+      BuildContext context, WidgetRef ref, bool value, AppLocalizations l10n) {
+    return AppGroupedCard(
+      child: SwitchListTile(
+        secondary: const Icon(Icons.explore_outlined),
+        title: Text(l10n.showUnderwayHud),
+        subtitle: Text(l10n.underwayHudDescription),
+        value: value,
+        onChanged: (v) =>
+            ref.read(settingsProvider.notifier).setShowUnderwayHud(v),
+      ),
+    );
+  }
+
+  Widget _buildWindStripToggle(
+      BuildContext context, WidgetRef ref, bool value, AppLocalizations l10n) {
+    return AppGroupedCard(
+      child: SwitchListTile(
+        secondary: const Icon(Icons.air),
+        title: Text(l10n.showWindStrip),
+        subtitle: Text(l10n.windStripDescription),
+        value: value,
+        onChanged: (v) =>
+            ref.read(settingsProvider.notifier).setShowWindStrip(v),
+      ),
     );
   }
 

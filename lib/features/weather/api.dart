@@ -37,4 +37,5 @@ export 'data/tide_notifier.dart'
 export 'widgets/weather_summary_row.dart' show WeatherSummaryRow;
 export 'widgets/weather_detail_sheet.dart'
     show WeatherDetailSheet, showWeatherDetailSheet;
+export 'widgets/marine_wind_strip.dart' show MarineWindStrip;
 export 'widgets/met_alert_banner.dart' show MetAlertBanner;

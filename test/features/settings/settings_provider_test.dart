@@ -126,6 +126,26 @@ void main() {
         expect(prefs.getString('distanceUnit'), 'imperial');
       });
 
+      test('nautical distance unit persists and reloads', () async {
+        final container = createContainer({});
+        await container.read(settingsProvider.future);
+
+        await container
+            .read(settingsProvider.notifier)
+            .setDistanceUnit(DistanceUnit.nautical);
+
+        expect(container.read(settingsProvider).value?.distanceUnit,
+            DistanceUnit.nautical);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('distanceUnit'), 'nautical');
+
+        // Cold-start container reads the persisted value back.
+        final container2 = ProviderContainer();
+        addTearDown(container2.dispose);
+        final reloaded = await container2.read(settingsProvider.future);
+        expect(reloaded.distanceUnit, DistanceUnit.nautical);
+      });
+
       test('setMaxConcurrentDownloads clamps and persists', () async {
         final container = createContainer({});
         await container.read(settingsProvider.future);
@@ -157,6 +177,49 @@ void main() {
         final prefs = await SharedPreferences.getInstance();
         expect(prefs.getInt('markerCacheTtlSeconds'),
             kMinMarkerCacheTtlSeconds);
+      });
+
+      test('showUnderwayHud defaults to off and round-trips through prefs',
+          () async {
+        final container = createContainer({});
+        var state = await container.read(settingsProvider.future);
+        expect(state.showUnderwayHud, isFalse);
+
+        await container
+            .read(settingsProvider.notifier)
+            .setShowUnderwayHud(true);
+        state = container.read(settingsProvider).value!;
+        expect(state.showUnderwayHud, isTrue);
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool('showUnderwayHud'), isTrue);
+
+        // Reload reflects the persisted value.
+        final container2 = ProviderContainer();
+        addTearDown(container2.dispose);
+        final reloaded = await container2.read(settingsProvider.future);
+        expect(reloaded.showUnderwayHud, isTrue);
+      });
+
+      test('showWindStrip defaults to off and round-trips through prefs',
+          () async {
+        final container = createContainer({});
+        var state = await container.read(settingsProvider.future);
+        expect(state.showWindStrip, isFalse);
+
+        await container
+            .read(settingsProvider.notifier)
+            .setShowWindStrip(true);
+        state = container.read(settingsProvider).value!;
+        expect(state.showWindStrip, isTrue);
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool('showWindStrip'), isTrue);
+
+        final container2 = ProviderContainer();
+        addTearDown(container2.dispose);
+        final reloaded = await container2.read(settingsProvider.future);
+        expect(reloaded.showWindStrip, isTrue);
       });
     });
 

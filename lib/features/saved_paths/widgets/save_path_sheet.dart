@@ -229,7 +229,7 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
           );
 
       if (!mounted) return;
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(path);
     } catch (e) {
       if (!mounted) return;
       _showErrorSnackBar(context, l10n.errorSavingPath(e.toString()));

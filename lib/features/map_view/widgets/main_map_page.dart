@@ -25,6 +25,7 @@ import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
+import 'package:turbo/features/map_view/widgets/marine_overlay.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
 import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
@@ -264,6 +265,12 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       const Positioned(
         left: 0,
         right: 0,
+        bottom: 80,
+        child: MarineOverlay(),
+      ),
+      const Positioned(
+        left: 0,
+        right: 0,
         bottom: 0,
         child: marker_model.MarkerSelectionBar(),
       ),
@@ -397,7 +404,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   }
 
   void _navigateToMeasuring(LatLng startPoint) async {
-    final result = await Navigator.of(context).push<bool>(
+    final result = await Navigator.of(context).push<Object?>(
       MaterialPageRoute(
         builder: (context) => MeasuringMapPage(
           initialPosition: _mapController.camera.center,
@@ -405,8 +412,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         ),
       ),
     );
-    if (result == true && mounted) {
-      AppSnackbars.success(context, context.l10n.pathSaved);
+    if (!mounted) return;
+    if (result is SavedPath) {
+      showPathSavedFeedback(context, ref, result);
     }
   }
 

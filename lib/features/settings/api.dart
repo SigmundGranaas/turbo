@@ -2,7 +2,7 @@
 library;
 
 export 'package:turbo/core/util/distance_formatter.dart'
-    show DistanceUnit, formatDistance;
+    show DistanceUnit, formatDistance, formatSpeed;
 export 'package:turbo/core/location/gps_accuracy_mode.dart'
     show GpsAccuracyMode;
 export 'data/settings_provider.dart' show settingsProvider, SettingsState;
