@@ -9,6 +9,20 @@ class Marker {
   final LatLng position;
   final bool synced;
 
+  /// Server-stamped monotonic row version. Used as the ETag for
+  /// optimistic concurrency (sent back as `If-Match` on update/delete).
+  /// Null when the marker has not yet been synced to the server.
+  final int? version;
+
+  /// Server-stamped wall-clock for the last successful projection write.
+  /// Used to compute the next `?since=` cursor for delta-sync.
+  final DateTime? updatedAt;
+
+  /// Server-side tombstone. The client uses this to recognise deletions
+  /// learnt via delta-sync (versus a 404 / row-missing). Always null in
+  /// the local store for non-tombstoned rows.
+  final DateTime? deletedAt;
+
   Marker({
     String? uuid,
     required this.title,
@@ -16,6 +30,9 @@ class Marker {
     this.icon,
     required this.position,
     this.synced = false,
+    this.version,
+    this.updatedAt,
+    this.deletedAt,
   }) : uuid = uuid ?? const Uuid().v4();
 
   Marker copyWith({
@@ -25,6 +42,12 @@ class Marker {
     String? icon,
     LatLng? position,
     bool? synced,
+    int? version,
+    bool clearVersion = false,
+    DateTime? updatedAt,
+    bool clearUpdatedAt = false,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return Marker(
       uuid: uuid ?? this.uuid,
@@ -33,10 +56,18 @@ class Marker {
       icon: icon ?? this.icon,
       position: position ?? this.position,
       synced: synced ?? this.synced,
+      version: clearVersion ? null : (version ?? this.version),
+      updatedAt: clearUpdatedAt ? null : (updatedAt ?? this.updatedAt),
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 
   factory Marker.fromLocalMap(Map<String, dynamic> map) {
+    DateTime? parseOptional(dynamic raw) {
+      if (raw is String && raw.isNotEmpty) return DateTime.parse(raw);
+      return null;
+    }
+
     return Marker(
       uuid: map['uuid'] as String,
       title: map['title'] as String,
@@ -47,6 +78,9 @@ class Marker {
         map['longitude'] as double,
       ),
       synced: (map['synced'] == 1 || map['synced'] == true), // Handles int (SQLite) and bool (IndexedDB)
+      version: (map['version'] as num?)?.toInt(),
+      updatedAt: parseOptional(map['updated_at']),
+      deletedAt: parseOptional(map['deleted_at']),
     );
   }
 
@@ -59,12 +93,20 @@ class Marker {
       'latitude': position.latitude,
       'longitude': position.longitude,
       'synced': synced ? 1 : 0, // Store as int for SQLite compatibility
+      'version': version,
+      'updated_at': updatedAt?.toIso8601String(),
+      'deleted_at': deletedAt?.toIso8601String(),
     };
   }
 
   factory Marker.fromApiResponse(Map<String, dynamic> responseData) {
     final geometry = responseData['geometry'] as Map<String, dynamic>;
     final display = responseData['display'] as Map<String, dynamic>;
+    DateTime? parseOptional(dynamic raw) {
+      if (raw is String && raw.isNotEmpty) return DateTime.parse(raw);
+      return null;
+    }
+
     return Marker(
       uuid: responseData['id'] as String,
       title: display['name'] as String,
@@ -75,6 +117,9 @@ class Marker {
         geometry['longitude'] as double,
       ),
       synced: true,
+      version: (responseData['version'] as num?)?.toInt(),
+      updatedAt: parseOptional(responseData['updatedAt']),
+      deletedAt: parseOptional(responseData['deletedAt']),
     );
   }
 
@@ -88,7 +133,10 @@ class Marker {
               description == other.description &&
               icon == other.icon &&
               position == other.position &&
-              synced == other.synced;
+              synced == other.synced &&
+              version == other.version &&
+              updatedAt == other.updatedAt &&
+              deletedAt == other.deletedAt;
 
   @override
   int get hashCode =>
@@ -97,5 +145,8 @@ class Marker {
       description.hashCode ^
       icon.hashCode ^
       position.hashCode ^
-      synced.hashCode;
+      synced.hashCode ^
+      version.hashCode ^
+      updatedAt.hashCode ^
+      deletedAt.hashCode;
 }
