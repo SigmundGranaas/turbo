@@ -63,7 +63,7 @@ class OfflineRegionsPage extends ConsumerWidget {
         title: Text(l10n.offlineMaps),
         actions: [
           PopupMenuButton<int>(
-            tooltip: 'Cleanup',
+            tooltip: l10n.cleanup,
             icon: const Icon(Icons.cleaning_services_outlined),
             onSelected: (days) => _confirmCleanup(context, ref, days),
             itemBuilder: (_) => const [

@@ -20,6 +20,16 @@ export 'data/geojson_parser.dart' show parseGeoJson;
 export 'data/kml_parser.dart' show parseKml;
 export 'data/path_importer.dart'
     show importPathContent, ImportFormat, PathImportException;
+export 'data/hoydedata_service.dart'
+    show HoydedataService, HoydedataServiceException;
+export 'data/elevation_backfill.dart'
+    show
+        ElevationBackfillService,
+        backfillElevations,
+        ElevationBackfillResult,
+        ElevationBackfillStatus,
+        hoydedataServiceProvider,
+        elevationBackfillServiceProvider;
 export 'data/path_export_service.dart' show PathExportService, ExportFormat;
 export 'widgets/export_options_sheet.dart' show ExportOptionsSheet;
 export 'widgets/path_info_sheet.dart' show PathInfoSheet;
@@ -28,3 +38,7 @@ export 'widgets/trip_stats_page.dart' show TripStatsPage;
 export 'data/trip_stats.dart' show TripStats;
 export 'data/path_journal_grouping.dart'
     show PathJournalGroup, PathJournalLabels, groupForDate;
+export 'data/api_track_service.dart'
+    show ApiTrackService, TrackDeltaResult, TrackTombstone, TrackConflictException;
+export 'data/track_sync_service.dart'
+    show TrackSyncService, TrackSyncCursorStore, TrackSyncOutcome;

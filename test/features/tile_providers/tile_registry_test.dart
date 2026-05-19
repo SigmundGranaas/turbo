@@ -63,7 +63,7 @@ OfflineRegion _region(String id, {String name = 'Region'}) => OfflineRegion(
 
 void main() {
   group('TileRegistry initial state', () {
-    test('registers the six built-in providers synchronously', () {
+    test('registers the built-in providers synchronously', () {
       final c = makeRegistryContainer();
       final state = c.container.read(tileRegistryProvider);
 
@@ -74,6 +74,12 @@ void main() {
         'gs',
         'avalanche_danger',
         'openseamap',
+        'trails_foot',
+        'trails_ski',
+        'trails_bike',
+        'trails_other',
+        'osm_paths',
+        'n50_sti',
       });
       expect(
           state.availableProviders['topo']!.category,
@@ -90,6 +96,16 @@ void main() {
       expect(
           state.availableProviders['openseamap']!.category,
           TileProviderCategory.overlay);
+      for (final id in [
+        'trails_foot',
+        'trails_ski',
+        'trails_bike',
+        'trails_other',
+      ]) {
+        expect(state.availableProviders[id]!.category,
+            TileProviderCategory.overlay,
+            reason: 'expected $id to be an overlay');
+      }
     });
 
     test(

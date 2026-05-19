@@ -29,7 +29,7 @@ class _FakeApi extends ApiLocationService {
   }
 
   @override
-  Future<bool> deleteLocation(String uuid) async {
+  Future<bool> deleteLocation(String uuid, {int? ifMatchVersion}) async {
     serverMarkers.removeWhere((m) => m.uuid == uuid);
     deletedUuids.add(uuid);
     return true;

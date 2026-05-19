@@ -14,6 +14,12 @@ class _RecordingFetcher implements WeatherFetcher {
   YrOceanService get ocean => throw UnimplementedError();
 
   @override
+  YrSunriseService get sunrise => throw UnimplementedError();
+
+  @override
+  MetAlertsService get alerts => throw UnimplementedError();
+
+  @override
   Future<WeatherForecast> fetch(
     LatLng position, {
     WeatherForecast? previous,

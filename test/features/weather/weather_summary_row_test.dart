@@ -18,6 +18,12 @@ class _StubFetcher implements WeatherFetcher {
   YrOceanService get ocean => throw UnimplementedError();
 
   @override
+  YrSunriseService get sunrise => throw UnimplementedError();
+
+  @override
+  MetAlertsService get alerts => throw UnimplementedError();
+
+  @override
   Future<WeatherForecast> fetch(
     LatLng position, {
     WeatherForecast? previous,
@@ -73,7 +79,10 @@ Future<void> _pump(
   if (error != null) fetcher.error = error;
   await pumpTestApp(
     tester,
-    WeatherSummaryRow(marker: _mkMarker()),
+    WeatherSummaryRow(
+      position: _mkMarker().position,
+      title: _mkMarker().title,
+    ),
     overrides: [
       weatherFetcherProvider.overrideWith((ref) => fetcher),
     ],

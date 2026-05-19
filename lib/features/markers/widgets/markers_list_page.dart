@@ -22,7 +22,7 @@ class MarkersListPage extends ConsumerWidget {
       appBar: AppBar(title: Text(l10n.allMarkers)),
       body: asyncMarkers.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (_, _) => Center(child: Text(l10n.genericLoadError)),
         data: (markers) {
           if (markers.isEmpty) {
             return Center(

@@ -50,7 +50,7 @@ class FakeApiLocationService extends ApiLocationService {
   }
 
   @override
-  Future<bool> deleteLocation(String uuid) async {
+  Future<bool> deleteLocation(String uuid, {int? ifMatchVersion}) async {
     if (shouldFail) throw Exception('Network error');
     serverMarkers.removeWhere((m) => m.uuid == uuid);
     deletedUuids.add(uuid);

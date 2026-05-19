@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/core/config/env_config.dart';
+import 'package:turbo/core/service/logger.dart';
 
 class ApiClient {
   final String baseUrl;
@@ -49,10 +50,8 @@ class ApiClient {
         onError: (DioException error, handler) async {
           final path = error.requestOptions.path;
 
-          if (kDebugMode) {
-            print("Interceptet error: ${error.message} ${error.response?.statusCode}");
-
-          }
+          log.fine(() =>
+              'Intercepted error: ${error.message} ${error.response?.statusCode}');
           // Check for 401 Unauthorized, but ignore for auth endpoints to prevent loops.
           if (error.response?.statusCode == 401 && !path.contains('/api/auth/Token/refresh')) {
             // On mobile, only try to refresh if a refresh token exists.
@@ -146,15 +145,14 @@ class ApiClient {
         final prefs = await SharedPreferences.getInstance();
         final refreshToken = prefs.getString('refreshToken');
         if (refreshToken == null) {
-          if (kDebugMode) print('No refresh token found on mobile, refresh failed.');
+          log.fine('No refresh token found on mobile, refresh failed.');
           return false;
         }
         requestData = {'refreshToken': refreshToken};
       }
 
-      if (kDebugMode) {
-        print('Attempting token refresh. Platform: ${kIsWeb ? 'Web' : 'Mobile'}.');
-      }
+      log.fine(() =>
+          'Attempting token refresh. Platform: ${kIsWeb ? 'Web' : 'Mobile'}.');
 
       // Use the main dio instance, as the interceptor handles the recursion check.
       final response = await _dio.post(
@@ -162,9 +160,7 @@ class ApiClient {
         data: requestData,
       );
 
-      if (kDebugMode) {
-        print('Refresh token response: ${response.statusCode}');
-      }
+      log.fine(() => 'Refresh token response: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         if (!kIsWeb) {
@@ -174,24 +170,22 @@ class ApiClient {
             final prefs = await SharedPreferences.getInstance();
             await prefs.setString('accessToken', data['accessToken']);
             await prefs.setString('refreshToken', data['refreshToken']);
-            if (kDebugMode) print('Mobile tokens refreshed and stored.');
+            log.fine('Mobile tokens refreshed and stored.');
             return true;
           }
         } else {
           // For web, a 200 OK is enough as cookies are handled by the browser.
-          if (kDebugMode) print('Web token refresh successful (cookies updated by server).');
+          log.fine('Web token refresh successful (cookies updated by server).');
           return true;
         }
       }
       // If we reach here, the refresh failed.
-      if (kDebugMode) {
-        print('Token refresh failed with status: ${response.statusCode}. Body: ${response.data}');
-      }
+      log.warning(() =>
+          'Token refresh failed with status: ${response.statusCode}. '
+          'Body: ${response.data}');
       return false;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error exception during token refresh: $e');
-      }
+    } catch (e, st) {
+      log.warning('Error exception during token refresh', e, st);
       return false;
     }
   }

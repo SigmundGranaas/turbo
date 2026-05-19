@@ -8,6 +8,7 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/api.dart' show IconService;
 
+import '../data/elevation_backfill.dart';
 import '../data/path_importer.dart';
 import '../data/path_journal_grouping.dart';
 import '../data/saved_path_repository.dart';
@@ -72,7 +73,7 @@ class _PathsListPageState extends ConsumerState<PathsListPage> {
       ),
       body: asyncPaths.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('$e')),
+        error: (_, _) => Center(child: Text(l10n.genericLoadError)),
         data: (paths) {
           final filtered = _applyFilter(paths, _filter);
           return Column(
@@ -223,6 +224,7 @@ class _PathsListPageState extends ConsumerState<PathsListPage> {
 
   Future<void> _importPaths(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
+    final l10n = context.l10n;
     FilePickerResult? picked;
     try {
       picked = await FilePicker.platform.pickFiles(
@@ -279,14 +281,57 @@ class _PathsListPageState extends ConsumerState<PathsListPage> {
     }
 
     final repo = ref.read(savedPathRepositoryProvider.notifier);
+    final backfill = ref.read(elevationBackfillServiceProvider);
+    var anyBackfillFailed = false;
+    var didBackfillToast = false;
     for (final p in parsed) {
-      await repo.addPath(p);
+      var toSave = p;
+      // Most exported GPX files (including those produced by Strava and Garmin
+      // exports of routes) come with elevation. Files exported from web-based
+      // route planners often don't — for those we backfill from Kartverket
+      // before persisting so the elevation profile renders end-to-end.
+      final missingRatio = _missingElevationRatio(p);
+      if (missingRatio >= 0.5 && p.points.length <= 2000) {
+        if (!didBackfillToast) {
+          didBackfillToast = true;
+          messenger?.showSnackBar(SnackBar(
+            content: Text(l10n.importBackfillingElevation),
+            duration: const Duration(seconds: 2),
+          ));
+        }
+        final result = await backfill.backfill(p);
+        if (result.status == ElevationBackfillStatus.failed) {
+          anyBackfillFailed = true;
+        } else {
+          toSave = result.path;
+        }
+      }
+      await repo.addPath(toSave);
+    }
+    if (anyBackfillFailed) {
+      messenger?.showSnackBar(SnackBar(
+        content: Text(l10n.importBackfillElevationFailed),
+      ));
     }
     messenger?.showSnackBar(SnackBar(
       content: Text(parsed.length == 1
           ? 'Imported "${parsed.first.title}".'
           : 'Imported ${parsed.length} tracks.'),
     ));
+  }
+
+  static double _missingElevationRatio(SavedPath p) {
+    if (p.points.isEmpty) return 0;
+    final el = p.elevations;
+    if (el == null) return 1;
+    if (el.length < p.points.length) {
+      return (p.points.length - el.length) / p.points.length;
+    }
+    var missing = 0;
+    for (final v in el) {
+      if (v.isNaN) missing++;
+    }
+    return missing / p.points.length;
   }
 
   Future<void> _openInfo(BuildContext context, SavedPath path) async {

@@ -3,10 +3,14 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:turbo/features/search/data/kartverket_location_service.dart';
+import 'package:turbo/features/search/api.dart';
+
+/// Tests for the Stedsnavn search-bar path (`findLocationsBy`).
+/// Reverse-geocoding orchestration moved to
+/// `kartverket_reverse_geocoder_test.dart` in the Phase B split.
 
 void main() {
-  group('KartverketLocationService HTTP layer', () {
+  group('StedsnavnSearchBackend HTTP layer', () {
     test('encodes the query and hits the Stedsnavn endpoint', () async {
       Uri? captured;
       final client = MockClient((req) async {
@@ -14,7 +18,7 @@ void main() {
         return http.Response(jsonEncode({'navn': []}), 200,
             headers: {'content-type': 'application/json; charset=utf-8'});
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       await service.findLocationsBy('Oslo fjord');
 
@@ -53,7 +57,7 @@ void main() {
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final results = await service.findLocationsBy('oslo');
 
@@ -109,7 +113,7 @@ void main() {
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final r = await service.findLocationsBy('x');
       expect(r.map((e) => e.icon).toList(), ['mountain', 'water', 'water']);
@@ -136,7 +140,7 @@ void main() {
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final r = await service.findLocationsBy('x');
       expect(r.first.icon, 'place');
@@ -144,14 +148,14 @@ void main() {
 
     test('returns empty list on non-200 responses', () async {
       final client = MockClient((_) async => http.Response('', 503));
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       expect(await service.findLocationsBy('oslo'), isEmpty);
     });
 
     test('returns empty list when the client throws', () async {
       final client = MockClient((_) async => throw Exception('socket fail'));
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       // Defensive try/catch in the service swallows the error to keep search
       // resilient. Verified contract.
@@ -165,7 +169,7 @@ void main() {
         called = true;
         return http.Response('{}', 200);
       });
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       expect(await service.findLocationsBy(''), isEmpty);
       expect(await service.findLocationsBy('   '), isEmpty);
@@ -194,10 +198,50 @@ void main() {
             200,
             headers: {'content-type': 'application/json'},
           ));
-      final service = KartverketLocationService(client: client);
+      final service = StedsnavnSearchBackend(client: client);
 
       final r = await service.findLocationsBy('æ');
       expect(r.first.title, 'Ærfugløya');
+    });
+
+    test('drops anonymous (nameless) entries instead of rendering blanks',
+        () async {
+      final client = MockClient((_) async {
+        return http.Response(
+          jsonEncode({
+            'navn': [
+              {
+                // Real, named result.
+                'skrivemåte': 'Oslo',
+                'navneobjekttype': 'By',
+                'representasjonspunkt': {'nord': 59.913, 'øst': 10.752},
+                'kommuner': const [],
+                'fylker': const [],
+                'stedsnummer': 1,
+                'stedstatus': 'aktiv',
+                'språk': 'nor',
+              },
+              {
+                // Nameless — must be filtered out.
+                'navneobjekttype': 'Haug',
+                'representasjonspunkt': {'nord': 60.0, 'øst': 11.0},
+                'kommuner': const [],
+                'fylker': const [],
+                'stedsnummer': 2,
+                'stedstatus': 'aktiv',
+                'språk': 'nor',
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final service = StedsnavnSearchBackend(client: client);
+
+      final r = await service.findLocationsBy('x');
+      expect(r, hasLength(1));
+      expect(r.first.title, 'Oslo');
     });
   });
 }

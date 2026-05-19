@@ -1,46 +1,64 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
-import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/search/api.dart';
+import 'package:turbo/features/weather/api.dart';
+
+import '../../helpers/pump_app.dart';
+import '../../helpers/test_weather_fetcher.dart';
 
 class _Callbacks {
+  String? lastCreatePrefill;
   int create = 0, measure = 0, navigate = 0, stop = 0;
 }
 
-Future<_Callbacks> _open(WidgetTester tester, {bool isNavigating = false}) async {
+class _StubGeocoder implements ReverseGeocoder {
+  _StubGeocoder({this.description});
+  final LocationDescription? description;
+
+  @override
+  Future<LocationDescription?> describe(LatLng coord) async => description;
+}
+
+Future<_Callbacks> _open(
+  WidgetTester tester, {
+  bool isNavigating = false,
+  LocationDescription? description,
+}) async {
   final cbs = _Callbacks();
-  await tester.pumpWidget(
-    MaterialApp(
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(
-        body: Builder(
-          builder: (ctx) => Center(
-            child: ElevatedButton(
-              child: const Text('open'),
-              onPressed: () => showModalBottomSheet(
-                context: ctx,
-                builder: (_) => PinOptionsSheet(
-                  isNavigating: isNavigating,
-                  onCreateMarker: () => cbs.create++,
-                  onMeasure: () => cbs.measure++,
-                  onNavigate: () => cbs.navigate++,
-                  onStopNavigation: () => cbs.stop++,
-                ),
-              ),
+  await pumpTestApp(
+    tester,
+    Builder(
+      builder: (ctx) => Center(
+        child: ElevatedButton(
+          child: const Text('open'),
+          onPressed: () => showModalBottomSheet(
+            context: ctx,
+            isScrollControlled: true,
+            useSafeArea: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => PinOptionsSheet(
+              point: const LatLng(60.39, 5.32),
+              isNavigating: isNavigating,
+              onCreateMarker: (name) {
+                cbs.create++;
+                cbs.lastCreatePrefill = name;
+              },
+              onMeasure: () => cbs.measure++,
+              onNavigate: () => cbs.navigate++,
+              onStopNavigation: () => cbs.stop++,
             ),
           ),
         ),
       ),
     ),
+    overrides: [
+      reverseGeocoderProvider
+          .overrideWith((ref) => _StubGeocoder(description: description)),
+      weatherFetcherProvider.overrideWith((ref) => buildTestWeatherFetcher()),
+    ],
   );
-  await tester.pumpAndSettle();
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
   return cbs;
@@ -48,12 +66,23 @@ Future<_Callbacks> _open(WidgetTester tester, {bool isNavigating = false}) async
 
 void main() {
   group('PinOptionsSheet', () {
-    testWidgets('shows the three action rows with localized labels',
+    testWidgets('shows the three action rows by default (no tabs)',
         (tester) async {
       await _open(tester);
       expect(find.text('Create New Marker Here'), findsOneWidget);
       expect(find.text('Measure Distance From Here'), findsOneWidget);
       expect(find.text('Navigate Here'), findsOneWidget);
+      // No Info/Weather tab bar.
+      expect(find.byKey(const Key('pin-tab-info')), findsNothing);
+      expect(find.byKey(const Key('pin-tab-weather')), findsNothing);
+    });
+
+    testWidgets('renders the weather summary surface that opens the forecast',
+        (tester) async {
+      await _open(tester);
+      // The weather summary widget is embedded as a button surface.
+      expect(find.byKey(const Key('pin-sheet-weather-surface')),
+          findsOneWidget);
     });
 
     testWidgets('when navigation is active, the third row reads "Stop"',
@@ -74,6 +103,44 @@ void main() {
       expect(cbs.navigate, 0);
       expect(cbs.stop, 0);
       expect(find.byType(PinOptionsSheet), findsNothing);
+    });
+
+    testWidgets('header shows resolved title with qualifier prefix',
+        (tester) async {
+      await _open(
+        tester,
+        description: const LocationDescription(
+          title: 'Galdhøpiggen',
+          qualifier: LocationQualifier.on,
+          secondary: 'Lom, Innlandet',
+          distanceMeters: 24,
+        ),
+      );
+      await tester.pumpAndSettle();
+      // English locale → "On Galdhøpiggen"
+      expect(find.text('On Galdhøpiggen'), findsOneWidget);
+    });
+
+    testWidgets('header falls back to a friendly "Selected location" label '
+        'when reverse-geo returns null', (tester) async {
+      await _open(tester);
+      // Header never reads "Unknown" — either resolving or selected-location.
+      expect(find.text('Selected location'), findsOneWidget);
+    });
+
+    testWidgets('create marker passes resolved title as prefill',
+        (tester) async {
+      final cbs = await _open(
+        tester,
+        description: const LocationDescription(
+          title: 'Bryggen',
+          qualifier: LocationQualifier.inArea,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create New Marker Here'));
+      await tester.pumpAndSettle();
+      expect(cbs.lastCreatePrefill, 'Bryggen');
     });
 
     testWidgets('tapping Measure pops sheet and fires onMeasure',
