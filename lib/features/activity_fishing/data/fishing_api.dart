@@ -2,6 +2,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/core/api/api_client.dart';
 import '../models/fishing_activity.dart';
+import '../models/fishing_conditions_report.dart';
 import '../models/fishing_details.dart';
 
 /// HTTP client for the typed fishing kind endpoints under
@@ -65,5 +66,17 @@ class FishingApi {
     if (r.statusCode != 204) {
       throw Exception('Failed to delete fishing activity $id: ${r.statusCode}');
     }
+  }
+
+  /// Fetches the typed conditions report for one spot. [at] is
+  /// optional; the server defaults to now when omitted.
+  Future<FishingConditionsReport> getConditions(String id, {DateTime? at}) async {
+    final query = <String, dynamic>{};
+    if (at != null) query['at'] = at.toUtc().toIso8601String();
+    final r = await _client.get('/api/activities/fishing/$id/conditions', queryParameters: query);
+    if (r.statusCode != 200) {
+      throw Exception('Failed to fetch conditions for $id: ${r.statusCode}');
+    }
+    return FishingConditionsReport.fromJson(r.data as Map<String, dynamic>);
   }
 }

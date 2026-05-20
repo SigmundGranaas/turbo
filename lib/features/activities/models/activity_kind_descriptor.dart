@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'activity_geometry.dart';
 import 'activity_summary.dart';
 
@@ -20,9 +21,16 @@ class ActivityKindDescriptor {
   /// Build the detail screen for an existing activity of this kind.
   final Widget Function(BuildContext ctx, String activityId) buildDetailScreen;
 
-  /// Build the on-map representation for a summary of this kind. May be
-  /// null if the kind doesn't surface anything map-side.
+  /// Build the on-map marker for a summary of this kind. Point-geometry
+  /// kinds always supply one; LineString / Polygon kinds use it to drop
+  /// a start-pin alongside the polyline.
   final Widget Function(ActivitySummary summary)? buildMapMarker;
+
+  /// Build a flutter_map [Polyline] for a route-shaped summary. Returns
+  /// null when the kind has no polyline representation (e.g. point
+  /// kinds). The shell collects polylines across all kinds and renders
+  /// them in one [PolylineLayer] sitting below the marker layer.
+  final Polyline Function(ActivitySummary summary)? buildMapPolyline;
 
   const ActivityKindDescriptor({
     required this.key,
@@ -33,5 +41,6 @@ class ActivityKindDescriptor {
     required this.buildCreateScreen,
     required this.buildDetailScreen,
     this.buildMapMarker,
+    this.buildMapPolyline,
   });
 }

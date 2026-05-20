@@ -6,6 +6,7 @@ import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/auth/api.dart';
 
 import '../models/fishing_activity.dart';
+import '../models/fishing_conditions_report.dart';
 import '../models/fishing_details.dart';
 import 'fishing_api.dart';
 
@@ -20,6 +21,13 @@ final fishingActivityProvider =
     FutureProvider.family<FishingActivity, String>((ref, id) async {
   final api = ref.watch(fishingApiProvider);
   return api.getById(id);
+});
+
+/// Conditions provider — re-fetched on demand (refresh by invalidating).
+/// Server caches upstream calls so frequent reloads stay cheap.
+final fishingConditionsProvider =
+    FutureProvider.family<FishingConditionsReport, String>((ref, id) async {
+  return ref.watch(fishingApiProvider).getConditions(id);
 });
 
 /// Imperative facade for the fishing kind. Wraps the typed API service

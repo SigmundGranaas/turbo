@@ -8,8 +8,10 @@ import '../models/activity_summary.dart';
 
 /// Renders cross-kind activity summaries on the map. For each summary,
 /// looks up the registered kind descriptor and asks it for a marker
-/// widget — composition rather than a hardcoded switch. Falls back to a
-/// generic pin if a kind has no `buildMapMarker`.
+/// and/or polyline — composition rather than a hardcoded switch. Falls
+/// back to a generic pin if a kind has no `buildMapMarker`. Returns a
+/// [Stack] containing first the polyline layer (so routes sit
+/// underneath) and then the marker layer (start-pins on top).
 class ActivitiesMapLayer extends ConsumerWidget {
   const ActivitiesMapLayer({super.key});
 
@@ -20,10 +22,19 @@ class ActivitiesMapLayer extends ConsumerWidget {
     final summaries = summariesAsync.value ?? const {};
 
     final markers = <Marker>[];
+    final polylines = <Polyline>[];
+
     for (final s in summaries.values) {
+      final descriptor = registry.get(s.kind);
+
+      // Polyline first — only if the kind opts in. Point kinds skip.
+      final polyline = descriptor?.buildMapPolyline?.call(s);
+      if (polyline != null) polylines.add(polyline);
+
+      // Marker — fall back to a generic pin if the kind didn't supply
+      // one but did produce coordinates we can pin (e.g. polyline start).
       final pos = s.geometry.firstPoint;
       if (pos == null) continue;
-      final descriptor = registry.get(s.kind);
       markers.add(Marker(
         point: pos,
         width: 40,
@@ -33,7 +44,11 @@ class ActivitiesMapLayer extends ConsumerWidget {
             : _DefaultMarker(summary: s, color: _parseHex(s.colorHex)),
       ));
     }
-    return MarkerLayer(markers: markers);
+
+    return Stack(children: [
+      if (polylines.isNotEmpty) PolylineLayer(polylines: polylines),
+      MarkerLayer(markers: markers),
+    ]);
   }
 
   static Color _parseHex(String? hex) {

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/fishing_repository.dart';
 import '../models/fishing_details.dart';
+import 'fishing_conditions_panel.dart';
 
 /// Read-only detail surface for a fishing activity. The typed model
 /// drives the layout — no string-keyed map lookups.
@@ -52,7 +53,8 @@ class FishingDetailSheet extends ConsumerWidget {
                   (s) => Text('• ${s.speciesCode}${s.notes != null ? " — ${s.notes}" : ""}'),
                 ),
               ],
-              const SizedBox(height: 16),
+              FishingConditionsPanel(activityId: a.id),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   TextButton.icon(
