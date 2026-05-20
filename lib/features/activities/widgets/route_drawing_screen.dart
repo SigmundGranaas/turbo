@@ -1,0 +1,265 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
+
+import 'package:turbo/features/map_view/api.dart' show MapBase;
+import 'package:turbo/features/tile_providers/api.dart' show activeTileLayersProvider;
+
+/// Full-screen route drawing surface. Tap to add a vertex; long-press
+/// to remove the nearest vertex; the floating action bar exposes undo,
+/// clear, and save. On save the widget pops the route as a
+/// `List<LatLng>`; on cancel it pops `null`. The drawn polyline is
+/// live-rendered so the user sees the route grow as they tap.
+///
+/// This widget lives in the activities shell so any kind's create
+/// screen can launch it. Pure composition: no kind-specific knowledge
+/// here — the caller decides what to do with the drawn route.
+class RouteDrawingScreen extends ConsumerStatefulWidget {
+  /// Initial center for the map; usually the long-press point that
+  /// kicked off the create flow.
+  final LatLng seedCenter;
+
+  /// Optional pre-existing route to edit (vs draw from scratch).
+  final List<LatLng>? initialRoute;
+
+  /// Color hint for the polyline being drawn. Defaults to the
+  /// theme's primary color.
+  final Color? color;
+
+  const RouteDrawingScreen({
+    super.key,
+    required this.seedCenter,
+    this.initialRoute,
+    this.color,
+  });
+
+  @override
+  ConsumerState<RouteDrawingScreen> createState() => _RouteDrawingScreenState();
+}
+
+class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
+  final MapController _map = MapController();
+  late List<LatLng> _vertices;
+
+  @override
+  void initState() {
+    super.initState();
+    _vertices = List<LatLng>.from(widget.initialRoute ?? const []);
+  }
+
+  void _addVertex(LatLng p) => setState(() => _vertices.add(p));
+
+  void _removeNearest(LatLng p) {
+    if (_vertices.isEmpty) return;
+    final dist = const Distance();
+    var bestIdx = 0;
+    var bestDist = double.infinity;
+    for (var i = 0; i < _vertices.length; i++) {
+      final d = dist.as(LengthUnit.Meter, _vertices[i], p);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    // Only remove if the tap was reasonably close to a vertex (within
+    // the visible click target — 50m at high zoom is generous).
+    if (bestDist < 200) {
+      setState(() => _vertices.removeAt(bestIdx));
+    }
+  }
+
+  void _undo() {
+    if (_vertices.isEmpty) return;
+    setState(() => _vertices.removeLast());
+  }
+
+  void _clear() => setState(() => _vertices.clear());
+
+  void _save() {
+    if (_vertices.length < 2) return;
+    Navigator.of(context).pop<List<LatLng>>(List<LatLng>.unmodifiable(_vertices));
+  }
+
+  double _totalDistanceMeters() {
+    if (_vertices.length < 2) return 0;
+    final dist = const Distance();
+    var sum = 0.0;
+    for (var i = 1; i < _vertices.length; i++) {
+      sum += dist.as(LengthUnit.Meter, _vertices[i - 1], _vertices[i]);
+    }
+    return sum;
+  }
+
+  String _formatDistance(double m) {
+    if (m < 1000) return '${m.round()} m';
+    return '${(m / 1000).toStringAsFixed(2)} km';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tileLayers = ref.watch(activeTileLayersProvider);
+    final color = widget.color ?? Theme.of(context).colorScheme.primary;
+
+    final layers = <Widget>[
+      ...tileLayers,
+      if (_vertices.length >= 2)
+        PolylineLayer(polylines: [
+          Polyline(
+            points: _vertices,
+            color: color.withValues(alpha: 0.85),
+            strokeWidth: 4.5,
+            strokeCap: StrokeCap.round,
+            strokeJoin: StrokeJoin.round,
+          ),
+        ]),
+      MarkerLayer(markers: [
+        for (var i = 0; i < _vertices.length; i++)
+          Marker(
+            point: _vertices[i],
+            width: 22,
+            height: 22,
+            child: _VertexDot(
+              index: i,
+              isStart: i == 0,
+              isEnd: i == _vertices.length - 1 && _vertices.length > 1,
+              color: color,
+            ),
+          ),
+      ]),
+    ];
+
+    final distance = _totalDistanceMeters();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Draw route'),
+        actions: [
+          IconButton(
+            tooltip: 'Undo last vertex',
+            icon: const Icon(Icons.undo),
+            onPressed: _vertices.isEmpty ? null : _undo,
+          ),
+          IconButton(
+            tooltip: 'Clear all vertices',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: _vertices.isEmpty ? null : _clear,
+          ),
+        ],
+      ),
+      body: Stack(children: [
+        MapBase(
+          mapController: _map,
+          mapLayers: layers,
+          overlayWidgets: const [],
+          initialCenter: widget.seedCenter,
+          initialZoom: 13,
+          onTap: (_, p) => _addVertex(p),
+          onLongPress: (_, p) => _removeNearest(p),
+        ),
+        Positioned(
+          top: 12,
+          left: 12,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1)),
+              ],
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.timeline_outlined, size: 18, color: color),
+              const SizedBox(width: 6),
+              Text('${_vertices.length} pts · ${_formatDistance(distance)}',
+                style: Theme.of(context).textTheme.labelLarge),
+            ]),
+          ),
+        ),
+        Positioned(
+          left: 12,
+          right: 12,
+          bottom: 16,
+          child: Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(children: [
+                Expanded(child: Text(
+                  _vertices.isEmpty
+                    ? 'Tap the map to add vertices. Long-press a dot to remove it.'
+                    : _vertices.length == 1
+                      ? 'Add at least one more vertex.'
+                      : 'Tap to extend the route, long-press a dot to remove.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                )),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop<List<LatLng>>(null),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  onPressed: _vertices.length >= 2 ? _save : null,
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Use route'),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _VertexDot extends StatelessWidget {
+  final int index;
+  final bool isStart;
+  final bool isEnd;
+  final Color color;
+  const _VertexDot({
+    required this.index,
+    required this.isStart,
+    required this.isEnd,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = isStart
+        ? Colors.green
+        : isEnd
+            ? Colors.red.shade400
+            : color;
+    return Container(
+      decoration: BoxDecoration(
+        color: fill,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 2, offset: const Offset(0, 1)),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          '${index + 1}',
+          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+}
+
+/// Helper for callers needing the haversine distance of the drawn
+/// route. Public so kind create screens can prefill stats without
+/// re-importing latlong2's [Distance].
+double routeDistanceMeters(List<LatLng> points) {
+  if (points.length < 2) return 0;
+  const dist = Distance();
+  var sum = 0.0;
+  for (var i = 1; i < points.length; i++) {
+    sum += dist.as(LengthUnit.Meter, points[i - 1], points[i]);
+  }
+  return sum;
+}

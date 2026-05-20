@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'packrafting_conditions_panel.dart';
+
 import '../data/packrafting_repository.dart';
 import '../models/packrafting_details.dart';
 
@@ -40,7 +42,8 @@ class PackraftingDetailSheet extends ConsumerWidget {
               '${e.value.grade != null ? " (${_g(e.value.grade!)})" : ""}'
               ' — ${e.value.distanceMeters} m')),
           ],
-          const SizedBox(height: 16),
+          PackraftingConditionsPanel(activityId: a.id),
+          const SizedBox(height: 8),
           Row(children: [
             TextButton.icon(onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.close), label: const Text('Close')),

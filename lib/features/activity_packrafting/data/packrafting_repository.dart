@@ -6,6 +6,7 @@ import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/auth/api.dart';
 
 import '../models/packrafting_activity.dart';
+import '../models/packrafting_conditions_report.dart';
 import '../models/packrafting_details.dart';
 import 'packrafting_api.dart';
 
@@ -16,6 +17,11 @@ final packraftingApiProvider = Provider<PackraftingApi>((ref) {
 final packraftingActivityProvider =
     FutureProvider.family<PackraftingActivity, String>((ref, id) async {
   return ref.watch(packraftingApiProvider).getById(id);
+});
+
+final packraftingConditionsProvider =
+    FutureProvider.family<PackraftingConditionsReport, String>((ref, id) async {
+  return ref.watch(packraftingApiProvider).getConditions(id);
 });
 
 final packraftingRepositoryProvider = Provider<PackraftingRepository>((ref) => PackraftingRepository(ref));

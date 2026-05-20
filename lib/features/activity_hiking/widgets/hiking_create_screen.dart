@@ -41,7 +41,30 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
   }
 
   LatLng get _seed => widget.seedGeometry.firstPoint ?? const LatLng(0, 0);
-  List<LatLng> get _route => [_seed, LatLng(_seed.latitude, _seed.longitude + 0.001)];
+  List<LatLng>? _drawnRoute;
+  List<LatLng> get _route =>
+      _drawnRoute ?? [_seed, LatLng(_seed.latitude, _seed.longitude + 0.001)];
+
+  Future<void> _drawRoute() async {
+    final route = await Navigator.of(context).push<List<LatLng>>(
+      MaterialPageRoute(
+        builder: (ctx) => RouteDrawingScreen(
+          seedCenter: _seed,
+          initialRoute: _drawnRoute,
+          color: const Color(0xFF2E7D32),
+        ),
+      ),
+    );
+    if (route != null && route.length >= 2) {
+      setState(() {
+        _drawnRoute = route;
+        // Prefill distance from the drawn route so the user doesn't
+        // type a number that contradicts what's on the map.
+        final m = routeDistanceMeters(route).round();
+        _distance.text = m.toString();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -111,6 +134,14 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
                 title: const Text('Water sources along trail'), contentPadding: EdgeInsets.zero),
               SwitchListTile(value: _shelter, onChanged: (v) => setState(() => _shelter = v),
                 title: const Text('Shelter or hut on route'), contentPadding: EdgeInsets.zero),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: _saving ? null : _drawRoute,
+                icon: const Icon(Icons.timeline_outlined),
+                label: Text(_drawnRoute == null
+                    ? 'Draw route on map'
+                    : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
+              ),
               const SizedBox(height: 24),
               FilledButton.icon(
                 onPressed: _saving ? null : _save,

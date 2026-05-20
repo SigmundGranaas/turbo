@@ -48,9 +48,28 @@ class _BackcountrySkiCreateScreenState
 
   LatLng get _seed => widget.seedGeometry.firstPoint ?? const LatLng(0, 0);
 
-  /// Minimal synthetic route until interactive drawing lands. A second
-  /// point ~50m east keeps the geometry a valid LineString.
-  List<LatLng> get _route => [
+  List<LatLng>? _drawnRoute;
+
+  Future<void> _drawRoute() async {
+    final route = await Navigator.of(context).push<List<LatLng>>(
+      MaterialPageRoute(
+        builder: (ctx) => RouteDrawingScreen(
+          seedCenter: _seed,
+          initialRoute: _drawnRoute,
+          color: const Color(0xFF7A3CCB),
+        ),
+      ),
+    );
+    if (route != null && route.length >= 2) {
+      setState(() => _drawnRoute = route);
+    }
+  }
+
+  /// Drawn route when the user has tapped one out; otherwise a minimal
+  /// 1-segment synthetic placeholder. The aggregate validates that the
+  /// stored details (distance, ascent, etc.) are non-negative; nothing
+  /// requires them to match the geometry.
+  List<LatLng> get _route => _drawnRoute ?? [
         _seed,
         LatLng(_seed.latitude, _seed.longitude + 0.0005),
       ];
@@ -135,6 +154,14 @@ class _BackcountrySkiCreateScreenState
                   '${_seed.longitude.toStringAsFixed(5)}',
                 ),
                 contentPadding: EdgeInsets.zero,
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _saving ? null : _drawRoute,
+                icon: const Icon(Icons.timeline_outlined),
+                label: Text(_drawnRoute == null
+                    ? 'Draw route on map'
+                    : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
               ),
               const SizedBox(height: 24),
               FilledButton.icon(

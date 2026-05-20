@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/hiking_repository.dart';
+import 'hiking_conditions_panel.dart';
 
 class HikingDetailSheet extends ConsumerWidget {
   final String activityId;
@@ -41,7 +42,8 @@ class HikingDetailSheet extends ConsumerWidget {
             ...a.details.waterSources.map((w) =>
               Text('• ${w.kind}${w.notes != null ? " — ${w.notes}" : ""}')),
           ],
-          const SizedBox(height: 16),
+          HikingConditionsPanel(activityId: a.id),
+          const SizedBox(height: 8),
           Row(children: [
             TextButton.icon(onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.close), label: const Text('Close')),

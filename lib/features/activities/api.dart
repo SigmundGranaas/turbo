@@ -16,3 +16,5 @@ export 'data/activity_summaries_api.dart'
     show ActivitySummariesApi, ActivitySummariesResponse, ActivitySummariesDelta;
 export 'widgets/activity_create_picker.dart' show ActivityCreatePicker;
 export 'widgets/activities_map_layer.dart' show ActivitiesMapLayer;
+export 'widgets/route_drawing_screen.dart'
+    show RouteDrawingScreen, routeDistanceMeters;

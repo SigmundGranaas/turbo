@@ -6,6 +6,7 @@ import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/auth/api.dart';
 
 import '../models/freediving_activity.dart';
+import '../models/freediving_conditions_report.dart';
 import '../models/freediving_details.dart';
 import 'freediving_api.dart';
 
@@ -16,6 +17,11 @@ final freedivingApiProvider = Provider<FreedivingApi>((ref) {
 final freedivingActivityProvider =
     FutureProvider.family<FreedivingActivity, String>((ref, id) async {
   return ref.watch(freedivingApiProvider).getById(id);
+});
+
+final freedivingConditionsProvider =
+    FutureProvider.family<FreedivingConditionsReport, String>((ref, id) async {
+  return ref.watch(freedivingApiProvider).getConditions(id);
 });
 
 final freedivingRepositoryProvider = Provider<FreedivingRepository>((ref) => FreedivingRepository(ref));

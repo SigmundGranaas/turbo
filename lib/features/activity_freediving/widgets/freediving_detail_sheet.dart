@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/freediving_repository.dart';
+import 'freediving_conditions_panel.dart';
 
 class FreedivingDetailSheet extends ConsumerWidget {
   final String activityId;
@@ -39,7 +40,8 @@ class FreedivingDetailSheet extends ConsumerWidget {
             ...a.details.targetSpecies.map((t) =>
               Text('• ${t.speciesCode}${t.notes != null ? " — ${t.notes}" : ""}')),
           ],
-          const SizedBox(height: 16),
+          FreedivingConditionsPanel(activityId: a.id),
+          const SizedBox(height: 8),
           Row(children: [
             TextButton.icon(onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.close), label: const Text('Close')),

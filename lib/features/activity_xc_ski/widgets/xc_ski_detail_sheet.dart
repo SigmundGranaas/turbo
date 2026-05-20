@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/xc_ski_repository.dart';
+import 'xc_ski_conditions_panel.dart';
 
 class XcSkiDetailSheet extends ConsumerWidget {
   final String activityId;
@@ -29,7 +30,8 @@ class XcSkiDetailSheet extends ConsumerWidget {
           _row('Grooming', a.details.groomingStatus.name),
           if (a.details.isLit) _row('Lit', 'Yes'),
           if (a.details.requiresSeasonPass) _row('Season pass', 'Required'),
-          const SizedBox(height: 16),
+          XcSkiConditionsPanel(activityId: a.id),
+          const SizedBox(height: 8),
           Row(children: [
             TextButton.icon(onPressed: () => Navigator.of(context).pop(),
               icon: const Icon(Icons.close), label: const Text('Close')),

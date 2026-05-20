@@ -2,6 +2,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/core/api/api_client.dart';
 import '../models/hiking_activity.dart';
+import '../models/hiking_conditions_report.dart';
 import '../models/hiking_details.dart';
 
 class HikingApi {
@@ -51,6 +52,16 @@ class HikingApi {
   Future<void> delete(String id) async {
     final r = await _client.delete('/api/activities/hiking/$id');
     if (r.statusCode != 204) throw Exception('Failed to delete hiking activity $id: ${r.statusCode}');
+  }
+
+  Future<HikingConditionsReport> getConditions(String id, {DateTime? at}) async {
+    final query = <String, dynamic>{};
+    if (at != null) query['at'] = at.toUtc().toIso8601String();
+    final r = await _client.get('/api/activities/hiking/$id/conditions', queryParameters: query);
+    if (r.statusCode != 200) {
+      throw Exception('Failed to fetch conditions for $id: ${r.statusCode}');
+    }
+    return HikingConditionsReport.fromJson(r.data as Map<String, dynamic>);
   }
 
   static String _wkt(List<LatLng> points) {

@@ -6,6 +6,7 @@ import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/auth/api.dart';
 
 import '../models/xc_ski_activity.dart';
+import '../models/xc_ski_conditions_report.dart';
 import '../models/xc_ski_details.dart';
 import 'xc_ski_api.dart';
 
@@ -16,6 +17,11 @@ final xcSkiApiProvider = Provider<XcSkiApi>((ref) {
 
 final xcSkiActivityProvider = FutureProvider.family<XcSkiActivity, String>((ref, id) async {
   return ref.watch(xcSkiApiProvider).getById(id);
+});
+
+final xcSkiConditionsProvider =
+    FutureProvider.family<XcSkiConditionsReport, String>((ref, id) async {
+  return ref.watch(xcSkiApiProvider).getConditions(id);
 });
 
 final xcSkiRepositoryProvider = Provider<XcSkiRepository>((ref) => XcSkiRepository(ref));

@@ -38,7 +38,27 @@ class _PackraftingCreateScreenState extends ConsumerState<PackraftingCreateScree
   }
 
   LatLng get _seed => widget.seedGeometry.firstPoint ?? const LatLng(0, 0);
-  List<LatLng> get _route => [_seed, LatLng(_seed.latitude, _seed.longitude + 0.001)];
+  List<LatLng>? _drawnRoute;
+  List<LatLng> get _route =>
+      _drawnRoute ?? [_seed, LatLng(_seed.latitude, _seed.longitude + 0.001)];
+
+  Future<void> _drawRoute() async {
+    final route = await Navigator.of(context).push<List<LatLng>>(
+      MaterialPageRoute(
+        builder: (ctx) => RouteDrawingScreen(
+          seedCenter: _seed,
+          initialRoute: _drawnRoute,
+          color: const Color(0xFFEF6C00),
+        ),
+      ),
+    );
+    if (route != null && route.length >= 2) {
+      setState(() {
+        _drawnRoute = route;
+        _distance.text = routeDistanceMeters(route).round().toString();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +108,14 @@ class _PackraftingCreateScreenState extends ConsumerState<PackraftingCreateScree
             const SizedBox(width: 8),
             Expanded(child: _num(_maxFlow, 'Max flow m³/s', required: false)),
           ]),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: _saving ? null : _drawRoute,
+            icon: const Icon(Icons.timeline_outlined),
+            label: Text(_drawnRoute == null
+                ? 'Draw river course on map'
+                : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
+          ),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: _saving ? null : _save,

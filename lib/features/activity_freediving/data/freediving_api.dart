@@ -2,6 +2,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/core/api/api_client.dart';
 import '../models/freediving_activity.dart';
+import '../models/freediving_conditions_report.dart';
 import '../models/freediving_details.dart';
 
 class FreedivingApi {
@@ -44,5 +45,13 @@ class FreedivingApi {
   Future<void> delete(String id) async {
     final r = await _client.delete('/api/activities/freediving/$id');
     if (r.statusCode != 204) throw Exception('Failed to delete freediving activity $id: ${r.statusCode}');
+  }
+
+  Future<FreedivingConditionsReport> getConditions(String id, {DateTime? at}) async {
+    final query = <String, dynamic>{};
+    if (at != null) query['at'] = at.toUtc().toIso8601String();
+    final r = await _client.get('/api/activities/freediving/$id/conditions', queryParameters: query);
+    if (r.statusCode != 200) throw Exception('Failed to fetch conditions for $id: ${r.statusCode}');
+    return FreedivingConditionsReport.fromJson(r.data as Map<String, dynamic>);
   }
 }

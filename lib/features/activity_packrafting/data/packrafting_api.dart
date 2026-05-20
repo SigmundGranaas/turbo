@@ -2,6 +2,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/core/api/api_client.dart';
 import '../models/packrafting_activity.dart';
+import '../models/packrafting_conditions_report.dart';
 import '../models/packrafting_details.dart';
 
 class PackraftingApi {
@@ -43,6 +44,14 @@ class PackraftingApi {
   Future<void> delete(String id) async {
     final r = await _client.delete('/api/activities/packrafting/$id');
     if (r.statusCode != 204) throw Exception('Failed to delete packrafting activity $id: ${r.statusCode}');
+  }
+
+  Future<PackraftingConditionsReport> getConditions(String id, {DateTime? at}) async {
+    final query = <String, dynamic>{};
+    if (at != null) query['at'] = at.toUtc().toIso8601String();
+    final r = await _client.get('/api/activities/packrafting/$id/conditions', queryParameters: query);
+    if (r.statusCode != 200) throw Exception('Failed to fetch conditions for $id: ${r.statusCode}');
+    return PackraftingConditionsReport.fromJson(r.data as Map<String, dynamic>);
   }
 
   static String _wkt(List<LatLng> points) {

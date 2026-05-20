@@ -6,6 +6,7 @@ import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/auth/api.dart';
 
 import '../models/hiking_activity.dart';
+import '../models/hiking_conditions_report.dart';
 import '../models/hiking_details.dart';
 import 'hiking_api.dart';
 
@@ -17,6 +18,11 @@ final hikingApiProvider = Provider<HikingApi>((ref) {
 final hikingActivityProvider =
     FutureProvider.family<HikingActivity, String>((ref, id) async {
   return ref.watch(hikingApiProvider).getById(id);
+});
+
+final hikingConditionsProvider =
+    FutureProvider.family<HikingConditionsReport, String>((ref, id) async {
+  return ref.watch(hikingApiProvider).getConditions(id);
 });
 
 final hikingRepositoryProvider = Provider<HikingRepository>((ref) => HikingRepository(ref));
