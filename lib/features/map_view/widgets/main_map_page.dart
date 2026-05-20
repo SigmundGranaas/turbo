@@ -407,7 +407,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (sheetCtx) => activities.ActivityCreatePicker(seedLocation: point),
+      builder: (sheetCtx) => activities.ActivityCreatePicker.fromPoint(point),
     );
   }
 

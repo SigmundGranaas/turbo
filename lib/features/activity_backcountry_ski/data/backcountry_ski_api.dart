@@ -2,6 +2,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/core/api/api_client.dart';
 import '../models/backcountry_ski_activity.dart';
+import '../models/backcountry_ski_conditions_report.dart';
 import '../models/backcountry_ski_details.dart';
 
 /// HTTP client for /api/activities/backcountry-ski/*. Exchanges typed
@@ -61,6 +62,18 @@ class BackcountrySkiApi {
     if (r.statusCode != 204) {
       throw Exception('Failed to delete backcountry ski activity $id: ${r.statusCode}');
     }
+  }
+
+  /// Fetch the typed conditions report. Server caches upstream calls;
+  /// frequent reloads stay cheap.
+  Future<BackcountrySkiConditionsReport> getConditions(String id, {DateTime? at}) async {
+    final query = <String, dynamic>{};
+    if (at != null) query['at'] = at.toUtc().toIso8601String();
+    final r = await _client.get('/api/activities/backcountry-ski/$id/conditions', queryParameters: query);
+    if (r.statusCode != 200) {
+      throw Exception('Failed to fetch conditions for $id: ${r.statusCode}');
+    }
+    return BackcountrySkiConditionsReport.fromJson(r.data as Map<String, dynamic>);
   }
 
   static String _toWkt(List<LatLng> points) {

@@ -6,6 +6,7 @@ import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/auth/api.dart';
 
 import '../models/backcountry_ski_activity.dart';
+import '../models/backcountry_ski_conditions_report.dart';
 import '../models/backcountry_ski_details.dart';
 import 'backcountry_ski_api.dart';
 
@@ -18,6 +19,12 @@ final backcountrySkiActivityProvider =
     FutureProvider.family<BackcountrySkiActivity, String>((ref, id) async {
   final api = ref.watch(backcountrySkiApiProvider);
   return api.getById(id);
+});
+
+/// Conditions provider — re-fetched on demand (refresh by invalidating).
+final backcountrySkiConditionsProvider =
+    FutureProvider.family<BackcountrySkiConditionsReport, String>((ref, id) async {
+  return ref.watch(backcountrySkiApiProvider).getConditions(id);
 });
 
 final backcountrySkiRepositoryProvider = Provider<BackcountrySkiRepository>((ref) {

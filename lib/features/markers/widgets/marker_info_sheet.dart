@@ -8,6 +8,7 @@ import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/saved_paths/api.dart' show hexToColor;
@@ -161,6 +162,12 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
                 onTap: _openExport,
               ),
               ActionButton(
+                // TODO(i18n): add l10n.saveAsActivity
+                icon: Icons.outdoor_grill_outlined,
+                label: 'Activity',
+                onTap: _promoteToActivity,
+              ),
+              ActionButton(
                 icon: Icons.delete_outline,
                 label: l10n.delete,
                 onTap: _isDeleting ? null : _confirmDelete,
@@ -170,6 +177,23 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
         ],
       ),
       ),
+    );
+  }
+
+  /// Hand the marker's point to the activity kind picker (filtered to
+  /// point-based kinds). The user picks fishing / freediving / ..., fills
+  /// in kind-specific details, and a new typed activity is created at
+  /// the marker's location. The marker itself is left in place.
+  void _promoteToActivity() {
+    final seed = activities.ActivityGeometry.fromServer(
+      wkt: activities.ActivityGeometry.pointWkt(_marker.position),
+      geometryKind: 'POINT',
+    );
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetCtx) => activities.ActivityCreatePicker(seedGeometry: seed),
     );
   }
 

@@ -4,6 +4,7 @@ import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/app_text_field.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/settings/api.dart';
 import '../models/saved_path.dart';
 import '../models/path_style.dart';
@@ -133,9 +134,37 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
               isLoading: _isLoading,
               fullWidth: true,
             ),
+            const SizedBox(height: 8),
+            // Track promotion: hand this recorded route to the activity
+            // kind picker (filtered to LineString kinds). The user picks
+            // hiking / xc_ski / packrafting / backcountry_ski, fills in
+            // kind-specific details, and a new typed activity is created
+            // sharing this track's geometry.
+            // TODO(i18n): add l10n.saveAsActivity
+            TextButton.icon(
+              onPressed: _isLoading ? null : _promoteToActivity,
+              icon: const Icon(Icons.outdoor_grill_outlined),
+              label: const Text('Save as activity'),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  void _promoteToActivity() {
+    final points = widget.path.points;
+    if (points.length < 2) return;
+    final wkt = 'LINESTRING(${points.map((p) => '${p.longitude} ${p.latitude}').join(', ')})';
+    final seed = activities.ActivityGeometry.fromServer(
+      wkt: wkt,
+      geometryKind: 'LINESTRING',
+    );
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetCtx) => activities.ActivityCreatePicker(seedGeometry: seed),
     );
   }
 

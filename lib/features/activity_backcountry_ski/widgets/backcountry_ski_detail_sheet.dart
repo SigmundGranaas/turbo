@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/backcountry_ski_repository.dart';
 import '../models/backcountry_ski_details.dart';
+import 'backcountry_ski_conditions_panel.dart';
 
 class BackcountrySkiDetailSheet extends ConsumerWidget {
   final String activityId;
@@ -62,7 +63,8 @@ class BackcountrySkiDetailSheet extends ConsumerWidget {
                           '(${e.value.startElevationMeters} → ${e.value.endElevationMeters} m)'),
                     ),
               ],
-              const SizedBox(height: 16),
+              BackcountrySkiConditionsPanel(activityId: a.id),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   TextButton.icon(
