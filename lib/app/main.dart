@@ -11,6 +11,12 @@ import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/activity_backcountry_ski/api.dart'
     as activity_backcountry_ski;
 import 'package:turbo/features/activity_fishing/api.dart' as activity_fishing;
+import 'package:turbo/features/activity_freediving/api.dart'
+    as activity_freediving;
+import 'package:turbo/features/activity_hiking/api.dart' as activity_hiking;
+import 'package:turbo/features/activity_packrafting/api.dart'
+    as activity_packrafting;
+import 'package:turbo/features/activity_xc_ski/api.dart' as activity_xc_ski;
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/sharing/api.dart';
@@ -27,6 +33,10 @@ void main() {
   final activityKinds = activities.ActivityKindRegistry([
     activity_fishing.fishingActivityKindDescriptor,
     activity_backcountry_ski.backcountrySkiActivityKindDescriptor,
+    activity_hiking.hikingActivityKindDescriptor,
+    activity_xc_ski.xcSkiActivityKindDescriptor,
+    activity_packrafting.packraftingActivityKindDescriptor,
+    activity_freediving.freedivingActivityKindDescriptor,
   ]);
 
   final container = ProviderContainer(
