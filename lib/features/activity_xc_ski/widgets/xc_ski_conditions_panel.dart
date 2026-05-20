@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/features/activities/api.dart' show ActivityConditionsMap;
+
 import '../data/xc_ski_repository.dart';
 import '../models/xc_ski_conditions_report.dart';
 
@@ -11,6 +13,7 @@ class XcSkiConditionsPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(xcSkiConditionsProvider(activityId));
+    final activityAsync = ref.watch(xcSkiActivityProvider(activityId));
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8),
       child: Padding(
@@ -34,7 +37,25 @@ class XcSkiConditionsPanel extends ConsumerWidget {
                 child: CircularProgressIndicator(strokeWidth: 2)))),
             error: (e, _) => Text('Conditions unavailable: $e',
               style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            data: (report) => _Body(report: report),
+            data: (report) {
+              final activity = activityAsync.value;
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (activity != null) ...[
+                  ActivityConditionsMap(
+                    points: activity.route,
+                    tintColor: const Color(0xFF00838F),
+                    airTemperatureCelsius: report.weather.airTemperatureCelsius,
+                    cloudCoveragePct: report.weather.cloudCoveragePct,
+                    windFromDegrees: report.weather.windFromDegrees,
+                    windSpeedMs: report.weather.windSpeedMs,
+                    precipitationNext1hMm: report.weather.precipitationNext1hMm,
+                    symbolCode: report.weather.symbolCode,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                _Body(report: report),
+              ]);
+            },
           ),
         ]),
       ),

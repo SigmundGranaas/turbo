@@ -18,3 +18,4 @@ export 'widgets/activity_create_picker.dart' show ActivityCreatePicker;
 export 'widgets/activities_map_layer.dart' show ActivitiesMapLayer;
 export 'widgets/route_drawing_screen.dart'
     show RouteDrawingScreen, routeDistanceMeters;
+export 'widgets/activity_conditions_map.dart' show ActivityConditionsMap;

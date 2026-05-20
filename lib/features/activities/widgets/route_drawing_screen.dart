@@ -6,15 +6,15 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/api.dart' show MapBase;
 import 'package:turbo/features/tile_providers/api.dart' show activeTileLayersProvider;
 
-/// Full-screen route drawing surface. Tap to add a vertex; long-press
-/// to remove the nearest vertex; the floating action bar exposes undo,
-/// clear, and save. On save the widget pops the route as a
-/// `List<LatLng>`; on cancel it pops `null`. The drawn polyline is
-/// live-rendered so the user sees the route grow as they tap.
+/// Full-screen route drawing surface. Tap to add a vertex, drag a
+/// vertex to move it, long-press to remove the nearest one. App-bar
+/// actions: undo last, clear all. On save the widget pops the route as
+/// a `List<LatLng>`; on cancel it pops `null`. The drawn polyline
+/// renders live as the user works.
 ///
-/// This widget lives in the activities shell so any kind's create
-/// screen can launch it. Pure composition: no kind-specific knowledge
-/// here — the caller decides what to do with the drawn route.
+/// Lives in the activities shell so any kind's create screen can
+/// launch it. No kind-specific knowledge here — the caller decides
+/// what to do with the drawn route.
 class RouteDrawingScreen extends ConsumerStatefulWidget {
   /// Initial center for the map; usually the long-press point that
   /// kicked off the create flow.
@@ -42,6 +42,10 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
   final MapController _map = MapController();
   late List<LatLng> _vertices;
 
+  /// Set while the user is dragging a vertex. Lets us disable the
+  /// map's own pan/zoom interaction so the gesture doesn't double-up.
+  int? _draggingIdx;
+
   @override
   void initState() {
     super.initState();
@@ -49,22 +53,6 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
   }
 
   void _addVertex(LatLng p) => setState(() => _vertices.add(p));
-
-  void _removeNearest(LatLng p) {
-    if (_vertices.isEmpty) return;
-    final dist = const Distance();
-    var bestIdx = 0;
-    var bestDist = double.infinity;
-    for (var i = 0; i < _vertices.length; i++) {
-      final d = dist.as(LengthUnit.Meter, _vertices[i], p);
-      if (d < bestDist) { bestDist = d; bestIdx = i; }
-    }
-    // Only remove if the tap was reasonably close to a vertex (within
-    // the visible click target — 50m at high zoom is generous).
-    if (bestDist < 200) {
-      setState(() => _vertices.removeAt(bestIdx));
-    }
-  }
 
   void _undo() {
     if (_vertices.isEmpty) return;
@@ -76,6 +64,17 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
   void _save() {
     if (_vertices.length < 2) return;
     Navigator.of(context).pop<List<LatLng>>(List<LatLng>.unmodifiable(_vertices));
+  }
+
+  /// Pan-update handler for a vertex drag. Converts the pointer's
+  /// global position to a LatLng via the camera, mirrors the pattern
+  /// `region_creation_page.dart` uses for resize handles.
+  void _onVertexDrag(int idx, DragUpdateDetails details) {
+    final renderBox = context.findRenderObject();
+    if (renderBox is! RenderBox) return;
+    final local = renderBox.globalToLocal(details.globalPosition);
+    final newPoint = _map.camera.screenOffsetToLatLng(local);
+    setState(() => _vertices[idx] = newPoint);
   }
 
   double _totalDistanceMeters() {
@@ -114,13 +113,20 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
         for (var i = 0; i < _vertices.length; i++)
           Marker(
             point: _vertices[i],
-            width: 22,
-            height: 22,
+            // Slightly larger hit target than the visual dot so dragging
+            // is forgiving on touch screens.
+            width: 36,
+            height: 36,
             child: _VertexDot(
               index: i,
               isStart: i == 0,
               isEnd: i == _vertices.length - 1 && _vertices.length > 1,
+              isDragging: _draggingIdx == i,
               color: color,
+              onPanStart: () => setState(() => _draggingIdx = i),
+              onPanUpdate: (d) => _onVertexDrag(i, d),
+              onPanEnd: () => setState(() => _draggingIdx = null),
+              onLongPress: () => setState(() => _vertices.removeAt(i)),
             ),
           ),
       ]),
@@ -152,7 +158,13 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
           initialCenter: widget.seedCenter,
           initialZoom: 13,
           onTap: (_, p) => _addVertex(p),
-          onLongPress: (_, p) => _removeNearest(p),
+          // While a vertex is being dragged, freeze the map so the
+          // gesture only moves the vertex (not the camera too).
+          interactionOptions: InteractionOptions(
+            flags: _draggingIdx != null
+                ? InteractiveFlag.none
+                : InteractiveFlag.all & ~InteractiveFlag.rotate,
+          ),
         ),
         Positioned(
           top: 12,
@@ -188,10 +200,10 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
               child: Row(children: [
                 Expanded(child: Text(
                   _vertices.isEmpty
-                    ? 'Tap the map to add vertices. Long-press a dot to remove it.'
+                    ? 'Tap the map to add vertices.'
                     : _vertices.length == 1
                       ? 'Add at least one more vertex.'
-                      : 'Tap to extend the route, long-press a dot to remove.',
+                      : 'Tap to extend, drag a dot to move it, long-press to remove.',
                   style: Theme.of(context).textTheme.bodySmall,
                 )),
                 const SizedBox(width: 8),
@@ -217,12 +229,23 @@ class _VertexDot extends StatelessWidget {
   final int index;
   final bool isStart;
   final bool isEnd;
+  final bool isDragging;
   final Color color;
+  final VoidCallback onPanStart;
+  final ValueChanged<DragUpdateDetails> onPanUpdate;
+  final VoidCallback onPanEnd;
+  final VoidCallback onLongPress;
+
   const _VertexDot({
     required this.index,
     required this.isStart,
     required this.isEnd,
+    required this.isDragging,
     required this.color,
+    required this.onPanStart,
+    required this.onPanUpdate,
+    required this.onPanEnd,
+    required this.onLongPress,
   });
 
   @override
@@ -232,19 +255,46 @@ class _VertexDot extends StatelessWidget {
         : isEnd
             ? Colors.red.shade400
             : color;
-    return Container(
-      decoration: BoxDecoration(
-        color: fill,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 2, offset: const Offset(0, 1)),
-        ],
-      ),
-      child: Center(
-        child: Text(
-          '${index + 1}',
-          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+    // The hit target (the GestureDetector child) is sized to the full
+    // Marker (36×36); the visible dot inside is 22×22. The GestureDetector
+    // absorbs taps too via the onTap handler so tapping the dot doesn't
+    // bubble up to the map's onTap and add a duplicate vertex.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {},
+      onLongPress: onLongPress,
+      onPanStart: (_) => onPanStart(),
+      onPanUpdate: onPanUpdate,
+      onPanEnd: (_) => onPanEnd(),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.grab,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: isDragging ? 28 : 22,
+            height: isDragging ? 28 : 22,
+            decoration: BoxDecoration(
+              color: fill,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDragging ? 0.4 : 0.25),
+                  blurRadius: isDragging ? 6 : 2,
+                  offset: const Offset(0, 1)),
+              ],
+            ),
+            child: Center(
+              child: Text(
+                '${index + 1}',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isDragging ? 12 : 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
