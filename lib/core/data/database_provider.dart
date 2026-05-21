@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 9;
+const int _dbVersion = 10;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -19,6 +19,9 @@ const String collectionsTable = 'collections';
 const String collectionItemsTable = 'collection_items';
 const String markerPhotosTable = 'marker_photos';
 const String vectorTileCacheTable = 'vector_tile_cache';
+const String activitySummariesTable = 'activity_summaries';
+const String activityConditionsCacheTable = 'activity_conditions_cache';
+const String activityDetailsCacheTable = 'activity_details_cache';
 
 
 /// A provider that creates and holds the single instance of the app's database.
@@ -202,6 +205,59 @@ Future<void> _createDb(Database db, int version) async {
   batch.execute(
       'CREATE INDEX idx_vector_tile_fetched ON $vectorTileCacheTable(fetched_at)');
 
+  // Activities offline cache (v10).
+  //
+  // activity_summaries mirrors the cross-kind read model the server
+  // exposes at /api/activities/summaries/*. We keep it locally so the
+  // map paints pins on cold start before the network responds. Delta
+  // sync writes here on success; tombstones remove rows. The
+  // delta_cursor row in activity_meta tracks how far we've consumed.
+  batch.execute('''
+    CREATE TABLE $activitySummariesTable(
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      geometry_wkt TEXT NOT NULL,
+      geometry_kind TEXT NOT NULL,
+      icon_key TEXT NOT NULL,
+      color_hex TEXT,
+      updated_at INTEGER NOT NULL,
+      version INTEGER NOT NULL
+    )
+  ''');
+  batch.execute(
+      'CREATE INDEX idx_activity_summaries_kind ON $activitySummariesTable(kind)');
+  batch.execute(
+      'CREATE INDEX idx_activity_summaries_updated ON $activitySummariesTable(updated_at)');
+
+  // activity_conditions_cache stores the last successful per-kind
+  // conditions report by (activity_id, kind). Used as a fallback when
+  // /conditions fails so the panel keeps rendering with a "fetched at"
+  // hint instead of an error.
+  batch.execute('''
+    CREATE TABLE $activityConditionsCacheTable(
+      activity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (activity_id, kind)
+    )
+  ''');
+
+  // activity_details_cache stores the last successful per-kind activity
+  // detail payload — i.e. the typed body of /api/activities/{kind}/{id}.
+  // Lets the detail screen render the last-known state when the user
+  // taps a pin while offline.
+  batch.execute('''
+    CREATE TABLE $activityDetailsCacheTable(
+      activity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (activity_id, kind)
+    )
+  ''');
+
   await batch.commit(noResult: true);
 }
 
@@ -224,8 +280,50 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV7ToV8(db);
       case 9:
         await _migrateV8ToV9(db);
+      case 10:
+        await _migrateV9ToV10(db);
     }
   }
+}
+
+Future<void> _migrateV9ToV10(Database db) async {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $activitySummariesTable(
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      geometry_wkt TEXT NOT NULL,
+      geometry_kind TEXT NOT NULL,
+      icon_key TEXT NOT NULL,
+      color_hex TEXT,
+      updated_at INTEGER NOT NULL,
+      version INTEGER NOT NULL
+    )
+  ''');
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_activity_summaries_kind ON $activitySummariesTable(kind)');
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_activity_summaries_updated ON $activitySummariesTable(updated_at)');
+
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $activityConditionsCacheTable(
+      activity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (activity_id, kind)
+    )
+  ''');
+
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $activityDetailsCacheTable(
+      activity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (activity_id, kind)
+    )
+  ''');
 }
 
 Future<void> _migrateV8ToV9(Database db) async {

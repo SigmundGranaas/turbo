@@ -16,12 +16,24 @@ final xcSkiApiProvider = Provider<XcSkiApi>((ref) {
 });
 
 final xcSkiActivityProvider = FutureProvider.family<XcSkiActivity, String>((ref, id) async {
-  return ref.watch(xcSkiApiProvider).getById(id);
+  return activities.fetchActivityCached<XcSkiActivity>(
+    ref: ref,
+    kindUrlSlug: 'xc-ski',
+    kindKey: 'xc_ski',
+    activityId: id,
+    fromJson: XcSkiActivity.fromJson,
+  );
 });
 
 final xcSkiConditionsProvider =
     FutureProvider.family<XcSkiConditionsReport, String>((ref, id) async {
-  return ref.watch(xcSkiApiProvider).getConditions(id);
+  return activities.fetchConditionsCached<XcSkiConditionsReport>(
+    ref: ref,
+    kindUrlSlug: 'xc-ski',
+    kindKey: 'xc_ski',
+    activityId: id,
+    fromJson: XcSkiConditionsReport.fromJson,
+  );
 });
 
 final xcSkiRepositoryProvider = Provider<XcSkiRepository>((ref) => XcSkiRepository(ref));

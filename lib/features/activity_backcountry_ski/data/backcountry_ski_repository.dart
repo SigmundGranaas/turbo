@@ -17,14 +17,26 @@ final backcountrySkiApiProvider = Provider<BackcountrySkiApi>((ref) {
 
 final backcountrySkiActivityProvider =
     FutureProvider.family<BackcountrySkiActivity, String>((ref, id) async {
-  final api = ref.watch(backcountrySkiApiProvider);
-  return api.getById(id);
+  return activities.fetchActivityCached<BackcountrySkiActivity>(
+    ref: ref,
+    kindUrlSlug: 'backcountry-ski',
+    kindKey: 'backcountry_ski',
+    activityId: id,
+    fromJson: BackcountrySkiActivity.fromJson,
+  );
 });
 
 /// Conditions provider — re-fetched on demand (refresh by invalidating).
+/// Falls back to the local cache when the network is unavailable.
 final backcountrySkiConditionsProvider =
     FutureProvider.family<BackcountrySkiConditionsReport, String>((ref, id) async {
-  return ref.watch(backcountrySkiApiProvider).getConditions(id);
+  return activities.fetchConditionsCached<BackcountrySkiConditionsReport>(
+    ref: ref,
+    kindUrlSlug: 'backcountry-ski',
+    kindKey: 'backcountry_ski',
+    activityId: id,
+    fromJson: BackcountrySkiConditionsReport.fromJson,
+  );
 });
 
 final backcountrySkiRepositoryProvider = Provider<BackcountrySkiRepository>((ref) {

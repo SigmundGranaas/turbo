@@ -17,12 +17,24 @@ final hikingApiProvider = Provider<HikingApi>((ref) {
 
 final hikingActivityProvider =
     FutureProvider.family<HikingActivity, String>((ref, id) async {
-  return ref.watch(hikingApiProvider).getById(id);
+  return activities.fetchActivityCached<HikingActivity>(
+    ref: ref,
+    kindUrlSlug: 'hiking',
+    kindKey: 'hiking',
+    activityId: id,
+    fromJson: HikingActivity.fromJson,
+  );
 });
 
 final hikingConditionsProvider =
     FutureProvider.family<HikingConditionsReport, String>((ref, id) async {
-  return ref.watch(hikingApiProvider).getConditions(id);
+  return activities.fetchConditionsCached<HikingConditionsReport>(
+    ref: ref,
+    kindUrlSlug: 'hiking',
+    kindKey: 'hiking',
+    activityId: id,
+    fromJson: HikingConditionsReport.fromJson,
+  );
 });
 
 final hikingRepositoryProvider = Provider<HikingRepository>((ref) => HikingRepository(ref));

@@ -16,12 +16,24 @@ final freedivingApiProvider = Provider<FreedivingApi>((ref) {
 
 final freedivingActivityProvider =
     FutureProvider.family<FreedivingActivity, String>((ref, id) async {
-  return ref.watch(freedivingApiProvider).getById(id);
+  return activities.fetchActivityCached<FreedivingActivity>(
+    ref: ref,
+    kindUrlSlug: 'freediving',
+    kindKey: 'freediving',
+    activityId: id,
+    fromJson: FreedivingActivity.fromJson,
+  );
 });
 
 final freedivingConditionsProvider =
     FutureProvider.family<FreedivingConditionsReport, String>((ref, id) async {
-  return ref.watch(freedivingApiProvider).getConditions(id);
+  return activities.fetchConditionsCached<FreedivingConditionsReport>(
+    ref: ref,
+    kindUrlSlug: 'freediving',
+    kindKey: 'freediving',
+    activityId: id,
+    fromJson: FreedivingConditionsReport.fromJson,
+  );
 });
 
 final freedivingRepositoryProvider = Provider<FreedivingRepository>((ref) => FreedivingRepository(ref));

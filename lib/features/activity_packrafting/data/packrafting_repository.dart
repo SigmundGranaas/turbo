@@ -16,12 +16,24 @@ final packraftingApiProvider = Provider<PackraftingApi>((ref) {
 
 final packraftingActivityProvider =
     FutureProvider.family<PackraftingActivity, String>((ref, id) async {
-  return ref.watch(packraftingApiProvider).getById(id);
+  return activities.fetchActivityCached<PackraftingActivity>(
+    ref: ref,
+    kindUrlSlug: 'packrafting',
+    kindKey: 'packrafting',
+    activityId: id,
+    fromJson: PackraftingActivity.fromJson,
+  );
 });
 
 final packraftingConditionsProvider =
     FutureProvider.family<PackraftingConditionsReport, String>((ref, id) async {
-  return ref.watch(packraftingApiProvider).getConditions(id);
+  return activities.fetchConditionsCached<PackraftingConditionsReport>(
+    ref: ref,
+    kindUrlSlug: 'packrafting',
+    kindKey: 'packrafting',
+    activityId: id,
+    fromJson: PackraftingConditionsReport.fromJson,
+  );
 });
 
 final packraftingRepositoryProvider = Provider<PackraftingRepository>((ref) => PackraftingRepository(ref));

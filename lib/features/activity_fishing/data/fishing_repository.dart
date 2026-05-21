@@ -15,19 +15,32 @@ final fishingApiProvider = Provider<FishingApi>((ref) {
   return FishingApi(apiClient);
 });
 
-/// Per-id detail provider. Caches each fishing activity in memory once
-/// fetched; rebuilds when the underlying summary changes.
+/// Per-id detail provider. Hits the network and falls back to the local
+/// detail cache when offline so a tapped pin shows the last-known state.
 final fishingActivityProvider =
     FutureProvider.family<FishingActivity, String>((ref, id) async {
-  final api = ref.watch(fishingApiProvider);
-  return api.getById(id);
+  return activities.fetchActivityCached<FishingActivity>(
+    ref: ref,
+    kindUrlSlug: 'fishing',
+    kindKey: 'fishing',
+    activityId: id,
+    fromJson: FishingActivity.fromJson,
+  );
 });
 
 /// Conditions provider — re-fetched on demand (refresh by invalidating).
-/// Server caches upstream calls so frequent reloads stay cheap.
+/// On network failure falls back to the local cache so a panel that was
+/// open recently stays useful offline; the report's own `fetchedAt`
+/// surfaces how stale it is.
 final fishingConditionsProvider =
     FutureProvider.family<FishingConditionsReport, String>((ref, id) async {
-  return ref.watch(fishingApiProvider).getConditions(id);
+  return activities.fetchConditionsCached<FishingConditionsReport>(
+    ref: ref,
+    kindUrlSlug: 'fishing',
+    kindKey: 'fishing',
+    activityId: id,
+    fromJson: FishingConditionsReport.fromJson,
+  );
 });
 
 /// Imperative facade for the fishing kind. Wraps the typed API service
