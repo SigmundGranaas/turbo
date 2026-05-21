@@ -57,6 +57,7 @@ class _NavigateFlowHarness extends ConsumerWidget {
                 point: target,
                 isNavigating: navState.isActive,
                 onCreateMarker: (_) {},
+                onCreateActivity: () {},
                 onMeasure: () {},
                 onNavigate: () => ref
                     .read(navigationStateProvider.notifier)

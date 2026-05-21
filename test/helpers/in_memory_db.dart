@@ -44,6 +44,53 @@ Future<Database> createSavedPathsDb() async {
   return db;
 }
 
+/// Opens a fresh in-memory SQLite database with the activities offline
+/// schema (v10): activity_summaries + activity_conditions_cache +
+/// activity_details_cache. Mirrors the DDL in
+/// `lib/core/data/database_provider.dart`.
+Future<Database> createActivitiesDb() async {
+  initSqfliteFfi();
+  final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+  final batch = db.batch();
+  batch.execute('''
+    CREATE TABLE $activitySummariesTable(
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      name TEXT NOT NULL,
+      geometry_wkt TEXT NOT NULL,
+      geometry_kind TEXT NOT NULL,
+      icon_key TEXT NOT NULL,
+      color_hex TEXT,
+      updated_at INTEGER NOT NULL,
+      version INTEGER NOT NULL
+    )
+  ''');
+  batch.execute(
+      'CREATE INDEX idx_activity_summaries_kind ON $activitySummariesTable(kind)');
+  batch.execute(
+      'CREATE INDEX idx_activity_summaries_updated ON $activitySummariesTable(updated_at)');
+  batch.execute('''
+    CREATE TABLE $activityConditionsCacheTable(
+      activity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (activity_id, kind)
+    )
+  ''');
+  batch.execute('''
+    CREATE TABLE $activityDetailsCacheTable(
+      activity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (activity_id, kind)
+    )
+  ''');
+  await batch.commit(noResult: true);
+  return db;
+}
+
 /// Opens a fresh in-memory SQLite database and creates the markers schema.
 Future<Database> createMarkersDb() async {
   initSqfliteFfi();

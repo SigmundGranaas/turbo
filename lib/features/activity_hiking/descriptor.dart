@@ -1,0 +1,28 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+
+import 'package:turbo/features/activities/api.dart';
+
+import 'widgets/hiking_create_screen.dart';
+import 'widgets/hiking_detail_sheet.dart';
+import 'widgets/hiking_route_marker.dart';
+
+const _color = Color(0xFF2E7D32);
+
+final hikingActivityKindDescriptor = ActivityKindDescriptor(
+  key: 'hiking',
+  displayName: 'Hiking',
+  icon: Icons.hiking_outlined,
+  tintColor: _color,
+  allowedGeometries: {ActivityGeometryKind.lineString},
+  buildCreateScreen: (ctx, seed) => HikingCreateScreen(seedGeometry: seed),
+  buildDetailScreen: (ctx, id) => HikingDetailSheet(activityId: id),
+  buildMapMarker: (summary) => HikingRouteMarker(summary: summary),
+  buildMapPolyline: (summary) => Polyline(
+    points: summary.geometry.coordinates,
+    color: _color.withValues(alpha: 0.75),
+    strokeWidth: 4.5,
+    strokeCap: StrokeCap.round,
+    strokeJoin: StrokeJoin.round,
+  ),
+);

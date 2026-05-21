@@ -25,6 +25,7 @@ class PinOptionsSheet extends ConsumerStatefulWidget {
   final LatLng point;
   final bool isNavigating;
   final void Function(String? namePreview) onCreateMarker;
+  final VoidCallback onCreateActivity;
   final VoidCallback onMeasure;
   final VoidCallback onNavigate;
   final VoidCallback onStopNavigation;
@@ -34,6 +35,7 @@ class PinOptionsSheet extends ConsumerStatefulWidget {
     required this.point,
     required this.isNavigating,
     required this.onCreateMarker,
+    required this.onCreateActivity,
     required this.onMeasure,
     required this.onNavigate,
     required this.onStopNavigation,
@@ -121,6 +123,15 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
                       onTap: () {
                         Navigator.pop(context);
                         widget.onCreateMarker(_currentDescription()?.title);
+                      },
+                    ),
+                    ListTile(
+                      // TODO(i18n): add l10n.addActivityHere
+                      leading: const Icon(Icons.outdoor_grill_outlined),
+                      title: const Text('Add activity here'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onCreateActivity();
                       },
                     ),
                     ListTile(
