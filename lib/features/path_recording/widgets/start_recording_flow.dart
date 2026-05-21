@@ -26,7 +26,7 @@ Future<void> startRecordingFlow(BuildContext context, WidgetRef ref) async {
     return;
   }
 
-  final result = await requestRecordingPermissions(context);
+  final result = await requestRecordingPermissions(context, ref);
   if (result == RecordingPermissionResult.denied) {
     if (context.mounted) {
       AppSnackbars.error(

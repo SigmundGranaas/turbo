@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:turbo/features/settings/api.dart';
 
 /// Outcome of the runtime permission request flow. Foreground means we can
 /// record while the app is visible; background unlocks lock-screen and
@@ -9,13 +13,15 @@ enum RecordingPermissionResult { granted, foregroundOnly, denied }
 
 /// Two-stage permission flow:
 ///   1. Request "while in use" — required to record at all.
-///   2. If foreground granted, ask the user whether they want background
-///      recording, then request `always`.
+///   2. If foreground granted and the user hasn't been asked yet, offer to
+///      upgrade to background ("Always"). The choice is persisted so we
+///      never block subsequent recording starts with the same dialog.
 ///
 /// The rationale dialogs use plain English copy; production code can swap
 /// these for l10n strings without changing the call sites.
 Future<RecordingPermissionResult> requestRecordingPermissions(
   BuildContext context,
+  WidgetRef ref,
 ) async {
   final serviceEnabled = await Geolocator.isLocationServiceEnabled();
   if (!serviceEnabled) {
@@ -58,7 +64,14 @@ Future<RecordingPermissionResult> requestRecordingPermissions(
     return RecordingPermissionResult.granted;
   }
 
-  // Foreground granted; offer to upgrade.
+  // Foreground granted; offer to upgrade — but only the first time. If the
+  // user has already answered this prompt, respect their previous choice
+  // and don't block recording on it again.
+  final settings = ref.read(settingsProvider).value;
+  if (settings != null && settings.backgroundLocationPromptSeen) {
+    return RecordingPermissionResult.foregroundOnly;
+  }
+
   if (!context.mounted) return RecordingPermissionResult.foregroundOnly;
   final wantsBackground = await _showConfirmDialog(
     context,
@@ -69,7 +82,14 @@ Future<RecordingPermissionResult> requestRecordingPermissions(
         'we will warn you if a recording is interrupted.',
     confirmLabel: 'Enable background',
     cancelLabel: 'Foreground only',
+    barrierDismissible: false,
   );
+  // Persist the fact that we've asked. Whatever the user picks (or if they
+  // back out), we honour it next time — no nagging.
+  unawaited(ref
+      .read(settingsProvider.notifier)
+      .setBackgroundLocationPromptSeen(true));
+
   if (wantsBackground != true) {
     return RecordingPermissionResult.foregroundOnly;
   }
@@ -87,9 +107,11 @@ Future<bool?> _showConfirmDialog(
   required String message,
   required String confirmLabel,
   String cancelLabel = 'Not now',
+  bool barrierDismissible = true,
 }) {
   return showDialog<bool>(
     context: context,
+    barrierDismissible: barrierDismissible,
     builder: (ctx) => AlertDialog(
       title: Text(title),
       content: Text(message),
