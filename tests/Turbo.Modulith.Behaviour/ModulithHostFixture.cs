@@ -6,6 +6,13 @@ using Testcontainers.PostgreSql;
 using Turbo.Behaviour.Testing;
 using Turbo.Host.Modulith;
 using Turbo.Hosting.Postgres;
+using Turboapi.Activities.BackcountrySki.data;
+using Turboapi.Activities.data;
+using Turboapi.Activities.Fishing.data;
+using Turboapi.Activities.Freediving.data;
+using Turboapi.Activities.Hiking.data;
+using Turboapi.Activities.Packrafting.data;
+using Turboapi.Activities.XcSki.data;
 using Turboapi.Auth.Infrastructure.Persistence;
 using Turboapi.Collections.data;
 using Turboapi.Geo.domain.query.model;
@@ -36,6 +43,13 @@ public sealed class ModulithHostFixture : IAsyncLifetime
         var tracksConn = RepoLayout.WithDatabase(baseConn, "tracks");
         var geoConn = RepoLayout.WithDatabase(baseConn, "geo");
         var collectionsConn = RepoLayout.WithDatabase(baseConn, "collections");
+        var activitiesConn = RepoLayout.WithDatabase(baseConn, "activities");
+        var activitiesFishingConn = RepoLayout.WithDatabase(baseConn, "activities_fishing");
+        var activitiesBcSkiConn = RepoLayout.WithDatabase(baseConn, "activities_backcountry_ski");
+        var activitiesHikingConn = RepoLayout.WithDatabase(baseConn, "activities_hiking");
+        var activitiesXcSkiConn = RepoLayout.WithDatabase(baseConn, "activities_xc_ski");
+        var activitiesPackraftingConn = RepoLayout.WithDatabase(baseConn, "activities_packrafting");
+        var activitiesFreedivingConn = RepoLayout.WithDatabase(baseConn, "activities_freediving");
 
         _factory = new WebApplicationFactory<ModulithProgram>().WithWebHostBuilder(builder =>
         {
@@ -44,12 +58,26 @@ public sealed class ModulithHostFixture : IAsyncLifetime
             builder.UseSetting("ConnectionStrings:Tracks", tracksConn);
             builder.UseSetting("ConnectionStrings:Geo", geoConn);
             builder.UseSetting("ConnectionStrings:Collections", collectionsConn);
+            builder.UseSetting("ConnectionStrings:Activities", activitiesConn);
+            builder.UseSetting("ConnectionStrings:ActivitiesFishing", activitiesFishingConn);
+            builder.UseSetting("ConnectionStrings:ActivitiesBackcountrySki", activitiesBcSkiConn);
+            builder.UseSetting("ConnectionStrings:ActivitiesHiking", activitiesHikingConn);
+            builder.UseSetting("ConnectionStrings:ActivitiesXcSki", activitiesXcSkiConn);
+            builder.UseSetting("ConnectionStrings:ActivitiesPackrafting", activitiesPackraftingConn);
+            builder.UseSetting("ConnectionStrings:ActivitiesFreediving", activitiesFreedivingConn);
         });
 
         await _factory.Services.MigrateModuleDatabaseAsync<AuthDbContext>(authConn);
         await _factory.Services.MigrateModuleDatabaseAsync<TrackReadContext>(tracksConn);
         await _factory.Services.MigrateModuleDatabaseAsync<LocationReadContext>(geoConn);
         await _factory.Services.MigrateModuleDatabaseAsync<CollectionsReadContext>(collectionsConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<ActivitySummariesContext>(activitiesConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<FishingContext>(activitiesFishingConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<BackcountrySkiContext>(activitiesBcSkiConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<HikingContext>(activitiesHikingConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<XcSkiContext>(activitiesXcSkiConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<PackraftingContext>(activitiesPackraftingConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<FreedivingContext>(activitiesFreedivingConn);
     }
 
     public async Task DisposeAsync()

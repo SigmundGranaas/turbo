@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [auth, geo, activity, modulith, gateway]
+        service: [auth, geo, activities, modulith, gateway]
         include:
           - service: auth
             project_path: ./hosts/Turbo.Host.Auth/Turbo.Host.Auth.csproj
@@ -25,9 +25,9 @@ jobs:
             project_path: ./hosts/Turbo.Host.Geo/Turbo.Host.Geo.csproj
             dockerfile: ./hosts/Turbo.Host.Geo/Dockerfile
             context: ./
-          - service: activity
-            project_path: ./hosts/Turbo.Host.Activity/Turbo.Host.Activity.csproj
-            dockerfile: ./hosts/Turbo.Host.Activity/Dockerfile
+          - service: activities
+            project_path: ./hosts/Turbo.Host.Activities/Turbo.Host.Activities.csproj
+            dockerfile: ./hosts/Turbo.Host.Activities/Dockerfile
             context: ./
           - service: modulith
             project_path: ./hosts/Turbo.Host.Modulith/Turbo.Host.Modulith.csproj

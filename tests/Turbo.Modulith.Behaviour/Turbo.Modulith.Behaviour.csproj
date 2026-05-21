@@ -29,6 +29,20 @@
   <ItemGroup>
     <ProjectReference Include="..\..\hosts\Turbo.Host.Modulith\Turbo.Host.Modulith.csproj" />
     <ProjectReference Include="..\..\src\Tracks\Turbo.Tracks.Api\Turbo.Tracks.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Shared.Api\Turbo.Activities.Shared.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Shared.Infrastructure\Turbo.Activities.Shared.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Fishing.Api\Turbo.Activities.Fishing.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Fishing.Infrastructure\Turbo.Activities.Fishing.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.BackcountrySki.Api\Turbo.Activities.BackcountrySki.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.BackcountrySki.Infrastructure\Turbo.Activities.BackcountrySki.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Hiking.Api\Turbo.Activities.Hiking.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Hiking.Infrastructure\Turbo.Activities.Hiking.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.XcSki.Api\Turbo.Activities.XcSki.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.XcSki.Infrastructure\Turbo.Activities.XcSki.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Packrafting.Api\Turbo.Activities.Packrafting.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Packrafting.Infrastructure\Turbo.Activities.Packrafting.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Freediving.Api\Turbo.Activities.Freediving.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Freediving.Infrastructure\Turbo.Activities.Freediving.Infrastructure.csproj" />
     <ProjectReference Include="..\Turbo.Behaviour.Testing\Turbo.Behaviour.Testing.csproj" />
   </ItemGroup>
 

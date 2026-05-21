@@ -46,6 +46,44 @@ public sealed class ModuleBoundaries
         "Turbo.Collections.Api",
     ];
 
+    // Activities is decomposed into a shared parent plus a sub-module per
+    // kind (Fishing today; Backcountry Ski etc. later). Each kind's four
+    // assemblies sit alongside the shared four; cross-module rules below
+    // treat the whole list as one bounded context for the per-module-vs-
+    // -others assertions, while ActivityKindBoundaries (below) asserts that
+    // no kind references another kind directly.
+    private static readonly string[] ActivitiesAssemblies =
+    [
+        "Turbo.Activities.Shared.Core",
+        "Turbo.Activities.Shared.Contracts",
+        "Turbo.Activities.Shared.Infrastructure",
+        "Turbo.Activities.Shared.Api",
+        "Turbo.Activities.Fishing.Core",
+        "Turbo.Activities.Fishing.Contracts",
+        "Turbo.Activities.Fishing.Infrastructure",
+        "Turbo.Activities.Fishing.Api",
+        "Turbo.Activities.BackcountrySki.Core",
+        "Turbo.Activities.BackcountrySki.Contracts",
+        "Turbo.Activities.BackcountrySki.Infrastructure",
+        "Turbo.Activities.BackcountrySki.Api",
+        "Turbo.Activities.Hiking.Core",
+        "Turbo.Activities.Hiking.Contracts",
+        "Turbo.Activities.Hiking.Infrastructure",
+        "Turbo.Activities.Hiking.Api",
+        "Turbo.Activities.XcSki.Core",
+        "Turbo.Activities.XcSki.Contracts",
+        "Turbo.Activities.XcSki.Infrastructure",
+        "Turbo.Activities.XcSki.Api",
+        "Turbo.Activities.Packrafting.Core",
+        "Turbo.Activities.Packrafting.Contracts",
+        "Turbo.Activities.Packrafting.Infrastructure",
+        "Turbo.Activities.Packrafting.Api",
+        "Turbo.Activities.Freediving.Core",
+        "Turbo.Activities.Freediving.Contracts",
+        "Turbo.Activities.Freediving.Infrastructure",
+        "Turbo.Activities.Freediving.Api",
+    ];
+
     private static IEnumerable<Assembly> Tracks
     {
         get
@@ -78,13 +116,27 @@ public sealed class ModuleBoundaries
             return CollectionsAssemblies.Select(LoadByName);
         }
     }
+    private static IEnumerable<Assembly> Activities
+    {
+        get
+        {
+            _ = typeof(Turboapi.Activities.ActivitiesScope);
+            _ = typeof(Turboapi.Activities.Fishing.FishingScope);
+            _ = typeof(Turboapi.Activities.BackcountrySki.BackcountrySkiScope);
+            _ = typeof(Turboapi.Activities.Hiking.HikingScope);
+            _ = typeof(Turboapi.Activities.XcSki.XcSkiScope);
+            _ = typeof(Turboapi.Activities.Packrafting.PackraftingScope);
+            _ = typeof(Turboapi.Activities.Freediving.FreedivingScope);
+            return ActivitiesAssemblies.Select(LoadByName);
+        }
+    }
 
     [Fact]
     public void Tracks_does_not_reference_other_module_assemblies()
     {
         foreach (var module in Tracks)
             AssertNoCrossModuleReference(module,
-                forbidden: GeoAssemblies.Concat(AuthAssemblies).Concat(CollectionsAssemblies).ToArray());
+                forbidden: GeoAssemblies.Concat(AuthAssemblies).Concat(CollectionsAssemblies).Concat(ActivitiesAssemblies).ToArray());
     }
 
     [Fact]
@@ -92,7 +144,7 @@ public sealed class ModuleBoundaries
     {
         foreach (var module in Geo)
             AssertNoCrossModuleReference(module,
-                forbidden: TracksAssemblies.Concat(AuthAssemblies).Concat(CollectionsAssemblies).ToArray());
+                forbidden: TracksAssemblies.Concat(AuthAssemblies).Concat(CollectionsAssemblies).Concat(ActivitiesAssemblies).ToArray());
     }
 
     [Fact]
@@ -100,7 +152,7 @@ public sealed class ModuleBoundaries
     {
         foreach (var module in Auth)
             AssertNoCrossModuleReference(module,
-                forbidden: TracksAssemblies.Concat(GeoAssemblies).Concat(CollectionsAssemblies).ToArray());
+                forbidden: TracksAssemblies.Concat(GeoAssemblies).Concat(CollectionsAssemblies).Concat(ActivitiesAssemblies).ToArray());
     }
 
     [Fact]
@@ -108,7 +160,15 @@ public sealed class ModuleBoundaries
     {
         foreach (var module in Collections)
             AssertNoCrossModuleReference(module,
-                forbidden: TracksAssemblies.Concat(GeoAssemblies).Concat(AuthAssemblies).ToArray());
+                forbidden: TracksAssemblies.Concat(GeoAssemblies).Concat(AuthAssemblies).Concat(ActivitiesAssemblies).ToArray());
+    }
+
+    [Fact]
+    public void Activities_do_not_reference_other_module_assemblies()
+    {
+        foreach (var module in Activities)
+            AssertNoCrossModuleReference(module,
+                forbidden: TracksAssemblies.Concat(GeoAssemblies).Concat(AuthAssemblies).Concat(CollectionsAssemblies).ToArray());
     }
 
     private static Assembly LoadByName(string assemblyName)

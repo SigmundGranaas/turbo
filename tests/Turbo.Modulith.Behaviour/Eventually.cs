@@ -27,4 +27,34 @@ internal static class Eventually
             $"{label}: did not produce a value within {(timeout ?? TimeSpan.FromSeconds(15)).TotalSeconds:F1}s"
             + (lastError is null ? "" : $" (last error: {lastError.Message})"));
     }
+
+    /// <summary>
+    /// Polls a boolean condition until it returns true or the deadline
+    /// elapses. Use when there is no value to return — e.g. asserting
+    /// that a typed read endpoint has stopped finding a deleted row.
+    /// </summary>
+    public static async Task UntilAsync(
+        Func<Task<bool>> condition,
+        TimeSpan? timeout = null,
+        string? description = null)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(15));
+        Exception? lastError = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (await condition()) return;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
+            await Task.Delay(150);
+        }
+        var label = description ?? "condition";
+        throw new TimeoutException(
+            $"{label}: did not become true within {(timeout ?? TimeSpan.FromSeconds(15)).TotalSeconds:F1}s"
+            + (lastError is null ? "" : $" (last error: {lastError.Message})"));
+    }
 }
