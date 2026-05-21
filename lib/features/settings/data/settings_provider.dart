@@ -68,6 +68,12 @@ class SettingsState {
   /// Tradeoff between GPS accuracy and battery use during recording.
   final GpsAccuracyMode gpsAccuracyMode;
 
+  /// Set once the user has answered the "enable background recording" prompt
+  /// at least once. We respect that choice and don't ask again on every
+  /// recording start — they can re-enable background recording from settings
+  /// or by granting "Always" location in the OS.
+  final bool backgroundLocationPromptSeen;
+
   const SettingsState({
     required this.themeMode,
     required this.locale,
@@ -90,6 +96,7 @@ class SettingsState {
     this.lastPathLineStyleKey,
     this.keepScreenOnWhileRecording = true,
     this.gpsAccuracyMode = GpsAccuracyMode.high,
+    this.backgroundLocationPromptSeen = false,
   });
 
   // Default initial state
@@ -123,6 +130,7 @@ class SettingsState {
     String? Function()? lastPathLineStyleKey,
     bool? keepScreenOnWhileRecording,
     GpsAccuracyMode? gpsAccuracyMode,
+    bool? backgroundLocationPromptSeen,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -146,6 +154,8 @@ class SettingsState {
       lastPathLineStyleKey: lastPathLineStyleKey != null ? lastPathLineStyleKey() : this.lastPathLineStyleKey,
       keepScreenOnWhileRecording: keepScreenOnWhileRecording ?? this.keepScreenOnWhileRecording,
       gpsAccuracyMode: gpsAccuracyMode ?? this.gpsAccuracyMode,
+      backgroundLocationPromptSeen:
+          backgroundLocationPromptSeen ?? this.backgroundLocationPromptSeen,
     );
   }
 }
@@ -176,6 +186,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _lastPathLineStyleKey = 'lastPathLineStyle';
   static const _keepScreenOnWhileRecordingKey = 'keepScreenOnWhileRecording';
   static const _gpsAccuracyModeKey = 'gpsAccuracyMode';
+  static const _backgroundLocationPromptSeenKey =
+      'backgroundLocationPromptSeen';
 
   @override
   Future<SettingsState> build() async {
@@ -247,6 +259,8 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
           prefs.getBool(_keepScreenOnWhileRecordingKey) ?? true,
       gpsAccuracyMode:
           GpsAccuracyMode.fromName(prefs.getString(_gpsAccuracyModeKey)),
+      backgroundLocationPromptSeen:
+          prefs.getBool(_backgroundLocationPromptSeenKey) ?? false,
     );
   }
 
@@ -264,6 +278,17 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
     state = AsyncData(state.value!.copyWith(gpsAccuracyMode: mode));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_gpsAccuracyModeKey, mode.name);
+  }
+
+  /// Records whether the user has been prompted about background recording.
+  /// Once true, the recording start flow won't keep showing the upgrade
+  /// dialog on every session start.
+  Future<void> setBackgroundLocationPromptSeen(bool seen) async {
+    if (state.value == null) return;
+    state = AsyncData(
+        state.value!.copyWith(backgroundLocationPromptSeen: seen));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_backgroundLocationPromptSeenKey, seen);
   }
 
   /// Updates the draw sensitivity and persists it.

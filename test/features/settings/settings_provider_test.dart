@@ -217,5 +217,31 @@ void main() {
         expect(prefs.containsKey('lastPathLineStyle'), isFalse);
       });
     });
+
+    group('background location prompt memo', () {
+      test('defaults to false on a clean install', () async {
+        final container = createContainer({});
+        final state = await container.read(settingsProvider.future);
+        expect(state.backgroundLocationPromptSeen, isFalse);
+      });
+
+      test('setBackgroundLocationPromptSeen persists across reload', () async {
+        final container = createContainer({});
+        await container.read(settingsProvider.future);
+
+        await container
+            .read(settingsProvider.notifier)
+            .setBackgroundLocationPromptSeen(true);
+
+        expect(
+            container.read(settingsProvider).value?.backgroundLocationPromptSeen,
+            isTrue);
+
+        final container2 = ProviderContainer();
+        addTearDown(container2.dispose);
+        final reloaded = await container2.read(settingsProvider.future);
+        expect(reloaded.backgroundLocationPromptSeen, isTrue);
+      });
+    });
   });
 }
