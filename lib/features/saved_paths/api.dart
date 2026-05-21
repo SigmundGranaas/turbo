@@ -35,3 +35,7 @@ export 'widgets/path_info_sheet.dart' show PathInfoSheet;
 export 'widgets/paths_list_page.dart' show PathsListPage;
 export 'widgets/trip_stats_page.dart' show TripStatsPage;
 export 'data/trip_stats.dart' show TripStats;
+export 'data/api_track_service.dart'
+    show ApiTrackService, TrackDeltaResult, TrackTombstone, TrackConflictException;
+export 'data/track_sync_service.dart'
+    show TrackSyncService, TrackSyncCursorStore, TrackSyncOutcome;

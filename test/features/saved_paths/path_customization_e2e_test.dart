@@ -1015,6 +1015,11 @@ void main() {
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN ascent REAL');
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN descent REAL');
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN moving_time_seconds INTEGER');
+      // Run v9 migration (sync columns).
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN synced INTEGER NOT NULL DEFAULT 0');
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN version INTEGER');
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN updated_at TEXT');
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN deleted_at TEXT');
 
       // All 3 paths should survive and have default customization values
       final store = SQLiteSavedPathDataStore(migrationDb);

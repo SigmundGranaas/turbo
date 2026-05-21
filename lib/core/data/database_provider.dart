@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 10;
+const int _dbVersion = 12;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -45,7 +45,9 @@ final databaseProvider = FutureProvider<Database>((ref) async {
 Future<void> _createDb(Database db, int version) async {
   final batch = db.batch();
 
-  // From SQLiteMarkerDataStore
+  // From SQLiteMarkerDataStore — extended in v10 with sync columns
+  // (version/updated_at/deleted_at) so the client can drive delta-sync
+  // and optimistic-concurrency against the server.
   batch.execute('''
     CREATE TABLE $markersTable(
       uuid TEXT PRIMARY KEY,
@@ -54,11 +56,15 @@ Future<void> _createDb(Database db, int version) async {
       icon TEXT,
       latitude REAL NOT NULL,
       longitude REAL NOT NULL,
-      synced INTEGER NOT NULL DEFAULT 0
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
   batch.execute('CREATE INDEX idx_markers_coords ON $markersTable(latitude, longitude)');
   batch.execute('CREATE INDEX idx_markers_synced ON $markersTable(synced)');
+  batch.execute('CREATE INDEX idx_markers_updated_at ON $markersTable(updated_at)');
 
   // From RegionRepository
   batch.execute('''
@@ -124,7 +130,7 @@ Future<void> _createDb(Database db, int version) async {
     )
   ''');
 
-  // Saved paths (v3, extended in v4 and v6).
+  // Saved paths (v3, extended in v4, v6, and v10).
   batch.execute('''
     CREATE TABLE $savedPathsTable(
       uuid TEXT PRIMARY KEY,
@@ -145,13 +151,28 @@ Future<void> _createDb(Database db, int version) async {
       recorded_at TEXT,
       ascent REAL,
       descent REAL,
-      moving_time_seconds INTEGER
+      moving_time_seconds INTEGER,
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
   batch.execute('CREATE INDEX idx_saved_paths_bounds ON $savedPathsTable(min_lat, max_lat, min_lng, max_lng)');
+  batch.execute('CREATE INDEX idx_saved_paths_updated_at ON $savedPathsTable(updated_at)');
 
-  // Collections + join table (v5). The join table is keyed by (type, uuid)
-  // so future item types do not require schema changes.
+  // Pending delete queue for tracks (mirrors pending_deletes for markers).
+  batch.execute('''
+    CREATE TABLE pending_track_deletes(
+      uuid TEXT PRIMARY KEY,
+      version INTEGER,
+      created_at TEXT NOT NULL
+    )
+  ''');
+
+  // Collections + join table (v5, extended in v11 with sync columns).
+  // The join table is keyed by (type, uuid) so future item types do
+  // not require schema changes.
   batch.execute('''
     CREATE TABLE $collectionsTable(
       uuid TEXT PRIMARY KEY,
@@ -161,9 +182,14 @@ Future<void> _createDb(Database db, int version) async {
       icon_key TEXT,
       created_at TEXT NOT NULL,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      saved_filter TEXT
+      saved_filter TEXT,
+      synced INTEGER NOT NULL DEFAULT 0,
+      version INTEGER,
+      updated_at TEXT,
+      deleted_at TEXT
     )
   ''');
+  batch.execute('CREATE INDEX idx_collections_updated_at ON $collectionsTable(updated_at)');
   batch.execute('''
     CREATE TABLE $collectionItemsTable(
       collection_uuid TEXT NOT NULL,
@@ -282,11 +308,18 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV8ToV9(db);
       case 10:
         await _migrateV9ToV10(db);
+      case 11:
+        await _migrateV10ToV11(db);
+      case 12:
+        await _migrateV11ToV12(db);
     }
   }
 }
 
-Future<void> _migrateV9ToV10(Database db) async {
+/// v12 — activities offline cache: cross-kind summaries, plus per-(id, kind)
+/// conditions and detail payload caches. Lets the map paint pins on cold
+/// start and keeps the conditions panel useful when the network drops.
+Future<void> _migrateV11ToV12(Database db) async {
   await db.execute('''
     CREATE TABLE IF NOT EXISTS $activitySummariesTable(
       id TEXT PRIMARY KEY,
@@ -326,6 +359,77 @@ Future<void> _migrateV9ToV10(Database db) async {
   ''');
 }
 
+/// v11 — sync columns on collections so they participate in the
+/// delta-sync flow against the server (version + updated_at + deleted_at).
+Future<void> _migrateV10ToV11(Database db) async {
+  final columns = (await db.rawQuery('PRAGMA table_info($collectionsTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!columns.contains('synced')) {
+    await db.execute(
+        'ALTER TABLE $collectionsTable ADD COLUMN synced INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!columns.contains('version')) {
+    await db.execute('ALTER TABLE $collectionsTable ADD COLUMN version INTEGER');
+  }
+  if (!columns.contains('updated_at')) {
+    await db.execute('ALTER TABLE $collectionsTable ADD COLUMN updated_at TEXT');
+  }
+  if (!columns.contains('deleted_at')) {
+    await db.execute('ALTER TABLE $collectionsTable ADD COLUMN deleted_at TEXT');
+  }
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_collections_updated_at ON $collectionsTable(updated_at)');
+}
+
+/// v10 — sync columns on markers and saved_paths to drive the delta-sync
+/// flow against the server (version + updated_at + deleted_at), plus a
+/// pending-deletes queue for tracks that mirrors the markers' one.
+Future<void> _migrateV9ToV10(Database db) async {
+  final markerCols = (await db.rawQuery('PRAGMA table_info($markersTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!markerCols.contains('version')) {
+    await db.execute('ALTER TABLE $markersTable ADD COLUMN version INTEGER');
+  }
+  if (!markerCols.contains('updated_at')) {
+    await db.execute('ALTER TABLE $markersTable ADD COLUMN updated_at TEXT');
+  }
+  if (!markerCols.contains('deleted_at')) {
+    await db.execute('ALTER TABLE $markersTable ADD COLUMN deleted_at TEXT');
+  }
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_markers_updated_at ON $markersTable(updated_at)');
+
+  final pathCols = (await db.rawQuery('PRAGMA table_info($savedPathsTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!pathCols.contains('synced')) {
+    await db.execute(
+        'ALTER TABLE $savedPathsTable ADD COLUMN synced INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!pathCols.contains('version')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN version INTEGER');
+  }
+  if (!pathCols.contains('updated_at')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN updated_at TEXT');
+  }
+  if (!pathCols.contains('deleted_at')) {
+    await db.execute('ALTER TABLE $savedPathsTable ADD COLUMN deleted_at TEXT');
+  }
+  await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_saved_paths_updated_at ON $savedPathsTable(updated_at)');
+
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS pending_track_deletes(
+      uuid TEXT PRIMARY KEY,
+      version INTEGER,
+      created_at TEXT NOT NULL
+    )
+  ''');
+}
+
+/// v9 — vector tile cache table backing the external_vector_layers feature.
 Future<void> _migrateV8ToV9(Database db) async {
   await db.execute('''
     CREATE TABLE IF NOT EXISTS $vectorTileCacheTable(
