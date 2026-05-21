@@ -7,7 +7,6 @@ import 'package:turbo/core/api/api_client.dart';
 import 'package:turbo/core/connectivity/connectivity_provider.dart';
 import 'package:turbo/core/data/database_provider.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
-import 'package:turbo/features/activities/data/activity_offline_stores.dart';
 import 'package:turbo/features/activities/data/activity_summaries_api.dart';
 import 'package:turbo/features/activities/data/activity_summaries_repository.dart';
 import 'package:turbo/features/activities/data/conditions_cache.dart';
