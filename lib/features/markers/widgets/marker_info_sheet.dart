@@ -137,8 +137,14 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
           const SizedBox(height: 16),
 
           // Actions row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          // Action row uses Wrap so the button list flows to a second line
+          // on narrow phones — six buttons (Navigate / Edit / Photo / Export
+          // / Activity / Delete) does not fit a single row at typical mobile
+          // widths and previously overflowed by ~20px.
+          Wrap(
+            alignment: WrapAlignment.spaceEvenly,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               ActionButton(
                 icon: Icons.navigation_outlined,

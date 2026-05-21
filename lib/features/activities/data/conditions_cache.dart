@@ -138,7 +138,7 @@ Future<T> _fetchWithCache<T>({
       _log.warning('Failed to write $cacheLabel cache for $kindKey/$activityId', e, st);
     }
     return fromJson(raw);
-  } catch (fetchError, fetchStack) {
+  } catch (fetchError) {
     try {
       final hit = await cache.get(activityId: activityId, kind: kindKey);
       if (hit != null) {
@@ -150,6 +150,7 @@ Future<T> _fetchWithCache<T>({
       _log.warning('$cacheLabel cache read failed for $kindKey/$activityId',
           cacheError, cacheStack);
     }
-    Error.throwWithStackTrace(fetchError, fetchStack);
+    // No cache fallback — let the original upstream error propagate.
+    rethrow;
   }
 }

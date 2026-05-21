@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:turbo/core/api/api_client.dart';
@@ -243,6 +244,11 @@ Future<Map<String, activities.ActivitySummary>> _waitForSummaries(
         ProviderContainer container) =>
     waitForAsyncData(container, activitySummariesRepositoryProvider);
 
+/// Reads the conditions provider via `.future` rather than polling
+/// `AsyncValue<T>`. Goes through the family's current future — so
+/// after `container.invalidate(...)`, this returns the freshly-issued
+/// future rather than a stale cached `AsyncData` from the previous
+/// build.
 Future<Map<String, dynamic>> _readConditions(
   ProviderContainer container,
   String urlSlug,
@@ -250,7 +256,7 @@ Future<Map<String, dynamic>> _readConditions(
   String id,
 ) {
   final arg = '$urlSlug|$key|$id';
-  return waitForAsyncData(container, _testConditionsProvider(arg));
+  return container.read(_testConditionsProvider(arg).future);
 }
 
 Future<Map<String, dynamic>> _readActivity(
@@ -260,7 +266,49 @@ Future<Map<String, dynamic>> _readActivity(
   String id,
 ) {
   final arg = '$urlSlug|$key|$id';
-  return waitForAsyncData(container, _testActivityProvider(arg));
+  return container.read(_testActivityProvider(arg).future);
+}
+
+/// Polls the SQLite store until [table] reports at least [minRows] rows
+/// with a `WHERE` matching [where]/[args]. Lets tests assert that the
+/// fire-and-forget persist inside the repository has reached disk
+/// without sprinkling fixed delays.
+Future<List<Map<String, Object?>>> _waitForRows(
+  Database db,
+  String table, {
+  int minRows = 1,
+  String? where,
+  List<Object?>? args,
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    final rows = await db.query(table, where: where, whereArgs: args);
+    if (rows.length >= minRows) return rows;
+    await Future.delayed(const Duration(milliseconds: 20));
+  }
+  return db.query(table, where: where, whereArgs: args);
+}
+
+/// Polls [provider] until its AsyncValue carries an error, then returns
+/// that error. Riverpod 3.x parks a thrown-from-builder FutureProvider in
+/// `AsyncLoading(error: …, retrying)` rather than `AsyncError`, so
+/// `await container.read(provider.future)` hangs forever and standard
+/// `throwsA` matchers can't see the thrown value. This helper inspects
+/// `AsyncValue.error` directly.
+Future<Object?> _waitForProviderError<T>(
+  ProviderContainer container,
+  ProviderListenable<AsyncValue<T>> provider, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  container.listen<AsyncValue<T>>(provider, (_, _) {});
+  while (DateTime.now().isBefore(deadline)) {
+    final v = container.read(provider);
+    if (v.error != null) return v.error;
+    await Future.delayed(const Duration(milliseconds: 20));
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +341,10 @@ void main() {
   }
 
   tearDown(() async {
+    // Let fire-and-forget persist / cache work finish before disposing the
+    // container; otherwise refresh()-in-flight resumes and tries to use a
+    // disposed ref, printing a noisy (but non-fatal) Riverpod error.
+    await Future.delayed(const Duration(milliseconds: 50));
     container.dispose();
     try {
       await db.close();
@@ -311,11 +363,17 @@ void main() {
         _makeSummary(id: 'a-1', name: 'Pond'),
         _makeSummary(id: 'a-2', name: 'Lake'),
       ]);
+      // Bootstrap fires the initial refresh against an empty server before
+      // the test seeded items, so trigger a second refresh explicitly to
+      // pick them up.
+      await container.read(activitySummariesRepositoryProvider.notifier).refresh();
 
-      final summaries = await _waitForSummaries(container);
+      final summaries = container.read(activitySummariesRepositoryProvider).value!;
       expect(summaries.keys, containsAll(['a-1', 'a-2']));
 
-      final rows = await db.query(activitySummariesTable);
+      // Persist is fire-and-forget; poll until rows land instead of using a
+      // fixed delay.
+      final rows = await _waitForRows(db, activitySummariesTable, minRows: 2);
       expect(rows.map((r) => r['id']), containsAll(['a-1', 'a-2']));
     });
 
@@ -539,11 +597,19 @@ void main() {
       await _waitForSummaries(container);
       fakeConditionsApi.shouldFail = true;
 
-      await expectLater(
-        _readConditions(container, 'fishing', 'fishing', 'act-never-seen'),
-        throwsA(isA<Exception>()),
-        reason: 'No fresh response and no cache: caller must see the error.',
-      );
+      final oneShot = FutureProvider<Map<String, dynamic>>((ref) async {
+        return activities.fetchConditionsCached<Map<String, dynamic>>(
+          ref: ref,
+          kindUrlSlug: 'fishing',
+          kindKey: 'fishing',
+          activityId: 'act-never-seen',
+          fromJson: (json) => json,
+        );
+      });
+
+      final err = await _waitForProviderError(container, oneShot);
+      expect(err, isA<Exception>(),
+          reason: 'No fresh response and no cache: caller must see the error.');
     });
 
     test('different kinds share the store without collision', () async {
@@ -640,13 +706,19 @@ void main() {
       await _readActivity(container, 'fishing', 'fishing', 'shared');
 
       // No conditions seeded.
-      container.invalidate(_testConditionsProvider('fishing|fishing|shared'));
       fakeConditionsApi.shouldFail = true;
-      await expectLater(
-        _readConditions(container, 'fishing', 'fishing', 'shared'),
-        throwsA(isA<Exception>()),
-        reason: 'A detail-cache hit must not satisfy a conditions request.',
-      );
+      final oneShot = FutureProvider<Map<String, dynamic>>((ref) async {
+        return activities.fetchConditionsCached<Map<String, dynamic>>(
+          ref: ref,
+          kindUrlSlug: 'fishing',
+          kindKey: 'fishing',
+          activityId: 'shared',
+          fromJson: (json) => json,
+        );
+      });
+      final err = await _waitForProviderError(container, oneShot);
+      expect(err, isA<Exception>(),
+          reason: 'A detail-cache hit must not satisfy a conditions request.');
     });
   });
 }
