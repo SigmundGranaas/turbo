@@ -402,6 +402,8 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   /// Open the cross-kind activity picker seeded at the tapped point.
   /// The picker dispatches to the selected kind's create screen via its
   /// descriptor — the map page stays unaware of which kinds exist.
+  /// The picker itself renders a sign-in CTA for anonymous users so we
+  /// don't need an auth check here.
   void _showActivityCreatePicker(BuildContext context, LatLng point) {
     showModalBottomSheet(
       context: context,
