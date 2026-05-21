@@ -3,13 +3,22 @@ name: Flutter Tests
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'apps/flutter/**'
+      - '.github/workflows/flutter_tests.yaml'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'apps/flutter/**'
+      - '.github/workflows/flutter_tests.yaml'
 
 jobs:
   test:
     name: Run Flutter Tests
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/flutter
 
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +27,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y sqlite3 libsqlite3-dev
+        working-directory: .
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

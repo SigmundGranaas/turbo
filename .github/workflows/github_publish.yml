@@ -4,10 +4,16 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'apps/flutter/**'
+      - '.github/workflows/github_publish.yml'
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/flutter
 
     steps:
       - name: Checkout code
@@ -34,15 +40,14 @@ jobs:
           echo "Decoding keystore..."
           echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.jks
           echo "Keystore decoded to android/app/release.jks"
-          
+
           echo "Creating key.properties file..."
-          # Place key.properties in the android/ directory
           echo "storePassword=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" > android/key.properties
           echo "keyPassword=${{ secrets.RELEASE_KEY_PASSWORD }}" >> android/key.properties
           echo "keyAlias=${{ secrets.RELEASE_KEY_ALIAS }}" >> android/key.properties
-          
+
           echo "storeFile=release.jks" >> android/key.properties
-          
+
           echo "key.properties created."
 
       - name: Get App Version
@@ -51,15 +56,12 @@ jobs:
           VERSION=$(grep '^version:' pubspec.yaml | cut -d ' ' -f 2)
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
 
-      # Use the version in the build name and the run number for the build number
       - name: Build Release APK
         run: flutter build apk --release --build-name=${{ env.APP_VERSION }} --build-number=${{ github.run_number }} --split-per-abi
 
       - name: Find and Rename APKs
         run: |
-          # Create a directory to hold the final APKs
           mkdir -p release-artifacts
-          # Find all release APKs and move/Disrename them
           find build/app/outputs/flutter-apk -name 'app-*-release.apk' -exec mv {} release-artifacts/ \;
           ls -R release-artifacts
 
@@ -70,5 +72,4 @@ jobs:
           tag_name: v${{ env.APP_VERSION }}
           name: Turbo Release v${{ env.APP_VERSION }}
           generate_release_notes: true
-          # Upload all files from the artifacts directory
-          files: release-artifacts/*
+          files: apps/flutter/release-artifacts/*
