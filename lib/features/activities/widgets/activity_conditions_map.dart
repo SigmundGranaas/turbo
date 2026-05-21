@@ -62,9 +62,25 @@ class ActivityConditionsMap extends ConsumerWidget {
 
     final tileLayers = ref.watch(activeTileLayersProvider);
 
-    final cameraFit = points.length == 1
-        ? CameraFit.coordinates(coordinates: [points.first], minZoom: 11, maxZoom: 14)
-        : CameraFit.coordinates(coordinates: points, padding: const EdgeInsets.all(28));
+    // For a single point, fitting a zero-area bounds is undefined in
+    // flutter_map — use an explicit center + zoom instead. For a route,
+    // fit the bounds with some padding so the polyline isn't flush
+    // against the edge.
+    final mapOptions = points.length == 1
+        ? MapOptions(
+            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            initialCenter: points.first,
+            initialZoom: 13,
+            interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+          )
+        : MapOptions(
+            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+            initialCameraFit: CameraFit.coordinates(
+              coordinates: points,
+              padding: const EdgeInsets.all(28),
+            ),
+            interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+          );
 
     final layers = <Widget>[
       ...tileLayers,
@@ -103,11 +119,7 @@ class ActivityConditionsMap extends ConsumerWidget {
         height: height,
         child: Stack(children: [
           FlutterMap(
-            options: MapOptions(
-              backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-              initialCameraFit: cameraFit,
-              interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
-            ),
+            options: mapOptions,
             children: layers,
           ),
           // Top-left: weather symbol icon.

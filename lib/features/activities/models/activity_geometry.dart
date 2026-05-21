@@ -40,6 +40,25 @@ class ActivityGeometry {
   /// posting to a kind's typed endpoint.
   static String pointWkt(LatLng p) => 'POINT(${p.longitude} ${p.latitude})';
 
+  /// Build a typed point geometry from a [LatLng] directly — skips the
+  /// WKT-then-parse round trip that `fromServer` would do.
+  factory ActivityGeometry.fromPoint(LatLng p) => ActivityGeometry._(
+        ActivityGeometryKind.point,
+        pointWkt(p),
+        [p],
+      );
+
+  /// Build a typed linestring geometry from a list of [LatLng]s. Used by
+  /// the route-drawing flow before any server round-trip.
+  factory ActivityGeometry.fromRoute(List<LatLng> points) {
+    final wkt = 'LINESTRING(${points.map((p) => '${p.longitude} ${p.latitude}').join(', ')})';
+    return ActivityGeometry._(
+      ActivityGeometryKind.lineString,
+      wkt,
+      List<LatLng>.from(points),
+    );
+  }
+
   static List<LatLng> _parseWkt(String wkt) {
     final trimmed = wkt.trim();
     final openParen = trimmed.indexOf('(');

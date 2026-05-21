@@ -25,10 +25,7 @@ class ActivityCreatePicker extends ConsumerWidget {
   factory ActivityCreatePicker.fromPoint(LatLng point, {Key? key}) =>
       ActivityCreatePicker(
         key: key,
-        seedGeometry: ActivityGeometry.fromServer(
-          wkt: ActivityGeometry.pointWkt(point),
-          geometryKind: 'POINT',
-        ),
+        seedGeometry: ActivityGeometry.fromPoint(point),
       );
 
   @override

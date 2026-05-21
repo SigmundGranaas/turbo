@@ -40,6 +40,11 @@ class RouteDrawingScreen extends ConsumerStatefulWidget {
 
 class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
   final MapController _map = MapController();
+  // Attached to the wrapper around MapBase so we can resolve the map's
+  // RenderBox directly. Using `context.findRenderObject()` from this
+  // state finds the Scaffold, which is offset by the app bar and gives
+  // wrong drag coordinates.
+  final GlobalKey _mapKey = GlobalKey();
   late List<LatLng> _vertices;
 
   /// Set while the user is dragging a vertex. Lets us disable the
@@ -70,7 +75,7 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
   /// global position to a LatLng via the camera, mirrors the pattern
   /// `region_creation_page.dart` uses for resize handles.
   void _onVertexDrag(int idx, DragUpdateDetails details) {
-    final renderBox = context.findRenderObject();
+    final renderBox = _mapKey.currentContext?.findRenderObject();
     if (renderBox is! RenderBox) return;
     final local = renderBox.globalToLocal(details.globalPosition);
     final newPoint = _map.camera.screenOffsetToLatLng(local);
@@ -151,19 +156,22 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
         ],
       ),
       body: Stack(children: [
-        MapBase(
-          mapController: _map,
-          mapLayers: layers,
-          overlayWidgets: const [],
-          initialCenter: widget.seedCenter,
-          initialZoom: 13,
-          onTap: (_, p) => _addVertex(p),
-          // While a vertex is being dragged, freeze the map so the
-          // gesture only moves the vertex (not the camera too).
-          interactionOptions: InteractionOptions(
-            flags: _draggingIdx != null
-                ? InteractiveFlag.none
-                : InteractiveFlag.all & ~InteractiveFlag.rotate,
+        KeyedSubtree(
+          key: _mapKey,
+          child: MapBase(
+            mapController: _map,
+            mapLayers: layers,
+            overlayWidgets: const [],
+            initialCenter: widget.seedCenter,
+            initialZoom: 13,
+            onTap: (_, p) => _addVertex(p),
+            // While a vertex is being dragged, freeze the map so the
+            // gesture only moves the vertex (not the camera too).
+            interactionOptions: InteractionOptions(
+              flags: _draggingIdx != null
+                  ? InteractiveFlag.none
+                  : InteractiveFlag.all & ~InteractiveFlag.rotate,
+            ),
           ),
         ),
         Positioned(
