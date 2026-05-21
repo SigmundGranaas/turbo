@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Turbo.Architecture</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NetArchTest.Rules" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\Turbo.Messaging.Abstractions\Turbo.Messaging.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Shared\Turbo.Messaging.InProcess\Turbo.Messaging.InProcess.csproj" />
+    <ProjectReference Include="..\..\src\Shared\Turbo.Messaging.Nats\Turbo.Messaging.Nats.csproj" />
+    <ProjectReference Include="..\..\src\Shared\Turbo.Outbox.Abstractions\Turbo.Outbox.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Shared\Turbo.Outbox.Postgres\Turbo.Outbox.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\Tracks\Turbo.Tracks.Api\Turbo.Tracks.Api.csproj" />
+    <ProjectReference Include="..\..\src\Tracks\Turbo.Tracks.Core\Turbo.Tracks.Core.csproj" />
+    <ProjectReference Include="..\..\src\Tracks\Turbo.Tracks.Contracts\Turbo.Tracks.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Tracks\Turbo.Tracks.Infrastructure\Turbo.Tracks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Collections\Turbo.Collections.Api\Turbo.Collections.Api.csproj" />
+    <ProjectReference Include="..\..\src\Collections\Turbo.Collections.Core\Turbo.Collections.Core.csproj" />
+    <ProjectReference Include="..\..\src\Collections\Turbo.Collections.Contracts\Turbo.Collections.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Collections\Turbo.Collections.Infrastructure\Turbo.Collections.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Geo\Turbo.Geo.Api\Turbo.Geo.Api.csproj" />
+    <ProjectReference Include="..\..\src\Geo\Turbo.Geo.Core\Turbo.Geo.Core.csproj" />
+    <ProjectReference Include="..\..\src\Geo\Turbo.Geo.Contracts\Turbo.Geo.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Geo\Turbo.Geo.Infrastructure\Turbo.Geo.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Auth\Turbo.Auth.Api\Turbo.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\src\Auth\Turbo.Auth.Core\Turbo.Auth.Core.csproj" />
+    <ProjectReference Include="..\..\src\Auth\Turbo.Auth.Contracts\Turbo.Auth.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Auth\Turbo.Auth.Infrastructure\Turbo.Auth.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Shared.Api\Turbo.Activities.Shared.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Shared.Core\Turbo.Activities.Shared.Core.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Shared.Contracts\Turbo.Activities.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Shared.Infrastructure\Turbo.Activities.Shared.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Fishing.Api\Turbo.Activities.Fishing.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Fishing.Core\Turbo.Activities.Fishing.Core.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Fishing.Contracts\Turbo.Activities.Fishing.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Fishing.Infrastructure\Turbo.Activities.Fishing.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.BackcountrySki.Api\Turbo.Activities.BackcountrySki.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.BackcountrySki.Core\Turbo.Activities.BackcountrySki.Core.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.BackcountrySki.Contracts\Turbo.Activities.BackcountrySki.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.BackcountrySki.Infrastructure\Turbo.Activities.BackcountrySki.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Hiking.Api\Turbo.Activities.Hiking.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Hiking.Core\Turbo.Activities.Hiking.Core.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Hiking.Contracts\Turbo.Activities.Hiking.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Hiking.Infrastructure\Turbo.Activities.Hiking.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.XcSki.Api\Turbo.Activities.XcSki.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.XcSki.Core\Turbo.Activities.XcSki.Core.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.XcSki.Contracts\Turbo.Activities.XcSki.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.XcSki.Infrastructure\Turbo.Activities.XcSki.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Packrafting.Api\Turbo.Activities.Packrafting.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Packrafting.Core\Turbo.Activities.Packrafting.Core.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Packrafting.Contracts\Turbo.Activities.Packrafting.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Packrafting.Infrastructure\Turbo.Activities.Packrafting.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Freediving.Api\Turbo.Activities.Freediving.Api.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Freediving.Core\Turbo.Activities.Freediving.Core.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Freediving.Contracts\Turbo.Activities.Freediving.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Freediving.Infrastructure\Turbo.Activities.Freediving.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\hosts\Turbo.Host.Modulith\Turbo.Host.Modulith.csproj" />
+  </ItemGroup>
+
+</Project>

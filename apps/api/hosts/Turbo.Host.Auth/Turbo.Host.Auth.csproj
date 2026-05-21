@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Turbo.Host.Auth</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Auth\Turbo.Auth.Api\Turbo.Auth.Api.csproj" />
+    <ProjectReference Include="..\..\src\Shared\Turbo.Hosting.Postgres\Turbo.Hosting.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\src\Auth\Turbo.Auth.Api\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\src\Auth\Turbo.Auth.Api\appsettings.json')" />
+    <Content Include="..\..\src\Auth\Turbo.Auth.Api\appsettings.Development.json" Link="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\src\Auth\Turbo.Auth.Api\appsettings.Development.json')" />
+    <Content Include="..\..\src\Auth\Turbo.Auth.Api\appsettings.Test.json" Link="appsettings.Test.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\src\Auth\Turbo.Auth.Api\appsettings.Test.json')" />
+  </ItemGroup>
+
+</Project>

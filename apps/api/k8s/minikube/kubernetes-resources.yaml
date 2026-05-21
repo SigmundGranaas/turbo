@@ -1,0 +1,572 @@
+---
+# Persistent Volumes and Claims
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: auth-db-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data/auth-db"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: auth-db-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: geo-db-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data/geo-db"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: geo-db-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: activity-db-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data/activity-db"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: activity-db-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# ConfigMaps
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-config
+data:
+  postgres-password: "yourpassword"
+  postgres-user: "postgres"
+---
+# Secrets (in a real environment, use proper secrets management).
+# postgres-password is still consumed by the per-DB Postgres pods + the
+# init/migration containers that need raw credentials; the application
+# containers consume the per-module connection-string entries.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secrets
+type: Opaque
+stringData:
+  postgres-password: "yourpassword"
+  connectionstring-auth: "Host=auth-db;Port=5432;Database=auth;Username=postgres;Password=yourpassword"
+  connectionstring-geo: "Host=geo-db;Port=5435;Database=geo;Username=postgres;Password=yourpassword"
+  connectionstring-activity: "Host=activity-db;Port=5436;Database=activity;Username=postgres;Password=yourpassword"
+---
+# NATS JetStream deployment — replaces the previous Kafka broker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args: ["-js", "-sd", "/data"]
+          ports:
+            - containerPort: 4222
+            - containerPort: 8222
+          livenessProbe:
+            tcpSocket:
+              port: 4222
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: 4222
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: nats-data
+              mountPath: /data
+      volumes:
+        - name: nats-data
+          emptyDir: {}
+---
+# NATS Service definition
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+spec:
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+  type: ClusterIP
+---
+# Database Services
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-db
+  template:
+    metadata:
+      labels:
+        app: auth-db
+    spec:
+      containers:
+        - name: auth-db
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "auth"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            - name: POSTGRES_USER
+              value: "postgres"
+          volumeMounts:
+            - name: auth-db-storage
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "auth"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: auth-db-storage
+          persistentVolumeClaim:
+            claimName: auth-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-db
+spec:
+  selector:
+    app: auth-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: geo-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: geo-db
+  template:
+    metadata:
+      labels:
+        app: geo-db
+    spec:
+      containers:
+        - name: geo-db
+          image: postgis/postgis:17-master
+          args: ["-p", "5435"]
+          ports:
+            - containerPort: 5435
+          env:
+            - name: POSTGRES_DB
+              value: "geo"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            - name: POSTGRES_USER
+              value: "postgres"
+          volumeMounts:
+            - name: geo-db-storage
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "geo", "-p", "5435"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: geo-db-storage
+          persistentVolumeClaim:
+            claimName: geo-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: geo-db
+spec:
+  selector:
+    app: geo-db
+  ports:
+    - port: 5435
+      targetPort: 5435
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: activity-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: activity-db
+  template:
+    metadata:
+      labels:
+        app: activity-db
+    spec:
+      containers:
+        - name: activity-db
+          image: postgres:17-alpine
+          args: ["-p", "5436"]
+          ports:
+            - containerPort: 5436
+          env:
+            - name: POSTGRES_DB
+              value: "activity"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            - name: POSTGRES_USER
+              value: "postgres"
+          volumeMounts:
+            - name: activity-db-storage
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "activity", "-p", "5436"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: activity-db-storage
+          persistentVolumeClaim:
+            claimName: activity-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: activity-db
+spec:
+  selector:
+    app: activity-db
+  ports:
+    - port: 5436
+      targetPort: 5436
+  type: ClusterIP
+---
+# Application Deployments with Migrations
+# Auth service with migration init container
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turboapi-auth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: turboapi-auth
+  template:
+    metadata:
+      labels:
+        app: turboapi-auth
+    spec:
+      # Auth migrates at startup via MigrateModuleDatabaseAsync; no init container.
+      containers:
+        - name: turboapi-auth
+          image: turboapi-auth:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: ConnectionStrings__Auth
+              value: "Host=auth-db;Port=5432;Database=auth;Username=postgres;Password=yourpassword"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "turboapi-auth"
+            - name: Nats__Url
+              value: "nats://nats:4222"
+---
+# Geo service with migration init container
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turboapi-geo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: turboapi-geo
+  template:
+    metadata:
+      labels:
+        app: turboapi-geo
+    spec:
+      # Geo migrates at startup; the InitialCreate migration enables PostGIS.
+      containers:
+        - name: turboapi-geo
+          image: turboapi-geo:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: ConnectionStrings__Geo
+              value: "Host=geo-db;Port=5435;Database=geo;Username=postgres;Password=yourpassword"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "turboapi-geo"
+            - name: Nats__Url
+              value: "nats://nats:4222"
+---
+# Activity service with migration init container
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turboapi-activity
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: turboapi-activity
+  template:
+    metadata:
+      labels:
+        app: turboapi-activity
+    spec:
+      # Activity migrates at startup; no init container.
+      containers:
+        - name: turboapi-activity
+          image: turboapi-activity:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: ConnectionStrings__Activity
+              value: "Host=activity-db;Port=5436;Database=activity;Username=postgres;Password=yourpassword"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "turboapi-activity"
+            - name: Nats__Url
+              value: "nats://nats:4222"
+---
+# Application Services
+apiVersion: v1
+kind: Service
+metadata:
+  name: turboapi-auth
+spec:
+  selector:
+    app: turboapi-auth
+  ports:
+    - port: 5001
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turboapi-geo
+spec:
+  selector:
+    app: turboapi-geo
+  ports:
+    - port: 5002
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turboapi-activity
+spec:
+  selector:
+    app: turboapi-activity
+  ports:
+    - port: 5003
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: turboapi-path-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: default-strip-prefix@kubernetescrd
+spec:
+  rules:
+    - host: turboapi.local
+      http:
+        paths:
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: turboapi-auth
+                port:
+                  number: 5001
+          - path: /geo
+            pathType: Prefix
+            backend:
+              service:
+                name: turboapi-geo
+                port:
+                  number: 5002
+          - path: /activity
+            pathType: Prefix
+            backend:
+              service:
+                name: turboapi-activity
+                port:
+                  number: 5003
+          # Default route for root path
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: turboapi-auth
+                port:
+                  number: 5001
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-prefix
+spec:
+  stripPrefix:
+    prefixes:
+      - /auth
+      - /geo
+      - /activity
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-config
+  namespace: kube-system
+data:
+  traefik.yaml: |
+    metrics:
+      prometheus:
+        entryPoint: web
+        addServicesLabels: true
+        addEntryPointsLabels: true
+        buckets:
+          - 0.1
+          - 0.3
+          - 1.2
+          - 5.0
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: traefik
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: traefik-kube-system
+      app.kubernetes.io/name: traefik
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-metrics
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-kube-system
+    release: prometheus
+spec:
+  selector:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/instance: traefik-kube-system
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+  type: ClusterIP

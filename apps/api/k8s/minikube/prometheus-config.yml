@@ -1,0 +1,25 @@
+# Values file for kube-prometheus-stack
+prometheus:
+  prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector:
+      matchLabels:
+        release: prometheus
+    serviceMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector:
+      matchLabels:
+        release: prometheus
+    podMonitorNamespaceSelector: {}
+
+grafana:
+  enabled: true
+  adminPassword: kube-operator  # Change this in production
+
+# Disable components you don't need to make it lighter
+alertmanager:
+  enabled: false
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true

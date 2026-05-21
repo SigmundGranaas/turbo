@@ -1,0 +1,67 @@
+name: turbo
+
+# Modulith deployment: a single Turbo.Host.Modulith process binding all three
+# modules against a single Postgres (three schemas — auth/geo/tracks). The
+# gateway runs in Modulith topology so /api/auth/*, /api/geo/*, /api/tracks/*
+# all forward to the one host. No NATS — events flow in-process inside the host.
+#
+# Usage:
+#   docker compose -f compose.yaml -f compose.utils.yaml -f compose.modulith.yaml up
+#
+# (compose.yaml supplies the Postgres + NATS infrastructure containers; the
+#  modulith deploy ignores NATS, but compose.yaml is still the canonical
+#  source for the database containers.)
+
+services:
+  turboapi-modulith:
+    build:
+      context: .
+      dockerfile: ./hosts/Turbo.Host.Modulith/Dockerfile
+    container_name: turboapi_modulith
+    hostname: modulith
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Auth=Host=${AUTH_DB_HOST:-auth-db};Port=${AUTH_DB_PORT:-5432};Database=${AUTH_DB_NAME:-auth};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=turboapi-modulith
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - turbo
+
+  turboapi-gateway:
+    build:
+      context: .
+      dockerfile: ./src/Gateway/Dockerfile
+    container_name: turboapi_gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - Topology=Modulith
+    depends_on:
+      turboapi-modulith:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - turbo
+
+  # Migrations run in-process at modulith host startup via EF Core
+  # (see MigrateModuleDatabaseAsync in src/Shared/Turbo.Hosting.Postgres).
+  # No separate migration containers needed.

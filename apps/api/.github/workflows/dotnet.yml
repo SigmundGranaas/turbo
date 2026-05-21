@@ -1,0 +1,59 @@
+# Builds the solution and runs every behaviour + architecture test
+# against real Postgres + NATS containers (Testcontainers). The runner
+# image ships Docker so Testcontainers Just Works. Migrations run via
+# EF Core in-process; no Flyway / JDK install needed.
+name: .NET Build and test
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore Turboapi.sln
+
+      - name: Build
+        run: dotnet build Turboapi.sln --no-restore -c Release
+
+      # Behaviour suites — each spins up its own Postgres + NATS via
+      # Testcontainers. The architecture suite is pure reflection and
+      # doesn't need containers.
+      - name: Test Architecture
+        run: dotnet test tests/Turbo.Architecture/Turbo.Architecture.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Tracks
+        run: dotnet test tests/Turbo.Tracks.Behaviour/Turbo.Tracks.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Collections
+        run: dotnet test tests/Turbo.Collections.Behaviour/Turbo.Collections.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Auth
+        run: dotnet test tests/Turbo.Auth.Behaviour/Turbo.Auth.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Geo
+        run: dotnet test tests/Turbo.Geo.Behaviour/Turbo.Geo.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Modulith
+        run: dotnet test tests/Turbo.Modulith.Behaviour/Turbo.Modulith.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Microservices topology
+        run: dotnet test tests/Turbo.Microservices.Behaviour/Turbo.Microservices.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Gateway topology
+        run: dotnet test tests/Turbo.Gateway.Behaviour/Turbo.Gateway.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test TurboAuthentication
+        run: dotnet test TurboAuthentication/TurboAuthentication.csproj --no-build -c Release --logger "console;verbosity=minimal"

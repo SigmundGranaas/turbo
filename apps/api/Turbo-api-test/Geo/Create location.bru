@@ -1,0 +1,19 @@
+meta {
+  name: Create location
+  type: http
+  seq: 1
+}
+
+post {
+  url: http://localhost:5028/api/locations
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjAxOTQ3YTdkLWRlNmYtNzhhYy04OTQ3LTg0ZWQ2ZDYzNmNmZSIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL2VtYWlsYWRkcmVzcyI6InRlc3QyQGVtYWlsLmNvbSIsImp0aSI6IjY4NDA3ZDc0LWE4ZmItNGQ5MC05YjJlLTBiNzQxMGViNmJkYyIsImlhdCI6IjE3MzcyMjE4NTgiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJVc2VyIiwibmJmIjoxNzM3MjIxODU4LCJleHAiOjE3MzcyMjI3NTgsImlzcyI6InR1cmJvLWF1dGgiLCJhdWQiOiJ0dXJiby1jbGllbnQifQ.vGkfLrKZA27cs4hKl1ZgY5UMa10HdNcFxd1WJoiOz1w
+}
+
+body:json {
+  {}
+}

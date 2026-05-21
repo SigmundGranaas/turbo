@@ -1,0 +1,127 @@
+# Shared-database variant of the persistence layer: one Postgres instance
+# (PostGIS image) hosting auth, geo, and activity as logical databases.
+# Use *instead of* databases.yaml — never both. Switch the resources list
+# in kustomization.yaml between the two files.
+#
+# The applications.yaml deployments expect a service named auth-db / geo-db
+# / activity-db, so this overlay declares Service objects that all point at
+# the single shared-db deployment. The applications also pick up
+# per-module connection strings from the db-secrets Secret — those secret
+# entries continue to encode the per-module host/port/dbname, and here
+# they all point at shared-db:5432.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-db-init
+data:
+  init.sql: |
+    CREATE DATABASE auth;
+    CREATE DATABASE geo;
+    CREATE DATABASE activity;
+    \connect geo;
+    CREATE EXTENSION IF NOT EXISTS postgis;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shared-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shared-db
+  template:
+    metadata:
+      labels:
+        app: shared-db
+    spec:
+      containers:
+        - name: shared-db
+          image: postgis/postgis:17-master
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: postgres-user
+          volumeMounts:
+            - name: shared-db-storage
+              mountPath: /var/lib/postgresql/data
+            - name: shared-db-init
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+      volumes:
+        - name: shared-db-storage
+          persistentVolumeClaim:
+            claimName: shared-db-pvc
+        - name: shared-db-init
+          configMap:
+            name: shared-db-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shared-db
+spec:
+  selector:
+    app: shared-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+# The application Deployments hard-code auth-db / geo-db / activity-db as
+# the hostnames in their connection-string Secrets. The Services below
+# alias all three to the single shared-db Pod so no app or secret change
+# is required when switching between dedicated and shared variants.
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-db
+spec:
+  selector:
+    app: shared-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: geo-db
+spec:
+  selector:
+    app: shared-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: activity-db
+spec:
+  selector:
+    app: shared-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP

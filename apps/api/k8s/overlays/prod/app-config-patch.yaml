@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  # CORS configuration
+  CORS__AllowedOrigins: "https://kart.sandring.no,https://*.sandring.no"
+  # JWT configuration
+  Jwt__Issuer: "turbo-auth"
+  Jwt__Audience: "turbo-client"
+  Jwt__TokenExpirationMinutes: "15"
+  Jwt__RefreshTokenExpirationDays: "7"
+  # Authentication configuration
+  Authentication__Google__RedirectUri: "https://kart-api.sandring.no/auth/google/callback"
+  Authentication__Google__TokenInfoEndpoint: "https://oauth2.googleapis.com/tokeninfo"
