@@ -1,0 +1,26 @@
+# Repo-wide ignores. App-specific ignores live in apps/<app>/.gitignore.
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs (cross-cutting)
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# Build / log scratch
+*.log
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.development
+.env.production
+*.env
+!infra/env/.env.shared
+
+# Docker / compose scratch
+infra/compose/data/
