@@ -35,6 +35,10 @@ class TileRegistry extends Notifier<TileRegistryState> {
       TrailsOtherOverlayConfig(),
       OsmPathsOverlayConfig(),
       N50StiOverlayConfig(),
+      CuratedHikingOverlayConfig(),
+      CuratedSkiTracksOverlayConfig(),
+      CuratedForestRoadsOverlayConfig(),
+      CuratedCyclingRoutesOverlayConfig(),
     ];
     final initialProviders = <String, TileProviderConfig>{
       for (var p in builtInProviders) p.id: p,

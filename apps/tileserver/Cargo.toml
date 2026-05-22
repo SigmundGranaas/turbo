@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/turbo-tiles-core",
+    "crates/turbo-tiles-db",
+    "crates/turbo-tiles-mvt",
+    "crates/turbo-tiles-routing",
+    "crates/turbo-tiles-ingest",
+    "crates/turbo-tiles-auth",
+    "crates/turbo-tiles-api",
+    "crates/turbo-tiles-admin",
+    "crates/turbo-tiles-bin",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.90"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace.dependencies]
+turbo-tiles-core = { path = "crates/turbo-tiles-core" }
+turbo-tiles-db = { path = "crates/turbo-tiles-db" }
+turbo-tiles-mvt = { path = "crates/turbo-tiles-mvt" }
+turbo-tiles-routing = { path = "crates/turbo-tiles-routing" }
+turbo-tiles-ingest = { path = "crates/turbo-tiles-ingest" }
+turbo-tiles-auth = { path = "crates/turbo-tiles-auth" }
+turbo-tiles-api = { path = "crates/turbo-tiles-api" }
+turbo-tiles-admin = { path = "crates/turbo-tiles-admin" }
+
+axum = { version = "0.7", features = ["macros", "multipart"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "compression-br", "limit", "cors", "fs"] }
+hyper = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "macros", "migrate"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+jsonwebtoken = "9"
+async-trait = "0.1"
+askama = "0.12"
+askama_axum = "0.4"
+geo = "0.28"
+geozero = { version = "0.13", features = ["with-postgis-sqlx", "with-wkb"] }
+gpx = "0.10"
+quick-xml = { version = "0.36", features = ["serialize"] }
+sha2 = "0.10"
+hex = "0.4"
+bytes = "1"
+http = "1"
+url = "2"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"
