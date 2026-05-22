@@ -1,45 +1,49 @@
-# Kubernetes manifests
+# Kubernetes manifests — modulith topology
 
-## Database deployment: dedicated vs shared
+The cluster runs the modulith deployment: one `Turbo.Host.Modulith`
+process binds every module (auth + geo + tracks + collections +
+activities) against a single Postgres (PostGIS) pod. The host's startup
+code creates each per-module database on first boot
+(`MigrateModuleDatabaseAsync`), so no migration containers or
+`init.sql` ConfigMap are needed.
 
-The persistence layer is configurable. Pick one of:
+## Layout
 
-### Dedicated databases (default)
+```
+base/
+  config.yaml       # app-config ConfigMap (env-agnostic)
+  db.yaml           # turbo-db StatefulSet + PVC + Service (PostGIS)
+  modulith.yaml     # turboapi-modulith Deployment + Service
+  kustomization.yaml
 
-Each module gets its own Postgres pod and PVC. Edit `base/kustomization.yaml`
-so it includes `databases.yaml` (the current default). Connection-string
-secrets stay as the per-module hosts and ports
-(`auth-db:5432`, `geo-db:5435`, `activity-db:5436`).
-
-```bash
-kubectl kustomize k8s/base | kubectl apply -f -
+overlays/prod/
+  app-config-patch.yaml      # CORS, JWT, Google OAuth redirect
+  application-patch.yaml     # JWT key, Google OAuth secrets, cookies
+  ingress.yaml               # kart-api.sandring.no → turboapi-modulith
+  kustomization.yaml         # pins image + replica count
 ```
 
-### Shared database
+## Deploying
 
-A single PostGIS pod hosts `auth`, `geo`, and `activity` as logical
-databases. Edit `base/kustomization.yaml` so it includes
-`databases.shared.yaml` *instead of* `databases.yaml`. The shared file
-declares Services named `auth-db`, `geo-db`, and `activity-db` that all
-alias the single `shared-db` Pod, so the application Deployments don't
-care which variant is active.
+The intended deployment path is **Argo CD** — see
+[`../argocd/README.md`](../argocd/README.md) for the bootstrap steps.
+Once Argo CD + Image Updater are in place, the merge-to-deploy loop is
+fully automatic.
 
-`db-secrets` must use port `5432` for all three connection strings in this
-variant (the dedicated variant uses `5435`/`5436` for `geo`/`activity`):
-
-```yaml
-stringData:
-  connectionstring-auth: "Host=auth-db;Port=5432;Database=auth;Username=postgres;Password=yourpassword"
-  connectionstring-geo: "Host=geo-db;Port=5432;Database=geo;Username=postgres;Password=yourpassword"
-  connectionstring-activity: "Host=activity-db;Port=5432;Database=activity;Username=postgres;Password=yourpassword"
-```
+For a one-shot manual apply (no Argo CD), the kustomize is
+self-contained:
 
 ```bash
-kubectl kustomize k8s/base | kubectl apply -f -
+# Create secrets first — see ../argocd/README.md step 3 for the exact
+# kubectl create secret commands.
+kubectl apply -k infra/k8s/overlays/prod/
 ```
 
 ## Compose mirror
 
-The Docker Compose layout follows the same dedicated/shared split — see
-`compose.yaml` (default, dedicated) vs `compose.databases.shared.yaml` +
-`.env.shared` at the repo root.
+The Docker Compose modulith topology in
+`infra/compose/compose.modulith.yaml` matches this layout one-to-one:
+one Postgres, one modulith host. The compose stack also wires a gateway
+in front for local parity with the microservice deployment; the k8s
+layout drops the gateway because the modulith host serves every route
+itself.

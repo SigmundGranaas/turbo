@@ -1,0 +1,82 @@
+# Single Postgres (PostGIS image) hosting every module's database for the
+# modulith deployment. Turbo.Host.Modulith creates each per-module database
+# on first boot via MigrateModuleDatabaseAsync — no init container or
+# init.sql is required. The PostGIS image is used because the Geo module's
+# InitialCreate migration runs CREATE EXTENSION postgis on its database.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: turbo-db-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: turbo-db
+spec:
+  serviceName: turbo-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: turbo-db
+  template:
+    metadata:
+      labels:
+        app: turbo-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgis/postgis:17-master
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, postgres]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, postgres]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: 1000m, memory: 1Gi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: turbo-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turbo-db
+spec:
+  selector:
+    app: turbo-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP

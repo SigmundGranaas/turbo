@@ -1,74 +1,22 @@
+# All API traffic on kart-api.sandring.no fans into the single modulith
+# host. The modulith owns every route (/api/auth/*, /api/geo/*,
+# /api/tracks/*, /api/collections/*, /api/activities/*) directly — no
+# gateway, no per-module backend.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: turboapi-ingress
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: default-strip-prefix@kubernetescrd
 spec:
   rules:
     - host: kart-api.sandring.no
       http:
         paths:
-          # Handle /api/auth/* paths
-          - path: /api/auth
-            pathType: Prefix
-            backend:
-              service:
-                name: turboapi-auth
-                port:
-                  number: 5001
-          
-          # Handle /api/geo/* paths
-          - path: /api/geo
-            pathType: Prefix
-            backend:
-              service:
-                name: turboapi-geo
-                port:
-                  number: 5002
-          
-          # Handle /api/activity/* paths
-          - path: /api/activity
-            pathType: Prefix
-            backend:
-              service:
-                name: turboapi-activity
-                port:
-                  number: 5003
-          
-          # Handle direct /auth/* paths
-          - path: /auth
-            pathType: Prefix
-            backend:
-              service:
-                name: turboapi-auth
-                port:
-                  number: 5001
-          
-          # Handle direct /geo/* paths
-          - path: /geo
-            pathType: Prefix
-            backend:
-              service:
-                name: turboapi-geo
-                port:
-                  number: 5002
-          
-          # Handle direct /activity/* paths
-          - path: /activity
-            pathType: Prefix
-            backend:
-              service:
-                name: turboapi-activity
-                port:
-                  number: 5003
-          
-          # Default route for root path
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: turboapi-auth
+                name: turboapi-modulith
                 port:
-                  number: 5001
+                  number: 80

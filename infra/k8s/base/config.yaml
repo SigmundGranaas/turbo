@@ -1,28 +1,9 @@
-# ConfigMaps
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: db-config
-data:
-  postgres-user: "postgres"
----
+# Non-secret defaults for the modulith. Overlays patch app-config with
+# environment-specific values (CORS, JWT issuer/audience, Google OAuth
+# redirect, FrontendUrl).
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: app-config
 data:
   ASPNETCORE_ENVIRONMENT: "Production"
-  OTEL_SERVICE_NAME_AUTH: "turboapi-auth"
-  OTEL_SERVICE_NAME_GEO: "turboapi-geo"
-  OTEL_SERVICE_NAME_ACTIVITY: "turboapi-activity"
----
-apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-prefix
-spec:
-  stripPrefix:
-    prefixes:
-      - /auth
-      - /geo
-      - /activity

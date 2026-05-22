@@ -1,0 +1,55 @@
+# Argo CD Application that reconciles the cluster against
+# infra/k8s/overlays/prod on the main branch. Apply once:
+#
+#   kubectl apply -f infra/argocd/application.yaml
+#
+# After this the merge-to-deploy loop is fully automatic:
+#   1. push to main → .github/workflows/api_image_build.yaml builds and
+#      pushes a new ghcr.io/sigmundgranaas/turboapi-modulith image
+#   2. Argo CD Image Updater (running in the argocd namespace) notices
+#      the new image, rewrites overlays/prod/kustomization.yaml's
+#      newTag, and commits back to main via .argocd-source-*.yaml
+#   3. Argo CD's automated sync rolls the modulith Deployment
+#
+# Prerequisites in the cluster (see infra/argocd/README.md):
+#   • Argo CD itself
+#   • Argo CD Image Updater
+#   • db-secrets and auth-secrets in the default namespace
+#   • If ghcr packages are private: ghcr-auth pull secret patched onto
+#     the default ServiceAccount, plus a regcred secret in argocd
+#     namespace named ghcr-creds for Image Updater.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: turbo-api
+  namespace: argocd
+  annotations:
+    # --- Argo CD Image Updater ---
+    # Track the modulith image; commit new digests back to git so the
+    # kustomization.yaml stays the single source of truth.
+    argocd-image-updater.argoproj.io/image-list: >-
+      modulith=ghcr.io/sigmundgranaas/turboapi-modulith
+    argocd-image-updater.argoproj.io/modulith.update-strategy: digest
+    argocd-image-updater.argoproj.io/modulith.allow-tags: regexp:^latest$
+    # If the ghcr package is public this can be removed. For a private
+    # package, create a docker-registry Secret named ghcr-creds in the
+    # argocd namespace with read:packages scope.
+    argocd-image-updater.argoproj.io/modulith.pull-secret: pullsecret:argocd/ghcr-creds
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: main
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/SigmundGranaas/turbo
+    targetRevision: main
+    path: infra/k8s/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

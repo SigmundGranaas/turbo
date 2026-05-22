@@ -1,62 +1,40 @@
+# Prod-only env for turboapi-modulith. Layered on top of the base
+# Deployment (which already wires every ConnectionStrings__* from
+# db-secrets/postgres-password). This patch adds the auth-stack values
+# that only matter in prod: JWT key, Google OAuth, cookie/CORS/frontend.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: turboapi-auth
+  name: turboapi-modulith
 spec:
   template:
     spec:
       containers:
-        - name: turboapi-auth
+        - name: turboapi-modulith
           env:
-            # Add CORS Configuration
-            - name: AllowedOrigins
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: CORS__AllowedOrigins
-            # Frontend configuration
-            - name: FrontendUrl
-              value: "https://kart.sandring.no" 
-            # Add JWT Configuration
             - name: Jwt__Key
-              valueFrom:
-                secretKeyRef:
-                  name: auth-secrets
-                  key: jwt-key
+              valueFrom: { secretKeyRef: { name: auth-secrets, key: jwt-key } }
             - name: Jwt__Issuer
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: Jwt__Issuer
+              valueFrom: { configMapKeyRef: { name: app-config, key: Jwt__Issuer } }
             - name: Jwt__Audience
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: Jwt__Audience
+              valueFrom: { configMapKeyRef: { name: app-config, key: Jwt__Audience } }
             - name: Jwt__TokenExpirationMinutes
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: Jwt__TokenExpirationMinutes
+              valueFrom: { configMapKeyRef: { name: app-config, key: Jwt__TokenExpirationMinutes } }
             - name: Jwt__RefreshTokenExpirationDays
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: Jwt__RefreshTokenExpirationDays
-            # Add Google Auth Configuration
+              valueFrom: { configMapKeyRef: { name: app-config, key: Jwt__RefreshTokenExpirationDays } }
+
+            - name: AllowedOrigins
+              valueFrom: { configMapKeyRef: { name: app-config, key: CORS__AllowedOrigins } }
+
             - name: Authentication__Google__ClientId
-              valueFrom:
-                secretKeyRef:
-                  name: google-oauth-secrets
-                  key: google-client-id
+              valueFrom: { secretKeyRef: { name: auth-secrets, key: google-client-id } }
             - name: Authentication__Google__ClientSecret
-              valueFrom:
-                secretKeyRef:
-                  name: google-oauth-secrets
-                  key: google-client-secret
+              valueFrom: { secretKeyRef: { name: auth-secrets, key: google-client-secret } }
             - name: Authentication__Google__RedirectUri
-              value: "https://kart-api.sandring.no/api/auth/oauth/google/callback"
-            # Add Cookie Configuration
+              valueFrom: { configMapKeyRef: { name: app-config, key: Authentication__Google__RedirectUri } }
+
+            - name: FrontendUrl
+              value: "https://kart.sandring.no"
             - name: COOKIE_DOMAIN
               value: ".sandring.no"
             - name: COOKIE_SAME_SITE
@@ -67,71 +45,3 @@ spec:
               value: "7"
             - name: COOKIE_PATH
               value: "/"
----
-# geo-deployment-patch.yaml - Add to your overlays/prod folder
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: turboapi-geo
-spec:
-  template:
-    spec:
-      containers:
-        - name: turboapi-geo
-          env:
-            # Add CORS Configuration
-            - name: AllowedOrigins
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: CORS__AllowedOrigins
-            # Add JWT Configuration for validation
-            - name: Jwt__Key
-              valueFrom:
-                secretKeyRef:
-                  name: auth-secrets
-                  key: jwt-key
-            - name: Jwt__Issuer
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: Jwt__Issuer
-            - name: Jwt__Audience
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: Jwt__Audience
----
-# activity-deployment-patch.yaml - Add to your overlays/prod folder
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: turboapi-activity
-spec:
-  template:
-    spec:
-      containers:
-        - name: turboapi-activity
-          env:
-            # Add CORS Configuration
-            - name: AllowedOrigins
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: CORS__AllowedOrigins
-            # Add JWT Configuration for validation
-            - name: Jwt__Key
-              valueFrom:
-                secretKeyRef:
-                  name: auth-secrets
-                  key: jwt-key
-            - name: Jwt__Issuer
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: Jwt__Issuer
-            - name: Jwt__Audience
-              valueFrom:
-                configMapKeyRef:
-                  name: app-config
-                  key: Jwt__Audience

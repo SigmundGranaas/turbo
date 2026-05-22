@@ -1,0 +1,84 @@
+# Turbo modulith host: one process, all modules, one Postgres.
+# Connection strings are assembled inline from the db-secrets/postgres-password
+# secret and the per-module database names defined in app-config. Auth-stack
+# values (JWT, Google OAuth, Cookie, FrontendUrl, CORS) are layered on by the
+# overlay so the base manifest stays environment-agnostic.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turboapi-modulith
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: turboapi-modulith
+  template:
+    metadata:
+      labels:
+        app: turboapi-modulith
+    spec:
+      containers:
+        - name: turboapi-modulith
+          image: ghcr.io/sigmundgranaas/turboapi-modulith:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom: { configMapKeyRef: { name: app-config, key: ASPNETCORE_ENVIRONMENT } }
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+
+            # --- DB password fanned out into every per-module connection string ---
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: db-secrets, key: postgres-password } }
+            - name: ConnectionStrings__Auth
+              value: "Host=turbo-db;Port=5432;Database=auth;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__Geo
+              value: "Host=turbo-db;Port=5432;Database=geo;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__Tracks
+              value: "Host=turbo-db;Port=5432;Database=tracks;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__Collections
+              value: "Host=turbo-db;Port=5432;Database=collections;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__Activities
+              value: "Host=turbo-db;Port=5432;Database=activities;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__ActivitiesFishing
+              value: "Host=turbo-db;Port=5432;Database=fishing;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__ActivitiesBackcountrySki
+              value: "Host=turbo-db;Port=5432;Database=backcountry_ski;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__ActivitiesHiking
+              value: "Host=turbo-db;Port=5432;Database=hiking;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__ActivitiesXcSki
+              value: "Host=turbo-db;Port=5432;Database=xc_ski;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__ActivitiesPackrafting
+              value: "Host=turbo-db;Port=5432;Database=packrafting;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: ConnectionStrings__ActivitiesFreediving
+              value: "Host=turbo-db;Port=5432;Database=freediving;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+
+            - name: OTEL_SERVICE_NAME
+              value: "turboapi-modulith"
+          startupProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 5
+            failureThreshold: 60          # 5 min for all 11 migrations on first boot
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: 1000m, memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turboapi-modulith
+spec:
+  selector:
+    app: turboapi-modulith
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP
