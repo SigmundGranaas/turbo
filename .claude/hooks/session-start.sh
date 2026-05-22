@@ -37,11 +37,16 @@ git config --global --add safe.directory "$FLUTTER_DIR"
 export PATH="$FLUTTER_DIR/bin:$PATH"
 echo "export PATH=\"$FLUTTER_DIR/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
 
-flutter config --no-analytics >/dev/null
-flutter precache --universal --linux --web --no-android --no-ios --no-macos --no-windows
-
+# All `flutter` invocations must run from apps/flutter. Running from the repo
+# root makes flutter treat the root as a project and scatter generated
+# scaffolding (android/, ios/, .dart_tool/, .flutter-plugins-dependencies)
+# across the working tree.
 if [ -f "$CLAUDE_PROJECT_DIR/apps/flutter/pubspec.yaml" ]; then
-  (cd "$CLAUDE_PROJECT_DIR/apps/flutter" && flutter pub get)
+  cd "$CLAUDE_PROJECT_DIR/apps/flutter"
+  flutter config --no-analytics >/dev/null
+  flutter precache --universal --linux --web --no-android --no-ios --no-macos --no-windows
+  flutter pub get
+  cd "$CLAUDE_PROJECT_DIR"
 fi
 
 # ---------------------------------------------------------------------------
