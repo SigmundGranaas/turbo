@@ -15,8 +15,8 @@ name: turbo
 services:
   turboapi-modulith:
     build:
-      context: .
-      dockerfile: ./hosts/Turbo.Host.Modulith/Dockerfile
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Modulith/Dockerfile
     container_name: turboapi_modulith
     hostname: modulith
     ports:
@@ -41,8 +41,8 @@ services:
 
   turboapi-gateway:
     build:
-      context: .
-      dockerfile: ./src/Gateway/Dockerfile
+      context: ../../apps/api
+      dockerfile: src/Gateway/Dockerfile
     container_name: turboapi_gateway
     ports:
       - "8080:8080"

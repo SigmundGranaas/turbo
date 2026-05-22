@@ -5,9 +5,11 @@ Ingress resources will not work without this.
 
 ## Build images
 
-Build the host images (one per microservice host plus the modulith and gateway):
+Build the host images (one per microservice host plus the modulith and gateway).
+Run these from `apps/api/`:
 
 ```bash
+cd apps/api
 docker build -t turboapi-auth:latest      -f ./hosts/Turbo.Host.Auth/Dockerfile .
 docker build -t turboapi-geo:latest       -f ./hosts/Turbo.Host.Geo/Dockerfile .
 docker build -t turboapi-activity:latest  -f ./hosts/Turbo.Host.Activity/Dockerfile .
@@ -17,7 +19,7 @@ docker build -t turboapi-gateway:latest   -f ./src/Gateway/Dockerfile .
 
 No separate migration images — each host runs EF Core migrations
 in-process at startup via `MigrateModuleDatabaseAsync`. To evolve the
-schema:
+schema (run from `apps/api/`):
 
 ```bash
 dotnet ef migrations add <Name> --project src/<Module>/Turbo.<Module>.Infrastructure --context <Context>

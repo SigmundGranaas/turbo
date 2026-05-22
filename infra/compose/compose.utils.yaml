@@ -5,7 +5,7 @@ services:
     image: otel/opentelemetry-collector-contrib:latest
     command: [ "--config=/etc/otel-collector-config.yaml" ]
     volumes:
-      - ./otel-collector.yml:/etc/otel-collector-config.yaml
+      - ../observability/otel-collector.yml:/etc/otel-collector-config.yaml
     ports:
       - "4317:4317"
       - "4318:4318"
@@ -31,7 +31,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.50.1
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ../observability/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
@@ -67,7 +67,7 @@ services:
       - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
-      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - ../observability/loki-config.yml:/etc/loki/local-config.yaml
       - loki-data:/loki
       - loki-data:/wal
     networks:
@@ -76,7 +76,7 @@ services:
   promtail:
     image: grafana/promtail:3.3.2
     volumes:
-      - ./promtail-config.yml:/etc/promtail/config.yaml
+      - ../observability/promtail-config.yml:/etc/promtail/config.yaml
       - /var/log:/var/log
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock

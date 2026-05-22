@@ -9,8 +9,8 @@ name: turbo
 services:
   turboapi-auth:
     build:
-      context: .
-      dockerfile: ./hosts/Turbo.Host.Auth/Dockerfile
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Auth/Dockerfile
     container_name: turboapi_auth
     hostname: auth
     ports:
@@ -36,8 +36,8 @@ services:
 
   turboapi-geo:
     build:
-      context: .
-      dockerfile: ./hosts/Turbo.Host.Geo/Dockerfile
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Geo/Dockerfile
     container_name: turboapi_geo
     hostname: geo
     ports:
@@ -63,8 +63,8 @@ services:
 
   turboapi-tracks:
     build:
-      context: .
-      dockerfile: ./hosts/Turbo.Host.Tracks/Dockerfile
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Tracks/Dockerfile
     container_name: turboapi_tracks
     hostname: tracks
     ports:
@@ -90,8 +90,8 @@ services:
 
   turboapi-collections:
     build:
-      context: .
-      dockerfile: ./hosts/Turbo.Host.Collections/Dockerfile
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Collections/Dockerfile
     container_name: turboapi_collections
     hostname: collections
     ports:
@@ -123,8 +123,8 @@ services:
   # Add{Kind}ActivityNatsSubscribers extension.
   turboapi-activities:
     build:
-      context: .
-      dockerfile: ./hosts/Turbo.Host.Activities/Dockerfile
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Activities/Dockerfile
     container_name: turboapi_activities
     hostname: activities
     ports:
@@ -156,8 +156,8 @@ services:
 
   turboapi-gateway:
     build:
-      context: .
-      dockerfile: ./src/Gateway/Dockerfile
+      context: ../../apps/api
+      dockerfile: src/Gateway/Dockerfile
     container_name: turboapi_gateway
     ports:
       - "8080:8080"

@@ -30,7 +30,7 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - shared_db_data:/var/lib/postgresql/data
-      - ./migrations/shared-db-init.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
+      - ../migrations/shared-db-init.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

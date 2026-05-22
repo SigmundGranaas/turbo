@@ -6,13 +6,22 @@ name: .NET Build and test
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api_dotnet.yml'
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main" ]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api_dotnet.yml'
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
 
     steps:
       - uses: actions/checkout@v4
@@ -28,9 +37,6 @@ jobs:
       - name: Build
         run: dotnet build Turboapi.sln --no-restore -c Release
 
-      # Behaviour suites — each spins up its own Postgres + NATS via
-      # Testcontainers. The architecture suite is pure reflection and
-      # doesn't need containers.
       - name: Test Architecture
         run: dotnet test tests/Turbo.Architecture/Turbo.Architecture.csproj --no-build -c Release --logger "console;verbosity=minimal"
 

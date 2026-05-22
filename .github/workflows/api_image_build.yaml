@@ -1,9 +1,15 @@
 name: Build and Publish Docker Images
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api_image_build.yaml'
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api_image_build.yaml'
 
 permissions:
   contents: read
@@ -18,25 +24,25 @@ jobs:
         service: [auth, geo, activities, modulith, gateway]
         include:
           - service: auth
-            project_path: ./hosts/Turbo.Host.Auth/Turbo.Host.Auth.csproj
-            dockerfile: ./hosts/Turbo.Host.Auth/Dockerfile
-            context: ./
+            project_path: apps/api/hosts/Turbo.Host.Auth/Turbo.Host.Auth.csproj
+            dockerfile: apps/api/hosts/Turbo.Host.Auth/Dockerfile
+            context: apps/api
           - service: geo
-            project_path: ./hosts/Turbo.Host.Geo/Turbo.Host.Geo.csproj
-            dockerfile: ./hosts/Turbo.Host.Geo/Dockerfile
-            context: ./
+            project_path: apps/api/hosts/Turbo.Host.Geo/Turbo.Host.Geo.csproj
+            dockerfile: apps/api/hosts/Turbo.Host.Geo/Dockerfile
+            context: apps/api
           - service: activities
-            project_path: ./hosts/Turbo.Host.Activities/Turbo.Host.Activities.csproj
-            dockerfile: ./hosts/Turbo.Host.Activities/Dockerfile
-            context: ./
+            project_path: apps/api/hosts/Turbo.Host.Activities/Turbo.Host.Activities.csproj
+            dockerfile: apps/api/hosts/Turbo.Host.Activities/Dockerfile
+            context: apps/api
           - service: modulith
-            project_path: ./hosts/Turbo.Host.Modulith/Turbo.Host.Modulith.csproj
-            dockerfile: ./hosts/Turbo.Host.Modulith/Dockerfile
-            context: ./
+            project_path: apps/api/hosts/Turbo.Host.Modulith/Turbo.Host.Modulith.csproj
+            dockerfile: apps/api/hosts/Turbo.Host.Modulith/Dockerfile
+            context: apps/api
           - service: gateway
-            project_path: ./src/Gateway/Turbo.Gateway.csproj
-            dockerfile: ./src/Gateway/Dockerfile
-            context: ./
+            project_path: apps/api/src/Gateway/Turbo.Gateway.csproj
+            dockerfile: apps/api/src/Gateway/Dockerfile
+            context: apps/api
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -54,8 +60,6 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libxml2-utils
           VERSION=$(xmllint --xpath "string(//Project/PropertyGroup/Version)" ${{ matrix.project_path }} || true)
           if [ -z "$VERSION" ]; then
-            # Host projects don't carry a Version yet; fall back to the
-            # short commit SHA so the produced tag is at least unique.
             VERSION="0.0.0-${GITHUB_SHA::7}"
             echo "No <Version> in ${{ matrix.project_path }}; using ${VERSION}"
           fi
@@ -106,4 +110,4 @@ jobs:
 
   # Migrations no longer have their own images — each host runs EF Core
   # migrations in-process at startup. See
-  # src/Shared/Turbo.Hosting.Postgres/DatabaseInitialization.cs.
+  # apps/api/src/Shared/Turbo.Hosting.Postgres/DatabaseInitialization.cs.
