@@ -1,0 +1,190 @@
+name: turbo
+
+# Microservices deployment: three single-module hosts behind the gateway,
+# NATS as the transport between them. Database layout is parameterised so
+# the same compose file works against either the default per-service
+# Postgres containers (compose.yaml) or a single shared Postgres
+# (compose.databases.shared.yaml + .env.shared).
+
+services:
+  turboapi-auth:
+    build:
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Auth/Dockerfile
+    container_name: turboapi_auth
+    hostname: auth
+    ports:
+      - "5001:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Auth=Host=${AUTH_DB_HOST:-auth-db};Port=${AUTH_DB_PORT:-5432};Database=${AUTH_DB_NAME:-auth};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=turboapi-auth
+      - Nats__Url=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - turbo
+
+  turboapi-geo:
+    build:
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Geo/Dockerfile
+    container_name: turboapi_geo
+    hostname: geo
+    ports:
+      - "5002:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=turboapi-geo
+      - Nats__Url=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - turbo
+
+  turboapi-tracks:
+    build:
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Tracks/Dockerfile
+    container_name: turboapi_tracks
+    hostname: tracks
+    ports:
+      - "5003:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=turboapi-tracks
+      - Nats__Url=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - turbo
+
+  turboapi-collections:
+    build:
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Collections/Dockerfile
+    container_name: turboapi_collections
+    hostname: collections
+    ports:
+      - "5004:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=turboapi-collections
+      - Nats__Url=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - turbo
+
+  # Activities host: serves all six activity kinds (fishing / backcountry_ski
+  # / hiking / xc_ski / packrafting / freediving) plus the cross-kind
+  # summaries projection. Owns seven databases — one cross-kind summary
+  # store + one per kind. Subscribes to its own outbox events over NATS
+  # (turbo.activities.*) via per-kind durable consumers; see each kind's
+  # Add{Kind}ActivityNatsSubscribers extension.
+  turboapi-activities:
+    build:
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Activities/Dockerfile
+    container_name: turboapi_activities
+    hostname: activities
+    ports:
+      - "5005:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Activities=Host=${ACTIVITIES_DB_HOST:-activities-db};Port=${ACTIVITIES_DB_PORT:-5439};Database=${ACTIVITIES_DB_NAME:-activities};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__ActivitiesFishing=Host=${ACTIVITIES_FISHING_DB_HOST:-activities-fishing-db};Port=${ACTIVITIES_FISHING_DB_PORT:-5440};Database=${ACTIVITIES_FISHING_DB_NAME:-fishing};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__ActivitiesBackcountrySki=Host=${ACTIVITIES_BCSKI_DB_HOST:-activities-bcski-db};Port=${ACTIVITIES_BCSKI_DB_PORT:-5441};Database=${ACTIVITIES_BCSKI_DB_NAME:-backcountry_ski};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__ActivitiesHiking=Host=${ACTIVITIES_HIKING_DB_HOST:-activities-hiking-db};Port=${ACTIVITIES_HIKING_DB_PORT:-5442};Database=${ACTIVITIES_HIKING_DB_NAME:-hiking};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__ActivitiesXcSki=Host=${ACTIVITIES_XCSKI_DB_HOST:-activities-xcski-db};Port=${ACTIVITIES_XCSKI_DB_PORT:-5443};Database=${ACTIVITIES_XCSKI_DB_NAME:-xc_ski};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__ActivitiesPackrafting=Host=${ACTIVITIES_PACKRAFTING_DB_HOST:-activities-packrafting-db};Port=${ACTIVITIES_PACKRAFTING_DB_PORT:-5444};Database=${ACTIVITIES_PACKRAFTING_DB_NAME:-packrafting};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__ActivitiesFreediving=Host=${ACTIVITIES_FREEDIVING_DB_HOST:-activities-freediving-db};Port=${ACTIVITIES_FREEDIVING_DB_PORT:-5445};Database=${ACTIVITIES_FREEDIVING_DB_NAME:-freediving};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=turboapi-activities
+      - Nats__Url=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - turbo
+
+  turboapi-gateway:
+    build:
+      context: ../../apps/api
+      dockerfile: src/Gateway/Dockerfile
+    container_name: turboapi_gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - Topology=Microservices
+    depends_on:
+      turboapi-auth:
+        condition: service_healthy
+      turboapi-geo:
+        condition: service_healthy
+      turboapi-tracks:
+        condition: service_healthy
+      turboapi-collections:
+        condition: service_healthy
+      turboapi-activities:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - turbo
+
+  # Migrations run in-process at each host's startup via EF Core
+  # (see MigrateModuleDatabaseAsync in src/Shared/Turbo.Hosting.Postgres).
+  # No separate migration containers needed.

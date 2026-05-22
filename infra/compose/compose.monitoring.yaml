@@ -1,0 +1,88 @@
+﻿name: turbo
+
+services:
+  auth-db:
+    image: postgres:17
+    container_name: auth-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_USER: postgres
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d auth" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - auth_data:/var/lib/postgresql/data
+    networks:
+      - turbo
+  
+  geo-db:
+    image: postgis/postgis:17-master
+    container_name: geo-db
+    ports:
+      - "5435:5435"
+    environment:
+      POSTGRES_DB: geo
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_USER: postgres
+    volumes:
+      - geo_data:/var/lib/postgresql/data
+    command: -p 5435
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d geo -p 5435" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+  
+  activity-db:
+    image: postgres:17
+    container_name: activity-db
+    ports:
+      - "5436:5436"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: activity
+      POSTGRES_USER: postgres
+    volumes:
+      - activity_data:/var/lib/postgresql/data
+    command: -p 5436
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d activity -p 5436"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: nats
+    command: ["-js", "-sd", "/data"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+volumes:
+  auth_data:
+  geo_data:
+  activity_data:
+  nats_data:
+
+networks:
+  turbo:
+    driver: bridge

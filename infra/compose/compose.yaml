@@ -1,0 +1,258 @@
+name: turbo
+
+services:
+  auth-db:
+    image: postgres:17-alpine
+    container_name: auth-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_USER: postgres
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d auth" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - auth_data:/var/lib/postgresql/data
+    networks:
+      - turbo
+
+  geo-db:
+    image: postgis/postgis:17-master
+    container_name: geo-db
+    ports:
+      - "5435:5435"
+    environment:
+      POSTGRES_DB: geo
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_USER: postgres
+    volumes:
+      - geo_data:/var/lib/postgresql/data
+    command: -p 5435
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d geo -p 5435" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  tracks-db:
+    image: postgis/postgis:17-master
+    container_name: tracks-db
+    ports:
+      - "5437:5437"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: tracks
+      POSTGRES_USER: postgres
+    volumes:
+      - tracks_data:/var/lib/postgresql/data
+    command: -p 5437
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tracks -p 5437"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  collections-db:
+    image: postgres:17-alpine
+    container_name: collections-db
+    ports:
+      - "5438:5438"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: collections
+      POSTGRES_USER: postgres
+    volumes:
+      - collections_data:/var/lib/postgresql/data
+    command: -p 5438
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d collections -p 5438"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  activities-db:
+    image: postgis/postgis:17-master
+    container_name: activities-db
+    ports:
+      - "5439:5439"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: activities
+      POSTGRES_USER: postgres
+    volumes:
+      - activities_data:/var/lib/postgresql/data
+    command: -p 5439
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d activities -p 5439"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  activities-fishing-db:
+    image: postgis/postgis:17-master
+    container_name: activities-fishing-db
+    ports:
+      - "5440:5440"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: fishing
+      POSTGRES_USER: postgres
+    volumes:
+      - activities_fishing_data:/var/lib/postgresql/data
+    command: -p 5440
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fishing -p 5440"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  activities-backcountry-ski-db:
+    image: postgis/postgis:17-master
+    container_name: activities-backcountry-ski-db
+    ports:
+      - "5441:5441"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: backcountry_ski
+      POSTGRES_USER: postgres
+    volumes:
+      - activities_backcountry_ski_data:/var/lib/postgresql/data
+    command: -p 5441
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d backcountry_ski -p 5441"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  activities-hiking-db:
+    image: postgis/postgis:17-master
+    container_name: activities-hiking-db
+    ports:
+      - "5442:5442"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: hiking
+      POSTGRES_USER: postgres
+    volumes:
+      - activities_hiking_data:/var/lib/postgresql/data
+    command: -p 5442
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hiking -p 5442"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  activities-xc-ski-db:
+    image: postgis/postgis:17-master
+    container_name: activities-xc-ski-db
+    ports:
+      - "5443:5443"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: xc_ski
+      POSTGRES_USER: postgres
+    volumes:
+      - activities_xc_ski_data:/var/lib/postgresql/data
+    command: -p 5443
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d xc_ski -p 5443"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  activities-packrafting-db:
+    image: postgis/postgis:17-master
+    container_name: activities-packrafting-db
+    ports:
+      - "5444:5444"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: packrafting
+      POSTGRES_USER: postgres
+    volumes:
+      - activities_packrafting_data:/var/lib/postgresql/data
+    command: -p 5444
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d packrafting -p 5444"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  activities-freediving-db:
+    image: postgis/postgis:17-master
+    container_name: activities-freediving-db
+    ports:
+      - "5445:5445"
+    environment:
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: freediving
+      POSTGRES_USER: postgres
+    volumes:
+      - activities_freediving_data:/var/lib/postgresql/data
+    command: -p 5445
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d freediving -p 5445"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
+  nats:
+    image: nats:2.10-alpine
+    hostname: nats
+    container_name: nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring + health
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - nats_data:/data
+    networks:
+      - turbo
+
+volumes:
+  auth_data:
+  geo_data:
+  tracks_data:
+  collections_data:
+  activities_data:
+  activities_fishing_data:
+  activities_backcountry_ski_data:
+  activities_hiking_data:
+  activities_xc_ski_data:
+  activities_packrafting_data:
+  activities_freediving_data:
+  nats_data:
+
+networks:
+  turbo:
+    driver: bridge

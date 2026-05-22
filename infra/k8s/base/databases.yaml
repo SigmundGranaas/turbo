@@ -1,0 +1,181 @@
+# Database Services
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-db
+  template:
+    metadata:
+      labels:
+        app: auth-db
+    spec:
+      containers:
+        - name: auth-db
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "auth"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: postgres-user
+          volumeMounts:
+            - name: auth-db-storage
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "auth"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: auth-db-storage
+          persistentVolumeClaim:
+            claimName: auth-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-db
+spec:
+  selector:
+    app: auth-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: geo-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: geo-db
+  template:
+    metadata:
+      labels:
+        app: geo-db
+    spec:
+      containers:
+        - name: geo-db
+          image: postgis/postgis:17-master
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "geo"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: postgres-user
+            - name: PGPORT
+              value: "5432"
+          volumeMounts:
+            - name: geo-db-storage
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "geo"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: geo-db-storage
+          persistentVolumeClaim:
+            claimName: geo-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: geo-db
+spec:
+  selector:
+    app: geo-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: activity-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: activity-db
+  template:
+    metadata:
+      labels:
+        app: activity-db
+    spec:
+      containers:
+        - name: activity-db
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "activity"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: postgres-user
+            - name: PGPORT
+              value: "5432"
+          volumeMounts:
+            - name: activity-db-storage
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "activity"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: activity-db-storage
+          persistentVolumeClaim:
+            claimName: activity-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: activity-db
+spec:
+  selector:
+    app: activity-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP

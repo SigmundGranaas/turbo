@@ -1,0 +1,67 @@
+name: turbo
+
+# Shared-database variant: one Postgres instance hosting auth, geo, and
+# tracks as logical databases (geo + tracks carry the PostGIS extension).
+# Use instead of compose.yaml when the three modules should share a
+# physical instance — e.g. cost-constrained environments, dev/test where
+# three Postgres processes are wasteful.
+#
+# Usage:
+#   docker compose --env-file .env.shared \
+#       -f compose.databases.shared.yaml \
+#       -f compose.services.yaml up
+#
+# The .env.shared file points AUTH_DB_HOST / GEO_DB_HOST / TRACKS_DB_HOST
+# at this `shared-db` service so the apps/migrations connect to the right
+# place; the per-service-DB defaults in compose.services.yaml /
+# compose.modulith.yaml are not active.
+
+services:
+  shared-db:
+    image: postgis/postgis:17-master
+    container_name: shared-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: yourpassword
+      # Postgres' default db; the three module databases are created by the
+      # init script below at first startup.
+      POSTGRES_DB: postgres
+    volumes:
+      - shared_db_data:/var/lib/postgresql/data
+      - ../migrations/shared-db-init.sql:/docker-entrypoint-initdb.d/00-create-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - turbo
+
+  nats:
+    image: nats:2.10-alpine
+    hostname: nats
+    container_name: nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - nats_data:/data
+    networks:
+      - turbo
+
+volumes:
+  shared_db_data:
+  nats_data:
+
+networks:
+  turbo:
+    driver: bridge

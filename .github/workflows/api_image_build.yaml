@@ -1,0 +1,113 @@
+name: Build and Publish Docker Images
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api_image_build.yaml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api_image_build.yaml'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push-services:
+    name: Build and Push Service Image
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth, geo, activities, modulith, gateway]
+        include:
+          - service: auth
+            project_path: apps/api/hosts/Turbo.Host.Auth/Turbo.Host.Auth.csproj
+            dockerfile: apps/api/hosts/Turbo.Host.Auth/Dockerfile
+            context: apps/api
+          - service: geo
+            project_path: apps/api/hosts/Turbo.Host.Geo/Turbo.Host.Geo.csproj
+            dockerfile: apps/api/hosts/Turbo.Host.Geo/Dockerfile
+            context: apps/api
+          - service: activities
+            project_path: apps/api/hosts/Turbo.Host.Activities/Turbo.Host.Activities.csproj
+            dockerfile: apps/api/hosts/Turbo.Host.Activities/Dockerfile
+            context: apps/api
+          - service: modulith
+            project_path: apps/api/hosts/Turbo.Host.Modulith/Turbo.Host.Modulith.csproj
+            dockerfile: apps/api/hosts/Turbo.Host.Modulith/Dockerfile
+            context: apps/api
+          - service: gateway
+            project_path: apps/api/src/Gateway/Turbo.Gateway.csproj
+            dockerfile: apps/api/src/Gateway/Dockerfile
+            context: apps/api
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Convert owner to lowercase
+        id: string
+        run: echo "owner_lc=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get service version
+        id: get_version
+        run: |
+          sudo apt-get update && sudo apt-get install -y libxml2-utils
+          VERSION=$(xmllint --xpath "string(//Project/PropertyGroup/Version)" ${{ matrix.project_path }} || true)
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.0-${GITHUB_SHA::7}"
+            echo "No <Version> in ${{ matrix.project_path }}; using ${VERSION}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Found version ${VERSION} for service ${{ matrix.service }}"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image with version tag already exists
+        id: check_image
+        run: |
+          echo "Checking for image: ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:${{ steps.get_version.outputs.version }}"
+          if docker manifest inspect ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:${{ steps.get_version.outputs.version }} >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Image with this version tag already exists."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Image with this version tag does not exist. A new image will be built."
+          fi
+
+      - name: Build and push Docker image
+        if: steps.check_image.outputs.exists == 'false' && github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:${{ steps.get_version.outputs.version }}
+            ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image already exists
+        if: steps.check_image.outputs.exists == 'true'
+        run: echo "Image ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:${{ steps.get_version.outputs.version }} already exists. Skipping build."
+
+      - name: Dry Run Info for Pull Request
+        if: steps.check_image.outputs.exists == 'false' && github.event_name == 'pull_request'
+        run: |
+          echo "PR build: ${{ matrix.service }} :: ${{ steps.get_version.outputs.version }} would publish on merge."
+          docker buildx build --file ${{ matrix.dockerfile }} ${{ matrix.context }} > /dev/null
+
+  # Migrations no longer have their own images — each host runs EF Core
+  # migrations in-process at startup. See
+  # apps/api/src/Shared/Turbo.Hosting.Postgres/DatabaseInitialization.cs.

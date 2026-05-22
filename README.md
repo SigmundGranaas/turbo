@@ -1,52 +1,61 @@
-# Turkart
+# Turbo
 
-An offline-capable hiking and outdoors map application built with Flutter.
-Targets iOS, Android, web, and desktop from a single codebase.
+Monorepo for the Turkart product.
 
-## What's here
+| Path | What it is |
+| --- | --- |
+| [`apps/flutter`](apps/flutter) | Flutter app (iOS / Android / web / desktop). The user-facing Turkart client. |
+| [`apps/api`](apps/api) | .NET API — auth, geo, tracks, collections, activities, gateway. |
+| `apps/tileserver` | Reserved for the upcoming custom tile server. |
+| [`infra/compose`](infra/compose) | Docker Compose stacks for local + CI. |
+| [`infra/k8s`](infra/k8s) | Kubernetes manifests. |
+| [`infra/observability`](infra/observability) | Prometheus, Loki, OTel collector, Promtail configs. |
+| [`infra/migrations`](infra/migrations) | Shared bootstrap SQL (per-service migrations live in `apps/api`). |
+| [`infra/performance`](infra/performance) | k6 load-test suites. |
+| [`infra/env`](infra/env) | Shared env files (`.env.shared`). |
 
-- **Live GPS recording** — start a track on the map, walk, stop. Background-capable on iOS/Android with the screen off.
-- **Elevation profiles** — every recorded path captures altitude per fix; sparkline + ascent/descent stats on the path detail.
-- **Import / export** — load tracks from GPX, GeoJSON, or KML; export the same. Multi-track GPX files split into multiple paths.
-- **Markers with photos** — drop pins, attach camera or gallery photos. Photos live on-device under the app's documents directory.
-- **Collections** — organize markers and paths into named groups, including smart collections defined by a saved filter.
-- **Offline maps** — download tile regions for use without a network connection. Per-region size and tile count estimates before download.
-- **Search** — local marker search plus Kartverket placename lookups, including reverse-geocoding on long-press.
-- **Navigation** — point-to-point compass guidance to any marker or long-pressed point on the map.
-
-## Architecture
-
-Feature-Oriented Architecture. Each top-level folder under `lib/features/` is a feature with a single public façade at `<feature>/api.dart`. Cross-feature imports go through `api.dart` only; this is enforced by `test/architecture/feature_boundary_test.dart`.
-
-State is hand-written Riverpod (no codegen). Persistence is dual-backend: SQLite on mobile/desktop via `sqflite`, IndexedDB on web via `idb_shim`. The schema version lives in `lib/core/data/database_provider.dart` with `_migrateVNToVN1` helpers for each bump.
-
-Full architecture notes: [`lib/context/architecture.context.md`](lib/context/architecture.context.md).
-
-## Running it
+## Quickstart
 
 ```sh
-flutter pub get
-flutter run                 # picks the connected device / running emulator
-flutter test                # full unit + widget suite
-flutter analyze             # static analysis
+# Flutter app
+cd apps/flutter
+flutter pub get && flutter run
+
+# .NET API
+cd apps/api
+dotnet restore Turboapi.sln
+dotnet build  Turboapi.sln
+
+# Local stack (databases + services)
+cd infra/compose
+docker compose --env-file ../env/.env.shared \
+  -f compose.yaml -f compose.databases.shared.yaml -f compose.services.yaml up
 ```
 
-For background recording on a physical Android device, location permission must be granted to **Always** (foreground-only still records while the app is in front, just stops if the screen locks). On iOS, accept the "Always Allow" prompt on the second permission ask.
+## CI scoping
 
-## Project layout
+Workflows in `.github/workflows/` use `paths:` triggers so Flutter and API
+pipelines only fire when their own directories change:
 
-```
-lib/
-  app/          — top-level shell, theming, localization
-  core/         — cross-feature primitives: db, location, util, sharing
-  features/    — one folder per feature, each with api.dart, data/, models/, widgets/
-test/
-  features/    — API behavioral + end-to-end widget tests, one folder per feature
-  architecture/ — boundary tests that enforce feature isolation
-```
+- `flutter_*` and `github_publish` — triggered by `apps/flutter/**`
+- `api_*` — triggered by `apps/api/**` and the relevant `infra/**` subtrees
 
-## Contributing
+## Adding a new backend service
 
-Every new feature needs an `api.dart` façade; the boundary test will fail otherwise. Every new notifier needs an API-level behavioral test; every new user flow needs an end-to-end widget test.
+1. Scaffold under `apps/<service>/`.
+2. Add per-service compose entries in `infra/compose/` and wire them into the umbrella `compose.yaml`.
+3. Add a workflow under `.github/workflows/<service>_*.yml` with a `paths:` filter scoped to `apps/<service>/**`.
+4. Update this README's table.
 
-Run `flutter analyze` and `flutter test` before pushing.
+## Cloudflare Pages note
+
+The Flutter app deploys via Cloudflare Pages. After the monorepo move, the
+project's **Root directory** in the Pages dashboard must be set to
+`apps/flutter` (or the build command needs the `cd apps/flutter` prefix kept
+in `apps/flutter/.cloudflare/pages.toml`).
+
+## History
+
+Both halves of the monorepo were merged via `git subtree`, so commit history
+from both repos is reachable from `main`. The pre-merge state is tagged
+`monorepo-merge-pre-flight` in both archived repos.

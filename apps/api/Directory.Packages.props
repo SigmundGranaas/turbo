@@ -1,0 +1,65 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Pin transitive packages to the versions listed below so a stale lower
+         bound on a transitive dep (e.g. EF Core Relational) can't silently
+         downgrade what gets resolved across the solution. -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ASP.NET / hosting -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="9.1.0" />
+    <PackageVersion Include="System.Net.Http.Json" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.5" />
+    <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.3.1" />
+    <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />
+
+    <!-- Data access -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.5" />
+    <!-- Npgsql.EntityFrameworkCore.PostgreSQL 9.0.4 requests Relational [9.0.1, 10.0.0)
+         which resolves to 9.0.1 unless we pin it here, producing MSB3277 conflicts
+         with EF Core 9.0.5. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.5" />
+    <PackageVersion Include="Npgsql" Version="9.0.3" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL.NetTopologySuite" Version="9.0.4" />
+    <PackageVersion Include="Npgsql.NetTopologySuite" Version="9.0.3" />
+    <PackageVersion Include="NetTopologySuite" Version="2.5.0" />
+    <PackageVersion Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
+
+    <!-- Messaging -->
+    <PackageVersion Include="NATS.Net" Version="2.5.7" />
+
+    <!-- Misc -->
+    <PackageVersion Include="Medo.Uuid7" Version="3.0.0" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" Version="1.10.0-beta.1" />
+    <!-- OpenTelemetry.Api 1.10.0 (transitively from the EF Core
+         instrumentation) trips NU1902 with two moderate-severity advisories.
+         Pin to the patched version so CPM's transitive pinning lifts it. -->
+    <PackageVersion Include="OpenTelemetry.Api" Version="1.15.3" />
+
+    <!-- Test stack -->
+    <PackageVersion Include="FluentAssertions" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
+    <PackageVersion Include="Testcontainers" Version="4.6.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.6.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.0" />
+  </ItemGroup>
+
+</Project>

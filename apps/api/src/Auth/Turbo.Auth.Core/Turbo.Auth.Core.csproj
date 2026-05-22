@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Turboapi.Auth</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ILogger<T> is the one infra-ish abstraction Core depends on; the
+         layering test allows Logging.Abstractions but blocks heavier
+         packages (EF Core, Npgsql, NATS, ASP.NET, JwtBearer). -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Turbo.Auth.Contracts\Turbo.Auth.Contracts.csproj" />
+    <ProjectReference Include="..\..\Shared\Turbo.Messaging.Abstractions\Turbo.Messaging.Abstractions.csproj" />
+    <ProjectReference Include="..\..\Shared\Turbo.Outbox.Abstractions\Turbo.Outbox.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

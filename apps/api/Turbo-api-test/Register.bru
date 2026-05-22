@@ -1,0 +1,20 @@
+meta {
+  name: Register
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://localhost:5098/api/auth/register
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "test2@email.com",
+    "username": "test",
+    "password": "password",
+    "confirmPassword": "password"
+  }
+}

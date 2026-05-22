@@ -1,0 +1,53 @@
+name: Docker Compose and K6 Tests
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'apps/api/**'
+      - 'infra/compose/**'
+      - 'infra/observability/**'
+      - 'infra/migrations/**'
+      - 'infra/performance/**'
+      - '.github/workflows/api_k6_performance.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Docker containers
+        run: |
+          docker compose -f infra/compose/compose.yaml -f infra/compose/compose.services.yaml up -d
+
+          echo "Waiting for API services..."
+          apis=(
+            "turboapi_auth"
+            "turboapi_geo"
+            "turboapi_tracks"
+          )
+
+          for api in "${apis[@]}"; do
+            echo "Waiting for $api..."
+            while ! docker ps --filter "name=$api" --filter "status=running" --format "{{.Names}}" | grep -q "$api"; do
+              sleep 2
+              echo "Still waiting for $api..."
+              done
+            echo "$api is running!"
+          done
+
+      - name: Install k6
+        run: |
+          curl -L https://github.com/grafana/k6/releases/download/v0.55.0/k6-v0.55.0-linux-amd64.tar.gz -o k6.tar.gz
+          tar xzf k6.tar.gz
+          sudo mv k6-v0.55.0-linux-amd64/k6 /usr/local/bin/
+
+      - name: Run k6 tests
+        working-directory: infra/performance/k6/
+        run:  k6 run -e VUS=50 -e DURATION=1m run-all.js
+
+      - name: Stop containers
+        if: always()
+        run: docker compose -f infra/compose/compose.yaml -f infra/compose/compose.services.yaml down
