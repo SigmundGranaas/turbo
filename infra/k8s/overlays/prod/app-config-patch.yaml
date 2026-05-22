@@ -1,15 +1,32 @@
+# Single source of truth for every per-environment value. To rehost the
+# stack on a different domain, change the four "Domain__*" keys below
+# (and the CORS / Google redirect strings that derive from them) and
+# Argo CD does the rest.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: app-config
 data:
-  # CORS configuration
+  # --- Domain (read by the kustomize replacements in this overlay AND
+  # by the modulith pod via configMapKeyRef). ---
+  Domain__ApiHost: "kart-api.sandring.no"
+  FrontendUrl: "https://kart.sandring.no"
+  COOKIE_DOMAIN: ".sandring.no"
+
+  # --- CORS + OAuth redirect derive from the two URLs above. ---
   CORS__AllowedOrigins: "https://kart.sandring.no,https://*.sandring.no"
-  # JWT configuration
+  Authentication__Google__RedirectUri: "https://kart-api.sandring.no/auth/google/callback"
+  Authentication__Google__TokenInfoEndpoint: "https://oauth2.googleapis.com/tokeninfo"
+
+  # --- Cookie behaviour (not domain-derived but kept here so the whole
+  # auth-cookie story lives in one place). ---
+  COOKIE_SAME_SITE: "None"
+  COOKIE_SECURE: "true"
+  COOKIE_EXPIRY_DAYS: "7"
+  COOKIE_PATH: "/"
+
+  # --- JWT (not domain-derived). ---
   Jwt__Issuer: "turbo-auth"
   Jwt__Audience: "turbo-client"
   Jwt__TokenExpirationMinutes: "15"
   Jwt__RefreshTokenExpirationDays: "7"
-  # Authentication configuration
-  Authentication__Google__RedirectUri: "https://kart-api.sandring.no/auth/google/callback"
-  Authentication__Google__TokenInfoEndpoint: "https://oauth2.googleapis.com/tokeninfo"

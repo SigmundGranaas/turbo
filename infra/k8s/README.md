@@ -17,11 +17,30 @@ base/
   kustomization.yaml
 
 overlays/prod/
-  app-config-patch.yaml      # CORS, JWT, Google OAuth redirect
-  application-patch.yaml     # JWT key, Google OAuth secrets, cookies
-  ingress.yaml               # kart-api.sandring.no → turboapi-modulith
-  kustomization.yaml         # pins image + replica count
+  app-config-patch.yaml      # SINGLE source of truth for all per-env values
+  application-patch.yaml     # env→ConfigMap/Secret refs, no literals
+  ingress.yaml               # host: is rewritten by kustomization.yaml
+  kustomization.yaml         # image + replicas + replacements wiring
 ```
+
+## Changing the domain
+
+Every domain-derived value (Ingress host, FrontendUrl, CORS origins,
+Google OAuth redirect, cookie domain) is consolidated in
+`overlays/prod/app-config-patch.yaml`. The Deployment env reads them
+all via `configMapKeyRef`, and `kustomization.yaml`'s `replacements:`
+block copies `app-config.data.Domain__ApiHost` into the Ingress
+`spec.rules[0].host`. There is nothing else in the manifests to edit.
+
+To rehost the stack on `example.com`:
+
+1. Edit the six `Domain__* / FrontendUrl / COOKIE_DOMAIN / CORS__* /
+   Authentication__Google__RedirectUri` entries in
+   `app-config-patch.yaml`.
+2. Update the Google OAuth client's authorised redirect URI to match.
+3. Commit. Argo CD will sync; the pod restarts pick up the new env via
+   the ConfigMap change (a `kubectl rollout restart` may be needed if
+   the ConfigMap reload is not configured to trigger one).
 
 ## Deploying
 

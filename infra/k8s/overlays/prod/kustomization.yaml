@@ -9,6 +9,22 @@ patches:
   - path: app-config-patch.yaml
   - path: application-patch.yaml
 
+# Copy the domain value out of app-config.data.Domain__ApiHost into
+# Ingress.spec.rules[0].host so the single ConfigMap edit in
+# app-config-patch.yaml also moves the ingress. Whatever value the
+# ingress.yaml file holds is overwritten at render time.
+replacements:
+  - source:
+      kind: ConfigMap
+      name: app-config
+      fieldPath: data.Domain__ApiHost
+    targets:
+      - select:
+          kind: Ingress
+          name: turboapi-ingress
+        fieldPaths:
+          - spec.rules.0.host
+
 labels:
   - pairs:
       environment: production

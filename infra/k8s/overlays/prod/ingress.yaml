@@ -1,7 +1,7 @@
-# All API traffic on kart-api.sandring.no fans into the single modulith
-# host. The modulith owns every route (/api/auth/*, /api/geo/*,
-# /api/tracks/*, /api/collections/*, /api/activities/*) directly — no
-# gateway, no per-module backend.
+# NB: spec.rules[0].host is rewritten at kustomize render time by the
+# `replacements:` block in kustomization.yaml, which copies
+# app-config.data.Domain__ApiHost into this field. The literal here is
+# only a fallback so the file is still valid as a standalone manifest.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -10,7 +10,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   rules:
-    - host: kart-api.sandring.no
+    - host: REPLACED_BY_KUSTOMIZE
       http:
         paths:
           - path: /
