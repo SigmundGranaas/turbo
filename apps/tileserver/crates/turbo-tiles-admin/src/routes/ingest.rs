@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use serde::Deserialize;
@@ -32,6 +34,83 @@ pub async fn trigger(
         "ok": true,
         "job": job_name.as_str(),
         "run_id": run_id,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkBody {
+    pub job: String,
+    /// File name relative to the configured incoming dir, or an
+    /// absolute path that resolves under it.
+    pub file: String,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// Trigger a bulk-file job (e.g. `dtm-load`) against a file that
+/// already exists on the shared incoming volume. The path is
+/// validated against `TILESERVER_INCOMING_DIR` before the job runs so
+/// curators can't ask the server to read arbitrary files. Multi-GB
+/// uploads bypass HTTPS entirely — drop the file on the volume
+/// out-of-band (rsync, sftp, cloud-storage-fuse) then POST this.
+pub async fn trigger_bulk(
+    _: RequireRole<Curator>,
+    State(state): State<AdminState>,
+    Json(body): Json<BulkBody>,
+) -> Result<Json<Value>, AdminError> {
+    let job_name: turbo_tiles_ingest::JobName = body
+        .job
+        .parse()
+        .map_err(|e: String| AdminError::BadRequest(e))?;
+
+    let resolved = turbo_tiles_ingest::resolve_under_incoming(&PathBuf::from(&body.file))
+        .map_err(|e| AdminError::BadRequest(e.to_string()))?;
+
+    let pool = state.db.clone();
+    let run_id = uuid::Uuid::new_v4();
+    let opts = turbo_tiles_ingest::JobOptions {
+        bbox: None,
+        file: Some(resolved.clone()),
+        source: body.source,
+        // Thread the run_id through so the eventual paths.ingest_job
+        // row carries this exact UUID — the SPA polls by run_id.
+        run_id: Some(run_id),
+    };
+    tracing::info!(
+        job = job_name.as_str(),
+        %run_id,
+        file = %resolved.display(),
+        "admin: triggering bulk ingest"
+    );
+    tokio::spawn(async move {
+        if let Err(e) = turbo_tiles_ingest::run_job_with_options(&pool, job_name, opts).await {
+            tracing::error!(error = %e, job = job_name.as_str(), "bulk ingest failed");
+        }
+    });
+
+    Ok(Json(json!({
+        "ok": true,
+        "job": job_name.as_str(),
+        "run_id": run_id,
+        "file": resolved.display().to_string(),
+    })))
+}
+
+/// List files staged for ingest on the incoming volume. The SPA
+/// surfaces this as a drop-down so the curator can pick which file
+/// to load rather than having to type the path.
+pub async fn incoming(
+    _: RequireRole<Curator>,
+    State(_state): State<AdminState>,
+) -> Result<Json<Value>, AdminError> {
+    let dir = turbo_tiles_ingest::incoming_dir();
+    let files: Vec<Value> = turbo_tiles_ingest::list_incoming()
+        .into_iter()
+        .map(|(name, size)| json!({"name": name, "size_bytes": size}))
+        .collect();
+    Ok(Json(json!({
+        "incoming_dir": dir,
+        "files": files,
     })))
 }
 

@@ -102,10 +102,18 @@ impl ElevationProvider for HoydedataProvider {
     }
 }
 
-/// Run the attach job over every edge missing elevation. Caps per-run
-/// throughput at `max_edges` so a single CLI invocation doesn't spend
-/// hours hammering the Hoydedata service — the cron-scheduled CronJob
-/// runs frequently enough to backfill gradually.
+/// Run the attach job over every edge missing elevation.
+///
+/// Two-tier sampling:
+///   1. If `paths.dem` covers the edge (a DTM GeoTIFF was loaded via
+///      `dtm-load`), use `ST_Value(rast, vertex)` per vertex — entirely
+///      in-database, fast, no network.
+///   2. Otherwise fall back to the live Kartverket Hoydedata point
+///      service. Slow (one HTTP call per vertex) but works without
+///      pre-loaded rasters and is the path the demo uses by default.
+///
+/// Capped at `max_edges` per run so a single invocation doesn't spend
+/// hours hammering the upstream service.
 pub async fn run(pool: &turbo_tiles_db::DbPool) -> Result<JobOutcome, JobError> {
     run_with(pool, &HoydedataProvider::default(), 500).await
 }
@@ -115,11 +123,17 @@ pub async fn run_with(
     provider: &dyn ElevationProvider,
     max_edges: i64,
 ) -> Result<JobOutcome, JobError> {
+    // Pull each candidate edge twice: the 25833 geometry for the
+    // raster sampler and the 4258 lon/lat for the Hoydedata fallback.
     let edges = sqlx::query(
         r#"
         SELECT id,
-               ST_AsGeoJSON(ST_Transform(geom, 4258))::jsonb AS geom
-        FROM paths.edge
+               ST_AsGeoJSON(ST_Transform(geom, 4258))::jsonb AS geom_4258,
+               EXISTS (
+                   SELECT 1 FROM paths.dem d
+                   WHERE ST_Intersects(ST_ConvexHull(d.rast), e.geom)
+               ) AS dem_covers
+        FROM paths.edge e
         WHERE deleted_at IS NULL
           AND elevation_gain_m IS NULL
         ORDER BY id
@@ -131,33 +145,64 @@ pub async fn run_with(
     .await?;
 
     let mut updated: i64 = 0;
+    let mut from_raster: i64 = 0;
     for row in edges {
         let id: i64 = row.try_get("id")?;
-        let geom: serde_json::Value = row.try_get("geom")?;
-        let coords = match geom.get("coordinates").and_then(|c| c.as_array()) {
-            Some(arr) => arr.clone(),
-            None => continue,
-        };
-        let points: Vec<Point4258> = coords
-            .iter()
-            .filter_map(|p| {
-                let arr = p.as_array()?;
-                Some(Point4258 {
-                    lon: arr.first()?.as_f64()?,
-                    lat: arr.get(1)?.as_f64()?,
+        let dem_covers: bool = row.try_get("dem_covers")?;
+
+        let elevations = if dem_covers {
+            // Sample directly from the local DEM. Returns one row per
+            // vertex in path order so the gain/loss windowing below
+            // works the same way as the HTTPS fallback.
+            let samples: Vec<(Option<f64>,)> = sqlx::query_as(
+                r#"
+                WITH pts AS (
+                    SELECT (dp).path[1] AS ord, (dp).geom AS g
+                    FROM (
+                        SELECT ST_DumpPoints(geom) AS dp
+                        FROM paths.edge WHERE id = $1
+                    ) sub
+                )
+                SELECT ST_Value(d.rast, pts.g)
+                FROM pts
+                LEFT JOIN paths.dem d
+                       ON ST_Intersects(d.rast, pts.g)
+                ORDER BY pts.ord
+                "#,
+            )
+            .bind(id)
+            .fetch_all(pool)
+            .await?;
+            from_raster += 1;
+            samples.into_iter().map(|(v,)| v).collect()
+        } else {
+            let geom: serde_json::Value = row.try_get("geom_4258")?;
+            let coords = match geom.get("coordinates").and_then(|c| c.as_array()) {
+                Some(arr) => arr.clone(),
+                None => continue,
+            };
+            let points: Vec<Point4258> = coords
+                .iter()
+                .filter_map(|p| {
+                    let arr = p.as_array()?;
+                    Some(Point4258 {
+                        lon: arr.first()?.as_f64()?,
+                        lat: arr.get(1)?.as_f64()?,
+                    })
                 })
-            })
-            .collect();
-        if points.len() < 2 {
-            continue;
-        }
-        let elevations = match provider.sample(&points).await {
-            Ok(es) => es,
-            Err(e) => {
-                tracing::warn!(error = %e, edge_id = id, "elevation sample failed; skipping");
+                .collect();
+            if points.len() < 2 {
                 continue;
             }
+            match provider.sample(&points).await {
+                Ok(es) => es,
+                Err(e) => {
+                    tracing::warn!(error = %e, edge_id = id, "elevation sample failed; skipping");
+                    continue;
+                }
+            }
         };
+
         let (gain, loss) = gain_loss(&elevations);
         sqlx::query(
             r#"
@@ -175,6 +220,12 @@ pub async fn run_with(
         updated += 1;
     }
 
+    tracing::info!(
+        updated,
+        from_raster,
+        from_hoydedata = updated - from_raster,
+        "dtm10-attach complete"
+    );
     Ok(JobOutcome {
         rows_in: updated,
         rows_upserted: updated,

@@ -11,9 +11,12 @@
 //!   7. log     → write `paths.ingest_job` row
 
 pub mod dtm10;
+pub mod dtm_raster;
 pub mod fkb_wfs;
 pub mod job;
 pub mod stage;
+
+pub use dtm_raster::{incoming_dir, list_incoming, resolve_under_incoming};
 
 pub use fkb_wfs::Bbox;
 pub use job::{run_job, run_job_with_options, JobError, JobName, JobOptions, JobOutcome};

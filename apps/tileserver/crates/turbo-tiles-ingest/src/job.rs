@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use turbo_tiles_db::DbPool;
@@ -10,6 +11,10 @@ pub enum JobName {
     Turbase,
     Dnt,
     Dtm10Attach,
+    /// Bulk-load a DTM GeoTIFF (or any raster2pgsql-compatible file)
+    /// into `paths.dem`. Operator points `--file` at a `.tif` on the
+    /// configured incoming volume.
+    DtmLoad,
 }
 
 impl FromStr for JobName {
@@ -20,6 +25,7 @@ impl FromStr for JobName {
             "turbase" => Ok(JobName::Turbase),
             "dnt" => Ok(JobName::Dnt),
             "dtm10-attach" => Ok(JobName::Dtm10Attach),
+            "dtm-load" => Ok(JobName::DtmLoad),
             other => Err(format!("unknown job `{other}`")),
         }
     }
@@ -32,6 +38,7 @@ impl JobName {
             JobName::Turbase => "turbase",
             JobName::Dnt => "dnt",
             JobName::Dtm10Attach => "dtm10-attach",
+            JobName::DtmLoad => "dtm-load",
         }
     }
 }
@@ -46,13 +53,24 @@ pub enum JobError {
     Parse(String),
     #[error("not yet implemented: {0}")]
     NotImplemented(&'static str),
+    #[error("missing required option: {0}")]
+    MissingOption(&'static str),
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct JobOptions {
-    /// Optional ingest bbox for `fkb-sti`. None falls back to the
-    /// job's own default (the Oslo demo bbox).
+    /// Optional ingest bbox for `fkb-sti`.
     pub bbox: Option<Bbox>,
+    /// Filesystem path for bulk-file jobs (e.g. `dtm-load`).
+    pub file: Option<PathBuf>,
+    /// Optional source label stamped on loaded rows (e.g. "dtm10").
+    pub source: Option<String>,
+    /// Caller-supplied run id. When set, the job will reuse it in the
+    /// `paths.ingest_job` log row instead of generating a fresh UUID.
+    /// Used by the admin bulk-trigger endpoint so the response carries
+    /// a run_id that matches the eventual job row, letting the SPA
+    /// poll for the specific job it triggered.
+    pub run_id: Option<uuid::Uuid>,
 }
 
 pub async fn run_job(pool: &DbPool, job: JobName) -> Result<JobOutcome, JobError> {
@@ -64,7 +82,7 @@ pub async fn run_job_with_options(
     job: JobName,
     opts: JobOptions,
 ) -> Result<JobOutcome, JobError> {
-    let run_id = uuid::Uuid::new_v4();
+    let run_id = opts.run_id.unwrap_or_else(uuid::Uuid::new_v4);
     tracing::info!(job = job.as_str(), %run_id, "starting ingest job");
 
     let job_row_id = open_job_row(pool, job, run_id).await?;
@@ -75,6 +93,11 @@ pub async fn run_job_with_options(
             None => crate::fkb_wfs::run(pool, run_id).await,
         },
         JobName::Dtm10Attach => crate::dtm10::run(pool).await,
+        JobName::DtmLoad => {
+            let file = opts.file.ok_or(JobError::MissingOption("file"))?;
+            let source = opts.source.as_deref().unwrap_or("dtm10");
+            crate::dtm_raster::load_geotiff(pool, &file, source).await
+        }
         other => Err(JobError::NotImplemented(other.as_str())),
     };
 

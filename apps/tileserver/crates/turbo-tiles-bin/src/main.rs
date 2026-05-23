@@ -42,6 +42,12 @@ enum Command {
         /// omitted so demo runs stay quick.
         #[arg(long)]
         bbox: Option<String>,
+        /// Filesystem path for bulk-file jobs (`dtm-load`).
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+        /// Source label stamped on loaded raster rows (e.g. `dtm10`).
+        #[arg(long, default_value = "dtm10")]
+        source: String,
     },
     /// Apply pending migrations and exit.
     Migrate,
@@ -58,7 +64,12 @@ async fn main() -> Result<()> {
             public_base_url,
             auto_migrate,
         } => serve(bind, public_base_url, auto_migrate).await,
-        Command::Ingest { job, bbox } => ingest(&job, bbox.as_deref()).await,
+        Command::Ingest {
+            job,
+            bbox,
+            file,
+            source,
+        } => ingest(&job, bbox.as_deref(), file, source).await,
         Command::Migrate => migrate().await,
     }
 }
@@ -134,12 +145,20 @@ async fn serve(bind: String, public_base_url: String, auto_migrate: bool) -> Res
     Ok(())
 }
 
-async fn ingest(job: &str, bbox: Option<&str>) -> Result<()> {
+async fn ingest(
+    job: &str,
+    bbox: Option<&str>,
+    file: Option<std::path::PathBuf>,
+    source: String,
+) -> Result<()> {
     let db_cfg = DbConfig::from_env().context("DATABASE_URL must be set")?;
     let db = db_cfg.connect().await.context("connecting to database")?;
     let job: turbo_tiles_ingest::JobName = job.parse().map_err(|e: String| anyhow::anyhow!(e))?;
     let opts = turbo_tiles_ingest::JobOptions {
         bbox: bbox.map(parse_bbox).transpose()?,
+        file,
+        source: Some(source),
+        run_id: None,
     };
     let outcome = turbo_tiles_ingest::run_job_with_options(&db, job, opts).await?;
     println!(

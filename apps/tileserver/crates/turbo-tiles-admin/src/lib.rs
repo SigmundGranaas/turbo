@@ -47,6 +47,8 @@ pub fn router(state: AdminState) -> Router {
         )
         .route("/api/upload-gpx", post(routes::upload::upload_gpx))
         .route("/api/ingest/:job/trigger", post(routes::ingest::trigger))
+        .route("/api/ingest/bulk", post(routes::ingest::trigger_bulk))
+        .route("/api/ingest/incoming", get(routes::ingest::incoming))
         .route("/api/ingest/jobs", get(routes::ingest::jobs))
         .with_state(state)
 }
