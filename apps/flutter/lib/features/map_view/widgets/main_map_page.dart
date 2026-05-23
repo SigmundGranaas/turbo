@@ -6,8 +6,8 @@ import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/map_view/widgets/layers/current_location_layer.dart';
 import 'package:turbo/features/map_view/widgets/layers/viewport_marker_layer.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
-import 'package:turbo/features/curated_paths/providers/curated_path_providers.dart';
-import 'package:turbo/features/curated_paths/widgets/mvt_data_layer.dart';
+import 'package:turbo/features/curated_paths/api.dart';
+
 import 'package:turbo/features/external_vector_layers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';

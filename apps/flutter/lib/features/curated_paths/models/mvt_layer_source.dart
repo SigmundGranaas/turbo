@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../external_vector_layers/models/vector_feature.dart';
+import 'package:turbo/features/external_vector_layers/api.dart';
 
 /// Declarative description of one curated MVT-served layer exposed by
 /// the Turbo tileserver (`/v1/{resource}/tiles/{z}/{x}/{y}.mvt`).

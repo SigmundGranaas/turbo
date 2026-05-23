@@ -2,7 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:turbo/features/external_vector_layers/models/vector_feature.dart';
+import 'package:turbo/features/external_vector_layers/api.dart';
 import '../models/mvt_layer_source.dart';
 import 'mvt_decoder.dart';
 import 'mvt_tile_fetcher.dart';

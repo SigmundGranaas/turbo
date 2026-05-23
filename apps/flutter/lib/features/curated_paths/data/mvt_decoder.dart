@@ -5,7 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:vector_tile/util/geometry.dart' as vt_geom;
 import 'package:vector_tile/vector_tile.dart';
 
-import 'package:turbo/features/external_vector_layers/models/vector_feature.dart';
+import 'package:turbo/features/external_vector_layers/api.dart';
 
 /// Decodes raw MVT bytes into `VectorFeature`s ready for the existing
 /// `VectorDataLayer` widget to render.

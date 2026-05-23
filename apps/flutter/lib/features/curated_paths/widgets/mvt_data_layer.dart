@@ -6,7 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:turbo/app/tokens.dart';
-import 'package:turbo/features/external_vector_layers/models/vector_feature.dart';
+import 'package:turbo/features/external_vector_layers/api.dart';
 import '../data/mvt_tile_repository.dart';
 import '../models/mvt_layer_source.dart';
 

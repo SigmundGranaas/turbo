@@ -19,9 +19,11 @@
 //!
 //! Storage layout per upload, under `TILESERVER_INCOMING_DIR/.uploads/`:
 //!
-//!     <upload_id>/
-//!       metadata.json   { filename, total_bytes, owner_sub, created_at }
-//!       data            the partial/complete bytes
+//! ```text
+//! <upload_id>/
+//!   metadata.json   { filename, total_bytes, owner_sub, created_at }
+//!   data            the partial/complete bytes
+//! ```
 //!
 //! Completed uploads stay here — `routes::ingest::incoming` enumerates
 //! them alongside legacy rsync drops, and `trigger_bulk` accepts
