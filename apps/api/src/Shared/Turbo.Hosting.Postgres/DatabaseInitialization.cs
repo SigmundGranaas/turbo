@@ -64,6 +64,12 @@ public static class DatabaseInitialization
         {
             await EnsureSchemaExistsAsync(connectionString, schema!, logger, cancellationToken);
         }
+        // Pre-create the migrations-history table so EF's first-boot
+        // probe doesn't log a CommandError when it can't find it. Same
+        // shape EF would create on demand, just done up front in a
+        // CREATE TABLE IF NOT EXISTS so the boot logs stay clean.
+        await EnsureMigrationsHistoryTableExistsAsync(
+            connectionString, schema ?? "public", logger, cancellationToken);
         logger?.LogInformation("Running EF Core migrations for {Context} → {Database}{Schema}",
             typeof(TContext).Name, targetDb, schema is null ? "" : $" (schema {schema})");
         await ctx.Database.MigrateAsync(cancellationToken);
@@ -112,6 +118,26 @@ public static class DatabaseInitialization
         cmd.CommandText = $"CREATE SCHEMA IF NOT EXISTS \"{schema.Replace("\"", "\"\"")}\"";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
         logger?.LogDebug("Ensured schema {Schema}", schema);
+    }
+
+    private static async Task EnsureMigrationsHistoryTableExistsAsync(
+        string connectionString,
+        string schema,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await OpenWithRetryAsync(conn, logger, cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        var qs = schema.Replace("\"", "\"\"");
+        cmd.CommandText = $"""
+            CREATE TABLE IF NOT EXISTS "{qs}"."__EFMigrationsHistory" (
+                "MigrationId" varchar(150) NOT NULL,
+                "ProductVersion" varchar(32) NOT NULL,
+                CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
+            );
+            """;
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task OpenWithRetryAsync(

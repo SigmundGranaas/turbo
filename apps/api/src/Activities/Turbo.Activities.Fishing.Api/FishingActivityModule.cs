@@ -36,6 +36,10 @@ public static class FishingActivityModule
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
                 npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                // The reader Includes both target_species and depth_samples;
+                // EF warns about the cartesian explosion of a single query.
+                // Split into one query per Include — fine for our row counts.
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<IFishingActivityReader, EfFishingActivityReader>();

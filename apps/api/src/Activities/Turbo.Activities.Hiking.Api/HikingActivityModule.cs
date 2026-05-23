@@ -34,6 +34,7 @@ public static class HikingActivityModule
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
                 npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<IHikingActivityReader, EfHikingActivityReader>();

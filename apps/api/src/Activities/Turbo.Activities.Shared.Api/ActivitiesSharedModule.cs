@@ -37,6 +37,7 @@ public static class ActivitiesSharedModule
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
                 npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         // Shared domain services. Composition root: every kind handler picks

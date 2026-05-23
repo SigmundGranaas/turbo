@@ -31,8 +31,14 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+else
+{
+    // Only enforce HTTPS in non-Development. Local dev runs HTTP-only
+    // behind compose; UseHttpsRedirection would log "Failed to
+    // determine the https port for redirect" on every request.
+    app.UseHttpsRedirection();
+}
 
-app.UseHttpsRedirection();
 app.UseCors("Default");
 
 app.Run();

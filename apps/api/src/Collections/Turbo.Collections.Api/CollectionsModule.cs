@@ -22,7 +22,11 @@ public static class CollectionsModule
         var connectionString = ResolveConnectionString(configuration);
 
         services.AddDbContext<CollectionsReadContext>((sp, options) =>
-            options.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure()));
+            options.UseNpgsql(connectionString, npgsql =>
+            {
+                npgsql.EnableRetryOnFailure();
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+            }));
 
         services.AddScoped<ICollectionWriteRepository, EfCollectionWriteRepository>();
         services.AddScoped<ICollectionReadRepository, EfCollectionWriteRepository.EfCollectionReadRepository>();

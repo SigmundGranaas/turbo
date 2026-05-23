@@ -35,6 +35,7 @@ public static class BackcountrySkiActivityModule
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
                 npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<IBackcountrySkiActivityReader, EfBackcountrySkiActivityReader>();
