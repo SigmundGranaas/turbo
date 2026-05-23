@@ -28,8 +28,13 @@ dotnet build  Turboapi.sln
 
 # Local stack (databases + services)
 cd infra/compose
+
+# Per-service databases (one Postgres container per module):
+docker compose -f compose.yaml -f compose.services.yaml up
+
+# Or, single shared Postgres (lighter on resources):
 docker compose --env-file ../env/.env.shared \
-  -f compose.yaml -f compose.databases.shared.yaml -f compose.services.yaml up
+  -f compose.databases.shared.yaml -f compose.services.yaml up
 ```
 
 ## CI scoping
