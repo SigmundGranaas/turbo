@@ -1,0 +1,24 @@
+[package]
+name = "turbo-tiles-ingest"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+turbo-tiles-core.workspace = true
+turbo-tiles-db.workspace = true
+sqlx.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+quick-xml.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tokio.workspace = true
+url.workspace = true
+async-trait.workspace = true

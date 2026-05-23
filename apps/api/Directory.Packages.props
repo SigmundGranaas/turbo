@@ -1,5 +1,4 @@
 <Project>
-
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <!-- Pin transitive packages to the versions listed below so a stale lower
@@ -7,7 +6,6 @@
          downgrade what gets resolved across the solution. -->
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
-
   <ItemGroup>
     <!-- ASP.NET / hosting -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.5" />
@@ -24,10 +22,9 @@
     <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.5" />
     <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.3.1" />
     <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />
-
     <!-- Data access -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="9.0.5" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.5" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0" />
     <!-- Npgsql.EntityFrameworkCore.PostgreSQL 9.0.4 requests Relational [9.0.1, 10.0.0)
          which resolves to 9.0.1 unless we pin it here, producing MSB3277 conflicts
          with EF Core 9.0.5. -->
@@ -38,10 +35,8 @@
     <PackageVersion Include="Npgsql.NetTopologySuite" Version="9.0.3" />
     <PackageVersion Include="NetTopologySuite" Version="2.5.0" />
     <PackageVersion Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
-
     <!-- Messaging -->
     <PackageVersion Include="NATS.Net" Version="2.5.7" />
-
     <!-- Misc -->
     <PackageVersion Include="Medo.Uuid7" Version="3.0.0" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
@@ -50,7 +45,6 @@
          instrumentation) trips NU1902 with two moderate-severity advisories.
          Pin to the patched version so CPM's transitive pinning lifts it. -->
     <PackageVersion Include="OpenTelemetry.Api" Version="1.15.3" />
-
     <!-- Test stack -->
     <PackageVersion Include="FluentAssertions" Version="8.0.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -61,5 +55,4 @@
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.0" />
   </ItemGroup>
-
 </Project>
