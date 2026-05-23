@@ -94,10 +94,48 @@ namespace Turboapi.Auth.Presentation.Controllers
 
                     // For web clients (browsers), redirect to the frontend success page.
                     var frontendUrl = _configuration.GetValue<string>("FrontendUrl") ?? "http://localhost:8080";
-                    return Redirect($"{frontendUrl}/login/success");
+
+                    // The SPA can encode a return path in the OAuth `state`
+                    // parameter (URL-encoded, relative to FrontendUrl). Honour
+                    // it as long as it stays under the same origin — otherwise
+                    // this becomes an open-redirect vector. Falls back to
+                    // /login/success so legacy callers are unaffected.
+                    var returnPath = ResolveSafeReturnPath(state);
+                    return Redirect($"{frontendUrl}{returnPath}");
                 },
                 failure => HandleResult(result) // HandleResult maps the error to a status code.
             );
+        }
+
+        /// <summary>
+        /// Pull a SPA-supplied return path out of the OAuth state, accept it
+        /// only if it's a relative path (no scheme, no host), and default to
+        /// /login/success otherwise.
+        /// </summary>
+        private static string ResolveSafeReturnPath(string? state)
+        {
+            const string fallback = "/login/success";
+            if (string.IsNullOrWhiteSpace(state)) return fallback;
+
+            string decoded;
+            try
+            {
+                decoded = System.Net.WebUtility.UrlDecode(state);
+            }
+            catch
+            {
+                return fallback;
+            }
+
+            // Must start with '/', must NOT start with '//' (protocol-relative),
+            // and must not contain a scheme. Cheap-and-correct check.
+            if (string.IsNullOrEmpty(decoded)) return fallback;
+            if (!decoded.StartsWith('/')) return fallback;
+            if (decoded.StartsWith("//")) return fallback;
+            if (decoded.Contains(':')) return fallback;
+            if (decoded.Contains('\\')) return fallback;
+
+            return decoded;
         }
         
         private string CreateCallbackRedirectUri(string provider)

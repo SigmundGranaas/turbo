@@ -187,11 +187,23 @@ pub async fn create(
     // source of truth — leave it there.
     let _ = state.db.clone(); // tag-only; no DB write in V1
 
+    // Location is an absolute path so tus-js-client can use it
+    // directly via fetch (relative-resolution against the page URL
+    // breaks because the SPA lives at /admin/app/* but the upload
+    // endpoint is at /admin/api/upload).
+    //
+    // The prefix is configurable via `TILESERVER_UPLOAD_URL_PREFIX`
+    // so the same binary serves correctly direct (default
+    // `/admin/api`) and behind the gateway (set to
+    // `/api/tiles-admin/api` in the gateway's environment block).
+    let _ = &headers;
+    let prefix = std::env::var("TILESERVER_UPLOAD_URL_PREFIX")
+        .unwrap_or_else(|_| "/admin/api".to_string());
+    let location = format!("{prefix}/upload/{upload_id}");
     let mut h = tus_response_headers();
     h.insert(
         header::LOCATION,
-        HeaderValue::from_str(&format!("/admin/api/upload/{upload_id}"))
-            .map_err(|e| AdminError::Upload(e.to_string()))?,
+        HeaderValue::from_str(&location).map_err(|e| AdminError::Upload(e.to_string()))?,
     );
     h.insert(
         HeaderName::from_static("upload-offset"),

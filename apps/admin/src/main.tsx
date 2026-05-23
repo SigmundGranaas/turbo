@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createBrowserRouter } from "react-router-dom";
 
 import { AppShell } from "./app/AppShell";
+import { AuthGate } from "./app/AuthGate";
 import { Dashboard } from "./screens/Dashboard";
 import { ResourceList } from "./screens/ResourceList";
 import { ResourceEdit } from "./screens/ResourceEdit";
@@ -31,7 +32,11 @@ const router = createBrowserRouter(
   [
     {
       path: "/",
-      element: <AppShell />,
+      element: (
+        <AuthGate>
+          <AppShell />
+        </AuthGate>
+      ),
       children: [
         { index: true, element: <Dashboard /> },
         { path: "resources/:resource", element: <ResourceList /> },
