@@ -1,4 +1,5 @@
 import { test, expect, request } from "@playwright/test";
+import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,9 @@ import { fileURLToPath } from "node:url";
 
 const APP = "/admin/app/";
 const HERE = dirname(fileURLToPath(import.meta.url));
+const JWT_SECRET =
+  process.env.JWT_SECRET ??
+  "testsecret-must-be-long-enough-for-hs256-validation-yes-please";
 
 // Pull the cookie that Playwright will attach to the API request
 // context so we can hit the JSON API directly in the same test.
@@ -18,6 +22,29 @@ function curatorAuth() {
     readFileSync(resolve(HERE, ".auth/curator.json"), "utf8"),
   );
   return state.cookies[0].value as string;
+}
+
+/** Mint a JWT with the given role array — used by negative-auth tests. */
+function mintJwt({ roles }: { roles: string[] }): string {
+  const b64 = (buf: Buffer | string) =>
+    Buffer.from(buf)
+      .toString("base64")
+      .replace(/=+$/, "")
+      .replaceAll("+", "-")
+      .replaceAll("/", "_");
+  const header = b64(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const claims = b64(
+    JSON.stringify({
+      sub: "22222222-2222-2222-2222-222222222222",
+      email: "viewer@example.com",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      "http://schemas.microsoft.com/ws/2008/06/identity/claims/role": roles,
+    }),
+  );
+  const sig = b64(
+    createHmac("sha256", JWT_SECRET).update(`${header}.${claims}`).digest(),
+  );
+  return `${header}.${claims}.${sig}`;
 }
 
 test.describe("Curator outcomes", () => {
@@ -410,7 +437,11 @@ test.describe("GPX manual route upload", () => {
     const body = await resp.json();
     expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(body.resource).toBe("hiking-trails");
-    expect(body.slug).toBe("e2e-test-loop");
+    // Slug is `e2e-test-loop` on a clean DB, or `e2e-test-loop-<hex8>`
+    // when a prior test left a row behind. Both are valid — the
+    // unique-slug helper is what we're exercising elsewhere; here we
+    // just need to confirm the natural slug is the prefix.
+    expect(body.slug).toMatch(/^e2e-test-loop(-[0-9a-f]{8})?$/);
     expect(body.name).toBe("E2E test loop");
 
     // The created route must be a real row in paths.curated_route
@@ -448,6 +479,46 @@ test.describe("GPX manual route upload", () => {
     expect(resp.status()).toBe(422);
     const body = await resp.json();
     expect(body.error).toMatch(/invalid GPX/i);
+    await ctx.dispose();
+  });
+});
+
+test.describe("Auth gating", () => {
+  test("admin endpoints reject a signed-in user without the curator role", async ({
+    baseURL,
+  }) => {
+    // Mint a token that's well-formed and signed correctly, but
+    // carries `roles: ["viewer"]` — no curator, no admin. The
+    // RequireRole<Curator> extractor must return 403 (forbidden),
+    // NOT 401 (unauthorized). That distinction matters because the
+    // SPA's AuthGate renders a different screen for each.
+    const noRoleToken = mintJwt({ roles: ["viewer"] });
+    const ctx = await request.newContext({
+      baseURL: baseURL!,
+      extraHTTPHeaders: { authorization: `Bearer ${noRoleToken}` },
+    });
+    const resp = await ctx.get("/admin/api/resources");
+    expect(resp.status()).toBe(403);
+    await ctx.dispose();
+  });
+
+  test("admin endpoints reject an unsigned-in request with 401", async ({
+    baseURL,
+  }) => {
+    // No cookie, no bearer header — must be 401 (UNAUTHORIZED) so
+    // the SPA knows to redirect to OAuth, not show "permission
+    // denied".
+    //
+    // `storageState: { cookies: [], origins: [] }` explicitly drops
+    // the test-wide curator cookie that playwright.config.ts loads
+    // by default. Without this, the cookie travels with the request
+    // and the test asserts the wrong precondition.
+    const ctx = await request.newContext({
+      baseURL: baseURL!,
+      storageState: { cookies: [], origins: [] },
+    });
+    const resp = await ctx.get("/admin/api/resources");
+    expect(resp.status()).toBe(401);
     await ctx.dispose();
   });
 });

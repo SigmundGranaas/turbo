@@ -21,6 +21,7 @@ import { RESOURCES, type Resource } from "../api/types";
 type Status =
   | { kind: "idle" }
   | { kind: "uploading"; uploadedBytes: number; totalBytes: number }
+  | { kind: "paused"; uploadedBytes: number; totalBytes: number }
   | { kind: "uploaded"; uploadId: string; filename: string }
   | { kind: "ingesting"; uploadId: string }
   | { kind: "done"; jobName: string }
@@ -84,16 +85,28 @@ export function UploadBulk() {
     upload.start();
   };
 
-  const onPauseResume = () => {
+  const onPause = () => {
     const upload = uploadRef.current;
-    if (!upload) return;
-    if (status.kind === "uploading") {
-      upload.abort(false);
-      setStatus({
-        kind: "error",
-        message: "Paused. Click Start to resume from the last chunk.",
-      });
-    }
+    if (!upload || status.kind !== "uploading") return;
+    // abort(false) stops the in-flight PATCH and remembers the URL
+    // so the next start() resumes from the last acknowledged byte.
+    void upload.abort(false);
+    setStatus({
+      kind: "paused",
+      uploadedBytes: status.uploadedBytes,
+      totalBytes: status.totalBytes,
+    });
+  };
+
+  const onResume = () => {
+    const upload = uploadRef.current;
+    if (!upload || status.kind !== "paused") return;
+    setStatus({
+      kind: "uploading",
+      uploadedBytes: status.uploadedBytes,
+      totalBytes: status.totalBytes,
+    });
+    upload.start();
   };
 
   const onIngest = async () => {
@@ -189,20 +202,38 @@ export function UploadBulk() {
 
       {status.kind === "uploading" && (
         <div className="space-y-2" data-testid="bulk-progress">
-          <ProgressBar
-            value={status.uploadedBytes}
-            max={status.totalBytes}
-          />
+          <ProgressBar value={status.uploadedBytes} max={status.totalBytes} />
           <div className="text-xs text-ink-500 tabular-nums">
-            {formatBytes(status.uploadedBytes)} / {formatBytes(status.totalBytes)}{" "}
-            ({((status.uploadedBytes / status.totalBytes) * 100).toFixed(1)}%)
+            {formatBytes(status.uploadedBytes)} /{" "}
+            {formatBytes(status.totalBytes)} (
+            {((status.uploadedBytes / status.totalBytes) * 100).toFixed(1)}%)
           </div>
           <button
             type="button"
-            onClick={onPauseResume}
+            onClick={onPause}
             className={secondaryBtn}
+            data-testid="bulk-pause"
           >
             Pause
+          </button>
+        </div>
+      )}
+
+      {status.kind === "paused" && (
+        <div className="space-y-2" data-testid="bulk-paused">
+          <ProgressBar value={status.uploadedBytes} max={status.totalBytes} />
+          <div className="text-xs text-ink-500 tabular-nums">
+            Paused at {formatBytes(status.uploadedBytes)} /{" "}
+            {formatBytes(status.totalBytes)} — resume to keep going from
+            this offset.
+          </div>
+          <button
+            type="button"
+            onClick={onResume}
+            className={primaryBtn}
+            data-testid="bulk-resume"
+          >
+            Resume
           </button>
         </div>
       )}

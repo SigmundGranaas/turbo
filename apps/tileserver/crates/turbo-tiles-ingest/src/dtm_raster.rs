@@ -90,6 +90,13 @@ pub fn list_incoming() -> Vec<(String, u64)> {
 /// the upstream tool emits SQL on stdout and psql ingests it; mixing
 /// tokio's stdio with std's pipes is fragile, so we let the shell
 /// orchestrate.
+///
+/// Concurrency-safe stamp: previously the post-load UPDATE keyed on
+/// `source = '' OR IS NULL`, which means two simultaneous loads with
+/// different source labels would race and mis-stamp each other's
+/// rows. We now capture `MAX(rid)` before raster2pgsql runs and the
+/// UPDATE filters on `rid > before_max`, so each job only stamps the
+/// rows it inserted.
 pub async fn load_geotiff(
     pool: &turbo_tiles_db::DbPool,
     file: &Path,
@@ -100,6 +107,14 @@ pub async fn load_geotiff(
     let file_str = file
         .to_str()
         .ok_or_else(|| JobError::Fetch("non-UTF8 path".into()))?;
+
+    // Capture the highest existing rid so we know which rows
+    // raster2pgsql adds. `serial` ids are monotonic per connection
+    // and won't be reused, so anything > before_max came from this
+    // load. NULL on an empty table → -1 sentinel.
+    let before_max: (i64,) = sqlx::query_as("SELECT COALESCE(MAX(rid), 0)::bigint FROM paths.dem")
+        .fetch_one(pool)
+        .await?;
 
     // raster2pgsql flags chosen for Kartverket DTM:
     //   -s 25833      target SRID (reproject if source differs)
@@ -129,14 +144,12 @@ pub async fn load_geotiff(
         )));
     }
 
-    // raster2pgsql doesn't know about our `source` column; stamp all
-    // rows missing one with the supplied label so subsequent loads
-    // of a different generation stay distinguishable.
-    let updated =
-        sqlx::query("UPDATE paths.dem SET source = $1 WHERE source = '' OR source IS NULL")
-            .bind(source)
-            .execute(pool)
-            .await?;
+    // Stamp source on exactly the rows this load inserted.
+    let updated = sqlx::query("UPDATE paths.dem SET source = $1 WHERE rid > $2")
+        .bind(source)
+        .bind(before_max.0)
+        .execute(pool)
+        .await?;
 
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*)::bigint FROM paths.dem WHERE source = $1")
         .bind(source)
