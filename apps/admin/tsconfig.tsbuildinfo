@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/api/client.ts","./src/api/queries.ts","./src/api/types.ts","./src/app/AppShell.tsx","./src/components/MapPreview.tsx","./src/screens/Dashboard.tsx","./src/screens/Jobs.tsx","./src/screens/ResourceCreate.tsx","./src/screens/ResourceEdit.tsx","./src/screens/ResourceList.tsx","./src/screens/UploadGpx.tsx"],"version":"5.9.3"}

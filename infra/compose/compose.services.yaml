@@ -191,8 +191,10 @@ services:
 
   tileserver:
     build:
-      context: ../../apps/tileserver
-      dockerfile: Dockerfile
+      # Repo root so the Dockerfile can pull both apps/tileserver and
+      # apps/admin (the React SPA is bundled into the same image).
+      context: ../..
+      dockerfile: apps/tileserver/Dockerfile
     container_name: tileserver
     hostname: tileserver
     ports:
