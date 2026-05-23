@@ -11,9 +11,39 @@ CREATE DATABASE geo;
 CREATE DATABASE tracks;
 CREATE DATABASE collections;
 
--- PostGIS extension on the two spatial databases.
+-- Activities module: one cross-kind summary store + one per activity kind.
+CREATE DATABASE activities;
+CREATE DATABASE fishing;
+CREATE DATABASE backcountry_ski;
+CREATE DATABASE hiking;
+CREATE DATABASE xc_ski;
+CREATE DATABASE packrafting;
+CREATE DATABASE freediving;
+
+-- PostGIS extension on every spatial database.
 \connect geo;
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 \connect tracks;
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+\connect activities;
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+\connect fishing;
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+\connect backcountry_ski;
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+\connect hiking;
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+\connect xc_ski;
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+\connect packrafting;
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+\connect freediving;
 CREATE EXTENSION IF NOT EXISTS postgis;
