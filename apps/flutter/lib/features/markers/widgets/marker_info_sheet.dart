@@ -168,9 +168,8 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
                 onTap: _openExport,
               ),
               ActionButton(
-                // TODO(i18n): add l10n.saveAsActivity
                 icon: Icons.outdoor_grill_outlined,
-                label: 'Activity',
+                label: l10n.saveAsActivity,
                 onTap: _promoteToActivity,
               ),
               ActionButton(
@@ -190,17 +189,20 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
   /// point-based kinds). The user picks fishing / freediving / ..., fills
   /// in kind-specific details, and a new typed activity is created at
   /// the marker's location. The marker itself is left in place.
-  void _promoteToActivity() {
+  Future<void> _promoteToActivity() async {
     final seed = activities.ActivityGeometry.fromServer(
       wkt: activities.ActivityGeometry.pointWkt(_marker.position),
       geometryKind: 'POINT',
     );
-    showModalBottomSheet(
+    final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (sheetCtx) => activities.ActivityCreatePicker(seedGeometry: seed),
     );
+    // Auto-dismiss this marker sheet on save so the user is back on
+    // the map and can see the new activity pin alongside the marker.
+    if (saved == true && mounted) Navigator.of(context).pop();
   }
 
   Future<void> _addPhoto(BuildContext context) async {

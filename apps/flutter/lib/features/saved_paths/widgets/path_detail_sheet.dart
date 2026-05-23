@@ -140,11 +140,10 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
             // hiking / xc_ski / packrafting / backcountry_ski, fills in
             // kind-specific details, and a new typed activity is created
             // sharing this track's geometry.
-            // TODO(i18n): add l10n.saveAsActivity
             TextButton.icon(
               onPressed: _isLoading ? null : _promoteToActivity,
               icon: const Icon(Icons.outdoor_grill_outlined),
-              label: const Text('Save as activity'),
+              label: Text(l10n.saveAsActivity),
             ),
           ],
         ),
@@ -152,7 +151,7 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
     );
   }
 
-  void _promoteToActivity() {
+  Future<void> _promoteToActivity() async {
     final points = widget.path.points;
     if (points.length < 2) return;
     final wkt = 'LINESTRING(${points.map((p) => '${p.longitude} ${p.latitude}').join(', ')})';
@@ -160,12 +159,16 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
       wkt: wkt,
       geometryKind: 'LINESTRING',
     );
-    showModalBottomSheet(
+    final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (sheetCtx) => activities.ActivityCreatePicker(seedGeometry: seed),
     );
+    // If the user actually saved a new activity, close this path sheet
+    // too so they land on the map and see their new pin without
+    // having to manually dismiss the sheet they came from.
+    if (saved == true && mounted) Navigator.of(context).pop();
   }
 
   Future<void> _updatePath() async {

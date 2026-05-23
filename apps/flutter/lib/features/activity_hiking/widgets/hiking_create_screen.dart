@@ -120,7 +120,11 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
               Row(children: [
                 Expanded(child: _num(_distance, 'Distance m')),
                 const SizedBox(width: 8),
-                Expanded(child: _num(_hours, 'Hours')),
+                // `estimatedHours` is nullable on the model — leave
+                // empty to omit it. Editing an activity that was
+                // saved without an estimate would otherwise be
+                // blocked by a "Number required" validator.
+                Expanded(child: _num(_hours, 'Hours', required: false)),
               ]),
               const SizedBox(height: 8),
               Row(children: [
@@ -191,10 +195,24 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
     );
   }
 
-  Widget _num(TextEditingController c, String label) => TextFormField(
-    controller: c, keyboardType: TextInputType.number,
-    decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true),
-    validator: (v) => double.tryParse(v ?? '') == null ? 'Number required' : null);
+  Widget _num(
+    TextEditingController c,
+    String label, {
+    bool required = true,
+  }) =>
+      TextFormField(
+        controller: c,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+            isDense: true),
+        validator: (v) {
+          final s = v?.trim() ?? '';
+          if (s.isEmpty) return required ? 'Number required' : null;
+          return double.tryParse(s) == null ? 'Number required' : null;
+        },
+      );
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -224,7 +242,7 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
           description: _description.text.trim().isEmpty ? null : _description.text.trim(),
           route: _route, details: details);
       }
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));

@@ -27,7 +27,8 @@ public sealed class UpdateHikingActivityHandler
 
     public async Task Handle(UpdateHikingActivityCommand cmd)
     {
-        var existing = await _reader.GetByIdAsync(cmd.ActivityId)
+        var existing = await ReadModelCatchup.ReadAsync(
+                ct => _reader.GetByIdAsync(cmd.ActivityId, ct))
             ?? throw new ActivityNotFoundException(cmd.ActivityId);
 
         _ownerGuard.RequireOwner(cmd.CallerId, existing.Core.OwnerId);

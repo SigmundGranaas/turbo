@@ -164,6 +164,8 @@ abstract class AppLocalizations {
   // Main Map
   String get createNewMarkerHere;
   String get measureDistanceFromHere;
+  String get addActivityHere;
+  String get saveAsActivity;
 
   // Location Button
   String get locationServicesUnavailable;
@@ -619,6 +621,8 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override String get createNewMarkerHere => 'Create New Marker Here';
   @override String get measureDistanceFromHere => 'Measure Distance From Here';
+  @override String get addActivityHere => 'Add activity here';
+  @override String get saveAsActivity => 'Save as activity';
 
   @override String get locationServicesUnavailable => 'Location Services Unavailable';
   @override String get locationServicesUnsupportedOnPlatform => 'Location services are not supported on this platform. We apologize for the inconvenience.';
@@ -1053,6 +1057,8 @@ class AppLocalizationsNo extends AppLocalizations {
 
   @override String get createNewMarkerHere => 'Opprett nytt punkt her';
   @override String get measureDistanceFromHere => 'Mål avstand herfra';
+  @override String get addActivityHere => 'Legg til aktivitet her';
+  @override String get saveAsActivity => 'Lagre som aktivitet';
 
   @override String get locationServicesUnavailable => 'Posisjonstjenester utilgjengelig';
   @override String get locationServicesUnsupportedOnPlatform => 'Posisjonstjenester støttes ikke på denne plattformen. Vi beklager ulempen.';

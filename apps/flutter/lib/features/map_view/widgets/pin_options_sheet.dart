@@ -125,9 +125,8 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
                       },
                     ),
                     ListTile(
-                      // TODO(i18n): add l10n.addActivityHere
                       leading: const Icon(Icons.outdoor_grill_outlined),
-                      title: const Text('Add activity here'),
+                      title: Text(l10n.addActivityHere),
                       onTap: () {
                         Navigator.pop(context);
                         widget.onCreateActivity();

@@ -182,7 +182,7 @@ class _XcSkiCreateScreenState extends ConsumerState<XcSkiCreateScreen> {
           description: _description.text.trim().isEmpty ? null : _description.text.trim(),
           route: _route, details: details);
       }
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
     } finally {

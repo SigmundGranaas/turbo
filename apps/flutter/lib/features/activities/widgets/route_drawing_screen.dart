@@ -153,6 +153,17 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
             icon: const Icon(Icons.delete_outline),
             onPressed: _vertices.isEmpty ? null : _clear,
           ),
+          // Primary action lives in the AppBar so users see "what do
+          // I do when I'm done" before they start. The bottom hint
+          // card below repeats the instruction; the action is here.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: FilledButton.icon(
+              onPressed: _vertices.length >= 2 ? _save : null,
+              icon: const Icon(Icons.check, size: 18),
+              label: const Text('Use route'),
+            ),
+          ),
         ],
       ),
       body: Stack(children: [
@@ -205,26 +216,14 @@ class _RouteDrawingScreenState extends ConsumerState<RouteDrawingScreen> {
             elevation: 4,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(children: [
-                Expanded(child: Text(
-                  _vertices.isEmpty
-                    ? 'Tap the map to add vertices.'
-                    : _vertices.length == 1
-                      ? 'Add at least one more vertex.'
-                      : 'Tap to extend, drag a dot to move it, long-press to remove.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                )),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop<List<LatLng>>(null),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton.icon(
-                  onPressed: _vertices.length >= 2 ? _save : null,
-                  icon: const Icon(Icons.check, size: 18),
-                  label: const Text('Use route'),
-                ),
-              ]),
+              child: Text(
+                _vertices.isEmpty
+                  ? 'Tap the map to add vertices, then "Use route" up top.'
+                  : _vertices.length == 1
+                    ? 'Add at least one more vertex.'
+                    : 'Tap to extend, drag a dot to move it, long-press to remove.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
           ),
         ),

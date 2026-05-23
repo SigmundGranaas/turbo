@@ -185,7 +185,10 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
           details: details,
         );
       }
-      if (mounted) Navigator.of(context).pop();
+      // Pop with `true` so parent surfaces (path detail sheet,
+      // marker detail sheet, picker) know to auto-dismiss instead of
+      // leaving the user buried under modals after a successful save.
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

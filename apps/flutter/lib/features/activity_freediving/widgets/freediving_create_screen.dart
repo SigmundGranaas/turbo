@@ -163,7 +163,7 @@ class _FreedivingCreateScreenState extends ConsumerState<FreedivingCreateScreen>
           description: _description.text.trim().isEmpty ? null : _description.text.trim(),
           position: _position, details: details);
       }
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
     } finally {

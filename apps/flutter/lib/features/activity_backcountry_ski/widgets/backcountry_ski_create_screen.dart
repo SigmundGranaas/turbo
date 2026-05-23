@@ -155,8 +155,12 @@ class _BackcountrySkiCreateScreenState
               const SizedBox(height: 16),
               Text('ATES', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 4),
+              // `AtesRating.unrated` exists on the model — leaving it
+              // out of the segment list crashes SegmentedButton when
+              // editing a legacy activity whose rating is unrated.
               SegmentedButton<AtesRating>(
                 segments: const [
+                  ButtonSegment(value: AtesRating.unrated, label: Text('Unrated')),
                   ButtonSegment(value: AtesRating.simple, label: Text('Simple')),
                   ButtonSegment(value: AtesRating.challenging, label: Text('Challenging')),
                   ButtonSegment(value: AtesRating.complex, label: Text('Complex')),
@@ -260,7 +264,7 @@ class _BackcountrySkiCreateScreenState
               details: details,
             );
       }
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
