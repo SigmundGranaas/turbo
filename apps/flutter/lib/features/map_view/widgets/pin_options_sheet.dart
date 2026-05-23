@@ -74,13 +74,12 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
       maxChildSize: 0.92,
       expand: false,
       builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(AppRadius.xl),
-            ),
+        return Material(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.xl),
           ),
+          clipBehavior: Clip.antiAlias,
           // Single-page layout: header + weather scroll inside the
           // upper area; the three action buttons stay anchored to the
           // bottom of the sheet at any expansion level.
