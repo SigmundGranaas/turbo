@@ -22,6 +22,9 @@ services:
 
   geo-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: geo-db
     ports:
       - "5435:5435"
@@ -42,6 +45,9 @@ services:
 
   tracks-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: tracks-db
     ports:
       - "5437:5437"
@@ -82,6 +88,9 @@ services:
 
   activities-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: activities-db
     ports:
       - "5439:5439"
@@ -102,6 +111,9 @@ services:
 
   activities-fishing-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: activities-fishing-db
     ports:
       - "5440:5440"
@@ -122,6 +134,9 @@ services:
 
   activities-backcountry-ski-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: activities-backcountry-ski-db
     ports:
       - "5441:5441"
@@ -142,6 +157,9 @@ services:
 
   activities-hiking-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: activities-hiking-db
     ports:
       - "5442:5442"
@@ -162,6 +180,9 @@ services:
 
   activities-xc-ski-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: activities-xc-ski-db
     ports:
       - "5443:5443"
@@ -182,6 +203,9 @@ services:
 
   activities-packrafting-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: activities-packrafting-db
     ports:
       - "5444:5444"
@@ -202,6 +226,9 @@ services:
 
   activities-freediving-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: activities-freediving-db
     ports:
       - "5445:5445"

@@ -19,6 +19,9 @@ name: turbo
 services:
   shared-db:
     image: postgis/postgis:17-master
+    # postgis/postgis publishes amd64-only manifests. Pin platform so the
+    # stack works on Apple Silicon (via Rosetta); no-op on x86_64 hosts.
+    platform: linux/amd64
     container_name: shared-db
     ports:
       - "5432:5432"
