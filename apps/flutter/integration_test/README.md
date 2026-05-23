@@ -11,23 +11,40 @@ against a booted simulator with a healthy backend.
 
 ## What's tested
 
-Five user-visible outcomes:
+Four user-visible outcomes, in flows as long as the user actually
+takes:
 
-| Journey | What's driven through real UI |
+| Journey | Real UI driven |
 | --- | --- |
-| New user signs up and sees their first saved spot | RegisterScreen (email + password + Create-account button), FishingCreateScreen (name field, Lake/Shore segmented buttons, Save), FishingDetailSheet (asserts the saved name + chosen options are shown back to the user) |
-| Returning user can re-open their saved spot | Cold start with persisted tokens, FishingDetailSheet shows the prior spot's name |
-| User deletes a spot from its detail sheet, it stays gone | Detail sheet's Delete button → Delete-spot? dialog → confirm; verifies the spot is gone server-side |
-| Another user cannot see my private spot | User B opens the detail sheet for User A's spot id; user A's name never appears anywhere on B's screen |
-| Wrong password tells me my password was wrong | LoginScreen with bad creds; asserts AuthErrorMessage banner appears and screen stays open |
+| New user signs up, saves a fishing spot AND a freediving spot via the map, sees both pins | RegisterScreen (email + password + Create-account button) → long-press FlutterMap → PinOptionsSheet ("Add activity here") → ActivityCreatePicker (Fishing/Freediving tiles) → FishingCreateScreen (name + Lake + Shore + Save) → second long-press → picker → Freediving → FreedivingCreateScreen (name + Max depth + Save). Asserts: both `activity-pin-<id>` keys are present on the map. |
+| Returning to the app, both previously-saved pins are on the map | Cold start with a seeded session that has two prior spots. Asserts: both pin keys appear once the summaries refresh. |
+| Another user's spots are not on my map | User A has a spot; User B signs in fresh, opens the app. Asserts: User A's pin key is never on User B's map, even after the repo has had time to refresh. |
+| Wrong password tells me my password was wrong | LoginScreen with bad creds. Asserts: AuthErrorMessage banner appears, LoginScreen stays open. |
 
-Out of scope (yet) and why:
-- **Map-tap entries** (long-press map → activity picker → kind form;
-  tap a pin → detail sheet). MapLibre rendering on iOS Sim doesn't
-  emit a stable Marker locator. We push the form / sheet directly via
-  the Navigator — the user-facing widget behaviour is the same. When
-  we have a reliable pin-locator, those entry-point gestures can be
-  added on top of the existing assertions.
+## Deliberate non-tests (and why)
+
+- **Editing a saved spot.** No edit UI exists. Detail sheets only
+  surface Close + Delete. Adding a fake "edit via API" test would
+  verify code paths the user can't reach.
+- **Tapping a pin to open its detail sheet.**
+  `ActivityKindDescriptor.buildDetailScreen` is defined on every kind
+  but the marker rendered by `ActivitiesMapLayer` has no `onTap` —
+  the pin is non-interactive in the production UI. The detail sheets
+  exist as widgets but the user can't open them. Test will be added
+  once the marker tap is wired.
+- **Deleting a saved spot.** Delete only exists on the detail sheet,
+  and the detail sheet isn't reachable (see above).
+- **Line-based kinds** (hiking, backcountry-ski, xc-ski, packrafting).
+  They need a route-drawing UI; a single long-press cannot create
+  them. The two point-based kinds (fishing, freediving) cover all the
+  UI surfaces that have no preconditions outside a single point.
+- **Offline tolerance.** Patrol's `disableWifi` is Android-only —
+  iOS Simulator doesn't expose a Wi-Fi toggle XCUITest can flip. The
+  user-visible behaviour ("pins served from local cache when network
+  drops") is covered by `test/features/activities/
+  activity_offline_behavior_test.dart` in the widget-test suite. Add
+  the E2E variant when Patrol supports iOS Wi-Fi toggling or we move
+  E2E to an Android emulator.
 
 ## Prerequisites
 
@@ -98,19 +115,23 @@ suite). Full suite is currently ~1 min.
 
 ## Gaps worth adding next
 
-- Edit a saved spot (rename, change water kind) → the new name shows
-  in the detail sheet.
-- Tap a pin on the map. Requires a reliable Marker locator on the
-  MapLibre layer; consider adding `Key` to marker widgets so Patrol
-  can find them.
-- One test per activity kind (backcountry ski, hiking, xc ski,
-  packrafting, freediving), each verifying the kind-specific create
-  form and detail surface.
-- Localized strings — drive the LoginScreen / RegisterScreen in
-  Norwegian and assert on the localized texts.
-- Connectivity loss / reconnect — cut the simulator's network mid-flow
-  via `$.native.disableWifi()`, save, reconnect, verify the spot
-  surfaces.
+These are blocked on UI surfaces the user can't currently reach (the
+test wouldn't represent a real user goal):
+
+- **Detail-sheet rendering after pin tap.** Add `onTap` to the
+  `ActivitiesMapLayer` marker — opens
+  `descriptor.buildDetailScreen(ctx, id)` in a `showModalBottomSheet`
+  — then test: tap pin → sheet → asserts on the saved name + the
+  options the user chose in the form.
+- **Delete a saved spot.** Same precondition as above. The delete
+  button + confirm dialog already exist on the detail sheets; once
+  the sheets are reachable they can be tapped.
+- **Edit a saved spot.** No edit screen exists in the app yet. When
+  one is added, drive the rename → save → assert the new name is
+  shown back to the user.
+- **Line-based kinds** (hiking, backcountry-ski, xc-ski, packrafting).
+  Drive the route-drawing UI from a long-press / draw-mode toggle,
+  save, then verify the polyline + kind-specific detail surface.
 
 ## CI
 

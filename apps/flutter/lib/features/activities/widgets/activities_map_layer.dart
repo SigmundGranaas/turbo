@@ -36,6 +36,9 @@ class ActivitiesMapLayer extends ConsumerWidget {
       final pos = s.geometry.firstPoint;
       if (pos == null) continue;
       markers.add(Marker(
+        // Stable per-activity key so integration tests can target the
+        // exact pin (`Key('activity-pin-<id>')`). Cheap at runtime.
+        key: Key('activity-pin-${s.id}'),
         point: pos,
         width: 40,
         height: 40,
