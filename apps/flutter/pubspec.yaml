@@ -94,9 +94,18 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  patrol: ^4.6.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
+
+patrol:
+  app_name: turbo
+  test_directory: integration_test
+  android:
+    package_name: com.sigmundgranaas.turbo
+  ios:
+    bundle_id: com.sigmundgranaas.turbo
 
 # The following section is specific to Flutter packages.
 flutter:

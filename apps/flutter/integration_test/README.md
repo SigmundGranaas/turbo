@@ -1,102 +1,120 @@
-# Flutter integration (E2E) tests
+# Flutter E2E tests (Patrol)
 
-End-to-end user-journey tests that drive the real `TurboApp` against the
-real backend stack (the docker compose setup in `infra/compose/`).
+Patrol-driven user-journey tests. Each test drives the **real widgets
+the user touches** — text fields, segmented buttons, save buttons,
+modal sheets, confirmation dialogs, error banners — on an iOS
+Simulator, against the live docker-compose backend.
 
-**What's in scope**: assertions about value the user can see or actions
-they can take. "I signed up and my place shows up." "I deleted it and
-it stayed gone." "Wrong password tells me so." Nothing else.
+These are **outside** the unit/widget test tree under `test/`. The
+standard `flutter test` doesn't pick them up; they run via `patrol`
+against a booted simulator with a healthy backend.
 
-**What's out of scope**: assertions about internal state machines,
-endpoint status codes, optimistic-upsert timing, etc. Those layers are
-implicit — if any of them break, a user-journey test breaks. Layer-
-specific assertions belong in unit/widget tests under `test/` and in the
-.NET behaviour tests under `apps/api/tests/`.
+## What's tested
 
-These tests are deliberately **outside** the unit/widget test tree under
-`test/`. The standard `flutter test` command does **not** pick them up;
-they need an explicit device (`-d macos` works headless on Apple Silicon
-without an emulator) and a running backend.
+Five user-visible outcomes:
+
+| Journey | What's driven through real UI |
+| --- | --- |
+| New user signs up and sees their first saved spot | RegisterScreen (email + password + Create-account button), FishingCreateScreen (name field, Lake/Shore segmented buttons, Save), FishingDetailSheet (asserts the saved name + chosen options are shown back to the user) |
+| Returning user can re-open their saved spot | Cold start with persisted tokens, FishingDetailSheet shows the prior spot's name |
+| User deletes a spot from its detail sheet, it stays gone | Detail sheet's Delete button → Delete-spot? dialog → confirm; verifies the spot is gone server-side |
+| Another user cannot see my private spot | User B opens the detail sheet for User A's spot id; user A's name never appears anywhere on B's screen |
+| Wrong password tells me my password was wrong | LoginScreen with bad creds; asserts AuthErrorMessage banner appears and screen stays open |
+
+Out of scope (yet) and why:
+- **Map-tap entries** (long-press map → activity picker → kind form;
+  tap a pin → detail sheet). MapLibre rendering on iOS Sim doesn't
+  emit a stable Marker locator. We push the form / sheet directly via
+  the Navigator — the user-facing widget behaviour is the same. When
+  we have a reliable pin-locator, those entry-point gestures can be
+  added on top of the existing assertions.
 
 ## Prerequisites
 
-1. Docker Desktop running.
-2. Backend stack up (one-time per session):
+1. **Patrol CLI** on PATH:
+   ```sh
+   dart pub global activate patrol_cli
+   export PATH="$PATH:$HOME/.pub-cache/bin"
+   ```
+2. **Xcode + an iOS simulator booted**. The runner defaults to the
+   iPhone 17 sim UDID `D3A062B4-2AB3-47C0-AE42-1CFA0FECE11A`; override
+   with `E2E_DEVICE=<udid>`. List sims with `xcrun simctl list devices`.
+3. **CocoaPods**. iOS pod install must have run with the Patrol +
+   RunnerUITests setup (handled by the Podfile in this repo).
+4. **Backend stack** up:
    ```sh
    docker compose -f infra/compose/compose.yaml \
                   -f infra/compose/compose.services.yaml up -d
-   # Wait until: curl -fsS http://localhost:8080/healthz   (returns 200)
+   # curl -fsS http://localhost:8080/healthz   # → 200
    ```
-3. macOS deps in place: Flutter ≥ 3.41, Xcode + CocoaPods (the harness
-   uses `flutter pub get`, no Pod install needed for `-d macos`).
 
 ## Running
 
-From `apps/flutter/`:
-
 ```sh
-flutter test integration_test/user_journeys_e2e_test.dart \
-  -d macos --dart-define=API_BASE_URL=http://localhost:8080
+integration_test/run_e2e.sh                              # full suite
+integration_test/run_e2e.sh integration_test/some_test.dart   # one file
 ```
 
-`integration_test` on desktop only supports one app instance per
-`flutter test` invocation, so running the whole `integration_test`
-directory fails the second file with "Unable to start the app on the
-device". The `run_e2e.sh` helper in this directory waits for healthz
-then invokes each `*_test.dart` file separately:
+Or directly:
 
 ```sh
-integration_test/run_e2e.sh                                       # all
-integration_test/run_e2e.sh integration_test/user_journeys_e2e_test.dart
+patrol test --target integration_test/user_journeys_test.dart \
+  -d D3A062B4-2AB3-47C0-AE42-1CFA0FECE11A \
+  --dart-define=API_BASE_URL=http://localhost:8080
 ```
+
+Each test takes 5–55s (build + sim boot are amortised across the
+suite). Full suite is currently ~1 min.
+
+## How the suite is wired together
+
+- **Native Patrol bridge** (`ios/RunnerUITests/`): a UI test target
+  added to `Runner.xcodeproj` with `PATROL_INTEGRATION_TEST_IOS_RUNNER`
+  as its entry point. The Xcode scheme's `<Testables>` block includes
+  this target so `xcodebuild test` finds it.
+- **Pubspec config** (`pubspec.yaml` → `patrol:`): sets the test
+  directory to `integration_test/` (patrol's default is `patrol_test/`).
+- **`helpers/e2e_harness.dart`**: shared utilities used by the test
+  file — `waitForBackendHealthy`, `registerNewUser` (direct HTTP to
+  /api/auth/Auth/register), `seedAuthState`, `resetAppState`,
+  `waitForServerSidePlace`, `directApi`, plus the existing
+  pump/error-suppression helpers.
+- **`run_e2e.sh`**: orchestrates healthz-wait → simulator boot → patrol
+  test.
 
 ## Conventions
 
-- **One test per user-visible outcome.** No infra assertions, no
-  intermediate state-machine checks, no per-field payload verification.
-  If any of those break, one of the user-journey tests fails — that's
-  the signal.
-- **Unique users per test.** Helpers in `helpers/e2e_harness.dart` mint
-  timestamp-tagged emails (`e2e-<tag>-<microseconds>@turbo.test`). The
-  suite is idempotent — re-running it never collides — and the compose
-  stack doesn't need a DB reset between runs.
-- **Drive what's natural, set up what's not.** Use the real UI for the
-  gesture under test (register, login, error feedback). For the prior
-  state a journey starts from — "I've already saved a place before" —
-  set up via direct HTTP (`directApi()`) instead of clicking through
-  the create form, since that's setup, not the thing being tested.
-- **Assert against the summary store, not the map widget.** The map
-  reads from `activitySummariesRepositoryProvider`; the store is the
-  source of pin data the user sees. MapLibre tiles don't render
-  reliably in headless macOS, so the harness suppresses tile errors
-  and tests assert on the source-of-truth provider.
-
-## What's covered
-
-| Journey | File |
-| --- | --- |
-| A new user signs up and their first saved place is visible to them | `user_journeys_e2e_test.dart` |
-| Returning to the app, my previously saved places are still visible | `user_journeys_e2e_test.dart` |
-| I can delete a place I saved and it stays gone | `user_journeys_e2e_test.dart` |
-| A wrong password tells me my password was wrong | `user_journeys_e2e_test.dart` |
-| My saved places are not visible to other users | `user_journeys_e2e_test.dart` |
+- **One test per user-visible outcome.** No state-machine assertions,
+  no per-field payload checks, no HTTP status assertions. If something
+  the user cares about breaks, one of these tests fails.
+- **Drive what's natural, set up what's not.** Real UI for the
+  thing-under-test (forms, sheets, dialogs); direct HTTP for prior
+  state ("user B already had a session before User A logged in" —
+  setting that up via UI would be three nested log-ins for one test).
+- **Assert on what the user sees on screen.** The detail sheet's
+  visible name. The error banner widget. The text the dialog asks
+  before destructive actions. If the data is only verifiable via API,
+  that's a hint we should be looking at a different screen.
 
 ## Gaps worth adding next
 
-Each should be a single user-journey test, not a layered set:
-
-- "After enough idle time the app still works without making me sign in
-  again." (Token refresh, expressed as a user outcome.)
-- "If I lose connectivity while saving, then come back online, my place
-  is there next time I open the app." (Offline-resilience as outcome.)
-- "If I rename a saved place, the new name is what I see." (Update
-  flow.)
-- "Each activity kind I save shows up as the right kind on my map."
-  (Cross-kind coverage.)
+- Edit a saved spot (rename, change water kind) → the new name shows
+  in the detail sheet.
+- Tap a pin on the map. Requires a reliable Marker locator on the
+  MapLibre layer; consider adding `Key` to marker widgets so Patrol
+  can find them.
+- One test per activity kind (backcountry ski, hiking, xc ski,
+  packrafting, freediving), each verifying the kind-specific create
+  form and detail surface.
+- Localized strings — drive the LoginScreen / RegisterScreen in
+  Norwegian and assert on the localized texts.
+- Connectivity loss / reconnect — cut the simulator's network mid-flow
+  via `$.native.disableWifi()`, save, reconnect, verify the spot
+  surfaces.
 
 ## CI
 
-Not wired into the existing `.github/workflows/flutter_tests.yaml` yet
-(which runs only `flutter test` on Ubuntu). A separate workflow needs:
-docker compose up + healthz wait + `run_e2e.sh`. The runtime is
-dominated by image pulls; expect ~3–5 min per run after the first.
+Not wired into `.github/workflows/flutter_tests.yaml` yet. A separate
+workflow needs: macOS runner + iOS simulator boot + docker compose up
++ healthz wait + `run_e2e.sh`. Expect ~5–10 min per run after image
+pulls are cached.

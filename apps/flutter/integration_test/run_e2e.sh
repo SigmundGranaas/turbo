@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
-# Run the Flutter integration test suite against a local docker compose
-# stack. Waits for the gateway's /healthz to return 200 before invoking
-# `flutter test`, so a missing stack fails fast with a clear message
-# instead of looking like an auth or routing bug.
+# Run the Patrol-driven E2E suite against a local docker compose stack
+# on the iOS Simulator. Waits for the gateway's /healthz before kicking
+# off the test build so a missing stack fails fast with a clear
+# message instead of looking like an auth or UI bug.
 #
 # Usage (from apps/flutter/):
 #   integration_test/run_e2e.sh                                # full suite
-#   integration_test/run_e2e.sh path/to/one_test.dart          # one file
+#   integration_test/run_e2e.sh integration_test/<file>.dart   # one file
 #
 # Env overrides:
 #   API_BASE_URL   default: http://localhost:8080
-#   E2E_DEVICE     default: macos
+#   E2E_DEVICE     default: D3A062B4-2AB3-47C0-AE42-1CFA0FECE11A (iPhone 17 sim).
+#                  Override with another sim UDID or `xcrun simctl list`.
 #   E2E_WAIT_SECS  default: 30
 
 set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-http://localhost:8080}"
-E2E_DEVICE="${E2E_DEVICE:-macos}"
+E2E_DEVICE="${E2E_DEVICE:-D3A062B4-2AB3-47C0-AE42-1CFA0FECE11A}"
 E2E_WAIT_SECS="${E2E_WAIT_SECS:-30}"
+TARGET="${1:-integration_test/user_journeys_test.dart}"
+
+export PATH="$PATH:$HOME/.pub-cache/bin"
+
+if ! command -v patrol >/dev/null 2>&1; then
+  echo "patrol CLI not on PATH. Install with:" >&2
+  echo "  dart pub global activate patrol_cli" >&2
+  exit 1
+fi
 
 echo "Waiting for backend at $API_BASE_URL/healthz (up to ${E2E_WAIT_SECS}s)..."
 deadline=$(( $(date +%s) + E2E_WAIT_SECS ))
@@ -30,37 +40,13 @@ until curl -fsS -o /dev/null "$API_BASE_URL/healthz"; do
   fi
   sleep 1
 done
-echo "Backend healthy. Running E2E suite on -d $E2E_DEVICE..."
 
-# integration_test on desktop only supports one app instance per
-# `flutter test` invocation. Running the whole `integration_test`
-# directory fails the second file with "Unable to start the app on
-# the device". So invoke each test file separately and aggregate.
-if [[ $# -gt 0 ]]; then
-  targets=("$@")
-else
-  targets=()
-  while IFS= read -r f; do
-    targets+=("$f")
-  done < <(find integration_test -maxdepth 1 -name "*_test.dart" | sort)
-fi
+# Make sure the simulator is booted (patrol won't boot it for us).
+xcrun simctl boot "$E2E_DEVICE" >/dev/null 2>&1 || true
 
-failed=()
-for t in "${targets[@]}"; do
-  echo
-  echo "===== $t ====="
-  if ! flutter test "$t" \
-      -d "$E2E_DEVICE" \
-      --dart-define=API_BASE_URL="$API_BASE_URL"; then
-    failed+=("$t")
-  fi
-done
+echo "Backend healthy. Running Patrol suite on $E2E_DEVICE..."
 
-echo
-if (( ${#failed[@]} == 0 )); then
-  echo "All E2E test files passed."
-  exit 0
-fi
-echo "FAILED:" >&2
-printf '  - %s\n' "${failed[@]}" >&2
-exit 1
+exec patrol test \
+  --target "$TARGET" \
+  -d "$E2E_DEVICE" \
+  --dart-define=API_BASE_URL="$API_BASE_URL"

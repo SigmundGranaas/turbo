@@ -12,6 +12,9 @@
 .swiftpm/
 migrate_working_dir/
 
+# Patrol auto-generated test bundle (regenerated on every `patrol test`).
+integration_test/test_bundle.dart
+
 # IntelliJ related
 *.iml
 *.ipr
