@@ -13,8 +13,16 @@ class EnvironmentConfig {
   // Check if we're in development mode
   static bool get isDevelopment => currentEnvironment == Environment.development;
 
+  // Optional override used by integration tests / dev builds pointing at a
+  // local compose stack: `--dart-define=API_BASE_URL=http://localhost:8080`.
+  static const String _apiBaseUrlOverride =
+      String.fromEnvironment('API_BASE_URL');
+
   // API Base URL based on environment
   static String get apiBaseUrl {
+    if (_apiBaseUrlOverride.isNotEmpty) {
+      return _apiBaseUrlOverride;
+    }
     if (isDevelopment) {
       // For local development
       if (kIsWeb) {

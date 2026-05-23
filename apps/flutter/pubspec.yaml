@@ -79,6 +79,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   custom_lint: ^0.8.1
   turbo_lints:
     path: tools/turbo_lints
