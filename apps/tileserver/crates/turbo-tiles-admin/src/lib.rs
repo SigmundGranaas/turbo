@@ -50,5 +50,20 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/ingest/bulk", post(routes::ingest::trigger_bulk))
         .route("/api/ingest/incoming", get(routes::ingest::incoming))
         .route("/api/ingest/jobs", get(routes::ingest::jobs))
+        // TUS resumable upload endpoints. Flat routes because mixing
+        // `.route("/api/...")` and `.nest("/api", ...)` in axum 0.7
+        // doesn't compose cleanly.
+        .route("/api/upload", post(routes::tus::create))
+        .route(
+            "/api/upload/:id",
+            get(routes::tus::head_upload)
+                .patch(routes::tus::patch_upload)
+                .delete(routes::tus::terminate),
+        )
+        // Per-chunk body limit — 16 MB allows 5–10 MB client chunks
+        // with headroom for the TUS Upload-Metadata header.
+        .layer(axum::extract::DefaultBodyLimit::max(
+            routes::tus::MAX_CHUNK_BYTES,
+        ))
         .with_state(state)
 }

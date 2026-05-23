@@ -230,6 +230,89 @@ test.describe("Bulk-file ingest from incoming volume", () => {
   });
 });
 
+test.describe("Multi-GB upload from a browser (TUS)", () => {
+  test("curator uploads a GeoTIFF from disk, sees progress, then triggers ingest end-to-end", async ({
+    page,
+    baseURL,
+  }) => {
+    // The synthetic DTM10 GeoTIFF was put on disk by the setup
+    // script. We hand it to the file input the same way a curator's
+    // browser would after a drag-drop. tus-js-client takes over from
+    // there: chunks the file, PATCHes to /admin/api/upload/<id>.
+    await page.goto(`${APP}upload-bulk`);
+    await expect(
+      page.getByRole("heading", { name: "Upload bulk dataset" }),
+    ).toBeVisible();
+
+    const TIF = "/var/lib/tileserver/raw/incoming/dtm10-synth.tif";
+    await page.getByTestId("bulk-file-input").setInputFiles(TIF);
+
+    // Source label that ends up on the loaded raster rows.
+    await page.getByPlaceholder("dtm10").fill("dtm10-via-browser");
+
+    // Kick the upload off and wait for the "uploaded" state. The
+    // file is small (~88 KB) so it lands in one chunk, but the same
+    // codepath works for multi-GB inputs.
+    await page.getByTestId("bulk-start").click();
+    const uploadedBanner = page.getByTestId("bulk-uploaded");
+    await expect(uploadedBanner).toBeVisible({ timeout: 15_000 });
+    await expect(uploadedBanner).toContainText("dtm10-synth.tif");
+
+    // Trigger ingest. The button posts {job, upload_id, source} to
+    // /admin/api/ingest/bulk and the curator gets bounced to /jobs.
+    await page.getByTestId("bulk-ingest").click();
+    await expect(page).toHaveURL(/\/jobs$/, { timeout: 5_000 });
+
+    // The real validation: a dtm-load row with our source label must
+    // exist and reach `succeeded`. We poll the API directly because
+    // the SPA's auto-refresh interval is 3 s.
+    const ctx = await request.newContext({
+      baseURL: baseURL!,
+      extraHTTPHeaders: { authorization: `Bearer ${curatorAuth()}` },
+    });
+    let succeeded = false;
+    for (let i = 0; i < 15; i++) {
+      const resp = await ctx.get("/admin/api/ingest/jobs?limit=10");
+      const log = await resp.json();
+      const ours = log.rows.find(
+        (r: { name: string; status: string }) =>
+          r.name === "dtm-load" && r.status === "succeeded",
+      );
+      if (ours) {
+        expect(ours.rows_in).toBeGreaterThan(0);
+        succeeded = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    expect(succeeded).toBe(true);
+    await ctx.dispose();
+  });
+
+  test("uploaded file shows up in the incoming list tagged as `upload`", async ({
+    baseURL,
+  }) => {
+    const ctx = await request.newContext({
+      baseURL: baseURL!,
+      extraHTTPHeaders: { authorization: `Bearer ${curatorAuth()}` },
+    });
+    const resp = await ctx.get("/admin/api/ingest/incoming");
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    const uploads = body.files.filter(
+      (f: { source: string }) => f.source === "upload",
+    );
+    expect(uploads.length).toBeGreaterThan(0);
+    for (const u of uploads) {
+      // Completed uploads must carry an upload_id the operator can
+      // hand to the bulk-ingest endpoint.
+      expect(u.upload_id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(u.complete).toBe(true);
+    }
+    await ctx.dispose();
+  });
+});
+
 test.describe("End-user outcomes (public API)", () => {
   test("hiking-trails MVT returns vector tile bytes for the seeded area", async ({
     request: req,

@@ -2578,10 +2578,12 @@ name = "turbo-tiles-admin"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "bytes",
  "chrono",
  "gpx",
  "http",
+ "libc",
  "serde",
  "serde_json",
  "sqlx",

@@ -41,6 +41,9 @@ export function AppShell() {
           <NavLink to="/upload-gpx" className={linkClass}>
             Upload GPX
           </NavLink>
+          <NavLink to="/upload-bulk" className={linkClass}>
+            Upload bulk dataset
+          </NavLink>
           <NavLink to="/jobs" className={linkClass}>
             Ingest jobs
           </NavLink>

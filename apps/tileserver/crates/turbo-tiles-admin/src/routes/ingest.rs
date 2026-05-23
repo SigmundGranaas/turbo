@@ -41,8 +41,14 @@ pub async fn trigger(
 pub struct BulkBody {
     pub job: String,
     /// File name relative to the configured incoming dir, or an
-    /// absolute path that resolves under it.
-    pub file: String,
+    /// absolute path that resolves under it. Mutually exclusive with
+    /// `upload_id` — pick one.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// UUID of a completed TUS upload. The server resolves it to the
+    /// on-disk path under `<incoming>/.uploads/<id>/data`.
+    #[serde(default)]
+    pub upload_id: Option<uuid::Uuid>,
     #[serde(default)]
     pub source: Option<String>,
 }
@@ -63,8 +69,21 @@ pub async fn trigger_bulk(
         .parse()
         .map_err(|e: String| AdminError::BadRequest(e))?;
 
-    let resolved = turbo_tiles_ingest::resolve_under_incoming(&PathBuf::from(&body.file))
-        .map_err(|e| AdminError::BadRequest(e.to_string()))?;
+    let resolved = match (&body.file, body.upload_id) {
+        (Some(file), None) => turbo_tiles_ingest::resolve_under_incoming(&PathBuf::from(file))
+            .map_err(|e| AdminError::BadRequest(e.to_string()))?,
+        (None, Some(id)) => super::tus::resolve_upload(id)?,
+        (Some(_), Some(_)) => {
+            return Err(AdminError::BadRequest(
+                "specify either `file` or `upload_id`, not both".into(),
+            ))
+        }
+        (None, None) => {
+            return Err(AdminError::BadRequest(
+                "either `file` or `upload_id` is required".into(),
+            ))
+        }
+    };
 
     let pool = state.db.clone();
     let run_id = uuid::Uuid::new_v4();
@@ -96,18 +115,37 @@ pub async fn trigger_bulk(
     })))
 }
 
-/// List files staged for ingest on the incoming volume. The SPA
-/// surfaces this as a drop-down so the curator can pick which file
-/// to load rather than having to type the path.
+/// List files staged for ingest. Two sources are merged: rsync-style
+/// drops at the top level of the incoming volume, and completed TUS
+/// uploads under `.uploads/<id>/data`. The SPA shows both with
+/// uploads tagged as such so the curator can tell where each file
+/// came from.
 pub async fn incoming(
     _: RequireRole<Curator>,
     State(_state): State<AdminState>,
 ) -> Result<Json<Value>, AdminError> {
     let dir = turbo_tiles_ingest::incoming_dir();
-    let files: Vec<Value> = turbo_tiles_ingest::list_incoming()
+    let mut files: Vec<Value> = turbo_tiles_ingest::list_incoming()
         .into_iter()
-        .map(|(name, size)| json!({"name": name, "size_bytes": size}))
+        .map(|(name, size)| {
+            json!({
+                "source": "rsync",
+                "name": name,
+                "size_bytes": size,
+            })
+        })
         .collect();
+    for upload in super::tus::list_completed() {
+        files.push(json!({
+            "source": "upload",
+            "name": upload.filename,
+            "size_bytes": upload.bytes_received,
+            "total_bytes": upload.total_bytes,
+            "complete": upload.complete,
+            "upload_id": upload.upload_id,
+            "created_at": upload.created_at,
+        }));
+    }
     Ok(Json(json!({
         "incoming_dir": dir,
         "files": files,
