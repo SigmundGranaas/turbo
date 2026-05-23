@@ -25,17 +25,34 @@ flutter pub get && flutter run
 cd apps/api
 dotnet restore Turboapi.sln
 dotnet build  Turboapi.sln
+```
 
-# Local stack (databases + services)
+### Local stack
+
+Three deploy shapes share the same compose primitives. **Default for local
+dev is the modulith** — one .NET process binds every module, no NATS,
+fastest boot, easiest to debug.
+
+```sh
 cd infra/compose
 
-# Per-service databases (one Postgres container per module):
+# Recommended for local dev: modulith on one shared Postgres.
+docker compose --env-file ../env/.env.shared \
+  -f compose.databases.shared.yaml -f compose.modulith.yaml up
+
+# Microservices topology, one Postgres container per service (mirrors prod).
 docker compose -f compose.yaml -f compose.services.yaml up
 
-# Or, single shared Postgres (lighter on resources):
+# Microservices topology on a single shared Postgres (lighter on resources).
 docker compose --env-file ../env/.env.shared \
   -f compose.databases.shared.yaml -f compose.services.yaml up
 ```
+
+The activities module ships seven kinds (fishing / hiking / backcountry-ski /
+xc-ski / packrafting / freediving + the cross-kind summary store) but they
+all share one `activities` database and isolate themselves with Postgres
+schemas owned internally by each module. Hosts see a single
+`ConnectionStrings__Activities` regardless of topology.
 
 ## CI scoping
 

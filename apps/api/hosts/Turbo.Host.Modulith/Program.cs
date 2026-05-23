@@ -10,39 +10,38 @@ using Turboapi.Geo.domain.query.model;
 using Turboapi.Tracks;
 using Turboapi.Tracks.data;
 using Turboapi.Activities;
-using Turboapi.Activities.data;
 using Turboapi.Activities.Fishing;
-using Turboapi.Activities.Fishing.data;
 using Turboapi.Activities.BackcountrySki;
-using Turboapi.Activities.BackcountrySki.data;
 using Turboapi.Activities.Freediving;
-using Turboapi.Activities.Freediving.data;
 using Turboapi.Activities.Hiking;
-using Turboapi.Activities.Hiking.data;
 using Turboapi.Activities.Packrafting;
-using Turboapi.Activities.Packrafting.data;
 using Turboapi.Activities.XcSki;
-using Turboapi.Activities.XcSki.data;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddEndpointsApiExplorer();
 
-// All four modules in one process. AuthModule owns the Cookie+JwtBearer
+// All modules in one process. AuthModule owns the Cookie+JwtBearer
 // scheme; the other modules use it as the default authentication scheme
 // (their [Authorize] attributes don't pin a specific scheme name).
 builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddGeoModule(builder.Configuration);
 builder.Services.AddTracksModule(builder.Configuration);
 builder.Services.AddCollectionsModule(builder.Configuration);
-builder.Services.AddActivitiesSharedModule(builder.Configuration);
-builder.Services.AddFishingActivityModule(builder.Configuration);
-builder.Services.AddBackcountrySkiActivityModule(builder.Configuration);
-builder.Services.AddHikingActivityModule(builder.Configuration);
-builder.Services.AddXcSkiActivityModule(builder.Configuration);
-builder.Services.AddPackraftingActivityModule(builder.Configuration);
-builder.Services.AddFreedivingActivityModule(builder.Configuration);
+
+// Activities is one DB with a schema per kind — host hands every kind
+// the same connection string and the kind's registration extension
+// pins its own schema + migrations history table internally.
+var activitiesConn = builder.Configuration.GetConnectionString("Activities")
+    ?? throw new InvalidOperationException("ConnectionStrings:Activities is not configured");
+builder.Services.AddActivitiesSharedModule(builder.Configuration, activitiesConn);
+builder.Services.AddFishingActivityModule(activitiesConn);
+builder.Services.AddBackcountrySkiActivityModule(activitiesConn);
+builder.Services.AddHikingActivityModule(activitiesConn);
+builder.Services.AddXcSkiActivityModule(activitiesConn);
+builder.Services.AddPackraftingActivityModule(activitiesConn);
+builder.Services.AddFreedivingActivityModule(activitiesConn);
 
 // In-process transport: outbox dispatchers publish here, the subscriber host
 // drains the channel and resolves IEventHandler<T> in a fresh DI scope. No
@@ -66,27 +65,13 @@ await app.Services.MigrateModuleDatabaseAsync<TrackReadContext>(
 await app.Services.MigrateModuleDatabaseAsync<CollectionsReadContext>(
     builder.Configuration.GetConnectionString("Collections")
         ?? throw new InvalidOperationException("ConnectionStrings:Collections is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<ActivitySummariesContext>(
-    builder.Configuration.GetConnectionString("Activities")
-        ?? throw new InvalidOperationException("ConnectionStrings:Activities is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<FishingContext>(
-    builder.Configuration.GetConnectionString("ActivitiesFishing")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesFishing is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<BackcountrySkiContext>(
-    builder.Configuration.GetConnectionString("ActivitiesBackcountrySki")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesBackcountrySki is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<HikingContext>(
-    builder.Configuration.GetConnectionString("ActivitiesHiking")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesHiking is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<XcSkiContext>(
-    builder.Configuration.GetConnectionString("ActivitiesXcSki")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesXcSki is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<PackraftingContext>(
-    builder.Configuration.GetConnectionString("ActivitiesPackrafting")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesPackrafting is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<FreedivingContext>(
-    builder.Configuration.GetConnectionString("ActivitiesFreediving")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesFreediving is not configured"));
+await app.Services.MigrateActivitiesSharedModuleAsync(activitiesConn);
+await app.Services.MigrateFishingActivityModuleAsync(activitiesConn);
+await app.Services.MigrateBackcountrySkiActivityModuleAsync(activitiesConn);
+await app.Services.MigrateHikingActivityModuleAsync(activitiesConn);
+await app.Services.MigrateXcSkiActivityModuleAsync(activitiesConn);
+await app.Services.MigratePackraftingActivityModuleAsync(activitiesConn);
+await app.Services.MigrateFreedivingActivityModuleAsync(activitiesConn);
 
 app.UseRouting();
 app.UseAuthentication();

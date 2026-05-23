@@ -1,19 +1,11 @@
-using Turbo.Hosting.Postgres;
 using Turbo.Messaging.Nats;
 using Turboapi.Activities;
 using Turboapi.Activities.BackcountrySki;
-using Turboapi.Activities.BackcountrySki.data;
-using Turboapi.Activities.data;
 using Turboapi.Activities.Fishing;
-using Turboapi.Activities.Fishing.data;
 using Turboapi.Activities.Freediving;
-using Turboapi.Activities.Freediving.data;
 using Turboapi.Activities.Hiking;
-using Turboapi.Activities.Hiking.data;
 using Turboapi.Activities.Packrafting;
-using Turboapi.Activities.Packrafting.data;
 using Turboapi.Activities.XcSki;
-using Turboapi.Activities.XcSki.data;
 using TurboAuthentication.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,15 +18,19 @@ builder.Services.AddAuthorization();
 // is the Auth host; this service consumes the same signed token.
 builder.Services.AddTurboAuth(builder.Configuration);
 
-// Shared activities module first (registers the cross-kind summaries
-// projection + per-kind catalog), then each kind module.
-builder.Services.AddActivitiesSharedModule(builder.Configuration);
-builder.Services.AddFishingActivityModule(builder.Configuration);
-builder.Services.AddBackcountrySkiActivityModule(builder.Configuration);
-builder.Services.AddHikingActivityModule(builder.Configuration);
-builder.Services.AddXcSkiActivityModule(builder.Configuration);
-builder.Services.AddPackraftingActivityModule(builder.Configuration);
-builder.Services.AddFreedivingActivityModule(builder.Configuration);
+// One connection string for the whole activities module — each kind
+// isolates itself with a Postgres schema (fishing, hiking, …) inside
+// the shared database. The host never sees those schema names.
+var activitiesConn = builder.Configuration.GetConnectionString("Activities")
+    ?? throw new InvalidOperationException("ConnectionStrings:Activities is not configured");
+
+builder.Services.AddActivitiesSharedModule(builder.Configuration, activitiesConn);
+builder.Services.AddFishingActivityModule(activitiesConn);
+builder.Services.AddBackcountrySkiActivityModule(activitiesConn);
+builder.Services.AddHikingActivityModule(activitiesConn);
+builder.Services.AddXcSkiActivityModule(activitiesConn);
+builder.Services.AddPackraftingActivityModule(activitiesConn);
+builder.Services.AddFreedivingActivityModule(activitiesConn);
 
 // NATS transport: one JetStream stream covers every per-kind subject —
 // `turbo.activities.{fishing|backcountry_ski|hiking|xc_ski|packrafting|freediving}.*`.
@@ -60,29 +56,16 @@ builder.Services.AddFreedivingActivityNatsSubscribers();
 
 var app = builder.Build();
 
-// Migrate every database the host owns. Order doesn't matter — each
-// kind has its own schema and there are no FKs across kinds.
-await app.Services.MigrateModuleDatabaseAsync<ActivitySummariesContext>(
-    builder.Configuration.GetConnectionString("Activities")
-        ?? throw new InvalidOperationException("ConnectionStrings:Activities is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<FishingContext>(
-    builder.Configuration.GetConnectionString("ActivitiesFishing")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesFishing is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<BackcountrySkiContext>(
-    builder.Configuration.GetConnectionString("ActivitiesBackcountrySki")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesBackcountrySki is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<HikingContext>(
-    builder.Configuration.GetConnectionString("ActivitiesHiking")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesHiking is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<XcSkiContext>(
-    builder.Configuration.GetConnectionString("ActivitiesXcSki")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesXcSki is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<PackraftingContext>(
-    builder.Configuration.GetConnectionString("ActivitiesPackrafting")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesPackrafting is not configured"));
-await app.Services.MigrateModuleDatabaseAsync<FreedivingContext>(
-    builder.Configuration.GetConnectionString("ActivitiesFreediving")
-        ?? throw new InvalidOperationException("ConnectionStrings:ActivitiesFreediving is not configured"));
+// Each module owns its schema + migrations history table; the host
+// just hands them the connection string. Order doesn't matter — no
+// cross-schema FKs.
+await app.Services.MigrateActivitiesSharedModuleAsync(activitiesConn);
+await app.Services.MigrateFishingActivityModuleAsync(activitiesConn);
+await app.Services.MigrateBackcountrySkiActivityModuleAsync(activitiesConn);
+await app.Services.MigrateHikingActivityModuleAsync(activitiesConn);
+await app.Services.MigrateXcSkiActivityModuleAsync(activitiesConn);
+await app.Services.MigratePackraftingActivityModuleAsync(activitiesConn);
+await app.Services.MigrateFreedivingActivityModuleAsync(activitiesConn);
 
 app.UseHttpsRedirection();
 app.UseAuthentication();

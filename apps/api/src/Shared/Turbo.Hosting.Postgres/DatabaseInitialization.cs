@@ -30,9 +30,23 @@ public static class DatabaseInitialization
     ///   from configuration (<c>ConnectionStrings:&lt;Module&gt;</c>); test
     ///   fixtures pass the Testcontainers connection string directly.
     /// </param>
+    public static Task MigrateModuleDatabaseAsync<TContext>(
+        this IServiceProvider services,
+        string connectionString,
+        CancellationToken cancellationToken = default)
+        where TContext : DbContext
+        => MigrateModuleDatabaseAsync<TContext>(services, connectionString, schema: null, cancellationToken);
+
+    /// <summary>
+    /// Module-scoped overload: also ensures <paramref name="schema"/>
+    /// exists before EF runs migrations. Required when a module pins its
+    /// <c>__EFMigrationsHistory</c> table to a non-default schema so that
+    /// multiple modules can share one database without colliding.
+    /// </summary>
     public static async Task MigrateModuleDatabaseAsync<TContext>(
         this IServiceProvider services,
         string connectionString,
+        string? schema,
         CancellationToken cancellationToken = default)
         where TContext : DbContext
     {
@@ -46,8 +60,12 @@ public static class DatabaseInitialization
                 $"Connection string for {typeof(TContext).Name} has no Database= entry");
 
         await EnsureDatabaseExistsAsync(builder, targetDb, logger, cancellationToken);
-        logger?.LogInformation("Running EF Core migrations for {Context} → {Database}",
-            typeof(TContext).Name, targetDb);
+        if (!string.IsNullOrWhiteSpace(schema))
+        {
+            await EnsureSchemaExistsAsync(connectionString, schema!, logger, cancellationToken);
+        }
+        logger?.LogInformation("Running EF Core migrations for {Context} → {Database}{Schema}",
+            typeof(TContext).Name, targetDb, schema is null ? "" : $" (schema {schema})");
         await ctx.Database.MigrateAsync(cancellationToken);
     }
 
@@ -75,5 +93,19 @@ public static class DatabaseInitialization
         {
             // 42P04 = duplicate_database; already exists, nothing to do.
         }
+    }
+
+    private static async Task EnsureSchemaExistsAsync(
+        string connectionString,
+        string schema,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"CREATE SCHEMA IF NOT EXISTS \"{schema.Replace("\"", "\"\"")}\"";
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        logger?.LogDebug("Ensured schema {Schema}", schema);
     }
 }

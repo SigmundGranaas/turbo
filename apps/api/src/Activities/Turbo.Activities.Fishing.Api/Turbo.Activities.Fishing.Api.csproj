@@ -19,6 +19,7 @@
     <ProjectReference Include="..\Turbo.Activities.Fishing.Infrastructure\Turbo.Activities.Fishing.Infrastructure.csproj" />
     <ProjectReference Include="..\Turbo.Activities.Shared.Core\Turbo.Activities.Shared.Core.csproj" />
     <ProjectReference Include="..\Turbo.Activities.Shared.Contracts\Turbo.Activities.Shared.Contracts.csproj" />
+    <ProjectReference Include="..\..\Shared\Turbo.Hosting.Postgres\Turbo.Hosting.Postgres.csproj" />
     <ProjectReference Include="..\..\Shared\Turbo.Messaging.Abstractions\Turbo.Messaging.Abstractions.csproj" />
     <ProjectReference Include="..\..\Shared\Turbo.Messaging.Nats\Turbo.Messaging.Nats.csproj" />
     <ProjectReference Include="..\..\..\TurboAuthentication\TurboAuthentication.csproj" />
