@@ -15,6 +15,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,7 +31,6 @@ import 'package:turbo/features/activity_hiking/api.dart' as activity_hiking;
 import 'package:turbo/features/activity_packrafting/api.dart'
     as activity_packrafting;
 import 'package:turbo/features/activity_xc_ski/api.dart' as activity_xc_ski;
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// The base URL of the gateway the tests talk to. Override with
 /// `--dart-define=API_BASE_URL=http://host:port` when the stack runs
@@ -100,6 +100,47 @@ void _installErrorFilter() {
 String uniqueEmail([String tag = 't']) {
   final ts = DateTime.now().microsecondsSinceEpoch;
   return 'e2e-$tag-$ts@turbo.test';
+}
+
+/// A bare Dio pointed at the gateway with no auth wired up. Tests use
+/// this to set up server-side state directly (e.g. create one user's
+/// data before logging in as another) without going through the
+/// production ApiClient + interceptor stack — which would be exercising
+/// the wrong code path for the test setup.
+Dio directApi() => Dio(BaseOptions(
+      baseUrl: apiBaseUrl,
+      validateStatus: (_) => true,
+    ));
+
+/// Polls the server's `/api/activities/summaries/changes` endpoint with
+/// [accessToken] until an item named [named] is visible — i.e. the
+/// outbox event has been picked up by the projector and written to the
+/// summaries read model. Use this between a server-side create and a
+/// client-side cold-start so the test models the real user scenario
+/// (their save was already projected before they reopened the app).
+///
+/// Without this barrier, the client's first refresh races the
+/// projector: it advances its delta cursor to the server's wall clock
+/// *before* the row's `updated_at`, and the row is invisibly skipped
+/// on every subsequent refresh.
+Future<void> waitForServerSidePlace({
+  required String accessToken,
+  required String named,
+  Duration timeout = const Duration(seconds: 15),
+}) async {
+  final dio = directApi()
+    ..options.headers['Authorization'] = 'Bearer $accessToken';
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    final r = await dio.get('/api/activities/summaries/changes');
+    if (r.statusCode == 200) {
+      final items = (r.data as Map?)?['items'] as List? ?? const [];
+      if (items.any((i) => (i as Map)['name'] == named)) return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  fail('server-side place "$named" did not appear within $timeout — '
+      'projector may be stuck');
 }
 
 /// Polls the gateway's `/healthz` endpoint until it returns 200 or the
