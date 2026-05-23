@@ -22,8 +22,11 @@ services:
       dockerfile: hosts/Turbo.Host.Modulith/Dockerfile
     container_name: turboapi_modulith
     hostname: modulith
+    # macOS Control Center / AirPlay Receiver squats 5000 by default, so
+    # publish the modulith on 5050 instead. The gateway on 8080 is still
+    # the canonical entry point for the Flutter app.
     ports:
-      - "5000:8080"
+      - "5050:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:8080

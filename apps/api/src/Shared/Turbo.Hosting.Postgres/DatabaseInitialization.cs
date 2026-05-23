@@ -78,7 +78,12 @@ public static class DatabaseInitialization
         // Connect to the cluster's default 'postgres' DB to issue CREATE DATABASE.
         builder.Database = "postgres";
         await using var conn = new NpgsqlConnection(builder.ConnectionString);
-        await conn.OpenAsync(cancellationToken);
+        // The host can race a Postgres container that's still starting
+        // — compose has a healthcheck but no depends_on chain hides it
+        // from a single-process host. Short retry budget so the first
+        // boot of a fresh docker-compose stack succeeds without making
+        // every operator add explicit `depends_on` per topology.
+        await OpenWithRetryAsync(conn, logger, cancellationToken);
 
         await using var cmd = conn.CreateCommand();
         // Identifier must be inlined, not parameterised — Postgres does not
@@ -102,10 +107,42 @@ public static class DatabaseInitialization
         CancellationToken cancellationToken)
     {
         await using var conn = new NpgsqlConnection(connectionString);
-        await conn.OpenAsync(cancellationToken);
+        await OpenWithRetryAsync(conn, logger, cancellationToken);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"CREATE SCHEMA IF NOT EXISTS \"{schema.Replace("\"", "\"\"")}\"";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
         logger?.LogDebug("Ensured schema {Schema}", schema);
+    }
+
+    private static async Task OpenWithRetryAsync(
+        NpgsqlConnection conn,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        var delays = new[]
+        {
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(3),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(8),
+            TimeSpan.FromSeconds(13),
+        };
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await conn.OpenAsync(cancellationToken);
+                return;
+            }
+            catch (NpgsqlException ex) when (attempt < delays.Length)
+            {
+                logger?.LogDebug(
+                    "Postgres not ready (attempt {Attempt}/{Max}): {Message} — retrying in {Delay}",
+                    attempt + 1, delays.Length, ex.Message, delays[attempt]);
+                await Task.Delay(delays[attempt], cancellationToken);
+            }
+        }
     }
 }
