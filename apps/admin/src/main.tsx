@@ -11,6 +11,7 @@ import { ResourceEdit } from "./screens/ResourceEdit";
 import { ResourceCreate } from "./screens/ResourceCreate";
 import { UploadGpx } from "./screens/UploadGpx";
 import { UploadBulk } from "./screens/UploadBulk";
+import { Incoming } from "./screens/Incoming";
 import { Jobs } from "./screens/Jobs";
 
 import "./index.css";
@@ -44,6 +45,7 @@ const router = createBrowserRouter(
         { path: "resources/:resource/:id", element: <ResourceEdit /> },
         { path: "upload-gpx", element: <UploadGpx /> },
         { path: "upload-bulk", element: <UploadBulk /> },
+        { path: "incoming", element: <Incoming /> },
         { path: "jobs", element: <Jobs /> },
       ],
     },

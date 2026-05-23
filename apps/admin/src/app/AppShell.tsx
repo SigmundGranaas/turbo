@@ -44,6 +44,9 @@ export function AppShell() {
           <NavLink to="/upload-bulk" className={linkClass}>
             Upload bulk dataset
           </NavLink>
+          <NavLink to="/incoming" className={linkClass}>
+            Incoming files
+          </NavLink>
           <NavLink to="/jobs" className={linkClass}>
             Ingest jobs
           </NavLink>

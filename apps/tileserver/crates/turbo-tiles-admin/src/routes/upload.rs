@@ -88,7 +88,14 @@ pub async fn upload_gpx(
     let derived_name = name
         .or_else(|| gpx.tracks.first().and_then(|t| t.name.clone()))
         .unwrap_or_else(|| "Imported GPX".to_string());
-    let slug = slugify(&derived_name);
+    // Two curators uploading the same track name shouldn't 500 on
+    // the second attempt. Try the natural slug first; on a (resource,
+    // slug) collision, append a short uuid suffix.
+    let base_slug = slugify(&derived_name);
+    let slug = match unique_slug(&state.db, &resource, &base_slug).await {
+        Ok(s) => s,
+        Err(e) => return Err(AdminError::Db(e.to_string())),
+    };
 
     let geom_geojson = serde_json::json!({
         "type": "MultiLineString",
@@ -143,4 +150,45 @@ fn slugify(s: &str) -> String {
         out.push_str("untitled");
     }
     out
+}
+
+/// Return a slug that doesn't collide with an existing
+/// `(resource, slug)` row. Tries the base slug first; if taken,
+/// appends a short uuid suffix. This is cheaper than enumerating
+/// `slug-2`, `slug-3`, etc., and gives curators a recognisable
+/// stable identifier rather than a random uuid for the slug itself.
+async fn unique_slug(
+    db: &turbo_tiles_db::DbPool,
+    resource: &str,
+    base: &str,
+) -> Result<String, sqlx::Error> {
+    let exists: (bool,) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM paths.curated_route WHERE resource = $1 AND slug = $2)",
+    )
+    .bind(resource)
+    .bind(base)
+    .fetch_one(db)
+    .await?;
+    if !exists.0 {
+        return Ok(base.to_string());
+    }
+    // Collision: suffix with 8 hex chars of a fresh uuid. Loop in
+    // case we hit a second collision (extremely unlikely).
+    for _ in 0..3 {
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let candidate = format!("{base}-{}", &suffix[..8]);
+        let exists: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM paths.curated_route WHERE resource = $1 AND slug = $2)",
+        )
+        .bind(resource)
+        .bind(&candidate)
+        .fetch_one(db)
+        .await?;
+        if !exists.0 {
+            return Ok(candidate);
+        }
+    }
+    Err(sqlx::Error::Protocol(
+        "couldn't generate a unique slug after 3 attempts".into(),
+    ))
 }
