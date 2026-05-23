@@ -11,18 +11,23 @@ against a booted simulator with a healthy backend.
 
 ## What's tested
 
-Five user-visible outcomes, in flows as long as the user actually
+Ten user-visible outcomes, in flows as long as the user actually
 takes:
 
 | Journey | Real UI driven |
 | --- | --- |
 | User signs up, saves two spots of different kinds, opens each in its detail sheet, deletes one, restarts the app, and the remaining spot is still there | RegisterScreen → long-press FlutterMap → PinOptionsSheet ("Add activity here") → ActivityCreatePicker → Fishing → FishingCreateScreen (name + Lake + Shore + Save) → tap pin → FishingDetailSheet (asserts saved name + Lake + Shore are shown back) → Close → long-press map → picker → Freediving → FreedivingCreateScreen (name + Max depth + Save) → tap pin → FreedivingDetailSheet (saved name visible) → Delete → "Delete spot?" confirmation dialog → confirm → pin gone → restart the app → only the remaining fishing pin is there. |
-| User promotes a saved path to a hiking activity and sees it on their map | A saved path is persisted via the same repository the recording flow uses; the user opens it in PathDetailSheet, taps "Save as activity", picks Hiking, fills the form, taps Save. Asserts the new hiking pin's key is in the tree and tapping it surfaces the name in HikingDetailSheet. |
-| User signs out from the drawer and the sign-in screen comes back | Tap menu → drawer's Logout → confirmation dialog → confirm → wait for state. Re-open menu → "Login" entry is visible. |
+| I can edit a saved fishing spot from its detail sheet | Tap the pin → tap Edit → form opens in edit mode prefilled with current values → change the name and the water-kind segmented selection → Save → re-open the pin → asserts both new values render and the old name is gone. |
+| I can promote a saved path to a hiking activity and see it on my map | Saved path is persisted via the same repository the recording flow uses; the user opens it in PathDetailSheet → "Save as activity" → Hiking → fills the form → Save. Asserts the new hiking pin's key is in the tree and tapping it surfaces the name in HikingDetailSheet. |
+| I can save a backcountry-ski tour from a saved path | Same shape as hiking, exercises BackcountrySkiCreateScreen + BackcountrySkiDetailSheet. |
+| I can save a cross-country ski tour from a saved path | Same shape, XcSkiCreateScreen / XcSkiDetailSheet. |
+| I can save a packrafting trip from a saved path | Same shape, PackraftingCreateScreen / PackraftingDetailSheet. |
+| I can open the route-drawing surface from a hiking form | Tap "Draw route on map" → RouteDrawingScreen renders with its instruction text + Cancel + "Use route" bottom-bar buttons. (Driving the actual tap-to-add-vertex flow is a documented non-test — see below.) |
+| I can sign out from the drawer and the sign-in screen comes back | Tap menu → drawer's Logout → confirmation dialog → confirm → wait for state. Re-open menu → "Login" entry is visible. |
 | A fresh sign-up does not show me the previous owner's pin | Another user has saved a spot server-side; a different user signs up through the real UI; asserts the other user's pin key never appears on the new user's map. |
 | Wrong password tells me my password was wrong | LoginScreen with bad creds; asserts AuthErrorMessage banner appears and LoginScreen stays open. |
 
-## Bugs this suite caught (now fixed alongside)
+## Bugs / missing features this suite forced
 
 - **Cross-user privacy.** `ActivitySummariesRepository` kept the
   previous user's pins in memory on logout — and `_bootstrap`
@@ -40,21 +45,20 @@ takes:
   "Using 'ref' when a widget is about to or has been unmounted is
   unsafe". Fix: capture the notifier before the `Navigator.pop` and
   pass it into `_showLogoutDialog`.
+- **Edit-an-activity feature.** Previously absent. Added across all
+  six kinds: each `<Kind>CreateScreen` accepts an optional `existing`
+  parameter, prefills its controllers / enum / dropdown / switch
+  state in `initState`, flips the AppBar title to "Edit <kind>", and
+  branches the save method between `repo.create` and `repo.update`.
+  Each `<Kind>DetailSheet` adds an `Edit` button next to Close /
+  Delete that pops the sheet and pushes the create screen in edit
+  mode. The edit test surfaces the eventual-consistency gap between
+  `PUT /api/activities/<kind>/<id>` returning 204 and the read model
+  reflecting the change — handled in the test with a small server-
+  side poll before re-opening the detail sheet.
 
 ## Deliberate non-tests (and why)
 
-- **Editing a saved spot.** No edit UI exists. Detail sheets only
-  surface Close + Delete. Adding a fake "edit via API" test would
-  verify code paths the user can't reach — there's no user goal
-  to test until the app grows an edit screen.
-- **Backcountry-ski / xc-ski / packrafting kinds.** They share the
-  exact same entry-from-saved-path → picker → form → save shape
-  as hiking, with kind-specific form fields. The hiking test
-  exercises that shape end-to-end. Repeating per kind multiplies
-  CI minutes without adding signal — unless one of those kinds
-  grows a distinct UI surface (e.g. an avalanche-warning view,
-  putin/takeout map), at which point a kind-specific test earns
-  its keep.
 - **GPS-recorded paths (vs imported / programmatic).** The user's
   primary entry into the line-based create flow is "record a hike
   in real time, save it". iOS Simulator can simulate location, but
@@ -63,6 +67,21 @@ takes:
   already cover. We use the same `savedPathRepository.addPath()`
   call the recording flow's "Save" button uses, so the test
   exercises the same downstream code path.
+- **Tap-to-add-vertex on RouteDrawingScreen.** The user goal of
+  "I can open and use the route-drawing surface" is covered by the
+  test above; the actual vertex-add loop isn't drivable from a
+  patrolTest reliably:
+  - The synthetic Flutter pointer events `tester.tapAt` produces
+    are not picked up as a tap by flutter_map's gesture stack on
+    iOS Simulator (verified: zero vertices added across multiple
+    runs).
+  - Patrol's native (XCUITest) tap on the same coordinates _does_
+    reach the gesture stack — and intermittently kills the app
+    process on iOS Sim mid-test (`Application com.sigmundgranaas.
+    turbo is not running` in the xcresult).
+  Until either we move E2E to an Android emulator or flutter_map
+  ships a `tester.dispatchEvent`-friendly tap path, the vertex
+  loop stays in widget tests under `test/features/activities/`.
 - **Offline tolerance.** Patrol's `disableWifi` is Android-only —
   iOS Simulator doesn't expose a Wi-Fi toggle XCUITest can flip
   (platform limitation, not a fixable test issue). The user-visible
@@ -141,22 +160,13 @@ suite). Full suite is currently ~1 min.
 
 ## Gaps worth adding next
 
-- **Edit flow.** Blocked on the app — there is no edit screen for
-  saved activities. When one is added, drive the rename / details
-  change → save → assert the new values are shown in the detail
-  sheet.
-- **Backcountry-ski / xc-ski / packrafting per-kind tests.** Only
-  worth adding when one of those kinds grows a distinct UI surface
-  (e.g. an avalanche layer toggle, putin/takeout map) — the
-  shared shape is covered by the hiking test.
-- **Route drawing via the RouteDrawingScreen surface.** The hiking
-  test currently saves the activity with the path's existing
-  geometry as the route (no re-draw). Add a test that opens
-  RouteDrawingScreen via the form's "Draw route on map" button,
-  taps a few map points to add vertices, saves, and verifies the
-  resulting polyline.
-- **Offline.** Re-evaluate if Patrol adds iOS Wi-Fi controls or
-  we add an Android emulator target.
+- **Vertex-add via map tap on RouteDrawingScreen.** Blocked on the
+  Patrol / flutter_map / iOS Sim combo described above. Most
+  reliable path forward is an Android emulator target.
+- **Offline.** Same — re-evaluate if Patrol adds iOS Wi-Fi
+  controls or we add an Android emulator target.
+- **Localization.** App ships English + Norwegian; tests only
+  drive English strings.
 
 ## CI
 

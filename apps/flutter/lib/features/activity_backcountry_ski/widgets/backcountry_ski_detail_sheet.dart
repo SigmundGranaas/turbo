@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/features/activities/api.dart' show ActivityGeometry;
+
 import '../data/backcountry_ski_repository.dart';
+import '../models/backcountry_ski_activity.dart';
 import '../models/backcountry_ski_details.dart';
 import 'backcountry_ski_conditions_panel.dart';
+import 'backcountry_ski_create_screen.dart';
 
 class BackcountrySkiDetailSheet extends ConsumerWidget {
   final String activityId;
@@ -74,6 +78,11 @@ class BackcountrySkiDetailSheet extends ConsumerWidget {
                   ),
                   const Spacer(),
                   TextButton.icon(
+                    onPressed: () => _openEdit(context, a),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Edit'),
+                  ),
+                  TextButton.icon(
                     style: TextButton.styleFrom(
                         foregroundColor: Theme.of(context).colorScheme.error),
                     onPressed: () => _confirmDelete(context, ref, a.id, a.name),
@@ -112,6 +121,18 @@ class BackcountrySkiDetailSheet extends ConsumerWidget {
         LegKind.descent => 'Descent',
         LegKind.traverse => 'Traverse',
       };
+
+  void _openEdit(BuildContext context, BackcountrySkiActivity a) {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BackcountrySkiCreateScreen(
+          seedGeometry: ActivityGeometry.fromRoute(a.route),
+          existing: a,
+        ),
+      ),
+    );
+  }
 
   Future<void> _confirmDelete(
       BuildContext context, WidgetRef ref, String id, String name) async {

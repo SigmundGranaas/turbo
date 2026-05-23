@@ -5,11 +5,21 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/activities/api.dart';
 
 import '../data/freediving_repository.dart';
+import '../models/freediving_activity.dart';
 import '../models/freediving_details.dart';
 
 class FreedivingCreateScreen extends ConsumerStatefulWidget {
   final ActivityGeometry seedGeometry;
-  const FreedivingCreateScreen({super.key, required this.seedGeometry});
+
+  /// If non-null the form opens in edit mode: fields are prefilled
+  /// from this activity and Save calls `update` instead of `create`.
+  final FreedivingActivity? existing;
+
+  const FreedivingCreateScreen({
+    super.key,
+    required this.seedGeometry,
+    this.existing,
+  });
 
   @override
   ConsumerState<FreedivingCreateScreen> createState() => _FreedivingCreateScreenState();
@@ -29,18 +39,40 @@ class _FreedivingCreateScreenState extends ConsumerState<FreedivingCreateScreen>
   bool _saving = false;
 
   @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _name.text = e.name;
+      _description.text = e.description ?? '';
+      _depth.text = e.details.maxDepthMeters.toString();
+      _visibility.text = e.details.typicalVisibilityMeters?.toString() ?? '';
+      _accessNotes.text = e.details.accessNotes ?? '';
+      _waterBody = e.details.waterBody;
+      _bottom = e.details.bottomType;
+      _harpoon = e.details.harpoonAllowed;
+      _shoreEntry = e.details.shoreEntry;
+    }
+  }
+
+  @override
   void dispose() {
     _name.dispose(); _description.dispose();
     _depth.dispose(); _visibility.dispose(); _accessNotes.dispose();
     super.dispose();
   }
 
-  LatLng get _position => widget.seedGeometry.firstPoint ?? const LatLng(0, 0);
+  LatLng get _position =>
+      widget.existing?.position ??
+      widget.seedGeometry.firstPoint ??
+      const LatLng(0, 0);
+
+  bool get _isEdit => widget.existing != null;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New freediving spot')),
+      appBar: AppBar(title: Text(_isEdit ? 'Edit freediving spot' : 'New freediving spot')),
       body: SafeArea(child: Form(key: _formKey, child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -117,10 +149,20 @@ class _FreedivingCreateScreenState extends ConsumerState<FreedivingCreateScreen>
         typicalVisibilityMeters: double.tryParse(_visibility.text),
         harpoonAllowed: _harpoon, shoreEntry: _shoreEntry,
         accessNotes: _accessNotes.text.trim().isEmpty ? null : _accessNotes.text.trim());
-      await ref.read(freedivingRepositoryProvider).create(
-        name: _name.text.trim(),
-        description: _description.text.trim().isEmpty ? null : _description.text.trim(),
-        position: _position, details: details);
+      final repo = ref.read(freedivingRepositoryProvider);
+      final existing = widget.existing;
+      if (existing != null) {
+        await repo.update(
+          id: existing.id,
+          name: _name.text.trim(),
+          description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+          details: details);
+      } else {
+        await repo.create(
+          name: _name.text.trim(),
+          description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+          position: _position, details: details);
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));

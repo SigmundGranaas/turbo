@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/features/activities/api.dart' show ActivityGeometry;
+
 import 'packrafting_conditions_panel.dart';
+import 'packrafting_create_screen.dart';
 
 import '../data/packrafting_repository.dart';
+import '../models/packrafting_activity.dart';
 import '../models/packrafting_details.dart';
 
 class PackraftingDetailSheet extends ConsumerWidget {
@@ -49,6 +53,10 @@ class PackraftingDetailSheet extends ConsumerWidget {
               icon: const Icon(Icons.close), label: const Text('Close')),
             const Spacer(),
             TextButton.icon(
+              onPressed: () => _openEdit(context, a),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit')),
+            TextButton.icon(
               style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
               onPressed: () => _confirmDelete(context, ref, a.id, a.name),
               icon: const Icon(Icons.delete_outline), label: const Text('Delete')),
@@ -69,6 +77,18 @@ class PackraftingDetailSheet extends ConsumerWidget {
       SizedBox(width: 152, child: Text(label)),
       Expanded(child: Text(value)),
     ]));
+
+  void _openEdit(BuildContext context, PackraftingActivity a) {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PackraftingCreateScreen(
+          seedGeometry: ActivityGeometry.fromRoute(a.route),
+          existing: a,
+        ),
+      ),
+    );
+  }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref, String id, String name) async {
     final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(

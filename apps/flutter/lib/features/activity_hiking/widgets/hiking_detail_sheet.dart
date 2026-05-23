@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/features/activities/api.dart' show ActivityGeometry;
+
 import '../data/hiking_repository.dart';
+import '../models/hiking_activity.dart';
 import 'hiking_conditions_panel.dart';
+import 'hiking_create_screen.dart';
 
 class HikingDetailSheet extends ConsumerWidget {
   final String activityId;
@@ -49,6 +53,10 @@ class HikingDetailSheet extends ConsumerWidget {
               icon: const Icon(Icons.close), label: const Text('Close')),
             const Spacer(),
             TextButton.icon(
+              onPressed: () => _openEdit(context, a),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit')),
+            TextButton.icon(
               style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
               onPressed: () => _confirmDelete(context, ref, a.id, a.name),
               icon: const Icon(Icons.delete_outline), label: const Text('Delete')),
@@ -64,6 +72,18 @@ class HikingDetailSheet extends ConsumerWidget {
       SizedBox(width: 132, child: Text(label)),
       Expanded(child: Text(value)),
     ]));
+
+  void _openEdit(BuildContext context, HikingActivity a) {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => HikingCreateScreen(
+          seedGeometry: ActivityGeometry.fromRoute(a.route),
+          existing: a,
+        ),
+      ),
+    );
+  }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref, String id, String name) async {
     final confirmed = await showDialog<bool>(context: context,

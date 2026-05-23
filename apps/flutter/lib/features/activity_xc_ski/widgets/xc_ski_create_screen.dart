@@ -5,11 +5,21 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/activities/api.dart';
 
 import '../data/xc_ski_repository.dart';
+import '../models/xc_ski_activity.dart';
 import '../models/xc_ski_details.dart';
 
 class XcSkiCreateScreen extends ConsumerStatefulWidget {
   final ActivityGeometry seedGeometry;
-  const XcSkiCreateScreen({super.key, required this.seedGeometry});
+
+  /// If non-null the form opens in edit mode: fields and the drawn
+  /// route are prefilled from this activity and Save calls `update`.
+  final XcSkiActivity? existing;
+
+  const XcSkiCreateScreen({
+    super.key,
+    required this.seedGeometry,
+    this.existing,
+  });
 
   @override
   ConsumerState<XcSkiCreateScreen> createState() => _XcSkiCreateScreenState();
@@ -29,11 +39,31 @@ class _XcSkiCreateScreenState extends ConsumerState<XcSkiCreateScreen> {
   bool _saving = false;
 
   @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _name.text = e.name;
+      _description.text = e.description ?? '';
+      _distance.text = e.details.distanceMeters.toString();
+      _ascent.text = e.details.ascentMeters.toString();
+      _descent.text = e.details.descentMeters.toString();
+      _technique = e.details.technique;
+      _grooming = e.details.groomingStatus;
+      _lit = e.details.isLit;
+      _seasonPass = e.details.requiresSeasonPass;
+      _drawnRoute = List<LatLng>.from(e.route);
+    }
+  }
+
+  @override
   void dispose() {
     _name.dispose(); _description.dispose();
     _distance.dispose(); _ascent.dispose(); _descent.dispose();
     super.dispose();
   }
+
+  bool get _isEdit => widget.existing != null;
 
   LatLng get _seed => widget.seedGeometry.firstPoint ?? const LatLng(0, 0);
   List<LatLng>? _drawnRoute;
@@ -44,7 +74,7 @@ class _XcSkiCreateScreenState extends ConsumerState<XcSkiCreateScreen> {
     final route = await Navigator.of(context).push<List<LatLng>>(
       MaterialPageRoute(
         builder: (ctx) => RouteDrawingScreen(
-          seedCenter: _seed,
+          seedCenter: _drawnRoute?.first ?? _seed,
           initialRoute: _drawnRoute,
           color: const Color(0xFF00838F),
         ),
@@ -61,7 +91,7 @@ class _XcSkiCreateScreenState extends ConsumerState<XcSkiCreateScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New XC ski trail')),
+      appBar: AppBar(title: Text(_isEdit ? 'Edit XC ski trail' : 'New XC ski trail')),
       body: SafeArea(child: Form(key: _formKey, child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -138,10 +168,20 @@ class _XcSkiCreateScreenState extends ConsumerState<XcSkiCreateScreen> {
         descentMeters: int.parse(_descent.text),
         technique: _technique, groomingStatus: _grooming,
         isLit: _lit, requiresSeasonPass: _seasonPass);
-      await ref.read(xcSkiRepositoryProvider).create(
-        name: _name.text.trim(),
-        description: _description.text.trim().isEmpty ? null : _description.text.trim(),
-        route: _route, details: details);
+      final repo = ref.read(xcSkiRepositoryProvider);
+      final existing = widget.existing;
+      if (existing != null) {
+        await repo.update(
+          id: existing.id,
+          name: _name.text.trim(),
+          description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+          route: _route, details: details);
+      } else {
+        await repo.create(
+          name: _name.text.trim(),
+          description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+          route: _route, details: details);
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));

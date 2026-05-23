@@ -147,6 +147,73 @@ void main() {
   );
 
   patrolTest(
+    'I can edit a saved fishing spot from its detail sheet',
+    config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 60)),
+    ($) async {
+      await harness.waitForBackendHealthy();
+      await harness.resetAppState();
+
+      // The "I can sign up and save spots through the real UI" flow is
+      // already covered exhaustively elsewhere in this suite. The
+      // edit-specific user goal is "open my saved spot, change it,
+      // see the new values" — set the spot up server-side and drive
+      // only the edit half through the UI.
+      final me = await harness.registerNewUser(tag: 'edit');
+      final id = await _serverSideCreatePointSpot(
+        accessToken: me.accessToken,
+        kindSlug: 'fishing',
+        name: 'Original name',
+        details: _fishingDefaults(),
+      );
+      await harness.waitForServerSidePlace(
+          accessToken: me.accessToken, named: 'Original name');
+      await harness.seedAuthState(me);
+
+      await harness.pumpTurboApp($.tester);
+      await _waitForAppReady($);
+      await _waitForPin($, id);
+
+      // Open the detail sheet, tap Edit, change the name AND the
+      // water-kind segmented selection, save.
+      await _tapPin($, id);
+      await $(fishing.FishingDetailSheet).waitUntilVisible();
+      await $('Edit').tap();
+      await $('Edit fishing spot').waitUntilVisible();
+      await $(TextField).at(0).enterText('Renamed Fjord');
+      await $('Sea').tap(); // change WaterKind segmented selection
+      await $(FilledButton).scrollTo();
+      await $(FilledButton).tap(); // Save
+      await $(MainMapPage).waitUntilVisible();
+
+      // The PUT goes through the outbox → projector path: the form
+      // pops on 204, but the read model hasn't necessarily caught up
+      // yet. Wait until the rename is visible before checking the UI
+      // so a failure here means the UI didn't refresh, not that the
+      // update is still propagating.
+      final probe = harness.directApi()
+        ..options.headers['Authorization'] = 'Bearer ${me.accessToken}';
+      await _eventually(
+        () async {
+          final r = await probe.get('/api/activities/fishing/$id');
+          return r.statusCode == 200 &&
+              (r.data as Map)['name'] == 'Renamed Fjord' &&
+              (((r.data as Map)['details']) as Map)['waterKind'] == 2;
+        },
+        reason: 'rename + water-kind change must be persisted server-side',
+      );
+
+      // Re-open the (same) pin and confirm the user sees the new
+      // values on screen.
+      await _tapPin($, id);
+      await $('Renamed Fjord').waitUntilVisible();
+      expect($('Sea'), findsOneWidget,
+          reason: 'water-kind change should be persisted and displayed');
+      expect($('Original name'), findsNothing,
+          reason: 'old name should not be shown anywhere on the sheet');
+    },
+  );
+
+  patrolTest(
     'I can sign out from the drawer and the sign-in screen comes back',
     config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 60)),
     ($) async {
@@ -259,6 +326,104 @@ void main() {
     },
   );
 
+  // The remaining line-based kinds share the saved-path → picker →
+  // form → save → pin shape with hiking. Each test is short on
+  // purpose: it proves the kind's create form renders, the picker
+  // surfaces the kind tile for line geometry, and the new activity
+  // shows up on the map. Anything kind-specific beyond the form's
+  // required fields (name) is intentionally left to future tests
+  // that target what's user-visibly distinct about that kind.
+
+  patrolTest(
+    'I can save a backcountry-ski tour from a saved path',
+    config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 60)),
+    ($) async => _runLineKindFromSavedPath($,
+      tag: 'bcski',
+      kindLabel: 'Backcountry skiing',
+      activityName: 'Hardangerjøkulen',
+      pathTitle: 'Tour route',
+    ),
+  );
+
+  patrolTest(
+    'I can save a cross-country ski tour from a saved path',
+    config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 60)),
+    ($) async => _runLineKindFromSavedPath($,
+      tag: 'xcski',
+      kindLabel: 'XC skiing',
+      activityName: 'Nordmarka loop',
+      pathTitle: 'Track from GPS',
+    ),
+  );
+
+  patrolTest(
+    'I can save a packrafting trip from a saved path',
+    config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 60)),
+    ($) async => _runLineKindFromSavedPath($,
+      tag: 'packraft',
+      kindLabel: 'Packrafting',
+      activityName: 'Sjoa run',
+      pathTitle: 'River line',
+    ),
+  );
+
+  patrolTest(
+    'I can open the route-drawing surface from a hiking form',
+    config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 60)),
+    ($) async {
+      await harness.waitForBackendHealthy();
+      await harness.resetAppState();
+
+      final me = await harness.registerNewUser(tag: 'draw');
+      await harness.seedAuthState(me);
+      await harness.pumpTurboApp($.tester);
+      await _waitForAppReady($);
+
+      final ctx = $.tester.element(find.byType(MainMapPage));
+      final container = ProviderScope.containerOf(ctx);
+      final savedPath = paths.SavedPath(
+        title: 'Draft route',
+        points: const [
+          LatLng(60.420, 5.300),
+          LatLng(60.421, 5.305),
+        ],
+        distance: 600,
+      );
+      await container
+          .read(paths.savedPathRepositoryProvider.notifier)
+          .addPath(savedPath);
+
+      _pushSheet($, paths.PathDetailSheet(path: savedPath));
+      await $(paths.PathDetailSheet).waitUntilVisible();
+      await $('Save as activity').tap();
+      await $('Hiking').waitUntilVisible();
+      await $('Hiking').tap();
+
+      // Open the in-form route editor. The button sits below several
+      // number fields in the ListView, so it has to be scrolled into
+      // view before it's hit-testable.
+      await $('Draw route on map').scrollTo();
+      await $('Draw route on map').tap();
+
+      // RouteDrawingScreen is reachable. Assert the user-facing
+      // surface is shown — instruction text + Cancel + "Use route"
+      // bottom-bar buttons.
+      //
+      // Why we stop here instead of driving the tap-to-add-vertex
+      // flow: flutter_map's onTap doesn't fire from the synthetic
+      // Flutter pointer events the test framework's `tapAt`
+      // produces, and Patrol's native (XCUITest) tap kills the app
+      // process on iOS Sim mid-test. The user-visible value "I can
+      // open the route-drawing screen from the create form" is
+      // covered; the actual map-tap → vertex flow is covered by
+      // widget tests under `test/features/activities/`. See the
+      // README's deliberate-non-test section.
+      await $('Tap the map to add vertices.').waitUntilVisible();
+      expect($('Cancel'), findsOneWidget);
+      expect($('Use route'), findsOneWidget);
+    },
+  );
+
   patrolTest(
     'a wrong password tells me my password was wrong',
     config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 30)),
@@ -331,6 +496,63 @@ Future<String> _createPointActivity(
   fail('no new $kindLabel activity appeared on the server within 20s');
 }
 
+/// Drives the saved-path → ActivityCreatePicker → kind form → save
+/// flow for one of the line-based kinds. Asserts the new pin appears
+/// on the map and the saved activity's name shows in the kind's
+/// detail sheet when the user taps the pin.
+Future<void> _runLineKindFromSavedPath(
+  PatrolIntegrationTester $, {
+  required String tag,
+  required String kindLabel,
+  required String activityName,
+  required String pathTitle,
+}) async {
+  await harness.waitForBackendHealthy();
+  await harness.resetAppState();
+
+  final me = await harness.registerNewUser(tag: tag);
+  await harness.seedAuthState(me);
+  await harness.pumpTurboApp($.tester);
+  await _waitForAppReady($);
+
+  final ctx = $.tester.element(find.byType(MainMapPage));
+  final container = ProviderScope.containerOf(ctx);
+  final savedPath = paths.SavedPath(
+    title: pathTitle,
+    points: const [
+      LatLng(60.420, 5.300),
+      LatLng(60.421, 5.305),
+      LatLng(60.422, 5.310),
+      LatLng(60.423, 5.315),
+    ],
+    distance: 1200,
+  );
+  await container
+      .read(paths.savedPathRepositoryProvider.notifier)
+      .addPath(savedPath);
+
+  _pushSheet($, paths.PathDetailSheet(path: savedPath));
+  await $(paths.PathDetailSheet).waitUntilVisible();
+  await $('Save as activity').tap();
+  await $(kindLabel).waitUntilVisible();
+  await $(kindLabel).tap();
+
+  final before = await _currentActivityIds();
+  await $(TextField).at(0).enterText(activityName);
+  await $(FilledButton).scrollTo();
+  await $(FilledButton).tap();
+
+  final newId = await _waitForNewActivityId(before);
+  await _waitForPin($, newId);
+
+  // Close the still-open PathDetailSheet, then tap the new pin and
+  // assert the name the user typed is shown back to them.
+  await $.tester.tap(find.byIcon(Icons.close));
+  await $.pumpAndSettle();
+  await _tapPin($, newId);
+  await $(activityName).waitUntilVisible();
+}
+
 /// Server-side create for setup-only paths. The caller authenticates
 /// as the owner via direct HTTP and posts a single point activity.
 Future<String> _serverSideCreatePointSpot({
@@ -376,6 +598,23 @@ Future<void> _waitForPin(PatrolIntegrationTester $, String id) async {
     if (find.byKey(Key('activity-pin-$id')).evaluate().isNotEmpty) return;
   }
   fail('pin for activity $id never appeared on the map');
+}
+
+/// Polls [predicate] until it returns true or [timeout] elapses. Use
+/// for server-state propagation, not for UI assertions (Patrol has
+/// `waitUntilVisible` for that).
+Future<void> _eventually(
+  Future<bool> Function() predicate, {
+  Duration timeout = const Duration(seconds: 15),
+  Duration interval = const Duration(milliseconds: 250),
+  required String reason,
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    if (await predicate()) return;
+    await Future<void>.delayed(interval);
+  }
+  fail('eventually timed out after $timeout: $reason');
 }
 
 /// Waits until no widget whose runtimeType name equals [typeName] is in
