@@ -11,29 +11,42 @@ against a booted simulator with a healthy backend.
 
 ## What's tested
 
-Four user-visible outcomes, in flows as long as the user actually
+Three user-visible outcomes, in flows as long as the user actually
 takes:
 
 | Journey | Real UI driven |
 | --- | --- |
-| New user signs up, saves a fishing spot AND a freediving spot via the map, sees both pins | RegisterScreen (email + password + Create-account button) → long-press FlutterMap → PinOptionsSheet ("Add activity here") → ActivityCreatePicker (Fishing/Freediving tiles) → FishingCreateScreen (name + Lake + Shore + Save) → second long-press → picker → Freediving → FreedivingCreateScreen (name + Max depth + Save). Asserts: both `activity-pin-<id>` keys are present on the map. |
-| Returning to the app, both previously-saved pins are on the map | Cold start with a seeded session that has two prior spots. Asserts: both pin keys appear once the summaries refresh. |
-| Another user's spots are not on my map | User A has a spot; User B signs in fresh, opens the app. Asserts: User A's pin key is never on User B's map, even after the repo has had time to refresh. |
-| Wrong password tells me my password was wrong | LoginScreen with bad creds. Asserts: AuthErrorMessage banner appears, LoginScreen stays open. |
+| User signs up, saves two spots of different kinds, opens each in its detail sheet, deletes one, restarts the app, and the remaining spot is still there | RegisterScreen → long-press FlutterMap → PinOptionsSheet ("Add activity here") → ActivityCreatePicker → Fishing → FishingCreateScreen (name + Lake + Shore + Save) → tap pin → FishingDetailSheet (asserts saved name + Lake + Shore are shown back) → Close → long-press map → picker → Freediving → FreedivingCreateScreen (name + Max depth + Save) → tap pin → FreedivingDetailSheet (saved name visible) → Delete → "Delete spot?" confirmation dialog → confirm → pin gone → restart the app → only the remaining fishing pin is there. |
+| A fresh sign-up does not show me the previous owner's pin | Another user has saved a spot server-side; a different user signs up through the real UI; asserts that other user's pin key never appears on the new user's map. |
+| Wrong password tells me my password was wrong | LoginScreen with bad creds; asserts AuthErrorMessage banner appears and LoginScreen stays open. |
+
+## Bug this suite caught (now fixed)
+
+The privacy test originally failed because
+`ActivitySummariesRepository` kept the previous user's pins in memory
+on logout — and `_bootstrap` re-hydrated them from the local sqlite
+cache on the next session, briefly showing them to a different user.
+Fix lives alongside the test:
+`ActivitySummariesRepository.build()` now listens to `authStateProvider`
+and on a transition out of `authenticated` it wipes both the in-memory
+state and the local `activity_summaries`, `conditions_cache`, and
+`details_cache` tables. On a transition INTO authenticated it
+re-bootstraps for the new user.
 
 ## Deliberate non-tests (and why)
 
 - **Editing a saved spot.** No edit UI exists. Detail sheets only
   surface Close + Delete. Adding a fake "edit via API" test would
   verify code paths the user can't reach.
-- **Tapping a pin to open its detail sheet.**
-  `ActivityKindDescriptor.buildDetailScreen` is defined on every kind
-  but the marker rendered by `ActivitiesMapLayer` has no `onTap` —
-  the pin is non-interactive in the production UI. The detail sheets
-  exist as widgets but the user can't open them. Test will be added
-  once the marker tap is wired.
-- **Deleting a saved spot.** Delete only exists on the detail sheet,
-  and the detail sheet isn't reachable (see above).
+- **Logout via the drawer.** The drawer's Logout ListTile pops the
+  drawer with `Navigator.pop(context)` and then runs an async
+  confirmation dialog whose callback still uses the drawer's `ref`.
+  By the time the dialog confirms, the drawer is unmounted and
+  `ConsumerStatefulElement.read` throws "Using 'ref' when a widget
+  is about to or has been unmounted is unsafe". This is a real app
+  bug, not a test fragility — file separately. Until it's fixed, the
+  privacy test uses the same logout code path the dialog's confirm
+  tries to hit, via `authStateProvider.notifier.logout()`.
 - **Line-based kinds** (hiking, backcountry-ski, xc-ski, packrafting).
   They need a route-drawing UI; a single long-press cannot create
   them. The two point-based kinds (fishing, freediving) cover all the

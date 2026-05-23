@@ -42,9 +42,22 @@ class ActivitiesMapLayer extends ConsumerWidget {
         point: pos,
         width: 40,
         height: 40,
-        child: descriptor?.buildMapMarker != null
-            ? descriptor!.buildMapMarker!(s)
-            : _DefaultMarker(summary: s, color: _parseHex(s.colorHex)),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            final d = descriptor;
+            if (d == null) return;
+            showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              useSafeArea: true,
+              builder: (ctx) => d.buildDetailScreen(ctx, s.id),
+            );
+          },
+          child: descriptor?.buildMapMarker != null
+              ? descriptor!.buildMapMarker!(s)
+              : _DefaultMarker(summary: s, color: _parseHex(s.colorHex)),
+        ),
       ));
     }
 

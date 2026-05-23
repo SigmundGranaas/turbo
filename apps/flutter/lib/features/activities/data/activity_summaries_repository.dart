@@ -49,6 +49,33 @@ class ActivitySummariesRepository
       }
     });
 
+    // Privacy: when the signed-in user changes (logout or switch),
+    // drop the previous user's pins immediately and reset the delta
+    // cursor + the local sqlite cache so the new user starts from a
+    // clean slate. Without this, the in-memory map carries the
+    // previous user's summaries into the next session, and the next
+    // cold-start bootstrap re-hydrates them from disk — making the
+    // previous user's pins briefly visible on a different user's map.
+    ref.listen<AuthStatus>(
+      authStateProvider.select((s) => s.status),
+      (prev, next) {
+        if (prev == next) return;
+        if (prev == AuthStatus.authenticated &&
+            next != AuthStatus.authenticated) {
+          state = const AsyncValue.data({});
+          _cursor = null;
+          unawaited(_wipeCaches());
+        } else if (next == AuthStatus.authenticated &&
+            prev != AuthStatus.authenticated) {
+          // New session — reset cursor and re-bootstrap so the new
+          // user's locally-cached and server-side data drive the map.
+          state = const AsyncValue.data({});
+          _cursor = null;
+          unawaited(_bootstrap());
+        }
+      },
+    );
+
     return const AsyncValue.data({});
   }
 
@@ -143,6 +170,30 @@ class ActivitySummariesRepository
       }
     } catch (e, st) {
       _log.warning('Failed to evict caches for $id', e, st);
+    }
+  }
+
+  /// Wipes every per-user activity cache. Called when the signed-in
+  /// user changes so the next session never sees the previous user's
+  /// data — either on a cold start (cache hydration) or on the first
+  /// in-flight render after logout.
+  Future<void> _wipeCaches() async {
+    try {
+      await (await _store).clearAll();
+    } catch (e, st) {
+      _log.warning('Failed to wipe activity summaries store', e, st);
+    }
+    try {
+      final conditions = await ref.read(conditionsCacheStoreProvider.future);
+      await conditions.clearAll();
+    } catch (e, st) {
+      _log.warning('Failed to wipe conditions cache', e, st);
+    }
+    try {
+      final details = await ref.read(activityDetailsCacheStoreProvider.future);
+      await details.clearAll();
+    } catch (e, st) {
+      _log.warning('Failed to wipe details cache', e, st);
     }
   }
 
