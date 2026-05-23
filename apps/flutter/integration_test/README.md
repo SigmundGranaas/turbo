@@ -11,53 +11,66 @@ against a booted simulator with a healthy backend.
 
 ## What's tested
 
-Three user-visible outcomes, in flows as long as the user actually
+Five user-visible outcomes, in flows as long as the user actually
 takes:
 
 | Journey | Real UI driven |
 | --- | --- |
 | User signs up, saves two spots of different kinds, opens each in its detail sheet, deletes one, restarts the app, and the remaining spot is still there | RegisterScreen → long-press FlutterMap → PinOptionsSheet ("Add activity here") → ActivityCreatePicker → Fishing → FishingCreateScreen (name + Lake + Shore + Save) → tap pin → FishingDetailSheet (asserts saved name + Lake + Shore are shown back) → Close → long-press map → picker → Freediving → FreedivingCreateScreen (name + Max depth + Save) → tap pin → FreedivingDetailSheet (saved name visible) → Delete → "Delete spot?" confirmation dialog → confirm → pin gone → restart the app → only the remaining fishing pin is there. |
-| A fresh sign-up does not show me the previous owner's pin | Another user has saved a spot server-side; a different user signs up through the real UI; asserts that other user's pin key never appears on the new user's map. |
+| User promotes a saved path to a hiking activity and sees it on their map | A saved path is persisted via the same repository the recording flow uses; the user opens it in PathDetailSheet, taps "Save as activity", picks Hiking, fills the form, taps Save. Asserts the new hiking pin's key is in the tree and tapping it surfaces the name in HikingDetailSheet. |
+| User signs out from the drawer and the sign-in screen comes back | Tap menu → drawer's Logout → confirmation dialog → confirm → wait for state. Re-open menu → "Login" entry is visible. |
+| A fresh sign-up does not show me the previous owner's pin | Another user has saved a spot server-side; a different user signs up through the real UI; asserts the other user's pin key never appears on the new user's map. |
 | Wrong password tells me my password was wrong | LoginScreen with bad creds; asserts AuthErrorMessage banner appears and LoginScreen stays open. |
 
-## Bug this suite caught (now fixed)
+## Bugs this suite caught (now fixed alongside)
 
-The privacy test originally failed because
-`ActivitySummariesRepository` kept the previous user's pins in memory
-on logout — and `_bootstrap` re-hydrated them from the local sqlite
-cache on the next session, briefly showing them to a different user.
-Fix lives alongside the test:
-`ActivitySummariesRepository.build()` now listens to `authStateProvider`
-and on a transition out of `authenticated` it wipes both the in-memory
-state and the local `activity_summaries`, `conditions_cache`, and
-`details_cache` tables. On a transition INTO authenticated it
-re-bootstraps for the new user.
+- **Cross-user privacy.** `ActivitySummariesRepository` kept the
+  previous user's pins in memory on logout — and `_bootstrap`
+  re-hydrated them from the local sqlite cache on the next session,
+  briefly showing them to a different user. Fix:
+  `ActivitySummariesRepository.build()` listens to `authStateProvider`
+  and on a transition out of `authenticated` it wipes the in-memory
+  state plus the local `activity_summaries`, `conditions_cache`, and
+  `details_cache` tables. On a transition INTO authenticated it
+  re-bootstraps for the new user.
+- **Drawer logout `ref` use after unmount.** The drawer's Logout
+  ListTile called `Navigator.pop(context)` then awaited the
+  confirmation dialog, and the dialog's callback used the drawer's
+  (now-unmounted) `ref`. `ConsumerStatefulElement.read` threw
+  "Using 'ref' when a widget is about to or has been unmounted is
+  unsafe". Fix: capture the notifier before the `Navigator.pop` and
+  pass it into `_showLogoutDialog`.
 
 ## Deliberate non-tests (and why)
 
 - **Editing a saved spot.** No edit UI exists. Detail sheets only
   surface Close + Delete. Adding a fake "edit via API" test would
-  verify code paths the user can't reach.
-- **Logout via the drawer.** The drawer's Logout ListTile pops the
-  drawer with `Navigator.pop(context)` and then runs an async
-  confirmation dialog whose callback still uses the drawer's `ref`.
-  By the time the dialog confirms, the drawer is unmounted and
-  `ConsumerStatefulElement.read` throws "Using 'ref' when a widget
-  is about to or has been unmounted is unsafe". This is a real app
-  bug, not a test fragility — file separately. Until it's fixed, the
-  privacy test uses the same logout code path the dialog's confirm
-  tries to hit, via `authStateProvider.notifier.logout()`.
-- **Line-based kinds** (hiking, backcountry-ski, xc-ski, packrafting).
-  They need a route-drawing UI; a single long-press cannot create
-  them. The two point-based kinds (fishing, freediving) cover all the
-  UI surfaces that have no preconditions outside a single point.
+  verify code paths the user can't reach — there's no user goal
+  to test until the app grows an edit screen.
+- **Backcountry-ski / xc-ski / packrafting kinds.** They share the
+  exact same entry-from-saved-path → picker → form → save shape
+  as hiking, with kind-specific form fields. The hiking test
+  exercises that shape end-to-end. Repeating per kind multiplies
+  CI minutes without adding signal — unless one of those kinds
+  grows a distinct UI surface (e.g. an avalanche-warning view,
+  putin/takeout map), at which point a kind-specific test earns
+  its keep.
+- **GPS-recorded paths (vs imported / programmatic).** The user's
+  primary entry into the line-based create flow is "record a hike
+  in real time, save it". iOS Simulator can simulate location, but
+  driving a multi-minute walking trace from a Patrol test is
+  long-running and adds no signal the imported-path flow doesn't
+  already cover. We use the same `savedPathRepository.addPath()`
+  call the recording flow's "Save" button uses, so the test
+  exercises the same downstream code path.
 - **Offline tolerance.** Patrol's `disableWifi` is Android-only —
-  iOS Simulator doesn't expose a Wi-Fi toggle XCUITest can flip. The
-  user-visible behaviour ("pins served from local cache when network
-  drops") is covered by `test/features/activities/
-  activity_offline_behavior_test.dart` in the widget-test suite. Add
-  the E2E variant when Patrol supports iOS Wi-Fi toggling or we move
-  E2E to an Android emulator.
+  iOS Simulator doesn't expose a Wi-Fi toggle XCUITest can flip
+  (platform limitation, not a fixable test issue). The user-visible
+  behaviour ("pins served from local cache when network drops") is
+  covered by `test/features/activities/
+  activity_offline_behavior_test.dart` in the widget-test suite.
+  Revisit if we add an Android emulator target or Patrol grows iOS
+  network controls.
 
 ## Prerequisites
 
@@ -128,23 +141,22 @@ suite). Full suite is currently ~1 min.
 
 ## Gaps worth adding next
 
-These are blocked on UI surfaces the user can't currently reach (the
-test wouldn't represent a real user goal):
-
-- **Detail-sheet rendering after pin tap.** Add `onTap` to the
-  `ActivitiesMapLayer` marker — opens
-  `descriptor.buildDetailScreen(ctx, id)` in a `showModalBottomSheet`
-  — then test: tap pin → sheet → asserts on the saved name + the
-  options the user chose in the form.
-- **Delete a saved spot.** Same precondition as above. The delete
-  button + confirm dialog already exist on the detail sheets; once
-  the sheets are reachable they can be tapped.
-- **Edit a saved spot.** No edit screen exists in the app yet. When
-  one is added, drive the rename → save → assert the new name is
-  shown back to the user.
-- **Line-based kinds** (hiking, backcountry-ski, xc-ski, packrafting).
-  Drive the route-drawing UI from a long-press / draw-mode toggle,
-  save, then verify the polyline + kind-specific detail surface.
+- **Edit flow.** Blocked on the app — there is no edit screen for
+  saved activities. When one is added, drive the rename / details
+  change → save → assert the new values are shown in the detail
+  sheet.
+- **Backcountry-ski / xc-ski / packrafting per-kind tests.** Only
+  worth adding when one of those kinds grows a distinct UI surface
+  (e.g. an avalanche layer toggle, putin/takeout map) — the
+  shared shape is covered by the hiking test.
+- **Route drawing via the RouteDrawingScreen surface.** The hiking
+  test currently saves the activity with the path's existing
+  geometry as the route (no re-draw). Add a test that opens
+  RouteDrawingScreen via the form's "Draw route on map" button,
+  taps a few map points to add vertices, saves, and verifies the
+  resulting polyline.
+- **Offline.** Re-evaluate if Patrol adds iOS Wi-Fi controls or
+  we add an Android emulator target.
 
 ## CI
 

@@ -10,7 +10,9 @@
 //   integration_test/run_e2e.sh
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:patrol/patrol.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/features/activity_fishing/api.dart' as fishing;
@@ -18,6 +20,7 @@ import 'package:turbo/features/activity_freediving/api.dart' as freediving;
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/auth/widgets/auth_error_message.dart';
 import 'package:turbo/features/map_view/api.dart';
+import 'package:turbo/features/saved_paths/api.dart' as paths;
 
 import 'helpers/e2e_harness.dart' as harness;
 
@@ -143,18 +146,118 @@ void main() {
     },
   );
 
-  // Note on drawer-logout-via-real-UI:
-  // The drawer's Logout ListTile calls Navigator.pop(context) and then
-  // launches the confirmation dialog (drawer_widget.dart line 181–184).
-  // The dialog's confirm-callback uses the *drawer's* ref to call
-  // `notifier.logout()`, but by that point the drawer widget has been
-  // unmounted — ConsumerStatefulElement.read then throws
-  // "Using 'ref' when a widget is about to or has been unmounted is
-  // unsafe". This is a real app bug, not a test fragility; once it's
-  // fixed (capture the notifier reference before Navigator.pop), the
-  // drawer-driven logout becomes testable end-to-end. Until then, the
-  // cross-user test below uses the notifier directly for the logout
-  // transition — same code path the dialog's confirm tries to hit.
+  patrolTest(
+    'I can sign out from the drawer and the sign-in screen comes back',
+    config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 60)),
+    ($) async {
+      await harness.waitForBackendHealthy();
+      await harness.resetAppState();
+
+      final me = await harness.registerNewUser(tag: 'logout');
+      await harness.seedAuthState(me);
+      await harness.pumpTurboApp($.tester);
+      await _waitForAppReady($);
+
+      // Open the drawer via the menu icon on the search bar (the only
+      // Icons.menu in the tree).
+      await $.tester.tap(find.byIcon(Icons.menu));
+      await $.pumpAndSettle();
+
+      // The drawer's Logout entry. Tap it → drawer pops + confirm
+      // dialog opens.
+      await $('Logout').waitUntilVisible();
+      await $('Logout').tap();
+      // The dialog re-uses 'Logout' as its destructive action label;
+      // `.last` targets the dialog button (drawer is already gone).
+      await $('Logout').last.tap();
+
+      // After logout, the menu's "Login" entry replaces "Logout".
+      await $.pumpAndSettle();
+      await $.tester.tap(find.byIcon(Icons.menu));
+      await $('Login').waitUntilVisible();
+    },
+  );
+
+  patrolTest(
+    'I can promote a saved path to a hiking activity and see it on my map',
+    config: const PatrolTesterConfig(visibleTimeout: Duration(seconds: 60)),
+    ($) async {
+      await harness.waitForBackendHealthy();
+      await harness.resetAppState();
+
+      // Sign in.
+      final me = await harness.registerNewUser(tag: 'hike');
+      await harness.seedAuthState(me);
+      await harness.pumpTurboApp($.tester);
+      await _waitForAppReady($);
+
+      // Preconditions: the user has recorded / imported a path. We
+      // can't drive a real GPS recording in the simulator, so we set
+      // the saved path up via the same repository the recording flow
+      // would call on save. From this point everything runs through
+      // the real UI: the user opens the path's detail sheet, taps
+      // "Save as activity", picks Hiking, fills the kind-specific
+      // form, taps save, and the new hiking activity surfaces on the
+      // map as a tappable pin.
+      final ctx = $.tester.element(find.byType(MainMapPage));
+      final container = ProviderScope.containerOf(ctx);
+      final route = <LatLng>[
+        const LatLng(60.420, 5.300),
+        const LatLng(60.421, 5.305),
+        const LatLng(60.422, 5.310),
+        const LatLng(60.423, 5.315),
+      ];
+      final savedPath = paths.SavedPath(
+        title: 'Stoltzekleiven',
+        points: route,
+        distance: 1200,
+      );
+      await container
+          .read(paths.savedPathRepositoryProvider.notifier)
+          .addPath(savedPath);
+
+      // Open the path's detail sheet.
+      _pushSheet(
+        $,
+        paths.PathDetailSheet(path: savedPath),
+      );
+      await $(paths.PathDetailSheet).waitUntilVisible();
+
+      // Promote to an activity.
+      await $('Save as activity').tap();
+      // The cross-kind picker shows line-based kinds; Hiking is one.
+      await $('Hiking').waitUntilVisible();
+      await $('Hiking').tap();
+
+      // The hiking create form. Required: Name. The route comes
+      // pre-seeded from the saved path; the form's "Draw route"
+      // button is optional (it'd re-open RouteDrawingScreen with
+      // the saved path as a starting point).
+      final beforeIds = await _currentActivityIds();
+      await $(TextField).at(0).enterText('Up Stoltzen');
+      await $(FilledButton).scrollTo();
+      await $(FilledButton).tap();
+
+      // HikingCreateScreen pops back to the PathDetailSheet (the
+      // user's entry point), not the bare map — wait for the form
+      // to be gone instead.
+      await _waitUntilGoneByType($, 'HikingCreateScreen');
+
+      // The new hiking activity is rendered on the map layer behind
+      // the still-open PathDetailSheet. ActivitiesMapLayer keys the
+      // marker by id, so the pin is findable in the widget tree even
+      // though it's not hit-testable behind the sheet.
+      final newId = await _waitForNewActivityId(beforeIds);
+      await _waitForPin($, newId);
+
+      // The user closes the path sheet via its X button (Icons.close).
+      // Then they can tap the new hiking pin and see the name back.
+      await $.tester.tap(find.byIcon(Icons.close));
+      await $.pumpAndSettle();
+      await _tapPin($, newId);
+      await $('Up Stoltzen').waitUntilVisible();
+    },
+  );
 
   patrolTest(
     'a wrong password tells me my password was wrong',
@@ -275,6 +378,24 @@ Future<void> _waitForPin(PatrolIntegrationTester $, String id) async {
   fail('pin for activity $id never appeared on the map');
 }
 
+/// Waits until no widget whose runtimeType name equals [typeName] is in
+/// the tree. Used when popping a screen and asserting it's gone (we
+/// can't import non-exported screen types from a test file).
+Future<void> _waitUntilGoneByType(
+  PatrolIntegrationTester $,
+  String typeName, {
+  Duration timeout = const Duration(seconds: 30),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    await $.pump(const Duration(milliseconds: 200));
+    final any = $.tester.allWidgets
+        .any((w) => w.runtimeType.toString() == typeName);
+    if (!any) return;
+  }
+  fail('$typeName was still in the widget tree after $timeout');
+}
+
 Future<void> _waitUntilGone(PatrolIntegrationTester $, String id) async {
   final deadline = DateTime.now().add(const Duration(seconds: 15));
   while (DateTime.now().isBefore(deadline)) {
@@ -302,6 +423,31 @@ void _pushScreen(
 ) {
   final ctx = $.tester.element(find.byType(MainMapPage));
   Navigator.of(ctx).push(MaterialPageRoute(builder: build));
+}
+
+/// Shows a sheet via `showModalBottomSheet` — same way pin taps and
+/// "show path detail" do in the live app.
+void _pushSheet(PatrolIntegrationTester $, Widget sheet) {
+  final ctx = $.tester.element(find.byType(MainMapPage));
+  showModalBottomSheet<void>(
+    context: ctx,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => sheet,
+  );
+}
+
+/// Waits for a new activity id to appear server-side, beyond the set
+/// the caller knew about before the action. Used after Save to learn
+/// what id the projector assigned so the test can find the new pin.
+Future<String> _waitForNewActivityId(Set<String> before) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 20));
+  while (DateTime.now().isBefore(deadline)) {
+    final added = (await _currentActivityIds()).difference(before);
+    if (added.isNotEmpty) return added.first;
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  fail('no new activity appeared on the server within 20s');
 }
 
 /// All activity ids currently visible to whatever user has tokens in

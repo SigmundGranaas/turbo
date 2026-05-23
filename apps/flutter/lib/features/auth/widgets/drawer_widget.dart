@@ -179,8 +179,14 @@ class AppDrawer extends ConsumerWidget {
                     title: Text(l10n.logout),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 28.0),
                     onTap: () {
+                      // Capture the notifier before the drawer pops:
+                      // _showLogoutDialog awaits user confirmation, by
+                      // which point this ConsumerWidget is unmounted
+                      // and ref.read would throw "Using 'ref' when a
+                      // widget is about to or has been unmounted".
+                      final notifier = ref.read(authStateProvider.notifier);
                       Navigator.pop(context);
-                      _showLogoutDialog(context, ref);
+                      _showLogoutDialog(context, notifier);
                     },
                   )
                 else
@@ -202,7 +208,10 @@ class AppDrawer extends ConsumerWidget {
     );
   }
 
-  Future<void> _showLogoutDialog(BuildContext context, WidgetRef ref) async {
+  Future<void> _showLogoutDialog(
+    BuildContext context,
+    AuthStateNotifier notifier,
+  ) async {
     final l10n = context.l10n;
     final confirmed = await AppDialog.confirm(
       context,
@@ -211,7 +220,7 @@ class AppDrawer extends ConsumerWidget {
       confirmLabel: l10n.logout,
     );
     if (confirmed) {
-      ref.read(authStateProvider.notifier).logout();
+      notifier.logout();
     }
   }
 }
