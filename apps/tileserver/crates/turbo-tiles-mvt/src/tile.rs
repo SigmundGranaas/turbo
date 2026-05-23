@@ -37,6 +37,10 @@ pub async fn render_tile(
     // so the `&&` index filter transforms the envelope back to 25833
     // for the GIST hit, then ST_AsMVTGeom projects the matched
     // geometries forward to 3857 for clipping into the tile.
+    //
+    // `id` is namespaced text (`edge:123` / `route:<uuid>`) so we
+    // pass it as a property rather than via ST_AsMVT's feature_id
+    // argument — the latter requires an integer column.
     let sql = format!(
         r#"
         WITH bounds_3857 AS (
@@ -56,7 +60,7 @@ pub async fn render_tile(
             FROM {view} v
             WHERE v.geom && (SELECT env FROM bounds_25833)
         )
-        SELECT COALESCE(ST_AsMVT(mvtgeom.*, '{layer}', 4096, 'geom', 'id'), ''::bytea)
+        SELECT COALESCE(ST_AsMVT(mvtgeom.*, '{layer}', 4096, 'geom'), ''::bytea)
         FROM mvtgeom
         WHERE geom IS NOT NULL
         "#,

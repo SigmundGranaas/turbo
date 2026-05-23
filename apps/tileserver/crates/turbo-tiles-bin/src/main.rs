@@ -110,7 +110,14 @@ async fn serve(bind: String, public_base_url: String, auto_migrate: bool) -> Res
         std::path::PathBuf::from(&spa_dir)
     };
     tracing::info!(spa_dir = %spa_path.display(), "admin SPA mount");
-    let spa_service = ServeDir::new(&spa_path).append_index_html_on_directories(true);
+    // SPA fallback: client-side routes like /admin/app/resources/X
+    // don't exist as files on disk. ServeDir's `fallback` returns
+    // index.html for any unmatched path so the React router can take
+    // over after page load (deep links + reloads work).
+    let spa_index = spa_path.join("index.html");
+    let spa_service = ServeDir::new(&spa_path)
+        .append_index_html_on_directories(true)
+        .fallback(tower_http::services::ServeFile::new(spa_index));
 
     let app = axum::Router::new()
         .merge(api_router)

@@ -1,0 +1,240 @@
+import { test, expect, request } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// These tests validate USER OUTCOMES end-to-end against a running
+// tileserver + seeded PostGIS. Each test asserts on the rendered SPA
+// AND the public API surface, because the curator's job is to make
+// real route data visible to end users — not to make a form submit.
+
+const APP = "/admin/app/";
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+// Pull the cookie that Playwright will attach to the API request
+// context so we can hit the JSON API directly in the same test.
+function curatorAuth() {
+  const state = JSON.parse(
+    readFileSync(resolve(HERE, ".auth/curator.json"), "utf8"),
+  );
+  return state.cookies[0].value as string;
+}
+
+test.describe("Curator outcomes", () => {
+  test("dashboard surfaces the seeded resource counts", async ({ page }) => {
+    await page.goto(APP);
+    await expect(
+      page.getByRole("heading", { name: "Dashboard" }),
+    ).toBeVisible();
+
+    // The fixture seeds 1 published + 1 draft hiking-trails route.
+    // The dashboard must reflect those numbers, otherwise the SPA
+    // isn't really showing the curator anything they can act on.
+    // Scope to the card (the navigation has its own Hiking trails
+    // link).
+    const hikingCard = page.getByRole("link", {
+      name: /Hiking trails.*draft.*published/i,
+    });
+    await expect(hikingCard).toContainText("2");
+    await expect(hikingCard).toContainText("draft: 1");
+    await expect(hikingCard).toContainText("published: 1");
+  });
+
+  test("resource list shows the published Sognsvann loop", async ({
+    page,
+  }) => {
+    await page.goto(`${APP}resources/hiking-trails`);
+    await expect(
+      page.getByRole("heading", { name: "Hiking trails" }),
+    ).toBeVisible();
+
+    // The "Sognsvann ridge loop" is the fixture's published route.
+    // If the table doesn't render it, the curator can't manage it.
+    const row = page.getByRole("row", { name: /Sognsvann ridge loop/i });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText("published");
+    await expect(row).toContainText("0.6 km");
+  });
+
+  test("curator can change a route's difficulty and the change reaches the public API", async ({
+    page,
+    baseURL,
+  }) => {
+    // Open the published route's edit screen.
+    await page.goto(`${APP}resources/hiking-trails`);
+    await page.getByRole("link", { name: /Sognsvann ridge loop/i }).click();
+    await expect(
+      page.getByRole("heading", { name: /Sognsvann ridge loop/i }),
+    ).toBeVisible();
+
+    // Change difficulty from "easy" to "hard" and save.
+    await page.getByRole("combobox").nth(0).selectOption("hard");
+    await page.getByRole("button", { name: "Save" }).click();
+
+    // Save bounces back to the list — that's the user's signal that
+    // the change took effect.
+    await expect(
+      page.getByRole("heading", { name: "Hiking trails" }),
+    ).toBeVisible();
+
+    // The real validation: the public API now reports the new value.
+    // No mocks, no test doubles — this is the chain the end user reads.
+    const apiCtx = await request.newContext({
+      baseURL: baseURL!,
+      extraHTTPHeaders: { authorization: `Bearer ${curatorAuth()}` },
+    });
+    const listResp = await apiCtx.get(
+      "/admin/api/resources/hiking-trails?limit=5",
+    );
+    expect(listResp.status()).toBe(200);
+    const body = await listResp.json();
+    const row = body.rows.find(
+      (r: { slug: string }) => r.slug === "sognsvann-loop",
+    );
+    expect(row).toBeTruthy();
+    expect(row.difficulty).toBe("hard");
+    await apiCtx.dispose();
+
+    // Restore so subsequent runs are deterministic.
+    const restore = await apiCtx.dispose;
+    void restore;
+    const cleanupCtx = await request.newContext({
+      baseURL: baseURL!,
+      extraHTTPHeaders: { authorization: `Bearer ${curatorAuth()}` },
+    });
+    await cleanupCtx.put(`/admin/api/resources/hiking-trails/${row.id}`, {
+      data: { difficulty: "easy" },
+    });
+    await cleanupCtx.dispose();
+  });
+
+  test("triggering an ingest job appears in the jobs screen", async ({
+    page,
+  }) => {
+    await page.goto(APP);
+    // The fkb-sti job will fail in this sandbox (no outbound to
+    // wms.geonorge.no) but the curator's outcome is "I can see that
+    // I kicked off a job and it shows up in the log" — failure is a
+    // valid terminal state. We assert on visibility + recorded
+    // status, not on success.
+    const triggers = page.getByRole("button", { name: "Trigger" });
+    await triggers.first().click();
+
+    await page.getByRole("link", { name: "Ingest jobs" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Ingest jobs" }),
+    ).toBeVisible();
+
+    // The row for the just-triggered job must appear; the SPA polls
+    // every 3s while running, so we wait a bit for the terminal state.
+    const row = page
+      .getByRole("row", { name: /fkb-sti/i })
+      .first();
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    // It will be `running` or `failed` (offline sandbox) — either is
+    // proof the trigger actually reached the backend.
+    await expect(row).toContainText(/running|failed|succeeded/);
+  });
+});
+
+test.describe("End-user outcomes (public API)", () => {
+  test("hiking-trails MVT returns vector tile bytes for the seeded area", async ({
+    request: req,
+  }) => {
+    // tile 12/2238/1189 covers the seeded Sognsvann grid.
+    const resp = await req.get("/v1/hiking-trails/tiles/12/2238/1189.mvt");
+    expect(resp.status()).toBe(200);
+    expect(resp.headers()["content-type"]).toBe(
+      "application/vnd.mapbox-vector-tile",
+    );
+    const body = await resp.body();
+    // 5994 bytes is what we observed during stack bring-up. Anything
+    // <1000 means the layer is effectively empty — that's a real
+    // regression a user would notice as a blank map.
+    expect(body.byteLength).toBeGreaterThan(1000);
+  });
+
+  test("hiking-trails GeoJSON list returns features in the seeded bbox", async ({
+    request: req,
+  }) => {
+    const resp = await req.get(
+      "/v1/hiking-trails?bbox=16.69,59.97,16.74,60.00&limit=100",
+    );
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    expect(body.type).toBe("FeatureCollection");
+    // Fixture: 180 edges as 'sti' or 'traktorveg' that flow into the
+    // hiking-trails view, plus one published curated_route.
+    expect(body.features.length).toBeGreaterThan(50);
+    // One of them must be the published Sognsvann loop.
+    const named = body.features.find(
+      (f: { properties: { name: string | null } }) =>
+        f.properties.name === "Sognsvann ridge loop",
+    );
+    expect(named).toBeTruthy();
+  });
+
+  test("routing finds a real path between two corners of the seeded grid", async ({
+    request: req,
+  }) => {
+    const resp = await req.post("/v1/routing/route", {
+      data: {
+        from: [16.70210084655078, 59.976356856805864],
+        to: [16.735179600968184, 59.99209256156877],
+        profile: "hiking",
+      },
+    });
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    // pgr_dijkstra on a 200 m grid should give ~3-4 km (the diagonal
+    // is 2 km straight-line, real graph routes longer).
+    expect(body.distance_m).toBeGreaterThan(2000);
+    expect(body.distance_m).toBeLessThan(8000);
+    // Should be a connected LineString of at least a dozen vertices.
+    expect(body.geom.type).toBe("LineString");
+    expect(body.geom.coordinates.length).toBeGreaterThan(10);
+    // Hiking speed gives ~55 min for 3.6 km → duration_s in range.
+    expect(body.duration_s).toBeGreaterThan(1500);
+    expect(body.duration_s).toBeLessThan(8000);
+  });
+
+  test("routing rejects an unreachable point with a useful error", async ({
+    request: req,
+  }) => {
+    const resp = await req.post("/v1/routing/route", {
+      data: {
+        from: [10.0, 60.0], // far from seeded grid
+        to: [10.001, 60.001],
+        profile: "hiking",
+      },
+    });
+    // The user sees a 400 with "no nearby path node" — that's the
+    // signal they're trying to route from a place we don't know about.
+    expect(resp.status()).toBe(400);
+    const body = await resp.json();
+    expect(body.error).toMatch(/nearby/);
+  });
+
+  test("catalog advertises all four resources with stable URL templates", async ({
+    request: req,
+  }) => {
+    const resp = await req.get("/v1/catalog");
+    expect(resp.status()).toBe(200);
+    const body = await resp.json();
+    expect(body.resources).toHaveLength(4);
+    const ids = body.resources.map((r: { id: string }) => r.id).sort();
+    expect(ids).toEqual([
+      "cycling-routes",
+      "forest-roads",
+      "hiking-trails",
+      "ski-tracks",
+    ]);
+    // Each entry must contain {z}/{x}/{y} for the MVT template — the
+    // Flutter client interpolates these literally.
+    for (const r of body.resources) {
+      expect(r.tiles_url_template).toContain("{z}");
+      expect(r.tiles_url_template).toContain("{x}");
+      expect(r.tiles_url_template).toContain("{y}");
+    }
+  });
+});

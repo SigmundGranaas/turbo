@@ -101,10 +101,11 @@ pub struct JobOutcome {
 }
 
 async fn open_job_row(pool: &DbPool, job: JobName, run_id: uuid::Uuid) -> Result<i64, sqlx::Error> {
+    // `status` is an enum (paths.job_status); cast the bound text.
     let row: (i64,) = sqlx::query_as(
         r#"
         INSERT INTO paths.ingest_job (run_id, name, status, started_at)
-        VALUES ($1, $2, 'running', now())
+        VALUES ($1, $2, 'running'::paths.job_status, now())
         RETURNING id
         "#,
     )
@@ -125,7 +126,7 @@ async fn close_job_row(
     sqlx::query(
         r#"
         UPDATE paths.ingest_job
-        SET status = $2,
+        SET status = $2::paths.job_status,
             finished_at = now(),
             rows_in = $3,
             rows_upserted = $4,
