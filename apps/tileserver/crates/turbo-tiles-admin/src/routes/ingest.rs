@@ -94,6 +94,7 @@ pub async fn trigger_bulk(
         // Thread the run_id through so the eventual paths.ingest_job
         // row carries this exact UUID — the SPA polls by run_id.
         run_id: Some(run_id),
+        force: false,
     };
     tracing::info!(
         job = job_name.as_str(),

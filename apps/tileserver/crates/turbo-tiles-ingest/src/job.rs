@@ -71,6 +71,10 @@ pub struct JobOptions {
     /// a run_id that matches the eventual job row, letting the SPA
     /// poll for the specific job it triggered.
     pub run_id: Option<uuid::Uuid>,
+    /// For `dtm10-attach`: re-attach elevation to every edge, even
+    /// those that already have a value. Used when a higher-resolution
+    /// DEM lands and the curator wants to overwrite older guesses.
+    pub force: bool,
 }
 
 pub async fn run_job(pool: &DbPool, job: JobName) -> Result<JobOutcome, JobError> {
@@ -92,7 +96,13 @@ pub async fn run_job_with_options(
             Some(b) => crate::fkb_wfs::run_with_bbox(pool, b).await,
             None => crate::fkb_wfs::run(pool, run_id).await,
         },
-        JobName::Dtm10Attach => crate::dtm10::run(pool).await,
+        JobName::Dtm10Attach => {
+            if opts.force {
+                crate::dtm10::run_force(pool).await
+            } else {
+                crate::dtm10::run(pool).await
+            }
+        }
         JobName::DtmLoad => {
             let file = opts.file.ok_or(JobError::MissingOption("file"))?;
             let source = opts.source.as_deref().unwrap_or("dtm10");

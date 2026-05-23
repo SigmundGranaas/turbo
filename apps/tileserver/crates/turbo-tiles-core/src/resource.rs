@@ -139,3 +139,50 @@ impl Resource {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_four_resources_round_trip() {
+        // Every entry in Resource::ALL must parse back to itself.
+        // Regression guard: a new variant must also extend `slug`
+        // and the FromStr arms.
+        for r in Resource::ALL {
+            let parsed: Resource = r.slug().parse().unwrap();
+            assert_eq!(parsed, r);
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_resource() {
+        assert!("ferrata".parse::<Resource>().is_err());
+        assert!("".parse::<Resource>().is_err());
+        // The slugs are kebab-case; underscored / CamelCase variants
+        // must be rejected, not silently accepted.
+        assert!("hiking_trails".parse::<Resource>().is_err());
+        assert!("HikingTrails".parse::<Resource>().is_err());
+    }
+
+    #[test]
+    fn view_names_are_schema_qualified() {
+        // The `paths.` prefix is the schema the MVT query depends
+        // on. If anyone moves the views, this test catches it.
+        for r in Resource::ALL {
+            assert!(r.view().starts_with("paths.v_"));
+        }
+    }
+
+    #[test]
+    fn descriptor_template_contains_z_x_y() {
+        // The Flutter client interpolates `{z}/{x}/{y}` literally;
+        // missing any placeholder silently breaks tile rendering.
+        let d = Resource::HikingTrails.descriptor("http://example.com");
+        assert!(d.tiles_url_template.contains("{z}"));
+        assert!(d.tiles_url_template.contains("{x}"));
+        assert!(d.tiles_url_template.contains("{y}"));
+        assert!(d.geojson_url_template.contains("{id}"));
+        assert!(d.tiles_url_template.starts_with("http://example.com"));
+    }
+}

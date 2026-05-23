@@ -48,6 +48,11 @@ enum Command {
         /// Source label stamped on loaded raster rows (e.g. `dtm10`).
         #[arg(long, default_value = "dtm10")]
         source: String,
+        /// For `dtm10-attach`: re-attach elevation to every edge,
+        /// even those that already have a value. Used when a
+        /// higher-resolution DEM is loaded after the initial pass.
+        #[arg(long, default_value_t = false)]
+        force: bool,
     },
     /// Apply pending migrations and exit.
     Migrate,
@@ -69,7 +74,8 @@ async fn main() -> Result<()> {
             bbox,
             file,
             source,
-        } => ingest(&job, bbox.as_deref(), file, source).await,
+            force,
+        } => ingest(&job, bbox.as_deref(), file, source, force).await,
         Command::Migrate => migrate().await,
     }
 }
@@ -135,6 +141,11 @@ async fn serve(bind: String, public_base_url: String, auto_migrate: bool) -> Res
         .nest("/admin", admin_router)
         .nest_service("/admin/app", spa_service);
 
+    // Spawn the TUS abandoned-upload sweeper. Runs every hour;
+    // deletes incomplete uploads after 2 days and completed uploads
+    // after 7 (curator window for triggering ingest).
+    turbo_tiles_admin::routes::tus::spawn_sweeper(std::time::Duration::from_secs(3600));
+
     let listener = tokio::net::TcpListener::bind(&bind)
         .await
         .with_context(|| format!("binding {bind}"))?;
@@ -150,6 +161,7 @@ async fn ingest(
     bbox: Option<&str>,
     file: Option<std::path::PathBuf>,
     source: String,
+    force: bool,
 ) -> Result<()> {
     let db_cfg = DbConfig::from_env().context("DATABASE_URL must be set")?;
     let db = db_cfg.connect().await.context("connecting to database")?;
@@ -159,6 +171,7 @@ async fn ingest(
         file,
         source: Some(source),
         run_id: None,
+        force,
     };
     let outcome = turbo_tiles_ingest::run_job_with_options(&db, job, opts).await?;
     println!(

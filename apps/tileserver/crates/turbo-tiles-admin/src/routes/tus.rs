@@ -197,8 +197,8 @@ pub async fn create(
     // `/admin/api`) and behind the gateway (set to
     // `/api/tiles-admin/api` in the gateway's environment block).
     let _ = &headers;
-    let prefix = std::env::var("TILESERVER_UPLOAD_URL_PREFIX")
-        .unwrap_or_else(|_| "/admin/api".to_string());
+    let prefix =
+        std::env::var("TILESERVER_UPLOAD_URL_PREFIX").unwrap_or_else(|_| "/admin/api".to_string());
     let location = format!("{prefix}/upload/{upload_id}");
     let mut h = tus_response_headers();
     h.insert(
@@ -458,4 +458,101 @@ fn free_disk_bytes(path: &Path) -> Option<u64> {
         let _ = path;
         None
     }
+}
+
+/// Sweep abandoned TUS uploads from disk. Runs periodically as a
+/// background Tokio task spawned at server startup (see bin/main.rs).
+///
+/// Policy:
+///   - Incomplete uploads (on-disk bytes < total_bytes) older than
+///     `incomplete_ttl` are deleted.
+///   - Completed uploads (on-disk bytes == total_bytes) are deleted
+///     after `completed_ttl` — long enough for the curator to
+///     trigger ingest, short enough that forgotten files don't pile
+///     up forever.
+///   - Anything malformed (missing metadata.json, unparseable UUID)
+///     is logged and left alone — better to leak a few bytes than
+///     to nuke files we don't understand.
+pub async fn sweep_abandoned(
+    incomplete_ttl: chrono::Duration,
+    completed_ttl: chrono::Duration,
+) -> SweepStats {
+    let root = uploads_root();
+    let mut stats = SweepStats::default();
+    let entries = match std::fs::read_dir(&root) {
+        Ok(e) => e,
+        Err(_) => return stats,
+    };
+    let now = chrono::Utc::now();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let Ok(id) = Uuid::parse_str(name) else {
+            continue;
+        };
+        let meta = match std::fs::read(path.join("metadata.json")) {
+            Ok(raw) => match serde_json::from_slice::<UploadMetadata>(&raw) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(%id, error = %e, "tus sweep: bad metadata, skipping");
+                    continue;
+                }
+            },
+            Err(_) => continue,
+        };
+        let on_disk = std::fs::metadata(path.join("data"))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let age = now - meta.created_at;
+        let ttl = if on_disk == meta.total_bytes {
+            completed_ttl
+        } else {
+            incomplete_ttl
+        };
+        if age > ttl {
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                tracing::error!(%id, error = %e, "tus sweep: remove failed");
+                stats.failed += 1;
+                continue;
+            }
+            tracing::info!(
+                %id,
+                filename = %meta.filename,
+                bytes = on_disk,
+                age_seconds = age.num_seconds(),
+                complete = on_disk == meta.total_bytes,
+                "tus sweep: deleted abandoned upload"
+            );
+            stats.deleted += 1;
+        }
+    }
+    stats
+}
+
+#[derive(Debug, Default)]
+pub struct SweepStats {
+    pub deleted: u64,
+    pub failed: u64,
+}
+
+/// Spawn the sweep loop on a Tokio task. Runs immediately on launch
+/// (catches anything left over from a previous process), then every
+/// `interval`. The task lives for the process lifetime.
+pub fn spawn_sweeper(interval: std::time::Duration) {
+    tokio::spawn(async move {
+        let incomplete_ttl = chrono::Duration::days(2);
+        let completed_ttl = chrono::Duration::days(7);
+        loop {
+            let stats = sweep_abandoned(incomplete_ttl, completed_ttl).await;
+            if stats.deleted > 0 || stats.failed > 0 {
+                tracing::info!(?stats, "tus sweep cycle complete");
+            }
+            tokio::time::sleep(interval).await;
+        }
+    });
 }

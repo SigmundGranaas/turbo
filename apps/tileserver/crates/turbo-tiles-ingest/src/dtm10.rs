@@ -115,17 +115,41 @@ impl ElevationProvider for HoydedataProvider {
 /// Capped at `max_edges` per run so a single invocation doesn't spend
 /// hours hammering the upstream service.
 pub async fn run(pool: &turbo_tiles_db::DbPool) -> Result<JobOutcome, JobError> {
-    run_with(pool, &HoydedataProvider::default(), 500).await
+    run_with(pool, &HoydedataProvider::default(), 500, false).await
+}
+
+/// Re-attach elevation to every edge, ignoring the
+/// `elevation_gain_m IS NULL` filter. Useful when a higher-resolution
+/// DEM is loaded after an initial pass — the curator triggers a
+/// forced re-attach to overwrite the older approximation.
+pub async fn run_force(pool: &turbo_tiles_db::DbPool) -> Result<JobOutcome, JobError> {
+    run_with(pool, &HoydedataProvider::default(), 500, true).await
 }
 
 pub async fn run_with(
     pool: &turbo_tiles_db::DbPool,
     provider: &dyn ElevationProvider,
     max_edges: i64,
+    force: bool,
 ) -> Result<JobOutcome, JobError> {
     // Pull each candidate edge twice: the 25833 geometry for the
     // raster sampler and the 4258 lon/lat for the Hoydedata fallback.
-    let edges = sqlx::query(
+    // `force = true` skips the `elevation_gain_m IS NULL` filter so a
+    // newer DEM can overwrite older attachments.
+    let sql = if force {
+        r#"
+        SELECT id,
+               ST_AsGeoJSON(ST_Transform(geom, 4258))::jsonb AS geom_4258,
+               EXISTS (
+                   SELECT 1 FROM paths.dem d
+                   WHERE ST_Intersects(ST_ConvexHull(d.rast), e.geom)
+               ) AS dem_covers
+        FROM paths.edge e
+        WHERE deleted_at IS NULL
+        ORDER BY id
+        LIMIT $1
+        "#
+    } else {
         r#"
         SELECT id,
                ST_AsGeoJSON(ST_Transform(geom, 4258))::jsonb AS geom_4258,
@@ -138,11 +162,9 @@ pub async fn run_with(
           AND elevation_gain_m IS NULL
         ORDER BY id
         LIMIT $1
-        "#,
-    )
-    .bind(max_edges)
-    .fetch_all(pool)
-    .await?;
+        "#
+    };
+    let edges = sqlx::query(sql).bind(max_edges).fetch_all(pool).await?;
 
     let mut updated: i64 = 0;
     let mut from_raster: i64 = 0;
@@ -249,4 +271,84 @@ fn gain_loss(elevations: &[Option<f64>]) -> (f64, f64) {
         }
     }
     (gain, loss)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approx(a: f64, b: f64) {
+        assert!((a - b).abs() < 1e-9, "expected {b}, got {a}");
+    }
+
+    #[test]
+    fn ascending_run_is_all_gain() {
+        let (g, l) = gain_loss(&[Some(100.0), Some(110.0), Some(125.0)]);
+        approx(g, 25.0);
+        approx(l, 0.0);
+    }
+
+    #[test]
+    fn descending_run_is_all_loss() {
+        let (g, l) = gain_loss(&[Some(125.0), Some(110.0), Some(100.0)]);
+        approx(g, 0.0);
+        approx(l, 25.0);
+    }
+
+    #[test]
+    fn mixed_run_sums_components_separately() {
+        // 100 → 110 (+10) → 105 (-5) → 130 (+25) → 120 (-10).
+        // gain = 35, loss = 15.
+        let (g, l) = gain_loss(&[
+            Some(100.0),
+            Some(110.0),
+            Some(105.0),
+            Some(130.0),
+            Some(120.0),
+        ]);
+        approx(g, 35.0);
+        approx(l, 15.0);
+    }
+
+    #[test]
+    fn none_breaks_the_window_but_doesnt_explode() {
+        // 100 → 110 (+10) → None (skip both 110→None and None→130)
+        // → 130 → 120 (-10).
+        // gain = 10, loss = 10. Critically: the 100→130 jump is
+        // NOT counted, because the missing sample disrupts both
+        // adjacent windows.
+        let (g, l) = gain_loss(&[Some(100.0), Some(110.0), None, Some(130.0), Some(120.0)]);
+        approx(g, 10.0);
+        approx(l, 10.0);
+    }
+
+    #[test]
+    fn flat_terrain_zero_gain_zero_loss() {
+        let (g, l) = gain_loss(&[Some(100.0), Some(100.0), Some(100.0)]);
+        approx(g, 0.0);
+        approx(l, 0.0);
+    }
+
+    #[test]
+    fn single_point_yields_zero() {
+        // Can't form a window of 2 with only one sample.
+        let (g, l) = gain_loss(&[Some(100.0)]);
+        approx(g, 0.0);
+        approx(l, 0.0);
+    }
+
+    #[test]
+    fn empty_input_yields_zero() {
+        let (g, l) = gain_loss(&[]);
+        approx(g, 0.0);
+        approx(l, 0.0);
+    }
+
+    #[test]
+    fn all_none_yields_zero() {
+        // Every window has at least one None → no delta is summable.
+        let (g, l) = gain_loss(&[None, None, None]);
+        approx(g, 0.0);
+        approx(l, 0.0);
+    }
 }

@@ -41,3 +41,47 @@ impl fmt::Display for TileCoord {
         write!(f, "{}/{}/{}", self.z, self.x, self.y)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_in_range_coords() {
+        // At z=12, max x/y is 4095 (2^12 - 1). Off-by-one at the
+        // upper bound matters for cache keys.
+        assert!(TileCoord::new(12, 4095, 4095).is_ok());
+        assert!(TileCoord::new(0, 0, 0).is_ok());
+    }
+
+    #[test]
+    fn rejects_x_at_limit() {
+        assert!(matches!(
+            TileCoord::new(12, 4096, 0),
+            Err(TileCoordError::XOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_y_at_limit() {
+        assert!(matches!(
+            TileCoord::new(12, 0, 4096),
+            Err(TileCoordError::YOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_zoom_too_high() {
+        // z > 22 is pathological for vector tiles.
+        assert!(matches!(
+            TileCoord::new(23, 0, 0),
+            Err(TileCoordError::ZoomTooHigh(23))
+        ));
+    }
+
+    #[test]
+    fn display_matches_url_form() {
+        let c = TileCoord::new(12, 2238, 1189).unwrap();
+        assert_eq!(c.to_string(), "12/2238/1189");
+    }
+}
