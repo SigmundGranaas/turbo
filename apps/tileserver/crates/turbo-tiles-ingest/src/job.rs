@@ -74,6 +74,7 @@ pub async fn run_job_with_options(
             Some(b) => crate::fkb_wfs::run_with_bbox(pool, b).await,
             None => crate::fkb_wfs::run(pool, run_id).await,
         },
+        JobName::Dtm10Attach => crate::dtm10::run(pool).await,
         other => Err(JobError::NotImplemented(other.as_str())),
     };
 

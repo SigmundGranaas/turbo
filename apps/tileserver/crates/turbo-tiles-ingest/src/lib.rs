@@ -10,6 +10,7 @@
 //!   6. refresh → materialised views if any
 //!   7. log     → write `paths.ingest_job` row
 
+pub mod dtm10;
 pub mod fkb_wfs;
 pub mod job;
 pub mod stage;

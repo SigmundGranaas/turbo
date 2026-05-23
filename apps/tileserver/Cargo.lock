@@ -2686,6 +2686,7 @@ dependencies = [
 name = "turbo-tiles-ingest"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "hex",
  "quick-xml",
