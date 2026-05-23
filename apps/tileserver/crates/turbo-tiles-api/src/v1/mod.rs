@@ -15,7 +15,7 @@ pub fn router() -> Router<ApiState> {
         .route("/:resource", get(resource::list))
         .route("/:resource/:id", get(resource::detail))
         .route("/routing/route", post(routing::route))
-        .route("/routing/isochrone", post(routing::isochrone))
+        .route("/routing/isochrone", post(routing::isochrone_endpoint))
         .route("/routing/loop", post(routing::loop_route))
         .route("/routing/profiles", get(routing::profiles))
 }

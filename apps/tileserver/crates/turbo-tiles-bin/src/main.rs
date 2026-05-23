@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
+use tower_http::services::ServeDir;
 use turbo_tiles_admin::AdminState;
 use turbo_tiles_api::ApiState;
 use turbo_tiles_auth::{AuthConfig, AuthState};
@@ -93,9 +94,28 @@ async fn serve(bind: String, public_base_url: String, auto_migrate: bool) -> Res
     };
     let admin_router = turbo_tiles_admin::router(admin_state);
 
+    // SPA static mount: the React build output lives at
+    // /var/lib/tileserver/admin/dist (the Dockerfile copies it there).
+    // Falls back to the local Vite build dir during dev so
+    // `cargo run -- serve` works alongside `npm run build` in
+    // apps/admin/.
+    let spa_dir = std::env::var("ADMIN_SPA_DIR")
+        .unwrap_or_else(|_| "/var/lib/tileserver/admin/dist".to_string());
+    let spa_dir_fallback = std::path::Path::new("../admin/dist");
+    let spa_path = if std::path::Path::new(&spa_dir).is_dir() {
+        std::path::PathBuf::from(spa_dir)
+    } else if spa_dir_fallback.is_dir() {
+        spa_dir_fallback.to_path_buf()
+    } else {
+        std::path::PathBuf::from(&spa_dir)
+    };
+    tracing::info!(spa_dir = %spa_path.display(), "admin SPA mount");
+    let spa_service = ServeDir::new(&spa_path).append_index_html_on_directories(true);
+
     let app = axum::Router::new()
         .merge(api_router)
-        .nest("/admin", admin_router);
+        .nest("/admin", admin_router)
+        .nest_service("/admin/app", spa_service);
 
     let listener = tokio::net::TcpListener::bind(&bind)
         .await

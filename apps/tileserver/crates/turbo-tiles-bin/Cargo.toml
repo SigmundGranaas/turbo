@@ -20,6 +20,7 @@ turbo-tiles-ingest.workspace = true
 turbo-tiles-routing.workspace = true
 
 axum.workspace = true
+tower-http.workspace = true
 tokio.workspace = true
 clap.workspace = true
 tracing.workspace = true
