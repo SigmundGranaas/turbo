@@ -26,7 +26,7 @@ var app = builder.Build();
 await app.Services.MigrateModuleDatabaseAsync<TrackReadContext>(
     builder.Configuration.GetConnectionString("Tracks")
         ?? throw new InvalidOperationException("ConnectionStrings:Tracks is not configured"));
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

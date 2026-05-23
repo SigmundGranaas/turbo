@@ -26,7 +26,7 @@ var app = builder.Build();
 await app.Services.MigrateModuleDatabaseAsync<LocationReadContext>(
     builder.Configuration.GetConnectionString("Geo")
         ?? throw new InvalidOperationException("ConnectionStrings:Geo is not configured"));
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

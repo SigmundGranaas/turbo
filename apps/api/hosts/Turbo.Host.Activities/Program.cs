@@ -67,7 +67,7 @@ await app.Services.MigrateXcSkiActivityModuleAsync(activitiesConn);
 await app.Services.MigratePackraftingActivityModuleAsync(activitiesConn);
 await app.Services.MigrateFreedivingActivityModuleAsync(activitiesConn);
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

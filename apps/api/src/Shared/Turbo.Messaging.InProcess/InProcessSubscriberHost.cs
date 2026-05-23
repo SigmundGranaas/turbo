@@ -41,9 +41,18 @@ public sealed class InProcessSubscriberHost : BackgroundService
             "InProcessSubscriberHost started for {Count} subjects: {Subjects}",
             _bySubject.Count, string.Join(", ", _bySubject.Keys));
 
-        await foreach (var envelope in _bus.Reader.ReadAllAsync(stoppingToken))
+        try
         {
-            await DispatchAsync(envelope, stoppingToken);
+            await foreach (var envelope in _bus.Reader.ReadAllAsync(stoppingToken))
+            {
+                await DispatchAsync(envelope, stoppingToken);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Graceful shutdown — channel reader observed the host's
+            // stop token. Don't surface as an unhandled exception (which
+            // dotnet watch sees as a crash and refuses to auto-restart).
         }
     }
 
