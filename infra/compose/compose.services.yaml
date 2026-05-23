@@ -188,3 +188,58 @@ services:
   # Migrations run in-process at each host's startup via EF Core
   # (see MigrateModuleDatabaseAsync in src/Shared/Turbo.Hosting.Postgres).
   # No separate migration containers needed.
+
+  tileserver:
+    build:
+      # Repo root so the Dockerfile can pull both apps/tileserver and
+      # apps/admin (the React SPA is bundled into the same image).
+      context: ../..
+      dockerfile: apps/tileserver/Dockerfile
+    container_name: tileserver
+    hostname: tileserver
+    ports:
+      - "8090:8080"
+    environment:
+      - RUST_LOG=info,tower_http=debug,sqlx=warn
+      - DATABASE_URL=postgres://${DB_USER:-postgres}:${DB_PASSWORD:-yourpassword}@${TILES_DB_HOST:-tiles-db}:${TILES_DB_PORT:-5432}/${TILES_DB_NAME:-tiles}
+      - JWT_SECRET=${JWT_SECRET:-default-super-secret-key-needs-to-be-long-enough-for-hs256}
+      - JWT_ISSUER=${JWT_ISSUER:-}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-}
+      - PUBLIC_BASE_URL=${TILESERVER_PUBLIC_BASE_URL:-http://localhost:8090}
+      - AUTO_MIGRATE=true
+    depends_on:
+      tiles-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - turbo
+
+  tiles-db:
+    build:
+      context: postgis-pgrouting
+      dockerfile: Dockerfile
+    container_name: tiles-db
+    hostname: tiles-db
+    ports:
+      - "5446:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-yourpassword}
+      POSTGRES_DB: ${TILES_DB_NAME:-tiles}
+    volumes:
+      - tiles_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${TILES_DB_NAME:-tiles}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - turbo
+
+volumes:
+  tiles_db_data:

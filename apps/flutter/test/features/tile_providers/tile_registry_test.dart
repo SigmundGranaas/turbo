@@ -78,6 +78,13 @@ void main() {
         'trails_other',
         'osm_paths',
         'n50_sti',
+        // Curated MVT overlays served by the self-hosted Turbo
+        // tileserver (see vector_path_overlays.dart). Vector-only
+        // toggles for the corresponding `MvtDataLayer`s.
+        'curated_hiking',
+        'curated_ski_tracks',
+        'curated_forest_roads',
+        'curated_cycling_routes',
       });
       expect(
           state.availableProviders['topo']!.category,

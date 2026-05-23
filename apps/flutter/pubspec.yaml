@@ -75,6 +75,9 @@ dependencies:
   archive: ^4.0.7
   wakelock_plus: ^1.2.8
   xml: ^6.6.1
+  # MVT decoder used by features/curated_paths/ to parse vector tiles
+  # served by the Turbo tileserver into flutter_map-renderable lines.
+  vector_tile: ^4.0.0
 
 dev_dependencies:
   flutter_test:

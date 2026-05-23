@@ -51,3 +51,68 @@ class N50StiOverlayConfig extends _VectorPathToggleConfig {
   @override
   String get attributions => '© Kartverket — N50 Kartdata';
 }
+
+/// Curated MVT-served overlays from the self-hosted Turbo tileserver
+/// (`apps/tileserver`). One toggle per resource exposed by `/v1/catalog`.
+/// Geometry is rendered by `MvtDataLayer` from `features/curated_paths/`;
+/// the registry just owns the on/off bit.
+class CuratedHikingOverlayConfig extends _VectorPathToggleConfig {
+  @override
+  String get id => 'curated_hiking';
+
+  @override
+  String name(BuildContext context) => context.l10n.layerNameCuratedHiking;
+
+  @override
+  String description(BuildContext context) =>
+      context.l10n.layerDescriptionCuratedHiking;
+
+  @override
+  String get attributions => '© Kartverket, Nasjonal Turbase';
+}
+
+class CuratedSkiTracksOverlayConfig extends _VectorPathToggleConfig {
+  @override
+  String get id => 'curated_ski_tracks';
+
+  @override
+  String name(BuildContext context) => context.l10n.layerNameCuratedSkiTracks;
+
+  @override
+  String description(BuildContext context) =>
+      context.l10n.layerDescriptionCuratedSkiTracks;
+
+  @override
+  String get attributions => '© Kartverket, Skisporet.no';
+}
+
+class CuratedForestRoadsOverlayConfig extends _VectorPathToggleConfig {
+  @override
+  String get id => 'curated_forest_roads';
+
+  @override
+  String name(BuildContext context) => context.l10n.layerNameCuratedForestRoads;
+
+  @override
+  String description(BuildContext context) =>
+      context.l10n.layerDescriptionCuratedForestRoads;
+
+  @override
+  String get attributions => '© Kartverket';
+}
+
+class CuratedCyclingRoutesOverlayConfig extends _VectorPathToggleConfig {
+  @override
+  String get id => 'curated_cycling_routes';
+
+  @override
+  String name(BuildContext context) =>
+      context.l10n.layerNameCuratedCyclingRoutes;
+
+  @override
+  String description(BuildContext context) =>
+      context.l10n.layerDescriptionCuratedCyclingRoutes;
+
+  @override
+  String get attributions => '© Kartverket';
+}

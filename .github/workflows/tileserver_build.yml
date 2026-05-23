@@ -1,0 +1,50 @@
+name: Tileserver build and test
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'apps/tileserver/**'
+      - '.github/workflows/tileserver_build.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'apps/tileserver/**'
+      - '.github/workflows/tileserver_build.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  SQLX_OFFLINE: "true"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/tileserver
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tileserver
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace --release
+
+      - name: Test
+        run: cargo test --workspace --release
