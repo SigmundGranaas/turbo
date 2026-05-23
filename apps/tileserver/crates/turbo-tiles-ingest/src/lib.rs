@@ -14,4 +14,5 @@ pub mod fkb_wfs;
 pub mod job;
 pub mod stage;
 
-pub use job::{run_job, JobError, JobName};
+pub use fkb_wfs::Bbox;
+pub use job::{run_job, run_job_with_options, JobError, JobName, JobOptions, JobOutcome};

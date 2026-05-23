@@ -36,6 +36,11 @@ enum Command {
     Ingest {
         #[arg(long)]
         job: String,
+        /// Optional W,S,E,N bbox (lon/lat) for jobs that pull by area.
+        /// `fkb-sti` defaults to a small Oslo-area window when this is
+        /// omitted so demo runs stay quick.
+        #[arg(long)]
+        bbox: Option<String>,
     },
     /// Apply pending migrations and exit.
     Migrate,
@@ -52,7 +57,7 @@ async fn main() -> Result<()> {
             public_base_url,
             auto_migrate,
         } => serve(bind, public_base_url, auto_migrate).await,
-        Command::Ingest { job } => ingest(&job).await,
+        Command::Ingest { job, bbox } => ingest(&job, bbox.as_deref()).await,
         Command::Migrate => migrate().await,
     }
 }
@@ -102,11 +107,14 @@ async fn serve(bind: String, public_base_url: String, auto_migrate: bool) -> Res
     Ok(())
 }
 
-async fn ingest(job: &str) -> Result<()> {
+async fn ingest(job: &str, bbox: Option<&str>) -> Result<()> {
     let db_cfg = DbConfig::from_env().context("DATABASE_URL must be set")?;
     let db = db_cfg.connect().await.context("connecting to database")?;
     let job: turbo_tiles_ingest::JobName = job.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-    let outcome = turbo_tiles_ingest::run_job(&db, job).await?;
+    let opts = turbo_tiles_ingest::JobOptions {
+        bbox: bbox.map(parse_bbox).transpose()?,
+    };
+    let outcome = turbo_tiles_ingest::run_job_with_options(&db, job, opts).await?;
     println!(
         "{{\"job\":\"{}\",\"rows_in\":{},\"rows_upserted\":{}}}",
         job.as_str(),
@@ -114,6 +122,26 @@ async fn ingest(job: &str) -> Result<()> {
         outcome.rows_upserted
     );
     Ok(())
+}
+
+fn parse_bbox(s: &str) -> Result<turbo_tiles_ingest::Bbox> {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 4 {
+        anyhow::bail!("bbox must be `W,S,E,N` (got `{s}`)");
+    }
+    let west: f64 = parts[0].parse().context("bbox west")?;
+    let south: f64 = parts[1].parse().context("bbox south")?;
+    let east: f64 = parts[2].parse().context("bbox east")?;
+    let north: f64 = parts[3].parse().context("bbox north")?;
+    if west > east || south > north {
+        anyhow::bail!("bbox must have west<=east and south<=north");
+    }
+    Ok(turbo_tiles_ingest::Bbox {
+        west,
+        south,
+        east,
+        north,
+    })
 }
 
 async fn migrate() -> Result<()> {

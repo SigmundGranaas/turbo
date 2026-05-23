@@ -2,6 +2,8 @@ use std::str::FromStr;
 
 use turbo_tiles_db::DbPool;
 
+use crate::fkb_wfs::Bbox;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobName {
     FkbSti,
@@ -46,14 +48,32 @@ pub enum JobError {
     NotImplemented(&'static str),
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct JobOptions {
+    /// Optional ingest bbox for `fkb-sti`. None falls back to the
+    /// job's own default (the Oslo demo bbox).
+    pub bbox: Option<Bbox>,
+}
+
 pub async fn run_job(pool: &DbPool, job: JobName) -> Result<JobOutcome, JobError> {
+    run_job_with_options(pool, job, JobOptions::default()).await
+}
+
+pub async fn run_job_with_options(
+    pool: &DbPool,
+    job: JobName,
+    opts: JobOptions,
+) -> Result<JobOutcome, JobError> {
     let run_id = uuid::Uuid::new_v4();
     tracing::info!(job = job.as_str(), %run_id, "starting ingest job");
 
     let job_row_id = open_job_row(pool, job, run_id).await?;
 
     let result = match job {
-        JobName::FkbSti => crate::fkb_wfs::run(pool, run_id).await,
+        JobName::FkbSti => match opts.bbox {
+            Some(b) => crate::fkb_wfs::run_with_bbox(pool, b).await,
+            None => crate::fkb_wfs::run(pool, run_id).await,
+        },
         other => Err(JobError::NotImplemented(other.as_str())),
     };
 
