@@ -26,7 +26,7 @@ var app = builder.Build();
 await app.Services.MigrateModuleDatabaseAsync<CollectionsReadContext>(
     builder.Configuration.GetConnectionString("Collections")
         ?? throw new InvalidOperationException("ConnectionStrings:Collections is not configured"));
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

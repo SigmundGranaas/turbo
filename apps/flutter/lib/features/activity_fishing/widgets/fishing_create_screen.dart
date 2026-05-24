@@ -5,14 +5,27 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/activities/api.dart';
 
 import '../data/fishing_repository.dart';
+import '../models/fishing_activity.dart';
 import '../models/fishing_details.dart';
 
-/// Create form for a fishing activity. Composed of small typed widgets;
-/// every field maps to a typed property on [FishingDetails] — no
-/// catch-all map. Geometry is seeded from the picker's tap point.
+/// Create or edit form for a fishing activity. Composed of small typed
+/// widgets; every field maps to a typed property on [FishingDetails] —
+/// no catch-all map. Geometry is seeded from the picker's tap point on
+/// create; on edit the existing activity's position is used and the
+/// form prefills from its current values.
 class FishingCreateScreen extends ConsumerStatefulWidget {
   final ActivityGeometry seedGeometry;
-  const FishingCreateScreen({super.key, required this.seedGeometry});
+
+  /// If non-null the form opens in edit mode: fields are prefilled
+  /// from this activity, the AppBar title changes to "Edit fishing
+  /// spot", and Save calls `update` instead of `create`.
+  final FishingActivity? existing;
+
+  const FishingCreateScreen({
+    super.key,
+    required this.seedGeometry,
+    this.existing,
+  });
 
   @override
   ConsumerState<FishingCreateScreen> createState() => _FishingCreateScreenState();
@@ -28,6 +41,19 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
   bool _saving = false;
 
   @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _name.text = e.name;
+      _description.text = e.description ?? '';
+      _accessNotes.text = e.details.accessNotes ?? '';
+      _waterKind = e.details.waterKind;
+      _shoreOrBoat = e.details.shoreOrBoat;
+    }
+  }
+
+  @override
   void dispose() {
     _name.dispose();
     _description.dispose();
@@ -36,12 +62,18 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
   }
 
   LatLng get _position =>
-      widget.seedGeometry.firstPoint ?? const LatLng(0, 0);
+      widget.existing?.position ??
+      widget.seedGeometry.firstPoint ??
+      const LatLng(0, 0);
+
+  bool get _isEdit => widget.existing != null;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New fishing spot')),
+      appBar: AppBar(
+        title: Text(_isEdit ? 'Edit fishing spot' : 'New fishing spot'),
+      ),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -134,14 +166,29 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
         shoreOrBoat: _shoreOrBoat,
         accessNotes: _accessNotes.text.trim().isEmpty ? null : _accessNotes.text.trim(),
       );
-      await ref.read(fishingRepositoryProvider).create(
-            name: _name.text.trim(),
-            description:
-                _description.text.trim().isEmpty ? null : _description.text.trim(),
-            position: _position,
-            details: details,
-          );
-      if (mounted) Navigator.of(context).pop();
+      final repo = ref.read(fishingRepositoryProvider);
+      final existing = widget.existing;
+      if (existing != null) {
+        await repo.update(
+          id: existing.id,
+          name: _name.text.trim(),
+          description:
+              _description.text.trim().isEmpty ? null : _description.text.trim(),
+          details: details,
+        );
+      } else {
+        await repo.create(
+          name: _name.text.trim(),
+          description:
+              _description.text.trim().isEmpty ? null : _description.text.trim(),
+          position: _position,
+          details: details,
+        );
+      }
+      // Pop with `true` so parent surfaces (path detail sheet,
+      // marker detail sheet, picker) know to auto-dismiss instead of
+      // leaving the user buried under modals after a successful save.
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

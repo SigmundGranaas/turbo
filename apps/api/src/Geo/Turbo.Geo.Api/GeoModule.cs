@@ -34,6 +34,7 @@ public static class GeoModule
             {
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<ILocationWriteRepository, EfLocationWriteRepository>();

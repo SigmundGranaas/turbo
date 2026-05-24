@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Turbo.Hosting.Postgres;
 using Turbo.Messaging;
 using Turbo.Messaging.Nats;
 using Turbo.Outbox;
@@ -22,19 +23,19 @@ namespace Turboapi.Activities.BackcountrySki;
 /// </summary>
 public static class BackcountrySkiActivityModule
 {
-    public const string ConnectionStringName = "ActivitiesBackcountrySki";
+    private const string Schema = "backcountry_ski";
 
     public static IServiceCollection AddBackcountrySkiActivityModule(
         this IServiceCollection services,
-        IConfiguration configuration)
+        string connectionString)
     {
-        var connectionString = ResolveConnectionString(configuration);
-
         services.AddDbContext<BackcountrySkiContext>((sp, options) =>
             options.UseNpgsql(connectionString, npgsql =>
             {
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<IBackcountrySkiActivityReader, EfBackcountrySkiActivityReader>();
@@ -85,6 +86,12 @@ public static class BackcountrySkiActivityModule
     /// as <c>AddFishingActivityNatsSubscribers</c>; the modulith host
     /// uses the in-process equivalent.
     /// </summary>
+    public static Task MigrateBackcountrySkiActivityModuleAsync(
+        this IServiceProvider services,
+        string connectionString,
+        CancellationToken cancellationToken = default)
+        => services.MigrateModuleDatabaseAsync<BackcountrySkiContext>(connectionString, Schema, cancellationToken);
+
     public static IServiceCollection AddBackcountrySkiActivityNatsSubscribers(this IServiceCollection services)
     {
         services.AddNatsSubscriber<BackcountrySkiActivityCreated>(
@@ -99,9 +106,4 @@ public static class BackcountrySkiActivityModule
             "turbo.activities.backcountry_ski.ActivitySummaryDeleted", "backcountry-ski-summary-deleted");
         return services;
     }
-
-    private static string ResolveConnectionString(IConfiguration configuration) =>
-        configuration.GetConnectionString(ConnectionStringName)
-            ?? throw new InvalidOperationException(
-                $"ConnectionStrings:{ConnectionStringName} is not configured");
 }

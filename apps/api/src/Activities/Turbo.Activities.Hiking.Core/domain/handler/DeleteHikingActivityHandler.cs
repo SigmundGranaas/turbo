@@ -23,7 +23,8 @@ public sealed class DeleteHikingActivityHandler
 
     public async Task Handle(DeleteHikingActivityCommand cmd)
     {
-        var existing = await _reader.GetByIdAsync(cmd.ActivityId)
+        var existing = await ReadModelCatchup.ReadAsync(
+                ct => _reader.GetByIdAsync(cmd.ActivityId, ct))
             ?? throw new ActivityNotFoundException(cmd.ActivityId);
         _ownerGuard.RequireOwner(cmd.CallerId, existing.Core.OwnerId);
 

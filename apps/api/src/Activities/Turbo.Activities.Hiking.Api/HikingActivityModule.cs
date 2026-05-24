@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Turbo.Hosting.Postgres;
 using Turbo.Messaging;
 using Turbo.Messaging.Nats;
 using Turbo.Outbox;
@@ -16,18 +17,24 @@ namespace Turboapi.Activities.Hiking;
 
 public static class HikingActivityModule
 {
-    public const string ConnectionStringName = "ActivitiesHiking";
+    /// <summary>
+    /// Postgres schema this module owns. The host never needs to know
+    /// this — <see cref="MigrateHikingActivityModuleAsync"/> ensures the
+    /// schema exists and runs migrations into it.
+    /// </summary>
+    private const string Schema = "hiking";
 
-    public static IServiceCollection AddHikingActivityModule(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddHikingActivityModule(
+        this IServiceCollection services,
+        string connectionString)
     {
-        var connectionString = configuration.GetConnectionString(ConnectionStringName)
-            ?? throw new InvalidOperationException($"ConnectionStrings:{ConnectionStringName} is not configured");
-
         services.AddDbContext<HikingContext>((sp, options) =>
             options.UseNpgsql(connectionString, npgsql =>
             {
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<IHikingActivityReader, EfHikingActivityReader>();
@@ -62,6 +69,16 @@ public static class HikingActivityModule
         services.AddControllers().AddApplicationPart(typeof(HikingActivitiesController).Assembly);
         return services;
     }
+
+    /// <summary>
+    /// Ensures the <c>hiking</c> schema exists and runs all pending EF
+    /// Core migrations. Called once at host startup.
+    /// </summary>
+    public static Task MigrateHikingActivityModuleAsync(
+        this IServiceProvider services,
+        string connectionString,
+        CancellationToken cancellationToken = default)
+        => services.MigrateModuleDatabaseAsync<HikingContext>(connectionString, Schema, cancellationToken);
 
     public static IServiceCollection AddHikingActivityNatsSubscribers(this IServiceCollection services)
     {

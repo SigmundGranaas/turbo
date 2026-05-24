@@ -36,12 +36,28 @@ class ActivitiesMapLayer extends ConsumerWidget {
       final pos = s.geometry.firstPoint;
       if (pos == null) continue;
       markers.add(Marker(
+        // Stable per-activity key so integration tests can target the
+        // exact pin (`Key('activity-pin-<id>')`). Cheap at runtime.
+        key: Key('activity-pin-${s.id}'),
         point: pos,
         width: 40,
         height: 40,
-        child: descriptor?.buildMapMarker != null
-            ? descriptor!.buildMapMarker!(s)
-            : _DefaultMarker(summary: s, color: _parseHex(s.colorHex)),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            final d = descriptor;
+            if (d == null) return;
+            showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              useSafeArea: true,
+              builder: (ctx) => d.buildDetailScreen(ctx, s.id),
+            );
+          },
+          child: descriptor?.buildMapMarker != null
+              ? descriptor!.buildMapMarker!(s)
+              : _DefaultMarker(summary: s, color: _parseHex(s.colorHex)),
+        ),
       ));
     }
 

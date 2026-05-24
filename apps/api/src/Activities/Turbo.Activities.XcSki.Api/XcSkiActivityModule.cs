@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Turbo.Hosting.Postgres;
 using Turbo.Messaging;
 using Turbo.Messaging.Nats;
 using Turbo.Outbox;
@@ -16,18 +17,19 @@ namespace Turboapi.Activities.XcSki;
 
 public static class XcSkiActivityModule
 {
-    public const string ConnectionStringName = "ActivitiesXcSki";
+    private const string Schema = "xc_ski";
 
-    public static IServiceCollection AddXcSkiActivityModule(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddXcSkiActivityModule(
+        this IServiceCollection services,
+        string connectionString)
     {
-        var connectionString = configuration.GetConnectionString(ConnectionStringName)
-            ?? throw new InvalidOperationException($"ConnectionStrings:{ConnectionStringName} is not configured");
-
         services.AddDbContext<XcSkiContext>((sp, options) =>
             options.UseNpgsql(connectionString, npgsql =>
             {
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<IXcSkiActivityReader, EfXcSkiActivityReader>();
@@ -62,6 +64,12 @@ public static class XcSkiActivityModule
         services.AddControllers().AddApplicationPart(typeof(XcSkiActivitiesController).Assembly);
         return services;
     }
+
+    public static Task MigrateXcSkiActivityModuleAsync(
+        this IServiceProvider services,
+        string connectionString,
+        CancellationToken cancellationToken = default)
+        => services.MigrateModuleDatabaseAsync<XcSkiContext>(connectionString, Schema, cancellationToken);
 
     public static IServiceCollection AddXcSkiActivityNatsSubscribers(this IServiceCollection services)
     {

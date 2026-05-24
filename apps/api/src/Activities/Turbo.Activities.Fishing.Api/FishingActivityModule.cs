@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Turbo.Hosting.Postgres;
 using Turbo.Messaging;
 using Turbo.Messaging.Nats;
 using Turbo.Outbox;
@@ -23,19 +24,22 @@ namespace Turboapi.Activities.Fishing;
 /// </summary>
 public static class FishingActivityModule
 {
-    public const string ConnectionStringName = "ActivitiesFishing";
+    private const string Schema = "fishing";
 
     public static IServiceCollection AddFishingActivityModule(
         this IServiceCollection services,
-        IConfiguration configuration)
+        string connectionString)
     {
-        var connectionString = ResolveConnectionString(configuration);
-
         services.AddDbContext<FishingContext>((sp, options) =>
             options.UseNpgsql(connectionString, npgsql =>
             {
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                // The reader Includes both target_species and depth_samples;
+                // EF warns about the cartesian explosion of a single query.
+                // Split into one query per Include — fine for our row counts.
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<IFishingActivityReader, EfFishingActivityReader>();
@@ -88,6 +92,12 @@ public static class FishingActivityModule
     /// host) after <c>AddNatsMessaging</c>. The modulith host uses
     /// in-process subscribers instead; see <c>SubscriberWiring</c>.
     /// </summary>
+    public static Task MigrateFishingActivityModuleAsync(
+        this IServiceProvider services,
+        string connectionString,
+        CancellationToken cancellationToken = default)
+        => services.MigrateModuleDatabaseAsync<FishingContext>(connectionString, Schema, cancellationToken);
+
     public static IServiceCollection AddFishingActivityNatsSubscribers(this IServiceCollection services)
     {
         services.AddNatsSubscriber<FishingActivityCreated>(
@@ -102,9 +112,4 @@ public static class FishingActivityModule
             "turbo.activities.fishing.ActivitySummaryDeleted", "fishing-summary-deleted");
         return services;
     }
-
-    private static string ResolveConnectionString(IConfiguration configuration) =>
-        configuration.GetConnectionString(ConnectionStringName)
-            ?? throw new InvalidOperationException(
-                $"ConnectionStrings:{ConnectionStringName} is not configured");
 }

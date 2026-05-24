@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Turbo.Hosting.Postgres;
 using Turbo.Messaging;
 using Turbo.Messaging.Nats;
 using Turbo.Outbox;
@@ -16,18 +17,19 @@ namespace Turboapi.Activities.Freediving;
 
 public static class FreedivingActivityModule
 {
-    public const string ConnectionStringName = "ActivitiesFreediving";
+    private const string Schema = "freediving";
 
-    public static IServiceCollection AddFreedivingActivityModule(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddFreedivingActivityModule(
+        this IServiceCollection services,
+        string connectionString)
     {
-        var connectionString = configuration.GetConnectionString(ConnectionStringName)
-            ?? throw new InvalidOperationException($"ConnectionStrings:{ConnectionStringName} is not configured");
-
         services.AddDbContext<FreedivingContext>((sp, options) =>
             options.UseNpgsql(connectionString, npgsql =>
             {
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<IFreedivingActivityReader, EfFreedivingActivityReader>();
@@ -65,6 +67,12 @@ public static class FreedivingActivityModule
         services.AddControllers().AddApplicationPart(typeof(FreedivingActivitiesController).Assembly);
         return services;
     }
+
+    public static Task MigrateFreedivingActivityModuleAsync(
+        this IServiceProvider services,
+        string connectionString,
+        CancellationToken cancellationToken = default)
+        => services.MigrateModuleDatabaseAsync<FreedivingContext>(connectionString, Schema, cancellationToken);
 
     public static IServiceCollection AddFreedivingActivityNatsSubscribers(this IServiceCollection services)
     {

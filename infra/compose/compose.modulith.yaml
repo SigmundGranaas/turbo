@@ -1,9 +1,12 @@
 name: turbo
 
-# Modulith deployment: a single Turbo.Host.Modulith process binding all three
-# modules against a single Postgres (three schemas — auth/geo/tracks). The
-# gateway runs in Modulith topology so /api/auth/*, /api/geo/*, /api/tracks/*
-# all forward to the one host. No NATS — events flow in-process inside the host.
+# Modulith deployment: a single Turbo.Host.Modulith process binding every
+# module against the per-service Postgres containers. Activities is one
+# database; each kind isolates itself with a Postgres schema (the host
+# never sees the schema names). The gateway runs in Modulith topology so
+# /api/auth/*, /api/geo/*, /api/tracks/*, /api/collections/*, and
+# /api/activities/* all forward to the one host. No NATS — events flow
+# in-process inside the host.
 #
 # Usage:
 #   docker compose -f compose.yaml -f compose.utils.yaml -f compose.modulith.yaml up
@@ -19,15 +22,19 @@ services:
       dockerfile: hosts/Turbo.Host.Modulith/Dockerfile
     container_name: turboapi_modulith
     hostname: modulith
+    # 5000 is squatted by macOS Control Center / AirPlay, 5050/5051 by
+    # PowerOffice on some dev machines — publish the modulith on 5055
+    # which is uncommon enough to dodge the usual conflicts. The gateway
+    # on 8080 is still the canonical entry point for the Flutter app.
     ports:
-      - "5000:8080"
+      - "5055:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Auth=Host=${AUTH_DB_HOST:-auth-db};Port=${AUTH_DB_PORT:-5432};Database=${AUTH_DB_NAME:-auth};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Activities=Host=${ACTIVITIES_DB_HOST:-activities-db};Port=${ACTIVITIES_DB_PORT:-5439};Database=${ACTIVITIES_DB_NAME:-activities};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=turboapi-modulith
     healthcheck:
@@ -48,7 +55,6 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - Topology=Modulith
     depends_on:
       turboapi-modulith:

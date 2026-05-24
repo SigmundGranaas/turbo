@@ -17,7 +17,6 @@ services:
       - "5001:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Auth=Host=${AUTH_DB_HOST:-auth-db};Port=${AUTH_DB_PORT:-5432};Database=${AUTH_DB_NAME:-auth};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=turboapi-auth
@@ -44,7 +43,6 @@ services:
       - "5002:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=turboapi-geo
@@ -71,7 +69,6 @@ services:
       - "5003:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=turboapi-tracks
@@ -98,7 +95,6 @@ services:
       - "5004:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=turboapi-collections
@@ -117,10 +113,8 @@ services:
 
   # Activities host: serves all six activity kinds (fishing / backcountry_ski
   # / hiking / xc_ski / packrafting / freediving) plus the cross-kind
-  # summaries projection. Owns seven databases — one cross-kind summary
-  # store + one per kind. Subscribes to its own outbox events over NATS
-  # (turbo.activities.*) via per-kind durable consumers; see each kind's
-  # Add{Kind}ActivityNatsSubscribers extension.
+  # summaries projection. One database, schema-per-kind — schemas are
+  # owned internally by each module (see Add{Kind}ActivityModule).
   turboapi-activities:
     build:
       context: ../../apps/api
@@ -131,14 +125,7 @@ services:
       - "5005:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Activities=Host=${ACTIVITIES_DB_HOST:-activities-db};Port=${ACTIVITIES_DB_PORT:-5439};Database=${ACTIVITIES_DB_NAME:-activities};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
-      - ConnectionStrings__ActivitiesFishing=Host=${ACTIVITIES_FISHING_DB_HOST:-activities-fishing-db};Port=${ACTIVITIES_FISHING_DB_PORT:-5440};Database=${ACTIVITIES_FISHING_DB_NAME:-fishing};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
-      - ConnectionStrings__ActivitiesBackcountrySki=Host=${ACTIVITIES_BCSKI_DB_HOST:-activities-bcski-db};Port=${ACTIVITIES_BCSKI_DB_PORT:-5441};Database=${ACTIVITIES_BCSKI_DB_NAME:-backcountry_ski};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
-      - ConnectionStrings__ActivitiesHiking=Host=${ACTIVITIES_HIKING_DB_HOST:-activities-hiking-db};Port=${ACTIVITIES_HIKING_DB_PORT:-5442};Database=${ACTIVITIES_HIKING_DB_NAME:-hiking};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
-      - ConnectionStrings__ActivitiesXcSki=Host=${ACTIVITIES_XCSKI_DB_HOST:-activities-xcski-db};Port=${ACTIVITIES_XCSKI_DB_PORT:-5443};Database=${ACTIVITIES_XCSKI_DB_NAME:-xc_ski};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
-      - ConnectionStrings__ActivitiesPackrafting=Host=${ACTIVITIES_PACKRAFTING_DB_HOST:-activities-packrafting-db};Port=${ACTIVITIES_PACKRAFTING_DB_PORT:-5444};Database=${ACTIVITIES_PACKRAFTING_DB_NAME:-packrafting};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
-      - ConnectionStrings__ActivitiesFreediving=Host=${ACTIVITIES_FREEDIVING_DB_HOST:-activities-freediving-db};Port=${ACTIVITIES_FREEDIVING_DB_PORT:-5445};Database=${ACTIVITIES_FREEDIVING_DB_NAME:-freediving};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
       - OTEL_SERVICE_NAME=turboapi-activities
       - Nats__Url=nats://nats:4222
@@ -163,7 +150,6 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:8080
       - Topology=Microservices
     depends_on:
       turboapi-auth:

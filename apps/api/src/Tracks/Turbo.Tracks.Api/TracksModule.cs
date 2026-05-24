@@ -32,6 +32,7 @@ public static class TracksModule
             {
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         services.AddScoped<ITrackWriteRepository, EfTrackWriteRepository>();

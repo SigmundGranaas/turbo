@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/features/activities/api.dart' show ActivityGeometry;
+
 import '../data/xc_ski_repository.dart';
+import '../models/xc_ski_activity.dart';
 import 'xc_ski_conditions_panel.dart';
+import 'xc_ski_create_screen.dart';
 
 class XcSkiDetailSheet extends ConsumerWidget {
   final String activityId;
@@ -37,6 +41,10 @@ class XcSkiDetailSheet extends ConsumerWidget {
               icon: const Icon(Icons.close), label: const Text('Close')),
             const Spacer(),
             TextButton.icon(
+              onPressed: () => _openEdit(context, a),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit')),
+            TextButton.icon(
               style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
               onPressed: () => _confirmDelete(context, ref, a.id, a.name),
               icon: const Icon(Icons.delete_outline), label: const Text('Delete')),
@@ -52,6 +60,18 @@ class XcSkiDetailSheet extends ConsumerWidget {
       SizedBox(width: 132, child: Text(label)),
       Expanded(child: Text(value)),
     ]));
+
+  void _openEdit(BuildContext context, XcSkiActivity a) {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => XcSkiCreateScreen(
+          seedGeometry: ActivityGeometry.fromRoute(a.route),
+          existing: a,
+        ),
+      ),
+    );
+  }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref, String id, String name) async {
     final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(

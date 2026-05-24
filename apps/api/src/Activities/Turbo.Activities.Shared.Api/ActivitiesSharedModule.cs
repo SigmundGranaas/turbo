@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
+using Turbo.Hosting.Postgres;
 using Turbo.Messaging;
 using Turbo.Outbox;
 using Turbo.Outbox.Postgres;
@@ -23,19 +24,20 @@ namespace Turboapi.Activities;
 /// </summary>
 public static class ActivitiesSharedModule
 {
-    public const string ConnectionStringName = "Activities";
+    private const string Schema = "activities";
 
     public static IServiceCollection AddActivitiesSharedModule(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        string connectionString)
     {
-        var connectionString = ResolveConnectionString(configuration);
-
         services.AddDbContext<ActivitySummariesContext>((sp, options) =>
             options.UseNpgsql(connectionString, npgsql =>
             {
                 npgsql.UseNetTopologySuite();
                 npgsql.EnableRetryOnFailure();
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", Schema);
+                npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
             }));
 
         // Shared domain services. Composition root: every kind handler picks
@@ -216,10 +218,11 @@ public static class ActivitiesSharedModule
         return services;
     }
 
-    private static string ResolveConnectionString(IConfiguration configuration) =>
-        configuration.GetConnectionString(ConnectionStringName)
-            ?? throw new InvalidOperationException(
-                $"ConnectionStrings:{ConnectionStringName} is not configured");
+    public static Task MigrateActivitiesSharedModuleAsync(
+        this IServiceProvider services,
+        string connectionString,
+        CancellationToken cancellationToken = default)
+        => services.MigrateModuleDatabaseAsync<ActivitySummariesContext>(connectionString, Schema, cancellationToken);
 
     /// <summary>
     /// Shared resilience profile applied to every external conditions

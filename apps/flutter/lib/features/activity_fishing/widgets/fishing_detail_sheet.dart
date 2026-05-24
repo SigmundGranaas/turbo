@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/features/activities/api.dart' show ActivityGeometry;
+
 import '../data/fishing_repository.dart';
+import '../models/fishing_activity.dart';
 import '../models/fishing_details.dart';
 import 'fishing_conditions_panel.dart';
+import 'fishing_create_screen.dart';
 
 /// Read-only detail surface for a fishing activity. The typed model
 /// drives the layout — no string-keyed map lookups.
@@ -64,6 +68,11 @@ class FishingDetailSheet extends ConsumerWidget {
                   ),
                   const Spacer(),
                   TextButton.icon(
+                    onPressed: () => _openEdit(context, a),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Edit'),
+                  ),
+                  TextButton.icon(
                     style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
                     onPressed: () => _confirmDelete(context, ref, a.id, a.name),
                     icon: const Icon(Icons.delete_outline),
@@ -89,6 +98,18 @@ class FishingDetailSheet extends ConsumerWidget {
         ShoreOrBoat.boat => 'Boat',
         ShoreOrBoat.either => 'Either',
       };
+
+  void _openEdit(BuildContext context, FishingActivity a) {
+    Navigator.of(context).pop(); // close the sheet
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FishingCreateScreen(
+          seedGeometry: ActivityGeometry.fromPoint(a.position),
+          existing: a,
+        ),
+      ),
+    );
+  }
 
   Future<void> _confirmDelete(
       BuildContext context, WidgetRef ref, String id, String name) async {

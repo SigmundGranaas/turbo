@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "Turbo.Host.Modulith": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5055",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "_comment": "Native dev points at compose.databases.shared.yaml's shared-db on 5432 + nats on 4222 (started via `docker compose -f infra/compose/compose.databases.shared.yaml up -d`). The activities module uses one DB; each kind isolates itself with a Postgres schema internally.",
+        "ConnectionStrings__Auth": "Host=localhost;Port=5432;Database=auth;Username=postgres;Password=yourpassword",
+        "ConnectionStrings__Geo": "Host=localhost;Port=5432;Database=geo;Username=postgres;Password=yourpassword",
+        "ConnectionStrings__Tracks": "Host=localhost;Port=5432;Database=tracks;Username=postgres;Password=yourpassword",
+        "ConnectionStrings__Collections": "Host=localhost;Port=5432;Database=collections;Username=postgres;Password=yourpassword",
+        "ConnectionStrings__Activities": "Host=localhost;Port=5432;Database=activities;Username=postgres;Password=yourpassword",
+        "Nats__Url": "nats://localhost:4222"
+      }
+    }
+  }
+}

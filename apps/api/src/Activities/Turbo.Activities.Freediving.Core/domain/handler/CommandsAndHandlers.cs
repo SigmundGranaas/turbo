@@ -81,7 +81,8 @@ public sealed class UpdateFreedivingActivityHandler
 
     public async Task Handle(UpdateFreedivingActivityCommand cmd)
     {
-        var existing = await _reader.GetByIdAsync(cmd.ActivityId)
+        var existing = await ReadModelCatchup.ReadAsync(
+                ct => _reader.GetByIdAsync(cmd.ActivityId, ct))
             ?? throw new ActivityNotFoundException(cmd.ActivityId);
         _ownerGuard.RequireOwner(cmd.CallerId, existing.Core.OwnerId);
 
@@ -127,7 +128,8 @@ public sealed class DeleteFreedivingActivityHandler
 
     public async Task Handle(DeleteFreedivingActivityCommand cmd)
     {
-        var existing = await _reader.GetByIdAsync(cmd.ActivityId)
+        var existing = await ReadModelCatchup.ReadAsync(
+                ct => _reader.GetByIdAsync(cmd.ActivityId, ct))
             ?? throw new ActivityNotFoundException(cmd.ActivityId);
         _ownerGuard.RequireOwner(cmd.CallerId, existing.Core.OwnerId);
 

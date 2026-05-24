@@ -17,20 +17,65 @@ Monorepo for the Turkart product.
 ## Quickstart
 
 ```sh
-# Flutter app
-cd apps/flutter
-flutter pub get && flutter run
-
-# .NET API
-cd apps/api
-dotnet restore Turboapi.sln
-dotnet build  Turboapi.sln
-
-# Local stack (databases + services)
-cd infra/compose
-docker compose --env-file ../env/.env.shared \
-  -f compose.yaml -f compose.databases.shared.yaml -f compose.services.yaml up
+cd apps/api && dotnet restore Turboapi.sln && dotnet build Turboapi.sln
+cd apps/flutter && flutter pub get
 ```
+
+### Day-to-day dev — fast loop with hot reload
+
+The fastest local-dev path is the modulith running natively under
+`dotnet watch`, against a containerised Postgres + NATS. Backend hot-
+reloads on save; Flutter hot-reloads on `r`.
+
+```sh
+# 1) infra: shared Postgres + NATS only (no .NET hosts in compose).
+docker compose -f infra/compose/compose.databases.shared.yaml up -d
+
+# 2) backend: modulith natively with hot reload. launchSettings points
+#    at the shared Postgres on localhost:5432 and binds to port 5055.
+cd apps/api
+dotnet watch --project hosts/Turbo.Host.Modulith run
+
+# 3) Flutter: hot reload is built in. r = reload, R = restart, q = quit.
+cd apps/flutter
+flutter run --dart-define=API_BASE_URL=http://localhost:5055
+```
+
+When `dotnet watch` can apply the change in-process it does so silently;
+when it can't (entry-point edits, type changes), it rebuilds + restarts
+the host. Either way you just save the file.
+
+### Full-stack compose (no native processes)
+
+Use these when you want the production-shaped deploy or you don't want
+local SDK installs. Backend goes through the gateway at
+`http://localhost:8080`; Flutter base URL is the same.
+
+```sh
+cd infra/compose
+
+# Modulith on one shared Postgres. One .NET host, no NATS broker
+# (events flow in-process).
+docker compose --env-file ../env/.env.shared \
+  -f compose.databases.shared.yaml -f compose.modulith.yaml up
+
+# Microservices topology, one Postgres container per service (mirrors prod).
+docker compose -f compose.yaml -f compose.services.yaml up
+
+# Microservices topology on a single shared Postgres (lighter on resources).
+docker compose --env-file ../env/.env.shared \
+  -f compose.databases.shared.yaml -f compose.services.yaml up
+```
+
+Cold-boot any of the three and the log output is clean (zero
+fail/warn/error lines); cross-flow smoke (register → login → POST an
+activity) returns 200/201 end-to-end.
+
+The activities module ships seven kinds (fishing / hiking / backcountry-ski /
+xc-ski / packrafting / freediving + the cross-kind summary store) but they
+all share one `activities` database and isolate themselves with Postgres
+schemas owned internally by each module. Hosts see a single
+`ConnectionStrings__Activities` regardless of topology.
 
 ## CI scoping
 

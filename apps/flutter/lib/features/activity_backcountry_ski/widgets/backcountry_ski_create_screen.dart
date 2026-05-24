@@ -5,15 +5,25 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/activities/api.dart';
 
 import '../data/backcountry_ski_repository.dart';
+import '../models/backcountry_ski_activity.dart';
 import '../models/backcountry_ski_details.dart';
 
-/// Stub create screen. The shell's picker hands us a seed point at the
+/// Stub create/edit screen. The shell's picker hands us a seed point at the
 /// long-press location; in this minimal v1 we let the user save a name +
 /// numeric stats and persist a synthetic 1-segment route around that
-/// seed. Drawing the full route is a follow-up (needs map interaction).
+/// seed (or the existing route on edit).
 class BackcountrySkiCreateScreen extends ConsumerStatefulWidget {
   final ActivityGeometry seedGeometry;
-  const BackcountrySkiCreateScreen({super.key, required this.seedGeometry});
+
+  /// If non-null the form opens in edit mode: fields and the drawn
+  /// route are prefilled from this activity and Save calls `update`.
+  final BackcountrySkiActivity? existing;
+
+  const BackcountrySkiCreateScreen({
+    super.key,
+    required this.seedGeometry,
+    this.existing,
+  });
 
   @override
   ConsumerState<BackcountrySkiCreateScreen> createState() =>
@@ -35,6 +45,24 @@ class _BackcountrySkiCreateScreenState
   bool _saving = false;
 
   @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _name.text = e.name;
+      _description.text = e.description ?? '';
+      _ascent.text = e.details.ascentMeters.toString();
+      _descent.text = e.details.descentMeters.toString();
+      _distance.text = e.details.distanceMeters.toString();
+      _elevMin.text = e.details.elevationMinMeters.toString();
+      _elevMax.text = e.details.elevationMaxMeters.toString();
+      _ates = e.details.atesRating;
+      _aspect = e.details.dominantAspect ?? Aspect.n;
+      _drawnRoute = List<LatLng>.from(e.route);
+    }
+  }
+
+  @override
   void dispose() {
     _name.dispose();
     _description.dispose();
@@ -46,6 +74,8 @@ class _BackcountrySkiCreateScreenState
     super.dispose();
   }
 
+  bool get _isEdit => widget.existing != null;
+
   LatLng get _seed => widget.seedGeometry.firstPoint ?? const LatLng(0, 0);
 
   List<LatLng>? _drawnRoute;
@@ -54,7 +84,7 @@ class _BackcountrySkiCreateScreenState
     final route = await Navigator.of(context).push<List<LatLng>>(
       MaterialPageRoute(
         builder: (ctx) => RouteDrawingScreen(
-          seedCenter: _seed,
+          seedCenter: _drawnRoute?.first ?? _seed,
           initialRoute: _drawnRoute,
           color: const Color(0xFF7A3CCB),
         ),
@@ -77,7 +107,9 @@ class _BackcountrySkiCreateScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New backcountry route')),
+      appBar: AppBar(
+        title: Text(_isEdit ? 'Edit backcountry route' : 'New backcountry route'),
+      ),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -123,8 +155,12 @@ class _BackcountrySkiCreateScreenState
               const SizedBox(height: 16),
               Text('ATES', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 4),
+              // `AtesRating.unrated` exists on the model — leaving it
+              // out of the segment list crashes SegmentedButton when
+              // editing a legacy activity whose rating is unrated.
               SegmentedButton<AtesRating>(
                 segments: const [
+                  ButtonSegment(value: AtesRating.unrated, label: Text('Unrated')),
                   ButtonSegment(value: AtesRating.simple, label: Text('Simple')),
                   ButtonSegment(value: AtesRating.challenging, label: Text('Challenging')),
                   ButtonSegment(value: AtesRating.complex, label: Text('Complex')),
@@ -206,15 +242,29 @@ class _BackcountrySkiCreateScreenState
         atesRating: _ates,
         dominantAspect: _aspect,
       );
-      await ref.read(backcountrySkiRepositoryProvider).create(
-            name: _name.text.trim(),
-            description: _description.text.trim().isEmpty
-                ? null
-                : _description.text.trim(),
-            route: _route,
-            details: details,
-          );
-      if (mounted) Navigator.of(context).pop();
+      final repo = ref.read(backcountrySkiRepositoryProvider);
+      final existing = widget.existing;
+      if (existing != null) {
+        await repo.update(
+          id: existing.id,
+          name: _name.text.trim(),
+          description: _description.text.trim().isEmpty
+              ? null
+              : _description.text.trim(),
+          route: _route,
+          details: details,
+        );
+      } else {
+        await repo.create(
+              name: _name.text.trim(),
+              description: _description.text.trim().isEmpty
+                  ? null
+                  : _description.text.trim(),
+              route: _route,
+              details: details,
+            );
+      }
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)

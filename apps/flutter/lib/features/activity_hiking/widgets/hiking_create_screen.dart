@@ -5,11 +5,21 @@ import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/activities/api.dart';
 
 import '../data/hiking_repository.dart';
+import '../models/hiking_activity.dart';
 import '../models/hiking_details.dart';
 
 class HikingCreateScreen extends ConsumerStatefulWidget {
   final ActivityGeometry seedGeometry;
-  const HikingCreateScreen({super.key, required this.seedGeometry});
+
+  /// If non-null the form opens in edit mode: fields and the drawn
+  /// route are prefilled from this activity and Save calls `update`.
+  final HikingActivity? existing;
+
+  const HikingCreateScreen({
+    super.key,
+    required this.seedGeometry,
+    this.existing,
+  });
 
   @override
   ConsumerState<HikingCreateScreen> createState() => _HikingCreateScreenState();
@@ -33,12 +43,36 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
   bool _saving = false;
 
   @override
+  void initState() {
+    super.initState();
+    final e = widget.existing;
+    if (e != null) {
+      _name.text = e.name;
+      _description.text = e.description ?? '';
+      _distance.text = e.details.distanceMeters.toString();
+      _ascent.text = e.details.ascentMeters.toString();
+      _descent.text = e.details.descentMeters.toString();
+      _elevMin.text = e.details.elevationMinMeters.toString();
+      _elevMax.text = e.details.elevationMaxMeters.toString();
+      _hours.text = e.details.estimatedHours?.toString() ?? '';
+      _difficulty = e.details.difficulty;
+      _surface = e.details.surface;
+      _marking = e.details.marking;
+      _water = e.details.hasWaterSources;
+      _shelter = e.details.hasShelter;
+      _drawnRoute = List<LatLng>.from(e.route);
+    }
+  }
+
+  @override
   void dispose() {
     _name.dispose(); _description.dispose();
     _distance.dispose(); _ascent.dispose(); _descent.dispose();
     _elevMin.dispose(); _elevMax.dispose(); _hours.dispose();
     super.dispose();
   }
+
+  bool get _isEdit => widget.existing != null;
 
   LatLng get _seed => widget.seedGeometry.firstPoint ?? const LatLng(0, 0);
   List<LatLng>? _drawnRoute;
@@ -49,7 +83,7 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
     final route = await Navigator.of(context).push<List<LatLng>>(
       MaterialPageRoute(
         builder: (ctx) => RouteDrawingScreen(
-          seedCenter: _seed,
+          seedCenter: _drawnRoute?.first ?? _seed,
           initialRoute: _drawnRoute,
           color: const Color(0xFF2E7D32),
         ),
@@ -69,7 +103,7 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New hike')),
+      appBar: AppBar(title: Text(_isEdit ? 'Edit hike' : 'New hike')),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -86,7 +120,11 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
               Row(children: [
                 Expanded(child: _num(_distance, 'Distance m')),
                 const SizedBox(width: 8),
-                Expanded(child: _num(_hours, 'Hours')),
+                // `estimatedHours` is nullable on the model — leave
+                // empty to omit it. Editing an activity that was
+                // saved without an estimate would otherwise be
+                // blocked by a "Number required" validator.
+                Expanded(child: _num(_hours, 'Hours', required: false)),
               ]),
               const SizedBox(height: 8),
               Row(children: [
@@ -157,10 +195,24 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
     );
   }
 
-  Widget _num(TextEditingController c, String label) => TextFormField(
-    controller: c, keyboardType: TextInputType.number,
-    decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true),
-    validator: (v) => double.tryParse(v ?? '') == null ? 'Number required' : null);
+  Widget _num(
+    TextEditingController c,
+    String label, {
+    bool required = true,
+  }) =>
+      TextFormField(
+        controller: c,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+            isDense: true),
+        validator: (v) {
+          final s = v?.trim() ?? '';
+          if (s.isEmpty) return required ? 'Number required' : null;
+          return double.tryParse(s) == null ? 'Number required' : null;
+        },
+      );
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -176,11 +228,21 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
         estimatedHours: double.tryParse(_hours.text),
         hasWaterSources: _water, hasShelter: _shelter,
       );
-      await ref.read(hikingRepositoryProvider).create(
-        name: _name.text.trim(),
-        description: _description.text.trim().isEmpty ? null : _description.text.trim(),
-        route: _route, details: details);
-      if (mounted) Navigator.of(context).pop();
+      final repo = ref.read(hikingRepositoryProvider);
+      final existing = widget.existing;
+      if (existing != null) {
+        await repo.update(
+          id: existing.id,
+          name: _name.text.trim(),
+          description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+          route: _route, details: details);
+      } else {
+        await repo.create(
+          name: _name.text.trim(),
+          description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+          route: _route, details: details);
+      }
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e')));

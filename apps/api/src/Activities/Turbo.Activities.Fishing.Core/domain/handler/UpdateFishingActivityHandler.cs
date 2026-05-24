@@ -34,7 +34,12 @@ public sealed class UpdateFishingActivityHandler
 
     public async Task Handle(UpdateFishingActivityCommand cmd)
     {
-        var existing = await _reader.GetByIdAsync(cmd.ActivityId)
+        // The fishing projection is async; a fast client that POSTs and
+        // then PATCHes the new id can race the projector. Brief retry
+        // before declaring the activity missing — see
+        // <see cref="ReadModelCatchup"/>.
+        var existing = await ReadModelCatchup.ReadAsync(
+                ct => _reader.GetByIdAsync(cmd.ActivityId, ct))
             ?? throw new ActivityNotFoundException(cmd.ActivityId);
 
         _ownerGuard.RequireOwner(cmd.CallerId, existing.Core.OwnerId);

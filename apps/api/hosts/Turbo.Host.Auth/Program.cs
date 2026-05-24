@@ -1,4 +1,5 @@
 using Turbo.Hosting.Postgres;
+using Turbo.Messaging.Nats;
 using Turboapi.Auth;
 using Turboapi.Auth.Infrastructure.Persistence;
 using Turboapi.Auth.Presentation.Middleware;
@@ -26,6 +27,19 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddAuthModule(builder.Configuration);
+
+// AuthModule registers an OutboxDispatcherHostedService that needs an
+// IMessageTransport. The modulith satisfies it with in-process
+// transport; the microservices-topology host uses NATS JetStream.
+// Auth publishes only — no subscribers (other modules don't react to
+// auth events).
+builder.Services.AddNatsMessaging(o =>
+{
+    o.Url = builder.Configuration["Nats:Url"] ?? "nats://localhost:4222";
+    o.StreamName = "TURBO_AUTH";
+    o.Subjects = ["turbo.auth.>"];
+    o.SubjectPrefix = "turbo.auth";
+});
 
 var app = builder.Build();
 await app.Services.MigrateModuleDatabaseAsync<AuthDbContext>(

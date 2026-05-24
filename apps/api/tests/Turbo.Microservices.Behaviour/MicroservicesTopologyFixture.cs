@@ -4,13 +4,13 @@ using Testcontainers.PostgreSql;
 using DotNet.Testcontainers.Containers;
 using Turbo.Behaviour.Testing;
 using Turbo.Hosting.Postgres;
-using Turboapi.Activities.BackcountrySki.data;
-using Turboapi.Activities.data;
-using Turboapi.Activities.Fishing.data;
-using Turboapi.Activities.Freediving.data;
-using Turboapi.Activities.Hiking.data;
-using Turboapi.Activities.Packrafting.data;
-using Turboapi.Activities.XcSki.data;
+using Turboapi.Activities;
+using Turboapi.Activities.BackcountrySki;
+using Turboapi.Activities.Fishing;
+using Turboapi.Activities.Freediving;
+using Turboapi.Activities.Hiking;
+using Turboapi.Activities.Packrafting;
+using Turboapi.Activities.XcSki;
 using Turboapi.Auth.Infrastructure.Persistence;
 using Turboapi.Collections.data;
 using Turboapi.Geo.domain.query.model;
@@ -54,32 +54,18 @@ public sealed class MicroservicesTopologyFixture : IAsyncLifetime
         var tracksConn = RepoLayout.WithDatabase(baseConn, "tracks");
         var geoConn = RepoLayout.WithDatabase(baseConn, "geo");
         var collectionsConn = RepoLayout.WithDatabase(baseConn, "collections");
-        // The activities host owns seven databases — one cross-kind summary
-        // store plus one per kind. Matching the modulith fixture so the same
-        // user-visible contract holds across both deploy shapes.
+        // The activities host now owns ONE database with per-kind
+        // Postgres schemas (fishing, hiking, …). The schema names are an
+        // implementation detail owned by each module — this fixture only
+        // hands the host the single connection string.
         var activitiesConn = RepoLayout.WithDatabase(baseConn, "activities");
-        var actFishingConn = RepoLayout.WithDatabase(baseConn, "activities_fishing");
-        var actBcSkiConn = RepoLayout.WithDatabase(baseConn, "activities_backcountry_ski");
-        var actHikingConn = RepoLayout.WithDatabase(baseConn, "activities_hiking");
-        var actXcSkiConn = RepoLayout.WithDatabase(baseConn, "activities_xc_ski");
-        var actPackraftingConn = RepoLayout.WithDatabase(baseConn, "activities_packrafting");
-        var actFreedivingConn = RepoLayout.WithDatabase(baseConn, "activities_freediving");
 
         var natsUrl = TurboTestContainers.NatsUrl(_nats);
         _authFactory = BuildFactory<Turbo.Host.Auth.AuthHostProgram>(authConn, natsUrl, "Auth");
         _tracksFactory = BuildFactory<Turbo.Host.Tracks.TracksHostProgram>(tracksConn, natsUrl, "Tracks");
         _geoFactory = BuildFactory<Turbo.Host.Geo.GeoHostProgram>(geoConn, natsUrl, "Geo");
         _collectionsFactory = BuildFactory<Turbo.Host.Collections.CollectionsHostProgram>(collectionsConn, natsUrl, "Collections");
-        _activitiesFactory = BuildActivitiesFactory(natsUrl, new Dictionary<string, string>
-        {
-            ["ConnectionStrings:Activities"] = activitiesConn,
-            ["ConnectionStrings:ActivitiesFishing"] = actFishingConn,
-            ["ConnectionStrings:ActivitiesBackcountrySki"] = actBcSkiConn,
-            ["ConnectionStrings:ActivitiesHiking"] = actHikingConn,
-            ["ConnectionStrings:ActivitiesXcSki"] = actXcSkiConn,
-            ["ConnectionStrings:ActivitiesPackrafting"] = actPackraftingConn,
-            ["ConnectionStrings:ActivitiesFreediving"] = actFreedivingConn,
-        });
+        _activitiesFactory = BuildFactory<Turbo.Host.Activities.ActivitiesHostProgram>(activitiesConn, natsUrl, "Activities");
 
         // EF Core's MigrateAsync needs the target DB to exist; the helper
         // creates it lazily. Each host's Program.cs migrates at startup
@@ -89,13 +75,13 @@ public sealed class MicroservicesTopologyFixture : IAsyncLifetime
         await _tracksFactory.Services.MigrateModuleDatabaseAsync<TrackReadContext>(tracksConn);
         await _geoFactory.Services.MigrateModuleDatabaseAsync<LocationReadContext>(geoConn);
         await _collectionsFactory.Services.MigrateModuleDatabaseAsync<CollectionsReadContext>(collectionsConn);
-        await _activitiesFactory.Services.MigrateModuleDatabaseAsync<ActivitySummariesContext>(activitiesConn);
-        await _activitiesFactory.Services.MigrateModuleDatabaseAsync<FishingContext>(actFishingConn);
-        await _activitiesFactory.Services.MigrateModuleDatabaseAsync<BackcountrySkiContext>(actBcSkiConn);
-        await _activitiesFactory.Services.MigrateModuleDatabaseAsync<HikingContext>(actHikingConn);
-        await _activitiesFactory.Services.MigrateModuleDatabaseAsync<XcSkiContext>(actXcSkiConn);
-        await _activitiesFactory.Services.MigrateModuleDatabaseAsync<PackraftingContext>(actPackraftingConn);
-        await _activitiesFactory.Services.MigrateModuleDatabaseAsync<FreedivingContext>(actFreedivingConn);
+        await _activitiesFactory.Services.MigrateActivitiesSharedModuleAsync(activitiesConn);
+        await _activitiesFactory.Services.MigrateFishingActivityModuleAsync(activitiesConn);
+        await _activitiesFactory.Services.MigrateBackcountrySkiActivityModuleAsync(activitiesConn);
+        await _activitiesFactory.Services.MigrateHikingActivityModuleAsync(activitiesConn);
+        await _activitiesFactory.Services.MigrateXcSkiActivityModuleAsync(activitiesConn);
+        await _activitiesFactory.Services.MigratePackraftingActivityModuleAsync(activitiesConn);
+        await _activitiesFactory.Services.MigrateFreedivingActivityModuleAsync(activitiesConn);
     }
 
     public async Task DisposeAsync()
@@ -121,27 +107,6 @@ public sealed class MicroservicesTopologyFixture : IAsyncLifetime
         });
     }
 
-    /// <summary>
-    /// The activities host owns seven connection strings — one for the
-    /// cross-kind summaries DB plus one per kind. Per-key UseSetting calls
-    /// keep the same env-var override surface the host expects.
-    /// </summary>
-    private static WebApplicationFactory<Turbo.Host.Activities.ActivitiesHostProgram>
-        BuildActivitiesFactory(string natsUrl, IDictionary<string, string> connectionStrings)
-    {
-        return new WebApplicationFactory<Turbo.Host.Activities.ActivitiesHostProgram>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.UseEnvironment("Test");
-                builder.UseContentRoot(
-                    RepoLayout.HostContentRoot<Turbo.Host.Activities.ActivitiesHostProgram>());
-                builder.UseSetting("Nats:Url", natsUrl);
-                foreach (var (key, value) in connectionStrings)
-                {
-                    builder.UseSetting(key, value);
-                }
-            });
-    }
 }
 
 [CollectionDefinition("MicroservicesTopology")]
