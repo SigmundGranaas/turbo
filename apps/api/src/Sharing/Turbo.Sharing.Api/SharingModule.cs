@@ -3,10 +3,12 @@ using Turbo.Messaging;
 using Turbo.Outbox;
 using Turbo.Outbox.Postgres;
 using Turboapi.Collections.domain.events;
+using Turboapi.Geo.domain.events;
 using Turboapi.Sharing.data;
 using Turboapi.Sharing.domain;
 using Turboapi.Sharing.domain.service;
 using Turboapi.Sharing.integration;
+using Turboapi.Tracks.domain.events;
 
 namespace Turboapi.Sharing;
 
@@ -42,11 +44,25 @@ public static class SharingModule
 
         // Integration: subscribe to payload-module events and maintain the
         // Resource sidecar. New shareable types add another handler here.
+        services.AddScoped<ResourceSidecar>();
+
         services.AddScoped<CollectionResourceSidecarHandler>();
         services.AddScoped<IEventHandler<CollectionCreated>>(sp =>
             sp.GetRequiredService<CollectionResourceSidecarHandler>());
         services.AddScoped<IEventHandler<CollectionDeleted>>(sp =>
             sp.GetRequiredService<CollectionResourceSidecarHandler>());
+
+        services.AddScoped<MarkerResourceSidecarHandler>();
+        services.AddScoped<IEventHandler<LocationCreated>>(sp =>
+            sp.GetRequiredService<MarkerResourceSidecarHandler>());
+        services.AddScoped<IEventHandler<LocationDeleted>>(sp =>
+            sp.GetRequiredService<MarkerResourceSidecarHandler>());
+
+        services.AddScoped<PathResourceSidecarHandler>();
+        services.AddScoped<IEventHandler<TrackCreated>>(sp =>
+            sp.GetRequiredService<PathResourceSidecarHandler>());
+        services.AddScoped<IEventHandler<TrackDeleted>>(sp =>
+            sp.GetRequiredService<PathResourceSidecarHandler>());
 
         services.AddScoped<IOutbox<SharingScope>, PgOutbox<SharingReadContext, SharingScope>>();
         services.AddScoped<IUnitOfWork<SharingScope>, PgUnitOfWork<SharingReadContext, SharingScope>>();

@@ -19,6 +19,8 @@
     <ProjectReference Include="..\Turbo.Sharing.Contracts\Turbo.Sharing.Contracts.csproj" />
     <ProjectReference Include="..\Turbo.Sharing.Infrastructure\Turbo.Sharing.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Collections\Turbo.Collections.Contracts\Turbo.Collections.Contracts.csproj" />
+    <ProjectReference Include="..\..\Geo\Turbo.Geo.Contracts\Turbo.Geo.Contracts.csproj" />
+    <ProjectReference Include="..\..\Tracks\Turbo.Tracks.Contracts\Turbo.Tracks.Contracts.csproj" />
     <ProjectReference Include="..\..\Shared\Turbo.Messaging.Nats\Turbo.Messaging.Nats.csproj" />
     <ProjectReference Include="..\..\..\TurboAuthentication\TurboAuthentication.csproj" />
   </ItemGroup>
