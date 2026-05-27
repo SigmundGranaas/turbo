@@ -111,6 +111,39 @@ services:
     networks:
       - turbo
 
+  turboapi-sharing:
+    build:
+      context: ../../apps/api
+      dockerfile: hosts/Turbo.Host.Sharing/Dockerfile
+    container_name: turboapi_sharing
+    hostname: sharing
+    ports:
+      - "5006:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Sharing=Host=${SHARING_DB_HOST:-sharing-db};Port=${SHARING_DB_PORT:-5434};Database=${SHARING_DB_NAME:-sharing};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      # Sharing's sidecar subscribers read from peer streams to maintain
+      # Resource envelopes; the backfill reads the read tables once at
+      # startup. Connection strings for the source modules are optional —
+      # missing ones are skipped.
+      - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_SERVICE_NAME=turboapi-sharing
+      - Nats__Url=nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - turbo
+
   # Activities host: serves all six activity kinds (fishing / backcountry_ski
   # / hiking / xc_ski / packrafting / freediving) plus the cross-kind
   # summaries projection. One database, schema-per-kind — schemas are
@@ -159,6 +192,8 @@ services:
       turboapi-tracks:
         condition: service_healthy
       turboapi-collections:
+        condition: service_healthy
+      turboapi-sharing:
         condition: service_healthy
       turboapi-activities:
         condition: service_healthy

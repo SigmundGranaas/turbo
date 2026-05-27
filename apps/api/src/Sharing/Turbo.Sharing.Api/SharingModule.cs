@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Turbo.Messaging;
+using Turbo.Messaging.Nats;
 using Turbo.Outbox;
 using Turbo.Outbox.Postgres;
 using Turboapi.Collections.domain.events;
@@ -71,6 +72,37 @@ public static class SharingModule
 
         services.AddControllers().AddApplicationPart(typeof(SharingModule).Assembly);
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers JetStream consumers on the Collections, Geo, and Tracks
+    /// streams so the standalone Turbo.Host.Sharing process keeps the
+    /// Resource sidecar in sync. The publishing services own their
+    /// respective streams (TURBO_COLLECTIONS / TURBO_GEO / TURBO_TRACKS)
+    /// and create them on boot; the Sharing host only binds consumers.
+    ///
+    /// In the modulith deployment, in-process subscribers handle the
+    /// same events and these NATS registrations are skipped (the
+    /// modulith host doesn't call this).
+    /// </summary>
+    public static IServiceCollection AddSharingNatsSubscribers(this IServiceCollection services)
+    {
+        // Collections sidecar
+        services.AddNatsSubscriberOnStream<CollectionCreated>(
+            "TURBO_COLLECTIONS", "turbo.collections.CollectionCreated", "sharing-collection-created");
+        services.AddNatsSubscriberOnStream<CollectionDeleted>(
+            "TURBO_COLLECTIONS", "turbo.collections.CollectionDeleted", "sharing-collection-deleted");
+        // Markers sidecar
+        services.AddNatsSubscriberOnStream<LocationCreated>(
+            "TURBO_GEO", "turbo.geo.LocationCreated", "sharing-location-created");
+        services.AddNatsSubscriberOnStream<LocationDeleted>(
+            "TURBO_GEO", "turbo.geo.LocationDeleted", "sharing-location-deleted");
+        // Paths sidecar
+        services.AddNatsSubscriberOnStream<TrackCreated>(
+            "TURBO_TRACKS", "turbo.tracks.TrackCreated", "sharing-track-created");
+        services.AddNatsSubscriberOnStream<TrackDeleted>(
+            "TURBO_TRACKS", "turbo.tracks.TrackDeleted", "sharing-track-deleted");
         return services;
     }
 

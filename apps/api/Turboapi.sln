@@ -174,6 +174,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Turbo.Sharing.Api", "src\Sh
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Turbo.Sharing.Behaviour", "tests\Turbo.Sharing.Behaviour\Turbo.Sharing.Behaviour.csproj", "{D4FFCE3D-5FE9-4A09-B504-05FCB390F4C7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Turbo.Host.Sharing", "hosts\Turbo.Host.Sharing\Turbo.Host.Sharing.csproj", "{442D8197-A08E-489E-8FA0-760CBEF56113}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -1060,6 +1062,18 @@ Global
 		{D4FFCE3D-5FE9-4A09-B504-05FCB390F4C7}.Release|x64.Build.0 = Release|Any CPU
 		{D4FFCE3D-5FE9-4A09-B504-05FCB390F4C7}.Release|x86.ActiveCfg = Release|Any CPU
 		{D4FFCE3D-5FE9-4A09-B504-05FCB390F4C7}.Release|x86.Build.0 = Release|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Debug|x64.Build.0 = Debug|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Debug|x86.Build.0 = Debug|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Release|Any CPU.Build.0 = Release|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Release|x64.ActiveCfg = Release|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Release|x64.Build.0 = Release|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Release|x86.ActiveCfg = Release|Any CPU
+		{442D8197-A08E-489E-8FA0-760CBEF56113}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -1127,5 +1141,6 @@ Global
 		{0C783B07-C021-43F7-8C99-FDFF0C6BDD39} = {EB682BE7-4470-E274-DF39-1AE5C83DEC77}
 		{84B55747-9A16-45F7-9B73-509F4788044A} = {EB682BE7-4470-E274-DF39-1AE5C83DEC77}
 		{D4FFCE3D-5FE9-4A09-B504-05FCB390F4C7} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{442D8197-A08E-489E-8FA0-760CBEF56113} = {2F3EF1A3-B2B0-B28C-122D-FFB85167A4CE}
 	EndGlobalSection
 EndGlobal

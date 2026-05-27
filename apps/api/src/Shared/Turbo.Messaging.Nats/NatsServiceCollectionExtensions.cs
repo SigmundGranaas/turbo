@@ -31,12 +31,35 @@ public static class NatsServiceCollectionExtensions
         string subject,
         string durableName)
         where TEvent : class, IDomainEvent
+        => services.AddNatsSubscriberCore<TEvent>(subject, durableName, streamName: null);
+
+    /// <summary>
+    /// Cross-service variant: binds the consumer to a stream owned by
+    /// another service (e.g. Sharing's sidecar subscribing to events on
+    /// the TURBO_COLLECTIONS stream). The stream must already exist —
+    /// the owning service creates it on boot.
+    /// </summary>
+    public static IServiceCollection AddNatsSubscriberOnStream<TEvent>(
+        this IServiceCollection services,
+        string streamName,
+        string subject,
+        string durableName)
+        where TEvent : class, IDomainEvent
+        => services.AddNatsSubscriberCore<TEvent>(subject, durableName, streamName);
+
+    private static IServiceCollection AddNatsSubscriberCore<TEvent>(
+        this IServiceCollection services,
+        string subject,
+        string durableName,
+        string? streamName)
+        where TEvent : class, IDomainEvent
     {
         services.AddSingleton(new NatsSubscriberRegistration
         {
             Subject = subject,
             DurableName = durableName,
             EventType = typeof(TEvent),
+            StreamName = streamName,
             Dispatcher = async (sp, data, ct) =>
             {
                 var evt = JsonSerializer.Deserialize<TEvent>(data.Span)
