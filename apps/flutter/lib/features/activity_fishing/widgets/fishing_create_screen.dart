@@ -36,6 +36,9 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
   final _name = TextEditingController();
   final _description = TextEditingController();
   final _accessNotes = TextEditingController();
+  final _pressureMin = TextEditingController();
+  final _pressureMax = TextEditingController();
+  final _windMax = TextEditingController();
   WaterKind _waterKind = WaterKind.river;
   ShoreOrBoat _shoreOrBoat = ShoreOrBoat.shore;
   bool _saving = false;
@@ -50,6 +53,12 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
       _accessNotes.text = e.details.accessNotes ?? '';
       _waterKind = e.details.waterKind;
       _shoreOrBoat = e.details.shoreOrBoat;
+      final p = e.details.preferred;
+      if (p != null) {
+        _pressureMin.text = p.pressureMinHpa?.toString() ?? '';
+        _pressureMax.text = p.pressureMaxHpa?.toString() ?? '';
+        _windMax.text = p.windMaxMs?.toString() ?? '';
+      }
     }
   }
 
@@ -58,6 +67,9 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
     _name.dispose();
     _description.dispose();
     _accessNotes.dispose();
+    _pressureMin.dispose();
+    _pressureMax.dispose();
+    _windMax.dispose();
     super.dispose();
   }
 
@@ -131,6 +143,28 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
                 ),
                 maxLines: 2,
               ),
+              const SizedBox(height: 20),
+              Text('Preferred conditions (optional)',
+                  style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 4),
+              Text(
+                'Used to score weather and tides for this spot.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                      child: _preferredIntField(
+                          _pressureMin, 'Pressure min (hPa)')),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: _preferredIntField(
+                          _pressureMax, 'Pressure max (hPa)')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _preferredDoubleField(_windMax, 'Max wind (m/s)'),
               const SizedBox(height: 12),
               ListTile(
                 leading: const Icon(Icons.location_on_outlined),
@@ -157,6 +191,50 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
     );
   }
 
+  Widget _preferredIntField(TextEditingController c, String label) =>
+      TextFormField(
+        controller: c,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        validator: (v) {
+          final t = v?.trim() ?? '';
+          if (t.isEmpty) return null;
+          return int.tryParse(t) == null ? 'Whole number' : null;
+        },
+      );
+
+  Widget _preferredDoubleField(TextEditingController c, String label) =>
+      TextFormField(
+        controller: c,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        validator: (v) {
+          final t = v?.trim() ?? '';
+          if (t.isEmpty) return null;
+          return double.tryParse(t) == null ? 'Number' : null;
+        },
+      );
+
+  PreferredConditions? _readPreferred() {
+    final pMin = int.tryParse(_pressureMin.text.trim());
+    final pMax = int.tryParse(_pressureMax.text.trim());
+    final wind = double.tryParse(_windMax.text.trim());
+    if (pMin == null && pMax == null && wind == null) return null;
+    return PreferredConditions(
+      pressureMinHpa: pMin,
+      pressureMaxHpa: pMax,
+      windMaxMs: wind,
+    );
+  }
+
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _saving = true);
@@ -165,6 +243,7 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
         waterKind: _waterKind,
         shoreOrBoat: _shoreOrBoat,
         accessNotes: _accessNotes.text.trim().isEmpty ? null : _accessNotes.text.trim(),
+        preferred: _readPreferred(),
       );
       final repo = ref.read(fishingRepositoryProvider);
       final existing = widget.existing;
