@@ -43,3 +43,5 @@ export 'providers/sharing_providers.dart'
         allFriendshipsProvider,
         myGroupsProvider,
         grantsForResourceProvider;
+export 'widgets/share_sheet.dart' show ShareSheet;
+export 'widgets/friends_page.dart' show FriendsPage;
