@@ -35,6 +35,7 @@ public static class SharingModule
         services.AddScoped<IGroupService, EfGroupService>();
         services.AddScoped<IGrantService, EfGrantService>();
         services.AddScoped<IShareInviteService, EfShareInviteService>();
+        services.AddScoped<IResourceSyncService, EfResourceSyncService>();
 
         services.AddScoped<IOutbox<SharingScope>, PgOutbox<SharingReadContext, SharingScope>>();
         services.AddScoped<IUnitOfWork<SharingScope>, PgUnitOfWork<SharingReadContext, SharingScope>>();
