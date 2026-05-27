@@ -42,6 +42,7 @@ public static class SharingModule
         services.AddScoped<IGrantService, EfGrantService>();
         services.AddScoped<IShareInviteService, EfShareInviteService>();
         services.AddScoped<IResourceSyncService, EfResourceSyncService>();
+        services.AddScoped<IUserProfileService, EfUserProfileService>();
 
         // Integration: subscribe to payload-module events and maintain the
         // Resource sidecar. New shareable types add another handler here.

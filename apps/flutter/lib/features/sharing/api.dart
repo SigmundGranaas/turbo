@@ -31,7 +31,8 @@ export 'models/sharing_models.dart'
         Grant,
         LinkGrant,
         LinkRedemption,
-        ShareInvite;
+        ShareInvite,
+        UserProfile;
 export 'data/sharing_api_client.dart'
     show SharingApiClient, sharingApiClientProvider;
 export 'data/role_cache_repository.dart'
@@ -44,7 +45,8 @@ export 'providers/sharing_providers.dart'
         acceptedFriendsProvider,
         allFriendshipsProvider,
         myGroupsProvider,
-        grantsForResourceProvider;
+        grantsForResourceProvider,
+        myProfileProvider;
 export 'widgets/share_sheet.dart' show ShareSheet;
 export 'widgets/friends_page.dart' show FriendsPage;
 export 'widgets/groups_page.dart' show GroupsPage, GroupDetailPage;

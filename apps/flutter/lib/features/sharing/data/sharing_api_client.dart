@@ -182,6 +182,31 @@ class SharingApiClient {
     return LinkRedemption.fromJson(r.data as Map<String, dynamic>);
   }
 
+  // ── User profile / friend code ───────────────────────────────────────
+
+  /// Returns the calling user's sharing profile (friend code + creation
+  /// timestamp). The server generates the friend code lazily on first
+  /// read, so this is also "ensure-profile-exists".
+  Future<UserProfile> getMyProfile() async {
+    final r = await _api.get('/api/sharing/me/profile');
+    _ensureOk(r);
+    return UserProfile.fromJson(r.data as Map<String, dynamic>);
+  }
+
+  /// Resolves a friend code to a user id, or null if no profile
+  /// matches. The "turbo-" prefix is accepted but optional.
+  Future<String?> lookupUserByFriendCode(String code) async {
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return null;
+    final r = await _api.get(
+      '/api/sharing/users/lookup',
+      queryParameters: {'code': trimmed},
+    );
+    if (r.statusCode == 404) return null;
+    _ensureOk(r);
+    return (r.data as Map<String, dynamic>)['userId'] as String;
+  }
+
   // ── Invites ──────────────────────────────────────────────────────────
   Future<List<ShareInvite>> listMyInvites() async {
     final r = await _api.get(_invitesBase);

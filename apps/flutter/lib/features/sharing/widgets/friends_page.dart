@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/sharing_api_client.dart';
@@ -148,37 +149,46 @@ class _AddTab extends ConsumerStatefulWidget {
 }
 
 class _AddTabState extends ConsumerState<_AddTab> {
-  final _userIdController = TextEditingController();
+  final _friendCodeController = TextEditingController();
   final _emailController = TextEditingController();
   bool _busy = false;
 
   @override
   void dispose() {
-    _userIdController.dispose();
+    _friendCodeController.dispose();
     _emailController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final profile = ref.watch(myProfileProvider);
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Add a friend already on the platform',
+          _YourCodeCard(profile: profile),
+          const SizedBox(height: 24),
+          const Text('Add a friend by code',
               style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text(
+            'Ask your friend for their turbo-… code and paste it here.',
+            style: TextStyle(color: Colors.black54),
+          ),
           const SizedBox(height: 8),
           TextField(
-            controller: _userIdController,
+            controller: _friendCodeController,
             decoration: const InputDecoration(
-              labelText: 'User id',
+              labelText: 'Friend code',
+              hintText: 'turbo-ablekite',
               border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 8),
           FilledButton(
-            onPressed: _busy ? null : _sendRequest,
+            onPressed: _busy ? null : _sendRequestByCode,
             child: const Text('Send friend request'),
           ),
           const SizedBox(height: 24),
@@ -186,6 +196,11 @@ class _AddTabState extends ConsumerState<_AddTab> {
           const SizedBox(height: 16),
           const Text('Invite someone by email',
               style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text(
+            'They\'ll get the invite when they sign up.',
+            style: TextStyle(color: Colors.black54),
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _emailController,
@@ -204,16 +219,28 @@ class _AddTabState extends ConsumerState<_AddTab> {
     );
   }
 
-  Future<void> _sendRequest() async {
-    final text = _userIdController.text.trim();
+  Future<void> _sendRequestByCode() async {
+    final text = _friendCodeController.text.trim();
     if (text.isEmpty) return;
     setState(() => _busy = true);
     try {
-      await ref.read(sharingApiClientProvider).requestFriendship(text);
-      _userIdController.clear();
+      final userId =
+          await ref.read(sharingApiClientProvider).lookupUserByFriendCode(text);
+      if (userId == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No user with that code.')),
+          );
+        }
+        return;
+      }
+      await ref.read(sharingApiClientProvider).requestFriendship(userId);
+      _friendCodeController.clear();
       widget.onSent();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request sent')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request sent')),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -243,5 +270,57 @@ class _AddTabState extends ConsumerState<_AddTab> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+}
+
+class _YourCodeCard extends StatelessWidget {
+  final AsyncValue<UserProfile?> profile;
+  const _YourCodeCard({required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Your friend code',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text('Share this with someone to let them add you.',
+                style: TextStyle(color: Colors.black54)),
+            const SizedBox(height: 8),
+            profile.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (e, _) => Text('Could not load: $e'),
+              data: (p) => p == null
+                  ? const Text('Sign in to see your code.')
+                  : Row(children: [
+                      Expanded(
+                        child: SelectableText(
+                          p.displayCode,
+                          style: const TextStyle(
+                              fontFamily: 'monospace', fontSize: 18),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy_outlined),
+                        tooltip: 'Copy',
+                        onPressed: () async {
+                          await Clipboard.setData(ClipboardData(text: p.displayCode));
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Code copied')),
+                            );
+                          }
+                        },
+                      ),
+                    ]),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

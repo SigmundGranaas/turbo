@@ -62,3 +62,12 @@ final grantsForResourceProvider =
   final api = ref.watch(sharingApiClientProvider);
   return api.listGrantsForResource(resourceId);
 });
+
+/// The calling user's friend-code profile. Server generates the code
+/// lazily on first read, so simply watching this provider both fetches
+/// and (when needed) creates the profile.
+final myProfileProvider = FutureProvider<UserProfile?>((ref) async {
+  if (!ref.watch(sharingAvailableProvider)) return null;
+  final api = ref.watch(sharingApiClientProvider);
+  return api.getMyProfile();
+});

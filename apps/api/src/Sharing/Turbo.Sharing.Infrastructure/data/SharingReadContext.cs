@@ -12,6 +12,7 @@ public class SharingReadContext : DbContext
     public DbSet<GroupEntity> Groups { get; set; } = null!;
     public DbSet<GroupMemberEntity> GroupMembers { get; set; } = null!;
     public DbSet<ShareInviteEntity> ShareInvites { get; set; } = null!;
+    public DbSet<UserProfileEntity> UserProfiles { get; set; } = null!;
     public DbSet<OutboxRow> Outbox { get; set; } = null!;
 
     public SharingReadContext(DbContextOptions<SharingReadContext> options) : base(options) { }
@@ -157,6 +158,23 @@ public class SharingReadContext : DbContext
 
             entity.HasIndex(e => new { e.InviteeEmail, e.RedeemedAt })
                 .HasDatabaseName("idx_share_invites_email_pending");
+        });
+
+        modelBuilder.Entity<UserProfileEntity>(entity =>
+        {
+            entity.ToTable("user_profiles", "sharing");
+            entity.HasKey(e => e.UserId);
+
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.FriendCode).HasColumnName("friend_code").IsRequired();
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at").IsRequired()
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .ValueGeneratedOnAdd();
+
+            entity.HasIndex(e => e.FriendCode)
+                .HasDatabaseName("idx_user_profiles_friend_code")
+                .IsUnique();
         });
     }
 }

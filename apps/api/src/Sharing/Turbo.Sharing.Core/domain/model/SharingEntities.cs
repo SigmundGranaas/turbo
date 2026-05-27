@@ -73,3 +73,15 @@ public class ShareInviteEntity
     public DateTime? RedeemedAt { get; set; }
     public Guid? RedeemedByUserId { get; set; }
 }
+
+/// <summary>
+/// Per-user sharing profile. Owns the human-readable friend code that
+/// friends use to find each other ("turbo-ablekite" style). Generated
+/// lazily on first read of the calling user's own profile.
+/// </summary>
+public class UserProfileEntity
+{
+    public required Guid UserId { get; set; }
+    public required string FriendCode { get; set; }
+    public DateTime CreatedAt { get; set; }
+}

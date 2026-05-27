@@ -260,6 +260,29 @@ class LinkRedemption {
       );
 }
 
+/// The calling user's sharing identity. The `friendCode` is the
+/// shareable identifier friends use to find each other.
+class UserProfile {
+  final String userId;
+  final String friendCode;
+  final DateTime createdAt;
+  const UserProfile({
+    required this.userId,
+    required this.friendCode,
+    required this.createdAt,
+  });
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+        userId: json['userId'] as String,
+        friendCode: json['friendCode'] as String,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+      );
+
+  /// The friend-code formatted for display, including the "turbo-" prefix
+  /// readers expect when seeing it out of context.
+  String get displayCode => 'turbo-$friendCode';
+}
+
 class ShareInvite {
   final String id;
   final String inviterId;

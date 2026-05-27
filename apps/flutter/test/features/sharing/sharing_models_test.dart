@@ -118,4 +118,25 @@ void main() {
       expect(lg.role, GrantRole.viewer);
     });
   });
+
+  group('UserProfile', () {
+    test('parses the wire shape', () {
+      final p = UserProfile.fromJson({
+        'userId': 'u1',
+        'friendCode': 'ablekite',
+        'createdAt': '2026-05-27T10:00:00.000Z',
+      });
+      expect(p.userId, 'u1');
+      expect(p.friendCode, 'ablekite');
+    });
+
+    test('displayCode prefixes the code with turbo-', () {
+      final p = UserProfile.fromJson({
+        'userId': 'u1',
+        'friendCode': 'ablekite',
+        'createdAt': '2026-05-27T10:00:00.000Z',
+      });
+      expect(p.displayCode, 'turbo-ablekite');
+    });
+  });
 }

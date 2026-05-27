@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Turboapi.Sharing.data;
@@ -11,9 +12,11 @@ using Turboapi.Sharing.data;
 namespace Turboapi.Sharing.data.Migrations
 {
     [DbContext(typeof(SharingReadContext))]
-    partial class SharingReadContextModelSnapshot : ModelSnapshot
+    [Migration("20260527213104_AddUserProfiles")]
+    partial class AddUserProfiles
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
