@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/api/api_client.dart';
-import 'package:turbo/features/auth/data/auth_providers.dart';
+import 'package:turbo/features/auth/api.dart';
 
 import '../models/sharing_models.dart';
 

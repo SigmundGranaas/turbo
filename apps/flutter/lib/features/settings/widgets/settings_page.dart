@@ -15,6 +15,7 @@ import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/data/settings_provider.dart';
 import 'package:turbo/features/settings/widgets/location_icon_picker_sheet.dart';
+import 'package:turbo/features/sharing/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -87,6 +88,20 @@ class SettingsPage extends ConsumerWidget {
           },
         ),
         const SizedBox(height: AppSpacing.xl),
+        if (ref.watch(sharingAvailableProvider)) ...[
+          const AppSectionHeader('Sharing'),
+          AppGroupedCard(
+            child: ListTile(
+              leading: const Icon(Icons.group_outlined),
+              title: const Text('Friends'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FriendsPage()),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+        ],
         const AppSectionHeader('Recording'),
         _buildKeepScreenOnToggle(context, ref, settings.keepScreenOnWhileRecording),
         const SizedBox(height: AppSpacing.s),

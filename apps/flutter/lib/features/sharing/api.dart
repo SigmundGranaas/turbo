@@ -37,6 +37,7 @@ export 'data/role_cache_repository.dart'
     show RoleCacheRepository, roleCacheRepositoryProvider;
 export 'providers/sharing_providers.dart'
     show
+        sharingAvailableProvider,
         canEditProvider,
         effectiveRoleProvider,
         acceptedFriendsProvider,
