@@ -20,6 +20,26 @@ services:
     networks:
       - turbo
 
+  sharing-db:
+    image: postgres:17-alpine
+    container_name: sharing-db
+    ports:
+      - "5434:5434"
+    environment:
+      POSTGRES_DB: sharing
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_USER: postgres
+    volumes:
+      - sharing_data:/var/lib/postgresql/data
+    command: -p 5434
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sharing -p 5434"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - turbo
+
   geo-db:
     image: postgis/postgis:17-master
     # postgis/postgis publishes amd64-only manifests. Pin platform so the
@@ -130,6 +150,7 @@ services:
 
 volumes:
   auth_data:
+  sharing_data:
   geo_data:
   tracks_data:
   collections_data:
