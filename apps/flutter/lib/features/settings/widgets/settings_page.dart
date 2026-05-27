@@ -91,14 +91,25 @@ class SettingsPage extends ConsumerWidget {
         if (ref.watch(sharingAvailableProvider)) ...[
           const AppSectionHeader('Sharing'),
           AppGroupedCard(
-            child: ListTile(
-              leading: const Icon(Icons.group_outlined),
-              title: const Text('Friends'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FriendsPage()),
+            child: Column(children: [
+              ListTile(
+                leading: const Icon(Icons.person_outline),
+                title: const Text('Friends'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const FriendsPage()),
+                ),
               ),
-            ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.group_outlined),
+                title: const Text('Groups'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const GroupsPage()),
+                ),
+              ),
+            ]),
           ),
           const SizedBox(height: AppSpacing.xl),
         ],

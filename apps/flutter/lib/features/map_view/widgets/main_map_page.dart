@@ -316,7 +316,8 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       );
     }
 
-    return SharedPayloadListener(
+    return SharedLinkRedemptionListener(
+      child: SharedPayloadListener(
       onCenter: (point) => _smoothMoveTo(point),
       child: LayoutBuilder(
       builder: (context, constraints) {
@@ -356,6 +357,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
         }
       },
       ),
+    ),
     );
   }
 

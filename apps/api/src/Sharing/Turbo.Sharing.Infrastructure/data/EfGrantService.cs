@@ -71,6 +71,62 @@ public sealed class EfGrantService : IGrantService
             g.GrantedBy, g.GrantedAt, g.ExpiresAt)).ToList();
     }
 
+    public async Task<LinkRedemptionDto> RedeemLinkAsync(Guid redeemerId, string linkToken, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(linkToken))
+            throw new ArgumentException("Link token must not be empty", nameof(linkToken));
+
+        var now = DateTime.UtcNow;
+        var linkGrant = await _db.Grants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(g => g.LinkToken == linkToken
+                                      && (g.ExpiresAt == null || g.ExpiresAt > now),
+                                 cancellationToken)
+            ?? throw new InvalidOperationException("Link not found or expired.");
+
+        var resource = await _db.Resources
+            .AsNoTracking()
+            .Where(r => r.Id == linkGrant.ResourceId && r.DeletedAt == null)
+            .Select(r => new { r.Id, r.Type, r.OwnerId })
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new ResourceNotFoundException(linkGrant.ResourceId);
+
+        // Owners of the resource don't need a redemption — just return the
+        // resource id so the client can navigate.
+        if (resource.OwnerId == redeemerId)
+            return new LinkRedemptionDto(resource.Id, resource.Type, "owner");
+
+        var role = RoleExtensions.ParseRole(linkGrant.Role);
+        var subjectUser = SubjectType.User.ToWire();
+        var existing = await _db.Grants
+            .FirstOrDefaultAsync(g => g.ResourceId == resource.Id
+                                      && g.SubjectType == subjectUser
+                                      && g.SubjectId == redeemerId,
+                                 cancellationToken);
+
+        if (existing is null)
+        {
+            _db.Grants.Add(new GrantEntity
+            {
+                ResourceId = resource.Id,
+                SubjectType = subjectUser,
+                SubjectId = redeemerId,
+                Role = linkGrant.Role,
+                GrantedBy = linkGrant.GrantedBy,
+                GrantedAt = now,
+                ExpiresAt = linkGrant.ExpiresAt,
+            });
+        }
+        else if (RoleExtensions.ParseRole(existing.Role) == Role.Viewer && role == Role.Editor)
+        {
+            // Promote viewer to editor if the link's stronger.
+            existing.Role = linkGrant.Role;
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return new LinkRedemptionDto(resource.Id, resource.Type, linkGrant.Role);
+    }
+
     private async Task<GrantDto> UpsertAsync(Grant domain, CancellationToken cancellationToken)
     {
         var subjectType = domain.SubjectType.ToWire();

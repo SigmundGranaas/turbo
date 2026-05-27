@@ -178,6 +178,56 @@ public sealed class SharingBehaviour
     }
 
     [Fact]
+    public async Task link_grant_can_be_redeemed_by_a_third_party_into_a_user_grant()
+    {
+        var owner = Guid.NewGuid();
+        var stranger = Guid.NewGuid();
+        var resourceId = await SeedResourceAsync(owner);
+
+        var ownerClient = _host.CreateClientAs(owner);
+        var linkResp = await ownerClient.PostAsJsonAsync("/api/sharing/grants/links",
+            new GrantAsLinkRequest(resourceId, "editor", null));
+        linkResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var link = (await linkResp.Content.ReadFromJsonAsync<LinkGrantDto>())!;
+
+        var strangerClient = _host.CreateClientAs(stranger);
+        var redeem = await strangerClient.PostAsync($"/api/sharing/grants/links/{link.LinkToken}/redeem", null);
+        redeem.StatusCode.Should().Be(HttpStatusCode.OK);
+        var redemption = (await redeem.Content.ReadFromJsonAsync<LinkRedemptionDto>())!;
+        redemption.ResourceId.Should().Be(resourceId);
+        redemption.Role.Should().Be("editor");
+
+        // After redemption the stranger has a normal user grant — visible
+        // through the access-control resolver.
+        using var scope = ScopedSharingServices(out var ac);
+        (await ac.CanWriteAsync(stranger, resourceId)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task redeeming_an_unknown_link_token_returns_not_found()
+    {
+        var anyone = Guid.NewGuid();
+        var client = _host.CreateClientAs(anyone);
+        var redeem = await client.PostAsync($"/api/sharing/grants/links/not-a-real-token/redeem", null);
+        redeem.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task redeeming_a_link_as_the_owner_is_a_no_op_that_returns_owner_role()
+    {
+        var owner = Guid.NewGuid();
+        var resourceId = await SeedResourceAsync(owner);
+        var ownerClient = _host.CreateClientAs(owner);
+        var linkResp = await ownerClient.PostAsJsonAsync("/api/sharing/grants/links",
+            new GrantAsLinkRequest(resourceId, "viewer", null));
+        var link = (await linkResp.Content.ReadFromJsonAsync<LinkGrantDto>())!;
+
+        var redeem = await ownerClient.PostAsync($"/api/sharing/grants/links/{link.LinkToken}/redeem", null);
+        var dto = (await redeem.Content.ReadFromJsonAsync<LinkRedemptionDto>())!;
+        dto.Role.Should().Be("owner");
+    }
+
+    [Fact]
     public async Task friend_invite_redemption_creates_accepted_friendship()
     {
         var inviter = Guid.NewGuid();

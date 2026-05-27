@@ -111,4 +111,22 @@ public class GrantsController : ControllerBase
         catch (ResourceNotFoundException) { return NotFound(); }
         catch (AccessDeniedException) { return Forbid(); }
     }
+
+    /// <summary>
+    /// Redeems a link token in favour of the calling user. Materializes the
+    /// link grant as a per-user grant so the resource flows through normal
+    /// sync afterwards. Idempotent. Returns the resource id and type so the
+    /// client can navigate.
+    /// </summary>
+    [HttpPost("links/{token}/redeem")]
+    public async Task<ActionResult<LinkRedemptionDto>> RedeemLink(string token)
+    {
+        try
+        {
+            return Ok(await _grants.RedeemLinkAsync(GetAuthenticatedUserId(), token));
+        }
+        catch (ResourceNotFoundException) { return NotFound(); }
+        catch (InvalidOperationException ex) { return NotFound(new ErrorResponse("Link invalid", ex.Message)); }
+        catch (ArgumentException ex) { return BadRequest(new ErrorResponse("Invalid request", ex.Message)); }
+    }
 }

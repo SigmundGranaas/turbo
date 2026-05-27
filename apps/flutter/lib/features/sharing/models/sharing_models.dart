@@ -240,6 +240,26 @@ class LinkGrant {
       );
 }
 
+/// Result of POST /api/sharing/grants/links/{token}/redeem. The role
+/// is the effective role on the redeemed resource: "viewer", "editor",
+/// or "owner" (if the redeemer is the owner — no grant created).
+class LinkRedemption {
+  final String resourceId;
+  final String resourceType;
+  final String role;
+  const LinkRedemption({
+    required this.resourceId,
+    required this.resourceType,
+    required this.role,
+  });
+
+  factory LinkRedemption.fromJson(Map<String, dynamic> json) => LinkRedemption(
+        resourceId: json['resourceId'] as String,
+        resourceType: json['resourceType'] as String,
+        role: json['role'] as String,
+      );
+}
+
 class ShareInvite {
   final String id;
   final String inviterId;

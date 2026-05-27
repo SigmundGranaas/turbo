@@ -174,6 +174,14 @@ class SharingApiClient {
     _ensureNoContent(r);
   }
 
+  /// Redeems a link token as the calling user. Server materializes a
+  /// user grant on the same resource so it shows up in normal sync.
+  Future<LinkRedemption> redeemLink(String token) async {
+    final r = await _api.post('$_grantsBase/links/$token/redeem', options: _json());
+    _ensureOk(r);
+    return LinkRedemption.fromJson(r.data as Map<String, dynamic>);
+  }
+
   // ── Invites ──────────────────────────────────────────────────────────
   Future<List<ShareInvite>> listMyInvites() async {
     final r = await _api.get(_invitesBase);

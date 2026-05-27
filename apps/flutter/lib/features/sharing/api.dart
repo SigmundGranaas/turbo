@@ -30,6 +30,7 @@ export 'models/sharing_models.dart'
         GroupMemberInfo,
         Grant,
         LinkGrant,
+        LinkRedemption,
         ShareInvite;
 export 'data/sharing_api_client.dart'
     show SharingApiClient, sharingApiClientProvider;
@@ -46,3 +47,8 @@ export 'providers/sharing_providers.dart'
         grantsForResourceProvider;
 export 'widgets/share_sheet.dart' show ShareSheet;
 export 'widgets/friends_page.dart' show FriendsPage;
+export 'widgets/groups_page.dart' show GroupsPage, GroupDetailPage;
+export 'widgets/shared_link_redemption_listener.dart'
+    show SharedLinkRedemptionListener;
+export 'data/pending_link_redemption_provider.dart'
+    show pendingLinkRedemptionProvider, PendingLinkRedemptionNotifier;

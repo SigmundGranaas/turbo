@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/config/env_config.dart';
 
 import '../data/sharing_api_client.dart';
 import '../models/sharing_models.dart';
@@ -111,6 +112,32 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
                       ),
               ),
               const SizedBox(height: 16),
+              const Text('Share with a group', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Consumer(builder: (ctx, ref, _) {
+                final groups = ref.watch(myGroupsProvider);
+                return groups.when(
+                  loading: () => const LinearProgressIndicator(),
+                  error: (e, _) => Text('Failed to load groups: $e'),
+                  data: (list) => list.isEmpty
+                      ? const Text('No groups yet. Create one from Groups.')
+                      : Column(
+                          children: list
+                              .map((g) => ListTile(
+                                    dense: true,
+                                    leading: const Icon(Icons.group_outlined),
+                                    title: Text(g.name),
+                                    subtitle: Text('${g.members.length} member${g.members.length == 1 ? '' : 's'}'),
+                                    trailing: TextButton(
+                                      onPressed: _busy ? null : () => _grantToGroup(g.id),
+                                      child: const Text('Share'),
+                                    ),
+                                  ))
+                              .toList(),
+                        ),
+                );
+              }),
+              const SizedBox(height: 16),
               const Text('Or get a link', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               FilledButton.icon(
@@ -154,15 +181,29 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
     }
   }
 
+  Future<void> _grantToGroup(String groupId) async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(sharingApiClientProvider).grantToGroup(widget.resourceId, groupId, _role);
+      ref.invalidate(grantsForResourceProvider(widget.resourceId));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Shared with group')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to share: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _createLink() async {
     setState(() => _busy = true);
     try {
       final link = await ref.read(sharingApiClientProvider).grantAsLink(widget.resourceId, _role);
       ref.invalidate(grantsForResourceProvider(widget.resourceId));
       if (mounted) {
-        await Clipboard.setData(ClipboardData(text: link.linkToken));
+        final url = '${EnvironmentConfig.webBaseUrl}/share/r/${link.linkToken}';
+        await Clipboard.setData(ClipboardData(text: url));
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Link token copied to clipboard')),
+          const SnackBar(content: Text('Share link copied to clipboard')),
         );
       }
     } catch (e) {
