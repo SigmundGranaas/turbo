@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Turbo.Messaging;
 using Turbo.Outbox;
 using Turbo.Outbox.Postgres;
+using Turboapi.Collections.domain.events;
 using Turboapi.Sharing.data;
 using Turboapi.Sharing.domain;
 using Turboapi.Sharing.domain.service;
+using Turboapi.Sharing.integration;
 
 namespace Turboapi.Sharing;
 
@@ -36,6 +39,14 @@ public static class SharingModule
         services.AddScoped<IGrantService, EfGrantService>();
         services.AddScoped<IShareInviteService, EfShareInviteService>();
         services.AddScoped<IResourceSyncService, EfResourceSyncService>();
+
+        // Integration: subscribe to payload-module events and maintain the
+        // Resource sidecar. New shareable types add another handler here.
+        services.AddScoped<CollectionResourceSidecarHandler>();
+        services.AddScoped<IEventHandler<CollectionCreated>>(sp =>
+            sp.GetRequiredService<CollectionResourceSidecarHandler>());
+        services.AddScoped<IEventHandler<CollectionDeleted>>(sp =>
+            sp.GetRequiredService<CollectionResourceSidecarHandler>());
 
         services.AddScoped<IOutbox<SharingScope>, PgOutbox<SharingReadContext, SharingScope>>();
         services.AddScoped<IUnitOfWork<SharingScope>, PgUnitOfWork<SharingReadContext, SharingScope>>();
