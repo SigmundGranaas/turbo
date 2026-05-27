@@ -9,6 +9,7 @@ using Turboapi.Geo;
 using Turboapi.Geo.domain.query.model;
 using Turboapi.Sharing;
 using Turboapi.Sharing.data;
+using Turboapi.Sharing.integration;
 using Turboapi.Tracks;
 using Turboapi.Tracks.data;
 using Turboapi.Activities;
@@ -78,6 +79,11 @@ await app.Services.MigrateHikingActivityModuleAsync(activitiesConn);
 await app.Services.MigrateXcSkiActivityModuleAsync(activitiesConn);
 await app.Services.MigratePackraftingActivityModuleAsync(activitiesConn);
 await app.Services.MigrateFreedivingActivityModuleAsync(activitiesConn);
+
+// Backfill Resource envelopes for any pre-existing collections / markers /
+// paths. Safe to re-run; rows already present are skipped. New entities
+// flow through the event-driven sidecars in Turboapi.Sharing.integration.
+await app.Services.BackfillSharingResourcesAsync(builder.Configuration);
 
 app.UseRouting();
 app.UseAuthentication();
