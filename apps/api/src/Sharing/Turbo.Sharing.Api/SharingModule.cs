@@ -3,6 +3,7 @@ using Turbo.Outbox;
 using Turbo.Outbox.Postgres;
 using Turboapi.Sharing.data;
 using Turboapi.Sharing.domain;
+using Turboapi.Sharing.domain.service;
 
 namespace Turboapi.Sharing;
 
@@ -30,6 +31,10 @@ public static class SharingModule
             }));
 
         services.AddScoped<IAccessControl, EfAccessControl>();
+        services.AddScoped<IFriendshipService, EfFriendshipService>();
+        services.AddScoped<IGroupService, EfGroupService>();
+        services.AddScoped<IGrantService, EfGrantService>();
+        services.AddScoped<IShareInviteService, EfShareInviteService>();
 
         services.AddScoped<IOutbox<SharingScope>, PgOutbox<SharingReadContext, SharingScope>>();
         services.AddScoped<IUnitOfWork<SharingScope>, PgUnitOfWork<SharingReadContext, SharingScope>>();
