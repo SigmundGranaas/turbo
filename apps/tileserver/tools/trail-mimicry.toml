@@ -1,0 +1,117 @@
+# Trail-mimicry corpus. Each scenario picks a real trail end-to-end
+# (`from`/`to` are WGS84 lon/lat) and defines deviation thresholds the
+# off-trail mesh solver must hit when graph snapping is disabled. The
+# rationale: a well-tuned off-trail cost model should track an actual
+# hiker's chosen path. Big deviations point at missing terrain inputs
+# (water polygons, wetland, ridges) or weights that misrank obstacles.
+
+[[scenario]]
+name = "valnesfjord-trail-end-to-end-3km"
+from = [15.454534832286805, 67.43375929693732]
+to   = [15.432785205291996, 67.45663077560094]
+profile = "foot"
+# Thresholds: mesh path must stay within ~150 m of the trail on
+# average, never exceed 500 m peak deviation, and not be more than
+# 1.6x as long. These bounds match human-route tolerances for the
+# scale of trail this is (3 km in mixed coastal terrain).
+mean_deviation_max_m = 150.0
+max_deviation_max_m  = 500.0
+length_ratio_max     = 1.6
+
+[[scenario]]
+name = "valnesfjord-short-1km"
+from = [15.45, 67.4400]
+to   = [15.44, 67.4470]
+profile = "foot"
+mean_deviation_max_m = 100.0
+max_deviation_max_m  = 400.0
+length_ratio_max     = 1.6
+
+[[scenario]]
+name = "oslo-marka-5km"
+from = [10.71, 59.96]
+to   = [10.66, 60.00]
+profile = "foot"
+mean_deviation_max_m = 200.0
+max_deviation_max_m  = 700.0
+length_ratio_max     = 1.7
+
+[[scenario]]
+name = "bergen-2km-roads"
+from = [5.328, 60.385]
+to   = [5.305, 60.400]
+profile = "foot"
+# Urban routing is a graph-dominated problem — the mesh's job here
+# is just "don't cross the fjord". Many pedestrian-valid streets
+# are roughly equivalent, so the deviation threshold is loose; the
+# critical assertion is the length ratio stays bounded (no 5× detour)
+# and the path doesn't get vetoed by water.
+mean_deviation_max_m = 400.0
+max_deviation_max_m  = 700.0
+length_ratio_max     = 1.6
+
+# ----- Wilderness: long off-trail trip ---------------------------
+[[scenario]]
+name = "jotunheimen-galdhopiggen-approach"
+from = [8.395, 61.624]
+to   = [8.355, 61.652]
+profile = "foot"
+# Approach to Galdhøpiggen from Spiterstulen. Real trail follows
+# the ridge to Galdhøkollen via Svellnose. Mesh should track it.
+mean_deviation_max_m = 250.0
+max_deviation_max_m  = 600.0
+length_ratio_max     = 1.5
+
+# ----- Coastal: navigating around small fjords -------------------
+[[scenario]]
+name = "trondelag-coastal-2km"
+from = [10.408, 63.435]
+to   = [10.430, 63.420]
+profile = "foot"
+mean_deviation_max_m = 250.0
+max_deviation_max_m  = 600.0
+length_ratio_max     = 1.6
+
+# ----- Phase 7: anisotropic FMM stress cases ---------------------
+# Picked specifically to exercise contour-following behaviour. Each
+# expects the solver to bend around a slope feature rather than cut
+# straight across.
+
+[[scenario]]
+name = "skolten-ridge-traverse"
+from = [16.0825, 68.3530]
+to   = [16.1015, 68.3470]
+profile = "foot"
+# Crossing the Skolten ridge in Narvik. The straight line goes
+# straight up the steepest part of the headwall; a real hiker
+# (and our FMM red line in the manual screenshots) detours along
+# the contour to the saddle. Tight on length ratio to make sure
+# the FMM doesn't take a silly multi-km detour.
+mean_deviation_max_m = 200.0
+max_deviation_max_m  = 500.0
+length_ratio_max     = 1.6
+
+[[scenario]]
+name = "narvik-rombakstotta-contour"
+from = [17.7800, 68.4660]
+to   = [17.8050, 68.4720]
+profile = "foot"
+# East flank of Rombakstøtta. Cliff bands force the route onto a
+# specific contour; the legacy Theta\* mode famously routed
+# straight up the cliff in the user's screenshots.
+mean_deviation_max_m = 250.0
+max_deviation_max_m  = 600.0
+length_ratio_max     = 1.7
+
+[[scenario]]
+name = "lofoten-coastal-fjord-detour"
+from = [14.0400, 68.2100]
+to   = [14.0800, 68.2250]
+profile = "foot"
+# Steep Lofoten coast — slope and water both penalise the direct
+# line. A correct route follows the bench above the water until
+# the saddle. Generous deviation budget because the bench may be
+# >300 m above the water in places.
+mean_deviation_max_m = 350.0
+max_deviation_max_m  = 800.0
+length_ratio_max     = 1.8

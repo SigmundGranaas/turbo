@@ -1,0 +1,40 @@
+[package]
+name = "turbo-tiles-pathfind"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The off-trail pathfinding engine. Pure-Rust mesh + Theta* algorithm
+# at the core. Stage 6 adds the `Pathfinder` composition layer that
+# stitches this together with the elev/mask/graph primitives.
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+turbo-tiles-elev.workspace = true
+turbo-tiles-mask.workspace = true
+turbo-tiles-graph.workspace = true
+turbo-tiles-geom.workspace = true
+turbo-tiles-vector.workspace = true
+turbo-tiles-fmm.workspace = true
+thiserror.workspace = true
+rstar.workspace = true
+toml = "0.8"
+# `sync` feature is enough for the bounded mpsc the streaming
+# recorder fans events through; we don't need the runtime, fs, or
+# any I/O Tokio facilities inside the pathfind crate.
+tokio = { workspace = true, default-features = false, features = ["sync"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+byteorder.workspace = true
+bytemuck.workspace = true
+turbo-tiles-artifacts.workspace = true
+# Sync HTTP client for the scenario corpus integration test, which
+# posts queries to a running tileserver instead of opening the
+# multi-GB artifacts in-process. Tiny, no Tokio dep, exactly what
+# we need.
+ureq = { version = "2", default-features = false, features = ["json", "rustls"] }
+toml = "0.8"
+serde_json = { workspace = true }

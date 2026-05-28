@@ -4,7 +4,16 @@ members = [
     "crates/turbo-tiles-core",
     "crates/turbo-tiles-db",
     "crates/turbo-tiles-mvt",
-    "crates/turbo-tiles-routing",
+    "crates/turbo-tiles-artifacts",
+    "crates/turbo-tiles-geom",
+    "crates/turbo-tiles-vector",
+    "crates/turbo-tiles-pathfind",
+    "crates/turbo-tiles-fmm",
+    "crates/turbo-tiles-elev",
+    "crates/turbo-tiles-mask",
+    "crates/turbo-tiles-graph",
+    "crates/turbo-tiles-search",
+    "crates/turbo-tiles-build",
     "crates/turbo-tiles-ingest",
     "crates/turbo-tiles-auth",
     "crates/turbo-tiles-api",
@@ -22,9 +31,22 @@ publish = false
 turbo-tiles-core = { path = "crates/turbo-tiles-core" }
 turbo-tiles-db = { path = "crates/turbo-tiles-db" }
 turbo-tiles-mvt = { path = "crates/turbo-tiles-mvt" }
-turbo-tiles-routing = { path = "crates/turbo-tiles-routing" }
+turbo-tiles-artifacts = { path = "crates/turbo-tiles-artifacts" }
+turbo-tiles-geom = { path = "crates/turbo-tiles-geom" }
+turbo-tiles-vector = { path = "crates/turbo-tiles-vector" }
+turbo-tiles-pathfind = { path = "crates/turbo-tiles-pathfind" }
+turbo-tiles-fmm = { path = "crates/turbo-tiles-fmm" }
+turbo-tiles-elev = { path = "crates/turbo-tiles-elev" }
+turbo-tiles-mask = { path = "crates/turbo-tiles-mask" }
+turbo-tiles-graph = { path = "crates/turbo-tiles-graph" }
+turbo-tiles-search = { path = "crates/turbo-tiles-search" }
+turbo-tiles-build = { path = "crates/turbo-tiles-build" }
 turbo-tiles-ingest = { path = "crates/turbo-tiles-ingest" }
 turbo-tiles-auth = { path = "crates/turbo-tiles-auth" }
+
+# PNG encoding for the Mapbox Terrain-RGB DEM tile endpoint. `default-
+# features = false` keeps us from pulling decoders for JPEG, WebP, etc.
+image = { version = "0.25", default-features = false, features = ["png"] }
 turbo-tiles-api = { path = "crates/turbo-tiles-api" }
 turbo-tiles-admin = { path = "crates/turbo-tiles-admin" }
 
@@ -57,6 +79,17 @@ hex = "0.4"
 bytes = "1"
 http = "1"
 url = "2"
+
+# New deps for primitives architecture.
+memmap2 = "0.9"
+rstar = { version = "0.12", features = ["serde"] }
+fst = "0.4"
+bincode = "1.3"
+byteorder = "1.5"
+bytemuck = "1.16"
+zstd = "0.13"
+parking_lot = "0.12"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [profile.release]
 codegen-units = 1

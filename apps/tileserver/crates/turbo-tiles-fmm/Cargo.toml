@@ -1,0 +1,20 @@
+[package]
+name = "turbo-tiles-fmm"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Fast Marching Method solver for the off-trail pathfinder. Solves
+# the eikonal PDE on a regular grid producing a continuous arrival-
+# time field; the optimal route is the gradient-descent integral
+# curve of that field. Phase 1: isotropic 2D Sethian. Later phases
+# extend to anisotropic Finsler (Tobler) and curvature-penalised
+# state-augmented (x, y, θ) (Euler-elastica).
+#
+# Generic over a `Metric` trait so the same solver can serve future
+# avalanche-runout and visibility-graph workloads.
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
