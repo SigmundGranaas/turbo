@@ -190,10 +190,18 @@ void main() {
   });
 
   group('MarkerInfoSheet delete flow', () {
+    // Delete now lives in the "More" overflow menu (the inline row keeps
+    // Navigate / Edit / Export). Open it before reaching for Delete.
+    Future<void> openMoreMenu(WidgetTester tester) async {
+      await tester.tap(find.text('More'));
+      await tester.pumpAndSettle();
+    }
+
     testWidgets('Delete action opens the destructive confirmation dialog',
         (tester) async {
       await _openSheet(tester);
 
+      await openMoreMenu(tester);
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
 
@@ -206,6 +214,7 @@ void main() {
         'pops the sheet', (tester) async {
       final repo = await _openSheet(tester);
 
+      await openMoreMenu(tester);
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
@@ -221,6 +230,7 @@ void main() {
         'invoke deleteMarker', (tester) async {
       final repo = await _openSheet(tester);
 
+      await openMoreMenu(tester);
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
@@ -232,15 +242,24 @@ void main() {
   });
 
   group('MarkerInfoSheet Navigate Here action', () {
-    testWidgets('renders 4 action buttons including Navigate Here',
+    testWidgets('renders the inline trio plus a More overflow button',
         (tester) async {
       await _openSheet(tester);
 
+      // High-traffic actions stay inline.
       expect(find.text('Navigate Here'), findsOneWidget);
       expect(find.text('Edit'), findsOneWidget);
       expect(find.text('Export'), findsOneWidget);
-      expect(find.text('Delete'), findsOneWidget);
+      expect(find.text('More'), findsOneWidget);
       expect(find.byIcon(Icons.navigation_outlined), findsOneWidget);
+
+      // The long tail (Delete, Save as activity, Photo) is tucked away
+      // until the user opens the overflow menu.
+      expect(find.text('Delete'), findsNothing);
+
+      await tester.tap(find.text('More'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete'), findsOneWidget);
     });
 
     testWidgets('tapping Navigate Here starts navigation, closes the sheet, '

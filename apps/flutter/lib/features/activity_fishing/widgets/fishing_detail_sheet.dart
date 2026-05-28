@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/core/widgets/sheet_action_bar.dart';
 import 'package:turbo/features/activities/api.dart' show ActivityGeometry;
 
 import '../data/fishing_repository.dart';
@@ -59,24 +60,23 @@ class FishingDetailSheet extends ConsumerWidget {
               ],
               FishingConditionsPanel(activityId: a.id),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  TextButton.icon(
+              SheetActionBar(
+                actions: [
+                  SheetAction(
+                    icon: Icons.close,
+                    label: 'Close',
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                    label: const Text('Close'),
                   ),
-                  const Spacer(),
-                  TextButton.icon(
+                  SheetAction(
+                    icon: Icons.edit_outlined,
+                    label: 'Edit',
                     onPressed: () => _openEdit(context, a),
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Edit'),
                   ),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+                  SheetAction(
+                    icon: Icons.delete_outline,
+                    label: 'Delete',
                     onPressed: () => _confirmDelete(context, ref, a.id, a.name),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Delete'),
+                    isDestructive: true,
                   ),
                 ],
               ),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/app_text_field.dart';
+import 'package:turbo/core/widgets/sheet_action_bar.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/settings/api.dart';
@@ -75,22 +76,10 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(l10n.editPath, style: textTheme.titleLarge),
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (ref.watch(sharingAvailableProvider))
-                    IconButton(
-                      tooltip: 'Share',
-                      icon: const Icon(Icons.share_outlined),
-                      onPressed: () => ShareSheet.show(
-                        context,
-                        widget.path.uuid,
-                        title: widget.path.title,
-                      ),
-                    ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ]),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
               ],
             ),
             const SizedBox(height: 24),
@@ -148,15 +137,29 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
               fullWidth: true,
             ),
             const SizedBox(height: 8),
-            // Track promotion: hand this recorded route to the activity
-            // kind picker (filtered to LineString kinds). The user picks
-            // hiking / xc_ski / packrafting / backcountry_ski, fills in
-            // kind-specific details, and a new typed activity is created
-            // sharing this track's geometry.
-            TextButton.icon(
-              onPressed: _isLoading ? null : _promoteToActivity,
-              icon: const Icon(Icons.outdoor_grill_outlined),
-              label: Text(l10n.saveAsActivity),
+            // Secondary actions live in the shared bar beneath the primary
+            // Save CTA. "Save as activity" hands this recorded route to the
+            // activity kind picker (filtered to LineString kinds — hiking /
+            // xc_ski / packrafting / backcountry_ski); Share is gated on the
+            // platform actually supporting it.
+            SheetActionBar(
+              actions: [
+                SheetAction(
+                  icon: Icons.outdoor_grill_outlined,
+                  label: l10n.saveAsActivity,
+                  onPressed: _isLoading ? null : _promoteToActivity,
+                ),
+                if (ref.watch(sharingAvailableProvider))
+                  SheetAction(
+                    icon: Icons.share_outlined,
+                    label: l10n.share,
+                    onPressed: () => ShareSheet.show(
+                      context,
+                      widget.path.uuid,
+                      title: widget.path.title,
+                    ),
+                  ),
+              ],
             ),
           ],
         ),

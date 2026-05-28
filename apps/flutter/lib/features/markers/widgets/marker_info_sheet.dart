@@ -4,8 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
+import 'package:turbo/core/widgets/sheet_action_bar.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
@@ -136,46 +136,42 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Actions row
-          // Action row uses Wrap so the button list flows to a second line
-          // on narrow phones — six buttons (Navigate / Edit / Photo / Export
-          // / Activity / Delete) does not fit a single row at typical mobile
-          // widths and previously overflowed by ~20px.
-          Wrap(
-            alignment: WrapAlignment.spaceEvenly,
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ActionButton(
+          // Actions: the high-traffic trio (Navigate / Edit / Export) stays
+          // inline; Photo, Save-as-activity and Delete fold into the "More"
+          // overflow so the row never wraps or overflows on narrow phones.
+          SheetActionBar(
+            actions: [
+              SheetAction(
                 icon: Icons.navigation_outlined,
                 label: l10n.navigateToHere,
-                onTap: _startNavigation,
+                onPressed: _startNavigation,
               ),
-              ActionButton(
+              SheetAction(
                 icon: Icons.edit_outlined,
                 label: l10n.edit,
-                onTap: _openEdit,
+                onPressed: _openEdit,
               ),
-              if (!kIsWeb)
-                ActionButton(
-                  icon: Icons.add_a_photo_outlined,
-                  label: 'Photo',
-                  onTap: () => _addPhoto(context),
-                ),
-              ActionButton(
+              SheetAction(
                 icon: Icons.ios_share_outlined,
                 label: l10n.export,
-                onTap: _openExport,
+                onPressed: _openExport,
               ),
-              ActionButton(
+              if (!kIsWeb)
+                SheetAction(
+                  icon: Icons.add_a_photo_outlined,
+                  label: 'Photo',
+                  onPressed: () => _addPhoto(context),
+                ),
+              SheetAction(
                 icon: Icons.outdoor_grill_outlined,
                 label: l10n.saveAsActivity,
-                onTap: _promoteToActivity,
+                onPressed: _promoteToActivity,
               ),
-              ActionButton(
+              SheetAction(
                 icon: Icons.delete_outline,
                 label: l10n.delete,
-                onTap: _isDeleting ? null : _confirmDelete,
+                onPressed: _isDeleting ? null : _confirmDelete,
+                isDestructive: true,
               ),
             ],
           ),
