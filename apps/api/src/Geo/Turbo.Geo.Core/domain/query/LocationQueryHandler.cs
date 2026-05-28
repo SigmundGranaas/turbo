@@ -2,23 +2,28 @@ using Turboapi.Geo.data.model;
 using Turboapi.Geo.domain.queries;
 using Turboapi.Geo.domain.model;
 using Turboapi.Geo.domain.value;
+using Turboapi.Sharing;
 
 namespace Turboapi.Geo.domain.query;
 
 public class GetLocationByIdHandler
 {
     private readonly ILocationReadRepository _read;
+    private readonly IAccessControl _access;
 
-    public GetLocationByIdHandler(ILocationReadRepository read)
+    public GetLocationByIdHandler(ILocationReadRepository read, IAccessControl access)
     {
         _read = read;
+        _access = access;
     }
 
     public async Task<LocationData?> Handle(GetLocationByIdQuery query)
     {
         var entity = await _read.GetEntityById(query.LocationId);
         if (entity is null || entity.DeletedAt is not null) return null;
-        if (entity.OwnerId != query.Owner) return null;
+        // Delegate to the universal sharing gate so a friend with a viewer
+        // or editor grant can read this marker even though they don't own it.
+        if (!await _access.CanReadAsync(query.Owner, query.LocationId)) return null;
 
         return new LocationData(
             entity.Id,

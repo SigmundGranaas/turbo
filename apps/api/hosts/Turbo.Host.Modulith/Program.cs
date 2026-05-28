@@ -7,6 +7,9 @@ using Turboapi.Collections;
 using Turboapi.Collections.data;
 using Turboapi.Geo;
 using Turboapi.Geo.domain.query.model;
+using Turboapi.Sharing;
+using Turboapi.Sharing.data;
+using Turboapi.Sharing.integration;
 using Turboapi.Tracks;
 using Turboapi.Tracks.data;
 using Turboapi.Activities;
@@ -26,6 +29,7 @@ builder.Services.AddEndpointsApiExplorer();
 // scheme; the other modules use it as the default authentication scheme
 // (their [Authorize] attributes don't pin a specific scheme name).
 builder.Services.AddAuthModule(builder.Configuration);
+builder.Services.AddSharingModule(builder.Configuration);
 builder.Services.AddGeoModule(builder.Configuration);
 builder.Services.AddTracksModule(builder.Configuration);
 builder.Services.AddCollectionsModule(builder.Configuration);
@@ -56,6 +60,9 @@ var app = builder.Build();
 await app.Services.MigrateModuleDatabaseAsync<AuthDbContext>(
     builder.Configuration.GetConnectionString("Auth")
         ?? throw new InvalidOperationException("ConnectionStrings:Auth is not configured"));
+await app.Services.MigrateModuleDatabaseAsync<SharingReadContext>(
+    builder.Configuration.GetConnectionString("Sharing")
+        ?? throw new InvalidOperationException("ConnectionStrings:Sharing is not configured"));
 await app.Services.MigrateModuleDatabaseAsync<LocationReadContext>(
     builder.Configuration.GetConnectionString("Geo")
         ?? throw new InvalidOperationException("ConnectionStrings:Geo is not configured"));
@@ -72,6 +79,11 @@ await app.Services.MigrateHikingActivityModuleAsync(activitiesConn);
 await app.Services.MigrateXcSkiActivityModuleAsync(activitiesConn);
 await app.Services.MigratePackraftingActivityModuleAsync(activitiesConn);
 await app.Services.MigrateFreedivingActivityModuleAsync(activitiesConn);
+
+// Backfill Resource envelopes for any pre-existing collections / markers /
+// paths. Safe to re-run; rows already present are skipped. New entities
+// flow through the event-driven sidecars in Turboapi.Sharing.integration.
+await app.Services.BackfillSharingResourcesAsync(builder.Configuration);
 
 app.UseRouting();
 app.UseAuthentication();

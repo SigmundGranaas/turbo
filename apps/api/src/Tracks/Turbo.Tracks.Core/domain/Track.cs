@@ -56,7 +56,6 @@ public class Track
 
     public void Update(Guid requestUserId, TrackUpdateParameters updates)
     {
-        EnsureUserIsAuthorized(requestUserId);
         if (updates is null) throw new ArgumentNullException(nameof(updates));
         if (!updates.HasAnyChange) return;
 
@@ -112,10 +111,11 @@ public class Track
 
     public void Delete(Guid requestUserId)
     {
-        EnsureUserIsAuthorized(requestUserId);
         _events.Add(new TrackDeleted(Id, OwnerId));
     }
 
+    // Authorization moved out of the aggregate; write handlers gate on
+    // Turboapi.Sharing.IAccessControl so friend-granted access works.
     private void EnsureUserIsAuthorized(Guid requestUserId)
     {
         if (OwnerId != requestUserId)

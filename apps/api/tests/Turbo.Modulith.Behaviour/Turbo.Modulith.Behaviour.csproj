@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\hosts\Turbo.Host.Modulith\Turbo.Host.Modulith.csproj" />
+    <ProjectReference Include="..\..\src\Sharing\Turbo.Sharing.Api\Turbo.Sharing.Api.csproj" />
     <ProjectReference Include="..\..\src\Tracks\Turbo.Tracks.Api\Turbo.Tracks.Api.csproj" />
     <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Shared.Api\Turbo.Activities.Shared.Api.csproj" />
     <ProjectReference Include="..\..\src\Activities\Turbo.Activities.Shared.Infrastructure\Turbo.Activities.Shared.Infrastructure.csproj" />

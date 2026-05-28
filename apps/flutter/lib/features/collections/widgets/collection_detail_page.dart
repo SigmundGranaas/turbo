@@ -4,6 +4,7 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
+import 'package:turbo/features/sharing/api.dart';
 
 import '../data/collection_repository.dart';
 import '../data/collection_visibility_provider.dart';
@@ -134,6 +135,16 @@ class _LoadedState extends ConsumerState<_Loaded> {
               existing: widget.collection,
             ),
           ),
+          if (ref.watch(sharingAvailableProvider))
+            IconButton(
+              tooltip: 'Share',
+              icon: const Icon(Icons.share_outlined),
+              onPressed: () => ShareSheet.show(
+                context,
+                widget.collection.uuid,
+                title: widget.collection.name,
+              ),
+            ),
           IconButton(
             tooltip: l10n.delete,
             icon: const Icon(Icons.delete_outline),

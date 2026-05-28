@@ -6,6 +6,7 @@ import 'package:turbo/core/widgets/app_text_field.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/settings/api.dart';
+import 'package:turbo/features/sharing/api.dart';
 import '../models/saved_path.dart';
 import '../models/path_style.dart';
 import '../data/saved_path_repository.dart';
@@ -74,10 +75,22 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(l10n.editPath, style: textTheme.titleLarge),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (ref.watch(sharingAvailableProvider))
+                    IconButton(
+                      tooltip: 'Share',
+                      icon: const Icon(Icons.share_outlined),
+                      onPressed: () => ShareSheet.show(
+                        context,
+                        widget.path.uuid,
+                        title: widget.path.title,
+                      ),
+                    ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ]),
               ],
             ),
             const SizedBox(height: 24),

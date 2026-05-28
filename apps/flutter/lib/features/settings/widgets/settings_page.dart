@@ -12,6 +12,7 @@ import 'package:turbo/features/settings/widgets/sections/drawing_settings_page.d
 import 'package:turbo/features/settings/widgets/sections/location_marker_settings_page.dart';
 import 'package:turbo/features/settings/widgets/sections/recording_settings_page.dart';
 import 'package:turbo/features/settings/widgets/sections/units_settings_page.dart';
+import 'package:turbo/features/sharing/api.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -20,6 +21,7 @@ class SettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final settingsAsync = ref.watch(settingsProvider);
+    final sharingAvailable = ref.watch(sharingAvailableProvider);
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.settings)),
@@ -52,6 +54,23 @@ class SettingsPage extends ConsumerWidget {
                     builder: (_) => const LocationMarkerSettingsPage(),
                   ),
                 ]),
+                if (sharingAvailable) ...[
+                  const _LandingLabel('Sharing'),
+                  _LandingCard(children: const [
+                    _CategoryRow(
+                      icon: Icons.person_outline,
+                      title: 'Friends',
+                      subtitle: 'Add friends and accept incoming requests',
+                      builder: _friendsPageBuilder,
+                    ),
+                    _CategoryRow(
+                      icon: Icons.group_outlined,
+                      title: 'Groups',
+                      subtitle: 'Named circles to share with several friends at once',
+                      builder: _groupsPageBuilder,
+                    ),
+                  ]),
+                ],
                 const _LandingLabel('Recording & system'),
                 _LandingCard(children: [
                   _CategoryRow(
@@ -124,6 +143,12 @@ class SettingsPage extends ConsumerWidget {
     return '$unit · ${s.maxConcurrentDownloads} parallel downloads';
   }
 }
+
+// _CategoryRow.builder is required to be a const-friendly tearoff so
+// the const _LandingCard children list can hold these rows. Free
+// functions satisfy that.
+Widget _friendsPageBuilder(BuildContext _) => const FriendsPage();
+Widget _groupsPageBuilder(BuildContext _) => const GroupsPage();
 
 /// Pixel-style account row. Authenticated → email + tap to open profile.
 /// Unauthenticated → "Sign in" call to action.

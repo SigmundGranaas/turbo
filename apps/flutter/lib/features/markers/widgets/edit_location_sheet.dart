@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/sharing/api.dart';
 import '../data/icon_service.dart';
 import '../models/marker.dart';
 import '../models/named_icon.dart';
@@ -74,11 +75,23 @@ class EditLocationSheetState extends ConsumerState<EditLocationSheet> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(l10n.editMarker, style: textTheme.titleLarge),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  tooltip: l10n.close,
-                ),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (ref.watch(sharingAvailableProvider))
+                    IconButton(
+                      tooltip: 'Share',
+                      icon: const Icon(Icons.share_outlined),
+                      onPressed: () => ShareSheet.show(
+                        context,
+                        widget.location.uuid,
+                        title: widget.location.title,
+                      ),
+                    ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    tooltip: l10n.close,
+                  ),
+                ]),
               ],
             ),
             Flexible(

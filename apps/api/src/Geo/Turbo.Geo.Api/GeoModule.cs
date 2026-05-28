@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NetTopologySuite.Geometries;
 using Turbo.Messaging;
 using Turbo.Messaging.Nats;
@@ -10,6 +11,8 @@ using Turboapi.Geo.domain.events;
 using Turboapi.Geo.domain.handler;
 using Turboapi.Geo.domain.query;
 using Turboapi.Geo.domain.query.model;
+using Turboapi.Sharing;
+using Turboapi.Sharing.data;
 
 namespace Turboapi.Geo;
 
@@ -63,6 +66,26 @@ public static class GeoModule
 
         services.AddControllers().AddApplicationPart(typeof(LocationsController).Assembly);
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers an IAccessControl implementation backed by a read view
+    /// of the Sharing schema. Required by the standalone Geo host so
+    /// read/write handlers can consult grants. In the modulith deploy,
+    /// Sharing's own module already registers IAccessControl.
+    /// </summary>
+    public static IServiceCollection AddGeoAccessControl(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var sharingConn = configuration.GetConnectionString("Sharing")
+            ?? throw new InvalidOperationException(
+                "ConnectionStrings:Sharing must be configured so Geo can consult IAccessControl.");
+
+        services.AddDbContext<SharingReadContext>(o =>
+            o.UseNpgsql(sharingConn, npgsql => npgsql.EnableRetryOnFailure()));
+        services.TryAddScoped<IAccessControl, EfAccessControl>();
         return services;
     }
 

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Turbo.Messaging;
 using Turbo.Messaging.Nats;
 using Turbo.Outbox;
@@ -8,6 +9,8 @@ using Turboapi.Collections.data;
 using Turboapi.Collections.domain.events;
 using Turboapi.Collections.domain.handler;
 using Turboapi.Collections.domain.query;
+using Turboapi.Sharing;
+using Turboapi.Sharing.data;
 
 namespace Turboapi.Collections;
 
@@ -58,6 +61,27 @@ public static class CollectionsModule
 
         services.AddControllers().AddApplicationPart(typeof(CollectionsController).Assembly);
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers an IAccessControl implementation backed by a read-only
+    /// view of the Sharing schema. Required by the standalone Collections
+    /// host so its read/write handlers can consult grants. In the modulith
+    /// deploy, Sharing's own module already registers IAccessControl, so
+    /// this method's TryAdd calls are no-ops.
+    /// </summary>
+    public static IServiceCollection AddCollectionsAccessControl(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var sharingConn = configuration.GetConnectionString("Sharing")
+            ?? throw new InvalidOperationException(
+                "ConnectionStrings:Sharing must be configured so Collections can consult IAccessControl.");
+
+        services.AddDbContext<SharingReadContext>(o =>
+            o.UseNpgsql(sharingConn, npgsql => npgsql.EnableRetryOnFailure()));
+        services.TryAddScoped<IAccessControl, EfAccessControl>();
         return services;
     }
 

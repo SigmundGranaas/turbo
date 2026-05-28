@@ -31,6 +31,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__Auth=Host=${AUTH_DB_HOST:-auth-db};Port=${AUTH_DB_PORT:-5432};Database=${AUTH_DB_NAME:-auth};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
+      - ConnectionStrings__Sharing=Host=${SHARING_DB_HOST:-sharing-db};Port=${SHARING_DB_PORT:-5434};Database=${SHARING_DB_NAME:-sharing};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}

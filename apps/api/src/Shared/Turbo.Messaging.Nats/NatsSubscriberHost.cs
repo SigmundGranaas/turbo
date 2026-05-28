@@ -71,12 +71,31 @@ public sealed class NatsSubscriberHost : BackgroundService
             AckWait = TimeSpan.FromSeconds(30),
         };
 
-        var consumer = await _js!.CreateOrUpdateConsumerAsync(
-            _options.StreamName, consumerConfig, ct);
+        // Cross-service subscribers (Sharing reading from TURBO_COLLECTIONS /
+        // TURBO_GEO / TURBO_TRACKS) override the host's default stream per
+        // registration. Same-service subscribers fall through to the default.
+        var stream = reg.StreamName ?? _options.StreamName;
+
+        INatsJSConsumer consumer;
+        try
+        {
+            consumer = await _js!.CreateOrUpdateConsumerAsync(
+                stream, consumerConfig, ct);
+        }
+        catch (Exception ex)
+        {
+            // Cross-service subscriber whose peer stream isn't published yet.
+            // Log + return — the peer service can come up later and a host
+            // restart will pick up the events from the stream's history.
+            _logger.LogWarning(ex,
+                "NATS subscriber could not bind to stream={Stream} subject={Subject}; skipping",
+                stream, reg.Subject);
+            return;
+        }
 
         _logger.LogInformation(
             "NATS subscriber bound: stream={Stream} durable={Durable} subject={Subject} eventType={Event}",
-            _options.StreamName, reg.DurableName, reg.Subject, reg.EventType.Name);
+            stream, reg.DurableName, reg.Subject, reg.EventType.Name);
 
         await foreach (var msg in consumer.ConsumeAsync<byte[]>(cancellationToken: ct))
         {

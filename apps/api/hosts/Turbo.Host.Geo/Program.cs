@@ -12,6 +12,9 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddTurboAuth(builder.Configuration);
 builder.Services.AddGeoModule(builder.Configuration);
+// Standalone Geo host: wire IAccessControl against the Sharing schema so
+// read/write handlers can consult grants.
+builder.Services.AddGeoAccessControl(builder.Configuration);
 
 builder.Services.AddNatsMessaging(o =>
 {

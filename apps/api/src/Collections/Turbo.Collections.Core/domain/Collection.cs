@@ -45,7 +45,6 @@ public class Collection
 
     public void Update(Guid requestUserId, CollectionMetadataUpdate updates)
     {
-        EnsureUserIsAuthorized(requestUserId);
         if (updates is null) throw new ArgumentNullException(nameof(updates));
         if (!updates.HasAnyChange) return;
 
@@ -67,7 +66,6 @@ public class Collection
 
     public void AddItem(Guid requestUserId, CollectionItemRef item)
     {
-        EnsureUserIsAuthorized(requestUserId);
         EnsureItemIsValid(item);
 
         if (_items.Add(item))
@@ -76,7 +74,6 @@ public class Collection
 
     public void RemoveItem(Guid requestUserId, CollectionItemRef item)
     {
-        EnsureUserIsAuthorized(requestUserId);
         EnsureItemIsValid(item);
 
         if (_items.Remove(item))
@@ -85,15 +82,12 @@ public class Collection
 
     public void Delete(Guid requestUserId)
     {
-        EnsureUserIsAuthorized(requestUserId);
         _events.Add(new CollectionDeleted(Id, OwnerId));
     }
 
-    private void EnsureUserIsAuthorized(Guid requestUserId)
-    {
-        if (OwnerId != requestUserId)
-            throw new UnauthorizedException("Only the owner can modify this collection");
-    }
+    // Authorization moved out of the aggregate. Write handlers gate
+    // mutations through Turboapi.Sharing.IAccessControl so users with an
+    // editor grant on the resource can also mutate, not just the owner.
 
     private static void EnsureItemIsValid(CollectionItemRef item)
     {
