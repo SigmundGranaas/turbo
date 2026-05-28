@@ -1,16 +1,16 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# Namespace-agnostic base for the Turbo modulith. Each environment overlay
+# (envs/<env>) sets the namespace, image tag, host and replica count.
 resources:
-  - persistent-volumes.yaml
   - config.yaml
-  - nats.yaml
-  - databases.yaml
-  - applications.yaml
-  - services.yaml
+  - shared-db.yaml
+  - modulith.yaml
+  - ingress.yaml
 
 labels:
   - pairs:
-      app.kubernetes.io/part-of: turboapi
+      app.kubernetes.io/part-of: turbo
       app.kubernetes.io/managed-by: kustomize
     includeSelectors: true

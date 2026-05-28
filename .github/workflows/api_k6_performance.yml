@@ -24,9 +24,9 @@ jobs:
 
           echo "Waiting for API services..."
           apis=(
-            "turboapi_auth"
-            "turboapi_geo"
-            "turboapi_tracks"
+            "turbo_auth"
+            "turbo_geo"
+            "turbo_tracks"
           )
 
           for api in "${apis[@]}"; do

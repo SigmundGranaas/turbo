@@ -1,4 +1,6 @@
-# ConfigMaps
+# Non-secret configuration for the modulith. Secrets (db-secrets,
+# auth-secrets, google-oauth-secrets, ghcr pull secret) live outside this
+# file — see infra/k8s/README.md for how they are provisioned per namespace.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,17 +14,12 @@ metadata:
   name: app-config
 data:
   ASPNETCORE_ENVIRONMENT: "Production"
-  OTEL_SERVICE_NAME_AUTH: "turboapi-auth"
-  OTEL_SERVICE_NAME_GEO: "turboapi-geo"
-  OTEL_SERVICE_NAME_ACTIVITY: "turboapi-activity"
----
-apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-prefix
-spec:
-  stripPrefix:
-    prefixes:
-      - /auth
-      - /geo
-      - /activity
+  # CORS
+  CORS__AllowedOrigins: "https://kart.sandring.no,https://*.sandring.no"
+  # JWT
+  Jwt__Issuer: "turbo-auth"
+  Jwt__Audience: "turbo-client"
+  Jwt__TokenExpirationMinutes: "15"
+  Jwt__RefreshTokenExpirationDays: "7"
+  # Google OAuth
+  Authentication__Google__TokenInfoEndpoint: "https://oauth2.googleapis.com/tokeninfo"

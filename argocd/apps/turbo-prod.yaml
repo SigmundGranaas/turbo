@@ -1,0 +1,26 @@
+# Production environment Application. Managed by the app-of-apps root
+# (argocd/root.yaml). To add staging later, copy this file to
+# turbo-staging.yaml, point path at infra/k8s/envs/staging and set the
+# destination namespace to turbo-staging.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: turbo-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/SigmundGranaas/turbo.git
+    targetRevision: main
+    path: infra/k8s/envs/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: turbo-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

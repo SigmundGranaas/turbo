@@ -16,11 +16,11 @@ name: turbo
 #  source for the database containers.)
 
 services:
-  turboapi-modulith:
+  turbo-modulith:
     build:
       context: ../../apps/api
       dockerfile: hosts/Turbo.Host.Modulith/Dockerfile
-    container_name: turboapi_modulith
+    container_name: turbo_modulith
     hostname: modulith
     # 5000 is squatted by macOS Control Center / AirPlay, 5050/5051 by
     # PowerOffice on some dev machines — publish the modulith on 5055
@@ -37,7 +37,7 @@ services:
       - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Activities=Host=${ACTIVITIES_DB_HOST:-activities-db};Port=${ACTIVITIES_DB_PORT:-5439};Database=${ACTIVITIES_DB_NAME:-activities};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=turboapi-modulith
+      - OTEL_SERVICE_NAME=turbo-modulith
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
       interval: 5s
@@ -47,18 +47,18 @@ services:
     networks:
       - turbo
 
-  turboapi-gateway:
+  turbo-gateway:
     build:
       context: ../../apps/api
       dockerfile: src/Gateway/Dockerfile
-    container_name: turboapi_gateway
+    container_name: turbo_gateway
     ports:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - Topology=Modulith
     depends_on:
-      turboapi-modulith:
+      turbo-modulith:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]

@@ -1,0 +1,115 @@
+# Single Postgres (PostGIS) instance hosting one logical database per module
+# (auth, sharing, geo, tracks, collections, activities). This is the
+# "single DB server, multiple tenants" topology — it replaces the old
+# per-service databases.yaml / databases.shared.yaml and the dedicated
+# auth-db/geo-db/activity-db Postgres pods.
+#
+# The init.sql below mirrors infra/migrations/shared-db-init.sql and only
+# runs on first boot (empty data dir). Per-module schemas + tables are
+# created in-process by EF Core at modulith startup.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-db-init
+data:
+  init.sql: |
+    CREATE DATABASE auth;
+    CREATE DATABASE sharing;
+    CREATE DATABASE geo;
+    CREATE DATABASE tracks;
+    CREATE DATABASE collections;
+    CREATE DATABASE activities;
+
+    \connect geo;
+    CREATE EXTENSION IF NOT EXISTS postgis;
+
+    \connect tracks;
+    CREATE EXTENSION IF NOT EXISTS postgis;
+
+    \connect activities;
+    CREATE EXTENSION IF NOT EXISTS postgis;
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-db-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # storageClassName omitted -> k3s default (local-path)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shared-db
+  labels:
+    app: shared-db
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # single RWO volume — never run two pods at once
+  selector:
+    matchLabels:
+      app: shared-db
+  template:
+    metadata:
+      labels:
+        app: shared-db
+    spec:
+      containers:
+        - name: shared-db
+          image: postgis/postgis:17-master
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "postgres"
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: postgres-user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: postgres-password
+            # subdir keeps PGDATA off the volume mount root (lost+found on some PVs)
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          volumeMounts:
+            - name: shared-db-storage
+              mountPath: /var/lib/postgresql/data
+            - name: shared-db-init
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 10
+      volumes:
+        - name: shared-db-storage
+          persistentVolumeClaim:
+            claimName: shared-db-pvc
+        - name: shared-db-init
+          configMap:
+            name: shared-db-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shared-db
+  labels:
+    app: shared-db
+spec:
+  selector:
+    app: shared-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP

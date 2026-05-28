@@ -7,11 +7,11 @@ name: turbo
 # (compose.databases.shared.yaml + .env.shared).
 
 services:
-  turboapi-auth:
+  turbo-auth:
     build:
       context: ../../apps/api
       dockerfile: hosts/Turbo.Host.Auth/Dockerfile
-    container_name: turboapi_auth
+    container_name: turbo_auth
     hostname: auth
     ports:
       - "5001:8080"
@@ -19,7 +19,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__Auth=Host=${AUTH_DB_HOST:-auth-db};Port=${AUTH_DB_PORT:-5432};Database=${AUTH_DB_NAME:-auth};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=turboapi-auth
+      - OTEL_SERVICE_NAME=turbo-auth
       - Nats__Url=nats://nats:4222
     depends_on:
       nats:
@@ -33,11 +33,11 @@ services:
     networks:
       - turbo
 
-  turboapi-geo:
+  turbo-geo:
     build:
       context: ../../apps/api
       dockerfile: hosts/Turbo.Host.Geo/Dockerfile
-    container_name: turboapi_geo
+    container_name: turbo_geo
     hostname: geo
     ports:
       - "5002:8080"
@@ -45,7 +45,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=turboapi-geo
+      - OTEL_SERVICE_NAME=turbo-geo
       - Nats__Url=nats://nats:4222
     depends_on:
       nats:
@@ -59,11 +59,11 @@ services:
     networks:
       - turbo
 
-  turboapi-tracks:
+  turbo-tracks:
     build:
       context: ../../apps/api
       dockerfile: hosts/Turbo.Host.Tracks/Dockerfile
-    container_name: turboapi_tracks
+    container_name: turbo_tracks
     hostname: tracks
     ports:
       - "5003:8080"
@@ -71,7 +71,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=turboapi-tracks
+      - OTEL_SERVICE_NAME=turbo-tracks
       - Nats__Url=nats://nats:4222
     depends_on:
       nats:
@@ -85,11 +85,11 @@ services:
     networks:
       - turbo
 
-  turboapi-collections:
+  turbo-collections:
     build:
       context: ../../apps/api
       dockerfile: hosts/Turbo.Host.Collections/Dockerfile
-    container_name: turboapi_collections
+    container_name: turbo_collections
     hostname: collections
     ports:
       - "5004:8080"
@@ -97,7 +97,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__Collections=Host=${COLLECTIONS_DB_HOST:-collections-db};Port=${COLLECTIONS_DB_PORT:-5438};Database=${COLLECTIONS_DB_NAME:-collections};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=turboapi-collections
+      - OTEL_SERVICE_NAME=turbo-collections
       - Nats__Url=nats://nats:4222
     depends_on:
       nats:
@@ -111,11 +111,11 @@ services:
     networks:
       - turbo
 
-  turboapi-sharing:
+  turbo-sharing:
     build:
       context: ../../apps/api
       dockerfile: hosts/Turbo.Host.Sharing/Dockerfile
-    container_name: turboapi_sharing
+    container_name: turbo_sharing
     hostname: sharing
     ports:
       - "5006:8080"
@@ -130,7 +130,7 @@ services:
       - ConnectionStrings__Geo=Host=${GEO_DB_HOST:-geo-db};Port=${GEO_DB_PORT:-5435};Database=${GEO_DB_NAME:-geo};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - ConnectionStrings__Tracks=Host=${TRACKS_DB_HOST:-tracks-db};Port=${TRACKS_DB_PORT:-5437};Database=${TRACKS_DB_NAME:-tracks};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=turboapi-sharing
+      - OTEL_SERVICE_NAME=turbo-sharing
       - Nats__Url=nats://nats:4222
     depends_on:
       nats:
@@ -148,11 +148,11 @@ services:
   # / hiking / xc_ski / packrafting / freediving) plus the cross-kind
   # summaries projection. One database, schema-per-kind — schemas are
   # owned internally by each module (see Add{Kind}ActivityModule).
-  turboapi-activities:
+  turbo-activities:
     build:
       context: ../../apps/api
       dockerfile: hosts/Turbo.Host.Activities/Dockerfile
-    container_name: turboapi_activities
+    container_name: turbo_activities
     hostname: activities
     ports:
       - "5005:8080"
@@ -160,7 +160,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__Activities=Host=${ACTIVITIES_DB_HOST:-activities-db};Port=${ACTIVITIES_DB_PORT:-5439};Database=${ACTIVITIES_DB_NAME:-activities};Username=${DB_USER:-postgres};Password=${DB_PASSWORD:-yourpassword}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_SERVICE_NAME=turboapi-activities
+      - OTEL_SERVICE_NAME=turbo-activities
       - Nats__Url=nats://nats:4222
     depends_on:
       nats:
@@ -174,28 +174,28 @@ services:
     networks:
       - turbo
 
-  turboapi-gateway:
+  turbo-gateway:
     build:
       context: ../../apps/api
       dockerfile: src/Gateway/Dockerfile
-    container_name: turboapi_gateway
+    container_name: turbo_gateway
     ports:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - Topology=Microservices
     depends_on:
-      turboapi-auth:
+      turbo-auth:
         condition: service_healthy
-      turboapi-geo:
+      turbo-geo:
         condition: service_healthy
-      turboapi-tracks:
+      turbo-tracks:
         condition: service_healthy
-      turboapi-collections:
+      turbo-collections:
         condition: service_healthy
-      turboapi-sharing:
+      turbo-sharing:
         condition: service_healthy
-      turboapi-activities:
+      turbo-activities:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
