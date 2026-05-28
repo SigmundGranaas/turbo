@@ -1,17 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/features/settings/api.dart';
+import 'package:turbo/features/settings/widgets/sections/about_settings_page.dart';
 
 import '../data/auth_providers.dart';
 
 class UserProfileScreen extends ConsumerWidget {
   const UserProfileScreen({super.key});
 
+  /// Address used for the "Help & Support" tile.
+  static const String _supportEmail = 'support@turbo.app';
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
-    final email = ref.watch(authStateProvider).email;
+    final authState = ref.watch(authStateProvider);
+    final email = authState.email;
     final colorScheme = Theme.of(context).colorScheme;
     final authNotifier = ref.read(authStateProvider.notifier);
 
@@ -61,7 +68,9 @@ class UserProfileScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          l10n.turboUser,
+                          authState.isGoogleUser
+                              ? l10n.signedInWithGoogle
+                              : l10n.turboUser,
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -75,33 +84,25 @@ class UserProfileScreen extends ConsumerWidget {
 
               _buildOptionTile(
                 context,
-                icon: Icons.person_outline,
-                title: l10n.editProfile,
-                onTap: () {},
-              ),
-              _buildOptionTile(
-                context,
-                icon: Icons.lock_outline,
-                title: l10n.changePassword,
-                onTap: () {},
-              ),
-              _buildOptionTile(
-                context,
-                icon: Icons.notifications_outlined,
-                title: l10n.notifications,
-                onTap: () {},
+                icon: Icons.settings_outlined,
+                title: l10n.settings,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsPage()),
+                ),
               ),
               _buildOptionTile(
                 context,
                 icon: Icons.help_outline,
                 title: l10n.helpAndSupport,
-                onTap: () {},
+                onTap: () => _openSupportEmail(context),
               ),
               _buildOptionTile(
                 context,
                 icon: Icons.info_outline,
                 title: l10n.about,
-                onTap: () {},
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AboutSettingsPage()),
+                ),
               ),
             ],
           ),
@@ -123,6 +124,22 @@ class UserProfileScreen extends ConsumerWidget {
       trailing: const Icon(Icons.chevron_right),
       onTap: onTap,
     );
+  }
+
+  Future<void> _openSupportEmail(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final l10n = context.l10n;
+    final uri = Uri(
+      scheme: 'mailto',
+      path: _supportEmail,
+      query: 'subject=Turbo support',
+    );
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.couldNotOpenEmailApp)),
+      );
+    }
   }
 
   Future<void> _showLogoutDialog(

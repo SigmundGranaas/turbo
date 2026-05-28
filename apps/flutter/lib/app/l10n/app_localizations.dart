@@ -67,6 +67,8 @@ abstract class AppLocalizations {
   String get about;
   String get user;
   String get delete;
+  String get signedInWithGoogle;
+  String get couldNotOpenEmailApp;
 
   // Marker Sheets
   String get newMarker;
@@ -538,6 +540,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get about => 'About';
   @override String get user => 'User';
   @override String get delete => 'Delete';
+  @override String get signedInWithGoogle => 'Signed in with Google';
+  @override String get couldNotOpenEmailApp => 'Could not open an email app';
 
   @override String get newMarker => 'New Marker';
   @override String get editMarker => 'Edit Marker';
@@ -982,6 +986,8 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get about => 'Om';
   @override String get user => 'Bruker';
   @override String get delete => 'Slett';
+  @override String get signedInWithGoogle => 'Logget inn med Google';
+  @override String get couldNotOpenEmailApp => 'Kunne ikke åpne en e-postapp';
 
   @override String get newMarker => 'Nytt punkt';
   @override String get editMarker => 'Rediger punkt';
