@@ -21,6 +21,7 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/sharing/api.dart';
+import 'package:turbo/features/weather/api.dart' show OceanConditionsLayer;
 
 import 'package:turbo/core/location/compass_mode_state.dart';
 import 'package:turbo/core/location/compass_state.dart';
@@ -269,6 +270,10 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       const NavigationTargetMarker(),
       SavedPathsLayer(mapController: _mapController),
       ...trailVectorLayers,
+      OceanConditionsLayer(
+        mapController: _mapController,
+        visible: activeOverlayIds.contains('ocean_conditions'),
+      ),
       ViewportMarkers(mapController: _mapController),
       const activities.ActivitiesMapLayer(),
     ];

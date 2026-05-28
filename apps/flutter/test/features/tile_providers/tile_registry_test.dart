@@ -72,6 +72,7 @@ void main() {
         'osm',
         'gs',
         'avalanche_danger',
+        'ocean_conditions',
         'trails_foot',
         'trails_ski',
         'trails_bike',

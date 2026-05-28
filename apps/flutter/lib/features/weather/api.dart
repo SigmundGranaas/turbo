@@ -34,6 +34,9 @@ export 'data/tide_notifier.dart'
         tideForecastProvider,
         kartverketTideServiceProvider,
         TideForecastNotifier;
+export 'data/ocean_conditions_notifier.dart'
+    show oceanConditionsProvider, OceanConditionsNotifier, OceanGridSample;
+export 'widgets/ocean_conditions_layer.dart' show OceanConditionsLayer;
 export 'widgets/weather_summary_row.dart' show WeatherSummaryRow;
 export 'widgets/weather_detail_sheet.dart'
     show WeatherDetailSheet, showWeatherDetailSheet;

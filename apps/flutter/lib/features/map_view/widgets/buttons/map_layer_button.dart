@@ -383,6 +383,8 @@ class LayerSelectionSheet extends ConsumerWidget {
         return Icons.satellite;
       case 'avalanche_danger':
         return Icons.ac_unit;
+      case 'ocean_conditions':
+        return Icons.waves;
       default:
         return Icons.layers;
     }
