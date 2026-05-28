@@ -28,115 +28,168 @@ class TestApp extends ConsumerWidget {
   }
 }
 
+Future<void> _openAppearance(WidgetTester tester) async {
+  await tester.tap(find.text('Appearance'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  group('SettingsPage UI Test', () {
-    // Before each test, we clear the mock SharedPreferences to ensure
-    // a clean and predictable state.
+  group('SettingsPage hub', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
     });
 
-    testWidgets('loads and displays initial default settings', (WidgetTester tester) async {
-      // Arrange: Pump the SettingsPage widgets inside our TestApp.
-      await tester.pumpWidget(const ProviderScope(child: TestApp(child: SettingsPage())));
-
-      // Act: Wait for the async provider to finish loading from persistence.
+    testWidgets('shows section tiles for each settings area',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+          const ProviderScope(child: TestApp(child: SettingsPage())));
       await tester.pumpAndSettle();
 
-      // Assert: Verify all the default UI elements are present.
       expect(find.text('Settings'), findsOneWidget); // AppBar title
+      expect(find.text('Appearance'), findsOneWidget);
+      expect(find.text('Units'), findsOneWidget);
+      expect(find.text('My Location'), findsOneWidget);
+      expect(find.text('Drawing'), findsOneWidget);
+      expect(find.text('Recording'), findsOneWidget);
+      expect(find.text('Advanced'), findsOneWidget);
+    });
+
+    testWidgets('hub localizes section titles when language changes',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({'locale': 'nb'});
+      await tester.pumpWidget(
+          const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Innstillinger'), findsOneWidget);
+      // Localized section labels reused from existing l10n strings.
+      expect(find.text('Avansert'), findsOneWidget);
+      expect(find.text('Tegning'), findsOneWidget);
+      expect(find.text('Min posisjon'), findsOneWidget);
+    });
+  });
+
+  group('AppearanceSettingsPage', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    testWidgets('loads with default theme and language selected',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+          const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpAndSettle();
+      await _openAppearance(tester);
+
       expect(find.text('Theme'), findsOneWidget);
       expect(find.text('Language'), findsOneWidget);
 
-      // Assert: Verify the 'System' theme is selected by default.
-      final segmentedButtonTheme = tester.widget<SegmentedButton<ThemeMode>>(find.byType(SegmentedButton<ThemeMode>));
+      final segmentedButtonTheme = tester.widget<SegmentedButton<ThemeMode>>(
+          find.byType(SegmentedButton<ThemeMode>));
       expect(segmentedButtonTheme.selected, {ThemeMode.system});
 
-      // Assert: Verify the 'English' language is selected by default.
-      final segmentedButtonLang = tester.widget<SegmentedButton<Locale>>(find.byType(SegmentedButton<Locale>));
+      final segmentedButtonLang = tester.widget<SegmentedButton<Locale>>(
+          find.byType(SegmentedButton<Locale>));
       expect(segmentedButtonLang.selected, {const Locale('en')});
     });
 
-    testWidgets('can change the theme and selection is reflected in the UI', (WidgetTester tester) async {
-      // Arrange
-      await tester.pumpWidget(const ProviderScope(child: TestApp(child: SettingsPage())));
+    testWidgets('can change the theme and selection is reflected in the UI',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+          const ProviderScope(child: TestApp(child: SettingsPage())));
       await tester.pumpAndSettle();
+      await _openAppearance(tester);
 
-      // Act: Tap on the 'Dark' theme button's text label.
       await tester.tap(find.text('Dark'));
       await tester.pumpAndSettle();
 
-      // Assert: The selection has updated to Dark.
-      var segmentedButtonTheme = tester.widget<SegmentedButton<ThemeMode>>(find.byType(SegmentedButton<ThemeMode>));
+      var segmentedButtonTheme = tester.widget<SegmentedButton<ThemeMode>>(
+          find.byType(SegmentedButton<ThemeMode>));
       expect(segmentedButtonTheme.selected, {ThemeMode.dark});
 
-      // Act: Tap on the 'Light' theme button's text label.
       await tester.tap(find.text('Light'));
       await tester.pumpAndSettle();
 
-      // Assert: The selection has updated to Light.
-      segmentedButtonTheme = tester.widget<SegmentedButton<ThemeMode>>(find.byType(SegmentedButton<ThemeMode>));
+      segmentedButtonTheme = tester.widget<SegmentedButton<ThemeMode>>(
+          find.byType(SegmentedButton<ThemeMode>));
       expect(segmentedButtonTheme.selected, {ThemeMode.light});
     });
 
-    testWidgets('can change language and UI text updates accordingly', (WidgetTester tester) async {
-      // Arrange
-      await tester.pumpWidget(const ProviderScope(child: TestApp(child: SettingsPage())));
+    testWidgets('can change language and UI text updates accordingly',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+          const ProviderScope(child: TestApp(child: SettingsPage())));
       await tester.pumpAndSettle();
+      await _openAppearance(tester);
 
-      // Assert initial English state
-      expect(find.text('Settings'), findsOneWidget);
       expect(find.text('Theme'), findsOneWidget);
 
-      // Act: Tap on 'Norwegian'
       await tester.tap(find.text('Norwegian'));
       await tester.pumpAndSettle();
 
-      // Assert: The selection has changed to Norwegian
-      final segmentedButtonLang = tester.widget<SegmentedButton<Locale>>(find.byType(SegmentedButton<Locale>));
+      final segmentedButtonLang = tester.widget<SegmentedButton<Locale>>(
+          find.byType(SegmentedButton<Locale>));
       expect(segmentedButtonLang.selected, {const Locale('nb')});
 
-      // Assert: The UI text has updated to Norwegian
-      expect(find.text('Innstillinger'), findsOneWidget); // AppBar Title
-      expect(find.text('Tema'), findsOneWidget);         // Section Header
-      expect(find.text('Språk'), findsOneWidget);        // Section Header
-      expect(find.text('Norsk'), findsOneWidget);        // Language Button
+      expect(find.text('Tema'), findsOneWidget);
+      expect(find.text('Språk'), findsOneWidget);
+      expect(find.text('Norsk'), findsOneWidget);
 
-      // Act: Tap on 'English' to switch back. We find the Norwegian text for "English".
       await tester.tap(find.text('Engelsk'));
       await tester.pumpAndSettle();
 
-      // Assert: The UI text has updated back to English
-      expect(find.text('Settings'), findsOneWidget);
       expect(find.text('Theme'), findsOneWidget);
     });
 
-    testWidgets('settings are persisted and reloaded on subsequent visits', (WidgetTester tester) async {
-      // This test simulates closing and reopening the app to check persistence.
-
+    testWidgets('settings are persisted and reloaded on subsequent visits',
+        (WidgetTester tester) async {
       // --- FIRST SESSION ---
-      // Arrange & Act: Change settings to non-default values.
-      await tester.pumpWidget(const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpWidget(
+          const ProviderScope(child: TestApp(child: SettingsPage())));
       await tester.pumpAndSettle();
+      await _openAppearance(tester);
       await tester.tap(find.text('Dark'));
       await tester.tap(find.text('Norwegian'));
       await tester.pumpAndSettle();
 
-      // Assert that changes were applied in the first session.
-      expect(tester.widget<SegmentedButton<ThemeMode>>(find.byType(SegmentedButton<ThemeMode>)).selected, {ThemeMode.dark});
-      expect(tester.widget<SegmentedButton<Locale>>(find.byType(SegmentedButton<Locale>)).selected, {const Locale('nb')});
+      expect(
+          tester
+              .widget<SegmentedButton<ThemeMode>>(
+                  find.byType(SegmentedButton<ThemeMode>))
+              .selected,
+          {ThemeMode.dark});
+      expect(
+          tester
+              .widget<SegmentedButton<Locale>>(
+                  find.byType(SegmentedButton<Locale>))
+              .selected,
+          {const Locale('nb')});
 
       // --- SECOND SESSION ---
-      // Arrange & Act: Re-pump the widgets tree. This simulates an app restart.
-      // The SharedPreferences mock retains values between pumps in a single test.
-      await tester.pumpWidget(const ProviderScope(child: TestApp(child: SettingsPage())));
+      // Use UniqueKey to force a fresh element tree; pumpWidget otherwise
+      // reuses the Navigator and keeps the pushed route from session 1.
+      await tester.pumpWidget(ProviderScope(
+          key: UniqueKey(), child: const TestApp(child: SettingsPage())));
+      await tester.pumpAndSettle();
+      // The hub should now show the Norwegian title.
+      expect(find.text('Innstillinger'), findsOneWidget);
+
+      // Section labels are not localized yet; still in English.
+      await tester.tap(find.text('Appearance'));
       await tester.pumpAndSettle();
 
-      // Assert: The loaded state reflects the previously saved settings.
-      // The text is in Norwegian, and the button selections are correct.
-      expect(find.text('Innstillinger'), findsOneWidget);
-      expect(tester.widget<SegmentedButton<ThemeMode>>(find.byType(SegmentedButton<ThemeMode>)).selected, {ThemeMode.dark});
-      expect(tester.widget<SegmentedButton<Locale>>(find.byType(SegmentedButton<Locale>)).selected, {const Locale('nb')});
+      expect(
+          tester
+              .widget<SegmentedButton<ThemeMode>>(
+                  find.byType(SegmentedButton<ThemeMode>))
+              .selected,
+          {ThemeMode.dark});
+      expect(
+          tester
+              .widget<SegmentedButton<Locale>>(
+                  find.byType(SegmentedButton<Locale>))
+              .selected,
+          {const Locale('nb')});
     });
   });
 }
