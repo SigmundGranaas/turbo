@@ -6,11 +6,9 @@ public sealed class ResourceNotFoundException : Exception
         : base($"Resource {resourceId} not found.") { }
 }
 
-public sealed class AccessDeniedException : Exception
-{
-    public AccessDeniedException(Guid userId, Guid resourceId)
-        : base($"User {userId} is not authorized for resource {resourceId}.") { }
-}
+// AccessDeniedException now lives in Turbo.Sharing.Contracts so payload
+// modules (Collections, Geo, Tracks) can catch it without taking a
+// dependency on Sharing.Core.
 
 public sealed class FriendshipAlreadyExistsException : Exception
 {

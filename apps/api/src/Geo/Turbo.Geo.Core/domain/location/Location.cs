@@ -40,8 +40,6 @@ namespace Turboapi.Geo.domain.model
         // Signature now uses domain-specific LocationUpdateParameters
         public void Update(Guid requestUserId, LocationUpdateParameters updates)
         {
-            EnsureUserIsAuthorized(requestUserId);
-
             if (updates == null) // Should be caught by command constructor, but defensive check
                 throw new ArgumentNullException(nameof(updates));
 
@@ -125,15 +123,11 @@ namespace Turboapi.Geo.domain.model
 
         public void Delete(Guid requestUserId)
         {
-            EnsureUserIsAuthorized(requestUserId);
             _events.Add(new LocationDeleted(Id, OwnerId));
         }
 
-        private void EnsureUserIsAuthorized(Guid requestUserId)
-        {
-            if (OwnerId != requestUserId)
-                throw new UnauthorizedException("Only the owner can modify this location");
-        }
+        // Authorization moved out of the aggregate; write handlers gate on
+        // Turboapi.Sharing.IAccessControl so friend-granted access works.
 
         public static Location Reconstitute(
             Guid id,

@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NetTopologySuite.Geometries;
 using Turbo.Messaging;
 using Turbo.Messaging.Nats;
 using Turbo.Outbox;
 using Turbo.Outbox.Postgres;
+using Turboapi.Sharing;
+using Turboapi.Sharing.data;
 using Turboapi.Tracks.controller;
 using Turboapi.Tracks.data;
 using Turboapi.Tracks.domain.events;
@@ -61,6 +64,26 @@ public static class TracksModule
 
         services.AddControllers().AddApplicationPart(typeof(TracksController).Assembly);
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers an IAccessControl implementation backed by a read view
+    /// of the Sharing schema. Required by the standalone Tracks host so
+    /// its read/write handlers can consult grants. In the modulith
+    /// deploy, Sharing's own module already registers IAccessControl.
+    /// </summary>
+    public static IServiceCollection AddTracksAccessControl(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var sharingConn = configuration.GetConnectionString("Sharing")
+            ?? throw new InvalidOperationException(
+                "ConnectionStrings:Sharing must be configured so Tracks can consult IAccessControl.");
+
+        services.AddDbContext<SharingReadContext>(o =>
+            o.UseNpgsql(sharingConn, npgsql => npgsql.EnableRetryOnFailure()));
+        services.TryAddScoped<IAccessControl, EfAccessControl>();
         return services;
     }
 

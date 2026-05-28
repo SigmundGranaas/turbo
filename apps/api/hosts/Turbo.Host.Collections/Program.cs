@@ -12,6 +12,11 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddTurboAuth(builder.Configuration);
 builder.Services.AddCollectionsModule(builder.Configuration);
+// Standalone Collections host: wire an IAccessControl backed by the
+// shared Sharing schema so read/write handlers can consult grants. The
+// modulith deploy doesn't need this — Sharing already registers
+// IAccessControl in its own module.
+builder.Services.AddCollectionsAccessControl(builder.Configuration);
 
 builder.Services.AddNatsMessaging(o =>
 {

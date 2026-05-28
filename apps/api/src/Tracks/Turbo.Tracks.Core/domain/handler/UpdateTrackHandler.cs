@@ -1,4 +1,5 @@
 using Turbo.Outbox;
+using Turboapi.Sharing;
 using Turboapi.Tracks.domain.commands;
 using Turboapi.Tracks.domain.exception;
 using Turboapi.Tracks.domain.model;
@@ -12,15 +13,18 @@ public class UpdateTrackHandler
     private readonly ITrackReadRepository _read;
     private readonly IOutbox<TracksScope> _outbox;
     private readonly IUnitOfWork<TracksScope> _uow;
+    private readonly IAccessControl _access;
 
     public UpdateTrackHandler(
         ITrackReadRepository read,
         IOutbox<TracksScope> outbox,
-        IUnitOfWork<TracksScope> uow)
+        IUnitOfWork<TracksScope> uow,
+        IAccessControl access)
     {
         _read = read;
         _outbox = outbox;
         _uow = uow;
+        _access = access;
     }
 
     public async Task<Track> Handle(UpdateTrackCommand command)
@@ -31,6 +35,8 @@ public class UpdateTrackHandler
 
         if (command.IfMatchVersion is { } expected && entity.Version != expected)
             throw new OptimisticConcurrencyException(expected, entity.Version);
+
+        await _access.RequireWriteAsync(command.UserId, command.TrackId);
 
         var aggregate = Track.Reconstitute(
             entity.Id,

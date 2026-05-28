@@ -1,6 +1,6 @@
 using Turboapi.Sharing.value;
 
-namespace Turboapi.Sharing.domain;
+namespace Turboapi.Sharing;
 
 /// <summary>
 /// The single authorization gate every payload module funnels through.
@@ -8,9 +8,11 @@ namespace Turboapi.Sharing.domain;
 /// owner, the user's direct grants, the user's group memberships, and
 /// the resource's coarse visibility.
 ///
-/// Payload modules (Collections, Markers, Paths, ...) depend only on this
-/// interface. They never query grants directly and never own authorization
-/// logic of their own.
+/// Lives in Contracts (not Core) so payload modules — Collections,
+/// Geo, Tracks — can depend on the interface without taking a
+/// transitive dependency on Sharing's domain or persistence layers.
+/// Implementations live in Sharing.Infrastructure; payload-module
+/// hosts wire one up in their DI.
 /// </summary>
 public interface IAccessControl
 {
@@ -37,14 +39,10 @@ public interface IAccessControl
     /// </summary>
     Task<EffectiveRole?> EffectiveRoleAsync(Guid userId, Guid resourceId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Throws <see cref="exception.AccessDeniedException"/> if write is denied.
-    /// </summary>
+    /// <summary>Throws <see cref="AccessDeniedException"/> if write is denied.</summary>
     Task RequireWriteAsync(Guid userId, Guid resourceId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Throws <see cref="exception.AccessDeniedException"/> if read is denied.
-    /// </summary>
+    /// <summary>Throws <see cref="AccessDeniedException"/> if read is denied.</summary>
     Task RequireReadAsync(Guid userId, Guid resourceId, CancellationToken cancellationToken = default);
 }
 
@@ -81,4 +79,16 @@ public static class EffectiveRoleExtensions
         Role.Editor => EffectiveRole.Editor,
         _ => throw new ArgumentOutOfRangeException(nameof(grantRole), grantRole, null),
     };
+}
+
+/// <summary>
+/// Thrown by <see cref="IAccessControl.RequireWriteAsync"/> /
+/// <see cref="IAccessControl.RequireReadAsync"/> when the caller has
+/// no applicable grant on the resource. Payload modules catch this and
+/// translate to HTTP 403.
+/// </summary>
+public sealed class AccessDeniedException : Exception
+{
+    public AccessDeniedException(Guid userId, Guid resourceId)
+        : base($"User {userId} is not authorized for resource {resourceId}.") { }
 }

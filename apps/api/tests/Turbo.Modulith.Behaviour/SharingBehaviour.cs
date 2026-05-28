@@ -265,10 +265,10 @@ public sealed class SharingBehaviour
         return id;
     }
 
-    private IServiceScope ScopedSharingServices(out Turboapi.Sharing.domain.IAccessControl ac)
+    private IServiceScope ScopedSharingServices(out Turboapi.Sharing.IAccessControl ac)
     {
         var scope = _host.Services.CreateScope();
-        ac = scope.ServiceProvider.GetRequiredService<Turboapi.Sharing.domain.IAccessControl>();
+        ac = scope.ServiceProvider.GetRequiredService<Turboapi.Sharing.IAccessControl>();
         return scope;
     }
 }

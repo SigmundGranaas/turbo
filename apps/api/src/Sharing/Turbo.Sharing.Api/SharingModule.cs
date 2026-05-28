@@ -6,7 +6,6 @@ using Turbo.Outbox.Postgres;
 using Turboapi.Collections.domain.events;
 using Turboapi.Geo.domain.events;
 using Turboapi.Sharing.data;
-using Turboapi.Sharing.domain;
 using Turboapi.Sharing.domain.service;
 using Turboapi.Sharing.integration;
 using Turboapi.Tracks.domain.events;

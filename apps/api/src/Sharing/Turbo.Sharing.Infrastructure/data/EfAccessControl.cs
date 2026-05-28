@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Turboapi.Sharing;
 using Turboapi.Sharing.data.model;
-using Turboapi.Sharing.domain;
-using Turboapi.Sharing.domain.exception;
 using Turboapi.Sharing.value;
 
 namespace Turboapi.Sharing.data;

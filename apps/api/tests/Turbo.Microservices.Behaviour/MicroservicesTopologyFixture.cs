@@ -86,9 +86,9 @@ public sealed class MicroservicesTopologyFixture : IAsyncLifetime
 
         var natsUrl = TurboTestContainers.NatsUrl(_nats);
         _authFactory = BuildFactory<Turbo.Host.Auth.AuthHostProgram>(authConn, natsUrl, "Auth");
-        _tracksFactory = BuildFactory<Turbo.Host.Tracks.TracksHostProgram>(tracksConn, natsUrl, "Tracks");
-        _geoFactory = BuildFactory<Turbo.Host.Geo.GeoHostProgram>(geoConn, natsUrl, "Geo");
-        _collectionsFactory = BuildFactory<Turbo.Host.Collections.CollectionsHostProgram>(collectionsConn, natsUrl, "Collections");
+        _tracksFactory = BuildFactory<Turbo.Host.Tracks.TracksHostProgram>(tracksConn, natsUrl, "Tracks", sharingConn);
+        _geoFactory = BuildFactory<Turbo.Host.Geo.GeoHostProgram>(geoConn, natsUrl, "Geo", sharingConn);
+        _collectionsFactory = BuildFactory<Turbo.Host.Collections.CollectionsHostProgram>(collectionsConn, natsUrl, "Collections", sharingConn);
         // Sharing's host runs in this topology too: its sidecar subscribers
         // (cross-stream consumers on TURBO_COLLECTIONS / TURBO_GEO /
         // TURBO_TRACKS) are the seam the design relies on for the Resource
@@ -132,7 +132,8 @@ public sealed class MicroservicesTopologyFixture : IAsyncLifetime
     }
 
     private static WebApplicationFactory<T> BuildFactory<T>(
-        string connectionString, string natsUrl, string moduleConnStringName)
+        string connectionString, string natsUrl, string moduleConnStringName,
+        string? sharingConnectionString = null)
         where T : class
     {
         return new WebApplicationFactory<T>().WithWebHostBuilder(builder =>
@@ -141,6 +142,12 @@ public sealed class MicroservicesTopologyFixture : IAsyncLifetime
             builder.UseContentRoot(RepoLayout.HostContentRoot<T>());
             builder.UseSetting("Nats:Url", natsUrl);
             builder.UseSetting($"ConnectionStrings:{moduleConnStringName}", connectionString);
+            // Payload-module hosts (Collections, Geo, Tracks) need
+            // ConnectionStrings:Sharing so their IAccessControl can query
+            // the resources/grants tables. Cross-service in production;
+            // same-container-different-db in this test topology.
+            if (sharingConnectionString is not null)
+                builder.UseSetting("ConnectionStrings:Sharing", sharingConnectionString);
         });
     }
 

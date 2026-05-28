@@ -1,3 +1,4 @@
+using Turboapi.Sharing;
 using Turboapi.Tracks.data.model;
 using Turboapi.Tracks.domain.queries;
 using Turboapi.Tracks.domain.value;
@@ -7,14 +8,20 @@ namespace Turboapi.Tracks.domain.query;
 public class GetTrackByIdHandler
 {
     private readonly ITrackReadRepository _read;
-    public GetTrackByIdHandler(ITrackReadRepository read) => _read = read;
+    private readonly IAccessControl _access;
+
+    public GetTrackByIdHandler(ITrackReadRepository read, IAccessControl access)
+    {
+        _read = read;
+        _access = access;
+    }
 
     public async Task<TrackData?> Handle(GetTrackByIdQuery query)
     {
         var entity = await _read.GetEntityById(query.TrackId);
         if (entity is null) return null;
-        if (entity.OwnerId != query.Owner) return null;
         if (entity.DeletedAt is not null) return null;
+        if (!await _access.CanReadAsync(query.Owner, query.TrackId)) return null;
         return entity.ToData();
     }
 }

@@ -1,8 +1,7 @@
 using FluentAssertions;
 using Turboapi.Sharing.data;
 using Turboapi.Sharing.data.model;
-using Turboapi.Sharing.domain;
-using Turboapi.Sharing.domain.exception;
+using Turboapi.Sharing;
 using Turboapi.Sharing.value;
 using Xunit;
 
