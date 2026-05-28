@@ -12,17 +12,22 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 /// behaviour is exercised in the auth feature's own tests.
 class _FakeAuthNotifier extends Notifier<AuthState>
     implements AuthStateNotifier {
+  _FakeAuthNotifier({this.initial});
+  final AuthState? initial;
+
   @override
-  AuthState build() => AuthState(status: AuthStatus.unauthenticated);
+  AuthState build() =>
+      initial ?? AuthState(status: AuthStatus.unauthenticated);
 
   @override
   noSuchMethod(Invocation i) => super.noSuchMethod(i);
 }
 
-ProviderScope _scope({Widget? home}) {
+ProviderScope _scope({Widget? home, AuthState? auth}) {
   return ProviderScope(
     overrides: [
-      authStateProvider.overrideWith(_FakeAuthNotifier.new),
+      authStateProvider.overrideWith(
+          () => _FakeAuthNotifier(initial: auth)),
     ],
     child: TestApp(child: home ?? const SettingsPage()),
   );
@@ -89,6 +94,49 @@ void main() {
       // Localized tile titles reused from existing l10n strings.
       expect(find.text('Tegning'), findsOneWidget);
       expect(find.text('Min posisjon'), findsOneWidget);
+    });
+  });
+
+  group('Account row', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+    });
+
+    testWidgets('shows a Sign in prompt when unauthenticated and opens '
+        'the login screen on tap', (WidgetTester tester) async {
+      await tester.pumpWidget(_scope(
+          auth: AuthState(status: AuthStatus.unauthenticated)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sign in'), findsOneWidget);
+      expect(find.text('Sync markers and paths across devices'),
+          findsOneWidget);
+
+      await tester.tap(find.text('Sign in'));
+      await tester.pumpAndSettle();
+
+      // LoginScreen has a pre-existing horizontal overflow in its footer
+      // link at narrow viewports — irrelevant to this test, just consume it.
+      tester.takeException();
+
+      // LoginScreen was pushed (either fullscreen on mobile widths or as a
+      // dialog overlay on desktop widths — we only care it's in the tree).
+      expect(find.byType(LoginScreen), findsOneWidget);
+    });
+
+    testWidgets('shows the user email and avatar initials when authenticated',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(_scope(
+          auth: AuthState(
+        status: AuthStatus.authenticated,
+        email: 'trine.granaas@example.no',
+      )));
+      await tester.pumpAndSettle();
+
+      expect(find.text('trine.granaas@example.no'), findsOneWidget);
+      expect(find.text('Manage your Turbo account'), findsOneWidget);
+      // Email parses to TG initials.
+      expect(find.text('TG'), findsOneWidget);
     });
   });
 

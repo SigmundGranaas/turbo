@@ -150,7 +150,7 @@ class _AccountCard extends ConsumerWidget {
               ? () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => const UserProfileScreen(),
                   ))
-              : null,
+              : () => LoginScreen.show(context),
           child: Padding(
             padding: const EdgeInsets.symmetric(
                 horizontal: AppSpacing.l, vertical: 14),
@@ -212,12 +212,11 @@ class _AccountCard extends ConsumerWidget {
                     ],
                   ),
                 ),
-                if (authed)
-                  Icon(
-                    Icons.chevron_right,
-                    color: colorScheme.onPrimaryContainer,
-                    size: 22,
-                  ),
+                Icon(
+                  authed ? Icons.chevron_right : Icons.arrow_forward,
+                  color: colorScheme.onPrimaryContainer,
+                  size: 22,
+                ),
               ],
             ),
           ),
