@@ -218,7 +218,7 @@ class SharingApiClient {
 
   Future<ShareInvite> createFriendInvite(String email, {int? lifetimeDays}) async {
     final r = await _api.post('$_invitesBase/friend',
-        data: {'email': email, if (lifetimeDays != null) 'lifetimeDays': lifetimeDays},
+        data: {'email': email, 'lifetimeDays': ?lifetimeDays},
         options: _json());
     _ensureOk(r);
     return ShareInvite.fromJson(r.data as Map<String, dynamic>);
@@ -232,7 +232,7 @@ class SharingApiClient {
           'email': email,
           'resourceId': resourceId,
           'role': grantRoleToWire(role),
-          if (lifetimeDays != null) 'lifetimeDays': lifetimeDays,
+          'lifetimeDays': ?lifetimeDays,
         },
         options: _json());
     _ensureOk(r);
@@ -256,7 +256,7 @@ class SharingApiClient {
     final query = <String, dynamic>{
       if (since != null) 'since': since.toUtc().toIso8601String(),
       if (types != null && types.isNotEmpty) 'types': types.join(','),
-      if (limit != null) 'limit': limit,
+      'limit': ?limit,
     };
     final r = await _api.get('$_resourcesBase/sync', queryParameters: query);
     _ensureOk(r);

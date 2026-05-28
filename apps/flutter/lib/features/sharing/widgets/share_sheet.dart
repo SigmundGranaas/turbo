@@ -196,18 +196,19 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
 
   Future<void> _createLink() async {
     setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final link = await ref.read(sharingApiClientProvider).grantAsLink(widget.resourceId, _role);
       ref.invalidate(grantsForResourceProvider(widget.resourceId));
       if (mounted) {
         final url = '${EnvironmentConfig.webBaseUrl}/share/r/${link.linkToken}';
         await Clipboard.setData(ClipboardData(text: url));
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Share link copied to clipboard')),
         );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+      if (mounted) messenger.showSnackBar(SnackBar(content: Text('Failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

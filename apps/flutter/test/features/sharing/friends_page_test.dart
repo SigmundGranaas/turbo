@@ -129,7 +129,7 @@ void main() {
   });
 
   group('FriendsPage — Add tab', () {
-    Future<void> _goToAddTab(WidgetTester tester, FakeSharingApi api) async {
+    Future<void> goToAddTab(WidgetTester tester, FakeSharingApi api) async {
       await tester.pumpWidget(wrapWithSharingFake(const FriendsPage(), api));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Add'));
@@ -139,7 +139,7 @@ void main() {
     testWidgets('shows the user\'s own friend code prefixed with "turbo-"',
         (tester) async {
       final api = FakeSharingApi()..myProfile = _profile('ablekite');
-      await _goToAddTab(tester, api);
+      await goToAddTab(tester, api);
 
       expect(find.text('turbo-ablekite'), findsAtLeastNWidgets(1));
     });
@@ -157,7 +157,7 @@ void main() {
       });
 
       final api = FakeSharingApi()..myProfile = _profile('ablekite');
-      await _goToAddTab(tester, api);
+      await goToAddTab(tester, api);
 
       await tester.tap(find.byTooltip('Copy'));
       await tester.pumpAndSettle();
@@ -173,7 +173,7 @@ void main() {
         'friend request flow: lookup, request, success snackbar, field cleared',
         (tester) async {
       final api = FakeSharingApi()..myProfile = _profile('ablekite');
-      await _goToAddTab(tester, api);
+      await goToAddTab(tester, api);
 
       await tester.enterText(
           find.widgetWithText(TextField, 'Friend code'), 'turbo-zzzz');
@@ -200,7 +200,7 @@ void main() {
       // FakeSharingApi.lookupUserByFriendCode resolves any non-empty code by
       // default. Override the behaviour by clearing it via a stub.
       final api = _NotFoundLookupApi()..myProfile = _profile('ablekite');
-      await _goToAddTab(tester, api);
+      await goToAddTab(tester, api);
 
       await tester.enterText(
           find.widgetWithText(TextField, 'Friend code'), 'turbo-doesnotexist');
@@ -217,7 +217,7 @@ void main() {
     testWidgets('email invite flow: submit, success snackbar, field cleared',
         (tester) async {
       final api = FakeSharingApi()..myProfile = _profile('ablekite');
-      await _goToAddTab(tester, api);
+      await goToAddTab(tester, api);
 
       await tester.enterText(
           find.widgetWithText(TextField, 'Email'), 'friend@example.test');
