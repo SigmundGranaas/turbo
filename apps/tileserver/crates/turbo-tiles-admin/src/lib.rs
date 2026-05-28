@@ -29,7 +29,15 @@ use axum::routing::{delete, get, post, put};
 use axum::Router;
 
 pub fn router(state: AdminState) -> Router {
-    Router::new()
+    let mut r = Router::new();
+    // Local-dev escape hatch: with `TURBO_DEV_AUTH=1`, the bin
+    // gains `GET /admin/dev-login` which mints an `access_token`
+    // cookie and redirects to the SPA. Never registered when the
+    // env var is unset, so production deployments are unaffected.
+    if routes::dev_login::enabled() {
+        r = r.route("/dev-login", get(routes::dev_login::dev_login));
+    }
+    r
         .route("/api/resources", get(routes::resources::summary))
         .route("/api/resources/:resource", get(routes::resources::list))
         .route("/api/resources/:resource", post(routes::resources::create))
@@ -50,6 +58,8 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/ingest/bulk", post(routes::ingest::trigger_bulk))
         .route("/api/ingest/incoming", get(routes::ingest::incoming))
         .route("/api/ingest/jobs", get(routes::ingest::jobs))
+        .route("/api/reset/:scope", post(routes::reset::reset))
+        .route("/api/state", get(routes::reset::state))
         // TUS resumable upload endpoints. Flat routes because mixing
         // `.route("/api/...")` and `.nest("/api", ...)` in axum 0.7
         // doesn't compose cleanly.

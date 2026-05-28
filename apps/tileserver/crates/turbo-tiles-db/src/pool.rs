@@ -36,6 +36,22 @@ impl DbConfig {
         })
     }
 
+    /// Lazy pool: doesn't make a connection until a query asks for
+    /// one. Used by `tileserver serve --no-db` where DB-touching
+    /// endpoints are expected to 503 rather than fail-fast at boot.
+    pub fn connect_lazy(&self) -> Result<DbPool, super::DbError> {
+        let opts: sqlx::postgres::PgConnectOptions = self
+            .url
+            .parse()
+            .map_err(|e: sqlx::Error| super::DbError::Connect(e.to_string()))?;
+        let pool = PgPoolOptions::new()
+            .max_connections(self.max_connections)
+            .min_connections(0)
+            .acquire_timeout(Duration::from_secs(2))
+            .connect_lazy_with(opts);
+        Ok(pool)
+    }
+
     pub async fn connect(&self) -> Result<DbPool, super::DbError> {
         let mut opts: sqlx::postgres::PgConnectOptions = self
             .url

@@ -25,7 +25,7 @@ pub async fn trigger(
     tracing::info!(job = job_name.as_str(), %run_id, "admin: triggering ingest");
 
     tokio::spawn(async move {
-        if let Err(e) = turbo_tiles_ingest::run_job(&pool, job_name).await {
+        if let Err(e) = turbo_tiles_ingest::run_job(pool, job_name).await {
             tracing::error!(error = %e, job = job_name.as_str(), "ingest failed");
         }
     });
@@ -103,7 +103,7 @@ pub async fn trigger_bulk(
         "admin: triggering bulk ingest"
     );
     tokio::spawn(async move {
-        if let Err(e) = turbo_tiles_ingest::run_job_with_options(&pool, job_name, opts).await {
+        if let Err(e) = turbo_tiles_ingest::run_job_with_options(pool, job_name, opts).await {
             tracing::error!(error = %e, job = job_name.as_str(), "bulk ingest failed");
         }
     });

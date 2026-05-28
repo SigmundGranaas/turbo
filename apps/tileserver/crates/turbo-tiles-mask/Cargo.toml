@@ -1,0 +1,21 @@
+[package]
+name = "turbo-tiles-mask"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Refusal mask: 2-bit-per-cell packed raster on disk, mmap'd. Reports
+# whether a point is in a water body, glacier, or unrestricted.
+# Resolution 100 m (RAM-tight default; 50 m for higher-RAM boxes).
+
+[dependencies]
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-core.workspace = true
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+memmap2.workspace = true
+byteorder.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

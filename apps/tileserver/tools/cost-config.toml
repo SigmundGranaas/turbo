@@ -1,0 +1,118 @@
+# Cost-model calibration knobs.
+#
+# This file is the single source of truth for routing cost
+# constants — values that are calibration choices, not part of the
+# baked graph artifact. Edit, restart the tileserver, run the
+# scenario corpus (`cargo test --test scenarios`) or sweep
+# (`./target/release/calibrate <knob> ...`) to validate.
+#
+# Path resolution order at boot:
+#   1. `--cost-config <path>` CLI flag (not yet wired)
+#   2. `TURBO_COST_CONFIG=<path>` env var
+#   3. `tools/cost-config.toml` relative to CWD
+#   4. The embedded defaults compiled into the binary (this file's
+#      contents, baked via include_str!) as a final fallback.
+#
+# Knob hygiene:
+#   • Every knob has a physical meaning — pace in seconds per metre,
+#     a slope angle threshold, a width ratio. If you can't write a
+#     one-line "what does this number represent in the real world"
+#     comment, the knob is the wrong shape.
+#   • Defaults are calibrated against the scenario corpus. Add a
+#     scenario before bumping a knob into production use.
+
+# ============================================================
+# Base traversal pace.
+# ============================================================
+# Seconds per metre on flat, maintained trail. 1.4 m/s = 5 km/h is
+# the standard hiking baseline (Naismith, Tobler). Other contributors
+# express their pace deltas relative to this floor.
+[base]
+pace_s_per_m = 0.7142857142857143  # 1/1.4
+
+# ============================================================
+# Off-trail base multiplier.
+# ============================================================
+# Per-profile floor for mesh-edge cost when no graph alternative
+# exists. 1.0 = same pace as trail, 2.0 = twice as slow.
+# Calibrated against the scenario corpus under both cost modes.
+# After Stage 2's port of every legacy CostLayer to native
+# CostContributor impls (#126), additive walk-seconds composition
+# matches the physical model exactly — no LegacyLayerAdapter
+# approximation widening the multiplier-vs-additive gap. The
+# corpus-minimum off_trail_base.foot for the Marka 5 km query is
+# ~2.3 in both modes (multiplicative and walk_seconds); we pick
+# 2.3 so foot routing prefers known trails by roughly a 2.3× pace
+# margin over open ground.
+[off_trail_base]
+foot = 2.3
+bicycle = 2.5
+ski = 1.0
+
+# ============================================================
+# Trail proximity bias.
+# ============================================================
+# Mesh cells within `influence_radius_m` of any graph edge get a
+# pace discount that scales linearly from `bonus_at_zero` (on the
+# trail) to 1.0 (at the radius). The discount makes the off-trail
+# solver prefer corridors near trails when off-trail is necessary.
+#
+# Calibration: bonus_at_zero=0.3 over-biased so mesh-near-trail was
+# CHEAPER than the trail itself, causing Q2 to pick off-trail over
+# on-trail. 0.95 stops the competition.
+[trail_proximity]
+influence_radius_m = 150.0
+bonus_at_zero = 0.5
+
+# ============================================================
+# Slope cost (mesh + DEM cells).
+# ============================================================
+# Quadratic in slope angle: cost = 1 + (deg / scale)². Refuses
+# above `refuse_above_deg`.
+[slope_cell]
+quadratic_scale_deg = 12.0
+refuse_above_deg = 45.0
+
+# ============================================================
+# Slope cost (graph edges, baked slope_max_deg).
+# ============================================================
+# Same shape as slope_cell but reads the per-edge baked
+# `slope_max_deg`. Refusal here means the trail polyline itself
+# traverses a cliff segment — happens for N50 sti where the dataset
+# captures a path that genuinely goes through cliffy terrain.
+[slope_graph]
+quadratic_scale_deg = 15.0
+refuse_above_deg = 50.0
+
+# ============================================================
+# Total gain amplifier.
+# ============================================================
+# Multiplies the Naismith gain term (e.g. foot = 8 × gain_m) at
+# request time. 1.0 = identity. Use 2.0 for "less-fit" routing
+# (climbs feel twice as costly); 0.5 for "alpine, gain is OK".
+[total_gain]
+amplifier = 1.0
+
+# ============================================================
+# Surface multipliers (graph edges) — currently baked into the
+# graph artifact at build time. Listed here for transparency.
+# Migrating these to runtime is part of Stage 2 follow-on; once
+# moved here, editing requires only a restart, not a graph rebuild.
+# ============================================================
+[surface_multiplier.foot]
+sti = 1.0
+vei = 1.6
+skiloype = 1.2
+traktorvei = 1.4
+
+[surface_multiplier.bicycle]
+sti = 1.5
+vei = 1.0
+skiloype = 2.0
+traktorvei = 1.0
+
+[surface_multiplier.ski]
+sti = 1.2
+vei = 1.4
+skiloype = 1.0
+traktorvei = 1.3

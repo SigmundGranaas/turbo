@@ -10,7 +10,14 @@ turbo-tiles-core.workspace = true
 turbo-tiles-db.workspace = true
 turbo-tiles-mvt.workspace = true
 turbo-tiles-auth.workspace = true
-turbo-tiles-routing.workspace = true
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-elev.workspace = true
+turbo-tiles-mask.workspace = true
+turbo-tiles-graph.workspace = true
+turbo-tiles-search.workspace = true
+turbo-tiles-pathfind.workspace = true
+chrono.workspace = true
+uuid = { workspace = true }
 sqlx.workspace = true
 axum.workspace = true
 tower-http.workspace = true
@@ -21,3 +28,18 @@ thiserror.workspace = true
 tracing.workspace = true
 http.workspace = true
 bytes.workspace = true
+image.workspace = true
+tokio = { workspace = true }
+# SSE streaming endpoint for the live algorithm-replay overlay.
+# `futures` for `.map().chain()` stream combinators, tokio-stream
+# for ReceiverStream wrapping the bounded mpsc the recorder fans
+# events through, async-stream for the trailing terminal frame.
+futures = "0.3"
+tokio-stream = "0.1"
+async-stream = "0.3"
+
+[dev-dependencies]
+turbo-tiles-ingest.workspace = true
+tokio = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+tempfile = "3"

@@ -120,10 +120,15 @@ pub async fn load_geotiff(
     //   -s 25833      target SRID (reproject if source differs)
     //   -t 256x256    tile into 256-px blocks for index efficiency
     //   -I            create the GiST index (idempotent)
-    //   -C            apply standard raster constraints
     //   -a            APPEND mode — don't drop existing rows
+    //
+    // Note: `-C` (apply raster constraints) is omitted. When used on
+    // a multi-tile bulk load, the first tile's max-extent constraint
+    // rejects every subsequent tile that covers a different region.
+    // Constraints can be re-applied at the end of the bulk load via
+    // SELECT AddRasterConstraints('paths', 'dem', 'rast').
     let cmd = format!(
-        "set -o pipefail; raster2pgsql -s 25833 -t 256x256 -I -C -a {file:?} paths.dem | psql -v ON_ERROR_STOP=1 -q -d {db:?}",
+        "set -o pipefail; raster2pgsql -s 25833 -t 256x256 -I -a {file:?} paths.dem | psql -v ON_ERROR_STOP=1 -q -d {db:?}",
         file = file_str,
         db = database_url
     );

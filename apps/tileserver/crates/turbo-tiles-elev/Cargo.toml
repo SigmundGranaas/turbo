@@ -1,0 +1,30 @@
+[package]
+name = "turbo-tiles-elev"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Elevation primitive. Tiled, zstd-compressed DEM on disk with an
+# in-process LRU cache. Sub-microsecond samples once tiles are warm.
+# RAM budget tunable; default cache 128 MB.
+
+[dependencies]
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-core.workspace = true
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+memmap2.workspace = true
+byteorder.workspace = true
+bytemuck.workspace = true
+zstd.workspace = true
+parking_lot.workspace = true
+rstar.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+criterion = { workspace = true }
+
+[[bench]]
+name = "sample"
+harness = false

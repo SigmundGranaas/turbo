@@ -1,0 +1,81 @@
+# Vector feature collections for `norway.vectors`.
+#
+# Each [[layer]] becomes one named collection inside the artifact.
+# Cost layers in `turbo-tiles-pathfind` look up collections by name
+# at boot. Adding a new feature class — avalanche zones, fences,
+# point hazards — is a TOML-only change.
+#
+# Source tables / columns match the N50 staging schema produced by
+# `n50_loader` (see `docker exec tiles-db psql -c "\d n50_staging.*"`).
+
+# ----- Lakes / large water polygons ------------------------------
+# Replaces the dilated 25-m water mask. The cost layer integrates
+# "metres of edge inside the polygon" exactly, so a 5-m tarn now
+# costs ~5 m × 80/m = +400 effective metres on a passing edge,
+# not a 100-m halo of refused cells.
+[[layer]]
+name        = "water"
+table       = "n50_staging.innsjo"
+geom_column = "omrade"
+kind        = "polygon"
+attrs       = [
+  { name = "area_m2", ty = "f32", source = "GREATEST(ST_Area(omrade)::float4, 0.0)" },
+]
+
+# ----- Ocean / saltwater fjord polygons --------------------------
+# `n50_staging.innsjo` only has inland lakes. Saltwater (fjords,
+# coastline, open sea) lives in `havflate`. Without this layer, a
+# route from a harbor to its opposite shore happily cut straight
+# across the fjord — the mimicry harness's `bergen-2km-roads`
+# scenario surfaced this regression. Cost weight is heavier than
+# lakes: you can't ford a 1 km fjord by wading.
+[[layer]]
+name        = "ocean"
+table       = "n50_staging.havflate"
+geom_column = "omrade"
+kind        = "polygon"
+attrs       = []
+
+# ----- Streams (LineString) --------------------------------------
+# Replaces the buffered `stream_barrier` mask. Each crossing of a
+# stream adds a cost proportional to its width. `vannbredde` in
+# N50 is a text categorical ('2', '3') giving a rough width band,
+# cast back to float for the cost closure.
+[[layer]]
+name        = "streams"
+table       = "n50_staging.elvbekk"
+geom_column = "senterlinje"
+kind        = "line_string"
+attrs       = [
+  { name = "width_m", ty = "f32", source = "COALESCE(NULLIF(vannbredde, '')::float4, 2.0)" },
+]
+
+# ----- Wetland (myr) ---------------------------------------------
+# Replaces the wetland landcover mask. Wetland is passable but slow;
+# the integral layer adds ~1.5 effective metres per metre walked.
+[[layer]]
+name        = "wetland"
+table       = "n50_staging.myr"
+geom_column = "omrade"
+kind        = "polygon"
+attrs       = [
+  { name = "area_m2", ty = "f32", source = "GREATEST(ST_Area(omrade)::float4, 0.0)" },
+]
+
+# ----- Cultivated land -------------------------------------------
+# Walking through cropland is socially discouraged. Soft cost only.
+[[layer]]
+name        = "cultivated"
+table       = "n50_staging.dyrketmark"
+geom_column = "omrade"
+kind        = "polygon"
+attrs       = []
+
+# ----- Building footprints ---------------------------------------
+# Hard refusal — handled by PolygonRefusalLayer in the cost stack.
+[[layer]]
+name        = "building"
+table       = "n50_staging.bygning_omrade"
+geom_column = "omrade"
+kind        = "polygon"
+attrs       = []

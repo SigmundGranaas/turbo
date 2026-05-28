@@ -22,3 +22,6 @@ hex.workspace = true
 tokio.workspace = true
 url.workspace = true
 async-trait.workspace = true
+
+[dev-dependencies]
+# E2E tests will be rewritten in Stage 7 to drive the new primitives.

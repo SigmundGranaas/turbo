@@ -1,3 +1,4 @@
+pub mod crash_dump;
 pub mod error;
 pub mod state;
 pub mod v1;

@@ -1,0 +1,43 @@
+[package]
+name = "turbo-tiles-build"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Build-time CLI library: reads from Postgres staging schemas
+# (n50_staging, turbase_staging, paths.dem, etc.) and writes the
+# binary artifacts that primitives mmap at runtime.
+
+[dependencies]
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-core.workspace = true
+turbo-tiles-db.workspace = true
+turbo-tiles-elev.workspace = true
+turbo-tiles-mask.workspace = true
+turbo-tiles-graph.workspace = true
+turbo-tiles-search.workspace = true
+turbo-tiles-geom.workspace = true
+turbo-tiles-vector.workspace = true
+serde = { workspace = true, features = ["derive"] }
+toml = "0.8"
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+byteorder.workspace = true
+bytemuck.workspace = true
+zstd.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+async-trait.workspace = true
+rstar.workspace = true
+fst.workspace = true
+bincode.workspace = true
+futures = "0.3"
+geo.workspace = true
+ureq = { version = "2", default-features = false, features = ["json", "rustls"] }
+
+[[bin]]
+name = "calibrate"
+path = "src/bin/calibrate.rs"

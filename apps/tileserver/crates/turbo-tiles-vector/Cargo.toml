@@ -1,0 +1,26 @@
+[package]
+name = "turbo-tiles-vector"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Generic vector-feature artifact. One file (norway.vectors) holds
+# many named feature collections (Point | LineString | Polygon),
+# each with an rstar AABB index, a flat coordinate buffer, and a
+# per-feature attribute blob. Cost layers query collections by name;
+# adding a new feature class is a one-row build-config change.
+
+[dependencies]
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-geom.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror.workspace = true
+memmap2.workspace = true
+byteorder.workspace = true
+bytemuck.workspace = true
+rstar.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -11,10 +11,36 @@ pub enum JobName {
     Turbase,
     Dnt,
     Dtm10Attach,
-    /// Bulk-load a DTM GeoTIFF (or any raster2pgsql-compatible file)
-    /// into `paths.dem`. Operator points `--file` at a `.tif` on the
-    /// configured incoming volume.
+    /// Bulk-load a single DTM GeoTIFF into `paths.dem` (low-level).
     DtmLoad,
+    /// Bulk-extract a Kartverket DTM10 zip and load every .tif tile.
+    DtmBulkLoad,
+    /// Anchors ingest with baked dev fixture (replaces N50 when DB is empty).
+    N50Anchors,
+    /// Per-edge slope/aspect derivation from `paths.dem`.
+    EdgeAttrs,
+    /// Load the recommendation dev fixture.
+    RecommendSeed,
+    /// Synthesise off-trail "skeleton" edges via Delaunay over anchors.
+    SkeletonBuild,
+    /// Heavy: psql-restore the N50 dump into `n50_staging`.
+    N50Restore,
+    /// Cheap: re-run vann upsert against `n50_staging`.
+    N50VannUpsert,
+    /// Cheap: re-run glacier upsert against `n50_staging`.
+    N50IsogBreUpsert,
+    /// Cheap: re-run landcover upsert (skog/myr/apentomrade/dyrketmark).
+    N50LandcoverUpsert,
+    /// Cheap: re-run stedsnavn upsert against `n50_staging`.
+    N50StedsnavnUpsert,
+    /// Cheap: re-run vegnett upsert against `n50_staging`.
+    N50VegnettUpsert,
+    /// Heavy: psql-restore Turrutebasen dump into `turbase_staging`.
+    TurbaseRestore,
+    /// Cheap: re-run turbase upsert against `turbase_staging`.
+    TurbaseUpsert,
+    /// DNT cabins HTTP API → anchors.anchor.
+    DntCabinsLoad,
 }
 
 impl FromStr for JobName {
@@ -26,6 +52,20 @@ impl FromStr for JobName {
             "dnt" => Ok(JobName::Dnt),
             "dtm10-attach" => Ok(JobName::Dtm10Attach),
             "dtm-load" => Ok(JobName::DtmLoad),
+            "dtm-bulk-load" => Ok(JobName::DtmBulkLoad),
+            "n50-anchors" => Ok(JobName::N50Anchors),
+            "edge-attrs" => Ok(JobName::EdgeAttrs),
+            "recommend-seed" => Ok(JobName::RecommendSeed),
+            "skeleton-build" => Ok(JobName::SkeletonBuild),
+            "n50-restore" => Ok(JobName::N50Restore),
+            "n50-vann-upsert" => Ok(JobName::N50VannUpsert),
+            "n50-isogbre-upsert" => Ok(JobName::N50IsogBreUpsert),
+            "n50-landcover-upsert" => Ok(JobName::N50LandcoverUpsert),
+            "n50-stedsnavn-upsert" => Ok(JobName::N50StedsnavnUpsert),
+            "n50-vegnett-upsert" => Ok(JobName::N50VegnettUpsert),
+            "turbase-restore" => Ok(JobName::TurbaseRestore),
+            "turbase-upsert" => Ok(JobName::TurbaseUpsert),
+            "dnt-cabins-load" => Ok(JobName::DntCabinsLoad),
             other => Err(format!("unknown job `{other}`")),
         }
     }
@@ -39,7 +79,58 @@ impl JobName {
             JobName::Dnt => "dnt",
             JobName::Dtm10Attach => "dtm10-attach",
             JobName::DtmLoad => "dtm-load",
+            JobName::DtmBulkLoad => "dtm-bulk-load",
+            JobName::N50Anchors => "n50-anchors",
+            JobName::EdgeAttrs => "edge-attrs",
+            JobName::RecommendSeed => "recommend-seed",
+            JobName::SkeletonBuild => "skeleton-build",
+            JobName::N50Restore => "n50-restore",
+            JobName::N50VannUpsert => "n50-vann-upsert",
+            JobName::N50IsogBreUpsert => "n50-isogbre-upsert",
+            JobName::N50LandcoverUpsert => "n50-landcover-upsert",
+            JobName::N50StedsnavnUpsert => "n50-stedsnavn-upsert",
+            JobName::N50VegnettUpsert => "n50-vegnett-upsert",
+            JobName::TurbaseRestore => "turbase-restore",
+            JobName::TurbaseUpsert => "turbase-upsert",
+            JobName::DntCabinsLoad => "dnt-cabins-load",
         }
+    }
+
+    /// True iff the job accepts a `--file` option.
+    pub fn takes_file(self) -> bool {
+        matches!(
+            self,
+            JobName::DtmLoad
+                | JobName::DtmBulkLoad
+                | JobName::N50Anchors
+                | JobName::N50Restore
+                | JobName::TurbaseRestore
+                | JobName::DntCabinsLoad
+        )
+    }
+
+    pub fn all() -> &'static [JobName] {
+        &[
+            JobName::FkbSti,
+            JobName::Turbase,
+            JobName::Dnt,
+            JobName::Dtm10Attach,
+            JobName::DtmLoad,
+            JobName::DtmBulkLoad,
+            JobName::N50Anchors,
+            JobName::EdgeAttrs,
+            JobName::RecommendSeed,
+            JobName::SkeletonBuild,
+            JobName::N50Restore,
+            JobName::N50VannUpsert,
+            JobName::N50IsogBreUpsert,
+            JobName::N50LandcoverUpsert,
+            JobName::N50StedsnavnUpsert,
+            JobName::N50VegnettUpsert,
+            JobName::TurbaseRestore,
+            JobName::TurbaseUpsert,
+            JobName::DntCabinsLoad,
+        ]
     }
 }
 
@@ -59,66 +150,163 @@ pub enum JobError {
 
 #[derive(Debug, Default, Clone)]
 pub struct JobOptions {
-    /// Optional ingest bbox for `fkb-sti`.
     pub bbox: Option<Bbox>,
-    /// Filesystem path for bulk-file jobs (e.g. `dtm-load`).
     pub file: Option<PathBuf>,
-    /// Optional source label stamped on loaded rows (e.g. "dtm10").
     pub source: Option<String>,
-    /// Caller-supplied run id. When set, the job will reuse it in the
-    /// `paths.ingest_job` log row instead of generating a fresh UUID.
-    /// Used by the admin bulk-trigger endpoint so the response carries
-    /// a run_id that matches the eventual job row, letting the SPA
-    /// poll for the specific job it triggered.
     pub run_id: Option<uuid::Uuid>,
-    /// For `dtm10-attach`: re-attach elevation to every edge, even
-    /// those that already have a value. Used when a higher-resolution
-    /// DEM lands and the curator wants to overwrite older guesses.
+    /// Used for `dtm10-attach` (overwrite) and `n50-restore`/`turbase-restore`
+    /// (drop+recreate the canonical staging schema).
     pub force: bool,
 }
 
-pub async fn run_job(pool: &DbPool, job: JobName) -> Result<JobOutcome, JobError> {
-    run_job_with_options(pool, job, JobOptions::default()).await
+pub async fn run_job(pool: DbPool, job: JobName) -> Result<JobOutcome, JobError> {
+    run_job_with_options_owned(pool, job, JobOptions::default()).await
 }
 
 pub async fn run_job_with_options(
-    pool: &DbPool,
+    pool: DbPool,
     job: JobName,
     opts: JobOptions,
 ) -> Result<JobOutcome, JobError> {
+    run_job_with_options_owned(pool, job, opts).await
+}
+
+async fn run_job_with_options_owned(
+    pool: DbPool,
+    job: JobName,
+    opts: JobOptions,
+) -> Result<JobOutcome, JobError> {
+    let pool_ref = &pool;
     let run_id = opts.run_id.unwrap_or_else(uuid::Uuid::new_v4);
     tracing::info!(job = job.as_str(), %run_id, "starting ingest job");
 
-    let job_row_id = open_job_row(pool, job, run_id).await?;
+    let job_row_id = open_job_row(pool_ref, job, run_id).await?;
 
-    let result = match job {
-        JobName::FkbSti => match opts.bbox {
-            Some(b) => crate::fkb_wfs::run_with_bbox(pool, b).await,
-            None => crate::fkb_wfs::run(pool, run_id).await,
-        },
+    type FutResult = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<JobOutcome, JobError>> + Send>,
+    >;
+    let fut: FutResult = match job {
+        JobName::FkbSti => {
+            let p = pool.clone();
+            let opts_bbox = opts.bbox;
+            Box::pin(async move {
+                match opts_bbox {
+                    Some(b) => crate::fkb_wfs::run_with_bbox(&p, b).await,
+                    None => crate::fkb_wfs::run(&p, run_id).await,
+                }
+            })
+        }
         JobName::Dtm10Attach => {
-            if opts.force {
-                crate::dtm10::run_force(pool).await
-            } else {
-                crate::dtm10::run(pool).await
-            }
+            let p = pool.clone();
+            let force = opts.force;
+            Box::pin(async move {
+                if force {
+                    crate::dtm10::run_force(&p).await
+                } else {
+                    crate::dtm10::run(&p).await
+                }
+            })
         }
         JobName::DtmLoad => {
-            let file = opts.file.ok_or(JobError::MissingOption("file"))?;
-            let source = opts.source.as_deref().unwrap_or("dtm10");
-            crate::dtm_raster::load_geotiff(pool, &file, source).await
+            let p = pool.clone();
+            let file = opts.file.clone();
+            let source = opts.source.clone().unwrap_or_else(|| "dtm10".to_string());
+            Box::pin(async move {
+                let file = file.ok_or(JobError::MissingOption("file"))?;
+                crate::dtm_raster::load_geotiff(&p, &file, &source).await
+            })
         }
-        other => Err(JobError::NotImplemented(other.as_str())),
+        JobName::DtmBulkLoad => {
+            let p = pool.clone();
+            let file = opts.file.clone();
+            let source = opts.source.clone().unwrap_or_else(|| "dtm10".to_string());
+            Box::pin(async move {
+                let file = file.ok_or(JobError::MissingOption("file"))?;
+                crate::dtm_bulk::run(&p, file, source).await
+            })
+        }
+        JobName::N50Anchors => {
+            let p = pool.clone();
+            let file = opts.file.clone();
+            Box::pin(async move {
+                match file {
+                    Some(f) => crate::n50_anchors::run_from_file(&p, f).await,
+                    None => crate::n50_anchors::run(&p, false).await,
+                }
+            })
+        }
+        JobName::EdgeAttrs => {
+            let p = pool.clone();
+            let force = opts.force;
+            Box::pin(async move { crate::edge_attrs::run(&p, force).await })
+        }
+        JobName::RecommendSeed => {
+            let p = pool.clone();
+            Box::pin(async move { crate::recommend_seed::run(&p).await })
+        }
+        JobName::SkeletonBuild => {
+            let p = pool.clone();
+            Box::pin(async move { crate::skeleton_build::run(&p).await })
+        }
+        JobName::N50Restore => {
+            let p = pool.clone();
+            let file = opts.file.clone();
+            let force = opts.force;
+            Box::pin(async move {
+                let file = file.ok_or(JobError::MissingOption("file"))?;
+                crate::n50::restore(&p, file, force).await
+            })
+        }
+        JobName::N50VannUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_vann(&p).await })
+        }
+        JobName::N50IsogBreUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_isogbre(&p).await })
+        }
+        JobName::N50LandcoverUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_landcover(&p).await })
+        }
+        JobName::N50StedsnavnUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_stedsnavn(&p).await })
+        }
+        JobName::N50VegnettUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_vegnett(&p).await })
+        }
+        JobName::TurbaseRestore => {
+            let p = pool.clone();
+            let file = opts.file.clone();
+            let force = opts.force;
+            Box::pin(async move {
+                let file = file.ok_or(JobError::MissingOption("file"))?;
+                crate::turbase::restore(&p, file, force).await
+            })
+        }
+        JobName::TurbaseUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::turbase::upsert(&p).await })
+        }
+        JobName::DntCabinsLoad => {
+            let p = pool.clone();
+            let file = opts.file.clone();
+            Box::pin(async move { crate::dnt_cabins::run(&p, file, None).await })
+        }
+        other => Box::pin(async move { Err(JobError::NotImplemented(other.as_str())) }),
     };
+    let result: Result<JobOutcome, JobError> = fut.await;
 
     let outcome = match result {
         Ok(o) => {
-            close_job_row(pool, job_row_id, "succeeded", &o, None).await?;
+            close_job_row(pool_ref, job_row_id, "succeeded", &o, None).await?;
             o
         }
         Err(e) => {
             let outcome = JobOutcome::default();
-            close_job_row(pool, job_row_id, "failed", &outcome, Some(&e.to_string())).await?;
+            close_job_row(pool_ref, job_row_id, "failed", &outcome, Some(&e.to_string())).await?;
             return Err(e);
         }
     };
@@ -134,7 +322,6 @@ pub struct JobOutcome {
 }
 
 async fn open_job_row(pool: &DbPool, job: JobName, run_id: uuid::Uuid) -> Result<i64, sqlx::Error> {
-    // `status` is an enum (paths.job_status); cast the bound text.
     let row: (i64,) = sqlx::query_as(
         r#"
         INSERT INTO paths.ingest_job (run_id, name, status, started_at)

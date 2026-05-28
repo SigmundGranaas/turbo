@@ -10,11 +10,20 @@
 //!   6. refresh → materialised views if any
 //!   7. log     → write `paths.ingest_job` row
 
+pub mod dnt_cabins;
 pub mod dtm10;
+pub mod dtm_bulk;
 pub mod dtm_raster;
+pub mod edge_attrs;
 pub mod fkb_wfs;
 pub mod job;
+pub mod n50;
+pub mod n50_anchors;
+pub mod pgdump_load;
+pub mod recommend_seed;
+pub mod skeleton_build;
 pub mod stage;
+pub mod turbase;
 
 pub use dtm_raster::{incoming_dir, list_incoming, resolve_under_incoming};
 

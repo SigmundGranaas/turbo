@@ -1,0 +1,28 @@
+[package]
+name = "turbo-tiles-search"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Anchor search primitive. rstar R-tree for nearest-neighbour, `fst`
+# (Finite State Transducer) for memory-efficient fuzzy name lookup.
+# Note: tantivy was considered but it's ~10x heavier in RAM than `fst`
+# at our scale (500k names) — `fst` keeps us comfortably under the
+# 1-4 GB box budget.
+
+[dependencies]
+turbo-tiles-artifacts.workspace = true
+turbo-tiles-core.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+memmap2.workspace = true
+byteorder.workspace = true
+rstar.workspace = true
+fst.workspace = true
+bincode.workspace = true
+bytemuck = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"

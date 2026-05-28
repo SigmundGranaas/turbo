@@ -1,0 +1,66 @@
+[
+  {
+    "kind": "summit",
+    "name": "Vettakollen",
+    "x": 596800,
+    "y": 6651800,
+    "elevation_m": 481.0,
+    "source_ref": "n50-fixture-vettakollen"
+  },
+  {
+    "kind": "summit",
+    "name": "Grefsenkollen",
+    "x": 595400,
+    "y": 6651600,
+    "elevation_m": 380.0,
+    "source_ref": "n50-fixture-grefsenkollen"
+  },
+  {
+    "kind": "summit",
+    "name": "Tryvannshogda",
+    "x": 596000,
+    "y": 6651400,
+    "elevation_m": 529.0,
+    "source_ref": "n50-fixture-tryvannshogda"
+  },
+  {
+    "kind": "summit",
+    "name": "Kolsåstoppen",
+    "x": 583000,
+    "y": 6647000,
+    "elevation_m": 379.0,
+    "source_ref": "n50-fixture-kolsastoppen"
+  },
+  {
+    "kind": "named_place",
+    "name": "Frognerseteren",
+    "x": 595600,
+    "y": 6651000,
+    "elevation_m": 419.0,
+    "source_ref": "n50-fixture-frognerseteren"
+  },
+  {
+    "kind": "trailhead",
+    "name": "Sognsvann parkering",
+    "x": 595200,
+    "y": 6650200,
+    "elevation_m": 178.0,
+    "source_ref": "n50-fixture-sognsvann-parkering"
+  },
+  {
+    "kind": "waterfeature",
+    "name": "Sognsvann",
+    "x": 595200,
+    "y": 6650600,
+    "elevation_m": 178.0,
+    "source_ref": "n50-fixture-sognsvann"
+  },
+  {
+    "kind": "cabin",
+    "name": "Kobberhaughytta",
+    "x": 596400,
+    "y": 6651200,
+    "elevation_m": 425.0,
+    "source_ref": "n50-fixture-kobberhaughytta"
+  }
+]
