@@ -7,6 +7,7 @@ import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.d
 import 'package:turbo/features/tile_providers/data/providers/google_sattelite.dart';
 import 'package:turbo/features/tile_providers/data/providers/nasjonal_turbase_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/norges_kart_topo.dart';
+import 'package:turbo/features/tile_providers/data/providers/ocean_conditions_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/offline_region_provider_config.dart';
 import 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart';
 import 'package:turbo/features/tile_providers/data/providers/vector_path_overlays.dart';
@@ -29,6 +30,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
       OsmConfig(),
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),
+      OceanConditionsOverlayConfig(),
       TrailsFootOverlayConfig(),
       TrailsSkiOverlayConfig(),
       TrailsBikeOverlayConfig(),

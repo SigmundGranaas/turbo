@@ -6,6 +6,7 @@ import 'package:turbo/core/widgets/app_section_header.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
+import 'package:turbo/features/photo_map/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
 as offline_regions_api;
 import 'package:turbo/app/l10n/app_localizations.dart';
@@ -255,6 +256,7 @@ class LayerSelectionSheet extends ConsumerWidget {
     final l10n = context.l10n;
     final markersVisible = ref.watch(markersVisibleProvider);
     final pathsVisible = ref.watch(savedPathsVisibleProvider);
+    final photosVisible = ref.watch(photoLayerVisibleProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -276,6 +278,15 @@ class LayerSelectionSheet extends ConsumerWidget {
           title: Text(l10n.showPaths),
           value: pathsVisible,
           onChanged: (_) => ref.read(savedPathsVisibleProvider.notifier).toggle(),
+        ),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+          secondary: const Icon(Icons.photo_camera_outlined),
+          title: Text(l10n.showPhotos),
+          subtitle: Text(l10n.showPhotosSubtitle),
+          value: photosVisible,
+          onChanged: (_) =>
+              ref.read(photoLayerVisibleProvider.notifier).toggle(),
         ),
         const SizedBox(height: 8),
       ],
@@ -383,6 +394,8 @@ class LayerSelectionSheet extends ConsumerWidget {
         return Icons.satellite;
       case 'avalanche_danger':
         return Icons.ac_unit;
+      case 'ocean_conditions':
+        return Icons.waves;
       default:
         return Icons.layers;
     }
