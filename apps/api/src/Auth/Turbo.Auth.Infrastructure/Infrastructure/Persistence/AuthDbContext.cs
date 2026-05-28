@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Reflection;
 using Turbo.Outbox.Postgres;
 using Turboapi.Auth.Domain.Aggregates;
+using Turboapi.Auth.Domain.Notifications;
 
 namespace Turboapi.Auth.Infrastructure.Persistence
 {
@@ -17,6 +18,7 @@ namespace Turboapi.Auth.Infrastructure.Persistence
         public DbSet<OAuthAuthMethod> OAuthAuthMethods { get; set; } = null!;
         public DbSet<RefreshToken> RefreshTokens { get; set; } = null!;
         public DbSet<Role> Roles { get; set; } = null!;
+        public DbSet<DeviceToken> DeviceTokens { get; set; } = null!;
         public DbSet<OutboxRow> Outbox { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -57,6 +57,18 @@ namespace Turboapi.Auth.Domain.Events
         [property: JsonPropertyName("revokedAt")] DateTime RevokedAt
     ) : DomainEvent, IAccountAssociatedEvent;
 
+    public record PasswordChangedEvent(
+        [property: JsonPropertyName("accountId")] Guid AccountId,
+        [property: JsonPropertyName("authMethodId")] Guid AuthMethodId,
+        [property: JsonPropertyName("changedAt")] DateTime ChangedAt
+    ) : DomainEvent, IAccountAssociatedEvent;
+
+    public record AccountProfileUpdatedEvent(
+        [property: JsonPropertyName("accountId")] Guid AccountId,
+        [property: JsonPropertyName("displayName")] string? DisplayName,
+        [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt
+    ) : DomainEvent, IAccountAssociatedEvent;
+
     public record SuspiciousRefreshTokenAttemptEvent(
         [property: JsonPropertyName("accountId")] Guid AccountId,
         [property: JsonPropertyName("tokenAttempted")] string TokenAttempted,

@@ -7,15 +7,18 @@ using Microsoft.IdentityModel.Tokens;
 using Turbo.Outbox;
 using Turbo.Outbox.Postgres;
 using Turboapi.Auth.Application.Behaviors;
+using Turboapi.Auth.Application.Notifications;
 using Turboapi.Auth.Application.Contracts.V1.Auth;
 using Turboapi.Auth.Application.Interfaces;
 using Turboapi.Auth.Application.Results;
 using Turboapi.Auth.Application.Results.Errors;
 using Turboapi.Auth.Application.UseCases.Commands.AuthenticateWithOAuth;
+using Turboapi.Auth.Application.UseCases.Commands.ChangePassword;
 using Turboapi.Auth.Application.UseCases.Commands.LoginUserWithPassword;
 using Turboapi.Auth.Application.UseCases.Commands.RefreshToken;
 using Turboapi.Auth.Application.UseCases.Commands.RegisterUserWithPassword;
 using Turboapi.Auth.Application.UseCases.Commands.RevokeRefreshToken;
+using Turboapi.Auth.Application.UseCases.Commands.UpdateProfile;
 using Turboapi.Auth.Application.UseCases.Queries.ValidateSession;
 using Turboapi.Auth.Domain.Interfaces;
 using Turboapi.Auth.Infrastructure.Auth;
@@ -54,6 +57,10 @@ public static class AuthModule
 
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IDeviceTokenRepository, Turboapi.Auth.Infrastructure.Notifications.DeviceTokenRepository>();
+        services.Configure<Turboapi.Auth.Infrastructure.Notifications.FcmOptions>(
+            configuration.GetSection(Turboapi.Auth.Infrastructure.Notifications.FcmOptions.SectionName));
+        services.AddScoped<IPushSender, Turboapi.Auth.Infrastructure.Notifications.FcmPushSender>();
         services.AddScoped<IOutbox<AuthScope>, PgOutbox<AuthDbContext, AuthScope>>();
         // Auth's UoW does the aggregate-event drain in addition to the
         // execution-strategy SaveChanges that PgUnitOfWork would do
@@ -67,6 +74,8 @@ public static class AuthModule
         services.AddCommandHandler<RefreshTokenCommand, Result<AuthTokenResponse, RefreshTokenError>, RefreshTokenCommandHandler>();
         services.AddCommandHandler<AuthenticateWithOAuthCommand, Result<AuthTokenResponse, OAuthLoginError>, AuthenticateWithOAuthCommandHandler>();
         services.AddCommandHandler<RevokeRefreshTokenCommand, Result<RefreshTokenError>, RevokeRefreshTokenCommandHandler>();
+        services.AddCommandHandler<ChangePasswordCommand, Result<ChangePasswordError>, ChangePasswordCommandHandler>();
+        services.AddCommandHandler<UpdateProfileCommand, Result<ProfileResponse, UpdateProfileError>, UpdateProfileCommandHandler>();
         services.AddScoped<ValidateSessionQueryHandler>();
 
         services.AddHttpClient();

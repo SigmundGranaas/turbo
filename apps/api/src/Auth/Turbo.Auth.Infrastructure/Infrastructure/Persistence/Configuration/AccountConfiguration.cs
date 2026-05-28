@@ -22,6 +22,10 @@ namespace Turboapi.Auth.Infrastructure.Persistence.Configuration
 
             builder.HasIndex(a => a.Email).IsUnique();
 
+            builder.Property(a => a.DisplayName)
+                .HasColumnName("display_name")
+                .HasMaxLength(Domain.Aggregates.Account.MaxDisplayNameLength);
+
             builder.Property(a => a.IsActive)
                 .HasColumnName("is_active")
                 .IsRequired()
