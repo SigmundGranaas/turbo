@@ -4,9 +4,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/settings/api.dart';
-import 'package:turbo/features/settings/widgets/sections/about_settings_page.dart';
 
 import '../data/auth_providers.dart';
+import 'change_password_screen.dart';
+import 'edit_profile_screen.dart';
 
 class UserProfileScreen extends ConsumerWidget {
   const UserProfileScreen({super.key});
@@ -19,6 +20,10 @@ class UserProfileScreen extends ConsumerWidget {
     final l10n = context.l10n;
     final authState = ref.watch(authStateProvider);
     final email = authState.email;
+    final displayName = authState.displayName;
+    final hasDisplayName = displayName != null && displayName.isNotEmpty;
+    final primaryText = hasDisplayName ? displayName : (email ?? l10n.user);
+    final avatarSource = hasDisplayName ? displayName : email;
     final colorScheme = Theme.of(context).colorScheme;
     final authNotifier = ref.read(authStateProvider.notifier);
 
@@ -48,7 +53,9 @@ class UserProfileScreen extends ConsumerWidget {
                     radius: 40,
                     backgroundColor: colorScheme.primaryContainer,
                     child: Text(
-                      email != null && email.isNotEmpty ? email[0].toUpperCase() : '?',
+                      avatarSource != null && avatarSource.isNotEmpty
+                          ? avatarSource[0].toUpperCase()
+                          : '?',
                       style: Theme.of(context).textTheme.displaySmall?.copyWith(
                             color: colorScheme.onPrimaryContainer,
                             fontWeight: FontWeight.bold,
@@ -61,16 +68,18 @@ class UserProfileScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          email ?? l10n.user,
+                          primaryText,
                           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          authState.isGoogleUser
-                              ? l10n.signedInWithGoogle
-                              : l10n.turboUser,
+                          hasDisplayName
+                              ? (email ?? l10n.user)
+                              : (authState.isGoogleUser
+                                  ? l10n.signedInWithGoogle
+                                  : l10n.turboUser),
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                           ),
@@ -82,6 +91,28 @@ class UserProfileScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 32),
 
+              _buildOptionTile(
+                context,
+                icon: Icons.person_outline,
+                title: l10n.editProfile,
+                onTap: () => EditProfileScreen.show(context),
+              ),
+              if (!authState.isGoogleUser)
+                _buildOptionTile(
+                  context,
+                  icon: Icons.lock_outline,
+                  title: l10n.changePassword,
+                  onTap: () => ChangePasswordScreen.show(context),
+                ),
+              _buildOptionTile(
+                context,
+                icon: Icons.notifications_outlined,
+                title: l10n.notifications,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const NotificationsSettingsPage()),
+                ),
+              ),
               _buildOptionTile(
                 context,
                 icon: Icons.settings_outlined,

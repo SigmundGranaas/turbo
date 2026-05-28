@@ -69,6 +69,20 @@ abstract class AppLocalizations {
   String get delete;
   String get signedInWithGoogle;
   String get couldNotOpenEmailApp;
+  String get currentPassword;
+  String get newPassword;
+  String get confirmNewPassword;
+  String get passwordsDoNotMatch;
+  String get passwordChanged;
+  String get couldNotChangePassword;
+  String get displayName;
+  String get profileUpdated;
+  String get couldNotUpdateProfile;
+  String get pushNotifications;
+  String get allowPushNotifications;
+  String get friendRequests;
+  String get shareNotifications;
+  String get notificationsDeliveryNote;
 
   // Marker Sheets
   String get newMarker;
@@ -542,6 +556,20 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get delete => 'Delete';
   @override String get signedInWithGoogle => 'Signed in with Google';
   @override String get couldNotOpenEmailApp => 'Could not open an email app';
+  @override String get currentPassword => 'Current password';
+  @override String get newPassword => 'New password';
+  @override String get confirmNewPassword => 'Confirm new password';
+  @override String get passwordsDoNotMatch => 'Passwords do not match';
+  @override String get passwordChanged => 'Password changed';
+  @override String get couldNotChangePassword => 'Could not change password';
+  @override String get displayName => 'Display name';
+  @override String get profileUpdated => 'Profile updated';
+  @override String get couldNotUpdateProfile => 'Could not update profile';
+  @override String get pushNotifications => 'Push notifications';
+  @override String get allowPushNotifications => 'Allow push notifications';
+  @override String get friendRequests => 'Friend requests';
+  @override String get shareNotifications => 'Shares';
+  @override String get notificationsDeliveryNote => 'Delivery requires the app to be set up for push notifications.';
 
   @override String get newMarker => 'New Marker';
   @override String get editMarker => 'Edit Marker';
@@ -988,6 +1016,20 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get delete => 'Slett';
   @override String get signedInWithGoogle => 'Logget inn med Google';
   @override String get couldNotOpenEmailApp => 'Kunne ikke åpne en e-postapp';
+  @override String get currentPassword => 'Nåværende passord';
+  @override String get newPassword => 'Nytt passord';
+  @override String get confirmNewPassword => 'Bekreft nytt passord';
+  @override String get passwordsDoNotMatch => 'Passordene er ikke like';
+  @override String get passwordChanged => 'Passordet er endret';
+  @override String get couldNotChangePassword => 'Kunne ikke endre passordet';
+  @override String get displayName => 'Visningsnavn';
+  @override String get profileUpdated => 'Profilen er oppdatert';
+  @override String get couldNotUpdateProfile => 'Kunne ikke oppdatere profilen';
+  @override String get pushNotifications => 'Push-varsler';
+  @override String get allowPushNotifications => 'Tillat push-varsler';
+  @override String get friendRequests => 'Venneforespørsler';
+  @override String get shareNotifications => 'Delinger';
+  @override String get notificationsDeliveryNote => 'Levering krever at appen er satt opp for push-varsler.';
 
   @override String get newMarker => 'Nytt punkt';
   @override String get editMarker => 'Rediger punkt';

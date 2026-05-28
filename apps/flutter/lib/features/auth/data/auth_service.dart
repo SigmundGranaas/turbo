@@ -79,6 +79,7 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', false);
       await prefs.remove('userEmail');
+      await prefs.remove('displayName');
       await prefs.remove('accessToken');
       await prefs.remove('refreshToken');
       await prefs.remove('isGoogleUser');
@@ -100,10 +101,86 @@ class AuthService {
         if (data['email'] != null) {
           await prefs.setString('userEmail', data['email']);
         }
+        // Session/me now also returns a nullable displayName; mirror it locally.
+        final displayName = data['displayName'];
+        if (displayName != null) {
+          await prefs.setString('displayName', displayName);
+        } else {
+          await prefs.remove('displayName');
+        }
         return true;
       }
     }
     return false;
+  }
+
+  /// Changes the password for a password-based account.
+  ///
+  /// Success is a 204 (no body). On any non-2xx response we throw with the
+  /// server-provided message when present.
+  Future<void> changePassword(
+      String currentPassword, String newPassword, String confirmNewPassword) async {
+    final response = await apiClient.post(
+      '/api/auth/Auth/change-password',
+      data: {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+        'confirmNewPassword': confirmNewPassword,
+      },
+    );
+    final status = response.statusCode ?? 0;
+    if (status >= 200 && status < 300) {
+      return;
+    }
+    throw Exception(response.data?['message'] ?? 'Could not change password');
+  }
+
+  /// Updates the user's display name. Pass null/empty to clear it. Returns the
+  /// new display name as confirmed by the server, persisting it locally.
+  Future<String?> updateDisplayName(String? displayName) async {
+    final response = await apiClient.put(
+      '/api/auth/Profile',
+      data: {'displayName': displayName ?? ''},
+    );
+    if (response.statusCode == 200) {
+      final data = response.data;
+      final newDisplayName = data['displayName'] as String?;
+      final prefs = await SharedPreferences.getInstance();
+      if (newDisplayName != null && newDisplayName.isNotEmpty) {
+        await prefs.setString('displayName', newDisplayName);
+      } else {
+        await prefs.remove('displayName');
+      }
+      return newDisplayName;
+    }
+    throw Exception(response.data?['message'] ?? 'Could not update profile');
+  }
+
+  /// Registers a push device token with the backend. Not yet wired into any
+  /// flow — FCM integration is handled separately.
+  Future<void> registerDevice(String token, String platform) async {
+    final response = await apiClient.post(
+      '/api/auth/Devices',
+      data: {'token': token, 'platform': platform},
+    );
+    final status = response.statusCode ?? 0;
+    if (status >= 200 && status < 300) {
+      return;
+    }
+    throw Exception(response.data?['message'] ?? 'Could not register device');
+  }
+
+  /// Unregisters a push device token. Not yet wired into any flow.
+  Future<void> unregisterDevice(String token) async {
+    final response = await apiClient.post(
+      '/api/auth/Devices/unregister',
+      data: {'token': token},
+    );
+    final status = response.statusCode ?? 0;
+    if (status >= 200 && status < 300) {
+      return;
+    }
+    throw Exception(response.data?['message'] ?? 'Could not unregister device');
   }
 
   Future<bool> isLoggedIn() async {
@@ -124,6 +201,11 @@ class AuthService {
   Future<String?> getUserEmail() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('userEmail');
+  }
+
+  Future<String?> getDisplayName() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('displayName');
   }
 
   Future<bool> isGoogleUser() async {
