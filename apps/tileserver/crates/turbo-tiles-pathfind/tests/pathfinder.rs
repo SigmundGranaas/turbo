@@ -135,7 +135,16 @@ fn pathfinder_picks_cheapest_strategy() {
     // 50 m east + 50 m south of the anchor node.
     let from = (10.7522, 59.9139);
     let to = utm33n_to_wgs84(p.x + 100.0, p.y - 100.0);
-    let path = pf.solve([from.0, from.1], [to.0, to.1], Prefs::default()).unwrap();
+    // Pin off_trail_base to 1.0 so the cost ceiling is calibration-
+    // independent — the architectural property under test is "off-
+    // trail diagonal beats 2-hop graph detour", not the absolute s/m
+    // pace. With off_trail_base=1.0 and base pace 0.714 s/m the
+    // 141 m diagonal is ≈101 walk-seconds; the 200 m graph 2-hop
+    // (foot profile) is ≈143 s. Threshold 200 still leaves a wide
+    // margin if calibration shifts.
+    let mut prefs = Prefs::default();
+    prefs.off_trail_base = Some(1.0);
+    let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
     assert_eq!(path.strategy, PathStrategy::OffTrail);
     let diag = (100.0_f64.powi(2) + 100.0_f64.powi(2)).sqrt();
     assert!(
