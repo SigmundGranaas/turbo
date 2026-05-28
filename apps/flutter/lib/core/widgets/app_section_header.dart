@@ -25,3 +25,26 @@ class AppSectionHeader extends StatelessWidget {
     );
   }
 }
+
+/// Short descriptive paragraph rendered below an [AppSectionHeader] on a
+/// settings-style page. Mirrors the introductory blurb pattern Android M3
+/// uses under each section title.
+class SectionBlurb extends StatelessWidget {
+  final String text;
+
+  const SectionBlurb(this.text, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.m),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              letterSpacing: 0.25,
+            ),
+      ),
+    );
+  }
+}

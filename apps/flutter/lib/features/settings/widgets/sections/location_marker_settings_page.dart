@@ -32,26 +32,26 @@ class LocationMarkerSettingsPage extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.all(AppSpacing.l),
               children: [
-                const AppSectionHeader('Appearance'),
+                const AppSectionHeader('Marker'),
                 _IconPickerTile(settings: settings),
                 const SizedBox(height: AppSpacing.s),
                 _SizeSliderTile(size: settings.locationMarkerSize),
-                const SizedBox(height: AppSpacing.xl),
-                const AppSectionHeader('Heading & colors'),
+                const SizedBox(height: AppSpacing.l),
+                const AppSectionHeader('Heading'),
                 _HeadingArrowTile(showHeading: settings.showHeadingArrow),
                 if (settings.showHeadingArrow) ...[
-                  const SizedBox(height: AppSpacing.s),
+                  const SizedBox(height: AppSpacing.l),
+                  AppSectionHeader(l10n.arrowColor),
                   _ColorPickerCard(
-                    label: l10n.arrowColor,
                     selectedHex: settings.markerArrowColorHex,
                     onColorChanged: (color) => ref
                         .read(settingsProvider.notifier)
                         .setMarkerArrowColor(color),
                   ),
                 ],
-                const SizedBox(height: AppSpacing.s),
+                const SizedBox(height: AppSpacing.l),
+                AppSectionHeader(l10n.outlineColor),
                 _ColorPickerCard(
-                  label: l10n.outlineColor,
                   selectedHex: settings.markerOutlineColorHex,
                   onColorChanged: (color) => ref
                       .read(settingsProvider.notifier)
@@ -258,12 +258,10 @@ class _HeadingArrowTile extends ConsumerWidget {
 }
 
 class _ColorPickerCard extends StatelessWidget {
-  final String label;
   final String? selectedHex;
   final ValueChanged<Color?> onColorChanged;
 
   const _ColorPickerCard({
-    required this.label,
     required this.selectedHex,
     required this.onColorChanged,
   });
@@ -276,33 +274,26 @@ class _ColorPickerCard extends StatelessWidget {
     return AppGroupedCard(
       padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.l, vertical: AppSpacing.m),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.bodyLarge),
-          const SizedBox(height: AppSpacing.s),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                ColorCircle(
-                  color: null,
-                  isSelected: selectedHex == null,
-                  onTap: () => onColorChanged(null),
-                  label: l10n.defaultColor,
-                  colorScheme: colorScheme,
-                ),
-                ...pathColorPalette.map((color) => ColorCircle(
-                      color: color,
-                      isSelected: selectedHex != null &&
-                          selectedHex == colorToHex(color),
-                      onTap: () => onColorChanged(color),
-                      colorScheme: colorScheme,
-                    )),
-              ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            ColorCircle(
+              color: null,
+              isSelected: selectedHex == null,
+              onTap: () => onColorChanged(null),
+              label: l10n.defaultColor,
+              colorScheme: colorScheme,
             ),
-          ),
-        ],
+            ...pathColorPalette.map((color) => ColorCircle(
+                  color: color,
+                  isSelected: selectedHex != null &&
+                      selectedHex == colorToHex(color),
+                  onTap: () => onColorChanged(color),
+                  colorScheme: colorScheme,
+                )),
+          ],
+        ),
       ),
     );
   }

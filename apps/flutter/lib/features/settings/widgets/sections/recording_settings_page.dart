@@ -37,54 +37,29 @@ class RecordingSettingsPage extends ConsumerWidget {
                         .setKeepScreenOnWhileRecording(v),
                   ),
                 ),
-                const SizedBox(height: AppSpacing.xl),
-                const AppSectionHeader('Location'),
+                const SizedBox(height: AppSpacing.l),
+                const AppSectionHeader('GPS accuracy'),
                 AppGroupedCard(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.l, vertical: AppSpacing.m),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.gps_fixed),
-                          const SizedBox(width: AppSpacing.s),
-                          Text('GPS accuracy',
-                              style:
-                                  Theme.of(context).textTheme.bodyLarge),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.s),
-                      SegmentedButton<GpsAccuracyMode>(
-                        segments: const [
-                          ButtonSegment(
-                              value: GpsAccuracyMode.high,
-                              label: Text('High')),
-                          ButtonSegment(
-                              value: GpsAccuracyMode.balanced,
-                              label: Text('Balanced')),
-                          ButtonSegment(
-                              value: GpsAccuracyMode.batterySaver,
-                              label: Text('Saver')),
-                        ],
-                        selected: {settings.gpsAccuracyMode},
-                        onSelectionChanged: (s) => ref
-                            .read(settingsProvider.notifier)
-                            .setGpsAccuracyMode(s.first),
-                      ),
-                      const SizedBox(height: AppSpacing.s),
-                      Text(
-                        'High = best track, more battery. Saver = longer battery, sparser points.',
-                        style:
-                            Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                ),
-                      ),
+                  padding: const EdgeInsets.all(AppSpacing.m),
+                  child: SegmentedButton<GpsAccuracyMode>(
+                    segments: const [
+                      ButtonSegment(
+                          value: GpsAccuracyMode.high, label: Text('High')),
+                      ButtonSegment(
+                          value: GpsAccuracyMode.balanced,
+                          label: Text('Balanced')),
+                      ButtonSegment(
+                          value: GpsAccuracyMode.batterySaver,
+                          label: Text('Saver')),
                     ],
+                    selected: {settings.gpsAccuracyMode},
+                    onSelectionChanged: (s) => ref
+                        .read(settingsProvider.notifier)
+                        .setGpsAccuracyMode(s.first),
                   ),
                 ),
+                const SectionBlurb(
+                    'High = best track, more battery. Saver = longer battery, sparser points.'),
               ],
             ),
           ),

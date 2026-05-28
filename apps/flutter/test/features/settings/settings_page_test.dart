@@ -2,9 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+
+/// Lightweight stand-in for [AuthStateNotifier] that returns a fixed state
+/// without spinning up platform channels or background timers. Real auth
+/// behaviour is exercised in the auth feature's own tests.
+class _FakeAuthNotifier extends Notifier<AuthState>
+    implements AuthStateNotifier {
+  @override
+  AuthState build() => AuthState(status: AuthStatus.unauthenticated);
+
+  @override
+  noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
+
+ProviderScope _scope({Widget? home}) {
+  return ProviderScope(
+    overrides: [
+      authStateProvider.overrideWith(_FakeAuthNotifier.new),
+    ],
+    child: TestApp(child: home ?? const SettingsPage()),
+  );
+}
 
 class TestApp extends ConsumerWidget {
   final Widget child;
@@ -41,29 +63,30 @@ void main() {
 
     testWidgets('shows section tiles for each settings area',
         (WidgetTester tester) async {
-      await tester.pumpWidget(
-          const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpWidget(_scope());
       await tester.pumpAndSettle();
 
       expect(find.text('Settings'), findsOneWidget); // AppBar title
+      // Group labels
+      expect(find.text('App'), findsOneWidget);
+      expect(find.text('Recording & system'), findsOneWidget);
+      // Category rows
       expect(find.text('Appearance'), findsOneWidget);
-      expect(find.text('Units'), findsOneWidget);
-      expect(find.text('My Location'), findsOneWidget);
       expect(find.text('Drawing'), findsOneWidget);
+      expect(find.text('My Location'), findsOneWidget);
       expect(find.text('Recording'), findsOneWidget);
-      expect(find.text('Advanced'), findsOneWidget);
+      expect(find.text('Units & downloads'), findsOneWidget);
+      expect(find.text('About Turbo'), findsOneWidget);
     });
 
     testWidgets('hub localizes section titles when language changes',
         (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({'locale': 'nb'});
-      await tester.pumpWidget(
-          const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpWidget(_scope());
       await tester.pumpAndSettle();
 
       expect(find.text('Innstillinger'), findsOneWidget);
-      // Localized section labels reused from existing l10n strings.
-      expect(find.text('Avansert'), findsOneWidget);
+      // Localized tile titles reused from existing l10n strings.
       expect(find.text('Tegning'), findsOneWidget);
       expect(find.text('Min posisjon'), findsOneWidget);
     });
@@ -76,8 +99,7 @@ void main() {
 
     testWidgets('loads with default theme and language selected',
         (WidgetTester tester) async {
-      await tester.pumpWidget(
-          const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpWidget(_scope());
       await tester.pumpAndSettle();
       await _openAppearance(tester);
 
@@ -95,8 +117,7 @@ void main() {
 
     testWidgets('can change the theme and selection is reflected in the UI',
         (WidgetTester tester) async {
-      await tester.pumpWidget(
-          const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpWidget(_scope());
       await tester.pumpAndSettle();
       await _openAppearance(tester);
 
@@ -117,8 +138,7 @@ void main() {
 
     testWidgets('can change language and UI text updates accordingly',
         (WidgetTester tester) async {
-      await tester.pumpWidget(
-          const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpWidget(_scope());
       await tester.pumpAndSettle();
       await _openAppearance(tester);
 
@@ -144,8 +164,7 @@ void main() {
     testWidgets('settings are persisted and reloaded on subsequent visits',
         (WidgetTester tester) async {
       // --- FIRST SESSION ---
-      await tester.pumpWidget(
-          const ProviderScope(child: TestApp(child: SettingsPage())));
+      await tester.pumpWidget(_scope());
       await tester.pumpAndSettle();
       await _openAppearance(tester);
       await tester.tap(find.text('Dark'));
@@ -166,12 +185,11 @@ void main() {
           {const Locale('nb')});
 
       // --- SECOND SESSION ---
-      // Use UniqueKey to force a fresh element tree; pumpWidget otherwise
-      // reuses the Navigator and keeps the pushed route from session 1.
-      await tester.pumpWidget(ProviderScope(
-          key: UniqueKey(), child: const TestApp(child: SettingsPage())));
+      // UniqueKey forces a fresh element tree; pumpWidget otherwise reuses the
+      // Navigator and would keep the pushed route from session 1.
+      await tester.pumpWidget(
+          KeyedSubtree(key: UniqueKey(), child: _scope()));
       await tester.pumpAndSettle();
-      // The hub should now show the Norwegian title.
       expect(find.text('Innstillinger'), findsOneWidget);
 
       // Section labels are not localized yet; still in English.

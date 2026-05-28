@@ -16,7 +16,7 @@ class UnitsSettingsPage extends ConsumerWidget {
     final settingsAsync = ref.watch(settingsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Units')),
+      appBar: AppBar(title: const Text('Units & downloads')),
       body: settingsAsync.when(
         data: (settings) => Center(
           child: ConstrainedBox(
@@ -24,7 +24,7 @@ class UnitsSettingsPage extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.all(AppSpacing.l),
               children: [
-                AppSectionHeader(l10n.distanceUnit),
+                const AppSectionHeader('Distance'),
                 AppGroupedCard(
                   padding: const EdgeInsets.all(AppSpacing.m),
                   child: SegmentedButton<DistanceUnit>(
@@ -44,12 +44,106 @@ class UnitsSettingsPage extends ConsumerWidget {
                         .setDistanceUnit(s.first),
                   ),
                 ),
+                const SectionBlurb(
+                    'Metric uses km and m. Imperial uses miles and ft.'),
+                const SizedBox(height: AppSpacing.s),
+                const AppSectionHeader('Downloads'),
+                _IntSliderCard(
+                  icon: Icons.cloud_download_outlined,
+                  title: l10n.maxConcurrentDownloads,
+                  description: l10n.maxConcurrentDownloadsDescription,
+                  value: settings.maxConcurrentDownloads,
+                  min: kMinDownloadConcurrency,
+                  max: kMaxDownloadConcurrency,
+                  suffix: '',
+                  onChanged: (v) => ref
+                      .read(settingsProvider.notifier)
+                      .setMaxConcurrentDownloads(v),
+                ),
+                const SizedBox(height: AppSpacing.s),
+                _IntSliderCard(
+                  icon: Icons.timer_outlined,
+                  title: l10n.markerCacheTtl,
+                  description: l10n.markerCacheTtlDescription,
+                  value: settings.markerCacheTtlSeconds,
+                  min: kMinMarkerCacheTtlSeconds,
+                  max: kMaxMarkerCacheTtlSeconds,
+                  suffix: 's',
+                  onChanged: (v) => ref
+                      .read(settingsProvider.notifier)
+                      .setMarkerCacheTtlSeconds(v),
+                ),
               ],
             ),
           ),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, _) => Center(child: Text(l10n.genericLoadError)),
+      ),
+    );
+  }
+}
+
+class _IntSliderCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final int value;
+  final int min;
+  final int max;
+  final String suffix;
+  final ValueChanged<int> onChanged;
+
+  const _IntSliderCard({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.suffix,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    return AppGroupedCard(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.l, vertical: AppSpacing.s),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 20, color: colorScheme.onSurfaceVariant),
+              const SizedBox(width: AppSpacing.m),
+              Expanded(
+                child: Text(title, style: textTheme.bodyLarge),
+              ),
+              Text('$value$suffix',
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: colorScheme.onSurfaceVariant)),
+            ],
+          ),
+          Slider(
+            value: value.toDouble(),
+            min: min.toDouble(),
+            max: max.toDouble(),
+            divisions: max - min,
+            label: '$value$suffix',
+            onChanged: (v) => onChanged(v.round()),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.s),
+            child: Text(
+              description,
+              style: textTheme.bodySmall
+                  ?.copyWith(color: colorScheme.onSurfaceVariant),
+            ),
+          ),
+        ],
       ),
     );
   }

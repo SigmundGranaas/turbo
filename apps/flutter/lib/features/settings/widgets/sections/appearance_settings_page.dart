@@ -50,7 +50,9 @@ class AppearanceSettingsPage extends ConsumerWidget {
                         .setThemeMode(s.first),
                   ),
                 ),
-                const SizedBox(height: AppSpacing.xl),
+                const SectionBlurb(
+                    'Match the system setting, or pin to light or dark.'),
+                const SizedBox(height: AppSpacing.m),
                 AppSectionHeader(l10n.language),
                 AppGroupedCard(
                   padding: const EdgeInsets.all(AppSpacing.m),
@@ -71,6 +73,8 @@ class AppearanceSettingsPage extends ConsumerWidget {
                         .setLocale(s.first),
                   ),
                 ),
+                const SectionBlurb(
+                    'Activity names like Fjell and Hytte stay in Norwegian; only the labels translate.'),
               ],
             ),
           ),
