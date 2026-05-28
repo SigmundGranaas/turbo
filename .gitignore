@@ -24,3 +24,14 @@ Thumbs.db
 
 # Docker / compose scratch
 infra/compose/data/
+
+# Stray Flutter scaffolding accidentally generated at the repo root.
+# The real Flutter project lives at apps/flutter/ and has its own .gitignore;
+# these leading-slash patterns only match the root copies.
+/.dart_tool/
+/.flutter-plugins-dependencies
+/android/
+/ios/
+/linux/
+/macos/
+/windows/
