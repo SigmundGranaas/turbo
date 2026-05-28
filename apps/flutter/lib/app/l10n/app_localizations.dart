@@ -22,6 +22,7 @@ abstract class AppLocalizations {
   String get ok;
   String get cancel;
   String get close;
+  String get more;
   String get settings;
   String get theme;
   String get language;
@@ -495,6 +496,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get ok => 'OK';
   @override String get cancel => 'Cancel';
   @override String get close => 'Close';
+  @override String get more => 'More';
   @override String get settings => 'Settings';
   @override String get theme => 'Theme';
   @override String get language => 'Language';
@@ -939,6 +941,7 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get ok => 'OK';
   @override String get cancel => 'Avbryt';
   @override String get close => 'Lukk';
+  @override String get more => 'Mer';
   @override String get settings => 'Innstillinger';
   @override String get theme => 'Tema';
   @override String get language => 'Språk';
