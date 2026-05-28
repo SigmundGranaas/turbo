@@ -59,6 +59,10 @@ class FakeSharingApi extends SharingApiClient {
   Future<List<FriendGroup>> listGroups() async => groups;
 
   @override
+  Future<FriendGroup?> getGroup(String groupId) async =>
+      groups.where((g) => g.id == groupId).firstOrNull;
+
+  @override
   Future<List<Grant>> listGrantsForResource(String resourceId) async => grants;
 
   @override
