@@ -20,6 +20,7 @@ as offline_api;
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/photo_map/api.dart';
 import 'package:turbo/features/sharing/api.dart';
 import 'package:turbo/features/weather/api.dart' show OceanConditionsLayer;
 
@@ -276,6 +277,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       ),
       ViewportMarkers(mapController: _mapController),
       const activities.ActivitiesMapLayer(),
+      PhotoMapLayer(mapController: _mapController),
     ];
 
     final overlayWidgets = <Widget>[

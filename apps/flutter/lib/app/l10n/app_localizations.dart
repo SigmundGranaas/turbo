@@ -263,6 +263,10 @@ abstract class AppLocalizations {
   String get dataLayers;
   String get showMarkers;
   String get showPaths;
+  String get showPhotos;
+  String get showPhotosSubtitle;
+  String get photoPermissionRequired;
+  String get photosNotAvailableHere;
   String get pathUpdated;
   String get pathDeleted;
   String errorSavingPath(String error);
@@ -723,6 +727,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get dataLayers => 'Data';
   @override String get showMarkers => 'Markers';
   @override String get showPaths => 'Paths';
+  @override String get showPhotos => 'Photos';
+  @override String get showPhotosSubtitle => 'Where your geotagged photos were taken';
+  @override String get photoPermissionRequired => 'Allow photo access to show where your photos were taken';
+  @override String get photosNotAvailableHere => 'Photo locations aren\'t available on this platform';
   @override String get pathUpdated => 'Path updated';
   @override String get pathDeleted => 'Path deleted';
   @override String errorSavingPath(String error) => 'Error saving path: $error';
@@ -1170,6 +1178,10 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get dataLayers => 'Data';
   @override String get showMarkers => 'Markorer';
   @override String get showPaths => 'Ruter';
+  @override String get showPhotos => 'Bilder';
+  @override String get showPhotosSubtitle => 'Hvor bildene dine med posisjon ble tatt';
+  @override String get photoPermissionRequired => 'Gi tilgang til bilder for a vise hvor bildene ble tatt';
+  @override String get photosNotAvailableHere => 'Bildeposisjoner er ikke tilgjengelig pa denne plattformen';
   @override String get pathUpdated => 'Rute oppdatert';
   @override String get pathDeleted => 'Rute slettet';
   @override String errorSavingPath(String error) => 'Feil ved lagring av rute: $error';
