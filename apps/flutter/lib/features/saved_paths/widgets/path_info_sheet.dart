@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:turbo/core/widgets/action_button.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
+import 'package:turbo/core/widgets/sheet_action_bar.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart';
@@ -136,24 +136,24 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Actions row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              ActionButton(
+          // Actions — same adaptive bar the marker info sheet uses.
+          SheetActionBar(
+            actions: [
+              SheetAction(
                 icon: Icons.edit_outlined,
                 label: l10n.edit,
-                onTap: _openEdit,
+                onPressed: _openEdit,
               ),
-              ActionButton(
+              SheetAction(
                 icon: Icons.ios_share_outlined,
                 label: l10n.export,
-                onTap: _openExport,
+                onPressed: _openExport,
               ),
-              ActionButton(
+              SheetAction(
                 icon: Icons.delete_outline,
                 label: l10n.delete,
-                onTap: _isDeleting ? null : _confirmDelete,
+                onPressed: _isDeleting ? null : _confirmDelete,
+                isDestructive: true,
               ),
             ],
           ),
