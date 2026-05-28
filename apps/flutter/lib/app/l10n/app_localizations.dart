@@ -150,6 +150,12 @@ abstract class AppLocalizations {
   String get layerDescriptionGoogleSatellite;
   String get layerNameAvalanche;
   String get layerDescriptionAvalanche;
+  String get layerNameOceanConditions;
+  String get layerDescriptionOceanConditions;
+  String get oceanConditionsTitle;
+  String get oceanWaveDirectionLabel;
+  String get oceanCurrentLabel;
+  String get oceanViewFullForecast;
 
   // Measuring Tool
   String get totalDistance;
@@ -617,6 +623,12 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get layerDescriptionGoogleSatellite => 'Satellite imagery from Google';
   @override String get layerNameAvalanche => 'Avalanche Danger';
   @override String get layerDescriptionAvalanche => 'Overlay of slope steepness and run-out zones';
+  @override String get layerNameOceanConditions => 'Ocean Conditions';
+  @override String get layerDescriptionOceanConditions => 'Wave height and direction from MET Norway';
+  @override String get oceanConditionsTitle => 'Ocean conditions';
+  @override String get oceanWaveDirectionLabel => 'Wave direction';
+  @override String get oceanCurrentLabel => 'Current';
+  @override String get oceanViewFullForecast => 'View full forecast';
 
   @override String get totalDistance => 'Total Distance';
   @override String get undoLastPoint => 'Undo Last Point';
@@ -1061,6 +1073,12 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get layerDescriptionGoogleSatellite => 'Satellittbilder fra Google';
   @override String get layerNameAvalanche => 'Snøskredfare';
   @override String get layerDescriptionAvalanche => 'Oversikt over bratthet og utløpssoner';
+  @override String get layerNameOceanConditions => 'Havforhold';
+  @override String get layerDescriptionOceanConditions => 'Bølgehøyde og -retning fra MET';
+  @override String get oceanConditionsTitle => 'Havforhold';
+  @override String get oceanWaveDirectionLabel => 'Bølgeretning';
+  @override String get oceanCurrentLabel => 'Strøm';
+  @override String get oceanViewFullForecast => 'Se hele varselet';
 
   @override String get totalDistance => 'Total distanse';
   @override String get undoLastPoint => 'Angre siste punkt';
