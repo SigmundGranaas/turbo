@@ -71,6 +71,9 @@ dependencies:
   polygon: ^0.1.0
   flutter_compass: ^0.8.1
   image_picker: ^1.1.2
+  # Reads the device photo library (and per-asset GPS) for the
+  # photo-locations map layer. Android/iOS/macOS only — guarded at runtime.
+  photo_manager: ^3.6.4
   logging: ^1.3.0
   connectivity_plus: ^6.1.4
   archive: ^4.0.7

@@ -97,10 +97,11 @@ void main() {
       expect(find.text('Download'), findsOneWidget);
     });
 
-    testWidgets('Markers and Paths SwitchListTiles render with switches',
-        (tester) async {
+    testWidgets('Markers, Paths and Photos SwitchListTiles render with '
+        'switches', (tester) async {
       await _pumpSheet(tester);
-      expect(find.byType(SwitchListTile), findsNWidgets(2));
+      expect(find.byType(SwitchListTile), findsNWidgets(3));
+      expect(find.text('Photos'), findsOneWidget);
     });
   });
 }
