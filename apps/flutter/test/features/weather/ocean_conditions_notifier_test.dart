@@ -7,9 +7,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/weather/api.dart';
-import 'package:turbo/features/weather/data/weather_notifier.dart'
-    show yrOceanServiceProvider;
-import 'package:turbo/features/weather/data/yr_ocean_service.dart';
 
 Map<String, dynamic> _payload(double waveHeight) => {
       'properties': {

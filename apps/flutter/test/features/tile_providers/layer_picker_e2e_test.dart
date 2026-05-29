@@ -102,7 +102,7 @@ void main() {
       expect(find.text('Download'), findsOneWidget);
     });
 
-    testWidgets('Show-markers and Show-paths switches render',
+    testWidgets('Show-markers, Show-paths and Show-photos switches render',
         (tester) async {
       await pumpTestApp(
         tester,
@@ -115,7 +115,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byType(SwitchListTile), findsNWidgets(2));
+      expect(find.byType(SwitchListTile), findsNWidgets(3));
     });
 
     testWidgets(
