@@ -7,6 +7,7 @@ resources:
   - config.yaml
   - shared-db.yaml
   - modulith.yaml
+  - web.yaml
   - ingress.yaml
 
 labels:

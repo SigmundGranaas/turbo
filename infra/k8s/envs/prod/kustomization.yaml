@@ -17,8 +17,13 @@ labels:
 replicas:
   - name: turbo-modulith
     count: 1
+  - name: turbo-web
+    count: 1
 
 images:
   - name: turbo-modulith
     newName: ghcr.io/sigmundgranaas/turbo-modulith
+    newTag: latest
+  - name: turbo-web
+    newName: ghcr.io/sigmundgranaas/turbo-web
     newTag: latest
