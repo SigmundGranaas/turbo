@@ -14,11 +14,23 @@ spec:
   sources:
     - repoURL: https://grafana.github.io/helm-charts
       chart: loki
-      targetRevision: 6.45.1
+      targetRevision: 7.0.0
       helm:
         values: |
           deploymentMode: SingleBinary
           loki:
+            # local-path provisions the PVC dir as root:root; Loki runs as
+            # 10001 and can't mkdir under it — chown first via a root init.
+            initContainers:
+              - name: fix-perms
+                image: busybox:1.36
+                command: ["sh", "-c", "chown -R 10001:10001 /var/loki"]
+                securityContext:
+                  runAsUser: 0
+                  runAsNonRoot: false
+                volumeMounts:
+                  - name: storage
+                    mountPath: /var/loki
             auth_enabled: false
             commonConfig:
               replication_factor: 1
@@ -32,7 +44,7 @@ spec:
                     prefix: loki_index_
                     period: 24h
             storage:
-              type: filesystem
+              type: local
             limits_config:
               retention_period: 168h
               volume_enabled: true
