@@ -1,0 +1,76 @@
+# Log store. SingleBinary mode (one process), filesystem storage, caches
+# off — minimal footprint for the single node. 7-day retention.
+# A Grafana datasource ConfigMap is shipped alongside so the KPS Grafana
+# sidecar auto-discovers Loki.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: loki
+      targetRevision: 6.45.1
+      helm:
+        values: |
+          deploymentMode: SingleBinary
+          loki:
+            auth_enabled: false
+            commonConfig:
+              replication_factor: 1
+            schemaConfig:
+              configs:
+                - from: "2024-04-01"
+                  store: tsdb
+                  object_store: filesystem
+                  schema: v13
+                  index:
+                    prefix: loki_index_
+                    period: 24h
+            storage:
+              type: filesystem
+            limits_config:
+              retention_period: 168h
+              volume_enabled: true
+            compactor:
+              retention_enabled: true
+              delete_request_store: filesystem
+          singleBinary:
+            replicas: 1
+            resources:
+              requests: { cpu: 50m, memory: 192Mi }
+              limits: { memory: 512Mi }
+            persistence:
+              enabled: true
+              size: 8Gi
+          # disable the scalable-mode components + caches (single node)
+          read: { replicas: 0 }
+          write: { replicas: 0 }
+          backend: { replicas: 0 }
+          chunksCache: { enabled: false }
+          resultsCache: { enabled: false }
+          lokiCanary: { enabled: false }
+          test: { enabled: false }
+          gateway:
+            enabled: true
+            replicas: 1
+            resources:
+              requests: { cpu: 10m, memory: 32Mi }
+              limits: { memory: 96Mi }
+    # Grafana datasource for Loki (picked up by the KPS Grafana sidecar)
+    - repoURL: https://github.com/SigmundGranaas/turbo.git
+      targetRevision: main
+      path: infra/k8s/platform/loki-datasource
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
