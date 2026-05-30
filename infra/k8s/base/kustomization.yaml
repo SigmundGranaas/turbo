@@ -5,8 +5,7 @@ kind: Kustomization
 # (envs/<env>) sets the namespace, image tag, host and replica count.
 resources:
   - config.yaml
-  - shared-db.yaml
-  - db.yaml          # CNPG cluster (runs alongside shared-db until cutover)
+  - db.yaml          # CNPG-managed Postgres (turbo-db) — primary datastore
   - modulith.yaml
   - web.yaml
   - ingress.yaml

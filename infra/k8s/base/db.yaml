@@ -1,7 +1,6 @@
 # CloudNativePG-managed Postgres for the modulith. Single instance (the node
 # is single-node — durability comes from R2 backups + PITR, not replicas).
-# Runs ALONGSIDE the legacy shared-db until the data cutover; the modulith
-# keeps pointing at shared-db until then (see db-secrets connectionstrings).
+# Primary datastore for the modulith (migrated off the legacy shared-db).
 #
 # Backups: in-tree barman-cloud -> Cloudflare R2 (turbo-db-backups), daily
 # base backup + continuous WAL archiving = point-in-time recovery.
