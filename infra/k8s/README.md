@@ -10,7 +10,7 @@ by hand except the one-time bootstrap below.
 
 ```
 infra/k8s/
-  base/                # namespace-agnostic: modulith, shared-db, ingress, config
+  base/                # namespace-agnostic: modulith, shared-db, web, ingress, config
   envs/
     prod/              # namespace turbo-prod: image tag, host, replicas, sealed secrets
   minikube/, dash/     # legacy / local helpers (not part of the GitOps flow)

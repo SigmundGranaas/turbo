@@ -12,6 +12,17 @@ This doc covers the one-time bootstrap and the cutover from the legacy
   generated + committed (see `README.md`).
 - The `turbo-modulith` image published to `ghcr.io/sigmundgranaas/turbo-modulith`
   (CI: `.github/workflows/api_image_build.yaml`).
+- The `turbo-web` image published to `ghcr.io/sigmundgranaas/turbo-web`
+  (CI: `.github/workflows/github_publish.yml`, job `build-web-image`).
+
+## Web frontend (kart.sandring.no)
+
+`turbo-web` (nginx serving the Flutter web build) is part of the `turbo-prod`
+overlay and served by `turbo-web-ingress` at `kart.sandring.no`. TLS is
+terminated upstream (same Cloudflare/DO path as the API). Cloudflare Pages has
+been retired (the old `apps/flutter/.cloudflare/pages.toml` is removed); to make
+the public name resolve here, repoint `kart.sandring.no` at the cluster the same
+way `kart-api.sandring.no` reaches it.
 
 ## Bootstrap
 

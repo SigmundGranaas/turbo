@@ -1,0 +1,79 @@
+# Flutter web frontend served by nginx. Static SPA, no backend deps — it
+# talks to the API over the public kart-api.sandring.no from the browser.
+# Exposed at kart.sandring.no (TLS terminated upstream, like the API).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turbo-web
+  labels:
+    app: turbo-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: turbo-web
+  template:
+    metadata:
+      labels:
+        app: turbo-web
+    spec:
+      imagePullSecrets:
+        - name: ghcr-auth                  # private ghcr.io/sigmundgranaas/turbo-web image
+      containers:
+        - name: turbo-web
+          image: turbo-web                 # registry/tag set per-env via kustomize images:
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "128Mi"
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turbo-web
+  labels:
+    app: turbo-web
+spec:
+  selector:
+    app: turbo-web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: turbo-web-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: kart.sandring.no
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: turbo-web
+                port:
+                  number: 8080

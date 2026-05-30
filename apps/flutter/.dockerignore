@@ -1,0 +1,18 @@
+# Keep the web build context small. Native platform folders and build
+# outputs aren't needed for `flutter build web`.
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.idea/
+*.iml
+.git/
+android/
+ios/
+macos/
+windows/
+linux/
+test/
+coverage/
+.cloudflare/
