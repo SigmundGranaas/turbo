@@ -6,6 +6,7 @@ kind: Kustomization
 resources:
   - config.yaml
   - shared-db.yaml
+  - db.yaml          # CNPG cluster (runs alongside shared-db until cutover)
   - modulith.yaml
   - web.yaml
   - ingress.yaml
