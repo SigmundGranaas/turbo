@@ -1,0 +1,28 @@
+# Namespace guardrails so a runaway pod can't starve the single node, and
+# every pod gets sane defaults. Sized for the ~6Gi / 12-CPU node with the
+# DB + observability sharing it.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: turbo-prod
+spec:
+  hard:
+    requests.cpu: "3"
+    requests.memory: 4Gi
+    limits.cpu: "8"
+    limits.memory: 6Gi
+    pods: "30"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: turbo-prod-defaults
+spec:
+  limits:
+    - type: Container
+      default:                # applied if a container omits limits
+        cpu: "500m"
+        memory: 256Mi
+      defaultRequest:         # applied if a container omits requests
+        cpu: "50m"
+        memory: 64Mi

@@ -1,0 +1,21 @@
+# Keep at least one pod of each app during voluntary disruptions
+# (node drain, eviction). On a single node this mainly guards manual drains.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: turbo-modulith
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: turbo-modulith
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: turbo-web
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: turbo-web

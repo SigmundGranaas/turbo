@@ -17,8 +17,7 @@ labels:
 replicas:
   - name: turbo-modulith
     count: 1
-  - name: turbo-web
-    count: 1
+  # turbo-web replica count is owned by its HPA (base/hpa.yaml)
 
 images:
   - name: turbo-modulith

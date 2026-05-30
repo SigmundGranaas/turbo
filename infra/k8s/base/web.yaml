@@ -1,6 +1,7 @@
 # Flutter web frontend served by nginx. Static SPA, no backend deps — it
 # talks to the API over the public kart-api.sandring.no from the browser.
 # Exposed at kart.sandring.no (TLS terminated upstream, like the API).
+# Replica count is owned by the HPA (see hpa.yaml) — no replicas field here.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,7 +9,11 @@ metadata:
   labels:
     app: turbo-web
 spec:
-  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: turbo-web
@@ -17,11 +22,22 @@ spec:
       labels:
         app: turbo-web
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: ghcr-auth                  # private ghcr.io/sigmundgranaas/turbo-web image
       containers:
         - name: turbo-web
           image: turbo-web                 # registry/tag set per-env via kustomize images:
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
           ports:
             - containerPort: 8080
           readinessProbe:
@@ -43,6 +59,20 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "250m"
+          volumeMounts:                     # writable paths for read-only rootfs
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

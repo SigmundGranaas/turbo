@@ -18,9 +18,24 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: turbo-prod
+  # HPA owns turbo-web's replica count — don't let selfHeal revert scaling.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: turbo-web
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+    # Pod Security Admission on the namespace. enforce=baseline for now (the
+    # legacy shared-db runs as root); bump to enforce=restricted after the
+    # CNPG migration retires shared-db.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: baseline
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted

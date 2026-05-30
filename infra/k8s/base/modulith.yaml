@@ -12,6 +12,11 @@ metadata:
     app: turbo-modulith
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0      # zero-downtime: new pod ready before old terminates
+      maxSurge: 1
   selector:
     matchLabels:
       app: turbo-modulith
@@ -20,11 +25,22 @@ spec:
       labels:
         app: turbo-modulith
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654                    # matches the chiseled .NET image's app user
+        runAsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: ghcr-auth                  # private ghcr.io/sigmundgranaas/turbo-* images
       containers:
         - name: turbo-modulith
           image: turbo-modulith            # registry/tag set per-env via kustomize images:
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            # readOnlyRootFilesystem deferred: .NET writes temp + DataProtection keys.
           ports:
             - containerPort: 8080
           env:
@@ -87,14 +103,20 @@ spec:
               value: "http://otel-collector:4317"
             - name: OTEL_SERVICE_NAME
               value: "turbo-modulith"
+          startupProbe:               # covers first-boot module migrations (advisory-locked)
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60      # up to ~5m to migrate before liveness/readiness kick in
           readinessProbe:
             httpGet:
               path: /healthz
               port: 8080
-            initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 3
-            failureThreshold: 12      # generous: first boot runs all module migrations
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /healthz

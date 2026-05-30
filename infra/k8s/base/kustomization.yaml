@@ -9,6 +9,9 @@ resources:
   - modulith.yaml
   - web.yaml
   - ingress.yaml
+  - pdb.yaml
+  - hpa.yaml
+  - quotas.yaml
 
 labels:
   - pairs:
