@@ -15,6 +15,8 @@ spec:
     repoURL: https://github.com/SigmundGranaas/turbo.git
     targetRevision: main
     path: argocd/apps
+    directory:
+      recurse: true        # also pick up Applications under argocd/apps/infra/
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
