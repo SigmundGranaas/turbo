@@ -46,14 +46,14 @@ spec:
               enabled: true
         prometheus:
           prometheusSpec:
-            retention: 7d
-            retentionSize: 7GB
+            retention: 5d
+            retentionSize: 4GB
             enableRemoteWriteReceiver: true          # Alloy pushes app OTLP metrics here
             serviceMonitorSelectorNilUsesHelmValues: false
             podMonitorSelectorNilUsesHelmValues: false
             resources:
-              requests: { cpu: 150m, memory: 384Mi }
-              limits: { memory: 1Gi }
+              requests: { cpu: 100m, memory: 256Mi }   # request low (scheduling); limit allows burst
+              limits: { memory: 900Mi }
             storageSpec:
               volumeClaimTemplate:
                 spec:
