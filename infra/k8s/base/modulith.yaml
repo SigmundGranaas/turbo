@@ -100,7 +100,7 @@ spec:
               value: "/"
             # Observability
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "http://otel-collector:4317"
+              value: "http://alloy.observability.svc:4317"   # Alloy OTLP -> Prometheus (traces dropped until Tempo)
             - name: OTEL_SERVICE_NAME
               value: "turbo-modulith"
           startupProbe:               # covers first-boot module migrations (advisory-locked)
