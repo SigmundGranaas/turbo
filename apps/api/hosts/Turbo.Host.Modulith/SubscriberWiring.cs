@@ -44,6 +44,8 @@ public static class SubscriberWiring
         typeof(Turboapi.Auth.Domain.Events.AccountLastLoginUpdatedEvent),
         typeof(Turboapi.Auth.Domain.Events.RoleAddedToAccountEvent),
         typeof(Turboapi.Auth.Domain.Events.PasswordAuthMethodAddedEvent),
+        typeof(Turboapi.Auth.Domain.Events.PasswordChangedEvent),
+        typeof(Turboapi.Auth.Domain.Events.AccountProfileUpdatedEvent),
         typeof(Turboapi.Auth.Domain.Events.OAuthAuthMethodAddedEvent),
         typeof(Turboapi.Auth.Domain.Events.RefreshTokenGeneratedEvent),
         typeof(Turboapi.Auth.Domain.Events.RefreshTokenRevokedEvent),

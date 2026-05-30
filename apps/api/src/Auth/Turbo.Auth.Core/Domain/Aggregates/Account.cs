@@ -9,8 +9,11 @@ namespace Turboapi.Auth.Domain.Aggregates
 {
     public class Account : IHasDomainEvents
     {
+        public const int MaxDisplayNameLength = 64;
+
         public Guid Id { get; private set; }
         public string Email { get; private set; }
+        public string? DisplayName { get; private set; }
         public bool IsActive { get; private set; } // New property
         public DateTime CreatedAt { get; private set; }
         public DateTime? LastLoginAt { get; private set; }
@@ -195,6 +198,54 @@ namespace Turboapi.Auth.Domain.Aggregates
 
             _authenticationMethods.Add(oAuthAuth);
             AddDomainEvent(new OAuthAuthMethodAddedEvent(Id, authMethodId, providerName, externalUserId, oAuthAuth.CreatedAt));
+        }
+
+        /// <summary>True when the account can authenticate with a password.</summary>
+        public bool HasPasswordAuthMethod()
+            => _authenticationMethods.OfType<PasswordAuthMethod>().Any();
+
+        /// <summary>
+        /// Changes the account's password. Returns <see cref="ChangePasswordError.OAuthOnlyAccount"/>
+        /// for accounts with no password method (e.g. Google sign-in), and
+        /// <see cref="ChangePasswordError.InvalidCurrentPassword"/> when the supplied current
+        /// password does not match. The new password is hashed via <paramref name="passwordHasher"/>.
+        /// </summary>
+        public Result<ChangePasswordError> ChangePassword(
+            string currentPassword,
+            string newPassword,
+            IPasswordHasher passwordHasher)
+        {
+            if (passwordHasher == null)
+                throw new ArgumentNullException(nameof(passwordHasher));
+            if (string.IsNullOrWhiteSpace(newPassword))
+                return ChangePasswordError.WeakPassword;
+
+            var passwordMethod = _authenticationMethods.OfType<PasswordAuthMethod>().FirstOrDefault();
+            if (passwordMethod == null)
+                return ChangePasswordError.OAuthOnlyAccount;
+
+            if (!passwordHasher.VerifyPassword(currentPassword, passwordMethod.PasswordHash))
+                return ChangePasswordError.InvalidCurrentPassword;
+
+            var newHash = passwordHasher.HashPassword(newPassword);
+            passwordMethod.UpdatePasswordHash(newHash);
+
+            AddDomainEvent(new PasswordChangedEvent(Id, passwordMethod.Id, DateTime.UtcNow));
+            return Result.Success<ChangePasswordError>();
+        }
+
+        /// <summary>
+        /// Updates the human-readable display name. Pass null or whitespace to clear it.
+        /// </summary>
+        public Result<UpdateProfileError> UpdateProfile(string? displayName)
+        {
+            var normalized = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
+            if (normalized is { Length: > MaxDisplayNameLength })
+                return UpdateProfileError.InvalidInput;
+
+            DisplayName = normalized;
+            AddDomainEvent(new AccountProfileUpdatedEvent(Id, DisplayName, DateTime.UtcNow));
+            return Result.Success<UpdateProfileError>();
         }
 
         internal void AddRefreshToken(RefreshToken refreshToken)

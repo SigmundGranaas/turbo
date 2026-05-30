@@ -74,6 +74,15 @@ class SettingsState {
   /// or by granting "Always" location in the OS.
   final bool backgroundLocationPromptSeen;
 
+  /// Master switch for push notifications. When off, all categories are muted.
+  final bool pushNotificationsEnabled;
+
+  /// Whether to receive friend-request push notifications.
+  final bool friendRequestNotifications;
+
+  /// Whether to receive share-related push notifications.
+  final bool shareNotifications;
+
   const SettingsState({
     required this.themeMode,
     required this.locale,
@@ -97,6 +106,9 @@ class SettingsState {
     this.keepScreenOnWhileRecording = true,
     this.gpsAccuracyMode = GpsAccuracyMode.high,
     this.backgroundLocationPromptSeen = false,
+    this.pushNotificationsEnabled = true,
+    this.friendRequestNotifications = true,
+    this.shareNotifications = true,
   });
 
   // Default initial state
@@ -131,6 +143,9 @@ class SettingsState {
     bool? keepScreenOnWhileRecording,
     GpsAccuracyMode? gpsAccuracyMode,
     bool? backgroundLocationPromptSeen,
+    bool? pushNotificationsEnabled,
+    bool? friendRequestNotifications,
+    bool? shareNotifications,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -156,6 +171,11 @@ class SettingsState {
       gpsAccuracyMode: gpsAccuracyMode ?? this.gpsAccuracyMode,
       backgroundLocationPromptSeen:
           backgroundLocationPromptSeen ?? this.backgroundLocationPromptSeen,
+      pushNotificationsEnabled:
+          pushNotificationsEnabled ?? this.pushNotificationsEnabled,
+      friendRequestNotifications:
+          friendRequestNotifications ?? this.friendRequestNotifications,
+      shareNotifications: shareNotifications ?? this.shareNotifications,
     );
   }
 }
@@ -188,6 +208,9 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
   static const _gpsAccuracyModeKey = 'gpsAccuracyMode';
   static const _backgroundLocationPromptSeenKey =
       'backgroundLocationPromptSeen';
+  static const _pushNotificationsEnabledKey = 'pushNotificationsEnabled';
+  static const _friendRequestNotificationsKey = 'friendRequestNotifications';
+  static const _shareNotificationsKey = 'shareNotifications';
 
   @override
   Future<SettingsState> build() async {
@@ -261,6 +284,11 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
           GpsAccuracyMode.fromName(prefs.getString(_gpsAccuracyModeKey)),
       backgroundLocationPromptSeen:
           prefs.getBool(_backgroundLocationPromptSeenKey) ?? false,
+      pushNotificationsEnabled:
+          prefs.getBool(_pushNotificationsEnabledKey) ?? true,
+      friendRequestNotifications:
+          prefs.getBool(_friendRequestNotificationsKey) ?? true,
+      shareNotifications: prefs.getBool(_shareNotificationsKey) ?? true,
     );
   }
 
@@ -289,6 +317,30 @@ class SettingsNotifier extends AsyncNotifier<SettingsState> {
         state.value!.copyWith(backgroundLocationPromptSeen: seen));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_backgroundLocationPromptSeenKey, seen);
+  }
+
+  /// Toggles the master push-notifications switch.
+  Future<void> setPushNotificationsEnabled(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(pushNotificationsEnabled: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_pushNotificationsEnabledKey, value);
+  }
+
+  /// Toggles friend-request push notifications.
+  Future<void> setFriendRequestNotifications(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(friendRequestNotifications: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_friendRequestNotificationsKey, value);
+  }
+
+  /// Toggles share-related push notifications.
+  Future<void> setShareNotifications(bool value) async {
+    if (state.value == null) return;
+    state = AsyncData(state.value!.copyWith(shareNotifications: value));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_shareNotificationsKey, value);
   }
 
   /// Updates the draw sensitivity and persists it.

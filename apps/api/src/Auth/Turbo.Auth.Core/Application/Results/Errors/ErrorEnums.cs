@@ -72,12 +72,29 @@ namespace Turboapi.Auth.Application.Results.Errors
         InvalidState // If state validation fails (though not explicitly in current command)
     }
     
-    public enum SessionValidationError 
+    public enum SessionValidationError
     {
         None = 0,
         TokenInvalid,
         TokenExpired,
-        UserNotFound, 
-        AccountInactive 
+        UserNotFound,
+        AccountInactive
+    }
+
+    public enum ChangePasswordError
+    {
+        None = 0,
+        AccountNotFound,        // No account for the authenticated id
+        OAuthOnlyAccount,       // Account has no password method (e.g. Google) -> cannot change a password it doesn't have
+        InvalidCurrentPassword, // Supplied current password did not match
+        WeakPassword,           // New password failed policy
+        InvalidInput            // Malformed request (e.g. confirmation mismatch)
+    }
+
+    public enum UpdateProfileError
+    {
+        None = 0,
+        AccountNotFound,
+        InvalidInput // e.g. display name too long
     }
 }

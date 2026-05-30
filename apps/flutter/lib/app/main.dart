@@ -19,6 +19,7 @@ import 'package:turbo/features/activity_packrafting/api.dart'
 import 'package:turbo/features/activity_xc_ski/api.dart' as activity_xc_ski;
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/markers/api.dart';
+import 'package:turbo/features/notifications/api.dart';
 import 'package:turbo/features/sharing/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
     as offline_regions;
@@ -79,4 +80,7 @@ Future<void> _kickOffBackgroundInit(ProviderContainer container) async {
   container.read(localMarkerDataStoreProvider);
   // Start watching app links for share URLs (no-op on web).
   container.read(shareLinkListenerProvider);
+  // Wire up push notifications. Inert until the build is configured for FCM
+  // (google-services.json / APNs) and the user is signed in with push enabled.
+  unawaited(container.read(pushNotificationServiceProvider).start());
 }

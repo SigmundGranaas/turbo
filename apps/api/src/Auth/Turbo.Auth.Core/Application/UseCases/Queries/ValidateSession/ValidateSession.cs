@@ -4,5 +4,6 @@ namespace Turboapi.Auth.Application.UseCases.Queries.ValidateSession
         Guid AccountId,
         string Email,
         IEnumerable<string> Roles,
-        bool IsActive);
+        bool IsActive,
+        string? DisplayName = null);
 }

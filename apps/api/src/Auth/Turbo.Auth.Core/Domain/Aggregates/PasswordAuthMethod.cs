@@ -20,5 +20,18 @@ namespace Turboapi.Auth.Domain.Aggregates
                 throw new DomainException("Password hash cannot be empty for PasswordAuthMethod.");
             PasswordHash = passwordHash;
         }
+
+        /// <summary>
+        /// Replaces the stored hash. Callers are responsible for having
+        /// verified the current password and produced the new hash via
+        /// <c>IPasswordHasher</c>; this method only mutates state.
+        /// </summary>
+        public void UpdatePasswordHash(string newPasswordHash)
+        {
+            if (string.IsNullOrWhiteSpace(newPasswordHash))
+                throw new DomainException("Password hash cannot be empty for PasswordAuthMethod.");
+            PasswordHash = newPasswordHash;
+            UpdateLastUsed();
+        }
     }
 }

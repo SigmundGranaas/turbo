@@ -82,6 +82,9 @@ dependencies:
   # MVT decoder used by features/curated_paths/ to parse vector tiles
   # served by the Turbo tileserver into flutter_map-renderable lines.
   vector_tile: ^4.0.0
+  firebase_core: ^4.9.0
+  firebase_messaging: ^16.2.2
+  flutter_local_notifications: ^21.0.0
 
 dev_dependencies:
   flutter_test:

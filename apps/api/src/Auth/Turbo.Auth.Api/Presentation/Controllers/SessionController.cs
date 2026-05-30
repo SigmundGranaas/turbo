@@ -48,7 +48,8 @@ namespace Turboapi.Auth.Presentation.Controllers
                 accountId,
                 User.FindFirstValue(ClaimTypes.Email) ?? string.Empty,
                 User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList(),
-                account.IsActive
+                account.IsActive,
+                account.DisplayName
             );
 
             return Ok(response);

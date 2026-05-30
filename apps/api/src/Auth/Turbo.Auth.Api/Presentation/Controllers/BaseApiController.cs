@@ -55,6 +55,11 @@ namespace Turboapi.Auth.Presentation.Controllers
                 RefreshTokenError e when e == RefreshTokenError.InvalidToken => StatusCodes.Status401Unauthorized,
                 RefreshTokenError e when e == RefreshTokenError.Revoked => StatusCodes.Status401Unauthorized,
                 RefreshTokenError e when e == RefreshTokenError.Expired => StatusCodes.Status401Unauthorized,
+                ChangePasswordError e when e == ChangePasswordError.AccountNotFound => StatusCodes.Status404NotFound,
+                ChangePasswordError e when e == ChangePasswordError.OAuthOnlyAccount => StatusCodes.Status403Forbidden,
+                ChangePasswordError e when e == ChangePasswordError.InvalidCurrentPassword => StatusCodes.Status401Unauthorized,
+                ChangePasswordError e when e == ChangePasswordError.WeakPassword => StatusCodes.Status400BadRequest,
+                UpdateProfileError e when e == UpdateProfileError.AccountNotFound => StatusCodes.Status404NotFound,
                 _ => StatusCodes.Status400BadRequest
             };
             

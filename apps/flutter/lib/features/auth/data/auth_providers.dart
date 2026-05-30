@@ -30,6 +30,7 @@ enum AuthStatus { initial, loading, authenticated, unauthenticated, error }
 class AuthState {
   final AuthStatus status;
   final String? email;
+  final String? displayName;
   final String? errorMessage;
   final bool isGoogleUser;
   final String? accessToken;
@@ -38,6 +39,7 @@ class AuthState {
   AuthState({
     this.status = AuthStatus.initial,
     this.email,
+    this.displayName,
     this.errorMessage,
     this.isGoogleUser = false,
     this.accessToken,
@@ -47,6 +49,8 @@ class AuthState {
   AuthState copyWith({
     AuthStatus? status,
     String? email,
+    String? displayName,
+    bool clearDisplayName = false,
     String? errorMessage,
     bool? removeError,
     bool? isGoogleUser,
@@ -56,6 +60,7 @@ class AuthState {
     return AuthState(
       status: status ?? this.status,
       email: email ?? this.email,
+      displayName: clearDisplayName ? null : displayName ?? this.displayName,
       errorMessage: removeError == true ? null : errorMessage ?? this.errorMessage,
       isGoogleUser: isGoogleUser ?? this.isGoogleUser,
       accessToken: accessToken ?? this.accessToken,
@@ -127,9 +132,13 @@ class AuthStateNotifier extends Notifier<AuthState> {
         final email = await _authService.getUserEmail();
         final isGoogleUser = await _authService.isGoogleUser();
         final token = await _authService.getAccessToken();
+        // On web the session check above persisted displayName to prefs; on
+        // mobile it was stored at login time. Either way read it back here.
+        final displayName = await _authService.getDisplayName();
         _updateState(AuthState(
           status: AuthStatus.authenticated,
           email: email,
+          displayName: displayName,
           isGoogleUser: isGoogleUser,
           accessToken: token,
           isInitializing: false,
@@ -149,9 +158,11 @@ class AuthStateNotifier extends Notifier<AuthState> {
     try {
       await _authService.login(email, password);
       final token = await _authService.getAccessToken();
+      final displayName = await _authService.getDisplayName();
       _updateState(AuthState(
         status: AuthStatus.authenticated,
         email: email,
+        displayName: displayName,
         isGoogleUser: false,
         accessToken: token,
       ));
@@ -253,6 +264,29 @@ class AuthStateNotifier extends Notifier<AuthState> {
       }
     } catch (e) {
       await logout();
+    }
+  }
+
+  /// Changes the account password.
+  ///
+  /// Error handling convention (shared with [updateDisplayName]): these methods
+  /// do NOT touch the global auth status on failure — the user remains
+  /// authenticated. They simply rethrow so the calling screen can catch the
+  /// error and surface it locally (e.g. via [AuthErrorMessage]).
+  Future<void> changePassword(
+      String currentPassword, String newPassword, String confirmNewPassword) async {
+    await _authService.changePassword(
+        currentPassword, newPassword, confirmNewPassword);
+  }
+
+  /// Updates the user's display name and, on success, reflects it in state.
+  /// Rethrows on failure (see [changePassword] for the convention).
+  Future<void> updateDisplayName(String? name) async {
+    final newDisplayName = await _authService.updateDisplayName(name);
+    if (newDisplayName == null || newDisplayName.isEmpty) {
+      _updateState(state.copyWith(clearDisplayName: true));
+    } else {
+      _updateState(state.copyWith(displayName: newDisplayName));
     }
   }
 
