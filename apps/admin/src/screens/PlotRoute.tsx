@@ -346,6 +346,8 @@ export function PlotRoute() {
   // every developer/calibration control lives inside the collapsed
   // "Advanced (testing)" drawer below.
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Stops list collapsed/expanded (keeps the sheet short with many stops).
+  const [stopsOpen, setStopsOpen] = useState(true);
   // Right-hand debug/layers pane — collapsed by default so it stays out
   // of the way; a small icon button reopens it.
   const [debugOpen, setDebugOpen] = useState(false);
@@ -1707,14 +1709,19 @@ export function PlotRoute() {
             profile={profile}
           />
 
-          {/* Stops — clean connector-line list (maps-style): coloured dots
-              joined by a thin line, reorder by drag, remove on hover. */}
+          {/* Stops — compact, collapsible, internally-scrolling so the sheet
+              height stays fixed no matter how many stops are added. */}
           {points.length > 0 ? (
             <section className="space-y-1">
               <div className="flex items-center justify-between px-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-ink-400">
-                  Stops
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setStopsOpen((o) => !o)}
+                  className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-ink-400 hover:text-ink-700"
+                >
+                  <span className="text-[10px] leading-none">{stopsOpen ? "▾" : "▸"}</span>
+                  Stops · {points.length}
+                </button>
                 <div className="flex items-center gap-0.5 text-ink-400">
                   <button type="button" title="Undo" onClick={undoPoints}
                     disabled={pointsPast.length === 0}
@@ -1730,54 +1737,49 @@ export function PlotRoute() {
                     className="grid h-7 w-7 place-items-center rounded-full hover:bg-ink-100 disabled:opacity-30">✕</button>
                 </div>
               </div>
-              <ol>
-                {points.map((pt, i) => {
-                  const isStart = i === 0;
-                  const isEnd = i === points.length - 1 && points.length >= 2;
-                  const bg = isStart ? CVD_BLUE : isEnd ? CVD_VERMILLION : "#6b7280";
-                  const legToNext = path?.path.waypoint_legs?.[i];
-                  const refusedHere =
-                    (refusal?.which === "from" && isStart) ||
-                    (refusal?.which === "to" && isEnd);
-                  const name = isStart ? "Start" : isEnd ? "Destination" : `Stop ${i}`;
-                  const last = i === points.length - 1;
-                  return (
-                    <li
-                      key={i}
-                      draggable
-                      onDragStart={() => { dragRowRef.current = i; }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={() => {
-                        if (dragRowRef.current != null) reorderPoints(dragRowRef.current, i);
-                        dragRowRef.current = null;
-                      }}
-                      className="group flex items-stretch gap-3 rounded-xl px-2 hover:bg-ink-50"
-                    >
-                      <div className="relative flex w-3 shrink-0 justify-center">
-                        {!last ? (
-                          <span className="absolute bottom-0 top-5 w-px bg-ink-200" />
-                        ) : null}
+              {stopsOpen ? (
+                <ol className="max-h-[26vh] overflow-y-auto pr-1">
+                  {points.map((pt, i) => {
+                    const isStart = i === 0;
+                    const isEnd = i === points.length - 1 && points.length >= 2;
+                    const bg = isStart ? CVD_BLUE : isEnd ? CVD_VERMILLION : "#6b7280";
+                    const legToNext = path?.path.waypoint_legs?.[i];
+                    const refusedHere =
+                      (refusal?.which === "from" && isStart) ||
+                      (refusal?.which === "to" && isEnd);
+                    const name = isStart ? "Start" : isEnd ? "Destination" : `Stop ${i}`;
+                    return (
+                      <li
+                        key={i}
+                        draggable
+                        onDragStart={() => { dragRowRef.current = i; }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => {
+                          if (dragRowRef.current != null) reorderPoints(dragRowRef.current, i);
+                          dragRowRef.current = null;
+                        }}
+                        className="group flex items-center gap-2.5 rounded-lg px-1.5 py-1 hover:bg-ink-50"
+                      >
                         <span
-                          className="z-10 mt-[15px] h-2.5 w-2.5 rounded-full ring-2 ring-white"
+                          className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white"
                           style={{ background: bg, boxShadow: refusedHere ? "0 0 0 2px #dc2626" : undefined }}
                         />
-                      </div>
-                      <div className="min-w-0 flex-1 py-2">
-                        <div className="text-sm font-medium leading-tight text-ink-800">{name}</div>
-                        <div className="truncate text-xs tabular-nums text-ink-400">
-                          {pt[1].toFixed(4)}, {pt[0].toFixed(4)}
-                          {legToNext ? <span> · {fmtDist(legToNext.length_m)} to next</span> : null}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-0.5 self-center opacity-0 transition-opacity group-hover:opacity-100">
-                        <span title="Drag to reorder" className="cursor-grab select-none px-1 text-ink-300">⠿</span>
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink-800">
+                          <span className="font-medium">{name}</span>
+                          <span className="text-xs tabular-nums text-ink-400">
+                            {legToNext
+                              ? ` · ${fmtDist(legToNext.length_m)}`
+                              : ` · ${pt[1].toFixed(3)}, ${pt[0].toFixed(3)}`}
+                          </span>
+                        </span>
+                        <span title="Drag to reorder" className="cursor-grab select-none px-1 text-ink-300 opacity-0 group-hover:opacity-100">⠿</span>
                         <button type="button" title="Remove" onClick={() => deletePoint(i)}
-                          className="px-1 text-ink-300 hover:text-rose-600">✕</button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
+                          className="px-1 text-ink-300 hover:text-rose-600 opacity-0 group-hover:opacity-100">✕</button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : null}
             </section>
           ) : null}
 
