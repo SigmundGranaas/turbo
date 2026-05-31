@@ -17,4 +17,8 @@ export 'providers/routing_providers.dart'
         routingApiClientProvider,
         routingRepositoryProvider,
         routePresetsProvider;
+export 'data/route_planning_notifier.dart'
+    show RoutePlanningNotifier, routePlanningProvider;
+export 'data/route_planning_state.dart' show RoutePlanningState;
 export 'widgets/route_layer.dart' show RoutePolylineLayer;
+export 'widgets/route_planning_page.dart' show RoutePlanningPage;

@@ -171,6 +171,7 @@ abstract class AppLocalizations {
   // Main Map
   String get createNewMarkerHere;
   String get measureDistanceFromHere;
+  String get planRouteFromHere;
   String get addActivityHere;
   String get saveAsActivity;
 
@@ -647,6 +648,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override String get createNewMarkerHere => 'Create New Marker Here';
   @override String get measureDistanceFromHere => 'Measure Distance From Here';
+  @override String get planRouteFromHere => 'Plan a Route From Here';
   @override String get addActivityHere => 'Add activity here';
   @override String get saveAsActivity => 'Save as activity';
 
@@ -1102,6 +1104,7 @@ class AppLocalizationsNo extends AppLocalizations {
 
   @override String get createNewMarkerHere => 'Opprett nytt punkt her';
   @override String get measureDistanceFromHere => 'Mål avstand herfra';
+  @override String get planRouteFromHere => 'Planlegg en rute herfra';
   @override String get addActivityHere => 'Legg til aktivitet her';
   @override String get saveAsActivity => 'Lagre som aktivitet';
 

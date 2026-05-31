@@ -27,6 +27,7 @@ class PinOptionsSheet extends ConsumerStatefulWidget {
   final void Function(String? namePreview) onCreateMarker;
   final VoidCallback onCreateActivity;
   final VoidCallback onMeasure;
+  final VoidCallback onPlanRoute;
   final VoidCallback onNavigate;
   final VoidCallback onStopNavigation;
 
@@ -37,6 +38,7 @@ class PinOptionsSheet extends ConsumerStatefulWidget {
     required this.onCreateMarker,
     required this.onCreateActivity,
     required this.onMeasure,
+    required this.onPlanRoute,
     required this.onNavigate,
     required this.onStopNavigation,
   });
@@ -138,6 +140,14 @@ class _PinOptionsSheetState extends ConsumerState<PinOptionsSheet> {
                       onTap: () {
                         Navigator.pop(context);
                         widget.onMeasure();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.route_outlined),
+                      title: Text(l10n.planRouteFromHere),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.onPlanRoute();
                       },
                     ),
                     ListTile(

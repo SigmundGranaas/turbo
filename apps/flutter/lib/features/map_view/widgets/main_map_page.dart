@@ -13,6 +13,7 @@ import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_mobile.dart';
 import 'package:turbo/features/measuring/api.dart';
+import 'package:turbo/features/routing/api.dart';
 import 'package:turbo/features/path_recording/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
@@ -406,6 +407,7 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
           ),
           onCreateActivity: () => _showActivityCreatePicker(context, point),
           onMeasure: () => _navigateToMeasuring(point),
+          onPlanRoute: () => _navigateToRoutePlanning(point),
           onNavigate: () => ref
               .read(navigationStateProvider.notifier)
               .startNavigation(point),
@@ -431,6 +433,18 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       isScrollControlled: true,
       useSafeArea: true,
       builder: (sheetCtx) => activities.ActivityCreatePicker.fromPoint(point),
+    );
+  }
+
+  void _navigateToRoutePlanning(LatLng startPoint) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => RoutePlanningPage(
+          initialCenter: _mapController.camera.center,
+          initialZoom: _mapController.camera.zoom,
+          initialWaypoint: startPoint,
+        ),
+      ),
     );
   }
 
