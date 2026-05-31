@@ -141,7 +141,9 @@ export function PlotRoute() {
 
   const [from, setFrom] = useState<Marker | null>(null);
   const [to, setTo] = useState<Marker | null>(null);
-  const [profile, setProfile] = useState<Profile>("foot");
+  // Profile is fixed to foot — bike/ski aren't calibrated (the off-trail
+  // model is pedestrian Tobler), so exposing them was misleading.
+  const [profile] = useState<Profile>("foot");
   // Trip-style preset (server-resolved cost bundle). Default "balanced".
   const [preset, setPreset] = useState<string>(
     () => localStorage.getItem("pf-preset") ?? "balanced",
@@ -1645,28 +1647,6 @@ export function PlotRoute() {
       <div className="absolute bottom-4 left-1/2 z-10 flex w-[min(620px,calc(100%-2rem))] max-h-[62vh] -translate-x-1/2 flex-col gap-4 overflow-y-auto rounded-[28px] border border-black/5 bg-white/95 p-5 shadow-2xl backdrop-blur-md">
           {/* Grabber. */}
           <div className="mx-auto -mb-1 h-1 w-10 shrink-0 rounded-full bg-ink-200" />
-
-          {/* Travel mode — segmented control at the top, maps-style. */}
-          <div className="flex rounded-full bg-ink-100 p-1 text-sm font-medium">
-            {([
-              ["foot", "Walk"],
-              ["bicycle", "Bike"],
-              ["ski", "Ski"],
-            ] as [Profile, string][]).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setProfile(id)}
-                className={`flex-1 rounded-full px-3 py-1.5 transition-colors ${
-                  profile === id
-                    ? "bg-white text-ink-900 shadow-sm"
-                    : "text-ink-500 hover:text-ink-800"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
 
           {/* Trip style — horizontal chip row + one-line description. */}
           {presets.length > 0 ? (
