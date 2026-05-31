@@ -166,6 +166,60 @@ still preferred; 2-point + multi-waypoint behaviour unchanged otherwise.
 - **Preset sprawl.** Keep to ~5 curated presets; everything else is the
   advanced fold. Presets are data, so adding more later is cheap.
 
+## Analysis addendum (2026-05-31): same-class bugs as the road issue
+
+The road bug was "a cost lever exists in config but the unified solver
+silently ignores it." Auditing for the same class turned up more, confirmed
+empirically (per-request override → byte-identical route/cost):
+
+1. **Per-request `cost_config_override` is ignored by the unified solver for
+   slope, gain, trail-proximity and water.** `solve_unified_path` passes the
+   BOOT-built contributors (`contributors_for_breakdown()`), which bake their
+   config at startup; it never rebuilds them from the effective (patched)
+   config. Only `off_trail_base` (a param) and `surface_pace` (now injected
+   with effective config) honour overrides. Proven: `total_gain_amplifier=5`,
+   `slope_cell_refuse_above_deg=20`, `trail_proximity_bonus_at_zero=0.01`,
+   `water_cost_s_per_m=0` each changed NOTHING on two test routes. The same FMM
+   path was fixed earlier (it rebuilds from `effective_cfg`); the unified
+   default never was. → **The SPA calibration sliders are also no-ops on the
+   default solver today.**
+2. **The unified off-trail MESH uses hardcoded slope/grade constants**
+   (`MAX_GRADE_DEG=27`, `STEEP_PENALTY_K=10`, `CLIFF_DEG=60`, inlined
+   `tobler_pace`) and has NO gain term — it ignores `slope_cell.*` and
+   `total_gain.amplifier` entirely. So "less height difference" / steepness
+   limits can't shape off-trail ground in the default solver (only the opt-in
+   elastica path reads `grade_limited.max_grade_deg`).
+3. **The baked graph cost is dead for routing.** `surface_multiplier` and the
+   graph's baked per-profile cost arrays are recomputed-from-scratch by the
+   unified contributor stack, so they're unused (now superseded by
+   `surface_pace`). Harmless but confusing; should be removed or documented.
+4. **`MarkingBonusContributor` is hardcoded** (`::default()`), not config- or
+   override-driven — a fixed lever with no knob.
+
+### Impact on the presets
+- **Work today** (driven by `off_trail_base` + `surface_pace`, which are live):
+  Balanced, Avoid roads, and the road/off-trail character of Trail purist &
+  Direct.
+- **No-ops until fixed**: Easy grade (gain + max-grade), the steepness/gain
+  character of Direct, and the trail-proximity pull of Trail purist / Avoid
+  roads.
+
+### Fix (prerequisite for the full preset set)
+- In `solve_unified_path`, REBUILD the config-driven contributors (Tobler,
+  GraphSlope, TrailProximity, TotalGain) from `effective_cfg` per request —
+  exactly as `surface_pace` and the FMM path already do. Factor the
+  `with_defaults_and_config` stack-builder so it can be re-run with a given
+  `CostConfig`; keep the data-driven contributors (water/vector/mask) as-is.
+- Teach the unified `mesh_step` to read `slope_cell.quadratic_scale_deg` /
+  `refuse_above_deg` and a gain term from `total_gain.amplifier`, instead of
+  the inlined hardcoded constants, so off-trail steepness/climb-aversion is
+  tunable. (Add `surface_pace`/grade patch fields already done.)
+- Add `grade_limited_max_grade_deg` use to the unified mesh, or document that
+  hard switchback grade caps remain elastica-only.
+
+This fix is small and high-leverage: it makes the existing SPA sliders AND the
+full preset set actually affect the default routes.
+
 ## Out of scope
 - Per-segment / per-leg presets (one preset per route for now).
 - Auto-suggesting a preset from terrain.

@@ -39,7 +39,6 @@ use crate::native_contributors::OffTrailRoughnessContributor;
 // docs on independence; these are physical constants, not shared code).
 const CLIFF_DEG: f32 = 60.0;
 const STEEP_PENALTY_K: f32 = 10.0;
-const MAX_GRADE_DEG: f32 = 27.0;
 
 /// Pace floor (s/m) for the admissible A* heuristic: the cheapest any
 /// metre can cost (a well-maintained trail — flat base pace 1/1.4 minus
@@ -301,6 +300,14 @@ pub(crate) fn solve_unified(
     cell_m: f64,
     base_pace_s_per_m: f32,
     off_trail_factor: f32,
+    // Off-trail steepness knob: the grade (deg) above which the soft steep
+    // penalty kicks in. Lower = avoid steep ground harder (gentler routes);
+    // higher = tolerate steep (direct). Default 27.
+    mesh_max_grade_deg: f32,
+    // Off-trail climb aversion: extra walk-seconds per metre of positive
+    // elevation gain (Naismith-style). 0 = none (default). Higher = "less
+    // height difference" — prefer flatter detours.
+    mesh_gain_k: f32,
 ) -> Option<UnifiedRoute> {
     let corr = Corridor::for_route(from, to, cell_m)?;
     let nx = corr.nx as usize;
@@ -501,13 +508,20 @@ pub(crate) fn solve_unified(
                 if grade_deg > CLIFF_DEG {
                     return None;
                 }
-                let steep = if grade_deg > MAX_GRADE_DEG {
-                    let over = (grade_deg - MAX_GRADE_DEG) / MAX_GRADE_DEG.max(1.0);
+                let steep = if grade_deg > mesh_max_grade_deg {
+                    let over = (grade_deg - mesh_max_grade_deg) / mesh_max_grade_deg.max(1.0);
                     1.0 + STEEP_PENALTY_K * over * over
                 } else {
                     1.0
                 };
-                step_m * tobler_pace(grad) * mul * steep
+                // Naismith-style climb aversion: extra seconds per metre
+                // of positive gain (0 by default → no change).
+                let gain = if mesh_gain_k > 0.0 && b > a {
+                    mesh_gain_k * (b - a)
+                } else {
+                    0.0
+                };
+                step_m * tobler_pace(grad) * mul * steep + gain
             }
             // Missing elevation: passable but discouraged (flat × 3).
             _ => step_m * base_pace_s_per_m * 3.0 * mul,

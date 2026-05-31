@@ -1377,11 +1377,49 @@ impl Pathfinder {
         // baked at boot and presets can tune it. Graph edges only; mesh
         // edges return 1.0.
         let mut contributors = self.contributors_for_breakdown();
+        // Rebuild the cheap, purely config-driven graph contributors from the
+        // EFFECTIVE (boot + per-request/preset) config, so overrides for
+        // slope_graph / total_gain actually bite on the unified solve (they
+        // were previously baked at boot and silently ignored here). Build
+        // fresh by name — no downcast needed. (TrailProximity holds an RTree
+        // and isn't rebuilt per request; off_trail_base/surface_pace cover the
+        // trail-vs-everything preference.)
+        for c in contributors.iter_mut() {
+            match c.name() {
+                "graph_slope" => {
+                    *c = std::sync::Arc::new(crate::native_contributors::GraphSlopeContributor {
+                        quadratic_scale_deg: effective_cfg.slope_graph.quadratic_scale_deg,
+                        refuse_above_deg: effective_cfg.slope_graph.refuse_above_deg,
+                    })
+                }
+                "total_gain" => {
+                    *c = std::sync::Arc::new(crate::native_contributors::TotalGainContributor {
+                        gain_amplifier: effective_cfg.total_gain.amplifier,
+                    })
+                }
+                _ => {}
+            }
+        }
         contributors.push(std::sync::Arc::new(
             crate::native_contributors::SurfacePaceContributor::from_config(
                 &effective_cfg.surface_pace,
             ),
         ));
+        // Off-trail mesh steepness + climb-aversion knobs (previously hard-
+        // coded in the mesh). `max_grade_deg` sets where the soft steep
+        // penalty starts; `gain_k` (k·(amplifier−1)) adds Naismith climb cost
+        // per gain-metre so "less height difference" shapes off-trail too.
+        let mesh_max_grade_deg = effective_cfg.grade_limited.max_grade_deg;
+        let mesh_gain_k = if (effective_cfg.total_gain.amplifier - 1.0).abs() < 1e-6 {
+            0.0
+        } else {
+            let k = match prefs.profile {
+                turbo_tiles_graph::Profile::Foot => 8.0_f32,
+                turbo_tiles_graph::Profile::Bicycle => 20.0,
+                turbo_tiles_graph::Profile::Ski => 6.0,
+            };
+            k * (effective_cfg.total_gain.amplifier - 1.0)
+        };
         // Adaptive mesh cell: fine (10 m) for short routes where off-trail
         // detail matters, coarser (up to 30 m) for long routes where the
         // path is mostly on trails and off-trail is a minor connector — so
@@ -1398,6 +1436,8 @@ impl Pathfinder {
             cell_m,
             base_pace,
             off_trail_factor,
+            mesh_max_grade_deg,
+            mesh_gain_k,
         )
         .ok_or(PathfindError::NoRoute)?;
 
