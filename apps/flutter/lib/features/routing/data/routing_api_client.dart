@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import '../models/route_models.dart';
+import 'streaming_http_client.dart';
 
 /// Categories of routing failure the UI can branch on without parsing
 /// strings.
@@ -111,46 +113,73 @@ class RoutingApiClient {
   /// [RouteResult]. Throws [RoutingException] if the server emits an
   /// `error` event or the transport fails.
   Stream<RouteStreamEvent> planStream(RouteRequest req) async* {
-    final Response<ResponseBody> resp;
+    // Uses a streaming-capable client (Fetch API on web; IOClient on
+    // mobile) — dio's web adapter buffers and can't deliver SSE frames
+    // incrementally.
+    final client = makeStreamingClient();
     try {
-      resp = await _dio.post<ResponseBody>(
-        '$baseUrl/plan/stream',
-        data: req.toJson(),
-        options: Options(
-          contentType: 'application/json',
-          responseType: ResponseType.stream,
-          headers: {'Accept': 'text/event-stream'},
-        ),
-      );
-    } on DioException catch (e) {
-      throw _dioError(e);
-    }
+      final request = http.Request('POST', Uri.parse('$baseUrl/plan/stream'))
+        ..headers['Content-Type'] = 'application/json'
+        ..headers['Accept'] = 'text/event-stream'
+        ..body = jsonEncode(req.toJson());
 
-    // Parse the SSE byte stream: lines accumulate into (event, data)
-    // frames separated by a blank line. `:` keep-alive comments are
-    // ignored.
-    var buffer = '';
-    String? eventName;
-    await for (final chunk in resp.data!.stream) {
-      buffer += utf8.decode(chunk, allowMalformed: true);
-      int nl;
-      while ((nl = buffer.indexOf('\n')) >= 0) {
-        var line = buffer.substring(0, nl);
-        buffer = buffer.substring(nl + 1);
-        if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
-        if (line.isEmpty) {
-          eventName = null; // frame boundary
-          continue;
-        }
-        if (line.startsWith('event:')) {
-          eventName = line.substring(6).trim();
-        } else if (line.startsWith('data:')) {
-          final event = _parseFrame(eventName, line.substring(5).trim());
-          if (event != null) yield event;
-        }
-        // ':' comments / unknown fields ignored
+      final http.StreamedResponse resp;
+      try {
+        resp = await client.send(request);
+      } catch (_) {
+        throw RoutingException(
+          RoutingErrorKind.network,
+          'Could not reach the routing service',
+        );
       }
+      if (resp.statusCode >= 400) {
+        throw _streamHttpError(resp.statusCode, await resp.stream.bytesToString());
+      }
+
+      // Parse the SSE byte stream: lines accumulate into (event, data)
+      // frames separated by a blank line. `:` keep-alive comments are
+      // ignored.
+      var buffer = '';
+      String? eventName;
+      await for (final chunk in resp.stream.transform(utf8.decoder)) {
+        buffer += chunk;
+        int nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          var line = buffer.substring(0, nl);
+          buffer = buffer.substring(nl + 1);
+          if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
+          if (line.isEmpty) {
+            eventName = null; // frame boundary
+            continue;
+          }
+          if (line.startsWith('event:')) {
+            eventName = line.substring(6).trim();
+          } else if (line.startsWith('data:')) {
+            final event = _parseFrame(eventName, line.substring(5).trim());
+            if (event != null) yield event;
+          }
+          // ':' comments / unknown fields ignored
+        }
+      }
+    } finally {
+      client.close();
     }
+  }
+
+  RoutingException _streamHttpError(int status, String body) {
+    var message = 'HTTP $status';
+    try {
+      final data = jsonDecode(body);
+      if (data is Map<String, dynamic> && data['error'] is String) {
+        message = data['error'] as String;
+      }
+    } catch (_) {/* non-JSON body */}
+    final kind = switch (status) {
+      400 => RoutingErrorKind.badRequest,
+      422 => RoutingErrorKind.noRoute,
+      _ => RoutingErrorKind.server,
+    };
+    return RoutingException(kind, message);
   }
 
   RouteStreamEvent? _parseFrame(String? event, String data) {

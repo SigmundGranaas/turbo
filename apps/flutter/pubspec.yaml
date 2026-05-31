@@ -48,6 +48,10 @@ dependencies:
   idb_shim: ^2.8.2+4
   http: ^1.6.0
   http_parser: ^4.1.0
+  # Fetch-API HTTP client so the routing SSE stream can be read
+  # incrementally on Flutter web (dio's XHR adapter buffers and can't
+  # stream a response). Used only by features/routing on web.
+  fetch_client: ^1.1.2
   geolocator: ^14.0.2
   flutter_svg: ^2.2.3
   flutter_riverpod: ^3.2.1
