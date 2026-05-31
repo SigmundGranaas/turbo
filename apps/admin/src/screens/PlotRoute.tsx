@@ -281,6 +281,9 @@ export function PlotRoute() {
   // every developer/calibration control lives inside the collapsed
   // "Advanced (testing)" drawer below.
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Right-hand debug/layers pane — collapsed by default so it stays out
+  // of the way; a small icon button reopens it.
+  const [debugOpen, setDebugOpen] = useState(false);
   // Total ascent (metres) of the current route, computed from a DEM
   // elevation profile of the geometry. `null` until fetched. Drives
   // the hiker-friendly result card + the Naismith time estimate.
@@ -1615,15 +1618,13 @@ export function PlotRoute() {
       {/* LEFT — primary planning surface (MD3 floating card): trip style,
           stops, and the result, like a modern maps app. */}
       <div className="absolute top-4 left-4 z-10 flex max-h-[calc(100vh-2rem)] w-[380px] flex-col gap-4 overflow-y-auto rounded-[28px] border border-black/5 bg-white/90 p-5 shadow-2xl backdrop-blur-md">
-          <header>
-            <h1 className="text-xl font-semibold">Plan a route</h1>
-            <p className="text-sm text-ink-600 mt-1">
-              Tap the map to drop a{" "}
-              <span className="font-medium" style={{ color: CVD_BLUE }}>start</span>, then keep
-              tapping to add stops — the last is your{" "}
-              <span className="font-medium" style={{ color: CVD_VERMILLION }}>destination</span>.
-              Drag a pin to move it, double-click to remove.
-            </p>
+          <header className="flex items-center justify-between">
+            <h1 className="text-lg font-semibold tracking-tight">Plan a route</h1>
+            {points.length > 0 ? (
+              <span className="text-xs text-ink-400">
+                {points.length} stop{points.length === 1 ? "" : "s"}
+              </span>
+            ) : null}
           </header>
 
           {/* Status / result — the one thing the user looks at. */}
@@ -1776,9 +1777,30 @@ export function PlotRoute() {
 
         </div>{/* /LEFT card */}
 
-        {/* RIGHT — debug / calibration pane (MD3 floating surface).
-            Map overlays, basemap, and the Advanced drawer live here. */}
+        {/* RIGHT — debug / calibration pane, collapsible so it stays out
+            of the way. Collapsed = a small icon button; open = full card. */}
+        {!debugOpen ? (
+          <button
+            type="button"
+            onClick={() => setDebugOpen(true)}
+            title="Debug & layers"
+            className="absolute top-4 right-4 z-10 grid h-11 w-11 place-items-center rounded-full border border-black/5 bg-white/90 text-lg text-ink-600 shadow-2xl backdrop-blur-md hover:bg-white"
+          >
+            ⚙
+          </button>
+        ) : (
         <div className="absolute top-4 right-4 z-10 flex max-h-[calc(100vh-2rem)] w-[340px] flex-col gap-4 overflow-y-auto rounded-[28px] border border-black/5 bg-white/90 p-5 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold tracking-tight">Debug &amp; layers</span>
+            <button
+              type="button"
+              onClick={() => setDebugOpen(false)}
+              title="Close"
+              className="grid h-7 w-7 place-items-center rounded-full text-ink-500 hover:bg-ink-100"
+            >
+              ✕
+            </button>
+          </div>
           <section className="space-y-2">
             <div className="text-xs uppercase tracking-wide text-ink-500">
               Show on map
@@ -2389,7 +2411,8 @@ export function PlotRoute() {
           ) : null}
           </div>
           ) : null}
-        </div>{/* /RIGHT card */}
+        </div>
+        )}{/* /RIGHT card */}
     </div>
   );
 }
@@ -2639,23 +2662,59 @@ function ResultCard({
   const p = resp.path;
   const km = p.length_m / 1000;
   const mins = naismithMinutes(p.length_m, gainM, profile);
+  // Surface mix (metres by surface) → a thin MD3 stacked bar + legend.
+  const fkb = p.fkb_breakdown ?? {};
+  const surfaces: [string, string, string][] = [
+    ["sti", "Trail", CVD_BLUE],
+    ["vei", "Road", "#374151"],
+    ["skiloype", "Ski track", "#0ea5e9"],
+    ["off_trail", "Off-trail", CVD_VERMILLION],
+    ["unknown", "Other", "#9ca3af"],
+  ];
+  const segs = surfaces
+    .map(([k, label, color]) => ({ label, color, m: fkb[k] ?? 0 }))
+    .filter((s) => s.m > 0);
+  const segTotal = segs.reduce((a, s) => a + s.m, 0) || 1;
   return (
-    <div className="rounded-xl bg-white border border-ink-200 shadow-sm p-4 space-y-3" data-testid="route-result">
-      <div className="flex items-baseline gap-3">
-        <span className="text-2xl font-semibold tabular-nums">
+    <div className="rounded-2xl bg-ink-50 p-4 space-y-3" data-testid="route-result">
+      <div className="flex items-baseline gap-2">
+        <span className="text-3xl font-semibold tabular-nums tracking-tight">
           {km < 10 ? km.toFixed(1) : km.toFixed(0)} km
         </span>
-        <span className="text-ink-400">·</span>
-        <span className="text-2xl font-semibold tabular-nums">{formatDuration(mins)}</span>
-      </div>
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink-600">
+        <span className="text-ink-300">·</span>
+        <span className="text-xl font-medium tabular-nums text-ink-600">
+          {formatDuration(mins)}
+        </span>
         {gainM != null ? (
-          <span>
-            <span className="text-ink-400">↑</span> {gainM.toFixed(0)} m climb
+          <span className="ml-auto text-sm text-ink-500 tabular-nums">
+            ↑ {gainM.toFixed(0)} m
           </span>
         ) : null}
-        <span>{p.on_trail_pct.toFixed(0)}% on marked trails</span>
       </div>
+      {segs.length > 0 ? (
+        <div className="space-y-1.5">
+          <div className="flex h-2 overflow-hidden rounded-full">
+            {segs.map((s) => (
+              <div
+                key={s.label}
+                style={{ width: `${(s.m / segTotal) * 100}%`, background: s.color }}
+                title={`${s.label}: ${fmtDist(s.m)}`}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-ink-500">
+            {segs.map((s) => (
+              <span key={s.label} className="inline-flex items-center gap-1">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: s.color }}
+                />
+                {s.label} {Math.round((s.m / segTotal) * 100)}%
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
