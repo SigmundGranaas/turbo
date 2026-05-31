@@ -130,6 +130,60 @@ fn write_square_graph(path: &std::path::Path) {
     f.sync_all().unwrap();
 }
 
+/// Write a single-tile DEM that is a perfectly UNIFORM planar ramp:
+/// elevation rises linearly toward the south (decreasing world-y) at
+/// `tan(alpha_deg)` metres of rise per metre of horizontal travel.
+/// `z(x,y) = (uly - y) * tan(alpha)`. 10 m pixels, `cells x cells`.
+/// This is the idealized steep face that a 2-D mesh would, in theory,
+/// be tempted to climb straight up — the case for the switchback gap.
+fn write_ramp_dem(path: &std::path::Path, ulx: f64, uly: f64, cells: u32, alpha_deg: f64) {
+    use turbo_tiles_artifacts::HEADER_BYTES;
+    use turbo_tiles_elev::{
+        write_meta as write_dem_meta, write_tile_entry, DemMeta, TileEntry, COMPRESSION_ZSTD,
+        DEM_FORMAT_VERSION, DEM_META_BYTES, NODATA_SENTINEL, TILE_ENTRY_BYTES,
+    };
+    let pixel = 10.0_f64;
+    let tan = alpha_deg.to_radians().tan();
+    let meta = DemMeta {
+        tile_count: 1,
+        tile_cells: cells,
+        pixel_size_m: pixel as f32,
+        nodata: NODATA_SENTINEL,
+        compression: COMPRESSION_ZSTD,
+    };
+    let mut f = std::fs::File::create(path).unwrap();
+    write_art_header(
+        &mut f,
+        &Header {
+            kind: ArtifactKind::Dem,
+            format_version: DEM_FORMAT_VERSION,
+            build_timestamp_unix_sec: 0,
+        },
+    )
+    .unwrap();
+    write_dem_meta(&mut f, &meta).unwrap();
+    // Row r is at world-y = uly - r*pixel; z grows as y shrinks.
+    let mut data = vec![0f32; (cells * cells) as usize];
+    for r in 0..cells {
+        let z = (r as f64 * pixel * tan) as f32;
+        for c in 0..cells {
+            data[(r * cells + c) as usize] = z;
+        }
+    }
+    let compressed = zstd::encode_all(bytemuck::cast_slice::<f32, u8>(&data), 1).unwrap();
+    let dir_offset = (HEADER_BYTES + DEM_META_BYTES) as u64;
+    let payload_offset = dir_offset + TILE_ENTRY_BYTES as u64;
+    let entry = TileEntry {
+        ulx,
+        uly,
+        offset: payload_offset,
+        compressed_size: compressed.len() as u32,
+    };
+    write_tile_entry(&mut f, &entry).unwrap();
+    f.write_all(&compressed).unwrap();
+    f.sync_all().unwrap();
+}
+
 fn mk_edge(from: u32, to: u32, len_m: f32) -> EdgeRecord {
     EdgeRecord {
         from_id: from,
@@ -314,6 +368,104 @@ fn cost_based_selection_beats_long_graph_detour() {
         "detour regression: expected ~200 m off-trail cut, got {}",
         path.length_m
     );
+}
+
+/// Characterization: is the "2-D mesh climbs straight up a uniform
+/// steep face, only the (x,y,θ) solver switchbacks" gap REAL?
+///
+/// Build a perfectly uniform 35° planar ramp (steeper than the 27°
+/// soft-cap, gentler than the 60° cliff veto) with NO trails in the
+/// corridor, then route 600 m straight up it with BOTH solvers and
+/// print length / tortuosity / max-segment-grade / lateral reversals.
+/// Run with `-- --nocapture` to see the numbers.
+#[test]
+fn switchback_gap_uniform_steep_face() {
+    let ox = 500_000.0_f64;
+    let oy = 7_400_000.0_f64; // central Norway UTM33N
+    let alpha = 35.0_f64;
+    let tan = alpha.to_radians().tan();
+    let dem_tmp = tempfile::NamedTempFile::new().unwrap();
+    write_ramp_dem(dem_tmp.path(), ox - 3000.0, oy + 3000.0, 600, alpha);
+    let dem = Arc::new(turbo_tiles_elev::Dem::open(dem_tmp.path()).unwrap());
+    // Graph parked 50 km away so nothing snaps — pure off-trail.
+    let g_tmp = tempfile::NamedTempFile::new().unwrap();
+    write_square_graph_at(g_tmp.path(), (ox + 50_000.0) as f32, oy as f32);
+    let g = Graph::open(g_tmp.path()).unwrap();
+    let pf = Pathfinder::with_defaults(Some(dem.clone()), None, Some(Arc::new(g)));
+
+    // Uphill = south (decreasing y, where z grows). 600 m climb.
+    let from = utm33n_to_wgs84(ox, oy + 300.0);
+    let to = utm33n_to_wgs84(ox, oy - 300.0);
+    let uly = oy + 3000.0;
+    let z_at = |x: f64, y: f64| {
+        let _ = x;
+        (uly - y) * tan
+    };
+
+    let measure = |label: &str, force_off_trail: bool| {
+        let mut prefs = Prefs::default();
+        prefs.force_off_trail = force_off_trail;
+        let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
+        // back to UTM for geometry math
+        let pts: Vec<(f64, f64)> = path
+            .geometry
+            .iter()
+            .map(|p| {
+                let u = turbo_tiles_elev::wgs84_to_utm33n(p[0], p[1]);
+                (u.x, u.y)
+            })
+            .collect();
+        let straight = ((pts[0].0 - pts[pts.len() - 1].0).powi(2)
+            + (pts[0].1 - pts[pts.len() - 1].1).powi(2))
+        .sqrt();
+        // Per-segment grades over the BODY (drop the first & last
+        // segment: those are straight connectors to the exact click
+        // point and climb the fall line regardless of solver).
+        let mut grades: Vec<f64> = Vec::new();
+        let mut reversals = 0usize;
+        let mut last_sign = 0i32;
+        let n = pts.len();
+        for (k, w) in pts.windows(2).enumerate() {
+            let (a, b) = (w[0], w[1]);
+            let horiz = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
+            if horiz < 1e-6 {
+                continue;
+            }
+            if k > 0 && k < n - 2 {
+                let dz = z_at(b.0, b.1) - z_at(a.0, a.1);
+                grades.push((dz.abs() / horiz).atan().to_degrees());
+            }
+            let dx = b.0 - a.0;
+            let sign = if dx > 0.5 { 1 } else if dx < -0.5 { -1 } else { 0 };
+            if sign != 0 {
+                if last_sign != 0 && sign != last_sign {
+                    reversals += 1;
+                }
+                last_sign = sign;
+            }
+        }
+        grades.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let pct = |p: f64| grades[((grades.len() - 1) as f64 * p) as usize];
+        // Effective climbing grade of the whole route (total ascent
+        // over total path length): how steep it ACTUALLY is on average.
+        let ascent = (z_at(pts[n - 1].0, pts[n - 1].1) - z_at(pts[0].0, pts[0].1)).abs();
+        let eff = (ascent / path.length_m).asin().to_degrees();
+        eprintln!(
+            "[gap] {label:>16}: len={:.0}m tort={:.2} body_grade[p50={:.0}° p90={:.0}° \
+             max={:.0}°] effective={:.0}° lateral_reversals={} strategy={:?}",
+            path.length_m,
+            path.length_m / straight,
+            pct(0.50),
+            pct(0.90),
+            pct(1.0),
+            eff,
+            reversals,
+            path.strategy,
+        );
+    };
+
+    measure("unified (2-D)", false);
+    measure("elastica (x,y,θ)", true);
 }
 
 #[test]
