@@ -42,10 +42,13 @@ const STEEP_PENALTY_K: f32 = 10.0;
 
 /// Pace floor (s/m) for the admissible A* heuristic: the cheapest any
 /// metre can cost (a well-maintained trail — flat base pace 1/1.4 minus
-/// the ≈−30% marking+preferred discounts ⇒ ≈0.50). 0.45 is safely below
-/// (still admissible/optimal) yet tight enough to focus the search toward
-/// the goal instead of flooding the corridor, which keeps long routes fast.
-const HEURISTIC_MIN_PACE: f64 = 0.45;
+/// the ≈−30% marking+preferred discounts ⇒ ≈0.50). At/above the true min
+/// the search becomes a (mildly) weighted A*: it focuses hard toward the
+/// goal instead of flooding the wide corridor, trading a few % of
+/// optimality for a large speedup on long routes. 0.85 ≈ flat-trail pace,
+/// so trail routes stay essentially optimal while off-trail flooding is
+/// cut sharply.
+const HEURISTIC_MIN_PACE: f64 = 0.85;
 
 /// Cap on trail edges spliced into the unified graph — high enough that a
 /// realistic hiking route's trail region isn't stride-sampled (which would
@@ -335,7 +338,11 @@ pub(crate) fn solve_unified(
     // the corridor get a 0-cost transition to their cell; nodes outside it
     // are pure long-haul network.
     let d = ((to.x - from.x).powi(2) + (to.y - from.y).powi(2)).sqrt();
-    let trail_pad = (0.6 * d).clamp(3000.0, 25_000.0);
+    // Trail region: wide enough to route the long haul on roads around big
+    // obstacles, but a much tighter cap than before — a 15–25 km pad pulled
+    // in tens of thousands of trail edges and dominated long-route solve
+    // time. ~6 km is plenty to go around a lake/fjord neck.
+    let trail_pad = (0.25 * d).clamp(2000.0, 6000.0);
     let eids = graph.edge_ids_in_bbox(
         from.x.min(to.x) - trail_pad,
         from.y.min(to.y) - trail_pad,

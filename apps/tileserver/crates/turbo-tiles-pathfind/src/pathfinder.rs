@@ -1421,11 +1421,14 @@ impl Pathfinder {
             k * (effective_cfg.total_gain.amplifier - 1.0)
         };
         // Adaptive mesh cell: fine (10 m) for short routes where off-trail
-        // detail matters, coarser (up to 30 m) for long routes where the
-        // path is mostly on trails and off-trail is a minor connector — so
-        // the mesh cell count (and solve time) stays bounded as length grows.
+        // detail matters, much coarser for long routes where the path is
+        // mostly on trails and off-trail is a minor connector. The per-cell
+        // overlay evaluation (DEM + contributor stack) times the number of
+        // visited cells dominates long-route solve time, so the cell area
+        // must grow with distance to keep it bounded — a ~26 km leg at 30 m
+        // was ~130 s; at ~70 m it's a handful of seconds.
         let dist_m = ((to_xy.x - from_xy.x).powi(2) + (to_xy.y - from_xy.y).powi(2)).sqrt();
-        let cell_m = (dist_m / 250.0).clamp(10.0, 30.0);
+        let cell_m = (dist_m / 180.0).clamp(10.0, 70.0);
         let route = crate::unified::solve_unified(
             graph,
             dem,
