@@ -1,0 +1,131 @@
+openapi: 3.0.3
+info:
+  title: Turbo Routing API
+  version: "1.0.0"
+  description: >
+    Curated, app-facing routing API served by the tileserver and exposed to
+    clients (e.g. the Flutter app) through the gateway at `/api/route/*`.
+    Stable contract, decoupled from the internal solver surface
+    (`/v1/pathfind*`, `/v1/debug/*`), which is admin-only.
+servers:
+  - url: https://kart-api.sandring.no/api/route
+    description: Production (via gateway; strips the prefix to /v1/route on the tileserver)
+  - url: http://localhost:8090/v1/route
+    description: Local tileserver (direct)
+paths:
+  /plan:
+    post:
+      summary: Plan a route through an ordered list of waypoints.
+      operationId: planRoute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoutePlanRequest" }
+            examples:
+              twoStop:
+                value: { points: [[15.371, 67.398], [15.380, 67.404]] }
+              multiStopPreset:
+                value:
+                  points: [[15.371, 67.398], [15.380, 67.404], [15.390, 67.401]]
+                  preset: easy_grade
+      responses:
+        "200":
+          description: A solved route.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutePlanResponse" }
+        "400":
+          description: Bad request (e.g. fewer than 2 points, unknown preset).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: >
+            No route (endpoint on water/glacier, no terrain coverage, or a
+            specific leg failed). `details` carries the reason.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /presets:
+    get:
+      summary: List the available trip-style presets.
+      operationId: listPresets
+      responses:
+        "200":
+          description: Presets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Preset" }
+components:
+  schemas:
+    RoutePlanRequest:
+      type: object
+      required: [points]
+      properties:
+        points:
+          type: array
+          minItems: 2
+          description: Ordered waypoints [lon, lat] (start, vias, end). Visited in order.
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: number }
+        preset:
+          type: string
+          description: Trip-style preset name (see /presets). Defaults to "balanced".
+          enum: [balanced, avoid_roads, direct, easy_grade, trail_purist]
+        profile:
+          type: string
+          description: Travel profile. Only "foot" is calibrated today.
+          enum: [foot, bicycle, ski]
+          default: foot
+    RoutePlanResponse:
+      type: object
+      required: [distance_m, duration_s, ascent_m, on_trail_pct, surfaces, geometry, legs]
+      properties:
+        distance_m: { type: number, description: Total route length, metres. }
+        duration_s: { type: number, description: "Estimated time (Naismith: flat pace + ascent), seconds." }
+        ascent_m: { type: number, description: Total positive ascent, metres (0 if no DEM coverage). }
+        on_trail_pct: { type: number, description: Percent of the route on marked trails. }
+        surfaces:
+          type: object
+          description: Metres by surface; only present surfaces included.
+          additionalProperties: { type: number }
+          example: { trail: 1233, off_trail: 689, road: 112 }
+        geometry:
+          type: object
+          description: GeoJSON LineString in [lon, lat] order.
+          properties:
+            type: { type: string, enum: [LineString] }
+            coordinates:
+              type: array
+              items: { type: array, items: { type: number } }
+        legs:
+          type: array
+          items: { $ref: "#/components/schemas/RouteLeg" }
+    RouteLeg:
+      type: object
+      properties:
+        from_index: { type: integer, description: Index into request.points. }
+        to_index: { type: integer }
+        distance_m: { type: number }
+    Preset:
+      type: object
+      properties:
+        name: { type: string }
+        label: { type: string }
+        description: { type: string }
+    Error:
+      type: object
+      properties:
+        error: { type: string, description: Human-readable message. }
+        details:
+          type: object
+          description: >
+            Structured context when available, e.g.
+            `{kind: "segment_failed", leg_index: 1}` or
+            `{kind: "endpoint_refused", which: "to"}`.

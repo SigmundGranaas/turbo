@@ -42,7 +42,7 @@ pub struct PathfindReq {
 /// Resolve `preset` into `prefs.cost_config_override`: the preset patch
 /// is the base, and any explicit override the client also sent overlays
 /// on top (fine-tune wins). Unknown preset → 400 with the valid names.
-fn apply_preset(
+pub(crate) fn apply_preset(
     state: &ApiState,
     preset: &Option<String>,
     prefs: &mut Prefs,
@@ -592,7 +592,7 @@ pub async fn layers(
     }))
 }
 
-fn map_pathfind_err(state: &ApiState, e: PathfindError) -> ApiError {
+pub(crate) fn map_pathfind_err(state: &ApiState, e: PathfindError) -> ApiError {
     use PathfindError::*;
     match e {
         DegenerateInputs { .. } | BboxTooLarge { .. } => ApiError::BadRequest(e.to_string()),
