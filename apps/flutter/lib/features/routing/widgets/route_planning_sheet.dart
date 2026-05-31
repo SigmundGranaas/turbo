@@ -267,32 +267,137 @@ class _RouteStyleButton extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (sheetCtx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
+      builder: (sheetCtx) {
+        final theme = Theme.of(sheetCtx);
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
               padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.l, AppSpacing.xs, AppSpacing.l, AppSpacing.m),
-              child: Text('Route style',
-                  style: Theme.of(sheetCtx).textTheme.titleLarge),
-            ),
-            for (final p in presets)
-              ListTile(
-                title: Text(p.label),
-                subtitle: Text(p.description),
-                trailing: p.name == selected
-                    ? Icon(Icons.check,
-                        color: Theme.of(sheetCtx).colorScheme.primary)
-                    : null,
-                onTap: () {
-                  onSelected(p.name);
-                  Navigator.of(sheetCtx).pop();
-                },
+                  AppSpacing.l, 0, AppSpacing.l, AppSpacing.l),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.tune, color: theme.colorScheme.primary),
+                      const SizedBox(width: AppSpacing.s),
+                      Text('Route style', style: theme.textTheme.headlineSmall),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'How the route trades off trails, roads and climbing.',
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: AppSpacing.m),
+                  for (final p in presets)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.s),
+                      child: _PresetTile(
+                        preset: p,
+                        icon: _presetIcon(p.name),
+                        selected: p.name == selected,
+                        onTap: () {
+                          onSelected(p.name);
+                          Navigator.of(sheetCtx).pop();
+                        },
+                      ),
+                    ),
+                ],
               ),
-            const SizedBox(height: AppSpacing.s),
-          ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+IconData _presetIcon(String name) => switch (name) {
+      'balanced' => Icons.balance,
+      'avoid_roads' => Icons.forest_outlined,
+      'direct' => Icons.straighten,
+      'easy_grade' => Icons.trending_down,
+      'trail_purist' => Icons.hiking,
+      _ => Icons.route_outlined,
+    };
+
+/// A rich, selectable preset row: circular icon, bold label, description,
+/// with the selected option filled (tonal background + filled icon +
+/// check) so the choice reads at a glance.
+class _PresetTile extends StatelessWidget {
+  final RoutePreset preset;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PresetTile({
+    required this.preset,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Material(
+      color: selected ? scheme.secondaryContainer : scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(AppRadius.l),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.m),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: selected ? scheme.primary : scheme.surface,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon,
+                    size: 22,
+                    color: selected ? scheme.onPrimary : scheme.onSurfaceVariant),
+              ),
+              const SizedBox(width: AppSpacing.m),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      preset.label,
+                      style: text.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: selected
+                            ? scheme.onSecondaryContainer
+                            : scheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      preset.description,
+                      style: text.bodySmall?.copyWith(
+                        color: selected
+                            ? scheme.onSecondaryContainer.withValues(alpha: 0.85)
+                            : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: AppSpacing.s),
+                Icon(Icons.check_circle, color: scheme.primary),
+              ],
+            ],
+          ),
         ),
       ),
     );
