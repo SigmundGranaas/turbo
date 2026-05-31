@@ -3,6 +3,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/app_pill.dart';
+import 'package:turbo/core/widgets/map/controls/bottom_controls.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
 import 'package:turbo/core/widgets/map/controls/go_back_button.dart';
 import 'package:turbo/core/widgets/map/controls/map_controls.dart';
@@ -16,21 +19,20 @@ import 'route_waypoint_markers.dart';
 
 /// Full-screen interactive route planner: tap the map to drop stops, drag
 /// a stop to adjust it, long-press to remove. The route re-solves live
-/// against the tileserver (with a streaming preview). Summary + controls
-/// live in a center-bottom Material 3 sheet over the map.
+/// against the tileserver (with a streaming preview).
 class RoutePlanningPage extends ConsumerStatefulWidget {
   final LatLng initialCenter;
   final double initialZoom;
 
-  /// Optional first stop to seed (e.g. the long-pressed point that opened
-  /// the planner).
-  final LatLng? initialWaypoint;
+  /// Stops to seed (e.g. the long-pressed point, or [you, destination] for
+  /// "route to here"). Solved immediately if ≥2.
+  final List<LatLng> initialWaypoints;
 
   const RoutePlanningPage({
     super.key,
     required this.initialCenter,
     required this.initialZoom,
-    this.initialWaypoint,
+    this.initialWaypoints = const [],
   });
 
   @override
@@ -42,7 +44,7 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
   late final MapController _mapController = MapController();
 
   // Keyed onto the map subtree so globalToLocal during a drag resolves
-  // against the map, not the Scaffold (which the app bar would offset).
+  // against the map, not the Scaffold.
   final GlobalKey _mapKey = GlobalKey();
 
   /// Index of the stop being dragged, or null. While set, the map's own
@@ -52,10 +54,13 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
   @override
   void initState() {
     super.initState();
-    final seed = widget.initialWaypoint;
-    if (seed != null) {
+    if (widget.initialWaypoints.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) ref.read(routePlanningProvider.notifier).addWaypoint(seed);
+        if (!mounted) return;
+        final notifier = ref.read(routePlanningProvider.notifier);
+        for (final wp in widget.initialWaypoints) {
+          notifier.addWaypoint(wp);
+        }
       });
     }
   }
@@ -74,10 +79,8 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
     final registry = ref.watch(tileRegistryProvider);
     final state = ref.watch(routePlanningProvider);
     final notifier = ref.read(routePlanningProvider.notifier);
-    final scheme = Theme.of(context).colorScheme;
 
-    final width = MediaQuery.of(context).size.width;
-    final isMobile = width < 600;
+    final isMobile = MediaQuery.of(context).size.width < 600;
     final controls = isMobile
         ? defaultMobileMapControls(_mapController, this)
         : defaultMapControls(_mapController, this);
@@ -92,8 +95,6 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
           initialZoom: widget.initialZoom,
           mapController: _mapController,
           onTap: (_, point) => notifier.addWaypoint(point),
-          // Freeze the camera while dragging a stop so the gesture only
-          // moves the dot.
           interactionOptions: InteractionOptions(
             flags: _draggingIdx != null
                 ? InteractiveFlag.none
@@ -112,22 +113,20 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
                 ],
               ),
             ),
-            // Live best-path-so-far preview, drawn under the final route so
-            // the solid line wins once the result lands.
+            // Live best-path-so-far preview, drawn under the final route.
             if (state.previewGeometry.length >= 2)
               PolylineLayer(
                 polylines: [
                   Polyline(
                     points: state.previewGeometry,
-                    strokeWidth: 4,
-                    color: scheme.onSurface.withValues(alpha: 0.5),
+                    strokeWidth: 4.5,
+                    color: const Color(0xFF15233A).withValues(alpha: 0.85),
                     strokeCap: StrokeCap.round,
                     strokeJoin: StrokeJoin.round,
                   ),
                 ],
               ),
-            // Hide the (stale) final line while a fresh preview animates,
-            // so the handoff is preview → solid, never doubled.
+            // Hide the stale final line while a fresh preview animates.
             RoutePolylineLayer(
               plan: state.previewGeometry.length >= 2 ? null : state.plan,
             ),
@@ -136,18 +135,22 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
                 for (var i = 0; i < wps.length; i++)
                   Marker(
                     point: wps[i],
-                    width: 38,
-                    height: 38,
+                    width: 40,
+                    height: 40,
                     alignment: Alignment.center,
                     child: RouteWaypointDot(
                       index: i,
                       isStart: i == 0,
                       isEnd: i == wps.length - 1 && wps.length > 1,
                       isDragging: _draggingIdx == i,
-                      onPanStart: () => setState(() => _draggingIdx = i),
-                      onPanUpdate: (d) => _onWaypointDrag(i, d),
-                      onPanEnd: () => setState(() => _draggingIdx = null),
-                      onLongPress: () => notifier.removeAt(i),
+                      onDragStart: () => setState(() => _draggingIdx = i),
+                      onDragUpdate: (d) => _onWaypointDrag(i, d),
+                      onDragEnd: () {
+                        if (_draggingIdx != null) {
+                          setState(() => _draggingIdx = null);
+                        }
+                      },
+                      onRemove: () => notifier.removeAt(i),
                     ),
                   ),
               ],
@@ -160,23 +163,9 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
               top: 16,
               left: 0,
               right: 0,
-              child: Center(child: _HintChip(waypointCount: wps.length)),
+              child: Center(child: _HintPill(waypointCount: wps.length)),
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: SafeArea(
-                top: false,
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: const RoutePlanningSheet(),
-                  ),
-                ),
-              ),
-            ),
+            BottomControls(controls: const RoutePlanningSheet()),
           ],
         ),
       ),
@@ -184,39 +173,23 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
   }
 }
 
-/// Small floating hint that teaches the gesture model without stealing
-/// space from the bottom sheet.
-class _HintChip extends StatelessWidget {
+/// Floating hint that teaches the gesture model, using the app's AppPill
+/// chrome so it matches the navigation / mode indicators.
+class _HintPill extends StatelessWidget {
   final int waypointCount;
-  const _HintChip({required this.waypointCount});
+  const _HintPill({required this.waypointCount});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final text = switch (waypointCount) {
       0 => 'Tap the map to set your start',
       1 => 'Tap to add your destination',
       _ => 'Drag a stop to adjust · long-press to remove',
     };
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 64),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: theme.textTheme.labelMedium,
-      ),
+    return AppPill(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.l, vertical: AppSpacing.s),
+      child: Text(text, style: Theme.of(context).textTheme.labelMedium),
     );
   }
 }

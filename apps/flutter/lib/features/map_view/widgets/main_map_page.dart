@@ -407,10 +407,8 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
           ),
           onCreateActivity: () => _showActivityCreatePicker(context, point),
           onMeasure: () => _navigateToMeasuring(point),
-          onPlanRoute: () => _navigateToRoutePlanning(point),
-          onNavigate: () => ref
-              .read(navigationStateProvider.notifier)
-              .startNavigation(point),
+          onPlanRoute: () => _navigateToRoutePlanning([point]),
+          onNavigate: () => _routeFromMyLocation(point),
           onStopNavigation: () =>
               ref.read(navigationStateProvider.notifier).stopNavigation(),
         );
@@ -436,16 +434,28 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     );
   }
 
-  void _navigateToRoutePlanning(LatLng startPoint) {
+  void _navigateToRoutePlanning(List<LatLng> seeds) {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (context) => RoutePlanningPage(
           initialCenter: _mapController.camera.center,
           initialZoom: _mapController.camera.zoom,
-          initialWaypoint: startPoint,
+          initialWaypoints: seeds,
         ),
       ),
     );
+  }
+
+  /// "Navigate to here" → plot an actual route from the user's current
+  /// location to the tapped point (not a straight line). Falls back to
+  /// seeding just the destination if location isn't available yet.
+  void _routeFromMyLocation(LatLng destination) {
+    final me = ref.read(locationStateProvider).value;
+    if (me == null) {
+      AppSnackbars.info(
+          context, 'Location unavailable — tap the map to set your start');
+    }
+    _navigateToRoutePlanning(me != null ? [me, destination] : [destination]);
   }
 
   void _navigateToMeasuring(LatLng startPoint) async {

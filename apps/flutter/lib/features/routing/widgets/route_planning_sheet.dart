@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/app_button.dart';
+import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 
@@ -8,8 +11,10 @@ import '../data/route_planning_state.dart';
 import '../models/route_models.dart';
 import '../providers/routing_providers.dart';
 
-/// The center-bottom planning surface: the live solve summary up top, a
-/// native route-style row, and the actions (undo / clear / save as track).
+/// Center-bottom planning panel. Built from the app's own map-control
+/// components (AppCardSurface + AppButton + AppSpacing) so it matches the
+/// measuring / download toolbars: an info+Save header row, a divider, then
+/// the route-style selector and edit actions.
 class RoutePlanningSheet extends ConsumerWidget {
   const RoutePlanningSheet({super.key});
 
@@ -19,43 +24,52 @@ class RoutePlanningSheet extends ConsumerWidget {
     final notifier = ref.read(routePlanningProvider.notifier);
     final presets = ref.watch(routePresetsProvider).value ?? const [];
 
-    return Card(
-      elevation: 4,
-      margin: EdgeInsets.zero,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      clipBehavior: Clip.antiAlias,
+    return AppCardSurface(
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
+      maxWidth: 700,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            height: 3,
-            child: state.isPlanning
-                ? const LinearProgressIndicator(minHeight: 3)
-                : null,
-          ),
+          // Row 1: live summary + Save.
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.l, AppSpacing.m, AppSpacing.l, AppSpacing.m),
+            child: Row(
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _Body(state: state),
+                Expanded(child: _Info(state: state)),
+                const SizedBox(width: AppSpacing.m),
+                AppButton.tonal(
+                  text: 'Save',
+                  onPressed: state.plan != null
+                      ? () => _saveAsTrack(context, state)
+                      : null,
                 ),
-                const SizedBox(height: 8),
-                _RouteStyleRow(
+              ],
+            ),
+          ),
+          const Divider(
+              height: 1, indent: AppSpacing.l, endIndent: AppSpacing.l),
+          // Row 2: route-style selector (left) + edit actions (right).
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s, vertical: AppSpacing.xs),
+            child: Row(
+              children: [
+                _RouteStyleButton(
                   presets: presets,
                   selected: state.presetName,
                   onSelected: notifier.setPreset,
                 ),
-                _ActionRow(
-                  state: state,
-                  onUndo: notifier.undoLast,
-                  onClear: notifier.clear,
-                  onSave: () => _saveAsTrack(context, state),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Undo last stop',
+                  onPressed: state.isEmpty ? null : notifier.undoLast,
+                  icon: const Icon(Icons.undo),
+                ),
+                IconButton(
+                  tooltip: 'Clear route',
+                  onPressed: state.isEmpty ? null : notifier.clear,
+                  icon: const Icon(Icons.delete_sweep_outlined),
                 ),
               ],
             ),
@@ -84,161 +98,80 @@ class RoutePlanningSheet extends ConsumerWidget {
   }
 }
 
-/// Native tappable row (settings-idiom): leading icon, label, current
-/// value + chevron. Opens a bottom-sheet picker — the app's standard
-/// choose-one pattern.
-class _RouteStyleRow extends StatelessWidget {
-  final List<RoutePreset> presets;
-  final String selected;
-  final ValueChanged<String> onSelected;
-
-  const _RouteStyleRow({
-    required this.presets,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    RoutePreset? current;
-    for (final p in presets) {
-      if (p.name == selected) {
-        current = p;
-        break;
-      }
-    }
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: presets.isEmpty ? null : () => _openPicker(context),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        child: Row(
-          children: [
-            Icon(Icons.tune, size: 20, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: 12),
-            Text('Route style', style: theme.textTheme.bodyLarge),
-            const Spacer(),
-            Text(
-              current?.label ?? 'Balanced',
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Icon(Icons.arrow_drop_down, color: theme.colorScheme.onSurfaceVariant),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openPicker(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-              child: Text('Route style',
-                  style: Theme.of(sheetCtx).textTheme.titleLarge),
-            ),
-            for (final p in presets)
-              ListTile(
-                title: Text(p.label),
-                subtitle: Text(p.description),
-                trailing: p.name == selected
-                    ? Icon(Icons.check, color: Theme.of(sheetCtx).colorScheme.primary)
-                    : null,
-                onTap: () {
-                  onSelected(p.name);
-                  Navigator.of(sheetCtx).pop();
-                },
-              ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Body extends StatelessWidget {
+/// The header content: a hint, the "planning…" state, an error, or the
+/// solved summary (distance · time · ascent + surface mix).
+class _Info extends StatelessWidget {
   final RoutePlanningState state;
-  const _Body({required this.state});
+  const _Info({required this.state});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     final error = state.error;
     if (error != null) {
       return Row(
         children: [
-          Icon(Icons.error_outline, color: theme.colorScheme.error, size: 22),
-          const SizedBox(width: 10),
+          Icon(Icons.error_outline, color: scheme.error, size: 20),
+          const SizedBox(width: AppSpacing.s),
           Expanded(
-            child: Text(error, style: TextStyle(color: theme.colorScheme.error)),
+            child: Text(error,
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: scheme.error)),
           ),
         ],
       );
     }
 
     if (state.isEmpty || !state.canPlan) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          state.isEmpty ? 'Tap the map to add stops' : 'Add one more stop to plan a route',
-          style: theme.textTheme.bodyLarge
-              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        ),
+      return _LeadingLine(
+        icon: Icons.touch_app_outlined,
+        text: state.isEmpty
+            ? 'Tap the map to add stops'
+            : 'Add one more stop',
       );
     }
 
     final plan = state.plan;
     if (plan == null) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Text('Planning…',
-            style: theme.textTheme.bodyLarge
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+      return Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: scheme.primary),
+          ),
+          const SizedBox(width: AppSpacing.m),
+          Text('Planning…',
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant)),
+        ],
       );
     }
 
-    return _Summary(plan: plan);
-  }
-}
-
-class _Summary extends StatelessWidget {
-  final RoutePlan plan;
-  const _Summary({required this.plan});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _Stat(icon: Icons.straighten, value: _distance(plan.distanceM), label: 'distance'),
-            _Stat(icon: Icons.schedule, value: _duration(plan.duration), label: 'time'),
-            _Stat(icon: Icons.terrain, value: '${plan.ascentM.round()} m', label: 'ascent'),
-          ],
-        ),
-        if (plan.surfaces.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(
-            _surfaceLine(plan),
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        Icon(Icons.route_outlined, color: scheme.onSurfaceVariant),
+        const SizedBox(width: AppSpacing.m),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${_distance(plan.distanceM)}  ·  ${_duration(plan.duration)}  ·  ↑${plan.ascentM.round()} m',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              if (plan.surfaces.isNotEmpty)
+                Text(_surfaceLine(plan),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant)),
+            ],
           ),
-        ],
+        ),
       ],
     );
   }
@@ -272,73 +205,96 @@ class _Summary extends StatelessWidget {
   }
 }
 
-class _Stat extends StatelessWidget {
+class _LeadingLine extends StatelessWidget {
   final IconData icon;
-  final String value;
-  final String label;
-  const _Stat({required this.icon, required this.value, required this.label});
+  final String text;
+  const _LeadingLine({required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 20, color: theme.colorScheme.primary),
-            const SizedBox(width: 6),
-            Text(value,
-                style: theme.textTheme.titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w600)),
-          ],
+        Icon(icon, color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: AppSpacing.m),
+        Expanded(
+          child: Text(text,
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         ),
-        const SizedBox(height: 2),
-        Text(label,
-            style: theme.textTheme.labelSmall
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
       ],
     );
   }
 }
 
-class _ActionRow extends StatelessWidget {
-  final RoutePlanningState state;
-  final VoidCallback onUndo;
-  final VoidCallback onClear;
-  final VoidCallback onSave;
+/// Route-style selector — a tonal text button showing the current style
+/// with a dropdown affordance; opens the standard bottom-sheet picker.
+class _RouteStyleButton extends StatelessWidget {
+  final List<RoutePreset> presets;
+  final String selected;
+  final ValueChanged<String> onSelected;
 
-  const _ActionRow({
-    required this.state,
-    required this.onUndo,
-    required this.onClear,
-    required this.onSave,
+  const _RouteStyleButton({
+    required this.presets,
+    required this.selected,
+    required this.onSelected,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasStops = !state.isEmpty;
-    final canSave = state.plan != null;
-    return Row(
-      children: [
-        IconButton(
-          tooltip: 'Undo last stop',
-          onPressed: hasStops ? onUndo : null,
-          icon: const Icon(Icons.undo),
+    final theme = Theme.of(context);
+    RoutePreset? current;
+    for (final p in presets) {
+      if (p.name == selected) {
+        current = p;
+        break;
+      }
+    }
+    return TextButton.icon(
+      onPressed: presets.isEmpty ? null : () => _openPicker(context),
+      icon: const Icon(Icons.tune, size: 20),
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(current?.label ?? 'Balanced'),
+          Icon(Icons.arrow_drop_down, color: theme.colorScheme.onSurfaceVariant),
+        ],
+      ),
+    );
+  }
+
+  void _openPicker(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.l, AppSpacing.xs, AppSpacing.l, AppSpacing.m),
+              child: Text('Route style',
+                  style: Theme.of(sheetCtx).textTheme.titleLarge),
+            ),
+            for (final p in presets)
+              ListTile(
+                title: Text(p.label),
+                subtitle: Text(p.description),
+                trailing: p.name == selected
+                    ? Icon(Icons.check,
+                        color: Theme.of(sheetCtx).colorScheme.primary)
+                    : null,
+                onTap: () {
+                  onSelected(p.name);
+                  Navigator.of(sheetCtx).pop();
+                },
+              ),
+            const SizedBox(height: AppSpacing.s),
+          ],
         ),
-        IconButton(
-          tooltip: 'Clear route',
-          onPressed: hasStops ? onClear : null,
-          icon: const Icon(Icons.delete_outline),
-        ),
-        const Spacer(),
-        FilledButton.icon(
-          onPressed: canSave ? onSave : null,
-          icon: const Icon(Icons.bookmark_add_outlined, size: 20),
-          label: const Text('Save as track'),
-        ),
-      ],
+      ),
     );
   }
 }

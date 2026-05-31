@@ -28,11 +28,13 @@ class RoutePolylineLayer extends StatelessWidget {
     final p = plan;
     if (p == null || p.geometry.length < 2) return const SizedBox.shrink();
 
-    // Default to the theme's darkest ink (onSurface ≈ near-black), not
-    // `primary` (a terracotta that reads as "skin" on the map). The light
-    // casing underneath makes the dark line pop over busy terrain.
-    final main = color ?? Theme.of(context).colorScheme.onSurface;
-    final casing = Theme.of(context).colorScheme.surface.withValues(alpha: 0.9);
+    // Explicit, theme-INDEPENDENT colors: the basemap is always the light
+    // Kartverket topo, so the route must read dark whether the app is in
+    // light or dark mode (theme `onSurface` flips to near-white in dark
+    // mode, which is why it looked "skin"-light before). Dark slate line
+    // over a white halo.
+    final main = color ?? const Color(0xFF15233A);
+    final casing = Colors.white.withValues(alpha: 0.92);
 
     return PolylineLayer(
       polylines: [
