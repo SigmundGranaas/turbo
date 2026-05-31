@@ -1,0 +1,14 @@
+import { chromium } from "@playwright/test";
+const b=await chromium.launch();
+const page=await b.newPage({viewport:{width:1440,height:900}});
+page.on("pageerror",e=>console.log("PAGEERR",e.message));
+await page.goto("http://localhost:5173/admin/dev-login",{waitUntil:"networkidle"});
+await page.goto("http://localhost:5173/admin/app/plot",{waitUntil:"networkidle"});
+await page.waitForFunction(()=>window.__pf&&window.__pf.map&&window.__pf.map.loaded(),null,{timeout:30000});
+await page.evaluate(()=>window.__pf.map.jumpTo({center:[15.381,67.401],zoom:13.2}));
+await page.waitForTimeout(1200);
+await page.evaluate(()=>window.__pf.setPoints([[15.37099,67.39811],[15.38030,67.40415],[15.39000,67.40100]]));
+await page.waitForTimeout(7000);
+await page.screenshot({ path: "/tmp/ux-overhaul.png" });
+console.log("shot saved");
+await b.close();

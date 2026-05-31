@@ -205,7 +205,8 @@ export function PlotRoute() {
   // resulting Path.recording animates on the map: explored set,
   // frontier, line-of-sight rays, emerging best path.
   const [recordOn, setRecordOn] = useState(false);
-  const [liveMode, setLiveMode] = useState(false);
+  // Live progress (best-path-so-far streaming) is the default experience.
+  const [liveMode, setLiveMode] = useState(true);
   const [replayIdx, setReplayIdx] = useState(0);
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(1.0);
@@ -1607,10 +1608,13 @@ export function PlotRoute() {
   const dragRowRef = useRef<number | null>(null);
 
   return (
-    <div className="flex h-screen">
-      <div ref={containerRef} className="flex-1" />
-      <aside className="w-96 bg-white border-l border-ink-200 overflow-auto">
-        <div className="p-5 space-y-5">
+    <div className="relative h-screen w-screen overflow-hidden bg-ink-100">
+      {/* Full-bleed map; everything else floats over it. */}
+      <div ref={containerRef} className="absolute inset-0" />
+
+      {/* LEFT — primary planning surface (MD3 floating card): trip style,
+          stops, and the result, like a modern maps app. */}
+      <div className="absolute top-4 left-4 z-10 flex max-h-[calc(100vh-2rem)] w-[380px] flex-col gap-4 overflow-y-auto rounded-[28px] border border-black/5 bg-white/90 p-5 shadow-2xl backdrop-blur-md">
           <header>
             <h1 className="text-xl font-semibold">Plan a route</h1>
             <p className="text-sm text-ink-600 mt-1">
@@ -1719,17 +1723,26 @@ export function PlotRoute() {
           {presets.length > 0 ? (
             <section className="space-y-2">
               <div className="text-xs uppercase tracking-wide text-ink-500">Trip style</div>
-              <select
-                value={preset}
-                onChange={(e) => setPreset(e.target.value)}
-                className="w-full text-sm px-3 py-2 rounded-lg border border-ink-200 bg-white"
-              >
-                {presets.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap gap-2">
+                {presets.map((p) => {
+                  const on = p.name === preset;
+                  return (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => setPreset(p.name)}
+                      aria-pressed={on}
+                      className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                        on
+                          ? "bg-[#0072B2] text-white shadow-sm"
+                          : "bg-ink-100 text-ink-700 hover:bg-ink-200"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
               <p className="text-xs text-ink-500 min-h-[2.5em]">
                 {presets.find((p) => p.name === preset)?.description ?? ""}
               </p>
@@ -1761,6 +1774,11 @@ export function PlotRoute() {
             </div>
           </section>
 
+        </div>{/* /LEFT card */}
+
+        {/* RIGHT — debug / calibration pane (MD3 floating surface).
+            Map overlays, basemap, and the Advanced drawer live here. */}
+        <div className="absolute top-4 right-4 z-10 flex max-h-[calc(100vh-2rem)] w-[340px] flex-col gap-4 overflow-y-auto rounded-[28px] border border-black/5 bg-white/90 p-5 shadow-2xl backdrop-blur-md">
           <section className="space-y-2">
             <div className="text-xs uppercase tracking-wide text-ink-500">
               Show on map
@@ -2371,8 +2389,7 @@ export function PlotRoute() {
           ) : null}
           </div>
           ) : null}
-        </div>
-      </aside>
+        </div>{/* /RIGHT card */}
     </div>
   );
 }
