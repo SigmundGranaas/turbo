@@ -41,11 +41,9 @@ const FALLBACK_ZOOM = 13;
 
 // Okabe–Ito colour-blind-safe palette. Blue vs vermillion is the
 // canonical CVD-safe pair (distinct in hue AND lightness for protan/
-// deutan/tritan); the live preview is black + dashed so it's
-// distinguishable by line STYLE too, not colour alone.
-const CVD_BLUE = "#0072B2"; // on-trail / graph leg + start marker
+// deutan/tritan).
+const CVD_BLUE = "#0072B2"; // on-trail / graph leg + start marker + live preview
 const CVD_VERMILLION = "#D55E00"; // off-trail leg + end marker
-const CVD_BLACK = "#000000"; // transient live-search preview
 const LEG_COLOR = {
   off_trail_prefix: CVD_VERMILLION,
   graph: CVD_BLUE,
@@ -220,10 +218,77 @@ export function PlotRoute() {
   >([]);
   const [liveDone, setLiveDone] = useState<boolean>(false);
   const liveAbortRef = useRef<AbortController | null>(null);
-  // Live "trail being built": the most recent best-path-so-far snapshot the
-  // solver streamed while computing. Rendered as a provisional line that
-  // grows toward the goal, then replaced by the final route on `done`.
-  const [liveBestPath, setLiveBestPath] = useState<[number, number][] | null>(null);
+  // Live "trail being built". Driven by a requestAnimationFrame loop (not
+  // React state) so the preview extends FLUIDLY: each best-path snapshot
+  // sets `liveTargetRef`, and the loop eases the drawn length toward it,
+  // rendering a solid round-capped line with a gentle pulsing glow.
+  const liveTargetRef = useRef<[number, number][] | null>(null);
+  const liveDrawnRef = useRef(0); // eased vertex count currently drawn
+  const liveRafRef = useRef<number | null>(null);
+  const livePhaseRef = useRef(0); // glow-pulse phase
+
+  // Tear down the live preview (cancel the loop + remove its layers).
+  const stopLivePreview = () => {
+    if (liveRafRef.current != null) cancelAnimationFrame(liveRafRef.current);
+    liveRafRef.current = null;
+    liveTargetRef.current = null;
+    liveDrawnRef.current = 0;
+    const map = mapRef.current;
+    if (map) {
+      for (const id of ["live-best", "live-best-glow"]) {
+        if (map.getLayer(id)) map.removeLayer(id);
+      }
+      if (map.getSource("live-best")) map.removeSource("live-best");
+    }
+  };
+  // Start the rAF loop that eases the drawn length toward the latest
+  // snapshot and breathes the glow, so the route extends fluidly.
+  const startLivePreview = () => {
+    if (liveRafRef.current != null) return; // already running
+    liveDrawnRef.current = 0;
+    const tick = () => {
+      const map = mapRef.current;
+      const target = liveTargetRef.current;
+      if (!map || !target || target.length < 2) {
+        liveRafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      if (!map.getSource("live-best")) {
+        const empty = { type: "Feature" as const, geometry: { type: "LineString" as const, coordinates: [] as [number, number][] }, properties: {} };
+        map.addSource("live-best", { type: "geojson", data: empty });
+        map.addLayer({
+          id: "live-best-glow", type: "line", source: "live-best",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": CVD_BLUE, "line-width": 13, "line-opacity": 0.18, "line-blur": 4 },
+        });
+        map.addLayer({
+          id: "live-best", type: "line", source: "live-best",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": CVD_BLUE, "line-width": 4, "line-opacity": 0.95 },
+        });
+      }
+      // Exponential ease of the visible vertex count toward the target.
+      const tgt = target.length;
+      let d = liveDrawnRef.current < 2 ? 2 : liveDrawnRef.current;
+      d += (tgt - d) * 0.22;
+      if (tgt - d < 0.6) d = tgt;
+      liveDrawnRef.current = d;
+      const coords = target.slice(0, Math.max(2, Math.round(d)));
+      const src = map.getSource("live-best") as maplibregl.GeoJSONSource | undefined;
+      src?.setData({ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} });
+      // Gentle breathing glow so it feels alive between snapshots.
+      livePhaseRef.current += 0.09;
+      if (map.getLayer("live-best-glow")) {
+        map.setPaintProperty(
+          "live-best-glow",
+          "line-opacity",
+          0.14 + 0.1 * (0.5 + 0.5 * Math.sin(livePhaseRef.current)),
+        );
+      }
+      liveRafRef.current = requestAnimationFrame(tick);
+    };
+    liveRafRef.current = requestAnimationFrame(tick);
+  };
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [demCoverage, setDemCoverage] = useState<DemCoverage | null>(null);
@@ -1008,6 +1073,7 @@ export function PlotRoute() {
   useEffect(() => {
     if (points.length < 2) {
       setPath(null);
+      stopLivePreview();
       return;
     }
     let cancelled = false;
@@ -1074,7 +1140,7 @@ export function PlotRoute() {
     if (liveAbortRef.current) liveAbortRef.current.abort();
     const ac = new AbortController();
     liveAbortRef.current = ac;
-    setLiveBestPath(null);
+    stopLivePreview();
     setPath(null);
     const overrideForReq = nonNullPatch(costPatch);
     void streamPathfind(points, preset, {
@@ -1090,12 +1156,15 @@ export function PlotRoute() {
       ...(overrideForReq ? { cost_config_override: overrideForReq } : {}),
     }, ac.signal, {
       onSolver: (ev) => {
-        if (ev.kind === "best_path_snapshot") setLiveBestPath(ev.coords);
+        if (ev.kind === "best_path_snapshot") {
+          liveTargetRef.current = ev.coords;
+          startLivePreview();
+        }
       },
       onDone: (resp) => {
         if (cancelled) return;
         setPath({ path: resp, took_us: 0, layers: [] });
-        setLiveBestPath(null);
+        stopLivePreview();
         setBusy(false);
       },
       onError: (msg) => {
@@ -1108,13 +1177,14 @@ export function PlotRoute() {
           setRefusal({ which, layer: "mask_refusal" });
         }
         setErr(msg);
-        setLiveBestPath(null);
+        stopLivePreview();
         setBusy(false);
       },
     });
     return () => {
       ac.abort();
       cancelled = true;
+      stopLivePreview();
     };
   }, [points, preset, profile, snapRadius, bridgeRadius, meshCell, meshPad, refusalSnap, layerWeights, forceOffTrail, recordOn, liveMode, costPatch]);
 
@@ -1355,56 +1425,9 @@ export function PlotRoute() {
     };
   }, [path]);
 
-  // Live "trail being built" — draw the most recent best-path-so-far
-  // snapshot the solver streamed while computing, as a provisional dashed
-  // line that grows toward the goal. Cleared when the final route arrives.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const apply = () => {
-      const show = !path && liveBestPath && liveBestPath.length >= 2;
-      const data = {
-        type: "Feature" as const,
-        geometry: { type: "LineString" as const, coordinates: liveBestPath ?? [] },
-        properties: {},
-      };
-      const src = map.getSource("live-best") as maplibregl.GeoJSONSource | undefined;
-      if (!show) {
-        // Final route has arrived (or no preview to show): fully tear the
-        // preview layer + source down, not just empty its data. Emptying
-        // left the magenta "building" line lingering next to the final
-        // route in some cases ("looks like two solvers"); removing the
-        // layer guarantees only the final route remains.
-        if (map.getLayer("live-best")) map.removeLayer("live-best");
-        if (map.getSource("live-best")) map.removeSource("live-best");
-        return;
-      }
-      if (src) {
-        // Update geometry IN PLACE so only the newly-extended part changes
-        // — re-adding the layer each snapshot caused the whole line to blink.
-        src.setData(data);
-      } else {
-        map.addSource("live-best", { type: "geojson", data });
-        map.addLayer({
-          id: "live-best",
-          type: "line",
-          source: "live-best",
-          paint: {
-            // Live-search preview: black + DASHED so it reads as
-            // "building" and is distinguishable from the solid blue/
-            // vermillion final route by line STYLE, not just colour
-            // (colour-blind-safe).
-            "line-color": CVD_BLACK,
-            "line-width": 4,
-            "line-opacity": 0.9,
-            "line-dasharray": [2, 1.5],
-          },
-        });
-      }
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once("load", apply);
-  }, [liveBestPath, path]);
+  // (Live preview is now driven imperatively by the rAF loop in
+  // startLivePreview/stopLivePreview, wired into the stream callbacks —
+  // no React-state render per snapshot, so it extends fluidly.)
 
   // ============================================================
   // Algorithm-replay animation.
