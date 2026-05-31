@@ -47,8 +47,8 @@ pub use native_contributors::{
     LandcoverContributor, LineCrossingContributor, MarkingBonusContributor,
     MaskRefusalContributor, NaismithGainContributor, PointProximityContributor,
     PolygonIntegralContributor, PolygonRefusalContributor, PreferredEdgeContributor,
-    ToblerSlopeContributor, TotalGainContributor, TrailProximityContributor,
-    DISPLACED_LEGACY_LAYERS,
+    SurfacePaceContributor, ToblerSlopeContributor, TotalGainContributor,
+    TrailProximityContributor, DISPLACED_LEGACY_LAYERS,
 };
 pub use vector_layers::{
     collection_polyline_length_in, LineCrossingLayer, PointProximityLayer,

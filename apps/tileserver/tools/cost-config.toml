@@ -162,6 +162,37 @@ vei = 1.6
 skiloype = 1.2
 traktorvei = 1.4
 
+# ============================================================
+# Surface pace (RUNTIME — applied live in the unified solve).
+# ============================================================
+# Multiplicative pace factor per surface, keyed by fkb_type category
+# (traktorvei/skogsvei fold into `vei` in the graph artifact). Unlike
+# `surface_multiplier` above (baked into the graph and IGNORED by the
+# unified solver), this is read live and is per-request overridable, so
+# trip presets can tune road avoidance. With foot `vei = 2.0` vs
+# `off_trail_base = 2.3`, a car road must be < ~1.13× the direct-line
+# distance to win — which stops the router taking big road detours while
+# keeping roads usable when they genuinely are the sensible line.
+# `sti = 1.0` keeps marked trails the best surface; `unknown` is neutral
+# (1.0) so unclassified trail edges aren't penalised.
+[surface_pace.foot]
+sti = 1.0
+vei = 2.0
+skiloype = 1.2
+unknown = 1.0
+
+[surface_pace.bicycle]
+sti = 1.5
+vei = 1.0
+skiloype = 2.0
+unknown = 1.2
+
+[surface_pace.ski]
+sti = 1.2
+vei = 1.4
+skiloype = 1.0
+unknown = 1.2
+
 [surface_multiplier.bicycle]
 sti = 1.5
 vei = 1.0

@@ -29,6 +29,8 @@ pub struct CostConfig {
     pub slope_graph: SlopeConfig,
     pub total_gain: TotalGainConfig,
     pub surface_multiplier: SurfaceMultipliers,
+    #[serde(default)]
+    pub surface_pace: SurfacePaceConfig,
     /// Water traversal model. `#[serde(default)]` so configs predating
     /// the continuous-water change still parse.
     #[serde(default)]
@@ -154,11 +156,60 @@ pub struct ProfileSurface {
     pub by_kind: BTreeMap<String, f32>,
 }
 
+/// Runtime per-surface pace multipliers, applied live in the unified
+/// solve (unlike the baked, solver-ignored `surface_multiplier` above).
+/// A road-class (`vei`) value near `off_trail_base` makes roads only
+/// slightly cheaper than open ground, killing big road detours.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SurfacePaceConfig {
+    #[serde(default)]
+    pub foot: SurfacePaceProfile,
+    #[serde(default)]
+    pub bicycle: SurfacePaceProfile,
+    #[serde(default)]
+    pub ski: SurfacePaceProfile,
+}
+
+/// Per-surface pace multiplier for one profile (1.0 = no effect).
+/// Keyed by `fkb_type` category, not raw string, because
+/// `traktorvei`/`skogsvei` fold into `vei` in the graph artifact.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurfacePaceProfile {
+    #[serde(default = "one_f64")]
+    pub sti: f64,
+    #[serde(default = "one_f64")]
+    pub vei: f64,
+    #[serde(default = "one_f64")]
+    pub skiloype: f64,
+    #[serde(default = "one_f64")]
+    pub unknown: f64,
+}
+
+fn one_f64() -> f64 {
+    1.0
+}
+
+impl Default for SurfacePaceProfile {
+    fn default() -> Self {
+        Self { sti: 1.0, vei: 1.0, skiloype: 1.0, unknown: 1.0 }
+    }
+}
+
 /// Sparse override patch. Each field is optional so a request
 /// only carries the knobs the curator wants to change; unset
 /// fields inherit from the boot config.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CostConfigPatch {
+    /// Per-surface pace overrides apply to the FOOT profile (presets
+    /// are foot-focused; bicycle/ski keep their config defaults).
+    #[serde(default)]
+    pub surface_pace_sti: Option<f64>,
+    #[serde(default)]
+    pub surface_pace_vei: Option<f64>,
+    #[serde(default)]
+    pub surface_pace_skiloype: Option<f64>,
+    #[serde(default)]
+    pub surface_pace_unknown: Option<f64>,
     #[serde(default)]
     pub off_trail_base_foot: Option<f64>,
     #[serde(default)]
@@ -226,6 +277,11 @@ impl CostConfig {
     /// → effective config for that one solve.
     pub fn with_patch(&self, patch: &CostConfigPatch) -> CostConfig {
         let mut c = self.clone();
+        // Surface-pace overrides apply to the foot profile (preset focus).
+        if let Some(v) = patch.surface_pace_sti { c.surface_pace.foot.sti = v; }
+        if let Some(v) = patch.surface_pace_vei { c.surface_pace.foot.vei = v; }
+        if let Some(v) = patch.surface_pace_skiloype { c.surface_pace.foot.skiloype = v; }
+        if let Some(v) = patch.surface_pace_unknown { c.surface_pace.foot.unknown = v; }
         if let Some(v) = patch.off_trail_base_foot { c.off_trail_base.foot = v; }
         if let Some(v) = patch.off_trail_base_bicycle { c.off_trail_base.bicycle = v; }
         if let Some(v) = patch.off_trail_base_ski { c.off_trail_base.ski = v; }

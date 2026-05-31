@@ -1372,7 +1372,16 @@ impl Pathfinder {
             .unwrap_or_else(|| effective_cfg.off_trail_base.for_profile(prefs.profile))
             as f32;
         let base_pace = crate::contributor::BASE_PACE_S_PER_M as f32;
-        let contributors = self.contributors_for_breakdown();
+        // Per-surface pace (road avoidance) is applied live here using the
+        // EFFECTIVE config (boot + per-request/preset patch), so it isn't
+        // baked at boot and presets can tune it. Graph edges only; mesh
+        // edges return 1.0.
+        let mut contributors = self.contributors_for_breakdown();
+        contributors.push(std::sync::Arc::new(
+            crate::native_contributors::SurfacePaceContributor::from_config(
+                &effective_cfg.surface_pace,
+            ),
+        ));
         // Adaptive mesh cell: fine (10 m) for short routes where off-trail
         // detail matters, coarser (up to 30 m) for long routes where the
         // path is mostly on trails and off-trail is a minor connector — so
@@ -1443,13 +1452,24 @@ impl Pathfinder {
             }
             push(run_kind, run_start, route.seg_on_trail.len(), run_len, &mut legs, &mut on_m, &mut off_m);
         }
-        let mut fkb_breakdown: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
-        if on_m > 0.0 {
-            fkb_breakdown.insert("sti".to_string(), on_m);
+        // Per-surface breakdown from the route's per-segment fkb codes, so
+        // the response distinguishes trail (sti) from road (vei) from
+        // off-trail — the distinction the unified solver previously hid by
+        // bucketing every graph edge as "sti".
+        let mut fkb_breakdown: std::collections::BTreeMap<String, f64> =
+            std::collections::BTreeMap::new();
+        for k in 0..route.seg_fkb.len() {
+            let name = match route.seg_fkb[k] {
+                1 => "sti",
+                2 => "vei",
+                3 => "skiloype",
+                255 => "off_trail",
+                _ => "unknown",
+            };
+            *fkb_breakdown.entry(name.to_string()).or_insert(0.0) += seg_len(k);
         }
-        if off_m > 0.0 {
-            fkb_breakdown.insert("off_trail".to_string(), off_m);
-        }
+        fkb_breakdown.retain(|_, v| *v > 0.0);
+        let _ = off_m;
         let on_trail_pct = if length_m > 0.0 { (on_m / length_m * 100.0) as f32 } else { 0.0 };
 
         Ok(Path {

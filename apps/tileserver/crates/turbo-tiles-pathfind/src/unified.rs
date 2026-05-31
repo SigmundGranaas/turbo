@@ -258,6 +258,11 @@ pub(crate) struct UnifiedRoute {
     /// `seg_on_trail[k]` = true if segment `geometry[k]→geometry[k+1]` is
     /// a trail (graph) segment, false if off-trail mesh.
     pub seg_on_trail: Vec<bool>,
+    /// Per-segment surface code: the graph edge's `fkb_type` (0 unknown,
+    /// 1 sti, 2 vei/road, 3 skiloype) for trail segments, or 255 for
+    /// off-trail mesh. Lets the caller break down metres by surface
+    /// (trail vs road vs off-trail) honestly.
+    pub seg_fkb: Vec<u8>,
     pub cost_s: f64,
 }
 
@@ -636,17 +641,22 @@ pub(crate) fn solve_unified(
 
     let mut geom: Vec<(f64, f64)> = vec![pos_of(chain[0])];
     let mut on_trail: Vec<bool> = Vec::new();
+    // Per-segment surface code (255 = off-trail mesh, else the edge's
+    // fkb_type) so the caller can split metres into trail/road/off-trail.
+    let mut on_fkb: Vec<u8> = Vec::new();
     for w in chain.windows(2) {
         let v = w[1];
         let (eid, kf, kt) = prev_seg[v];
         if eid != u32::MAX {
             // Trail sub-segment: splice poly[kf..kt] (oriented), skipping
             // the first vertex (already the current tail).
+            let fkb = graph.edge(eid).map(|e| e.fkb_type).unwrap_or(0);
             let poly = graph.edge_polyline(eid);
             if kf <= kt {
                 for k in (kf as usize + 1)..=(kt as usize) {
                     geom.push((poly[k].x as f64, poly[k].y as f64));
                     on_trail.push(true);
+                    on_fkb.push(fkb);
                 }
             } else {
                 let mut k = kf as usize;
@@ -654,16 +664,19 @@ pub(crate) fn solve_unified(
                     k -= 1;
                     geom.push((poly[k].x as f64, poly[k].y as f64));
                     on_trail.push(true);
+                    on_fkb.push(fkb);
                 }
             }
         } else {
             geom.push(pos_of(v));
             on_trail.push(false);
+            on_fkb.push(255);
         }
     }
 
     // Smooth off-trail runs (trail runs stay exact).
-    let (geometry_utm, seg_on_trail) = smooth_off_trail(&geom, &on_trail, &corr, &overlay);
+    let (geometry_utm, seg_on_trail, seg_fkb) =
+        smooth_off_trail(&geom, &on_trail, &on_fkb, &corr, &overlay);
 
     // Final snapshot: the exact answer, so the live preview snaps into
     // place when the solve completes.
@@ -676,6 +689,7 @@ pub(crate) fn solve_unified(
     Some(UnifiedRoute {
         geometry_utm,
         seg_on_trail,
+        seg_fkb,
         cost_s: g[goal] as f64,
     })
 }
@@ -704,11 +718,12 @@ fn chaikin(pts: &[(f64, f64)], iters: u32) -> Vec<(f64, f64)> {
 fn smooth_off_trail(
     geom: &[(f64, f64)],
     on_trail: &[bool],
+    seg_fkb: &[u8],
     corr: &Corridor,
     overlay: &MeshOverlay,
-) -> (Vec<(f64, f64)>, Vec<bool>) {
+) -> (Vec<(f64, f64)>, Vec<bool>, Vec<u8>) {
     if geom.len() < 3 {
-        return (geom.to_vec(), on_trail.to_vec());
+        return (geom.to_vec(), on_trail.to_vec(), seg_fkb.to_vec());
     }
     let clear = |pts: &[(f64, f64)]| -> bool {
         for w in pts.windows(2) {
@@ -729,6 +744,7 @@ fn smooth_off_trail(
     };
     let mut out_geom: Vec<(f64, f64)> = vec![geom[0]];
     let mut out_on: Vec<bool> = Vec::new();
+    let mut out_fkb: Vec<u8> = Vec::new();
     let n = on_trail.len();
     let mut k = 0usize;
     while k < n {
@@ -738,16 +754,25 @@ fn smooth_off_trail(
             k += 1;
         }
         let verts: Vec<(f64, f64)> = geom[run_start..=k].to_vec();
-        let pts = if kind {
-            verts // trail: exact
+        if kind {
+            // Trail run is exact: one output segment per input segment, so
+            // the per-segment fkb codes carry through unchanged.
+            for (i, p) in verts.iter().enumerate().skip(1) {
+                out_geom.push(*p);
+                out_on.push(true);
+                out_fkb.push(seg_fkb[run_start + i - 1]);
+            }
         } else {
+            // Off-trail run is smoothed (segment count changes); every
+            // output segment is off-trail (255).
             let sm = chaikin(&verts, 2);
-            if clear(&sm) { sm } else { verts }
-        };
-        for p in pts.iter().skip(1) {
-            out_geom.push(*p);
-            out_on.push(kind);
+            let pts = if clear(&sm) { sm } else { verts };
+            for p in pts.iter().skip(1) {
+                out_geom.push(*p);
+                out_on.push(false);
+                out_fkb.push(255);
+            }
         }
     }
-    (out_geom, out_on)
+    (out_geom, out_on, out_fkb)
 }

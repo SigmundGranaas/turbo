@@ -276,6 +276,58 @@ impl CostContributor for MarkingBonusContributor {
     }
 }
 
+/// Per-surface pace multiplier on graph edges. Reads the baked
+/// `EdgeRecord.fkb_type` (0 = unknown, 1 = sti/trail, 2 = vei/road-
+/// class, 3 = skiloype) and scales the WHOLE edge pace via the
+/// `pace_factor` channel — so a car road can be made only slightly
+/// cheaper than open ground (`vei` ≈ `off_trail_base`) to stop the
+/// router taking big road detours. Mesh edges are unaffected (their
+/// off-trail cost is the `OffTrailRoughness` pace factor).
+///
+/// NOTE: `traktorvei` and `skogsvei` fold into the `vei` (code 2)
+/// class in the graph artifact, so all road-class edges share one
+/// knob today. A finer gravel-vs-asphalt split would key on
+/// `EdgeRecord.surface` (a follow-up).
+pub struct SurfacePaceContributor {
+    /// `[profile_id][fkb_type code 0..=3]` → pace multiplier (1.0 =
+    /// no effect). profile_id: Foot = 0, Bicycle = 1, Ski = 2.
+    pub factor: [[f64; 4]; 3],
+}
+
+impl SurfacePaceContributor {
+    /// Build the lookup table from config. The per-profile rows are
+    /// laid out by `fkb_type` code: `[unknown, sti, vei, skiloype]`.
+    pub fn from_config(cfg: &crate::config::SurfacePaceConfig) -> Self {
+        let row = |p: &crate::config::SurfacePaceProfile| [p.unknown, p.sti, p.vei, p.skiloype];
+        Self { factor: [row(&cfg.foot), row(&cfg.bicycle), row(&cfg.ski)] }
+    }
+}
+
+impl CostContributor for SurfacePaceContributor {
+    fn name(&self) -> &'static str {
+        "surface_pace"
+    }
+    fn kind(&self) -> ContributorKind {
+        ContributorKind::Surface
+    }
+    fn contribute(&self, _ctx: &EdgeContext<'_>) -> f64 {
+        0.0
+    }
+    fn pace_factor(&self, ctx: &EdgeContext<'_>) -> f64 {
+        match ctx.kind {
+            EdgeKind::Graph(er) => {
+                let p = match ctx.profile {
+                    Profile::Foot => 0,
+                    Profile::Bicycle => 1,
+                    Profile::Ski => 2,
+                };
+                self.factor[p][(er.fkb_type as usize).min(3)]
+            }
+            EdgeKind::Mesh => 1.0,
+        }
+    }
+}
+
 /// Hard refusal at water + glacier cells. Mirrors
 /// [`crate::layers::MaskRefusalLayer`]; native because there's
 /// nothing to convert — refusal is binary, walk-seconds are
