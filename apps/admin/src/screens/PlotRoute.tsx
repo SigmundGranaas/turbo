@@ -1618,14 +1618,59 @@ export function PlotRoute() {
       {/* PRIMARY — planning surface as a center-bottom sheet (MD3), like
           a modern maps app: trip style, stops, and the result. */}
       <div className="absolute bottom-4 left-1/2 z-10 flex w-[min(620px,calc(100%-2rem))] max-h-[62vh] -translate-x-1/2 flex-col gap-4 overflow-y-auto rounded-[28px] border border-black/5 bg-white/95 p-5 shadow-2xl backdrop-blur-md">
-          <header className="flex items-center justify-between">
-            <h1 className="text-lg font-semibold tracking-tight">Plan a route</h1>
-            {points.length > 0 ? (
-              <span className="text-xs text-ink-400">
-                {points.length} stop{points.length === 1 ? "" : "s"}
-              </span>
-            ) : null}
-          </header>
+          {/* Grabber. */}
+          <div className="mx-auto -mb-1 h-1 w-10 shrink-0 rounded-full bg-ink-200" />
+
+          {/* Travel mode — segmented control at the top, maps-style. */}
+          <div className="flex rounded-full bg-ink-100 p-1 text-sm font-medium">
+            {([
+              ["foot", "Walk"],
+              ["bicycle", "Bike"],
+              ["ski", "Ski"],
+            ] as [Profile, string][]).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setProfile(id)}
+                className={`flex-1 rounded-full px-3 py-1.5 transition-colors ${
+                  profile === id
+                    ? "bg-white text-ink-900 shadow-sm"
+                    : "text-ink-500 hover:text-ink-800"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Trip style — horizontal chip row + one-line description. */}
+          {presets.length > 0 ? (
+            <div className="space-y-1.5">
+              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5">
+                {presets.map((p) => {
+                  const on = p.name === preset;
+                  return (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => setPreset(p.name)}
+                      aria-pressed={on}
+                      className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                        on
+                          ? "bg-[#0072B2] text-white"
+                          : "bg-ink-100 text-ink-700 hover:bg-ink-200"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="px-1 text-xs text-ink-500">
+                {presets.find((p) => p.name === preset)?.description ?? ""}
+              </p>
+            </div>
+          ) : null}
 
           {/* Status / result — the one thing the user looks at. */}
           <RouteStatus
@@ -1639,42 +1684,40 @@ export function PlotRoute() {
             profile={profile}
           />
 
-          {/* Ordered waypoint list. Reorder by drag-handle, remove with
-              ✕, undo/redo/reverse/clear in the header. Per-leg distance
-              comes from the stitched route's `waypoint_legs`. */}
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-xs uppercase tracking-wide text-ink-500">
-                Stops ({points.length})
+          {/* Stops — clean connector-line list (maps-style): coloured dots
+              joined by a thin line, reorder by drag, remove on hover. */}
+          {points.length > 0 ? (
+            <section className="space-y-1">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-ink-400">
+                  Stops
+                </span>
+                <div className="flex items-center gap-0.5 text-ink-400">
+                  <button type="button" title="Undo" onClick={undoPoints}
+                    disabled={pointsPast.length === 0}
+                    className="grid h-7 w-7 place-items-center rounded-full hover:bg-ink-100 disabled:opacity-30">↶</button>
+                  <button type="button" title="Redo" onClick={redoPoints}
+                    disabled={pointsFuture.length === 0}
+                    className="grid h-7 w-7 place-items-center rounded-full hover:bg-ink-100 disabled:opacity-30">↷</button>
+                  <button type="button" title="Reverse route" onClick={reversePoints}
+                    disabled={points.length < 2}
+                    className="grid h-7 w-7 place-items-center rounded-full hover:bg-ink-100 disabled:opacity-30">⇅</button>
+                  <button type="button" title="Clear all" onClick={reset}
+                    disabled={points.length === 0}
+                    className="grid h-7 w-7 place-items-center rounded-full hover:bg-ink-100 disabled:opacity-30">✕</button>
+                </div>
               </div>
-              <div className="flex gap-1 text-sm">
-                <button type="button" title="Undo" onClick={undoPoints}
-                  disabled={pointsPast.length === 0}
-                  className="px-2 py-0.5 rounded border border-ink-200 hover:bg-ink-100 disabled:opacity-30">↶</button>
-                <button type="button" title="Redo" onClick={redoPoints}
-                  disabled={pointsFuture.length === 0}
-                  className="px-2 py-0.5 rounded border border-ink-200 hover:bg-ink-100 disabled:opacity-30">↷</button>
-                <button type="button" title="Reverse route" onClick={reversePoints}
-                  disabled={points.length < 2}
-                  className="px-2 py-0.5 rounded border border-ink-200 hover:bg-ink-100 disabled:opacity-30">⇅</button>
-                <button type="button" title="Clear all" onClick={reset}
-                  disabled={points.length === 0}
-                  className="px-2 py-0.5 rounded border border-ink-200 hover:bg-ink-100 disabled:opacity-30">Clear</button>
-              </div>
-            </div>
-            {points.length === 0 ? (
-              <p className="text-sm text-ink-500">No stops yet — tap the map to begin.</p>
-            ) : (
-              <ol className="space-y-1">
+              <ol>
                 {points.map((pt, i) => {
                   const isStart = i === 0;
                   const isEnd = i === points.length - 1 && points.length >= 2;
-                  const label = isStart ? "S" : isEnd ? "E" : String(i);
-                  const bg = isStart ? CVD_BLUE : isEnd ? CVD_VERMILLION : "#374151";
+                  const bg = isStart ? CVD_BLUE : isEnd ? CVD_VERMILLION : "#6b7280";
                   const legToNext = path?.path.waypoint_legs?.[i];
                   const refusedHere =
                     (refusal?.which === "from" && isStart) ||
                     (refusal?.which === "to" && isEnd);
+                  const name = isStart ? "Start" : isEnd ? "Destination" : `Stop ${i}`;
+                  const last = i === points.length - 1;
                   return (
                     <li
                       key={i}
@@ -1685,95 +1728,35 @@ export function PlotRoute() {
                         if (dragRowRef.current != null) reorderPoints(dragRowRef.current, i);
                         dragRowRef.current = null;
                       }}
-                      className="flex items-center gap-2 text-sm rounded-lg border border-ink-200 px-2 py-1.5 bg-white"
+                      className="group flex items-stretch gap-3 rounded-xl px-2 hover:bg-ink-50"
                     >
-                      <span title="Drag to reorder" className="cursor-grab text-ink-400 select-none">⠿</span>
-                      <span
-                        className="inline-flex items-center justify-center shrink-0"
-                        style={{
-                          width: 20, height: 20,
-                          borderRadius: isEnd ? 4 : 9999,
-                          background: bg, color: "#fff", fontSize: 11, fontWeight: 600,
-                          border: refusedHere ? "2px solid #dc2626" : "none",
-                        }}
-                      >
-                        {label}
-                      </span>
-                      <span className="flex-1 tabular-nums text-ink-700">
-                        {pt[1].toFixed(5)}, {pt[0].toFixed(5)}
-                        {legToNext ? (
-                          <span className="text-ink-400"> · {fmtDist(legToNext.length_m)} →</span>
+                      <div className="relative flex w-3 shrink-0 justify-center">
+                        {!last ? (
+                          <span className="absolute bottom-0 top-5 w-px bg-ink-200" />
                         ) : null}
-                      </span>
-                      <button
-                        type="button" title="Remove stop"
-                        onClick={() => deletePoint(i)}
-                        className="text-ink-400 hover:text-red-600 px-1"
-                      >
-                        ✕
-                      </button>
+                        <span
+                          className="z-10 mt-[15px] h-2.5 w-2.5 rounded-full ring-2 ring-white"
+                          style={{ background: bg, boxShadow: refusedHere ? "0 0 0 2px #dc2626" : undefined }}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1 py-2">
+                        <div className="text-sm font-medium leading-tight text-ink-800">{name}</div>
+                        <div className="truncate text-xs tabular-nums text-ink-400">
+                          {pt[1].toFixed(4)}, {pt[0].toFixed(4)}
+                          {legToNext ? <span> · {fmtDist(legToNext.length_m)} to next</span> : null}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-0.5 self-center opacity-0 transition-opacity group-hover:opacity-100">
+                        <span title="Drag to reorder" className="cursor-grab select-none px-1 text-ink-300">⠿</span>
+                        <button type="button" title="Remove" onClick={() => deletePoint(i)}
+                          className="px-1 text-ink-300 hover:text-rose-600">✕</button>
+                      </div>
                     </li>
                   );
                 })}
               </ol>
-            )}
-          </section>
-
-          {/* Trip style — preset cost bundle (road avoidance, climbing,
-              directness). The main lever for shaping a route. */}
-          {presets.length > 0 ? (
-            <section className="space-y-2">
-              <div className="text-xs uppercase tracking-wide text-ink-500">Trip style</div>
-              <div className="flex flex-wrap gap-2">
-                {presets.map((p) => {
-                  const on = p.name === preset;
-                  return (
-                    <button
-                      key={p.name}
-                      type="button"
-                      onClick={() => setPreset(p.name)}
-                      aria-pressed={on}
-                      className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                        on
-                          ? "bg-[#0072B2] text-white shadow-sm"
-                          : "bg-ink-100 text-ink-700 hover:bg-ink-200"
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-ink-500 min-h-[2.5em]">
-                {presets.find((p) => p.name === preset)?.description ?? ""}
-              </p>
             </section>
           ) : null}
-
-          {/* Travel mode. */}
-          <section className="space-y-2">
-            <div className="text-xs uppercase tracking-wide text-ink-500">Travel mode</div>
-            <div className="grid grid-cols-3 gap-1.5">
-              {([
-                ["foot", "Walk"],
-                ["bicycle", "Bike"],
-                ["ski", "Ski"],
-              ] as [Profile, string][]).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setProfile(id)}
-                  className={`text-sm px-2 py-2 rounded-lg border font-medium ${
-                    profile === id
-                      ? "border-ink-900 bg-ink-900 text-ink-50"
-                      : "border-ink-200 hover:bg-ink-100"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </section>
 
         </div>{/* /LEFT card */}
 
