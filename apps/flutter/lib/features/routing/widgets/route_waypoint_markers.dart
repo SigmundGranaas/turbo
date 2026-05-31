@@ -1,101 +1,93 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:turbo/app/shadows.dart';
 
-/// Renders the route's waypoints: a green start, a flagged end, and
-/// numbered intermediate stops. Tapping a marker invokes [onTapIndex]
-/// (used to remove that stop). Mirrors the measuring feature's marker
-/// styling (circle + surface border + map-overlay shadow).
-class RouteWaypointMarkers extends StatelessWidget {
-  final List<LatLng> waypoints;
-  final void Function(int index)? onTapIndex;
+/// A draggable route waypoint dot. Adopts the app's route-drawing pattern
+/// (see `activities/route_drawing_screen.dart`): a generous hit target,
+/// tap absorbed so it doesn't add a stray stop, long-press to remove, and
+/// pan to reposition. The visual grows + lifts while dragging.
+///
+/// Start is green, end is flagged red, intermediate stops are numbered in
+/// the theme primary.
+class RouteWaypointDot extends StatelessWidget {
+  final int index;
+  final bool isStart;
+  final bool isEnd;
+  final bool isDragging;
+  final VoidCallback onPanStart;
+  final ValueChanged<DragUpdateDetails> onPanUpdate;
+  final VoidCallback onPanEnd;
+  final VoidCallback onLongPress;
 
-  const RouteWaypointMarkers({
+  const RouteWaypointDot({
     super.key,
-    required this.waypoints,
-    this.onTapIndex,
+    required this.index,
+    required this.isStart,
+    required this.isEnd,
+    required this.isDragging,
+    required this.onPanStart,
+    required this.onPanUpdate,
+    required this.onPanEnd,
+    required this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return MarkerLayer(
-      markers: [
-        for (var i = 0; i < waypoints.length; i++)
-          Marker(
-            width: 30,
-            height: 30,
-            point: waypoints[i],
-            alignment: Alignment.center,
-            child: _WaypointDot(
-              color: _colorFor(i, scheme),
-              onTap: onTapIndex == null ? null : () => onTapIndex!(i),
-              child: _childFor(i),
+    final fill = isStart
+        ? const Color(0xFF2E7D32)
+        : isEnd
+            ? scheme.error
+            : scheme.primary;
+
+    // Hit target is the full Marker (38×38); the visible dot is smaller.
+    // onTap is absorbed so tapping a dot doesn't bubble to the map and add
+    // a duplicate stop.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {},
+      onLongPress: onLongPress,
+      onPanStart: (_) => onPanStart(),
+      onPanUpdate: onPanUpdate,
+      onPanEnd: (_) => onPanEnd(),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.grab,
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 130),
+            curve: Curves.easeOut,
+            width: isDragging ? 30 : 24,
+            height: isDragging ? 30 : 24,
+            decoration: BoxDecoration(
+              color: fill,
+              shape: BoxShape.circle,
+              border: Border.all(color: scheme.surface, width: 2.5),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDragging ? 0.4 : 0.22),
+                  blurRadius: isDragging ? 8 : 3,
+                  offset: const Offset(0, 1),
+                ),
+              ],
             ),
+            child: Center(child: _label()),
           ),
-      ],
-    );
-  }
-
-  bool _isStart(int i) => i == 0;
-  bool _isEnd(int i) => i == waypoints.length - 1 && waypoints.length > 1;
-
-  Color _colorFor(int i, ColorScheme scheme) {
-    if (_isStart(i)) return const Color(0xFF2E7D32); // green start
-    if (_isEnd(i)) return scheme.error; // end
-    return scheme.primary; // via
-  }
-
-  Widget? _childFor(int i) {
-    if (_isStart(i)) {
-      return const Icon(Icons.trip_origin, size: 14, color: Colors.white);
-    }
-    if (_isEnd(i)) {
-      return const Icon(Icons.flag, size: 16, color: Colors.white);
-    }
-    return Text(
-      '$i',
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 13,
-        fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
-}
 
-class _WaypointDot extends StatelessWidget {
-  final Color color;
-  final Widget? child;
-  final VoidCallback? onTap;
-
-  const _WaypointDot({required this.color, this.child, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: TweenAnimationBuilder<double>(
-        duration: const Duration(milliseconds: 280),
-        tween: Tween(begin: 0.0, end: 1.0),
-        curve: Curves.elasticOut,
-        builder: (context, value, _) => Transform.scale(
-          scale: value,
-          child: Container(
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color,
-              border: Border.all(
-                color: Theme.of(context).colorScheme.surface,
-                width: 2.5,
-              ),
-              boxShadow: AppShadows.mapOverlay,
-            ),
-            child: child,
-          ),
-        ),
+  Widget _label() {
+    if (isStart) {
+      return const Icon(Icons.trip_origin, size: 13, color: Colors.white);
+    }
+    if (isEnd) {
+      return const Icon(Icons.flag, size: 15, color: Colors.white);
+    }
+    return Text(
+      '$index',
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
       ),
     );
   }

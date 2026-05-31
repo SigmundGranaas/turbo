@@ -46,6 +46,16 @@ class RoutePlanningNotifier extends Notifier<RoutePlanningState> {
     _scheduleReplan();
   }
 
+  /// Reposition a stop (live drag). Updates the marker immediately; the
+  /// re-solve is debounced so a continuous drag fires one request on
+  /// settle, not one per frame.
+  void moveWaypoint(int index, LatLng point) {
+    if (index < 0 || index >= state.waypoints.length) return;
+    final next = [...state.waypoints]..[index] = point;
+    state = state.copyWith(waypoints: next);
+    _scheduleReplan();
+  }
+
   void clear() {
     _debounce?.cancel();
     _sub?.cancel();
