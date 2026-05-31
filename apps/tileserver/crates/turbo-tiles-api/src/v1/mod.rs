@@ -58,6 +58,7 @@ pub fn router() -> Router<ApiState> {
         // Stage 6: off-trail pathfinding (composes elev + mask + graph)
         // Curated, app-facing routing API (stable contract, gateway /api/route/*):
         .route("/route/plan", post(route_plan::plan))
+        .route("/route/plan/stream", post(route_plan::plan_stream))
         .route("/route/presets", get(pathfind::presets))
         // Internal/admin solve surface (debug, recording, layer weights):
         .route("/pathfind", post(pathfind::pathfind))

@@ -13,13 +13,17 @@ import 'route_planning_state.dart';
 /// monotonic sequence guard.
 class RoutePlanningNotifier extends Notifier<RoutePlanningState> {
   Timer? _debounce;
+  StreamSubscription<RouteStreamEvent>? _sub;
   int _seq = 0;
 
   static const _debounceDelay = Duration(milliseconds: 300);
 
   @override
   RoutePlanningState build() {
-    ref.onDispose(() => _debounce?.cancel());
+    ref.onDispose(() {
+      _debounce?.cancel();
+      _sub?.cancel();
+    });
     return const RoutePlanningState();
   }
 
@@ -44,6 +48,7 @@ class RoutePlanningNotifier extends Notifier<RoutePlanningState> {
 
   void clear() {
     _debounce?.cancel();
+    _sub?.cancel();
     _seq++; // invalidate any in-flight solve
     state = const RoutePlanningState();
   }
@@ -56,41 +61,59 @@ class RoutePlanningNotifier extends Notifier<RoutePlanningState> {
 
   void _scheduleReplan() {
     _debounce?.cancel();
+    _sub?.cancel();
     if (!state.canPlan) {
-      // Not enough stops to route — drop any stale plan/spinner.
+      // Not enough stops to route — drop any stale plan/preview/spinner.
       _seq++;
-      state = state.copyWith(clearPlan: true, clearError: true, isPlanning: false);
+      state = state.copyWith(
+        clearPlan: true,
+        clearPreview: true,
+        clearError: true,
+        isPlanning: false,
+      );
       return;
     }
     state = state.copyWith(isPlanning: true, clearError: true);
     _debounce = Timer(_debounceDelay, _replan);
   }
 
-  Future<void> _replan() async {
+  void _replan() {
     final seq = ++_seq;
     final waypoints = state.waypoints;
     final preset = state.presetName;
-    try {
-      final plan = await ref
-          .read(routingRepositoryProvider)
-          .plan(points: waypoints, preset: preset);
-      if (seq != _seq) return; // superseded by a newer edit
-      state = state.copyWith(plan: plan, isPlanning: false, clearError: true);
-    } on RoutingException catch (e) {
-      if (seq != _seq) return;
-      state = state.copyWith(
-        isPlanning: false,
-        clearPlan: true,
-        error: _friendly(e),
-      );
-    } catch (_) {
-      if (seq != _seq) return;
-      state = state.copyWith(
-        isPlanning: false,
-        clearPlan: true,
-        error: 'Could not plan a route. Please try again.',
-      );
-    }
+    final stream = ref
+        .read(routingRepositoryProvider)
+        .planStream(points: waypoints, preset: preset);
+    _sub = stream.listen(
+      (event) {
+        if (seq != _seq) return;
+        switch (event) {
+          case RouteProgress(:final geometry):
+            state = state.copyWith(previewGeometry: geometry);
+          case RouteResult(:final plan):
+            state = state.copyWith(
+              plan: plan,
+              isPlanning: false,
+              clearPreview: true,
+              clearError: true,
+            );
+        }
+      },
+      onError: (Object e) {
+        if (seq != _seq) return;
+        state = state.copyWith(
+          isPlanning: false,
+          clearPlan: true,
+          clearPreview: true,
+          error: e is RoutingException ? _friendly(e) : 'Could not plan a route. Please try again.',
+        );
+      },
+      onDone: () {
+        if (seq != _seq) return;
+        // Stream ended without a result frame (shouldn't normally happen).
+        if (state.isPlanning) state = state.copyWith(isPlanning: false);
+      },
+    );
   }
 
   String _friendly(RoutingException e) => switch (e.kind) {

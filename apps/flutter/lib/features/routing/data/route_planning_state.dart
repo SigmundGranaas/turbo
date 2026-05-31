@@ -16,6 +16,10 @@ class RoutePlanningState {
   /// after a clear.
   final RoutePlan? plan;
 
+  /// Best-path-so-far while a solve streams, for the live preview line.
+  /// Empty when not solving / once the final [plan] lands.
+  final List<LatLng> previewGeometry;
+
   /// True while a solve is in flight (covers the debounce + request).
   final bool isPlanning;
 
@@ -26,6 +30,7 @@ class RoutePlanningState {
     this.waypoints = const [],
     this.presetName = 'balanced',
     this.plan,
+    this.previewGeometry = const [],
     this.isPlanning = false,
     this.error,
   });
@@ -38,6 +43,8 @@ class RoutePlanningState {
     String? presetName,
     RoutePlan? plan,
     bool clearPlan = false,
+    List<LatLng>? previewGeometry,
+    bool clearPreview = false,
     bool? isPlanning,
     String? error,
     bool clearError = false,
@@ -46,6 +53,8 @@ class RoutePlanningState {
       waypoints: waypoints ?? this.waypoints,
       presetName: presetName ?? this.presetName,
       plan: clearPlan ? null : (plan ?? this.plan),
+      previewGeometry:
+          clearPreview ? const [] : (previewGeometry ?? this.previewGeometry),
       isPlanning: isPlanning ?? this.isPlanning,
       error: clearError ? null : (error ?? this.error),
     );

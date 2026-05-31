@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../models/route_models.dart';
 
@@ -18,6 +21,22 @@ enum RoutingErrorKind {
 
   /// Transport failure — no response (timeout, DNS, connection refused).
   network,
+}
+
+/// An event from the streaming [`RoutingApiClient.planStream`] solve.
+sealed class RouteStreamEvent {}
+
+/// A best-path-so-far snapshot — the evolving preview line. Replaces the
+/// previous one (latest wins).
+class RouteProgress extends RouteStreamEvent {
+  final List<LatLng> geometry;
+  RouteProgress(this.geometry);
+}
+
+/// The final solved route. Terminal success event.
+class RouteResult extends RouteStreamEvent {
+  final RoutePlan plan;
+  RouteResult(this.plan);
 }
 
 /// Thrown by [RoutingApiClient] on any non-success outcome.
@@ -83,6 +102,75 @@ class RoutingApiClient {
       throw _httpError(r);
     } on DioException catch (e) {
       throw _dioError(e);
+    }
+  }
+
+  /// `POST /plan/stream` — solve [req] and stream the live preview.
+  ///
+  /// Yields [RouteProgress] (best-path-so-far) repeatedly, then a single
+  /// [RouteResult]. Throws [RoutingException] if the server emits an
+  /// `error` event or the transport fails.
+  Stream<RouteStreamEvent> planStream(RouteRequest req) async* {
+    final Response<ResponseBody> resp;
+    try {
+      resp = await _dio.post<ResponseBody>(
+        '$baseUrl/plan/stream',
+        data: req.toJson(),
+        options: Options(
+          contentType: 'application/json',
+          responseType: ResponseType.stream,
+          headers: {'Accept': 'text/event-stream'},
+        ),
+      );
+    } on DioException catch (e) {
+      throw _dioError(e);
+    }
+
+    // Parse the SSE byte stream: lines accumulate into (event, data)
+    // frames separated by a blank line. `:` keep-alive comments are
+    // ignored.
+    var buffer = '';
+    String? eventName;
+    await for (final chunk in resp.data!.stream) {
+      buffer += utf8.decode(chunk, allowMalformed: true);
+      int nl;
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        var line = buffer.substring(0, nl);
+        buffer = buffer.substring(nl + 1);
+        if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
+        if (line.isEmpty) {
+          eventName = null; // frame boundary
+          continue;
+        }
+        if (line.startsWith('event:')) {
+          eventName = line.substring(6).trim();
+        } else if (line.startsWith('data:')) {
+          final event = _parseFrame(eventName, line.substring(5).trim());
+          if (event != null) yield event;
+        }
+        // ':' comments / unknown fields ignored
+      }
+    }
+  }
+
+  RouteStreamEvent? _parseFrame(String? event, String data) {
+    switch (event) {
+      case 'progress':
+        final coords = (jsonDecode(data) as Map<String, dynamic>)['coordinates'] as List;
+        return RouteProgress(coords.map((c) {
+          final p = c as List;
+          return LatLng((p[1] as num).toDouble(), (p[0] as num).toDouble());
+        }).toList(growable: false));
+      case 'result':
+        return RouteResult(RoutePlan.fromJson(jsonDecode(data) as Map<String, dynamic>));
+      case 'error':
+        final msg = (jsonDecode(data) as Map<String, dynamic>)['error'] as String?;
+        throw RoutingException(
+          RoutingErrorKind.noRoute,
+          msg ?? 'The route could not be solved.',
+        );
+      default:
+        return null;
     }
   }
 

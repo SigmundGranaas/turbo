@@ -25,6 +25,19 @@ class RoutingRepository {
         profile: profile,
       ));
 
+  /// Plan a route, streaming the live preview ([RouteProgress]) and the
+  /// final [RouteResult]. Throws [RoutingException] on failure.
+  Stream<RouteStreamEvent> planStream({
+    required List<LatLng> points,
+    String? preset,
+    String? profile,
+  }) =>
+      _client.planStream(RouteRequest(
+        points: points,
+        preset: preset,
+        profile: profile,
+      ));
+
   /// List the available trip-style presets.
   Future<List<RoutePreset>> presets() => _client.presets();
 }

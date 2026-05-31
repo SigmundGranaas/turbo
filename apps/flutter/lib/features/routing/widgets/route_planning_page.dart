@@ -89,6 +89,23 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
               ],
             ),
           ),
+          // Live best-path-so-far preview (dotted), drawn under the final
+          // route so the solid line wins once the result lands.
+          if (state.previewGeometry.length >= 2)
+            PolylineLayer(
+              polylines: [
+                Polyline(
+                  points: state.previewGeometry,
+                  strokeWidth: 3,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.45),
+                  pattern: const StrokePattern.dotted(),
+                  strokeCap: StrokeCap.round,
+                ),
+              ],
+            ),
           RoutePolylineLayer(plan: state.plan),
           RouteWaypointMarkers(
             waypoints: state.waypoints,
