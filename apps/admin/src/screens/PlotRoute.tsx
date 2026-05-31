@@ -1615,9 +1615,9 @@ export function PlotRoute() {
       {/* Full-bleed map; everything else floats over it. */}
       <div ref={containerRef} className="absolute inset-0" />
 
-      {/* LEFT — primary planning surface (MD3 floating card): trip style,
-          stops, and the result, like a modern maps app. */}
-      <div className="absolute top-4 left-4 z-10 flex max-h-[calc(100vh-2rem)] w-[380px] flex-col gap-4 overflow-y-auto rounded-[28px] border border-black/5 bg-white/90 p-5 shadow-2xl backdrop-blur-md">
+      {/* PRIMARY — planning surface as a center-bottom sheet (MD3), like
+          a modern maps app: trip style, stops, and the result. */}
+      <div className="absolute bottom-4 left-1/2 z-10 flex w-[min(620px,calc(100%-2rem))] max-h-[62vh] -translate-x-1/2 flex-col gap-4 overflow-y-auto rounded-[28px] border border-black/5 bg-white/95 p-5 shadow-2xl backdrop-blur-md">
           <header className="flex items-center justify-between">
             <h1 className="text-lg font-semibold tracking-tight">Plan a route</h1>
             {points.length > 0 ? (
