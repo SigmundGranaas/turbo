@@ -48,3 +48,42 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --release
+
+  # Publish the tileserver image to GHCR on pushes to main. The Dockerfile
+  # bundles the admin SPA, so the build context is the repo root. The prod
+  # GitOps overlay pulls ghcr.io/<owner>/turbo-tileserver:latest.
+  build-image:
+    needs: build-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase owner
+        id: owner
+        run: echo "lc=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push tileserver image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/tileserver/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.lc }}/turbo-tileserver:latest
+            ghcr.io/${{ steps.owner.outputs.lc }}/turbo-tileserver:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

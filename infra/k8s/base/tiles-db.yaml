@@ -1,0 +1,47 @@
+# CloudNativePG Postgres (PostGIS) for the tileserver's `tiles` database.
+#
+# ⚠️ NOT YET WIRED INTO kustomization.yaml — see README-tileserver.md. This
+#    is a reviewed draft; it provisions nothing until referenced.
+#
+# Separate from the modulith's `turbo-db` so the tileserver owns its data
+# lifecycle. Note: the ROUTING endpoints read on-disk artifacts, not this
+# DB — so for routing it only needs to exist + migrate at boot (the
+# tileserver runs in full mode, no --no-db). The DB matters for curated MVT
+# tiles, whose data is ingested separately.
+#
+# Backups are intentionally omitted (unlike turbo-db): the tiles data is
+# re-derivable from source ingest + the artifacts, so it isn't PITR-class.
+# Add a barmanObjectStore block later if that changes.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: tiles-db
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgis:17-3.5
+
+  bootstrap:
+    initdb:
+      database: tiles
+      owner: app
+      # PostGIS in the tiles DB up front (the app role can't CREATE
+      # EXTENSION itself; this runs as the bootstrap superuser).
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS postgis;
+
+  storage:
+    size: 10Gi            # grows with curated-tile geometry; resize as needed
+  walStorage:
+    size: 2Gi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  postgresql:
+    parameters:
+      shared_buffers: "256MB"
+      max_connections: "100"

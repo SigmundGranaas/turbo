@@ -1,11 +1,12 @@
 # Deploying the tileserver (routing API) to k8s
 
-Stage 3 of the app-facing routing rollout. `base/tileserver.yaml` is a
-**reviewed draft that is intentionally NOT referenced by
-`base/kustomization.yaml`** — `kustomize build` ignores unreferenced
-files, so nothing ships until you complete the prerequisites below and
-wire it in. Do this only when ready to go live; the user gates the prod
-deploy.
+Stage 3 of the app-facing routing rollout. Everything is authored and
+committed but **deliberately inert**: `base/tileserver.yaml` and
+`base/tiles-db.yaml` are **commented out in `base/kustomization.yaml`**
+(the "FLIP TO DEPLOY" block), so `kustomize build` ignores them and prod
+is unchanged until you uncomment. The tileserver image is published
+automatically by `.github/workflows/tileserver_build.yml` on merge to
+main. Activation is the checklist below — do it when ready to go live.
 
 ## What it deploys
 
@@ -18,38 +19,44 @@ via a Traefik `ReplacePathRegex` middleware (`/api/route/<x>` →
 `/v1/route/<x>`), since there is **no YARP gateway in k8s** (the gateway
 is the compose/local proxy only).
 
-## Prerequisites (manual, before wiring in)
+## Prerequisites (do these before flipping)
 
-0. **Provision + ingest the tiles Postgres.** Full mode requires a
-   reachable PostGIS database. Stand up a tiles DB (a dedicated CNPG
-   cluster, mirroring `base/db.yaml`, or a database on the existing
-   cluster), ingest the source data, and create a `tiles-db-secrets`
-   sealed secret with a `connectionstring` key. This is the gate: routing
-   is not made available until the DB **and** artifacts are both ready.
+1. **Push the ~14 GB Norway artifacts to R2** — into the existing
+   (now-cleared) `turbo-db-backups` bucket under `artifacts/norway/`. Same
+   R2 account as the CNPG backups, so the init container reuses
+   `r2-backup-creds` (no new R2 secret). Commands in "Pushing the
+   artifacts" below.
 
-1. **Upload the ~14 GB Norway artifacts to R2.** They go into the
-   **existing (now-cleared) `turbo-db-backups` bucket** under
-   `artifacts/norway/` — the same R2 account as the CNPG backups, so **no
-   new secret is needed** (the init container reuses `r2-backup-creds`).
-   See "Pushing the artifacts" below for the exact commands.
+2. **Seal the two tiles-DB secrets.** `base/tiles-db.yaml` is a CNPG
+   PostGIS cluster (`tiles-db`); the tileserver connects to it in full
+   mode. You provide:
+   - **`tiles-db-app`** — the CNPG app-role credential (basic-auth
+     `username: app` + a password you choose), adopted by the cluster.
+     Mirror `envs/prod/turbo-db-app-sealedsecret.yaml`.
+   - **`tiles-db-secrets`** — key `connectionstring` =
+     `postgres://app:<that-password>@tiles-db-rw:5432/tiles` (the
+     tileserver reads `DATABASE_URL` from this).
 
-2. **No new secret.** The init container reads `ACCESS_KEY_ID` /
-   `ACCESS_SECRET_KEY` from the existing `r2-backup-creds`; the R2 endpoint
-   is inline in the manifest. Nothing to seal.
+     Seal each with kubeseal, e.g.:
+     ```sh
+     kubectl create secret generic tiles-db-secrets -n turbo-prod \
+       --from-literal=connectionstring='postgres://app:<PWD>@tiles-db-rw:5432/tiles' \
+       --dry-run=client -o yaml \
+     | kubeseal --format yaml > infra/k8s/envs/prod/tiles-db-secrets-sealedsecret.yaml
+     ```
+   Routing reads the on-disk artifacts, not this DB — so it only needs to
+   exist + migrate at boot. (Curated MVT tiles need data ingested into it;
+   that's a separate step, not required for routing.)
 
 3. **Confirm capacity.** The 11 GB DEM is mmap'd; a Norway-wide solve
-   touches large regions. The draft sets `requests.memory=1Gi`,
-   `limits.memory=6Gi`. Verify a node can host this (the plan flags a
-   possible dedicated node/taint). Confirm the storage class honours a
-   20 Gi RWO PVC.
+   touches large regions. `tileserver.yaml` sets `requests.memory=1Gi`,
+   `limits.memory=6Gi`. Verify a node can host that + the 20 Gi RWO
+   artifacts PVC + tiles-db's 12 Gi (the plan flags a possible dedicated
+   node/taint).
 
-4. **Add the image** to `envs/prod/kustomization.yaml` `images:`
-   ```yaml
-   - name: turbo-tileserver
-     newName: ghcr.io/sigmundgranaas/turbo-tileserver
-     newTag: latest
-   ```
-   and ensure CI builds/pushes that image (apps/tileserver/Dockerfile).
+4. **Image — already automated.** `tileserver_build.yml` builds and pushes
+   `ghcr.io/sigmundgranaas/turbo-tileserver:latest` on merge to main.
+   Nothing to do beyond merging.
 
 ## Pushing the artifacts (you run this once)
 
@@ -92,14 +99,23 @@ rclone ls r2:turbo-db-backups/artifacts/norway/   # expect norway.dem (~11G) + t
 That's the only manual data step — the init container does the pull on the
 pod's first boot.
 
-## Wire it in
+## Flip to deploy
 
-Add to `base/kustomization.yaml` `resources:`:
-```yaml
-  - tileserver.yaml
+Once 1–4 are done, uncomment the four "FLIP TO DEPLOY" lines:
+
+- `base/kustomization.yaml` → `- tiles-db.yaml` and `- tileserver.yaml`
+- `envs/prod/kustomization.yaml` → the two sealed-secret resources
+  (`tiles-db-app-sealedsecret.yaml`, `tiles-db-secrets-sealedsecret.yaml`)
+  **and** the `turbo-tileserver` image entry.
+
+Validate before ArgoCD syncs:
+```sh
+kustomize build infra/k8s/envs/prod | kubectl apply --dry-run=server -f -
 ```
-Then `kustomize build infra/k8s/envs/prod | kubectl apply --dry-run=server -f -`
-to validate before ArgoCD syncs.
+Merging that to the GitOps branch is what triggers the actual deploy.
+Boot order: `tiles-db` comes up → tileserver init container pulls the
+artifacts from R2 (first boot only, several minutes for 14 GB) → tileserver
+connects, migrates, serves.
 
 ## Smoke test (after sync)
 

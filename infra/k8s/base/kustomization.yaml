@@ -12,6 +12,14 @@ resources:
   - pdb.yaml
   - hpa.yaml
   - quotas.yaml
+  # ── Routing (tileserver) — FLIP TO DEPLOY ────────────────────────────
+  # Uncomment BOTH lines to ship the routing API. Do the prereqs first
+  # (see README-tileserver.md): push artifacts to R2, seal tiles-db-app +
+  # tiles-db-secrets, add the image + those secrets in
+  # envs/prod/kustomization.yaml, confirm node capacity. The image is
+  # published by .github/workflows/tileserver_build.yml.
+  # - tiles-db.yaml      # CNPG Postgres (PostGIS) for the tiles DB
+  # - tileserver.yaml    # tileserver Deployment/Service/Ingress + artifacts PVC
 
 labels:
   - pairs:
