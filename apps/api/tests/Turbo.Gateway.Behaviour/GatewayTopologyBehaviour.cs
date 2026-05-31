@@ -82,6 +82,29 @@ public sealed class GatewayTopologyBehaviour
     }
 
     [Fact]
+    public async Task route_plan_front_door_is_registered_under_either_topology()
+    {
+        // The curated app-facing routing API (`/api/route/*` → tileserver
+        // `/v1/route/*`) is the Flutter client's entry point. Assert only that
+        // the gateway *recognises* and forwards the prefix — i.e. it is not a
+        // 404. We deliberately do NOT pin the upstream-failure code here: if
+        // no tileserver is reachable it is 502/503/504, but a dev tileserver
+        // (appsettings.Development points the cluster at localhost:8090)
+        // answers a GET-on-a-POST-only route with 405 — both prove the route
+        // is wired. A missing route would surface as 404.
+        foreach (var topology in new[] { "Modulith", "Microservices" })
+        {
+            using var factory = BuildGateway(topology);
+            using var client = factory.CreateClient();
+
+            var response = await client.GetAsync("/api/route/plan");
+
+            response.StatusCode.Should().NotBe(HttpStatusCode.NotFound,
+                "the gateway must register /api/route/* and forward it to the tileserver — topology {0}, got {1}", topology, response.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task unknown_paths_return_404_under_either_topology()
     {
         foreach (var topology in new[] { "Modulith", "Microservices" })

@@ -120,7 +120,23 @@ CloudNativePG DB + web at `kart.sandring.no`). To put routing there:
 1. **Public API** in the tileserver: `/v1/route/plan` + `/v1/route/presets`,
    stable DTOs + error envelope + OpenAPI. Keep debug separate. Unit +
    contract tests.
-2. **Gateway**: `/api/route/*` route + auth policy.
+2. **Gateway**: `/api/route/*` route + auth policy. ✅ **DONE** — added a
+   `route-route` in **both** topology blocks (`Microservices` + `Modulith`)
+   of `apps/api/src/Gateway/appsettings.json`: `/api/route/{**catch-all}` →
+   `tileserver-cluster`, transforms `[PathRemovePrefix /api/route,
+   PathPrefix /v1/route]` so `/api/route/plan` → tileserver `/v1/route/plan`.
+   Covered by `GatewayTopologyBehaviour.route_plan_front_door_is_registered_*`
+   (verified end-to-end: under the dev config the gateway forwards to the
+   live tileserver, which returns 405 for GET-on-POST — proving the chain).
+   **Auth caveat:** the gateway is currently a *pure reverse proxy with no
+   authentication middleware* (`Program.cs` only wires `AddReverseProxy` +
+   CORS) — no route has an `AuthorizationPolicy`, and auth is enforced
+   downstream by each .NET module. So `/api/route/*` is reachable exactly
+   like the existing public `/api/tiles/*`. The tileserver itself does **not**
+   validate JWTs, so routing is effectively **open** today. Gating it
+   requires a deliberate follow-up (see Auth-model risk below): either add
+   authentication to the gateway and `RequireAuthorization` on this route, or
+   JWT validation in the tileserver.
 3. **k8s**: tileserver Deployment/Service + artifacts PVC + seed Job; wire
    into prod GitOps; smoke via the gateway.
 4. **Flutter**: `features/routing` client + models + map rendering, against
