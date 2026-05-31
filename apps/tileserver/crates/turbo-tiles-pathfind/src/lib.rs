@@ -56,5 +56,5 @@ pub use vector_layers::{
 };
 pub use pathfinder::{
     utm33n_to_wgs84, CostMode, Inspect, InspectCell, InspectLayer, InspectPoint, LegKind, Path,
-    PathLeg, PathStrategy, PathfindError, Pathfinder, Prefs,
+    PathLeg, PathStrategy, PathfindError, Pathfinder, Prefs, WaypointLeg,
 };

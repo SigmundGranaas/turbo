@@ -19,10 +19,38 @@ use crate::state::ApiState;
 
 #[derive(Debug, Deserialize)]
 pub struct PathfindReq {
-    pub from: [f64; 2],
-    pub to: [f64; 2],
+    /// Legacy 2-point shape. Still accepted; equivalent to
+    /// `points: [from, to]`.
+    #[serde(default)]
+    pub from: Option<[f64; 2]>,
+    #[serde(default)]
+    pub to: Option<[f64; 2]>,
+    /// Ordered list of >= 2 waypoints `[lon, lat]` (start, vias, end).
+    /// Takes precedence over `from`/`to` when present. The route visits
+    /// each point in order.
+    #[serde(default)]
+    pub points: Option<Vec<[f64; 2]>>,
     #[serde(default)]
     pub prefs: Option<Prefs>,
+}
+
+impl PathfindReq {
+    /// Normalize the request to an ordered point list. Accepts either
+    /// `points` (>= 2) or both `from` and `to`; rejects neither/too-few.
+    fn resolve_points(&self) -> Result<Vec<[f64; 2]>, ApiError> {
+        match &self.points {
+            Some(pts) if pts.len() >= 2 => Ok(pts.clone()),
+            Some(_) => Err(ApiError::BadRequest(
+                "`points` needs at least 2 entries".into(),
+            )),
+            None => match (self.from, self.to) {
+                (Some(f), Some(t)) => Ok(vec![f, t]),
+                _ => Err(ApiError::BadRequest(
+                    "provide either `points` (>= 2) or both `from` and `to`".into(),
+                )),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -43,9 +71,8 @@ pub async fn pathfind(
         .as_ref()
         .ok_or(ApiError::PrimitiveUnavailable("pathfind"))?
         .clone();
-    let prefs = req.prefs.unwrap_or_default();
-    let from = req.from;
-    let to = req.to;
+    let prefs = req.prefs.clone().unwrap_or_default();
+    let points = req.resolve_points()?;
     let start = Instant::now();
     // Wrap the synchronous solve in `catch_unwind` so a Rust panic
     // (out-of-bounds, unwrap-on-None, …) becomes an HTTP 500 with a
@@ -53,12 +80,12 @@ pub async fn pathfind(
     // captures the request body verbatim — curl-replayable into a
     // debug binary. See `crash_dump.rs`.
     let req_json = serde_json::json!({
-        "from": from,
-        "to": to,
+        "points": points,
         "prefs": serde_json::to_value(&PrefsEcho::from(&prefs)).unwrap_or_default(),
     });
+    let points_for_solve = points.clone();
     let solve_result = run_or_dump("/v1/pathfind", req_json, move || {
-        pf.solve(from, to, prefs)
+        pf.solve_route(&points_for_solve, prefs)
     });
     let path = match solve_result {
         Ok(Ok(p)) => p,
@@ -242,6 +269,20 @@ pub async fn pathfind_stream(
         }
     };
 
+    // Resolve the waypoint list before consuming prefs. On a bad
+    // request, emit a single error frame + EOF (same shape as the
+    // no-pathfinder case) since this handler returns a stream, not a
+    // Result.
+    let points = match req.resolve_points() {
+        Ok(p) => p,
+        Err(e) => {
+            let body = serde_json::json!({ "message": e.to_string() }).to_string();
+            let s = futures::stream::once(async move {
+                Ok::<_, std::convert::Infallible>(Event::default().event("error").data(body))
+            });
+            return Sse::new(s).keep_alive(KeepAlive::default()).into_response();
+        }
+    };
     let mut prefs = req.prefs.unwrap_or_default();
     // Streaming endpoint installs its OWN recorder externally
     // (the one that fans into the SSE channel). Setting
@@ -263,9 +304,6 @@ pub async fn pathfind_stream(
     let (terminal_tx, mut terminal_rx) =
         tokio::sync::mpsc::channel::<TerminalFrame>(2);
 
-    let from = req.from;
-    let to = req.to;
-
     // Run the synchronous solver on a blocking thread. The
     // streaming recorder fans every record() call into event_tx
     // via try_send. When solve returns we ship the terminal frame
@@ -276,7 +314,7 @@ pub async fn pathfind_stream(
         );
         let result = turbo_tiles_pathfind::solver_trace::with_installed(
             recorder,
-            || pf.solve(from, to, prefs),
+            || pf.solve_route(&points, prefs),
         );
         let terminal = match result {
             Ok(path) => TerminalFrame::Done(Box::new(path)),
@@ -571,6 +609,32 @@ fn map_pathfind_err(state: &ApiState, e: PathfindError) -> ApiError {
         Graph(g) => ApiError::Internal(g.to_string()),
         Dem(d) => ApiError::Internal(d.to_string()),
         Internal(msg) => ApiError::Internal(msg),
+        SegmentFailed {
+            leg_index,
+            from,
+            to,
+            source,
+        } => {
+            // Attribute the failure to the exact stop so the SPA can
+            // highlight it. The user-facing message identifies the leg;
+            // `details` carry the index + endpoints + the underlying
+            // reason for the UI to render inline.
+            ApiError::NoCoverage {
+                message: format!(
+                    "no route for leg {} (stop {} → stop {}): {source}",
+                    leg_index,
+                    leg_index + 1,
+                    leg_index + 2,
+                ),
+                details: serde_json::json!({
+                    "kind": "segment_failed",
+                    "leg_index": leg_index,
+                    "from": from,
+                    "to": to,
+                    "reason": source.to_string(),
+                }),
+            }
+        }
     }
 }
 

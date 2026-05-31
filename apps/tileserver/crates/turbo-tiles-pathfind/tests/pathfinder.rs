@@ -310,6 +310,110 @@ fn pathfinder_hybrid_when_one_end_off_graph() {
 }
 
 #[test]
+fn multi_waypoint_stitches_into_one_continuous_path() {
+    // Route through three collinear points P0 -> P1 -> P2 on the flat
+    // fixture. The stitched path must be continuous (monotone
+    // distances, no duplicated seam vertex), its length must equal the
+    // sum of the two 2-point legs, and `waypoint_legs` must describe
+    // two contiguous legs sharing the middle seam vertex.
+    let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
+    let g = Graph::open(tmp.path()).unwrap();
+    let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
+    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+
+    let p0 = utm33n_to_wgs84(anchor.x, anchor.y + 800.0);
+    let p1 = utm33n_to_wgs84(anchor.x, anchor.y); // mid stop
+    let p2 = utm33n_to_wgs84(anchor.x + 800.0, anchor.y);
+
+    let leg_a = pf.solve([p0.0, p0.1], [p1.0, p1.1], Prefs::default()).unwrap();
+    let leg_b = pf.solve([p1.0, p1.1], [p2.0, p2.1], Prefs::default()).unwrap();
+
+    let route = pf
+        .solve_route(&[[p0.0, p0.1], [p1.0, p1.1], [p2.0, p2.1]], Prefs::default())
+        .unwrap();
+
+    // Two inter-waypoint legs.
+    assert_eq!(route.waypoint_legs.len(), 2, "expected 2 legs for 3 points");
+
+    // Length is the sum of the independent legs (seam not double-counted).
+    let sum = leg_a.length_m + leg_b.length_m;
+    assert!(
+        (route.length_m - sum).abs() < 1.0,
+        "stitched length {} != leg sum {}",
+        route.length_m,
+        sum
+    );
+
+    // distances_m is one cumulative, monotone array ending at length_m.
+    assert_eq!(route.distances_m.len(), route.geometry.len());
+    for w in route.distances_m.windows(2) {
+        assert!(w[1] >= w[0] - 1e-6, "distances must be non-decreasing");
+    }
+    assert!((route.distances_m.last().unwrap() - route.length_m).abs() < 1.0);
+
+    // Waypoint legs tile the geometry contiguously and share the seam.
+    let wl = &route.waypoint_legs;
+    assert_eq!(wl[0].geometry_start_idx, 0);
+    assert_eq!(wl[1].geometry_end_idx as usize, route.geometry.len() - 1);
+    assert_eq!(
+        wl[0].geometry_end_idx, wl[1].geometry_start_idx,
+        "the middle waypoint is the shared seam vertex"
+    );
+    assert_eq!(wl[0].from_point_idx, 0);
+    assert_eq!(wl[1].to_point_idx, 2);
+}
+
+#[test]
+fn multi_waypoint_attributes_failing_leg() {
+    // A degenerate middle->end pair (closer than mesh_cell_m) must fail
+    // the WHOLE route with SegmentFailed naming leg index 1 — so the UI
+    // can point at the exact bad stop rather than a generic error.
+    let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
+    let g = Graph::open(tmp.path()).unwrap();
+    let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
+    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+
+    let p0 = utm33n_to_wgs84(anchor.x, anchor.y + 800.0);
+    let p1 = utm33n_to_wgs84(anchor.x, anchor.y);
+    let p2 = utm33n_to_wgs84(anchor.x + 10.0, anchor.y); // 10 m from p1 < mesh_cell
+
+    let err = pf
+        .solve_route(&[[p0.0, p0.1], [p1.0, p1.1], [p2.0, p2.1]], Prefs::default())
+        .expect_err("degenerate final leg must fail the route");
+    match err {
+        turbo_tiles_pathfind::PathfindError::SegmentFailed { leg_index, .. } => {
+            assert_eq!(leg_index, 1, "the failing leg is the second one");
+        }
+        other => panic!("expected SegmentFailed{{leg_index:1}}, got {other:?}"),
+    }
+}
+
+#[test]
+fn two_point_route_emits_single_waypoint_leg() {
+    // The 2-point convenience path must still produce exactly one
+    // waypoint leg spanning the whole geometry (uniform shape for UIs).
+    let anchor = turbo_tiles_elev::wgs84_to_utm33n(10.7522, 59.9139);
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
+    let g = Graph::open(tmp.path()).unwrap();
+    let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
+    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
+    let from = utm33n_to_wgs84(anchor.x, anchor.y + 600.0);
+    let to = utm33n_to_wgs84(anchor.x + 600.0, anchor.y);
+    let path = pf.solve([from.0, from.1], [to.0, to.1], Prefs::default()).unwrap();
+    assert_eq!(path.waypoint_legs.len(), 1);
+    assert_eq!(path.waypoint_legs[0].geometry_start_idx, 0);
+    assert_eq!(
+        path.waypoint_legs[0].geometry_end_idx as usize,
+        path.geometry.len() - 1
+    );
+}
+
+#[test]
 fn pathfinder_layer_weights_disable_preferred_edge_layer() {
     // Set layer_weights["slope"] = 0.0 — slope contributions get
     // suppressed even though the layer is registered. Smoke check:

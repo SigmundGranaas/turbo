@@ -77,6 +77,19 @@ pub enum PathfindError {
     /// corridor extraction fails.
     #[error("internal: {0}")]
     Internal(String),
+    /// A single inter-waypoint leg of a multi-point route failed.
+    /// Carries the 0-based leg index and its two endpoints so the UI
+    /// can point at the exact stop, plus the underlying per-segment
+    /// error. Single 2-point routes never produce this (one leg, no
+    /// ambiguity — the inner error surfaces directly).
+    #[error("leg {leg_index} ([{},{}] -> [{},{}]) failed: {source}", from[0], from[1], to[0], to[1])]
+    SegmentFailed {
+        leg_index: usize,
+        from: [f64; 2],
+        to: [f64; 2],
+        #[source]
+        source: Box<PathfindError>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -107,6 +120,22 @@ pub struct PathLeg {
     pub length_m: f64,
 }
 
+/// One inter-waypoint leg of a multi-point route. A plain 2-point
+/// route emits exactly one. `*_point_idx` index into the request's
+/// ordered points list; `geometry_*_idx` index into the stitched
+/// [`Path::geometry`] (inclusive), so a UI can slice out just this
+/// leg's polyline or label per-leg stats.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WaypointLeg {
+    pub from_point_idx: u32,
+    pub to_point_idx: u32,
+    pub geometry_start_idx: u32,
+    pub geometry_end_idx: u32,
+    pub length_m: f64,
+    pub cost: f64,
+    pub strategy: PathStrategy,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Path {
     pub strategy: PathStrategy,
@@ -129,6 +158,13 @@ pub struct Path {
     /// Per-leg breakdown for hybrid paths. Single-strategy paths
     /// emit a one-element list.
     pub legs: Vec<PathLeg>,
+    /// Per-inter-waypoint-leg summary for multi-point routes. A plain
+    /// 2-point route emits one element. Indices reference `geometry`
+    /// and the request's ordered points list. Populated by
+    /// [`Pathfinder::solve_route`]; raw single-segment solves leave it
+    /// empty until stitched.
+    #[serde(default)]
+    pub waypoint_legs: Vec<WaypointLeg>,
     /// Names of layers that *forbade* one or more cells along the
     /// computed corridor (best-effort; populated only for off-trail
     /// or hybrid strategies). Empty for `on_graph`.
@@ -953,9 +989,32 @@ impl Pathfinder {
         to_lonlat: [f64; 2],
         prefs: Prefs,
     ) -> Result<Path, PathfindError> {
-        // Recorder installed first so solver events from inside
-        // tracer phases pick it up. Both thread-locals are
-        // restored on drop in LIFO order.
+        // A plain 2-point route is the degenerate multi-point route.
+        // One code path keeps the two from drifting apart.
+        self.solve_route(&[from_lonlat, to_lonlat], prefs)
+    }
+
+    /// Route through an ORDERED list of `points` (start, zero or more
+    /// intermediate "via" stops, end). Each consecutive pair is solved
+    /// independently by the same atomic solver as a 2-point route, and
+    /// the per-segment `Path`s are stitched into ONE continuous `Path`.
+    /// Waypoints are HARD pass-through points: the route visits each in
+    /// order (it may kink at a via, since each leg is optimised on its
+    /// own — standard and expected). A failing segment surfaces as
+    /// [`PathfindError::SegmentFailed`] carrying the 0-based leg index
+    /// and its endpoints, so the caller can point at the exact stop.
+    pub fn solve_route(
+        &self,
+        points: &[[f64; 2]],
+        prefs: Prefs,
+    ) -> Result<Path, PathfindError> {
+        if points.len() < 2 {
+            return Err(PathfindError::DegenerateInputs { dist_m: 0.0 });
+        }
+
+        // Recorder + tracer installed ONCE around ALL segments so the
+        // recording/trace spans the whole multi-leg solve (same
+        // thread-local install the single solve used). Restored on drop.
         let recorder = prefs
             .record
             .then(|| Arc::new(crate::solver_trace::Recorder::new(prefs.record_cap)));
@@ -963,13 +1022,110 @@ impl Pathfinder {
             .debug
             .then(|| Arc::new(crate::tracer::Tracer::new()));
 
-        let run = |inner_prefs: Prefs| -> Result<Path, PathfindError> {
-            self.solve_inner(from_lonlat, to_lonlat, inner_prefs)
+        let n_legs = points.len() - 1;
+        let solve_all = |inner_prefs: Prefs| -> Result<Path, PathfindError> {
+            let mut merged: Option<Path> = None;
+            let mut wlegs: Vec<WaypointLeg> = Vec::new();
+            let mut on_trail_m: f64 = 0.0;
+            for i in 0..n_legs {
+                let seg = self
+                    .solve_inner(points[i], points[i + 1], inner_prefs.clone())
+                    // A 2-point route has one unambiguous leg — surface
+                    // the inner error verbatim (preserves the existing
+                    // NoCoverage/EndpointRefused contract). Only wrap
+                    // when there are multiple legs and the index matters.
+                    .map_err(|e| {
+                        if n_legs == 1 {
+                            e
+                        } else {
+                            PathfindError::SegmentFailed {
+                                leg_index: i,
+                                from: points[i],
+                                to: points[i + 1],
+                                source: Box::new(e),
+                            }
+                        }
+                    })?;
+                on_trail_m += seg.on_trail_pct as f64 / 100.0 * seg.length_m;
+                match merged.as_mut() {
+                    None => {
+                        wlegs.push(WaypointLeg {
+                            from_point_idx: i as u32,
+                            to_point_idx: (i + 1) as u32,
+                            geometry_start_idx: 0,
+                            geometry_end_idx: seg.geometry.len().saturating_sub(1) as u32,
+                            length_m: seg.length_m,
+                            cost: seg.cost,
+                            strategy: seg.strategy,
+                        });
+                        merged = Some(seg);
+                    }
+                    Some(m) => {
+                        // The seam vertex (this waypoint) is shared:
+                        // seg.geometry[0] == m.geometry.last(). Drop
+                        // seg[0]; seg-local index j maps to merged index
+                        // `prev_len - 1 + j` for all j (j=0 -> the seam).
+                        let prev_len = m.geometry.len() as u32;
+                        let map = |j: u32| prev_len - 1 + j;
+                        let seam_idx = prev_len - 1;
+                        let dist_offset = m.distances_m.last().copied().unwrap_or(0.0);
+
+                        m.geometry.extend(seg.geometry.iter().skip(1).copied());
+                        m.distances_m
+                            .extend(seg.distances_m.iter().skip(1).map(|d| d + dist_offset));
+                        for leg in &seg.legs {
+                            m.legs.push(PathLeg {
+                                kind: leg.kind,
+                                start_idx: map(leg.start_idx),
+                                end_idx: map(leg.end_idx),
+                                length_m: leg.length_m,
+                            });
+                        }
+                        for (k, v) in &seg.fkb_breakdown {
+                            *m.fkb_breakdown.entry(k.clone()).or_insert(0.0) += v;
+                        }
+                        for r in &seg.refused_by {
+                            if !m.refused_by.contains(r) {
+                                m.refused_by.push(r.clone());
+                            }
+                        }
+                        if seg.strategy != m.strategy {
+                            m.strategy = PathStrategy::Hybrid;
+                        }
+                        m.length_m += seg.length_m;
+                        m.cost += seg.cost;
+
+                        wlegs.push(WaypointLeg {
+                            from_point_idx: i as u32,
+                            to_point_idx: (i + 1) as u32,
+                            geometry_start_idx: seam_idx,
+                            geometry_end_idx: m.geometry.len() as u32 - 1,
+                            length_m: seg.length_m,
+                            cost: seg.cost,
+                            strategy: seg.strategy,
+                        });
+                    }
+                }
+            }
+            let mut merged = merged.expect("points.len() >= 2 -> at least one segment");
+            // Only recompute the (weighted) on-trail % for genuine
+            // multi-point routes; a single segment keeps its own value
+            // verbatim so 2-point output is unchanged.
+            if wlegs.len() > 1 {
+                merged.on_trail_pct = if merged.length_m > 0.0 {
+                    (on_trail_m / merged.length_m * 100.0) as f32
+                } else {
+                    0.0
+                };
+            }
+            merged.waypoint_legs = wlegs;
+            Ok(merged)
         };
+
         let with_tracer = |inner_prefs: Prefs| -> Result<Path, PathfindError> {
             match tracer.clone() {
-                Some(t) => crate::tracer::with_installed(t, || run(inner_prefs)),
-                None => run(inner_prefs),
+                Some(t) => crate::tracer::with_installed(t, || solve_all(inner_prefs)),
+                None => solve_all(inner_prefs),
             }
         };
         let result = match recorder.clone() {
@@ -1288,6 +1444,7 @@ impl Pathfinder {
             refused_by: Vec::new(),
             debug: None,
             recording: None,
+            waypoint_legs: Vec::new(),
         })
     }
 
@@ -1331,6 +1488,7 @@ impl Pathfinder {
             refused_by: segment.refused_by,
             debug: None,
             recording: None,
+            waypoint_legs: Vec::new(),
         })
     }
 
