@@ -520,12 +520,51 @@ pub(crate) fn solve_unified(
     g[start] = 0.0;
     heap.push(HeapItem { f: heuristic(start), node: start as u32 });
 
+    // Live progress: stream the best-path-so-far reaching toward the
+    // goal as A* advances (same mechanism the FMM off-trail solver
+    // uses), so the SPA's blue preview grows out from the start. The
+    // path reconstruction lives INSIDE the `record` closure, so it
+    // costs nothing unless a recorder is installed (record=true / SSE).
+    // (The enclosing `solve_unified` phase is opened by the caller.)
+    let emit_stride = (n_total as u64 / 120).max(32);
+    let mut best_h = f32::INFINITY;
+    let mut pops: u64 = 0;
+    let mut last_emit: u64 = 0;
+
     let mut reached = false;
     while let Some(HeapItem { node, .. }) = heap.pop() {
         let node = node as usize;
         if node == goal {
             reached = true;
             break;
+        }
+        // Snapshot the route to the closest-to-goal node seen so far,
+        // throttled so a large corridor emits ~120 frames, not millions.
+        pops += 1;
+        let h = heuristic(node);
+        if h < best_h {
+            best_h = h;
+            if pops - last_emit >= emit_stride {
+                last_emit = pops;
+                crate::solver_trace::record(|| {
+                    let mut coords: Vec<[f32; 2]> = Vec::new();
+                    let mut v = node;
+                    loop {
+                        let (x, y) = pos_of(v);
+                        coords.push([x as f32, y as f32]);
+                        if v == start {
+                            break;
+                        }
+                        let p = prev[v];
+                        if p == u32::MAX {
+                            break;
+                        }
+                        v = p as usize;
+                    }
+                    coords.reverse();
+                    crate::solver_trace::SolverEvent::BestPathSnapshot { coords }
+                });
+            }
         }
         let gu = g[node];
         let mut relax = |v: usize, w: f32, seg: (u32, u32, u32),
@@ -625,6 +664,12 @@ pub(crate) fn solve_unified(
 
     // Smooth off-trail runs (trail runs stay exact).
     let (geometry_utm, seg_on_trail) = smooth_off_trail(&geom, &on_trail, &corr, &overlay);
+
+    // Final snapshot: the exact answer, so the live preview snaps into
+    // place when the solve completes.
+    crate::solver_trace::record(|| crate::solver_trace::SolverEvent::BestPathSnapshot {
+        coords: geometry_utm.iter().map(|&(x, y)| [x as f32, y as f32]).collect(),
+    });
 
     // refused_by is empty by construction: `mesh_step` never steps onto a
     // refused cell and trails bridge water legitimately.
