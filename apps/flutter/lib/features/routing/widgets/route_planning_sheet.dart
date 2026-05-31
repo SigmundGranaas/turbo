@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/features/saved_paths/api.dart';
 
 import '../data/route_planning_notifier.dart';
 import '../data/route_planning_state.dart';
 import '../models/route_models.dart';
 import '../providers/routing_providers.dart';
 
-/// The center-bottom planning surface. A single roomy "route style"
-/// selector (presets live behind a picker, not a crowded chip row), the
-/// live solve summary, and edit actions. Material 3, generous spacing.
+/// The center-bottom planning surface: the live solve summary up top, a
+/// native route-style row, and the actions (undo / clear / save as track).
 class RoutePlanningSheet extends ConsumerWidget {
   const RoutePlanningSheet({super.key});
 
@@ -35,23 +36,26 @@ class RoutePlanningSheet extends ConsumerWidget {
                 : null,
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                _PresetSelector(
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _Body(state: state),
+                ),
+                const SizedBox(height: 8),
+                _RouteStyleRow(
                   presets: presets,
                   selected: state.presetName,
                   onSelected: notifier.setPreset,
                 ),
-                const SizedBox(height: 20),
-                _Body(state: state),
-                const SizedBox(height: 16),
-                _Actions(
-                  enabled: !state.isEmpty,
+                _ActionRow(
+                  state: state,
                   onUndo: notifier.undoLast,
                   onClear: notifier.clear,
+                  onSave: () => _saveAsTrack(context, state),
                 ),
               ],
             ),
@@ -60,60 +64,69 @@ class RoutePlanningSheet extends ConsumerWidget {
       ),
     );
   }
+
+  Future<void> _saveAsTrack(BuildContext context, RoutePlanningState state) async {
+    final plan = state.plan;
+    if (plan == null) return;
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SavePathSheet(
+        points: plan.geometry,
+        distance: plan.distanceM,
+        ascent: plan.ascentM,
+      ),
+    );
+    if (saved == true && context.mounted) {
+      AppSnackbars.success(context, 'Route saved as a track');
+    }
+  }
 }
 
-class _PresetSelector extends StatelessWidget {
+/// Native tappable row (settings-idiom): leading icon, label, current
+/// value + chevron. Opens a bottom-sheet picker — the app's standard
+/// choose-one pattern.
+class _RouteStyleRow extends StatelessWidget {
   final List<RoutePreset> presets;
   final String selected;
   final ValueChanged<String> onSelected;
 
-  const _PresetSelector({
+  const _RouteStyleRow({
     required this.presets,
     required this.selected,
     required this.onSelected,
   });
 
-  RoutePreset? get _current {
-    for (final p in presets) {
-      if (p.name == selected) return p;
-    }
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final current = _current;
-    final label = current?.label ?? 'Balanced';
-
+    RoutePreset? current;
+    for (final p in presets) {
+      if (p.name == selected) {
+        current = p;
+        break;
+      }
+    }
     return InkWell(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(12),
       onTap: presets.isEmpty ? null : () => _openPicker(context),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         child: Row(
           children: [
-            Icon(Icons.tune, size: 22, color: theme.colorScheme.primary),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Route style',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant)),
-                  const SizedBox(height: 2),
-                  Text(label,
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600)),
-                ],
+            Icon(Icons.tune, size: 20, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Text('Route style', style: theme.textTheme.bodyLarge),
+            const Spacer(),
+            Text(
+              current?.label ?? 'Balanced',
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            Icon(Icons.expand_more, color: theme.colorScheme.onSurfaceVariant),
+            Icon(Icons.arrow_drop_down, color: theme.colorScheme.onSurfaceVariant),
           ],
         ),
       ),
@@ -124,35 +137,32 @@ class _PresetSelector extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (sheetCtx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                child: Text('Route style',
-                    style: Theme.of(sheetCtx).textTheme.titleLarge),
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text('Route style',
+                  style: Theme.of(sheetCtx).textTheme.titleLarge),
+            ),
+            for (final p in presets)
+              ListTile(
+                title: Text(p.label),
+                subtitle: Text(p.description),
+                trailing: p.name == selected
+                    ? Icon(Icons.check, color: Theme.of(sheetCtx).colorScheme.primary)
+                    : null,
+                onTap: () {
+                  onSelected(p.name);
+                  Navigator.of(sheetCtx).pop();
+                },
               ),
-              for (final p in presets)
-                ListTile(
-                  title: Text(p.label),
-                  subtitle: Text(p.description),
-                  trailing: p.name == selected
-                      ? Icon(Icons.check,
-                          color: Theme.of(sheetCtx).colorScheme.primary)
-                      : null,
-                  onTap: () {
-                    onSelected(p.name);
-                    Navigator.of(sheetCtx).pop();
-                  },
-                ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -172,29 +182,27 @@ class _Body extends StatelessWidget {
           Icon(Icons.error_outline, color: theme.colorScheme.error, size: 22),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(error,
-                style: TextStyle(color: theme.colorScheme.error)),
+            child: Text(error, style: TextStyle(color: theme.colorScheme.error)),
           ),
         ],
       );
     }
 
     if (state.isEmpty || !state.canPlan) {
-      final msg = state.isEmpty
-          ? 'Tap the map to add stops'
-          : 'Add one more stop to plan a route';
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Text(msg,
-            style: theme.textTheme.bodyLarge
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          state.isEmpty ? 'Tap the map to add stops' : 'Add one more stop to plan a route',
+          style: theme.textTheme.bodyLarge
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
       );
     }
 
     final plan = state.plan;
     if (plan == null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+      return Align(
+        alignment: Alignment.centerLeft,
         child: Text('Planning…',
             style: theme.textTheme.bodyLarge
                 ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
@@ -224,7 +232,7 @@ class _Summary extends StatelessWidget {
           ],
         ),
         if (plan.surfaces.isNotEmpty) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Text(
             _surfaceLine(plan),
             style: theme.textTheme.bodyMedium
@@ -295,32 +303,40 @@ class _Stat extends StatelessWidget {
   }
 }
 
-class _Actions extends StatelessWidget {
-  final bool enabled;
+class _ActionRow extends StatelessWidget {
+  final RoutePlanningState state;
   final VoidCallback onUndo;
   final VoidCallback onClear;
+  final VoidCallback onSave;
 
-  const _Actions({
-    required this.enabled,
+  const _ActionRow({
+    required this.state,
     required this.onUndo,
     required this.onClear,
+    required this.onSave,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hasStops = !state.isEmpty;
+    final canSave = state.plan != null;
     return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        TextButton.icon(
-          onPressed: enabled ? onUndo : null,
-          icon: const Icon(Icons.undo, size: 20),
-          label: const Text('Undo'),
+        IconButton(
+          tooltip: 'Undo last stop',
+          onPressed: hasStops ? onUndo : null,
+          icon: const Icon(Icons.undo),
         ),
-        const SizedBox(width: 8),
-        TextButton.icon(
-          onPressed: enabled ? onClear : null,
-          icon: const Icon(Icons.clear, size: 20),
-          label: const Text('Clear'),
+        IconButton(
+          tooltip: 'Clear route',
+          onPressed: hasStops ? onClear : null,
+          icon: const Icon(Icons.delete_outline),
+        ),
+        const Spacer(),
+        FilledButton.icon(
+          onPressed: canSave ? onSave : null,
+          icon: const Icon(Icons.bookmark_add_outlined, size: 20),
+          label: const Text('Save as track'),
         ),
       ],
     );

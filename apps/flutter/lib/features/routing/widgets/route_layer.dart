@@ -28,7 +28,10 @@ class RoutePolylineLayer extends StatelessWidget {
     final p = plan;
     if (p == null || p.geometry.length < 2) return const SizedBox.shrink();
 
-    final main = color ?? Theme.of(context).colorScheme.primary;
+    // Default to the theme's darkest ink (onSurface ≈ near-black), not
+    // `primary` (a terracotta that reads as "skin" on the map). The light
+    // casing underneath makes the dark line pop over busy terrain.
+    final main = color ?? Theme.of(context).colorScheme.onSurface;
     final casing = Theme.of(context).colorScheme.surface.withValues(alpha: 0.9);
 
     return PolylineLayer(

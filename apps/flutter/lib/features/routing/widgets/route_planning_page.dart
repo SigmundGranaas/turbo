@@ -120,7 +120,7 @@ class _RoutePlanningPageState extends ConsumerState<RoutePlanningPage>
                   Polyline(
                     points: state.previewGeometry,
                     strokeWidth: 4,
-                    color: scheme.primary.withValues(alpha: 0.55),
+                    color: scheme.onSurface.withValues(alpha: 0.5),
                     strokeCap: StrokeCap.round,
                     strokeJoin: StrokeJoin.round,
                   ),
