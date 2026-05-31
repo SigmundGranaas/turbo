@@ -186,6 +186,79 @@ pub struct Path {
 /// SPA. Coordinates are stored as `f32` metres at record time
 /// because the hot Theta* loop is dense and a per-event projection
 /// would hurt; the projection runs once here on the snapshot.
+/// Stitch per-leg `Path`s (in waypoint order) into one continuous route:
+/// concatenate geometry (dropping the duplicated seam vertex), re-offset
+/// leg indices, recompute cumulative distances, sum length/cost, merge the
+/// surface breakdown, union refusals, and build `waypoint_legs`.
+fn stitch_legs(legs: Vec<Path>) -> Path {
+    let mut it = legs.into_iter();
+    let mut merged = it.next().expect("at least one leg");
+    let mut on_trail_m = merged.on_trail_pct as f64 / 100.0 * merged.length_m;
+    let mut wlegs = vec![WaypointLeg {
+        from_point_idx: 0,
+        to_point_idx: 1,
+        geometry_start_idx: 0,
+        geometry_end_idx: merged.geometry.len().saturating_sub(1) as u32,
+        length_m: merged.length_m,
+        cost: merged.cost,
+        strategy: merged.strategy,
+    }];
+    let mut i = 1u32;
+    for seg in it {
+        on_trail_m += seg.on_trail_pct as f64 / 100.0 * seg.length_m;
+        let prev_len = merged.geometry.len() as u32;
+        let map = |j: u32| prev_len - 1 + j;
+        let seam_idx = prev_len - 1;
+        let dist_offset = merged.distances_m.last().copied().unwrap_or(0.0);
+        merged.geometry.extend(seg.geometry.iter().skip(1).copied());
+        merged
+            .distances_m
+            .extend(seg.distances_m.iter().skip(1).map(|d| d + dist_offset));
+        for leg in &seg.legs {
+            merged.legs.push(PathLeg {
+                kind: leg.kind,
+                start_idx: map(leg.start_idx),
+                end_idx: map(leg.end_idx),
+                length_m: leg.length_m,
+            });
+        }
+        for (k, v) in &seg.fkb_breakdown {
+            *merged.fkb_breakdown.entry(k.clone()).or_insert(0.0) += v;
+        }
+        for r in &seg.refused_by {
+            if !merged.refused_by.contains(r) {
+                merged.refused_by.push(r.clone());
+            }
+        }
+        if seg.strategy != merged.strategy {
+            merged.strategy = PathStrategy::Hybrid;
+        }
+        merged.length_m += seg.length_m;
+        merged.cost += seg.cost;
+        wlegs.push(WaypointLeg {
+            from_point_idx: i,
+            to_point_idx: i + 1,
+            geometry_start_idx: seam_idx,
+            geometry_end_idx: merged.geometry.len() as u32 - 1,
+            length_m: seg.length_m,
+            cost: seg.cost,
+            strategy: seg.strategy,
+        });
+        i += 1;
+    }
+    // Recompute the weighted on-trail % only for genuine multi-point routes;
+    // a single leg keeps its own value verbatim (2-point output unchanged).
+    if wlegs.len() > 1 {
+        merged.on_trail_pct = if merged.length_m > 0.0 {
+            (on_trail_m / merged.length_m * 100.0) as f32
+        } else {
+            0.0
+        };
+    }
+    merged.waypoint_legs = wlegs;
+    merged
+}
+
 fn serialise_recording(
     mut rec: crate::solver_trace::SolverRecording,
 ) -> crate::solver_trace::SolverRecording {
@@ -417,6 +490,37 @@ impl Default for Prefs {
     }
 }
 
+impl Prefs {
+    /// 64-bit fingerprint of every field that affects a leg's solved
+    /// geometry (excludes `record`/`debug`, which only add tracing). Two
+    /// requests with the same fingerprint + endpoints yield the same leg,
+    /// so the per-leg cache can reuse it across edits.
+    pub fn leg_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.snap_radius_m.to_bits().hash(&mut h);
+        self.bridge_radius_m.to_bits().hash(&mut h);
+        (self.profile as u8).hash(&mut h);
+        self.mesh_cell_m.to_bits().hash(&mut h);
+        self.max_off_trail_km.to_bits().hash(&mut h);
+        self.allow_off_trail.hash(&mut h);
+        self.force_off_trail.hash(&mut h);
+        self.mesh_pad_m.map(f64::to_bits).hash(&mut h);
+        self.refusal_snap_m.to_bits().hash(&mut h);
+        self.off_trail_base.map(f64::to_bits).hash(&mut h);
+        // Sort layer_weights for a deterministic order (HashMap iteration
+        // order isn't stable).
+        let mut lw: Vec<(&str, u32)> =
+            self.layer_weights.iter().map(|(k, v)| (k.as_str(), v.to_bits())).collect();
+        lw.sort_unstable();
+        lw.hash(&mut h);
+        // Debug-format the override patch + cost mode (struct field order
+        // is stable; no serde_json dependency needed).
+        format!("{:?}|{:?}", self.cost_config_override, self.cost_mode).hash(&mut h);
+        h.finish()
+    }
+}
+
 /// Cost-composition mode for the solver loops. Toggled per request
 /// via [`Prefs::cost_mode`]. See `Prefs::cost_mode` doc for the
 /// behavioural contract.
@@ -473,7 +577,18 @@ pub struct Pathfinder {
     /// the raster mask to the vector water layer at request time.
     pub dem: Option<Arc<Dem>>,
     pub mask: Option<Arc<Mask>>,
+    /// Per-leg solve cache. Multi-waypoint editing re-sends the whole
+    /// point list every keystroke/drag; this lets unchanged legs return
+    /// instantly so only the edited leg(s) actually solve. Keyed by
+    /// (prefs fingerprint, from-bits, to-bits) — see `Prefs::leg_fingerprint`.
+    leg_cache: std::sync::Mutex<std::collections::HashMap<LegKey, Path>>,
 }
+
+/// (prefs fingerprint, from.x, from.y, to.x, to.y) — all as raw bits, so
+/// the key is exact (no hash-collision risk of returning a wrong leg).
+type LegKey = (u64, u64, u64, u64, u64);
+/// Cap on cached legs; cleared wholesale when exceeded (rare).
+const LEG_CACHE_CAP: usize = 256;
 
 impl Pathfinder {
     pub fn new(graph: Option<Arc<Graph>>, layers: Vec<Arc<dyn CostLayer>>) -> Self {
@@ -485,6 +600,7 @@ impl Pathfinder {
                 .expect("embedded cost-config defaults must parse"),
             dem: None,
             mask: None,
+            leg_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -626,6 +742,7 @@ impl Pathfinder {
             cost_config,
             dem: dem_for_breakdown,
             mask: mask_for_breakdown,
+            leg_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -1024,122 +1141,72 @@ impl Pathfinder {
 
         let n_legs = points.len() - 1;
         let solve_all = |inner_prefs: Prefs| -> Result<Path, PathfindError> {
-            let mut merged: Option<Path> = None;
-            let mut wlegs: Vec<WaypointLeg> = Vec::new();
-            let mut on_trail_m: f64 = 0.0;
-            for i in 0..n_legs {
-                // Live-preview continuity: prefix this leg's snapshots
-                // with the already-finalized earlier legs (in UTM, the
-                // recorder's coord space), so the preview shows the whole
-                // route building rather than restarting at each via.
-                match (i, merged.as_ref()) {
-                    (0, _) => crate::solver_trace::set_snapshot_prefix(Vec::new()),
-                    (_, Some(m)) => crate::solver_trace::set_snapshot_prefix(
-                        m.geometry
-                            .iter()
-                            .map(|p| {
-                                let u = wgs84_to_utm33n(p[0], p[1]);
-                                [u.x as f32, u.y as f32]
-                            })
-                            .collect(),
-                    ),
-                    _ => {}
+            let fp = inner_prefs.leg_fingerprint();
+            let keys: Vec<LegKey> = (0..n_legs)
+                .map(|i| {
+                    (
+                        fp,
+                        points[i][0].to_bits(),
+                        points[i][1].to_bits(),
+                        points[i + 1][0].to_bits(),
+                        points[i + 1][1].to_bits(),
+                    )
+                })
+                .collect();
+            // A 2-point route has one unambiguous leg — surface the inner
+            // error verbatim (preserves the NoCoverage/EndpointRefused
+            // contract). Wrap only when the leg index matters.
+            let wrap_err = |i: usize, e: PathfindError| -> PathfindError {
+                if n_legs == 1 {
+                    e
+                } else {
+                    PathfindError::SegmentFailed {
+                        leg_index: i,
+                        from: points[i],
+                        to: points[i + 1],
+                        source: Box::new(e),
+                    }
                 }
+            };
+
+            // Resolve each leg in order: a cache hit returns instantly (so
+            // editing a multi-stop route only re-solves the changed legs); a
+            // miss is solved with the live-preview prefix from the prior legs,
+            // then cached. Kept SEQUENTIAL on purpose — the per-leg solver is
+            // memory/mmap-bound, so threading the legs contends on the DEM +
+            // allocator and measured SLOWER than serial.
+            let mut resolved: Vec<Path> = Vec::with_capacity(n_legs);
+            for i in 0..n_legs {
+                if let Some(cached) = self.leg_cache.lock().unwrap().get(&keys[i]).cloned() {
+                    resolved.push(cached);
+                    continue;
+                }
+                // Live-preview continuity: prefix this leg's snapshots with the
+                // already-resolved earlier legs (UTM, the recorder's space).
+                let prefix: Vec<[f32; 2]> = resolved
+                    .iter()
+                    .flat_map(|p| {
+                        p.geometry.iter().map(|c| {
+                            let u = wgs84_to_utm33n(c[0], c[1]);
+                            [u.x as f32, u.y as f32]
+                        })
+                    })
+                    .collect();
+                crate::solver_trace::set_snapshot_prefix(prefix);
                 let seg = self
                     .solve_inner(points[i], points[i + 1], inner_prefs.clone())
-                    // A 2-point route has one unambiguous leg — surface
-                    // the inner error verbatim (preserves the existing
-                    // NoCoverage/EndpointRefused contract). Only wrap
-                    // when there are multiple legs and the index matters.
-                    .map_err(|e| {
-                        if n_legs == 1 {
-                            e
-                        } else {
-                            PathfindError::SegmentFailed {
-                                leg_index: i,
-                                from: points[i],
-                                to: points[i + 1],
-                                source: Box::new(e),
-                            }
-                        }
-                    })?;
-                on_trail_m += seg.on_trail_pct as f64 / 100.0 * seg.length_m;
-                match merged.as_mut() {
-                    None => {
-                        wlegs.push(WaypointLeg {
-                            from_point_idx: i as u32,
-                            to_point_idx: (i + 1) as u32,
-                            geometry_start_idx: 0,
-                            geometry_end_idx: seg.geometry.len().saturating_sub(1) as u32,
-                            length_m: seg.length_m,
-                            cost: seg.cost,
-                            strategy: seg.strategy,
-                        });
-                        merged = Some(seg);
+                    .map_err(|e| wrap_err(i, e))?;
+                crate::solver_trace::set_snapshot_prefix(Vec::new());
+                {
+                    let mut cache = self.leg_cache.lock().unwrap();
+                    if cache.len() > LEG_CACHE_CAP {
+                        cache.clear();
                     }
-                    Some(m) => {
-                        // The seam vertex (this waypoint) is shared:
-                        // seg.geometry[0] == m.geometry.last(). Drop
-                        // seg[0]; seg-local index j maps to merged index
-                        // `prev_len - 1 + j` for all j (j=0 -> the seam).
-                        let prev_len = m.geometry.len() as u32;
-                        let map = |j: u32| prev_len - 1 + j;
-                        let seam_idx = prev_len - 1;
-                        let dist_offset = m.distances_m.last().copied().unwrap_or(0.0);
-
-                        m.geometry.extend(seg.geometry.iter().skip(1).copied());
-                        m.distances_m
-                            .extend(seg.distances_m.iter().skip(1).map(|d| d + dist_offset));
-                        for leg in &seg.legs {
-                            m.legs.push(PathLeg {
-                                kind: leg.kind,
-                                start_idx: map(leg.start_idx),
-                                end_idx: map(leg.end_idx),
-                                length_m: leg.length_m,
-                            });
-                        }
-                        for (k, v) in &seg.fkb_breakdown {
-                            *m.fkb_breakdown.entry(k.clone()).or_insert(0.0) += v;
-                        }
-                        for r in &seg.refused_by {
-                            if !m.refused_by.contains(r) {
-                                m.refused_by.push(r.clone());
-                            }
-                        }
-                        if seg.strategy != m.strategy {
-                            m.strategy = PathStrategy::Hybrid;
-                        }
-                        m.length_m += seg.length_m;
-                        m.cost += seg.cost;
-
-                        wlegs.push(WaypointLeg {
-                            from_point_idx: i as u32,
-                            to_point_idx: (i + 1) as u32,
-                            geometry_start_idx: seam_idx,
-                            geometry_end_idx: m.geometry.len() as u32 - 1,
-                            length_m: seg.length_m,
-                            cost: seg.cost,
-                            strategy: seg.strategy,
-                        });
-                    }
+                    cache.insert(keys[i], seg.clone());
                 }
+                resolved.push(seg);
             }
-            // Clear the prefix so it can't leak into a later solve on
-            // this worker thread.
-            crate::solver_trace::set_snapshot_prefix(Vec::new());
-            let mut merged = merged.expect("points.len() >= 2 -> at least one segment");
-            // Only recompute the (weighted) on-trail % for genuine
-            // multi-point routes; a single segment keeps its own value
-            // verbatim so 2-point output is unchanged.
-            if wlegs.len() > 1 {
-                merged.on_trail_pct = if merged.length_m > 0.0 {
-                    (on_trail_m / merged.length_m * 100.0) as f32
-                } else {
-                    0.0
-                };
-            }
-            merged.waypoint_legs = wlegs;
-            Ok(merged)
+            Ok(stitch_legs(resolved))
         };
 
         let with_tracer = |inner_prefs: Prefs| -> Result<Path, PathfindError> {

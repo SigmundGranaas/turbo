@@ -198,7 +198,7 @@ impl Default for SurfacePaceProfile {
 /// Sparse override patch. Each field is optional so a request
 /// only carries the knobs the curator wants to change; unset
 /// fields inherit from the boot config.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct CostConfigPatch {
     /// Per-surface pace overrides apply to the FOOT profile (presets
     /// are foot-focused; bicycle/ski keep their config defaults).

@@ -1074,9 +1074,18 @@ export function PlotRoute() {
     });
   }, [points, refusal]);
 
+  // Debounce the SOLVE on rapid point edits (clicks/drags). Markers and
+  // the stop list react to `points` instantly; only the network solve
+  // waits ~250 ms for edits to settle, so dragging doesn't stack solves.
+  const [debouncedPoints, setDebouncedPoints] = useState<Marker[]>(points);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedPoints(points), 250);
+    return () => clearTimeout(t);
+  }, [points]);
+
   // Auto-pathfind when there are >= 2 waypoints or any control changes.
   useEffect(() => {
-    if (points.length < 2) {
+    if (debouncedPoints.length < 2) {
       setPath(null);
       stopLivePreview();
       return;
@@ -1103,7 +1112,7 @@ export function PlotRoute() {
       setPath(null);
       // Kick off an async reader; don't await inside the effect.
       const overrideForReq = nonNullPatch(costPatch);
-      void streamPathfind(points, preset, {
+      void streamPathfind(debouncedPoints, preset, {
         profile,
         snap_radius_m: forceOffTrail ? 0 : snapRadius,
         bridge_radius_m: forceOffTrail ? 0 : bridgeRadius,
@@ -1148,7 +1157,7 @@ export function PlotRoute() {
     stopLivePreview();
     setPath(null);
     const overrideForReq = nonNullPatch(costPatch);
-    void streamPathfind(points, preset, {
+    void streamPathfind(debouncedPoints, preset, {
       profile,
       snap_radius_m: forceOffTrail ? 0 : snapRadius,
       bridge_radius_m: forceOffTrail ? 0 : bridgeRadius,
@@ -1191,7 +1200,7 @@ export function PlotRoute() {
       cancelled = true;
       stopLivePreview();
     };
-  }, [points, preset, profile, snapRadius, bridgeRadius, meshCell, meshPad, refusalSnap, layerWeights, forceOffTrail, recordOn, liveMode, costPatch]);
+  }, [debouncedPoints, preset, profile, snapRadius, bridgeRadius, meshCell, meshPad, refusalSnap, layerWeights, forceOffTrail, recordOn, liveMode, costPatch]);
 
   // Inspect overlay: fetch mesh + refused regions when the user
   // toggles "Show mesh" and we have both markers. Refetches when
