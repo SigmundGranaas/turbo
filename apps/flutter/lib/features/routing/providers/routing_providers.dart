@@ -16,8 +16,12 @@ final routingBaseUrlProvider = Provider<String>((ref) {
   if (fromEnv.isNotEmpty) return fromEnv;
   // Dev: hit the tileserver directly (compose maps 8090) at /v1/route.
   if (kDebugMode) return 'http://localhost:8090/v1/route';
-  // Release: through the gateway, which strips /api/route → /v1/route.
-  return 'https://api.sandring.no/api/route';
+  // Release: the live API host. In compose the YARP gateway maps
+  // /api/route → /v1/route; in k8s a Traefik middleware does the same
+  // (infra/k8s/base/tileserver.yaml). Same host as the rest of the API
+  // (EnvironmentConfig.apiBaseUrl) — note curated_paths still uses the
+  // separate api.sandring.no host, to be reconciled.
+  return 'https://kart-api.sandring.no/api/route';
 });
 
 final routingApiClientProvider = Provider<RoutingApiClient>((ref) {

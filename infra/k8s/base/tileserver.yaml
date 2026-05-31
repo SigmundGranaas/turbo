@@ -1,0 +1,199 @@
+# Turbo tileserver (Rust) — routing-only deployment.
+#
+# ⚠️ NOT YET WIRED INTO kustomization.yaml. This manifest is a reviewed
+#    draft (Stage 3 of the routing-API rollout). It deploys nothing until
+#    it is added to base/kustomization.yaml AND the prerequisites in
+#    infra/k8s/README-tileserver.md are met (artifacts in R2, sealed
+#    secret, capacity confirmed). Keeping it unreferenced means `kustomize
+#    build` ignores it.
+#
+# Scope: serves the curated routing API (/v1/route/*) only, in --no-db
+# mode (the lazy pool means MVT/DB endpoints 503 on demand; routing reads
+# the on-disk artifacts, not Postgres). A tiles DB + curated MVT serving
+# is a later, separate step.
+#
+# Exposure: there is no YARP gateway in k8s — the Traefik ingress targets
+# this Service directly. A ReplacePathRegex middleware maps the public
+# /api/route/* onto the tileserver's /v1/route/* (mirrors what the compose
+# gateway's PathRemovePrefix+PathPrefix transforms do).
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tileserver-artifacts
+  labels:
+    app: tileserver
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # Routing artifacts ≈ 14Gi today (norway.dem 11Gi + mask/graph/
+      # graph_geom/vectors/anchors). 20Gi leaves headroom for a rebuild.
+      storage: 20Gi
+---
+# Path rewrite: public /api/route/<x>  ->  tileserver /v1/route/<x>.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: tileserver-route-rewrite
+spec:
+  replacePathRegex:
+    regex: "^/api/route/(.*)"
+    replacement: "/v1/route/$1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tileserver
+  labels:
+    app: tileserver
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # single RWO artifact volume — no two pods mounting it
+  selector:
+    matchLabels:
+      app: tileserver
+  template:
+    metadata:
+      labels:
+        app: tileserver
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532      # chiseled/distroless nonroot
+        runAsGroup: 65532
+        fsGroup: 65532        # so the artifact PVC is group-writable by the seed init
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ghcr-auth
+      initContainers:
+        # One-shot artifact seed: pull the prebuilt Norway artifacts from
+        # R2 onto the PVC on first boot (skips if the DEM is already
+        # present). See README-tileserver.md for uploading them and for
+        # the r2-artifacts-creds sealed secret. Swap for a build Job if
+        # you'd rather ingest in-cluster.
+        - name: fetch-artifacts
+          image: rclone/rclone:1.68
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              if [ -f /artifacts/norway.dem ]; then
+                echo "artifacts present; skipping fetch"; exit 0
+              fi
+              echo "seeding artifacts from R2..."
+              rclone --config /dev/null \
+                --s3-provider Cloudflare \
+                --s3-access-key-id "$ACCESS_KEY_ID" \
+                --s3-secret-access-key "$ACCESS_SECRET_KEY" \
+                --s3-endpoint "$R2_ENDPOINT" \
+                copy ":s3:turbo-artifacts/norway/" /artifacts/ \
+                --transfers 4 --fast-list
+          env:
+            - name: ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: r2-artifacts-creds, key: ACCESS_KEY_ID } }
+            - name: ACCESS_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: r2-artifacts-creds, key: ACCESS_SECRET_KEY } }
+            - name: R2_ENDPOINT
+              valueFrom: { secretKeyRef: { name: r2-artifacts-creds, key: ENDPOINT } }
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+      containers:
+        - name: tileserver
+          image: turbo-tileserver       # registry/tag set per-env via kustomize images:
+          args: ["serve", "--no-db", "--artifacts-dir", "/artifacts"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: RUST_LOG
+              value: "info,tower_http=warn,sqlx=warn"
+            - name: TILESERVER_ARTIFACT_DIR
+              value: "/artifacts"
+            - name: PUBLIC_BASE_URL
+              value: "https://kart-api.sandring.no/api/route"
+            # AuthConfig::from_env requires a secret even though the
+            # routing endpoints are public (it gates only /admin + debug).
+            - name: JWT_SECRET
+              valueFrom: { secretKeyRef: { name: auth-secrets, key: jwt-key } }
+          startupProbe:                  # mmapping an 11Gi DEM at boot can be slow on cold cache
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 4
+          resources:
+            requests:
+              memory: "1Gi"             # mmap pages are reclaimable; RSS grows under load
+              cpu: "250m"
+            limits:
+              # The DEM is mmap'd (not all resident), but a Norway-wide
+              # solve touches large regions. Tune against real usage;
+              # the plan flags a possible dedicated node.
+              memory: "6Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: artifacts
+              mountPath: /artifacts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: tileserver-artifacts
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tileserver
+  labels:
+    app: tileserver
+spec:
+  selector:
+    app: tileserver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tileserver-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    # Attach the path rewrite (namespace is patched per-env).
+    traefik.ingress.kubernetes.io/router.middlewares: turbo-prod-tileserver-route-rewrite@kubernetescrd
+spec:
+  rules:
+    - host: kart-api.sandring.no
+      http:
+        paths:
+          - path: /api/route
+            pathType: Prefix
+            backend:
+              service:
+                name: tileserver
+                port:
+                  number: 8080
