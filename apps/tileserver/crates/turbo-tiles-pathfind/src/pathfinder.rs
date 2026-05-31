@@ -29,14 +29,12 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use turbo_tiles_elev::{wgs84_to_utm33n, Dem, PointXY};
-use turbo_tiles_graph::{Graph, NodePos, Profile, RouteResult};
+use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
-use crate::cost::{compose_cell, compose_edge, compose_mesh_edge, CostLayer};
-use crate::core::off_trail::{theta_star, theta_star_with_edge_cost, Mesh, MeshNodeId, Point2};
-use crate::core::off_trail_mesh::{
-    build_local_mesh, CostSample, ExitNode, MeshBbox, MeshBuildInput, RefusedPolygon,
-};
+use crate::cost::{compose_cell, CostLayer};
+use crate::core::off_trail::Point2;
+use crate::core::off_trail_mesh::{CostSample, MeshBbox, RefusedPolygon};
 use crate::layers::{
     AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, MarkingLayer, MaskRefusalLayer,
     PreferredEdgeLayer, SlopeLayer, TotalGainLayer, TrailProximityLayer,
@@ -148,36 +146,6 @@ pub struct Path {
     pub recording: Option<crate::solver_trace::SolverRecording>,
 }
 
-/// Bridge from Dijkstra's low-level event stream into the
-/// solver-trace recorder. Translates `DijkstraEvent` (defined in
-/// the graph crate to avoid a pathfind dependency) into
-/// `solver_trace::SolverEvent` and pushes to the thread-local
-/// recorder. Coordinates stay in UTM here; `serialise_recording`
-/// projects them all to WGS84 once at the end.
-fn graph_observer(ev: turbo_tiles_graph::DijkstraEvent) {
-    use turbo_tiles_graph::DijkstraEvent;
-    match ev {
-        DijkstraEvent::NodePopped { x, y, g } => {
-            crate::solver_trace::record(|| crate::solver_trace::SolverEvent::NodePopped {
-                x,
-                y,
-                g,
-                h: 0.0,
-            });
-        }
-        DijkstraEvent::EdgeRelaxed { fx, fy, tx, ty, new_g } => {
-            crate::solver_trace::record(|| crate::solver_trace::SolverEvent::EdgeRelaxed {
-                fx,
-                fy,
-                tx,
-                ty,
-                new_g,
-                took_los: false,
-            });
-        }
-    }
-}
-
 /// Convert the recorder's UTM33N coordinates to WGS84 for the
 /// SPA. Coordinates are stored as `f32` metres at record time
 /// because the hot Theta* loop is dense and a per-event projection
@@ -225,19 +193,6 @@ fn serialise_recording(
         }
     }
     rec
-}
-
-/// Map the `fkb_type` u8 code (as baked into `EdgeRecord` by
-/// `graph_builder::encode_fkb_type`) to a stable string key for the
-/// breakdown. Keep in lockstep with the encoder — `sti`, `vei`,
-/// `skiloype` are the only codes the current builder emits.
-fn fkb_code_to_str(code: u8) -> &'static str {
-    match code {
-        1 => "sti",
-        2 => "vei",
-        3 => "skiloype",
-        _ => "unknown",
-    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -432,11 +387,6 @@ impl Default for Prefs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CostMode {
-    /// Multiplicative composition via `compose_cell` / `compose_edge`
-    /// / `compose_mesh_edge`. Pre-Stage-2 default; kept for A/B
-    /// comparisons and as an escape valve while the remaining
-    /// legacy layers are ported to native CostContributor impls.
-    Multiplicative,
     /// Additive composition via `compose_edge_walk_seconds`. Native
     /// physical contributors (slope/marking/water) replace their
     /// legacy multiplicative equivalents; remaining layers fall
@@ -552,9 +502,13 @@ impl Pathfinder {
                 cost_config.slope_cell.quadratic_scale_deg,
                 cost_config.slope_cell.refuse_above_deg,
             )));
+            // Mesh slope hard-veto fires only at the true-cliff
+            // threshold; 45–60° is continuous high cost (Tobler), not a
+            // wall, so corridors aren't severed by the 10 m DEM's steep
+            // cells.
             natives.push(Arc::new(ToblerSlopeContributor::new(
                 d.clone(),
-                cost_config.slope_cell.refuse_above_deg,
+                cost_config.slope_cell.cliff_refuse_deg,
             )));
             // Naismith's gain term — mesh edges pay extra time per
             // metre of vertical gain. Without this, Tobler alone
@@ -594,7 +548,10 @@ impl Pathfinder {
         }
         if let Some(m) = mask.as_ref() {
             layers.push(Arc::new(MaskRefusalLayer::new(m.clone())));
-            natives.push(Arc::new(MaskRefusalContributor::new(m.clone())));
+            natives.push(Arc::new(
+                MaskRefusalContributor::new(m.clone())
+                    .with_water(cost_config.water.cost_s_per_m, cost_config.water.shore_band_m),
+            ));
         }
         if let Some(g) = graph.as_ref() {
             layers.push(Arc::new(TrailProximityLayer::new(
@@ -1077,204 +1034,31 @@ impl Pathfinder {
             return Err(PathfindError::EndpointRefused { which, layer });
         }
 
-        // Compute every strategy that's viable, then pick the
-        // cheapest by *cost* (cost-weighted effective walking
-        // metres — common units across all three strategies). The
-        // alternative (precedence-based: take the first viable)
-        // produces nonsense like a 62 km road detour when a 6 km
-        // cross-country path is the obviously better answer.
+        // Two INDEPENDENT routers, dispatched by intent:
         //
-        // All strategies are computed in series. None is skipped —
-        // when on-graph snaps perfectly but routes through 60 km of
-        // road network, off-trail's 6 km mesh path wins on cost
-        // and the user gets the right answer.
-        let mut candidates: Vec<Path> = Vec::new();
-        let mut last_err: Option<PathfindError> = None;
-
-        // `force_off_trail` skips both graph strategies. Used by
-        // the mimicry harness and the SPA's "force off-trail" toggle
-        // to evaluate the mesh in isolation. Endpoints that sit
-        // exactly on graph nodes would otherwise snap at zero
-        // distance even with snap_radius_m=0, defeating the test.
-        if !prefs.force_off_trail {
-            crate::solver_trace::begin_phase("try_on_graph");
-            match crate::tracer::phase("try_on_graph", || self.try_on_graph(from_xy, to_xy, &prefs)) {
-                Ok(Some(p)) => candidates.push(p),
-                Ok(None) => {}
-                Err(e) => last_err = Some(e),
-            }
-            crate::solver_trace::begin_phase("try_hybrid");
-            match crate::tracer::phase("try_hybrid", || self.try_hybrid(from_xy, to_xy, &prefs)) {
-                Ok(Some(p)) => candidates.push(p),
-                Ok(None) => {}
-                Err(e) => last_err = Some(e),
-            }
+        //  - `force_off_trail` → the off-trail FMM solver (pure
+        //    cross-country; switchbacks on steep ground). Used by the
+        //    mimicry harness and the "force off-trail" toggle.
+        //
+        //  - otherwise → the UNIFIED single-solve router (the default):
+        //    ONE A* over the off-trail mesh + the trail network in one
+        //    walk-seconds field, so it follows trails only while they're
+        //    worth it and cuts across otherwise. This replaced the old
+        //    on-graph / hybrid / off-trail candidate race, whose
+        //    incomparable strategies and forced single-trail "bridge"
+        //    produced the detours.
+        //
+        // The two share NOTHING but the cost model (`CostContributor`s)
+        // and the raw data (graph + DEM) — see `unified` / `fmm_adapter`.
+        let _ = dist;
+        if prefs.force_off_trail {
+            crate::solver_trace::begin_phase("solve_off_trail");
+            return crate::tracer::phase("solve_off_trail", || {
+                self.solve_off_trail(from_xy, to_xy, &prefs)
+            });
         }
-        if prefs.allow_off_trail {
-            let extent_km = dist / 1000.0;
-            if extent_km <= prefs.max_off_trail_km {
-                crate::solver_trace::begin_phase("solve_off_trail");
-                match crate::tracer::phase("solve_off_trail", || {
-                    self.solve_off_trail(from_xy, to_xy, &prefs)
-                }) {
-                    Ok(p) => candidates.push(p),
-                    Err(e) => last_err = Some(e),
-                }
-            }
-        }
-
-        candidates
-            .into_iter()
-            .min_by(|a, b| {
-                a.cost
-                    .partial_cmp(&b.cost)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .ok_or(last_err.unwrap_or(PathfindError::NoRoute))
-    }
-
-    fn try_on_graph(
-        &self,
-        from_xy: PointXY,
-        to_xy: PointXY,
-        prefs: &Prefs,
-    ) -> Result<Option<Path>, PathfindError> {
-        let Some(graph) = self.graph.as_ref() else {
-            return Ok(None);
-        };
-        let Ok(from_node) = graph.snap(from_xy.x, from_xy.y, prefs.snap_radius_m) else {
-            return Ok(None);
-        };
-        let Ok(to_node) = graph.snap(to_xy.x, to_xy.y, prefs.snap_radius_m) else {
-            return Ok(None);
-        };
-        let edge_mul = self.edge_mul_closure(prefs);
-        // Observe Dijkstra exploration into the solver-trace recorder
-        // when one's installed. The closure is no-op-cheap when no
-        // recorder is active (`solver_trace::record` short-circuits
-        // on the thread-local check).
-        let Some(rr) = graph.route_with_observer(
-            from_node,
-            to_node,
-            prefs.profile,
-            edge_mul,
-            graph_observer,
-        )? else {
-            return Ok(None);
-        };
-        Ok(Some(route_result_to_path(graph, &rr, PathStrategy::OnGraph)))
-    }
-
-    fn try_hybrid(
-        &self,
-        from_xy: PointXY,
-        to_xy: PointXY,
-        prefs: &Prefs,
-    ) -> Result<Option<Path>, PathfindError> {
-        let Some(graph) = self.graph.as_ref() else {
-            return Ok(None);
-        };
-        let from_snap = graph.snap(from_xy.x, from_xy.y, prefs.snap_radius_m).ok();
-        let to_snap = graph.snap(to_xy.x, to_xy.y, prefs.snap_radius_m).ok();
-        // Look further to find a bridge node when direct snap failed.
-        let from_bridge = from_snap.or_else(|| {
-            graph
-                .snap(from_xy.x, from_xy.y, prefs.bridge_radius_m)
-                .ok()
-        });
-        let to_bridge = to_snap.or_else(|| {
-            graph.snap(to_xy.x, to_xy.y, prefs.bridge_radius_m).ok()
-        });
-        let (Some(from_node), Some(to_node)) = (from_bridge, to_bridge) else {
-            return Ok(None);
-        };
-
-        // If both endpoints already snap, on-graph would have caught
-        // this — but try_on_graph runs first. We only arrive here
-        // when at least one side needs bridging.
-        let from_node_pos = graph.node(from_node).ok_or(PathfindError::NoRoute)?;
-        let to_node_pos = graph.node(to_node).ok_or(PathfindError::NoRoute)?;
-
-        // Off-trail prefix from `from_xy` to `from_node_pos`, only
-        // when the user's actual start lies off the graph.
-        let prefix = if from_snap.is_some() {
-            None
-        } else {
-            Some(self.build_off_trail_segment(
-                from_xy,
-                PointXY {
-                    x: from_node_pos.x as f64,
-                    y: from_node_pos.y as f64,
-                },
-                prefs,
-            )?)
-        };
-        let suffix = if to_snap.is_some() {
-            None
-        } else {
-            Some(self.build_off_trail_segment(
-                PointXY {
-                    x: to_node_pos.x as f64,
-                    y: to_node_pos.y as f64,
-                },
-                to_xy,
-                prefs,
-            )?)
-        };
-
-        // Graph middle. Use the same per-edge multiplier as the
-        // pure-graph strategy so layer weights stay consistent.
-        let edge_mul = self.edge_mul_closure(prefs);
-        let middle = match graph.route_with_observer(
-            from_node,
-            to_node,
-            prefs.profile,
-            edge_mul,
-            graph_observer,
-        )? {
-            Some(r) => r,
-            None => return Ok(None),
-        };
-        // Concatenate the per-edge polylines so the hybrid graph
-        // leg looks like the actual trail, not straight-segments
-        // between junction nodes. Drop the duplicate first vertex
-        // on every non-initial leg. Aggregate per-fkb_type metres
-        // alongside so the stitched Path can report which surface
-        // the middle leg traversed.
-        let mut middle_geom_utm: Vec<(f32, f32)> = Vec::new();
-        let mut middle_fkb: std::collections::BTreeMap<String, f64> =
-            std::collections::BTreeMap::new();
-        for (i, &eid) in middle.edges.iter().enumerate() {
-            let poly = graph.edge_polyline(eid);
-            if poly.is_empty() {
-                continue;
-            }
-            if let Some(er) = graph.edge(eid) {
-                *middle_fkb
-                    .entry(fkb_code_to_str(er.fkb_type).to_string())
-                    .or_insert(0.0) += er.length_m as f64;
-            }
-            let skip = if i == 0 { 0 } else { 1 };
-            for p in poly.iter().skip(skip) {
-                middle_geom_utm.push((p.x, p.y));
-            }
-        }
-        if middle_geom_utm.is_empty() {
-            middle_geom_utm = middle
-                .nodes
-                .iter()
-                .filter_map(|nid| graph.node(*nid).map(|p| (p.x, p.y)))
-                .collect();
-        }
-
-        Ok(Some(stitch_hybrid(
-            &prefix,
-            &middle_geom_utm,
-            &middle_fkb,
-            &suffix,
-            middle.cost as f64,
-            middle.length_m as f64,
-        )))
+        crate::solver_trace::begin_phase("solve_unified");
+        crate::tracer::phase("solve_unified", || self.solve_unified_path(from_xy, to_xy, &prefs))
     }
 
     /// FMM dispatch for off-trail. Sizes a corridor, bakes the
@@ -1293,25 +1077,78 @@ impl Pathfinder {
         let dem = self.dem.as_ref().ok_or_else(|| {
             PathfindError::Internal("FMM mode requires DEM artifact loaded".into())
         })?;
+        // Resolve the effective cost config: boot config + per-request
+        // `cost_config_override` patch. Without this the off-trail FMM
+        // path silently ignored per-request overrides (they only reached
+        // the Theta\* escape valve), so SPA calibration and knob sweeps
+        // had no effect on the production geodesic.
+        let effective_cfg = match prefs.cost_config_override.as_ref() {
+            Some(patch) => self.cost_config.with_patch(patch),
+            None => self.cost_config.clone(),
+        };
         let off_trail_base = prefs.off_trail_base.unwrap_or_else(|| {
-            self.cost_config
-                .off_trail_base
-                .for_profile(prefs.profile)
+            effective_cfg.off_trail_base.for_profile(prefs.profile)
         });
+        // Naismith vertical-gain weight folded directionally into the
+        // FMM along-fall-line pace (effective flat-metres per gain-metre,
+        // matching on-graph pricing). DEFAULT 0 (amplifier = 1.0): the
+        // terrain corpus showed the full k=8 foot term marginally
+        // REGRESSED every axis (composite 91.7→91.0) — once the edge-
+        // racetrack solver bug was fixed, Tobler alone already prices
+        // slope well. Gated on the runtime `total_gain.amplifier` knob so
+        // it's a one-request experiment (override) rather than a recompile;
+        // `gain_factor_k = k·(amplifier − 1)`.
+        let gain_k = if (effective_cfg.total_gain.amplifier - 1.0).abs() < 1e-6 {
+            0.0
+        } else {
+            let k = match prefs.profile {
+                turbo_tiles_graph::Profile::Foot => 8.0_f32,
+                turbo_tiles_graph::Profile::Bicycle => 20.0,
+                turbo_tiles_graph::Profile::Ski => 6.0,
+            };
+            k * (effective_cfg.total_gain.amplifier - 1.0)
+        };
+        // Adaptive cell size: 10 m preserves switchback fidelity on short
+        // routes; 20 m quarters the cell count (and the lifted state space)
+        // on long routes where the path is mostly long traverses, not tight
+        // switchbacks. The breakpoint is the straight-line distance.
+        let dist_m = ((to.x - from.x).powi(2) + (to.y - from.y).powi(2)).sqrt();
+        let cell_m = if dist_m <= 3000.0 { 10.0 } else { 20.0 };
         let inputs = crate::fmm_adapter::FmmSolveInputs {
             from,
             to,
-            cell_m: 10.0,
-            base_pace_s_per_m: self.cost_config.base.pace_s_per_m as f32,
-            refuse_above_deg: self.cost_config.slope_cell.refuse_above_deg,
+            cell_m,
+            base_pace_s_per_m: effective_cfg.base.pace_s_per_m as f32,
+            // FMM metric refuses only true cliffs; 45–60° is continuous
+            // high-cost Tobler (see slope_cell.cliff_refuse_deg) so the
+            // corridor stays connected instead of being walled off.
+            refuse_above_deg: effective_cfg.slope_cell.cliff_refuse_deg,
             off_trail_factor: off_trail_base as f32,
             use_anisotropic: true,
+            gain_factor_k: gain_k,
+            // Grade-limited (x,y,heading) solver: switchbacks up steep
+            // ground. Opt-in via cost-config `[grade_limited]`.
+            use_grade_limited: effective_cfg.grade_limited.enabled,
+            max_grade_deg: effective_cfg.grade_limited.max_grade_deg,
+            turn_penalty_s: effective_cfg.grade_limited.turn_penalty_s,
         };
         let contributors = self.native_contributors.clone();
         let out = crate::fmm_adapter::solve_fmm_path(
             inputs, dem.clone(), &contributors, prefs.profile,
         )
-        .map_err(|e| PathfindError::Internal(format!("FMM adapter: {e}")))?;
+        .map_err(|e| {
+            use crate::fmm_adapter::FmmAdapterError;
+            match e {
+                // Goal genuinely unreachable through the terrain (corridor
+                // severed by water/glacier/cliff, or no DEM coverage). This
+                // is an honest "no route", NOT an internal error — and there
+                // is no Theta* fallback to paper over it with a garbage line.
+                FmmAdapterError::GoalUnreachable
+                | FmmAdapterError::StartOutsideGrid
+                | FmmAdapterError::GoalOutsideGrid => PathfindError::NoRoute,
+                other => PathfindError::Internal(format!("off-trail solver: {other}")),
+            }
+        })?;
         tracing::debug!(
             cells_accepted = out.cells_accepted,
             vetoed_cells = out.vetoed_cells,
@@ -1333,6 +1170,124 @@ impl Pathfinder {
             length_m,
             cost: out.cost_seconds,
             refused_by: out.refused_by,
+        })
+    }
+
+    /// Build a [`Path`] from the unified single-solve router. Trail runs
+    /// are `Graph` legs (blue), off-trail runs `OffTrailPrefix` (vermillion).
+    fn solve_unified_path(
+        &self,
+        from_xy: PointXY,
+        to_xy: PointXY,
+        prefs: &Prefs,
+    ) -> Result<Path, PathfindError> {
+        let Some(graph) = self.graph.as_ref() else {
+            return Err(PathfindError::NoRoute);
+        };
+        let Some(dem) = self.dem.as_ref() else {
+            return Err(PathfindError::NoRoute);
+        };
+        let effective_cfg = match prefs.cost_config_override.as_ref() {
+            Some(patch) => self.cost_config.with_patch(patch),
+            None => self.cost_config.clone(),
+        };
+        let off_trail_factor = prefs
+            .off_trail_base
+            .unwrap_or_else(|| effective_cfg.off_trail_base.for_profile(prefs.profile))
+            as f32;
+        let base_pace = crate::contributor::BASE_PACE_S_PER_M as f32;
+        let contributors = self.contributors_for_breakdown();
+        // Adaptive mesh cell: fine (10 m) for short routes where off-trail
+        // detail matters, coarser (up to 30 m) for long routes where the
+        // path is mostly on trails and off-trail is a minor connector — so
+        // the mesh cell count (and solve time) stays bounded as length grows.
+        let dist_m = ((to_xy.x - from_xy.x).powi(2) + (to_xy.y - from_xy.y).powi(2)).sqrt();
+        let cell_m = (dist_m / 250.0).clamp(10.0, 30.0);
+        let route = crate::unified::solve_unified(
+            graph,
+            dem,
+            &contributors,
+            prefs.profile,
+            from_xy,
+            to_xy,
+            cell_m,
+            base_pace,
+            off_trail_factor,
+        )
+        .ok_or(PathfindError::NoRoute)?;
+
+        let geometry: Vec<[f64; 2]> = route
+            .geometry_utm
+            .iter()
+            .map(|&(x, y)| {
+                let (lon, lat) = utm33n_to_wgs84(x, y);
+                [lon, lat]
+            })
+            .collect();
+        // Build legs from contiguous on-trail / off-trail runs.
+        let seg_len = |k: usize| -> f64 {
+            let a = route.geometry_utm[k];
+            let b = route.geometry_utm[k + 1];
+            ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt()
+        };
+        // Cumulative distance along the route (EPSG:25833 metres).
+        let mut distances_m: Vec<f64> = Vec::with_capacity(route.geometry_utm.len());
+        let mut acc = 0.0f64;
+        distances_m.push(0.0);
+        for k in 0..route.geometry_utm.len().saturating_sub(1) {
+            acc += seg_len(k);
+            distances_m.push(acc);
+        }
+        let length_m = acc;
+        let mut legs: Vec<PathLeg> = Vec::new();
+        let mut on_m = 0.0f64;
+        let mut off_m = 0.0f64;
+        if !route.seg_on_trail.is_empty() {
+            let mut run_start = 0usize;
+            let mut run_kind = route.seg_on_trail[0];
+            let mut run_len = 0.0f64;
+            let mut push = |kind: bool, start: usize, end: usize, len: f64,
+                            legs: &mut Vec<PathLeg>, on_m: &mut f64, off_m: &mut f64| {
+                legs.push(PathLeg {
+                    kind: if kind { LegKind::Graph } else { LegKind::OffTrailPrefix },
+                    start_idx: start as u32,
+                    end_idx: end as u32,
+                    length_m: len,
+                });
+                if kind { *on_m += len } else { *off_m += len }
+            };
+            for k in 0..route.seg_on_trail.len() {
+                if route.seg_on_trail[k] != run_kind {
+                    push(run_kind, run_start, k, run_len, &mut legs, &mut on_m, &mut off_m);
+                    run_start = k;
+                    run_kind = route.seg_on_trail[k];
+                    run_len = 0.0;
+                }
+                run_len += seg_len(k);
+            }
+            push(run_kind, run_start, route.seg_on_trail.len(), run_len, &mut legs, &mut on_m, &mut off_m);
+        }
+        let mut fkb_breakdown: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();
+        if on_m > 0.0 {
+            fkb_breakdown.insert("sti".to_string(), on_m);
+        }
+        if off_m > 0.0 {
+            fkb_breakdown.insert("off_trail".to_string(), off_m);
+        }
+        let on_trail_pct = if length_m > 0.0 { (on_m / length_m * 100.0) as f32 } else { 0.0 };
+
+        Ok(Path {
+            strategy: PathStrategy::Hybrid,
+            legs,
+            geometry,
+            distances_m,
+            length_m,
+            cost: route.cost_s,
+            on_trail_pct,
+            fkb_breakdown,
+            refused_by: Vec::new(),
+            debug: None,
+            recording: None,
         })
     }
 
@@ -1388,191 +1343,12 @@ impl Pathfinder {
         to: PointXY,
         prefs: &Prefs,
     ) -> Result<OffTrailSegment, PathfindError> {
-        // FastMarching dispatch — phase 6 wiring. The FMM adapter
-        // sizes its own corridor, bakes the cost field from the
-        // same CostContributor stack used by the Theta\* path,
-        // runs the eikonal solve, and returns a Chaikin-smoothed
-        // polyline. Falls back to Theta\* if the FMM solve errors
-        // (missing DEM, unreachable goal); operator can also force
-        // a specific cost_mode per request.
-        if prefs.cost_mode == CostMode::FastMarching {
-            match self.try_build_off_trail_segment_fmm(from, to, prefs) {
-                Ok(seg) => return Ok(seg),
-                Err(e) => {
-                    tracing::warn!(error = %e, "FMM off-trail solve failed; falling back to Theta*");
-                    // Fall through to Theta\* code below.
-                }
-            }
-        }
-        let dx = to.x - from.x;
-        let dy = to.y - from.y;
-        let dist_m = (dx * dx + dy * dy).sqrt();
-        let pad_m = effective_mesh_pad_m(prefs.mesh_pad_m, prefs.mesh_cell_m, dist_m);
-        let bbox = MeshBbox {
-            min_x: from.x.min(to.x) - pad_m,
-            max_x: from.x.max(to.x) + pad_m,
-            min_y: from.y.min(to.y) - pad_m,
-            max_y: from.y.max(to.y) + pad_m,
-        };
-        crate::solver_trace::begin_phase("mesh_inputs");
-        let (samples, refused, refused_by) = crate::tracer::phase("mesh_inputs", || {
-            self.mesh_inputs_for_bbox(bbox, prefs.mesh_cell_m, prefs.profile, &prefs.layer_weights)
-        });
-        // Mesh-size stats: how many cells did the bbox produce vs.
-        // how many were refused outright by some layer. A high
-        // refusal ratio explains "why didn't theta_star find a
-        // direct path?" at a glance.
-        crate::tracer::with(|t| {
-            if let Some(t) = t {
-                t.set_mesh_stats(samples.len() as u32 + refused.len() as u32, refused.len() as u32);
-            }
-        });
-        // Emit the one-shot MeshBuilt event so the SPA can render
-        // a "X cells, Y refused" overlay at the start of the
-        // theta_star animation.
-        let total_cells = (samples.len() + refused.len()) as u32;
-        let refused_cells_count = refused.len() as u32;
-        crate::solver_trace::record(|| crate::solver_trace::SolverEvent::MeshBuilt {
-            cells: total_cells,
-            refused_cells: refused_cells_count,
-        });
-        let mesh_input = MeshBuildInput {
-            bbox,
-            cell_m: prefs.mesh_cell_m,
-            samples,
-            refused,
-            exits: vec![ExitNode {
-                graph_node_id: 0,
-                at: Point2 { x: to.x, y: to.y },
-            }],
-            start: Some(Point2 { x: from.x, y: from.y }),
-        };
-        crate::solver_trace::begin_phase("build_local_mesh");
-        let built = crate::tracer::phase("build_local_mesh", || build_local_mesh(mesh_input));
-        let Some(start_node) = built.start_node else {
-            return Err(PathfindError::NoRoute);
-        };
-        let goal_node = match built.exits.values().next() {
-            Some(id) => *id,
-            None => return Err(PathfindError::NoRoute),
-        };
-        // Direction-aware edge cost: combine the symmetric
-        // cell-average with per-layer `edge_cost_modifier` so
-        // climbing vs traversing a slope costs differently.
-        //
-        // `off_trail_base` is the price of walking through trackless
-        // terrain vs walking on a maintained trail of equal length.
-        // Without it the cost model treats them as equal per metre
-        // and the cost-based selector picks straight-line mesh
-        // shortcuts over real trails whenever the trail is more
-        // than a few percent longer.
-        //
-        // Resolve off_trail_base in priority order:
-        //   1. Per-request `Prefs::off_trail_base` (explicit knob)
-        //   2. Per-request `Prefs::cost_config_override` patch
-        //   3. Boot-time `Pathfinder::cost_config`
-        // The single hardcoded fallback chain that used to live
-        // here (foot=1.7 / bicycle=2.5 / ski=1.0) is gone — those
-        // values now live in `tools/cost-config.toml`.
-        let effective_cfg = if let Some(patch) = prefs.cost_config_override.as_ref() {
-            self.cost_config.with_patch(patch)
-        } else {
-            self.cost_config.clone()
-        };
-        let off_trail_base: f64 = prefs
-            .off_trail_base
-            .unwrap_or_else(|| effective_cfg.off_trail_base.for_profile(prefs.profile));
-        let layers = self.layers.clone();
-        let profile = prefs.profile;
-        let weights = prefs.layer_weights.clone();
-        let weight_fn = move |name: &str| weights.get(name).copied().unwrap_or(1.0);
-        // Snapshot for the WalkSeconds branch — needs the native
-        // contributor list (which depends on the Pathfinder's DEM /
-        // mask handles) and an owned Vec since the closure outlives
-        // the &self borrow.
-        let contributors_for_mesh: Vec<Arc<dyn crate::contributor::CostContributor>> =
-            if prefs.cost_mode == CostMode::WalkSeconds {
-                self.contributors_for_breakdown()
-            } else {
-                Vec::new()
-            };
-        let cost_mode = prefs.cost_mode;
-        let edge_cost_fn = move |m: &Mesh, a: MeshNodeId, b: MeshNodeId| -> f64 {
-            let pt_a = m.pt(a);
-            let pt_b = m.pt(b);
-            let ma = m.cost_mul(a);
-            let mb = m.cost_mul(b);
-            if !ma.is_finite() || !mb.is_finite() {
-                return f64::INFINITY;
-            }
-            let euclid = pt_a.dist(pt_b);
-            match cost_mode {
-                // `FastMarching` is dispatched up-stream in
-                // `build_off_trail_segment` and never reaches the
-                // Theta\* edge_cost_fn; if it does fall through (FMM
-                // errored and we degraded gracefully), use the same
-                // additive walk-seconds composition as the canonical
-                // WalkSeconds escape valve.
-                CostMode::FastMarching => {
-                    let cell_avg = 0.5 * (ma + mb);
-                    let dir_mult = compose_mesh_edge(
-                        &layers, &weight_fn, pt_a.x, pt_a.y, pt_b.x, pt_b.y, profile,
-                    ) as f64;
-                    euclid * cell_avg * dir_mult * off_trail_base
-                }
-                CostMode::Multiplicative => {
-                    let cell_avg = 0.5 * (ma + mb);
-                    let dir_mult = compose_mesh_edge(
-                        &layers, &weight_fn, pt_a.x, pt_a.y, pt_b.x, pt_b.y, profile,
-                    ) as f64;
-                    euclid * cell_avg * dir_mult * off_trail_base
-                }
-                CostMode::WalkSeconds => {
-                    // Base traversal + Σ contributions in walk-seconds,
-                    // then apply off_trail_base as a flat multiplier on
-                    // the total mesh-edge cost. The cell_mul veto via
-                    // `is_finite` above is preserved so refused samples
-                    // still block.
-                    let ctx = crate::contributor::EdgeContext {
-                        fx: pt_a.x,
-                        fy: pt_a.y,
-                        tx: pt_b.x,
-                        ty: pt_b.y,
-                        length_m: euclid,
-                        profile,
-                        kind: crate::contributor::EdgeKind::Mesh,
-                    };
-                    let cost = crate::contributor::compose_edge_walk_seconds(
-                        &contributors_for_mesh,
-                        &ctx,
-                    );
-                    if !cost.total_walk_seconds.is_finite() {
-                        return f64::INFINITY;
-                    }
-                    cost.total_walk_seconds * off_trail_base
-                }
-            }
-        };
-        crate::solver_trace::begin_phase("theta_star");
-        let path = crate::tracer::phase("theta_star", || {
-            theta_star_with_edge_cost(&built.mesh, start_node, goal_node, edge_cost_fn)
-        })
-        .ok_or(PathfindError::NoRoute)?;
-        // Theta* produces sparse polylines — line-of-sight jumps
-        // can span hundreds of metres between vertices. That's
-        // correct for routing but renders as a visibly straight
-        // line in the SPA. Interpolate at `mesh_cell_m` intervals
-        // so the user sees a polyline matching the mesh resolution.
-        // The length + cost are unchanged because all inserted
-        // points lie on the original segments.
-        let densified = densify_polyline(&path.geometry, prefs.mesh_cell_m);
-        Ok(OffTrailSegment {
-            geometry: densified,
-            length_m: path.length_m,
-            // Cost-weighted: comparable to graph-router cost units.
-            cost: path.cost,
-            refused_by,
-        })
+        // Off-trail routing is FMM-only. The legacy Theta* mesh fallback was
+        // removed: it produced blocky line-of-sight routes and, worse, masked
+        // a genuinely unreachable goal (corridor severed by water/cliff/no
+        // coverage) with a plausible-looking straight line. On failure the
+        // FMM path now returns an honest error (NoRoute) instead of garbage.
+        self.try_build_off_trail_segment_fmm(from, to, prefs)
     }
 
     /// Walk a regular grid over `bbox` and ask every layer for a
@@ -1630,67 +1406,6 @@ impl Pathfinder {
         (samples, refused, refused_by)
     }
 
-    fn edge_mul_closure<'a>(
-        &'a self,
-        prefs: &'a Prefs,
-    ) -> Box<dyn Fn(&turbo_tiles_graph::EdgeRecord) -> f32 + Send + Sync + 'a> {
-        let weights = prefs.layer_weights.clone();
-        let weight_fn = move |name: &str| -> f32 {
-            weights.get(name).copied().unwrap_or(1.0)
-        };
-        // FastMarching only affects the off-trail leg; the graph
-        // leg keeps using walk-seconds composition so on-graph and
-        // FMM costs remain comparable for the candidate-min
-        // selection. Treat them identically here.
-        let effective_mode = match prefs.cost_mode {
-            CostMode::FastMarching => CostMode::WalkSeconds,
-            other => other,
-        };
-        match effective_mode {
-            CostMode::Multiplicative => {
-                Box::new(move |edge| compose_edge(&self.layers, &weight_fn, edge, prefs.profile))
-            }
-            CostMode::FastMarching => unreachable!("normalised above"),
-            CostMode::WalkSeconds => {
-                // Convert the additive walk-seconds composition back
-                // into a multiplier the Graph's `route_with` can
-                // scale `baked` by, so the Dijkstra entry point
-                // doesn't have to change shape. baked ≈ length ×
-                // profile_pace_s_per_m (Naismith-adjusted); we want
-                // the resulting `baked × mul` to equal
-                // `total_walk_seconds`. baked is in profile-cost
-                // units, so we divide by the flat-trail baseline
-                // (length × BASE_PACE_S_PER_M) to keep the scale
-                // consistent with mesh edges.
-                let contributors = self.contributors_for_breakdown();
-                let profile = prefs.profile;
-                Box::new(move |edge| {
-                    let length_m = edge.length_m as f64;
-                    if length_m <= 0.0 {
-                        return 1.0;
-                    }
-                    let ctx = crate::contributor::EdgeContext {
-                        fx: 0.0,
-                        fy: 0.0,
-                        tx: length_m,
-                        ty: 0.0,
-                        length_m,
-                        profile,
-                        kind: crate::contributor::EdgeKind::Graph(edge),
-                    };
-                    let cost = crate::contributor::compose_edge_walk_seconds(&contributors, &ctx);
-                    if !cost.total_walk_seconds.is_finite() {
-                        return f32::INFINITY;
-                    }
-                    let base = length_m * crate::contributor::BASE_PACE_S_PER_M;
-                    if base <= 0.0 {
-                        return 1.0;
-                    }
-                    (cost.total_walk_seconds / base) as f32
-                })
-            }
-        }
-    }
 }
 
 /// Per-layer contribution at a single (lon, lat) point.
@@ -1745,85 +1460,6 @@ struct OffTrailSegment {
     refused_by: Vec<String>,
 }
 
-fn route_result_to_path(graph: &Graph, rr: &RouteResult, strategy: PathStrategy) -> Path {
-    // Build the route polyline by concatenating each edge's
-    // polyline rather than jumping from node to node. With the
-    // `norway.graph_geom` sibling artifact loaded, each edge's
-    // polyline reflects the original LineString from `paths.edge.
-    // geom`; without it, `edge_polyline` falls back to a 2-point
-    // straight segment between endpoints.
-    let mut geom_utm: Vec<Point2> = Vec::new();
-    // Per-fkb_type metres aggregator. Reads each edge's length_m
-    // from the EdgeRecord (correct even when the polyline density
-    // varies). Buckets by stable string key — see `fkb_code_to_str`.
-    let mut fkb_breakdown: std::collections::BTreeMap<String, f64> =
-        std::collections::BTreeMap::new();
-    for (i, &eid) in rr.edges.iter().enumerate() {
-        let poly = graph.edge_polyline(eid);
-        if poly.is_empty() {
-            continue;
-        }
-        if let Some(er) = graph.edge(eid) {
-            *fkb_breakdown
-                .entry(fkb_code_to_str(er.fkb_type).to_string())
-                .or_insert(0.0) += er.length_m as f64;
-        }
-        // Drop the first vertex on every non-initial leg to avoid
-        // duplicating the junction node (it's the last vertex of
-        // the previous edge).
-        let skip = if i == 0 { 0 } else { 1 };
-        for p in poly.iter().skip(skip) {
-            geom_utm.push(Point2 {
-                x: p.x as f64,
-                y: p.y as f64,
-            });
-        }
-    }
-    // Fall back to node-positions if the route had no edges (which
-    // would be a single-node trivial path).
-    if geom_utm.is_empty() {
-        for &nid in &rr.nodes {
-            if let Some(p) = graph.node(nid) {
-                geom_utm.push(Point2 {
-                    x: p.x as f64,
-                    y: p.y as f64,
-                });
-            }
-        }
-    }
-    let geometry: Vec<[f64; 2]> = geom_utm
-        .iter()
-        .map(|p| {
-            let (lon, lat) = utm33n_to_wgs84(p.x, p.y);
-            [lon, lat]
-        })
-        .collect();
-    let (distances_m, length_m) = cumulative_distances_utm(&geom_utm);
-    let legs = if geometry.is_empty() {
-        Vec::new()
-    } else {
-        vec![PathLeg {
-            kind: LegKind::Graph,
-            start_idx: 0,
-            end_idx: (geometry.len() - 1) as u32,
-            length_m,
-        }]
-    };
-    Path {
-        strategy,
-        geometry,
-        distances_m,
-        length_m,
-        cost: rr.cost as f64,
-        on_trail_pct: 100.0,
-        fkb_breakdown,
-        legs,
-        refused_by: Vec::new(),
-        debug: None,
-        recording: None,
-    }
-}
-
 /// Interpolate intermediate vertices along a polyline so each
 /// consecutive pair is at most `step_m` apart. Endpoints and every
 /// original vertex are preserved; inserted points lie on the
@@ -1835,32 +1471,6 @@ fn route_result_to_path(graph: &Graph, rr: &RouteResult, strategy: PathStrategy)
 /// visibly straight line in MapLibre. Densifying just for the
 /// returned polyline gives the curator a visualisation that matches
 /// the mesh resolution without changing routing cost or length.
-fn densify_polyline(line: &[Point2], step_m: f64) -> Vec<Point2> {
-    if line.len() < 2 || step_m <= 0.0 {
-        return line.to_vec();
-    }
-    let mut out: Vec<Point2> = Vec::with_capacity(line.len() * 4);
-    out.push(line[0]);
-    for w in line.windows(2) {
-        let dx = w[1].x - w[0].x;
-        let dy = w[1].y - w[0].y;
-        let len = (dx * dx + dy * dy).sqrt();
-        if len <= step_m {
-            out.push(w[1]);
-            continue;
-        }
-        let n = (len / step_m).ceil() as usize;
-        for k in 1..n {
-            let t = k as f64 / n as f64;
-            out.push(Point2 {
-                x: w[0].x + t * dx,
-                y: w[0].y + t * dy,
-            });
-        }
-        out.push(w[1]);
-    }
-    out
-}
 
 fn cumulative_distances_utm(pts: &[Point2]) -> (Vec<f64>, f64) {
     let mut distances = Vec::with_capacity(pts.len());
@@ -1875,147 +1485,6 @@ fn cumulative_distances_utm(pts: &[Point2]) -> (Vec<f64>, f64) {
         }
     }
     (distances, total)
-}
-
-fn stitch_hybrid(
-    prefix: &Option<OffTrailSegment>,
-    middle_utm: &[(f32, f32)],
-    middle_fkb: &std::collections::BTreeMap<String, f64>,
-    suffix: &Option<OffTrailSegment>,
-    middle_cost: f64,
-    middle_length: f64,
-) -> Path {
-    // Each segment carries cost (cost-weighted, comparable to the
-    // graph router) and length_m (pure geometric). Total cost is the
-    // sum across legs; total length is the sum of geometric lengths.
-
-    // Compose the full UTM polyline. The bridge node sits at the
-    // junction; drop the duplicate vertex when we splice.
-    let mut all_utm: Vec<Point2> = Vec::new();
-    let mut legs: Vec<PathLeg> = Vec::new();
-    let mut refused_by_set = std::collections::HashSet::<String>::new();
-    let mut prefix_cost = 0.0;
-    let mut suffix_cost = 0.0;
-    let mut middle_len_actual = middle_length;
-    let _ = middle_len_actual; // referenced below for clarity
-
-    if let Some(pref) = prefix {
-        for r in &pref.refused_by {
-            refused_by_set.insert(r.clone());
-        }
-        prefix_cost = pref.cost;
-        let start_idx = all_utm.len() as u32;
-        all_utm.extend(pref.geometry.iter().copied());
-        let end_idx = all_utm.len().saturating_sub(1) as u32;
-        let (_, len) = cumulative_distances_utm(&pref.geometry);
-        legs.push(PathLeg {
-            kind: LegKind::OffTrailPrefix,
-            start_idx,
-            end_idx,
-            length_m: len,
-        });
-    }
-    let mid_pts: Vec<Point2> = middle_utm
-        .iter()
-        .map(|&(x, y)| Point2 { x: x as f64, y: y as f64 })
-        .collect();
-    if !mid_pts.is_empty() {
-        let start_idx = if all_utm
-            .last()
-            .map(|last| points_match(last, &mid_pts[0]))
-            .unwrap_or(false)
-        {
-            // Skip the duplicate vertex; report the index of the
-            // already-present last point as the leg's start.
-            (all_utm.len() - 1) as u32
-        } else {
-            all_utm.len() as u32
-        };
-        let skip = (start_idx as usize) < all_utm.len();
-        let mid_iter = if skip { &mid_pts[1..] } else { &mid_pts[..] };
-        all_utm.extend(mid_iter.iter().copied());
-        let end_idx = all_utm.len().saturating_sub(1) as u32;
-        let (_, mid_len) = cumulative_distances_utm(&mid_pts);
-        middle_len_actual = mid_len;
-        legs.push(PathLeg {
-            kind: LegKind::Graph,
-            start_idx,
-            end_idx,
-            length_m: mid_len,
-        });
-    }
-    if let Some(suf) = suffix {
-        for r in &suf.refused_by {
-            refused_by_set.insert(r.clone());
-        }
-        suffix_cost = suf.cost;
-        let start_idx = if all_utm
-            .last()
-            .map(|last| !suf.geometry.is_empty() && points_match(last, &suf.geometry[0]))
-            .unwrap_or(false)
-        {
-            (all_utm.len() - 1) as u32
-        } else {
-            all_utm.len() as u32
-        };
-        let skip = (start_idx as usize) < all_utm.len();
-        let suf_iter = if skip {
-            &suf.geometry[1..]
-        } else {
-            &suf.geometry[..]
-        };
-        all_utm.extend(suf_iter.iter().copied());
-        let end_idx = all_utm.len().saturating_sub(1) as u32;
-        let (_, len) = cumulative_distances_utm(&suf.geometry);
-        legs.push(PathLeg {
-            kind: LegKind::OffTrailSuffix,
-            start_idx,
-            end_idx,
-            length_m: len,
-        });
-    }
-
-    let geometry: Vec<[f64; 2]> = all_utm
-        .iter()
-        .map(|p| {
-            let (lon, lat) = utm33n_to_wgs84(p.x, p.y);
-            [lon, lat]
-        })
-        .collect();
-    let (distances_m, total_len) = cumulative_distances_utm(&all_utm);
-    let on_trail_pct = if total_len > 0.0 {
-        (middle_len_actual / total_len * 100.0) as f32
-    } else {
-        0.0
-    };
-    let mut refused_by: Vec<String> = refused_by_set.into_iter().collect();
-    refused_by.sort();
-    // Merge the middle leg's per-fkb metres with the off_trail
-    // prefix/suffix lengths under the `off_trail` bucket.
-    let mut fkb_breakdown: std::collections::BTreeMap<String, f64> = middle_fkb.clone();
-    let off_trail_m: f64 =
-        prefix.as_ref().map(|p| p.length_m).unwrap_or(0.0)
-            + suffix.as_ref().map(|s| s.length_m).unwrap_or(0.0);
-    if off_trail_m > 0.0 {
-        *fkb_breakdown.entry("off_trail".to_string()).or_insert(0.0) += off_trail_m;
-    }
-    Path {
-        strategy: PathStrategy::Hybrid,
-        geometry,
-        distances_m,
-        length_m: total_len,
-        cost: prefix_cost + middle_cost + suffix_cost,
-        on_trail_pct,
-        fkb_breakdown,
-        legs,
-        refused_by,
-        debug: None,
-        recording: None,
-    }
-}
-
-fn points_match(a: &Point2, b: &Point2) -> bool {
-    (a.x - b.x).abs() < 1e-3 && (a.y - b.y).abs() < 1e-3
 }
 
 /// Approximate UTM33N → WGS84 — the inverse of [`wgs84_to_utm33n`].

@@ -29,6 +29,55 @@ pub struct CostConfig {
     pub slope_graph: SlopeConfig,
     pub total_gain: TotalGainConfig,
     pub surface_multiplier: SurfaceMultipliers,
+    /// Water traversal model. `#[serde(default)]` so configs predating
+    /// the continuous-water change still parse.
+    #[serde(default)]
+    pub water: WaterConfig,
+    /// State-augmented (x,y,heading) grade-limited solver — switchbacks
+    /// up steep ground. Opt-in; off by default until validated.
+    #[serde(default)]
+    pub grade_limited: GradeLimitedConfig,
+}
+
+/// Knobs for the grade-limited (switchbacking) off-trail solver.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GradeLimitedConfig {
+    /// Master switch. When off, off-trail uses the 2D anisotropic FMM.
+    pub enabled: bool,
+    /// Forward moves steeper than this (deg) are refused, forcing the
+    /// path to traverse/switchback instead of climbing the fall line.
+    pub max_grade_deg: f32,
+    /// Seconds per 45° heading change — tunes switchback spacing.
+    pub turn_penalty_s: f32,
+}
+
+impl Default for GradeLimitedConfig {
+    fn default() -> Self {
+        Self { enabled: false, max_grade_deg: 27.0, turn_penalty_s: 8.0 }
+    }
+}
+
+/// Water is finite-cost-but-passable near shores, hard-refused only in
+/// the deep interior. A water cell is "shoreline" (passable, costly) if
+/// any sample on a ring of radius `shore_band_m` is non-water; otherwise
+/// it's "deep" and refused. This lets the off-trail solver hug a
+/// shoreline like the marked trail (the 25 m water raster puffs shores,
+/// so trails often sit on water-flagged cells) without letting routes
+/// shortcut across a lake or fjord.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WaterConfig {
+    /// Extra walk-seconds per metre when traversing a passable
+    /// (shoreline) water cell. High, so the geodesic enters water only
+    /// to follow a shore, never to shortcut.
+    pub cost_s_per_m: f64,
+    /// Ring radius (m) used to classify shoreline vs deep water.
+    pub shore_band_m: f64,
+}
+
+impl Default for WaterConfig {
+    fn default() -> Self {
+        Self { cost_s_per_m: 4.0, shore_band_m: 60.0 }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +112,22 @@ pub struct TrailProximityConfig {
 pub struct SlopeConfig {
     pub quadratic_scale_deg: f32,
     pub refuse_above_deg: f32,
+    /// True-cliff threshold: only slopes above this are hard-refused
+    /// (impassable). Between `refuse_above_deg` and this, terrain is
+    /// continuous high cost (Tobler explodes near 50°), so a 45° hard
+    /// wall no longer severs off-trail corridors at 10 m DEM resolution
+    /// — it just becomes very expensive. `#[serde(default)]` so configs
+    /// predating the change still parse.
+    #[serde(default = "default_cliff_refuse_deg")]
+    pub cliff_refuse_deg: f32,
+}
+
+fn default_cliff_refuse_deg() -> f32 {
+    // Near-vertical. Only genuine cliffs are impassable; everything
+    // below is continuous (very high) Tobler cost so the FMM corridor
+    // stays connected and the geodesic curves around steep ground on
+    // the gentle line instead of the corridor being severed → Theta*.
+    78.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +179,16 @@ pub struct CostConfigPatch {
     pub slope_graph_refuse_above_deg: Option<f32>,
     #[serde(default)]
     pub total_gain_amplifier: Option<f32>,
+    #[serde(default)]
+    pub water_cost_s_per_m: Option<f64>,
+    #[serde(default)]
+    pub water_shore_band_m: Option<f64>,
+    #[serde(default)]
+    pub grade_limited_enabled: Option<bool>,
+    #[serde(default)]
+    pub grade_limited_max_grade_deg: Option<f32>,
+    #[serde(default)]
+    pub grade_limited_turn_penalty_s: Option<f32>,
 }
 
 impl CostConfig {
@@ -173,6 +248,11 @@ impl CostConfig {
             c.slope_graph.refuse_above_deg = v;
         }
         if let Some(v) = patch.total_gain_amplifier { c.total_gain.amplifier = v; }
+        if let Some(v) = patch.water_cost_s_per_m { c.water.cost_s_per_m = v; }
+        if let Some(v) = patch.water_shore_band_m { c.water.shore_band_m = v; }
+        if let Some(v) = patch.grade_limited_enabled { c.grade_limited.enabled = v; }
+        if let Some(v) = patch.grade_limited_max_grade_deg { c.grade_limited.max_grade_deg = v; }
+        if let Some(v) = patch.grade_limited_turn_penalty_s { c.grade_limited.turn_penalty_s = v; }
         c
     }
 }
@@ -194,8 +274,8 @@ mod tests {
         let cfg = CostConfig::from_embedded().unwrap();
         assert!((cfg.base.pace_s_per_m - 0.7142857).abs() < 1e-4);
         assert!((cfg.off_trail_base.foot - 2.3).abs() < 1e-6);
-        assert_eq!(cfg.trail_proximity.influence_radius_m, 150.0);
-        assert!((cfg.trail_proximity.bonus_at_zero - 0.5).abs() < 1e-6);
+        assert_eq!(cfg.trail_proximity.influence_radius_m, 30.0);
+        assert!((cfg.trail_proximity.bonus_at_zero - 0.15).abs() < 1e-6);
         assert_eq!(cfg.slope_cell.refuse_above_deg, 45.0);
         assert_eq!(cfg.slope_graph.refuse_above_deg, 50.0);
         assert!(cfg.surface_multiplier.foot.by_kind.contains_key("sti"));

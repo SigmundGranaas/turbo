@@ -285,3 +285,4 @@ mod tests {
         assert!(selling_reduce(SymMat2::new(-1.0, 0.0, 1.0)).is_none());
     }
 }
+

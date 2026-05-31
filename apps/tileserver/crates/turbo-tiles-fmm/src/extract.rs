@@ -67,6 +67,148 @@ pub fn extract_path(
     step_m: Option<f64>,
     max_steps: Option<u32>,
 ) -> Result<Vec<PathPoint>, ExtractError> {
+    // Isotropic descent: the geodesic characteristic is anti-parallel
+    // to ∇u, so the step direction is just the gradient itself.
+    extract_path_with_dir(shape, arrival, start, goal, step_m, max_steps, |_p, g| g)
+}
+
+/// Metric-aware extraction for an *anisotropic* arrival field.
+///
+/// For the eikonal `∇uᵀ G* ∇u = 1`, the geodesic characteristic runs
+/// along `G* ∇u`, NOT the raw gradient `∇u`. Descending `-∇u` on an
+/// anisotropic field veers off the true geodesic by a consistent angle
+/// that accumulates with path length — producing routes that balloon
+/// into long contour detours (observed as 2-3× over-length loops on the
+/// terrain corpus; reproduced in `tests/aniso_geodesic.rs`).
+///
+/// This variant reconstructs the dual metric `G*` at each step from the
+/// baked `CellForm` (the Selling decomposition stores
+/// `G* = Σ wₖ · offsetₖ ⊗ offsetₖ`) and steps along `-G* ∇u`. On an
+/// isotropic field `G* ∝ I`, so this reduces to `extract_path`.
+pub fn extract_path_aniso(
+    shape: &GridShape,
+    arrival: &FmmGrid<f32>,
+    forms: &FmmGrid<crate::aniso::CellForm>,
+    start: PathPoint,
+    goal: PathPoint,
+    step_m: Option<f64>,
+    max_steps: Option<u32>,
+) -> Result<Vec<PathPoint>, ExtractError> {
+    extract_path_with_dir(shape, arrival, start, goal, step_m, max_steps, |p, g| {
+        match dual_metric_at(shape, forms, p) {
+            // (a b; b c) · (gx, gy)
+            Some((a, b, c)) => {
+                let dx = a * g.0 + b * g.1;
+                let dy = b * g.0 + c * g.1;
+                // Guard against a degenerate transform collapsing the
+                // direction; fall back to the raw gradient if so.
+                if (dx * dx + dy * dy) > 1e-30 {
+                    (dx, dy)
+                } else {
+                    g
+                }
+            }
+            None => g,
+        }
+    })
+}
+
+/// Discrete steepest-descent extraction — the robust primary extractor.
+///
+/// From the goal cell, repeatedly step to the 8-neighbour with the
+/// strictly-lowest arrival time until the seed is reached. Because the
+/// FMM arrival field is monotone decreasing from the seed, every step
+/// strictly lowers `u`, so this **cannot loop or diverge** — it reaches
+/// the start in at most one step per cell. This replaces the continuous
+/// bilinear gradient descent, which oscillated near refused-cell walls
+/// and flat regions and ran to `max_iters` (`Diverged`) on long/steep
+/// real corridors, forcing the blocky Theta* fallback.
+///
+/// The returned polyline is cell-centre-coarse (one vertex per ~cell);
+/// callers smooth it (cost-aware Chaikin) into an organic curve. The
+/// discrete steepest descent already follows the anisotropic field's own
+/// characteristic (the min-arrival neighbour), so no metric tensor is
+/// needed here.
+pub fn extract_path_discrete(
+    shape: &GridShape,
+    arrival: &FmmGrid<f32>,
+    start: PathPoint,
+    goal: PathPoint,
+) -> Result<Vec<PathPoint>, ExtractError> {
+    let (gi, gj) = shape
+        .world_to_cell(goal.x, goal.y)
+        .ok_or(ExtractError::GoalOutOfGrid)?;
+    if !arrival.get(gi, gj, 0).is_finite() {
+        return Err(ExtractError::GoalUnreachable);
+    }
+    let start_cell = shape.world_to_cell(start.x, start.y);
+    let (nx, ny) = (shape.nx as i32, shape.ny as i32);
+    let max_steps = (shape.nx as usize) * (shape.ny as usize) + 8;
+
+    let mut ci = gi as i32;
+    let mut cj = gj as i32;
+    let mut path: Vec<PathPoint> = Vec::new();
+    let (wx, wy) = shape.cell_centre(gi, gj);
+    path.push(PathPoint { x: wx, y: wy });
+
+    for _ in 0..max_steps {
+        if let Some((si, sj)) = start_cell {
+            if ci as u32 == si && cj as u32 == sj {
+                break;
+            }
+        }
+        let cur_u = arrival.get(ci as u32, cj as u32, 0);
+        let mut best: Option<(f32, i32, i32)> = None;
+        for dj in -1i32..=1 {
+            for di in -1i32..=1 {
+                if di == 0 && dj == 0 {
+                    continue;
+                }
+                let ni = ci + di;
+                let nj = cj + dj;
+                if ni < 0 || nj < 0 || ni >= nx || nj >= ny {
+                    continue;
+                }
+                let u = arrival.get(ni as u32, nj as u32, 0);
+                if !u.is_finite() {
+                    continue;
+                }
+                if best.map_or(true, |(bu, _, _)| u < bu) {
+                    best = Some((u, ni, nj));
+                }
+            }
+        }
+        match best {
+            Some((bu, ni, nj)) if bu < cur_u => {
+                ci = ni;
+                cj = nj;
+                let (px, py) = shape.cell_centre(ci as u32, cj as u32);
+                path.push(PathPoint { x: px, y: py });
+            }
+            // No strictly-lower neighbour: we're at the seed (global min).
+            _ => break,
+        }
+    }
+    // Anchor the exact start and orient start → goal.
+    path.push(start);
+    path.reverse();
+    Ok(path)
+}
+
+/// Shared gradient-descent integrator. `dir_at(p, ∇u)` returns the
+/// (unnormalised) descent direction; the integrator negates and
+/// normalises it to take a fixed-length `step` backward along the
+/// characteristic. Isotropic extraction passes `∇u` through unchanged;
+/// the anisotropic variant returns `G* ∇u`.
+fn extract_path_with_dir(
+    shape: &GridShape,
+    arrival: &FmmGrid<f32>,
+    start: PathPoint,
+    goal: PathPoint,
+    step_m: Option<f64>,
+    max_steps: Option<u32>,
+    dir_at: impl Fn(PathPoint, (f64, f64)) -> (f64, f64),
+) -> Result<Vec<PathPoint>, ExtractError> {
     let step = step_m.unwrap_or(shape.cell_m / 4.0);
     let diagonal = ((shape.nx as f64).powi(2) + (shape.ny as f64).powi(2)).sqrt() * shape.cell_m;
     let max_iters = max_steps.unwrap_or((10.0 * diagonal / step) as u32);
@@ -82,6 +224,12 @@ pub fn extract_path(
 
     let half_cell = shape.cell_m * 0.5;
     let seed_threshold = (step as f32) * BASE_PACE_S_PER_M;
+    // A continuous step counts as progress only if it drops arrival by a
+    // meaningful fraction of one step's worth of flat-pace time. Tiny
+    // positive decreases (a gradient grazing a wall) would otherwise let
+    // the descent inch along for `max_iters` and report `Diverged`; below
+    // this we fall back to a guaranteed discrete steepest-descent step.
+    let min_progress = (0.25 * step * BASE_PACE_S_PER_M as f64) as f32;
 
     let mut p = goal;
     let mut path = Vec::with_capacity(max_iters as usize);
@@ -104,30 +252,124 @@ pub fn extract_path(
             return Ok(path);
         }
 
-        // Compute ∇u via bilinear interpolation. The descent step
-        // moves in the direction of decreasing arrival time, i.e.
-        // opposite the gradient.
+        // Compute ∇u via bilinear interpolation, then map it to the
+        // characteristic direction (identity for isotropic, `G* ∇u`
+        // for anisotropic). The descent step moves backward along it.
         let g = gradient_at(shape, arrival, p);
-        let mag = (g.0 * g.0 + g.1 * g.1).sqrt();
-        if !mag.is_finite() || mag < 1e-6 {
-            // Local minimum or refused-cell region; bail.
-            if iter < max_iters / 10 {
-                // Bail close to goal isn't catastrophic — try to
-                // make headway with a tiny step toward `start`.
-                let inv = 1.0 / ((dx * dx + dy * dy).sqrt() + 1e-9);
-                p.x += -dx * inv * step;
-                p.y += -dy * inv * step;
-                path.push(p);
-                continue;
+        let d = dir_at(p, g);
+        let mag = (d.0 * d.0 + d.1 * d.1).sqrt();
+        let mut moved = false;
+        if mag.is_finite() && mag > 1e-6 {
+            let cand = PathPoint { x: p.x - step * d.0 / mag, y: p.y - step * d.1 / mag };
+            let u_cand = sample_arrival(shape, arrival, cand);
+            // Accept the smooth continuous step only if it makes real
+            // progress (arrival strictly decreases). Near refused-cell
+            // walls and flat regions the bilinear gradient oscillates /
+            // overshoots and `u` stops dropping — that is what made
+            // extraction run to `max_iters` and diverge on ~46/60 real
+            // corridors. When it stalls we fall through to a discrete
+            // steepest-descent step below, which is guaranteed to
+            // descend the monotone arrival field toward the seed.
+            if u_cand.is_finite() && u_cand < u_here - min_progress {
+                p = cand;
+                moved = true;
             }
-            return Err(ExtractError::LocalMinimum);
         }
-        // Move backward along -∇u with `step` length.
-        p.x -= step * g.0 / mag;
-        p.y -= step * g.1 / mag;
+        if !moved {
+            // Discrete fallback: step toward the 8-neighbour cell centre
+            // with the lowest arrival. The FMM field is monotone from
+            // the seed, so a strictly-lower neighbour always exists until
+            // we reach it — this cannot loop or diverge.
+            match steepest_descent_dir(shape, arrival, p, u_here) {
+                Some((nx, ny)) => {
+                    p.x += step * nx;
+                    p.y += step * ny;
+                    path.push(p);
+                }
+                None => {
+                    // No lower neighbour: genuine local minimum (the seed
+                    // region). Snap to start and finish.
+                    path.push(start);
+                    path.reverse();
+                    return Ok(path);
+                }
+            }
+            continue;
+        }
         path.push(p);
     }
     Err(ExtractError::Diverged(max_iters))
+}
+
+/// Unit direction from `p` toward the 8-neighbour cell centre with the
+/// lowest arrival time, provided it is strictly below `u_here`. Returns
+/// `None` when no neighbour is lower (local minimum / seed). Guarantees
+/// the caller a strictly-descending step on the monotone FMM field.
+fn steepest_descent_dir(
+    shape: &GridShape,
+    arrival: &FmmGrid<f32>,
+    p: PathPoint,
+    u_here: f32,
+) -> Option<(f64, f64)> {
+    let (ci, cj) = shape.world_to_cell(p.x, p.y)?;
+    let mut best: Option<(f32, f64, f64)> = None;
+    for dj in -1i32..=1 {
+        for di in -1i32..=1 {
+            if di == 0 && dj == 0 {
+                continue;
+            }
+            let ni = ci as i32 + di;
+            let nj = cj as i32 + dj;
+            if ni < 0 || nj < 0 || ni >= shape.nx as i32 || nj >= shape.ny as i32 {
+                continue;
+            }
+            let u = arrival.get(ni as u32, nj as u32, 0);
+            if !u.is_finite() {
+                continue;
+            }
+            if best.map_or(true, |(bu, _, _)| u < bu) {
+                let (wx, wy) = shape.cell_centre(ni as u32, nj as u32);
+                best = Some((u, wx - p.x, wy - p.y));
+            }
+        }
+    }
+    let (bu, vx, vy) = best?;
+    if bu >= u_here {
+        return None;
+    }
+    let n = (vx * vx + vy * vy).sqrt();
+    if n < 1e-9 {
+        return None;
+    }
+    Some((vx / n, vy / n))
+}
+
+/// Reconstruct the dual metric tensor `G* = (a b; b c)` at world point
+/// `p` from the nearest baked `CellForm`. The Selling decomposition
+/// stores `G*` as `Σ wₖ · offsetₖ ⊗ offsetₖ` over the active terms, so
+/// summing the rank-1 outer products recovers the tensor. Returns
+/// `None` for refused/out-of-grid cells.
+fn dual_metric_at(
+    shape: &GridShape,
+    forms: &FmmGrid<crate::aniso::CellForm>,
+    p: PathPoint,
+) -> Option<(f64, f64, f64)> {
+    let (i, j) = shape.world_to_cell(p.x, p.y)?;
+    let cell = forms.get(i, j, 0);
+    if cell.is_refused() {
+        return None;
+    }
+    let n = cell.norm.n_terms as usize;
+    let (mut a, mut b, mut c) = (0.0f64, 0.0f64, 0.0f64);
+    for k in 0..n {
+        let w = cell.norm.weights[k] as f64;
+        let ox = cell.norm.offsets[k][0] as f64;
+        let oy = cell.norm.offsets[k][1] as f64;
+        a += w * ox * ox;
+        b += w * ox * oy;
+        c += w * oy * oy;
+    }
+    Some((a, b, c))
 }
 
 /// Bilinearly interpolate the arrival time at sub-cell point `p`.

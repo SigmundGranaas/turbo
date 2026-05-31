@@ -18,6 +18,7 @@ pub mod native_contributors;
 pub mod pathfinder;
 pub mod solver_trace;
 pub mod tracer;
+pub mod unified;
 pub mod vector_layers;
 
 pub use core::off_trail::{theta_star, Mesh, MeshNode, MeshNodeId, PathResult, Point2};

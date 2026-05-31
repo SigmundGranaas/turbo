@@ -18,8 +18,8 @@ use std::sync::Arc;
 use turbo_tiles_elev::{Dem, PointXY};
 use turbo_tiles_fmm::{
     bake_aniso_corridor, bake_metric_2d, chaikin_smooth_cost_aware, extract_path,
-    solve_2d_anisotropic, solve_2d_isotropic, CellForm, Elevation, FmmGrid, GridShape,
-    PathPoint, StopCondition, ToblerAnisotropic, ToblerIsotropic,
+    extract_path_aniso, extract_path_discrete, solve_2d_anisotropic, solve_2d_isotropic, CellForm,
+    Elevation, FmmGrid, GridShape, PathPoint, StopCondition, ToblerAnisotropic, ToblerIsotropic,
 };
 
 use crate::contributor::{CostContributor, EdgeContext, EdgeKind};
@@ -36,6 +36,134 @@ impl Elevation for DemElevation {
     fn at(&self, shape: &GridShape, i: u32, j: u32) -> Option<f32> {
         let (x, y) = shape.cell_centre(i, j);
         self.dem.sample(PointXY { x, y }).ok().flatten()
+    }
+}
+
+/// Lazy `CellOverlay`: evaluates the project's `CostContributor` stack
+/// (water/glacier refusal + trail-proximity/slope pace) for a cell ONLY when
+/// the lifted A* first asks about it, memoising the result. On a long route
+/// the search touches a fraction of the corridor, so this avoids the eager
+/// whole-corridor bake — speeding the solve and letting progress snapshots
+/// stream from the first step instead of after a silent bake.
+/// Append the off-trail roughness contributor (a multiplicative pace
+/// factor on mesh edges) to a per-request contributor stack. Off-trail
+/// roughness is per-request/profile (`inputs.off_trail_factor`), so it
+/// is added here at solve time rather than baked into the static
+/// Pathfinder stack — and it never touches graph (trail) edges. Used by
+/// the grade-limited (default) and isotropic FMM paths; the anisotropic
+/// path keeps `off_trail_factor` in its metric instead.
+pub(crate) fn with_off_trail(
+    contributors: &[Arc<dyn CostContributor>],
+    off_trail_factor: f32,
+) -> Vec<Arc<dyn CostContributor>> {
+    let mut v: Vec<Arc<dyn CostContributor>> = contributors.to_vec();
+    v.push(Arc::new(
+        crate::native_contributors::OffTrailRoughnessContributor::new(off_trail_factor),
+    ));
+    v
+}
+
+pub(crate) struct LazyContributorOverlay<'a> {
+    shape: GridShape,
+    base_pace: f32,
+    profile: turbo_tiles_graph::Profile,
+    contributors: &'a [Arc<dyn CostContributor>],
+    // 0 = uncomputed, 1 = passable, 2 = refused.
+    state: std::cell::RefCell<Vec<u8>>,
+    mul: std::cell::RefCell<Vec<f32>>,
+    refused_by: std::cell::RefCell<std::collections::BTreeSet<String>>,
+}
+
+impl<'a> LazyContributorOverlay<'a> {
+    pub(crate) fn new(
+        shape: GridShape,
+        base_pace: f32,
+        profile: turbo_tiles_graph::Profile,
+        contributors: &'a [Arc<dyn CostContributor>],
+    ) -> Self {
+        let n = (shape.nx as usize) * (shape.ny as usize);
+        Self {
+            shape,
+            base_pace,
+            profile,
+            contributors,
+            state: std::cell::RefCell::new(vec![0u8; n]),
+            mul: std::cell::RefCell::new(vec![1.0f32; n]),
+            refused_by: std::cell::RefCell::new(std::collections::BTreeSet::new()),
+        }
+    }
+
+    #[inline]
+    fn idx(&self, i: u32, j: u32) -> usize {
+        (j as usize) * (self.shape.nx as usize) + (i as usize)
+    }
+
+    fn ensure(&self, i: u32, j: u32) {
+        let idx = self.idx(i, j);
+        if self.state.borrow()[idx] != 0 {
+            return;
+        }
+        let cell_m = self.shape.cell_m;
+        let (cx, cy) = self.shape.cell_centre(i, j);
+        let ctx = EdgeContext {
+            fx: cx - 0.5 * cell_m,
+            fy: cy,
+            tx: cx + 0.5 * cell_m,
+            ty: cy,
+            length_m: cell_m,
+            profile: self.profile,
+            kind: EdgeKind::Mesh,
+        };
+        for c in self.contributors {
+            if let Some(label) = c.veto(&ctx) {
+                self.state.borrow_mut()[idx] = 2;
+                self.refused_by.borrow_mut().insert(label.to_string());
+                return;
+            }
+        }
+        let mut extra_s: f64 = 0.0;
+        let mut factor: f64 = 1.0;
+        for c in self.contributors {
+            let dv = c.contribute(&ctx);
+            if dv.is_finite() {
+                extra_s += dv;
+            }
+            let f = c.pace_factor(&ctx);
+            if f.is_finite() && f > 0.0 {
+                factor *= f;
+            }
+        }
+        let extra_pace = (extra_s / cell_m) as f32;
+        // Additive deltas scale the base pace; multiplicative pace
+        // factors (off-trail roughness, …) scale the whole composed
+        // pace — matching the solver's former `tobler × off × mul`.
+        let mul = ((self.base_pace + extra_pace) / self.base_pace) as f64 * factor;
+        self.mul.borrow_mut()[idx] = (mul as f32).clamp(0.1, 20.0);
+        self.state.borrow_mut()[idx] = 1;
+    }
+
+    fn refused_count(&self) -> u32 {
+        self.state.borrow().iter().filter(|&&s| s == 2).count() as u32
+    }
+
+    pub(crate) fn refused_labels(&self) -> Vec<String> {
+        self.refused_by.borrow().iter().cloned().collect()
+    }
+}
+
+impl<'a> turbo_tiles_fmm::CellOverlay for LazyContributorOverlay<'a> {
+    fn refused(&self, i: u32, j: u32) -> bool {
+        self.ensure(i, j);
+        self.state.borrow()[self.idx(i, j)] == 2
+    }
+    fn pace_mul(&self, i: u32, j: u32) -> f32 {
+        self.ensure(i, j);
+        let idx = self.idx(i, j);
+        if self.state.borrow()[idx] == 2 {
+            1.0
+        } else {
+            self.mul.borrow()[idx]
+        }
     }
 }
 
@@ -64,6 +192,21 @@ pub struct FmmSolveInputs {
     /// AGSI stencil. When `false`, the legacy isotropic Tobler path
     /// runs (still useful for A/B screenshots and as a safety net).
     pub use_anisotropic: bool,
+    /// Naismith vertical-gain weight (effective flat-metres per gain-
+    /// metre) folded directionally into the anisotropic along-fall-line
+    /// pace, matching on-graph `length + k·gain` pricing. Foot ≈ 8.
+    pub gain_factor_k: f32,
+    /// Use the state-augmented (x,y,heading) grade-limited solver, which
+    /// switchbacks up steep ground instead of climbing the fall line.
+    /// When `false`, the 2D anisotropic FMM runs (the gentle-terrain
+    /// default).
+    pub use_grade_limited: bool,
+    /// Grade cap (deg) for the grade-limited solver: forward moves
+    /// steeper than this are refused, forcing traverses/switchbacks.
+    pub max_grade_deg: f32,
+    /// Seconds charged per 45° heading change in the grade-limited
+    /// solver. Tunes switchback spacing.
+    pub turn_penalty_s: f32,
 }
 
 impl Default for FmmSolveInputs {
@@ -76,6 +219,10 @@ impl Default for FmmSolveInputs {
             refuse_above_deg: 45.0,
             off_trail_factor: 1.0,
             use_anisotropic: false,
+            gain_factor_k: 0.0,
+            use_grade_limited: false,
+            max_grade_deg: 27.0,
+            turn_penalty_s: 8.0,
         }
     }
 }
@@ -102,6 +249,11 @@ pub struct FmmSolveOutput {
     pub vetoed_cells: u32,
     /// Labels of the contributors that vetoed at least one cell.
     pub refused_by: Vec<String>,
+    /// Baked anisotropic CellForms (the per-cell dual metric, Selling-
+    /// decomposed). Present only for anisotropic solves; consumed by
+    /// `extract_path_aniso` to follow the metric characteristic. `None`
+    /// for isotropic solves (extraction uses the plain gradient).
+    pub forms: Option<FmmGrid<CellForm>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -147,8 +299,14 @@ pub fn compute_corridor_shape(
             d, cell_m * 0.5
         )));
     }
-    let pad = (4.0 * cell_m).max(0.30 * d);
-    let half_width = 800.0_f64.max(0.20 * d);
+    // Corridor extents are clamped so the search area grows O(d), not O(d²).
+    // Without the caps a long route's padding/width scale with length and the
+    // cell count explodes (an 11.5 km route became a ~21×20 km, 4.4 M-cell
+    // bbox). 3 km is generous enough to detour around large lakes while
+    // bounding the corridor for long routes. A* keeps the wider span cheap by
+    // exploring toward the goal rather than flooding it.
+    let pad = (4.0 * cell_m).max(0.30 * d).min(3000.0);
+    let half_width = 800.0_f64.max(0.20 * d).min(3000.0);
     // Compute AABB of the oriented rectangle. Easier in unit-vector
     // form: along-axis u = (dx/d, dy/d); perp-axis v = (-dy/d, dx/d).
     let u = (dx / d, dy / d);
@@ -204,7 +362,6 @@ fn bake_contributor_pace(
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
     base_pace_s_per_m: f32,
-    off_trail_factor: f32,
 ) {
     let cell_m = shape.cell_m;
     for j in 0..shape.ny {
@@ -225,18 +382,25 @@ fn bake_contributor_pace(
                 profile,
                 kind: EdgeKind::Mesh,
             };
-            // Sum walk-seconds contributions; skip Inf (vetoes).
+            // Sum walk-seconds contributions; skip Inf (vetoes). Also
+            // accumulate the multiplicative pace factors (off-trail
+            // roughness, …) that scale the whole composed pace.
             let mut extra_s: f64 = 0.0;
+            let mut factor: f64 = 1.0;
             for c in contributors {
                 let dv = c.contribute(&ctx);
                 if dv.is_finite() {
                     extra_s += dv;
                 }
+                let f = c.pace_factor(&ctx);
+                if f.is_finite() && f > 0.0 {
+                    factor *= f;
+                }
             }
             let extra_pace = (extra_s / cell_m) as f32; // s/m delta
             let tobler_pace = cost.flat()[idx];
             let composed = (tobler_pace + extra_pace).max(base_pace_s_per_m);
-            cost.flat_mut()[idx] = composed * off_trail_factor;
+            cost.flat_mut()[idx] = composed * factor as f32;
         }
     }
 }
@@ -318,15 +482,21 @@ fn apply_contributor_factors_aniso(
                 kind: EdgeKind::Mesh,
             };
             let mut extra_s: f64 = 0.0;
+            let mut factor: f64 = 1.0;
             for c in contributors {
                 let dv = c.contribute(&ctx);
                 if dv.is_finite() {
                     extra_s += dv;
                 }
+                let pf = c.pace_factor(&ctx);
+                if pf.is_finite() && pf > 0.0 {
+                    factor *= pf;
+                }
             }
-            if extra_s.abs() < 1e-6 { continue; }
+            if extra_s.abs() < 1e-6 && (factor - 1.0).abs() < 1e-6 { continue; }
             let extra_pace = (extra_s / cell_m) as f32;
-            let f = ((base_pace_s_per_m + extra_pace) / base_pace_s_per_m).max(0.1);
+            let f = (((base_pace_s_per_m + extra_pace) / base_pace_s_per_m) as f64 * factor).max(0.1)
+                as f32;
             let scale = 1.0 / (f * f);
             let mut new_form = cell;
             for k in 0..new_form.norm.n_terms as usize {
@@ -403,6 +573,7 @@ fn solve_fmm_corridor_aniso(
         refuse_above_deg: inputs.refuse_above_deg,
         base_pace_s_per_m: inputs.base_pace_s_per_m,
         off_trail_factor: inputs.off_trail_factor,
+        gain_factor_k: inputs.gain_factor_k,
     };
     let mut forms = bake_aniso_corridor(shape, &metric);
     apply_contributor_factors_aniso(
@@ -421,6 +592,22 @@ fn solve_fmm_corridor_aniso(
     let solve_ms = t0.elapsed().as_millis() as u32;
 
     if !result.arrival.get(goal_cell.0, goal_cell.1, 0).is_finite() {
+        // Expected when the off-trail corridor between the endpoints is
+        // severed by a refused barrier (cliff > refuse_above_deg, water,
+        // glacier) — common in alpine terrain where the marked trail
+        // exists precisely to switchback/bridge around the barrier. The
+        // caller falls back to the Theta* mesh. Verified on the Norway
+        // corpus: every force-off-trail "goal unreachable" was a genuine
+        // refused-cell disconnection (goal not in the start's connected
+        // component), not a solver stall.
+        let total = (shape.nx * shape.ny) as usize;
+        let refused: usize = forms.flat().iter().filter(|c| c.is_refused()).count();
+        tracing::warn!(
+            nx = shape.nx, ny = shape.ny, total, refused, vetoed_cells,
+            refused_by = ?refused_by,
+            cells_accepted = result.cells_accepted,
+            "FMM aniso: goal unreachable (corridor severed by refused cells)"
+        );
         return Err(FmmAdapterError::GoalUnreachable);
     }
 
@@ -432,6 +619,7 @@ fn solve_fmm_corridor_aniso(
         cells_accepted: result.cells_accepted,
         vetoed_cells,
         refused_by,
+        forms: Some(forms),
     })
 }
 
@@ -476,12 +664,16 @@ pub fn solve_fmm_corridor(
     //    FMM path actually follow trails — without it the cost
     //    field is purely slope-driven and routes around graph
     //    edges instead of toward them.
-    bake_contributor_pace(shape, &mut cost, contributors, profile,
-        inputs.base_pace_s_per_m, inputs.off_trail_factor);
+    //    Off-trail roughness rides along as a multiplicative
+    //    `pace_factor` contributor (added here, per-request) so the
+    //    factor is applied uniformly by the cost stack rather than
+    //    hard-coded into the solver.
+    let augmented = with_off_trail(contributors, inputs.off_trail_factor);
+    bake_contributor_pace(shape, &mut cost, &augmented, profile, inputs.base_pace_s_per_m);
 
     // 3) Bake hard refusals on top — water/ocean/glacier/building
     //    polygons. Sets `cost = +∞` for vetoed cells.
-    let (vetoed_cells, refused_by) = bake_vetoes(shape, &mut cost, contributors, profile);
+    let (vetoed_cells, refused_by) = bake_vetoes(shape, &mut cost, &augmented, profile);
 
     // 3) Solve.
     let t0 = std::time::Instant::now();
@@ -508,6 +700,7 @@ pub fn solve_fmm_corridor(
         cells_accepted: result.cells_accepted,
         vetoed_cells,
         refused_by,
+        forms: None,
     })
 }
 
@@ -538,19 +731,40 @@ pub fn solve_fmm_path(
     contributors: &[Arc<dyn CostContributor>],
     profile: turbo_tiles_graph::Profile,
 ) -> Result<FmmPathOutput, FmmAdapterError> {
+    if inputs.use_grade_limited {
+        return solve_grade_limited_path(inputs, dem, contributors, profile);
+    }
     let from = inputs.from;
     let to = inputs.to;
+    let use_aniso = inputs.use_anisotropic;
     let solve = solve_fmm_corridor(inputs, dem, contributors, profile)?;
     let start_pp = PathPoint { x: from.x, y: from.y };
     let goal_pp = PathPoint { x: to.x, y: to.y };
-    let raw_path = extract_path(&solve.shape, &solve.arrival, start_pp, goal_pp, None, None)
-        .map_err(|e| match e {
+    // Anisotropic corridors must extract along the metric characteristic
+    // (-G*∇u), not the raw gradient (-∇u): on an anisotropic field the
+    // two diverge by a consistent angle that accumulates into ballooning
+    // detours. `extract_path_aniso` reconstructs G* from the baked
+    // CellForms. Isotropic corridors keep the plain extractor (G* ∝ I,
+    // so the two coincide).
+    // Discrete steepest-descent extraction: provably convergent on the
+    // monotone arrival field (cannot loop/diverge), where the continuous
+    // gradient descent oscillated near walls and reported `Diverged` on
+    // long/steep corridors → blocky Theta* fallback. The coarse cell path
+    // is smoothed into an organic curve below.
+    let _ = use_aniso;
+    let extract_res = extract_path_discrete(&solve.shape, &solve.arrival, start_pp, goal_pp);
+    let raw_path = extract_res.map_err(|e| {
+        tracing::warn!(error = ?e, use_aniso, "FMM extraction failed");
+        match e {
             turbo_tiles_fmm::ExtractError::GoalUnreachable => FmmAdapterError::GoalUnreachable,
             _ => FmmAdapterError::GoalUnreachable, // Bucket all extract errors
-        })?;
-    // Cost-aware Chaikin smooth. 2 iterations is the sweet spot —
-    // visually smooth, doesn't drift across cost discontinuities.
-    let smoothed = chaikin_smooth_cost_aware(&raw_path, &solve.arrival, &solve.shape, 2, 8192);
+        }
+    })?;
+    // Cost-aware Chaikin smooth. The discrete extractor yields a coarse
+    // (cell-centre, 8-direction) staircase, so use 4 iterations to round
+    // it into an organic curve; cost-awareness keeps it from drifting
+    // across refused/expensive cells.
+    let smoothed = chaikin_smooth_cost_aware(&raw_path, &solve.arrival, &solve.shape, 4, 16384);
     let goal_cell = solve.goal_cell.expect("solve guarantees goal_cell");
     let cost_seconds = solve.arrival.get(goal_cell.0, goal_cell.1, 0) as f64;
     Ok(FmmPathOutput {
@@ -560,6 +774,149 @@ pub fn solve_fmm_path(
         cells_accepted: solve.cells_accepted,
         vetoed_cells: solve.vetoed_cells,
         refused_by: solve.refused_by,
+    })
+}
+
+/// State-augmented (x, y, heading) grade-limited solve: switchbacks up
+/// steep terrain instead of climbing the fall line. Reuses the corridor
+/// sizing; lifts to `N_HEADINGS` heading bands; Dijkstra over the lifted
+/// lattice; backtracks the parent tree; Chaikin-smooths.
+fn solve_grade_limited_path(
+    inputs: FmmSolveInputs,
+    dem: Arc<Dem>,
+    contributors: &[Arc<dyn CostContributor>],
+    profile: turbo_tiles_graph::Profile,
+) -> Result<FmmPathOutput, FmmAdapterError> {
+    use turbo_tiles_fmm::{
+        extract_path_lifted, solve_lifted_grade_limited, GradeLimitedCost, N_HEADINGS,
+    };
+    let shape2d = compute_corridor_shape(inputs.from, inputs.to, inputs.cell_m)?;
+    let start_cell = shape2d
+        .world_to_cell(inputs.from.x, inputs.from.y)
+        .ok_or(FmmAdapterError::StartOutsideGrid)?;
+    let goal_cell = shape2d
+        .world_to_cell(inputs.to.x, inputs.to.y)
+        .ok_or(FmmAdapterError::GoalOutsideGrid)?;
+    let shape3d = GridShape::new_3d(
+        shape2d.nx, shape2d.ny, N_HEADINGS, shape2d.origin_x, shape2d.origin_y, shape2d.cell_m,
+    );
+
+    // Lazy per-cell overlay over the SAME CostContributor stack the 2-D FMM
+    // uses (water/glacier refusal + trail-proximity/slope pace). Evaluated on
+    // demand as the A* visits cells — no eager whole-corridor bake — so long
+    // routes only pay for cells they actually explore, and progress streams
+    // from the first step.
+    // Off-trail roughness joins the stack as a multiplicative
+    // `pace_factor` contributor (per-request, mesh-only), so the
+    // overlay's `mul` carries it — the solver no longer multiplies by
+    // `off_trail_factor` in `forward_cost`. It survives on
+    // `GradeLimitedCost` purely as the A* heuristic's pace floor.
+    let augmented = with_off_trail(contributors, inputs.off_trail_factor);
+    let overlay = LazyContributorOverlay::new(
+        shape2d,
+        inputs.base_pace_s_per_m,
+        profile,
+        &augmented,
+    );
+
+    let cost = GradeLimitedCost {
+        elev: DemElevation { dem: dem.clone() },
+        base_pace_s_per_m: inputs.base_pace_s_per_m,
+        off_trail_factor: inputs.off_trail_factor,
+        max_grade_deg: inputs.max_grade_deg,
+        turn_penalty_s: inputs.turn_penalty_s,
+        overlay,
+    };
+    // Stream the route reaching toward the goal as the A* runs: each
+    // progress snapshot becomes a BestPathSnapshot solver-trace event, which
+    // fans to the SSE channel when a streaming recorder is installed (and is
+    // a cheap no-op otherwise). This is what makes the live preview show a
+    // trail being built for off-trail solves — previously only the graph
+    // Dijkstra emitted events.
+    let mut emit = |p: &turbo_tiles_fmm::LiftedProgress| {
+        crate::solver_trace::record(|| crate::solver_trace::SolverEvent::BestPathSnapshot {
+            coords: p.best_path.iter().map(|&(x, y)| [x as f32, y as f32]).collect(),
+        });
+    };
+    let t0 = std::time::Instant::now();
+    let result =
+        solve_lifted_grade_limited(shape3d, &cost, start_cell, goal_cell, Some(&mut emit));
+    let solve_ms = t0.elapsed().as_millis() as u32;
+
+    let goal_state = result.goal_state.ok_or(FmmAdapterError::GoalUnreachable)?;
+    let raw_xy = extract_path_lifted(
+        &shape3d,
+        &result,
+        (inputs.from.x, inputs.from.y),
+        (inputs.to.x, inputs.to.y),
+    )
+    .ok_or(FmmAdapterError::GoalUnreachable)?;
+    let raw_path: Vec<PathPoint> = raw_xy.into_iter().map(|(x, y)| PathPoint { x, y }).collect();
+
+    // Project the lifted arrival to a 2D min-over-heading field so the
+    // cost-aware Chaikin smoother has a sensible scalar field.
+    let mut arr2d: FmmGrid<f32> = FmmGrid::filled(shape2d, f32::INFINITY);
+    for j in 0..shape2d.ny {
+        for i in 0..shape2d.nx {
+            let mut m = f32::INFINITY;
+            for k in 0..N_HEADINGS {
+                let v = result.arrival.get(i, j, k);
+                if v < m {
+                    m = v;
+                }
+            }
+            arr2d.set(i, j, 0, m);
+        }
+    }
+    // Refusal-repair on the smoothed output. The Chaikin smoother only
+    // rejects bad *vertices*; a segment between two good vertices can still
+    // clip a refused-cell corner (the residual 1-cell water/cliff clips the
+    // gate caught). `forward_cost` guarantees the RAW lattice path is
+    // segment-safe, so take the smoothest version that's fully clear,
+    // dropping iterations and finally falling back to raw if a clip remains.
+    let cell_m_f = shape2d.cell_m;
+    let seg_clear = |poly: &[PathPoint]| -> bool {
+        use turbo_tiles_fmm::CellOverlay;
+        for w in poly.windows(2) {
+            let d = ((w[1].x - w[0].x).powi(2) + (w[1].y - w[0].y).powi(2)).sqrt();
+            let steps = ((d / (0.4 * cell_m_f)).ceil() as i32).max(1);
+            for s in 0..=steps {
+                let t = s as f64 / steps as f64;
+                let x = w[0].x + (w[1].x - w[0].x) * t;
+                let y = w[0].y + (w[1].y - w[0].y) * t;
+                if let Some((ci, cj)) = shape2d.world_to_cell(x, y) {
+                    // Cells the path visits are already memoised by the solve.
+                    if cost.overlay.refused(ci, cj) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    };
+    let mut smoothed = chaikin_smooth_cost_aware(&raw_path, &arr2d, &shape2d, 4, 16384);
+    if !seg_clear(&smoothed) {
+        let mut repaired = None;
+        for iters in [2u8, 1] {
+            let cand = chaikin_smooth_cost_aware(&raw_path, &arr2d, &shape2d, iters, 16384);
+            if seg_clear(&cand) {
+                repaired = Some(cand);
+                break;
+            }
+        }
+        // Raw lattice path is segment-safe by construction (forward_cost
+        // refuses any move whose chord clips a refused cell).
+        smoothed = repaired.unwrap_or_else(|| raw_path.clone());
+        tracing::debug!("grade-limited: smoothed path clipped a refused cell; repaired to safe variant");
+    }
+    let cost_seconds = result.arrival.flat()[goal_state] as f64;
+    Ok(FmmPathOutput {
+        polyline: smoothed,
+        cost_seconds,
+        solve_ms,
+        cells_accepted: result.cells_accepted,
+        vetoed_cells: cost.overlay.refused_count(),
+        refused_by: cost.overlay.refused_labels(),
     })
 }
 

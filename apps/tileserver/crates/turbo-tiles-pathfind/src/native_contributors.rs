@@ -208,24 +208,17 @@ impl CostContributor for ToblerSlopeContributor {
         extra
     }
     fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
-        let Some(zs) = self.sample_elevations(ctx) else {
-            return None;
-        };
-        if zs.len() < 2 {
-            return None;
-        }
-        let seg_len = ctx.length_m / (zs.len() - 1) as f64;
-        if seg_len < 1e-6 {
-            return None;
-        }
-        let cap = (self.refuse_above_deg as f64).to_radians().tan();
-        for w in zs.windows(2) {
-            let dz = (w[1] - w[0]) as f64;
-            let slope = (dz / seg_len).abs();
-            if slope >= cap {
-                return Some("slope_too_steep");
-            }
-        }
+        // Mesh slope is NEVER hard-vetoed: the continuous Tobler cost
+        // (`contribute`) makes steep ground exponentially expensive, so
+        // the geodesic curves around it on the gentle line — but the
+        // corridor stays *connected*, so the FMM always reaches the goal
+        // and we never drop to the blocky Theta* fallback. Genuine
+        // near-vertical cliffs are refused by the FMM metric
+        // (`tobler_aniso::metric_at` above `cliff_refuse_deg`); graph
+        // edges that traverse cliffs are vetoed by GraphSlopeContributor.
+        // A hard 45° (or even 60°) mesh wall here severed alpine
+        // ascent corridors and forced the angular fallback.
+        let _ = ctx;
         None
     }
 }
@@ -295,15 +288,84 @@ pub struct MaskRefusalContributor {
     /// crossing-length cost instead. Matches
     /// `MaskRefusalLayer::deferring_water`.
     pub defer_water_to_vector: bool,
+    /// Extra walk-seconds per metre for traversing a *passable*
+    /// (shoreline) water cell. The deep-water interior stays a hard
+    /// veto; the shoreline ring is finite-but-expensive so the
+    /// off-trail geodesic can hug a shore like the marked trail
+    /// without shortcutting across open water.
+    pub water_cost_s_per_m: f64,
+    /// Ring radius (m) used to classify a water cell as shoreline
+    /// (passable) vs deep interior (refused).
+    pub water_shore_band_m: f64,
+}
+
+/// Classification of a water cell for the continuous-water model.
+#[derive(PartialEq)]
+enum WaterState {
+    /// Not water (or out of mask) — handled by other refusal kinds.
+    NotWater,
+    /// Water with non-water within `shore_band_m` — passable, costly.
+    Shoreline,
+    /// Water surrounded by water out to `shore_band_m` — impassable.
+    Deep,
 }
 
 impl MaskRefusalContributor {
     pub fn new(mask: Arc<Mask>) -> Self {
-        Self { mask, defer_water_to_vector: false }
+        let d = crate::config::WaterConfig::default();
+        Self {
+            mask,
+            defer_water_to_vector: false,
+            water_cost_s_per_m: d.cost_s_per_m,
+            water_shore_band_m: d.shore_band_m,
+        }
     }
     pub fn deferring_water(mut self) -> Self {
         self.defer_water_to_vector = true;
         self
+    }
+    pub fn with_water(mut self, cost_s_per_m: f64, shore_band_m: f64) -> Self {
+        self.water_cost_s_per_m = cost_s_per_m;
+        self.water_shore_band_m = shore_band_m;
+        self
+    }
+
+    /// Classify the water at `(x, y)`: shoreline if any non-water cell
+    /// lies within `water_shore_band_m`, else deep. We scan 8 spokes at
+    /// several radii (not a single ring) — sampling only the band radius
+    /// overshoots a thin shoreline strip and lands back in water on the
+    /// far side, misclassifying near-shore cells as deep. Step ≈ half a
+    /// water-raster cell (12.5 m) so a shore puffed inward by ~1 cell is
+    /// always caught. Cheap: ~8×N mmap point lookups.
+    fn water_state(&self, x: f64, y: f64) -> WaterState {
+        if !matches!(self.mask.refused(x, y), Ok(RefusalKind::Water)) {
+            return WaterState::NotWater;
+        }
+        const DIRS: [(f64, f64); 8] = [
+            (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0),
+            (0.7071, 0.7071), (-0.7071, 0.7071), (0.7071, -0.7071), (-0.7071, -0.7071),
+        ];
+        // Hole-robust shore test: a cell is "shoreline" (passable) only if
+        // genuine land lies within the band in some direction. We sample
+        // each of the 8 directions at the band-distance RING endpoint, not
+        // along the whole spoke. The old "any non-water sample anywhere
+        // within the band" test was fragile: the 25 m water raster has
+        // interior holes (cells not flagged water inside a large lake), so a
+        // mid-lake cell would "find shore" at a hole and be wrongly marked
+        // passable — letting routes cut straight across large water bodies.
+        // Checking only the ring endpoint ignores those interior holes: a
+        // truly-deep cell is surrounded by water at the band ring in every
+        // direction, while a near-shore cell reaches land in at least one.
+        let band = self.water_shore_band_m;
+        for (dx, dy) in DIRS {
+            if !matches!(
+                self.mask.refused(x + dx * band, y + dy * band),
+                Ok(RefusalKind::Water)
+            ) {
+                return WaterState::Shoreline;
+            }
+        }
+        WaterState::Deep
     }
 }
 
@@ -314,15 +376,31 @@ impl CostContributor for MaskRefusalContributor {
     fn kind(&self) -> ContributorKind {
         ContributorKind::Hazard
     }
-    fn contribute(&self, _ctx: &EdgeContext<'_>) -> f64 {
-        0.0
+    fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
+        if self.defer_water_to_vector {
+            return 0.0;
+        }
+        let mid_x = 0.5 * (ctx.fx + ctx.tx);
+        let mid_y = 0.5 * (ctx.fy + ctx.ty);
+        // Passable shoreline water → finite high cost. (Deep water is
+        // vetoed in `veto`, so it never reaches the cost stack.)
+        if self.water_state(mid_x, mid_y) == WaterState::Shoreline {
+            self.water_cost_s_per_m * ctx.length_m
+        } else {
+            0.0
+        }
     }
     fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
         let mid_x = 0.5 * (ctx.fx + ctx.tx);
         let mid_y = 0.5 * (ctx.fy + ctx.ty);
         match self.mask.refused(mid_x, mid_y).ok()? {
             RefusalKind::Water if self.defer_water_to_vector => None,
-            RefusalKind::Water => Some("water"),
+            // Continuous water: refuse only the deep interior; the
+            // shoreline ring is passable (high cost via `contribute`).
+            RefusalKind::Water => match self.water_state(mid_x, mid_y) {
+                WaterState::Deep => Some("water"),
+                _ => None,
+            },
             RefusalKind::Glacier => Some("glacier"),
             RefusalKind::Reserved3 => Some("restricted"),
             _ => None,
@@ -777,11 +855,17 @@ pub struct PreferredEdgeContributor {
 impl Default for PreferredEdgeContributor {
     fn default() -> Self {
         let mut tbl = [0.0f64; 8];
-        // -50% pace ≈ -0.357 s/m on DNT + manual edges. Magnitude
-        // chosen to mirror the legacy 0.5× multiplier when expressed
-        // as walk-seconds delta against the flat-trail baseline.
-        tbl[3] = -0.5 * BASE_PACE_S_PER_M; // dnt
-        tbl[4] = -0.5 * BASE_PACE_S_PER_M; // manual
+        // A MAINTAINED trail (DNT / manually curated) is modestly
+        // easier underfoot than a faint unmaintained path — a footing
+        // nudge, not a routing dominator. The dominant on-trail vs
+        // off-trail advantage now comes from the off-trail roughness
+        // factor (~2.3×) that trail edges don't pay; the old -50% value
+        // was calibrated for the legacy `baked × multiplier` weight
+        // (which squared the discount) and, under honest walk-seconds,
+        // let marked trails win multi-× detours. -15% keeps maintenance
+        // a preference, matching the red-T marking magnitude.
+        tbl[3] = -0.15 * BASE_PACE_S_PER_M; // dnt
+        tbl[4] = -0.15 * BASE_PACE_S_PER_M; // manual
         Self { seconds_per_metre: tbl }
     }
 }
@@ -800,6 +884,45 @@ impl CostContributor for PreferredEdgeContributor {
                 self.seconds_per_metre[idx] * ctx.length_m
             }
             EdgeKind::Mesh => 0.0,
+        }
+    }
+}
+
+/// Off-trail roughness as a first-class **multiplicative** contributor.
+///
+/// Rough, untracked ground makes every metre — including the climb —
+/// proportionally harder, so this scales the whole composed pace by
+/// `factor` (≈2.3 for foot) on MESH edges, and is a no-op on GRAPH
+/// (trail) edges. This replaces the `off_trail_factor` that used to be
+/// hard-coded into the solver's cost (`tobler × off × mul`), moving it
+/// into the same composable cost stack as everything else — so nothing
+/// geographic lives in the solver and the factor is tuned like any
+/// other layer. It contributes no additive walk-seconds; its effect is
+/// entirely via [`CostContributor::pace_factor`].
+pub struct OffTrailRoughnessContributor {
+    pub factor: f64,
+}
+
+impl OffTrailRoughnessContributor {
+    pub fn new(factor: f32) -> Self {
+        Self { factor: factor as f64 }
+    }
+}
+
+impl CostContributor for OffTrailRoughnessContributor {
+    fn name(&self) -> &'static str {
+        "off_trail_roughness"
+    }
+    fn kind(&self) -> ContributorKind {
+        ContributorKind::Surface
+    }
+    fn contribute(&self, _ctx: &EdgeContext<'_>) -> f64 {
+        0.0
+    }
+    fn pace_factor(&self, ctx: &EdgeContext<'_>) -> f64 {
+        match ctx.kind {
+            EdgeKind::Mesh => self.factor,
+            EdgeKind::Graph(_) => 1.0,
         }
     }
 }

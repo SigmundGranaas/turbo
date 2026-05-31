@@ -533,6 +533,43 @@ impl Graph {
         }
     }
 
+    /// Directed edge ids whose `from` node falls in `bbox` — the
+    /// routing-oriented counterpart of [`Self::edges_in_bbox`] (which
+    /// returns geometry for rendering). The unified solver uses this to
+    /// splice the trail network inside a corridor into its node graph:
+    /// for each id, `self.edge(id)` gives the `EdgeRecord` (for the
+    /// walk-seconds cost) and `self.node(er.from_id/to_id)` the
+    /// endpoints. Directed (both orientations kept) so adjacency is
+    /// built directly. Capped at `max_count` (stride-sampled) so a
+    /// dense bbox can't explode the node graph.
+    pub fn edge_ids_in_bbox(
+        &self,
+        min_x: f64,
+        min_y: f64,
+        max_x: f64,
+        max_y: f64,
+        max_count: usize,
+    ) -> Vec<EdgeId> {
+        let lo = SnapPoint { pos: [min_x as f32, min_y as f32], idx: u32::MAX };
+        let hi = SnapPoint { pos: [max_x as f32, max_y as f32], idx: u32::MAX };
+        let probe_aabb = rstar::AABB::from_corners(lo, hi);
+        let mut out: Vec<EdgeId> = Vec::new();
+        for node in self.rtree.locate_in_envelope_intersecting(&probe_aabb) {
+            let u = node.idx as usize;
+            let s = self.csr_offsets[u] as usize;
+            let e = self.csr_offsets[u + 1] as usize;
+            for &eidx in &self.csr_edges[s..e] {
+                out.push(eidx);
+            }
+        }
+        if out.len() > max_count {
+            let stride = (out.len() / max_count).max(1);
+            out.into_iter().step_by(stride).take(max_count).collect()
+        } else {
+            out
+        }
+    }
+
     /// Polylines (NOT node-to-node secants) for every directed edge
     /// whose endpoints fall in `bbox`. Returns the full vertex
     /// sequence from `graph_geom` when attached, falling back to a
@@ -699,7 +736,8 @@ impl Graph {
         to: NodeId,
         profile: Profile,
     ) -> Result<Option<RouteResult>, GraphError> {
-        self.route_with(from, to, profile, |_| 1.0)
+        // Default routing uses the build-time baked cost directly.
+        self.route_with(from, to, profile, |_eid, _er, baked| baked)
     }
 
     /// Same as [`route_with`] but emits a stream of low-level events
@@ -714,32 +752,34 @@ impl Graph {
         from: NodeId,
         to: NodeId,
         profile: Profile,
-        edge_mul: F,
+        edge_cost: F,
         on_event: O,
     ) -> Result<Option<RouteResult>, GraphError>
     where
-        F: Fn(&EdgeRecord) -> f32,
+        F: Fn(EdgeId, &EdgeRecord, f32) -> f32,
         O: Fn(DijkstraEvent),
     {
-        self.route_inner(from, to, profile, edge_mul, Some(on_event))
+        self.route_inner(from, to, profile, edge_cost, Some(on_event))
     }
 
-    /// Dijkstra with a per-edge multiplier closure applied on top of
-    /// the precomputed per-profile cost. Lets the caller layer in
-    /// preferences (premade-track bonuses, profile-conditional
-    /// forbids, etc.) without rebuilding the graph artifact.
-    /// Returns `f32::INFINITY` for forbidden edges.
+    /// Dijkstra with a per-edge ABSOLUTE-cost closure. The closure
+    /// receives `(edge_id, &EdgeRecord, baked_cost)` and returns the
+    /// edge's traversal cost (the pathfinder composes honest per-metre
+    /// walk-seconds along the edge's real polyline). The `baked_cost`
+    /// argument carries the build-time per-profile cost so the closure
+    /// can honour the profile-forbidden flag (`+inf`) or fall back to
+    /// it. Returns `f32::INFINITY` for forbidden edges.
     pub fn route_with<F>(
         &self,
         from: NodeId,
         to: NodeId,
         profile: Profile,
-        edge_mul: F,
+        edge_cost: F,
     ) -> Result<Option<RouteResult>, GraphError>
     where
-        F: Fn(&EdgeRecord) -> f32,
+        F: Fn(EdgeId, &EdgeRecord, f32) -> f32,
     {
-        self.route_inner::<F, fn(DijkstraEvent)>(from, to, profile, edge_mul, None)
+        self.route_inner::<F, fn(DijkstraEvent)>(from, to, profile, edge_cost, None)
     }
 
     fn route_inner<F, O>(
@@ -747,11 +787,11 @@ impl Graph {
         from: NodeId,
         to: NodeId,
         profile: Profile,
-        edge_mul: F,
+        edge_cost: F,
         on_event: Option<O>,
     ) -> Result<Option<RouteResult>, GraphError>
     where
-        F: Fn(&EdgeRecord) -> f32,
+        F: Fn(EdgeId, &EdgeRecord, f32) -> f32,
         O: Fn(DijkstraEvent),
     {
         if from as usize >= self.nodes.len() || to as usize >= self.nodes.len() {
@@ -807,9 +847,16 @@ impl Graph {
                 let er = &self.edges[eidx as usize];
                 let cost_idx = eidx as usize * self.meta.profile_count as usize
                     + prof_id as usize;
+                // `baked` is the build-time per-profile cost in
+                // "effective metres"; it is `+inf` when the profile
+                // forbids the edge. We no longer multiply by it —
+                // the closure returns the edge's ABSOLUTE cost (the
+                // pathfinder composes honest per-metre walk-seconds
+                // along the real polyline) — but we still pass it
+                // through so the closure can honour the forbidden
+                // flag and the default `route()` can fall back to it.
                 let baked = self.costs[cost_idx];
-                let mul = edge_mul(er);
-                let w = baked * mul;
+                let w = edge_cost(eidx, er, baked);
                 if !w.is_finite() {
                     continue;
                 }

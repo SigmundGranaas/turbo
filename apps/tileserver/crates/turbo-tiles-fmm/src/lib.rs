@@ -11,6 +11,7 @@
 //! stack and feeds it to this crate's solver.
 
 pub mod aniso;
+pub mod elastica;
 pub mod extract;
 pub mod grid;
 pub mod heap;
@@ -22,10 +23,14 @@ pub mod stencil;
 pub mod tobler;
 pub mod tobler_aniso;
 
-pub use extract::{extract_path, ExtractError, PathPoint};
+pub use extract::{extract_path, extract_path_aniso, extract_path_discrete, ExtractError, PathPoint};
 pub use smooth::chaikin_smooth_cost_aware;
 
 pub use aniso::{solve_2d_anisotropic, CellForm};
+pub use elastica::{
+    extract_path_lifted, solve_lifted_grade_limited, tobler_pace, ArrayOverlay, CellOverlay,
+    GradeLimitedCost, LiftedProgress, LiftedResult, N_HEADINGS,
+};
 pub use grid::{FmmGrid, GridShape};
 pub use metric::{LocalCost, Metric, NormForm, UniformMetric};
 pub use selling::{selling_reduce, SymMat2};

@@ -53,6 +53,15 @@ pub struct ToblerAnisotropic<E: Elevation> {
     pub refuse_above_deg: f32,
     pub base_pace_s_per_m: f32,
     pub off_trail_factor: f32,
+    /// Naismith vertical-gain weight: effective extra metres of flat
+    /// walking per metre of elevation gained (foot ≈ 8, ski ≈ 6,
+    /// bicycle ≈ 20). Folded *directionally* into the along-fall-line
+    /// pace — the only place that knows the climb direction — so the
+    /// off-trail geodesic prices cumulative gain the same way on-graph
+    /// routing does (`length + k·gain`), instead of seeing only Tobler.
+    /// Without this the solver cuts straight over hills the marked
+    /// trail switchbacks around. `0.0` reproduces pure Tobler.
+    pub gain_factor_k: f32,
 }
 
 impl<E: Elevation> ToblerAnisotropic<E> {
@@ -63,32 +72,75 @@ impl<E: Elevation> ToblerAnisotropic<E> {
     /// Then `F(∇u)² = ∇uᵀ G* ∇u = 1` is the eikonal we discretise.
     /// Returns `None` for refused cells (slope too steep / nodata).
     fn metric_at(&self, shape: &GridShape, i: u32, j: u32) -> Option<SymMat2> {
-        if i == 0 || j == 0 || i + 1 >= shape.nx || j + 1 >= shape.ny {
-            // Edge cells: isotropic at base pace.
-            let p = (self.base_pace_s_per_m * self.off_trail_factor) as f64;
-            let inv = 1.0 / (p * p);
-            return Some(SymMat2::new(inv, 0.0, inv));
-        }
-        let z_l = self.elev.at(shape, i - 1, j)?;
-        let z_r = self.elev.at(shape, i + 1, j)?;
-        let z_d = self.elev.at(shape, i, j - 1)?;
-        let z_u = self.elev.at(shape, i, j + 1)?;
+        // Slope gradient via finite differences. At the grid boundary the
+        // central stencil would read out-of-range cells, so we clamp the
+        // sample indices and divide by the *actual* sampled span. This
+        // yields a proper one-sided gradient (and thus the correct
+        // anisotropic metric) at edge cells. The previous behaviour —
+        // collapsing edge cells to isotropic base pace — turned the whole
+        // corridor border into an artificially cheap racetrack, which the
+        // wave flooded along and the extracted geodesic ballooned out to
+        // follow (the 2-3× perimeter-loop failures on the terrain corpus).
+        let il = i.saturating_sub(1);
+        let ir = (i + 1).min(shape.nx - 1);
+        let jd = j.saturating_sub(1);
+        let ju = (j + 1).min(shape.ny - 1);
+        // DEM nodata must NOT sever the corridor. The Norway DTM is ~67%
+        // absent (alpine areas worst), and returning `None` here refused
+        // those cells → the corridor disconnected → blocky Theta*
+        // fallback. Instead, treat a cell with any missing neighbour as
+        // flat at a high (discouraging) isotropic pace: passable, so the
+        // FMM always connects and stays smooth, but avoided when real
+        // terrain is available. (DemCoveragePenaltyContributor adds the
+        // matching walk-seconds penalty for routing realism.)
+        let (z_l, z_r, z_d, z_u) = match (
+            self.elev.at(shape, il, j),
+            self.elev.at(shape, ir, j),
+            self.elev.at(shape, i, jd),
+            self.elev.at(shape, i, ju),
+        ) {
+            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+            _ => {
+                let p = (self.base_pace_s_per_m * self.off_trail_factor * 3.0) as f64;
+                let inv = 1.0 / (p * p);
+                return Some(SymMat2::new(inv, 0.0, inv));
+            }
+        };
         let h = shape.cell_m as f32;
-        let dz_dx = (z_r - z_l) / (2.0 * h);
-        let dz_dy = (z_u - z_d) / (2.0 * h);
+        let span_x = (ir - il).max(1) as f32 * h;
+        let span_y = (ju - jd).max(1) as f32 * h;
+        let dz_dx = (z_r - z_l) / span_x;
+        let dz_dy = (z_u - z_d) / span_y;
         let grad_mag = (dz_dx * dz_dx + dz_dy * dz_dy).sqrt();
-        let slope_deg = grad_mag.atan().to_degrees();
-        if slope_deg > self.refuse_above_deg {
-            return None;
-        }
+        // No slope hard-refuse: steep ground is very-high-but-FINITE cost
+        // (tau_along is Tobler pace, capped by MAX_ANISO_RATIO below), so
+        // the corridor is always connected on slope and the FMM always
+        // produces a smooth route — the geodesic curves around steepness
+        // on the gentle line rather than the corridor being severed and
+        // dropping to the blocky Theta* fallback. Only genuine impassable
+        // classes (water interior, glacier, building, ocean) are refused,
+        // by the contributor veto pass. `refuse_above_deg` is retained on
+        // the struct for callers/tests but no longer gates the metric.
+        let _ = self.refuse_above_deg;
 
         let base = self.base_pace_s_per_m;
         let off = self.off_trail_factor;
         let tau_perp = base * off;
+        // Along the fall line, pay Tobler pace PLUS a Naismith gain
+        // term: moving one path-metre up a slope of grade `grad_mag`
+        // gains `sinθ = grad/√(1+grad²)` metres, and Naismith prices
+        // that at `k` effective flat-metres → `k·sinθ·base` extra
+        // seconds per metre. This matches the on-graph `length + k·gain`
+        // pricing so off-trail routing avoids gratuitous climbing the
+        // same way the marked trails do. Gain term is unscaled by the
+        // off-trail factor (climbing cost is surface-independent), the
+        // Tobler base pace carries the off-trail slowdown.
+        let sin_theta = grad_mag / (1.0 + grad_mag * grad_mag).sqrt();
+        let gain_pace = self.gain_factor_k * sin_theta * base;
         // Cap anisotropy ratio so the Selling reduction's integer
         // offsets stay within i8 range. The cap is multiplicative on
         // the along-pace relative to the perp-pace.
-        let tau_along_raw = tobler_pace(grad_mag).max(base) * off;
+        let tau_along_raw = tobler_pace(grad_mag).max(base) * off + gain_pace;
         let tau_along = tau_along_raw.min(tau_perp * MAX_ANISO_RATIO);
 
         let inv_along2 = (1.0 / (tau_along * tau_along)) as f64;
@@ -196,6 +248,7 @@ mod tests {
             refuse_above_deg: 60.0,
             base_pace_s_per_m: 0.714,
             off_trail_factor: 1.0,
+            gain_factor_k: 0.0,
         };
         let forms = bake_aniso_corridor(shape, &metric);
         let centre = n / 2;
@@ -238,6 +291,7 @@ mod tests {
             refuse_above_deg: 45.0,
             base_pace_s_per_m: 0.714,
             off_trail_factor: 1.0,
+            gain_factor_k: 0.0,
         };
         let forms = bake_aniso_corridor(shape, &metric);
         let centre = n / 2;

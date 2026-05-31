@@ -57,12 +57,16 @@ ski = 1.0
 # trail) to 1.0 (at the radius). The discount makes the off-trail
 # solver prefer corridors near trails when off-trail is necessary.
 #
-# Calibration: bonus_at_zero=0.3 over-biased so mesh-near-trail was
-# CHEAPER than the trail itself, causing Q2 to pick off-trail over
-# on-trail. 0.95 stops the competition.
+# Sharp trail-snap behaviour. The legacy 150m / 0.5 was a soft
+# halo that encouraged the FMM solver to drift toward trails without
+# committing to them; the result was angular routes that brushed
+# trails and peeled off. Tight 30m radius with 0.15 bonus creates a
+# strong narrow attractor that the geodesic sits inside when a trail
+# is available and leaves cleanly when terrain off-trail becomes
+# objectively cheaper.
 [trail_proximity]
-influence_radius_m = 150.0
-bonus_at_zero = 0.5
+influence_radius_m = 30.0
+bonus_at_zero = 0.15
 
 # ============================================================
 # Slope cost (mesh + DEM cells).
@@ -72,6 +76,12 @@ bonus_at_zero = 0.5
 [slope_cell]
 quadratic_scale_deg = 12.0
 refuse_above_deg = 45.0
+# True-cliff hard-refuse threshold. Slopes between refuse_above_deg and
+# this are continuous high cost (Tobler is already enormous by ~50°),
+# not a wall — a 45° binary veto on the 10 m DEM otherwise severed
+# off-trail corridors and forced the Theta* fallback. Only genuine
+# cliffs (> this) are impassable.
+cliff_refuse_deg = 78.0
 
 # ============================================================
 # Slope cost (graph edges, baked slope_max_deg).
@@ -92,6 +102,53 @@ refuse_above_deg = 50.0
 # (climbs feel twice as costly); 0.5 for "alpine, gain is OK".
 [total_gain]
 amplifier = 1.0
+
+# ============================================================
+# Water traversal.
+# ============================================================
+# Water is finite-cost-but-passable near shores and hard-refused only
+# in the deep interior. A water cell counts as "shoreline" (passable)
+# if any sample on a ring of `shore_band_m` is non-water; otherwise it
+# is "deep" and refused. This lets the off-trail solver hug a shoreline
+# like the marked trail — the 25 m water raster puffs shores, so trails
+# routinely sit on water-flagged cells — without letting routes cut
+# across a lake or fjord.
+#   cost_s_per_m : extra seconds per metre on a passable water cell.
+#                  High (≈ 5.6× base pace) so the geodesic enters water
+#                  only to follow a shore, never to shortcut.
+#   shore_band_m : ring radius classifying shoreline vs deep water.
+#                  ≈ 2 water-raster cells (25 m) to clear the shoreline
+#                  puff.
+[water]
+cost_s_per_m = 4.0
+# Shore band ≈ the water-raster shore puff (~1 cell, 25 m), NOT wider. At
+# 60 m, lake interiors and necks up to ~120 m wide were classified
+# "shoreline-passable" and routes could cut across them. 30 m keeps real
+# shore-hugging (the puffed shore cells stay passable) while marking water
+# >30 m from shore as deep/refused, so the solver goes around lakes.
+shore_band_m = 30.0
+
+# ============================================================
+# Grade-limited (switchbacking) off-trail solver.
+# ============================================================
+# State-augmented (x, y, heading) Dijkstra. Forward moves steeper than
+# max_grade_deg are refused, so to ascend steeper ground the route must
+# traverse at the cap and reverse — producing trail-like switchbacks
+# instead of climbing the fall line. Opt-in; off by default until the
+# corpus + visual validation pass. turn_penalty_s tunes switchback
+# spacing (higher = fewer, longer traverses).
+# Grade-limited (switchbacking) off-trail solver. As of 2026-05-30 the
+# lifted solver bakes the full CostContributor stack into a per-cell
+# overlay (solve_grade_limited_path → GradeLimitedCost.cell_refused/
+# cell_pace_mul), so it now refuses water/glacier cells and shapes cost by
+# trail proximity — same vetoes the 2D FMM uses. Re-enabled after the
+# water-crossing gate proved routes go AROUND lakes. forward_cost samples
+# each move segment against the refusal overlay so knight moves can't clip
+# a shoreline.
+[grade_limited]
+enabled = true
+max_grade_deg = 27.0
+turn_penalty_s = 8.0
 
 # ============================================================
 # Surface multipliers (graph edges) — currently baked into the

@@ -3552,6 +3552,7 @@ dependencies = [
  "turbo-tiles-mask",
  "turbo-tiles-vector",
  "ureq",
+ "zstd",
 ]
 
 [[package]]

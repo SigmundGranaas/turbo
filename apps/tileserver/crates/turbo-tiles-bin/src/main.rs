@@ -334,18 +334,27 @@ async fn serve(
                     // Naismith metres-of-walk cost the rest of the
                     // system speaks in.
                     if let Some(coll) = store.try_collection("water") {
-                        // 80×/m: a 5m crossing adds +400m; a 50m
-                        // crossing adds +4000m. Detours under 800m
-                        // and 8000m respectively pay for themselves.
+                        // Width-proportional crossing cost: every metre of
+                        // open water on an edge adds WATER_CROSS_PENALTY_PER_M
+                        // "effective metres". Because it scales with crossing
+                        // WIDTH, a small tarn stays cheap to ford while a real
+                        // lake/river is effectively impassable — water is only
+                        // ever chosen as an absolute last resort (the integral
+                        // stays finite, so a genuinely water-locked endpoint
+                        // still returns a route instead of a hard failure).
+                        // 400×/m: a 5 m tarn = +2 km (forded if no detour <2 km
+                        // exists); a 50 m river = +20 km; a 500 m lake = +200 km
+                        // (never crossed in practice).
+                        const WATER_CROSS_PENALTY_PER_M: f64 = 400.0;
                         let legacy = turbo_tiles_pathfind::PolygonIntegralLayer::new(
                             "water",
                             coll.clone(),
-                            |len, _attrs, _p| len * 80.0,
+                            |len, _attrs, _p| len * WATER_CROSS_PENALTY_PER_M,
                         );
                         let native = turbo_tiles_pathfind::PolygonIntegralContributor::new(
                             "water",
                             coll,
-                            |len, _attrs, _p| len * 80.0,
+                            |len, _attrs, _p| len * WATER_CROSS_PENALTY_PER_M,
                         );
                         pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
                         taken_layer_names.insert("water");

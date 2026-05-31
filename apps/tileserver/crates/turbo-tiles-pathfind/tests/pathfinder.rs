@@ -10,6 +10,63 @@ use turbo_tiles_graph::{
 };
 use turbo_tiles_pathfind::{utm33n_to_wgs84, PathStrategy, Pathfinder, Prefs};
 
+/// Write a single-tile flat DEM (constant elevation) covering a
+/// `cells × cells` grid at 10 m resolution from upper-left `(ulx,
+/// uly)`. The off-trail leg is FMM-only and needs a DEM to produce a
+/// candidate; these strategy-selection fixtures used `None`, so
+/// off-trail never entered the candidate race. A flat DEM lets the
+/// solver run (slope 0, gain 0) and reduces to the straight-line
+/// geodesic — exactly the "off-trail diagonal vs graph detour"
+/// scenario the tests assert.
+fn write_flat_dem(path: &std::path::Path, ulx: f64, uly: f64, cells: u32, elev: f32) {
+    use turbo_tiles_elev::{
+        write_meta as write_dem_meta, write_tile_entry, DemMeta, TileEntry, COMPRESSION_ZSTD,
+        DEM_FORMAT_VERSION, DEM_META_BYTES, NODATA_SENTINEL, TILE_ENTRY_BYTES,
+    };
+    use turbo_tiles_artifacts::HEADER_BYTES;
+    let meta = DemMeta {
+        tile_count: 1,
+        tile_cells: cells,
+        pixel_size_m: 10.0,
+        nodata: NODATA_SENTINEL,
+        compression: COMPRESSION_ZSTD,
+    };
+    let mut f = std::fs::File::create(path).unwrap();
+    write_art_header(
+        &mut f,
+        &Header {
+            kind: ArtifactKind::Dem,
+            format_version: DEM_FORMAT_VERSION,
+            build_timestamp_unix_sec: 0,
+        },
+    )
+    .unwrap();
+    write_dem_meta(&mut f, &meta).unwrap();
+    let data = vec![elev; (cells * cells) as usize];
+    let compressed = zstd::encode_all(bytemuck::cast_slice::<f32, u8>(&data), 1).unwrap();
+    let dir_offset = (HEADER_BYTES + DEM_META_BYTES) as u64;
+    let payload_offset = dir_offset + TILE_ENTRY_BYTES as u64;
+    let entry = TileEntry {
+        ulx,
+        uly,
+        offset: payload_offset,
+        compressed_size: compressed.len() as u32,
+    };
+    write_tile_entry(&mut f, &entry).unwrap();
+    f.write_all(&compressed).unwrap();
+    f.sync_all().unwrap();
+}
+
+/// Flat DEM (elev 100 m) covering ~6 km around a test origin in
+/// EPSG:25833, returned alongside the backing tempfile (which must
+/// stay alive — `Dem` mmaps it).
+fn flat_dem_around(ox: f64, oy: f64) -> (tempfile::NamedTempFile, Arc<turbo_tiles_elev::Dem>) {
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    write_flat_dem(tmp.path(), ox - 2000.0, oy + 2000.0, 600, 100.0);
+    let dem = Arc::new(turbo_tiles_elev::Dem::open(tmp.path()).unwrap());
+    (tmp, dem)
+}
+
 fn write_square_graph(path: &std::path::Path) {
     let mut f = std::fs::File::create(path).unwrap();
     let nodes = vec![
@@ -130,7 +187,8 @@ fn pathfinder_picks_cheapest_strategy() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), p.x as f32, p.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
-    let pf = Pathfinder::with_defaults(None, None, Some(Arc::new(g)));
+    let (_dem_tmp, dem) = flat_dem_around(p.x, p.y);
+    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
     // Snap radius is 200 m by default — pick lon/lat that's about
     // 50 m east + 50 m south of the anchor node.
     let from = (10.7522, 59.9139);
@@ -145,11 +203,18 @@ fn pathfinder_picks_cheapest_strategy() {
     let mut prefs = Prefs::default();
     prefs.off_trail_base = Some(1.0);
     let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
-    assert_eq!(path.strategy, PathStrategy::OffTrail);
+    // The unified router (default) cuts across off-trail here instead of
+    // taking the 200 m graph 2-hop. It reports `Hybrid` (one solve over
+    // trail + off-trail), so we assert on geometry/cost, not the enum.
     let diag = (100.0_f64.powi(2) + 100.0_f64.powi(2)).sqrt();
+    // The FMM/lifted off-trail solver walks a discrete 10 m grid and
+    // Chaikin-smooths, so the path is a few percent longer than the
+    // ideal 141.4 m secant (≈148 m here). The invariant under test is
+    // "off-trail diagonal, NOT the 200 m graph 2-hop", so allow grid-
+    // quantization slack while staying well under the graph detour.
     assert!(
-        (path.length_m - diag).abs() < 2.0,
-        "expected ≈{diag:.1} m diagonal, got {}",
+        path.length_m >= diag - 2.0 && path.length_m < 170.0,
+        "expected a near-diagonal off-trail path (≈{diag:.1} m, < 170 m), got {}",
         path.length_m
     );
     assert!(path.cost <= 200.0, "cost ({}) should beat 2-hop graph (200)", path.cost);
@@ -167,7 +232,8 @@ fn pathfinder_hybrid_when_one_end_off_graph() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
-    let pf = Pathfinder::with_defaults(None, None, Some(Arc::new(g)));
+    let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
+    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
     let from = utm33n_to_wgs84(anchor.x + 600.0, anchor.y); // ~600 m east
     let to = utm33n_to_wgs84(anchor.x, anchor.y); // sits on node 3
     let prefs = Prefs::default();
@@ -198,7 +264,8 @@ fn pathfinder_layer_weights_disable_preferred_edge_layer() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_square_graph_at(tmp.path(), anchor.x as f32, anchor.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
-    let pf = Pathfinder::with_defaults(None, None, Some(Arc::new(g)));
+    let (_dem_tmp, dem) = flat_dem_around(anchor.x, anchor.y);
+    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
     let from = (10.7522, 59.9139);
     let to = utm33n_to_wgs84(anchor.x + 100.0, anchor.y - 100.0);
     let mut prefs = Prefs::default();
@@ -227,7 +294,8 @@ fn cost_based_selection_beats_long_graph_detour() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     write_long_detour_graph(tmp.path(), p.x as f32, p.y as f32);
     let g = Graph::open(tmp.path()).unwrap();
-    let pf = Pathfinder::with_defaults(None, None, Some(Arc::new(g)));
+    let (_dem_tmp, dem) = flat_dem_around(p.x, p.y);
+    let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
     // Place the clicks 200 m apart so we clear the DegenerateInputs
     // threshold (default mesh_cell_m = 100 m); still tiny vs the
     // 10 km graph detour.
@@ -238,12 +306,14 @@ fn cost_based_selection_beats_long_graph_detour() {
     let path = pf
         .solve([from.0, from.1], [to.0, to.1], prefs)
         .unwrap();
-    assert_eq!(
-        path.strategy,
-        PathStrategy::OffTrail,
-        "selector regression: a 10 km graph detour beat a 200 m off-trail"
+    // The unified router cuts across (~200 m) rather than taking the
+    // ~10 km graph detour. Assert on length (the regression we care about),
+    // not the strategy enum.
+    assert!(
+        path.length_m < 500.0,
+        "detour regression: expected ~200 m off-trail cut, got {}",
+        path.length_m
     );
-    assert!(path.length_m < 500.0, "expected ~200 m, got {}", path.length_m);
 }
 
 #[test]

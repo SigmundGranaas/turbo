@@ -144,6 +144,24 @@ pub trait CostContributor: Send + Sync {
     fn veto(&self, _ctx: &EdgeContext<'_>) -> Option<&'static str> {
         None
     }
+
+    /// Multiplicative pace factor applied to the WHOLE composed pace
+    /// (base + all additive deltas), as opposed to `contribute`'s
+    /// additive walk-seconds. Default `1.0` (no effect).
+    ///
+    /// This is the channel for effects that *scale* effort rather
+    /// than *add* a constant: off-trail roughness (rough ground makes
+    /// every metre — including the climb — proportionally harder),
+    /// and future surface / seasonal-snow layers. The composer applies
+    /// the product of all factors after summing the additive deltas:
+    /// `total = (base + Σ contribute) × Π pace_factor`. Keeping it
+    /// separate from `contribute` is what lets, e.g., a trail-proximity
+    /// *bonus* and an off-trail *roughness* compose correctly (the
+    /// roughness scales the post-bonus pace, matching the previous
+    /// hard-coded `tobler × off × mul` in the solver).
+    fn pace_factor(&self, _ctx: &EdgeContext<'_>) -> f64 {
+        1.0
+    }
 }
 
 /// Composed cost of one edge: base traversal time + contribution
@@ -204,6 +222,18 @@ pub fn compose_edge_walk_seconds(
             walk_seconds: s,
         });
     }
+    // Multiplicative pace factors apply to the WHOLE composed pace
+    // after the additive deltas (default 1.0 for every contributor, so
+    // this is a no-op unless a multiplicative contributor — e.g.
+    // off-trail roughness — is present).
+    let mut factor = 1.0f64;
+    for c in contributors {
+        let f = c.pace_factor(ctx);
+        if f.is_finite() && f > 0.0 {
+            factor *= f;
+        }
+    }
+    total *= factor;
     EdgeWalkCost {
         base_walk_seconds: base,
         contributions,

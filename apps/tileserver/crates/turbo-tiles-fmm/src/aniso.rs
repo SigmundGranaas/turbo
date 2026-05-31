@@ -181,36 +181,35 @@ fn anisotropic_update_at(
     if !active.iter().any(|&x| x) {
         return f32::INFINITY;
     }
+    solve_subset(&form_b.norm.weights, &u_neigh, form_b.norm.n_terms as usize, rhs)
+}
 
-    // Solve   Σ_{k ∈ S} w_k (u − u_neigh[k])² = rhs
-    // by including all-active, then dropping the worst-violating
-    // axis if the candidate fails `u > u_neigh[k] ∀ k`.
+/// Solve `Σ_{k ∈ S} w_k (u − u_neigh[k])² = rhs` over the upwind subset:
+/// start with every active axis (finite neighbour, positive weight),
+/// drop the worst axis that violates the upwind constraint
+/// (`u_neigh[k] ≥ candidate`), and repeat until all remaining axes are
+/// causal. Returns `+∞` when no causal subset yields a root. Shared by
+/// the narrow-band update (Accepted-gated neighbours) and the fast-sweep
+/// update (finite-arrival neighbours).
+fn solve_subset(weights: &[f32], u_neigh: &[f32], n_terms: usize, rhs: f64) -> f32 {
     let mut subset: u8 = 0;
-    for k in 0..form_b.norm.n_terms as usize {
-        if active[k] { subset |= 1 << k; }
+    for k in 0..n_terms {
+        if u_neigh[k].is_finite() && weights[k] > 0.0 {
+            subset |= 1 << k;
+        }
     }
     while subset != 0 {
-        let candidate = solve_anisotropic_quadratic(
-            &form_b.norm.weights[..form_b.norm.n_terms as usize],
-            &u_neigh[..form_b.norm.n_terms as usize],
-            subset,
-            rhs,
-        );
+        let candidate = solve_anisotropic_quadratic(&weights[..n_terms], &u_neigh[..n_terms], subset, rhs);
         if !candidate.is_finite() {
             return f32::INFINITY;
         }
         let candidate_f32 = candidate as f32;
-        // Validity: drop the active term whose `u_neigh[k]` is
-        // ≥ candidate (i.e. the upwind constraint is violated).
-        // If all terms are valid, we've found the answer.
         let mut worst: Option<usize> = None;
         let mut worst_u = f32::NEG_INFINITY;
-        for k in 0..form_b.norm.n_terms as usize {
-            if subset & (1 << k) != 0 && u_neigh[k] >= candidate_f32 {
-                if u_neigh[k] > worst_u {
-                    worst_u = u_neigh[k];
-                    worst = Some(k);
-                }
+        for k in 0..n_terms {
+            if subset & (1 << k) != 0 && u_neigh[k] >= candidate_f32 && u_neigh[k] > worst_u {
+                worst_u = u_neigh[k];
+                worst = Some(k);
             }
         }
         match worst {

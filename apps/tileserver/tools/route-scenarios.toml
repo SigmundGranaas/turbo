@@ -127,7 +127,9 @@ to   = [5.343, 60.387]
 profile = "foot"
 
 [scenario.assert]
-strategy_in = ["on_graph"]
+# The unified router is the sole combined router now; it reports
+# `hybrid` (trail + off-trail in one solve) even for an all-roads route.
+strategy_in = ["hybrid"]
 length_m_min = 1100
 length_m_max = 2000
 # No sti at all in this query.

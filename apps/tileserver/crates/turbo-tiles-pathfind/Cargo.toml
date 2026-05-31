@@ -30,6 +30,7 @@ tracing.workspace = true
 tempfile = "3"
 byteorder.workspace = true
 bytemuck.workspace = true
+zstd.workspace = true
 turbo-tiles-artifacts.workspace = true
 # Sync HTTP client for the scenario corpus integration test, which
 # posts queries to a running tileserver instead of opening the

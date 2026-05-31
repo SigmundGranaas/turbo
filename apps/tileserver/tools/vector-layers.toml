@@ -13,13 +13,19 @@
 # "metres of edge inside the polygon" exactly, so a 5-m tarn now
 # costs ~5 m × 80/m = +400 effective metres on a passing edge,
 # not a 100-m halo of refused cells.
+# Sources from the unified `terrain.water_polygon` (kind='lake') so it
+# includes BOTH natural lakes (innsjo) AND regulated lakes/reservoirs
+# (innsjoregulert) — the latter were previously missing, so the off-trail
+# solver crossed regulated lakes like Heggmovatnet. Same source as the raster
+# mask, keeping vector + raster water consistent.
 [[layer]]
 name        = "water"
-table       = "n50_staging.innsjo"
-geom_column = "omrade"
+table       = "terrain.water_polygon"
+where       = "source = 'n50' AND kind IN ('lake', 'river', 'river_dry')"
+geom_column = "geom"
 kind        = "polygon"
 attrs       = [
-  { name = "area_m2", ty = "f32", source = "GREATEST(ST_Area(omrade)::float4, 0.0)" },
+  { name = "area_m2", ty = "f32", source = "GREATEST(ST_Area(geom)::float4, 0.0)" },
 ]
 
 # ----- Ocean / saltwater fjord polygons --------------------------
