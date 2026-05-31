@@ -305,6 +305,18 @@ export interface PathLeg {
   length_m: number;
 }
 
+/** One inter-waypoint leg of a multi-point route. A 2-point route
+ * emits exactly one. Indices reference the stitched `geometry`. */
+export interface WaypointLeg {
+  from_point_idx: number;
+  to_point_idx: number;
+  geometry_start_idx: number;
+  geometry_end_idx: number;
+  length_m: number;
+  cost: number;
+  strategy: PathStrategy;
+}
+
 export type SolverEvent =
   | { kind: "mesh_built"; cells: number; refused_cells: number }
   | { kind: "node_popped"; x: number; y: number; g: number; h: number }
@@ -353,6 +365,9 @@ export interface PathfindResp {
      * paths or older servers. */
     fkb_breakdown?: Record<string, number>;
     legs: PathLeg[];
+    /** Per-inter-waypoint-leg summary. One element for a 2-point
+     * route; `points.length - 1` for a multi-stop route. */
+    waypoint_legs?: WaypointLeg[];
     refused_by: string[];
     /** Per-event solver recording — present when posting to
      * /v1/pathfind/record (or when Prefs.record=true). The SPA's

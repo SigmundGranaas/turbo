@@ -102,8 +102,44 @@ type BasemapId = keyof typeof BASEMAPS;
 export function PlotRoute() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const fromMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const toMarkerRef = useRef<maplibregl.Marker | null>(null);
+  // One MapLibre marker per waypoint, rebuilt whenever `points` change.
+  const waypointMarkersRef = useRef<maplibregl.Marker[]>([]);
+
+  // Ordered waypoint list — the single source of truth for routing.
+  // `from`/`to` below are DERIVED from it (first/last) so the existing
+  // endpoint-keyed overlays (inspect, mesh, coverage) keep working.
+  const [points, setPoints] = useState<Marker[]>([]);
+  const pointsRef = useRef<Marker[]>([]);
+  pointsRef.current = points;
+  // Undo/redo stacks for waypoint edits (add/move/delete/reorder).
+  const [pointsPast, setPointsPast] = useState<Marker[][]>([]);
+  const [pointsFuture, setPointsFuture] = useState<Marker[][]>([]);
+  // Commit a new waypoint list, pushing the CURRENT list onto the undo
+  // stack and clearing the redo stack. Reads current via the ref so it
+  // is safe to call from once-bound map/marker event closures.
+  const commitPoints = (next: Marker[]) => {
+    setPointsPast((p) => [...p, pointsRef.current]);
+    setPointsFuture([]);
+    setPoints(next);
+  };
+  const undoPoints = () => {
+    setPointsPast((past) => {
+      if (past.length === 0) return past;
+      const prev = past[past.length - 1];
+      setPointsFuture((f) => [pointsRef.current, ...f]);
+      setPoints(prev);
+      return past.slice(0, -1);
+    });
+  };
+  const redoPoints = () => {
+    setPointsFuture((future) => {
+      if (future.length === 0) return future;
+      const next = future[0];
+      setPointsPast((p) => [...p, pointsRef.current]);
+      setPoints(next);
+      return future.slice(1);
+    });
+  };
 
   const [from, setFrom] = useState<Marker | null>(null);
   const [to, setTo] = useState<Marker | null>(null);
@@ -252,6 +288,14 @@ export function PlotRoute() {
   toRef.current = to;
   inspectModeRef.current = inspectMode;
 
+  // Keep the derived endpoints in sync with the waypoint list so the
+  // endpoint-keyed overlays (inspect, mesh, coverage) follow the start
+  // and end stops. The full `points` array drives the route request.
+  useEffect(() => {
+    setFrom(points[0] ?? null);
+    setTo(points.length >= 2 ? points[points.length - 1] : null);
+  }, [points]);
+
   useEffect(() => {
     v1.get<LayersResp>("/debug/pathfind/layers")
       .then((r) => {
@@ -339,13 +383,17 @@ export function PlotRoute() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (window as any).__pf = {
       map,
-      setFrom: (lon: number, lat: number) => setFrom([lon, lat]),
-      setTo: (lon: number, lat: number) => setTo([lon, lat]),
+      // Append a waypoint (the new end). Mirrors a map click.
+      addPoint: (lon: number, lat: number) =>
+        commitPoints([...pointsRef.current, [lon, lat]]),
+      setPoints: (pts: [number, number][]) => commitPoints(pts),
+      // Back-compat with existing smoke scripts: setFrom resets to a
+      // single start; setTo appends an end.
+      setFrom: (lon: number, lat: number) => commitPoints([[lon, lat]]),
+      setTo: (lon: number, lat: number) =>
+        commitPoints([...pointsRef.current.slice(0, 1), [lon, lat]]),
       setForceOffTrail: (v: boolean) => setForceOffTrail(v),
-      reset: () => {
-        setFrom(null);
-        setTo(null);
-      },
+      reset: () => commitPoints([]),
     };
 
     // Each time the map settles after pan/zoom, bump the viewport
@@ -367,14 +415,9 @@ export function PlotRoute() {
         return;
       }
       setErr(null);
-      if (fromRef.current === null) {
-        setFrom(lonlat);
-      } else if (toRef.current === null) {
-        setTo(lonlat);
-      } else {
-        setFrom(lonlat);
-        setTo(null);
-      }
+      // Append: each click adds a stop; the newest click is the new
+      // destination, earlier ones become vias.
+      commitPoints([...pointsRef.current, lonlat]);
     });
 
     return () => {
@@ -814,56 +857,71 @@ export function PlotRoute() {
     else map.once("load", apply);
   }, [graphDensity, showDensity]);
 
-  // Sync markers when from/to change.
+  // Markers: render EVERY waypoint as a numbered, draggable pin.
+  // Order is encoded by LABEL + SHAPE, never colour alone (the curator
+  // is colour-blind): start = "S" (blue circle), end = "E" (vermillion
+  // square), vias = their number (grey circle). A refused endpoint gets
+  // a red ring. Drag a pin to move that stop; double-click to remove it.
   useEffect(() => {
-    if (!mapRef.current) return;
-    fromMarkerRef.current?.remove();
-    fromMarkerRef.current = null;
-    if (from) {
-      // Refused markers go grey-with-warning-border so the user can
-      // tell at a glance that this point was rejected.
-      const refused = refusal?.which === "from";
-      fromMarkerRef.current = new maplibregl.Marker({
-        // START = blue (matches the on-trail route colour); refused = grey.
-        // Was green, which paired with the red end marker is the worst
-        // case for red-green colour blindness.
-        color: refused ? "#9ca3af" : CVD_BLUE,
+    const map = mapRef.current;
+    if (!map) return;
+    for (const m of waypointMarkersRef.current) m.remove();
+    waypointMarkersRef.current = [];
+    points.forEach((pt, i) => {
+      const isStart = i === 0;
+      const isEnd = i === points.length - 1 && points.length >= 2;
+      const refused =
+        (refusal?.which === "from" && isStart) ||
+        (refusal?.which === "to" && isEnd);
+      const label = isStart ? "S" : isEnd ? "E" : String(i);
+      const bg = refused
+        ? "#9ca3af"
+        : isStart
+          ? CVD_BLUE
+          : isEnd
+            ? CVD_VERMILLION
+            : "#374151";
+      const el = document.createElement("div");
+      el.setAttribute("data-wp", String(i));
+      el.title = isStart ? "Start" : isEnd ? "End" : `Stop ${i}`;
+      el.textContent = label;
+      el.style.cssText = [
+        "width:24px",
+        "height:24px",
+        // End is a rounded square so start/end differ by SHAPE too.
+        isEnd ? "border-radius:5px" : "border-radius:9999px",
+        `background:${bg}`,
+        "color:#fff",
+        "font:600 12px/22px system-ui,sans-serif",
+        "text-align:center",
+        "box-shadow:0 1px 3px rgba(0,0,0,.45)",
+        `border:2px solid ${refused ? "#dc2626" : "#fff"}`,
+        "cursor:grab",
+      ].join(";");
+      const marker = new maplibregl.Marker({
+        element: el,
+        draggable: true,
+        anchor: "center",
       })
-        .setLngLat(from)
-        .setPopup(new maplibregl.Popup({ closeButton: false, offset: 12 })
-          .setText(
-            refused
-              ? `from: REFUSED (${refusal?.layer})`
-              : `from: ${from[0].toFixed(5)}, ${from[1].toFixed(5)}`,
-          ))
-        .addTo(mapRef.current);
-    }
-  }, [from, refusal]);
+        .setLngLat(pt)
+        .addTo(map);
+      marker.on("dragend", () => {
+        const ll = marker.getLngLat();
+        commitPoints(
+          pointsRef.current.map((p, idx) => (idx === i ? [ll.lng, ll.lat] : p)),
+        );
+      });
+      el.addEventListener("dblclick", (ev) => {
+        ev.stopPropagation();
+        commitPoints(pointsRef.current.filter((_, idx) => idx !== i));
+      });
+      waypointMarkersRef.current.push(marker);
+    });
+  }, [points, refusal]);
 
+  // Auto-pathfind when there are >= 2 waypoints or any control changes.
   useEffect(() => {
-    if (!mapRef.current) return;
-    toMarkerRef.current?.remove();
-    toMarkerRef.current = null;
-    if (to) {
-      const refused = refusal?.which === "to";
-      toMarkerRef.current = new maplibregl.Marker({
-        // END = vermillion (matches the off-trail route colour); refused = grey.
-        color: refused ? "#9ca3af" : CVD_VERMILLION,
-      })
-        .setLngLat(to)
-        .setPopup(new maplibregl.Popup({ closeButton: false, offset: 12 })
-          .setText(
-            refused
-              ? `to: REFUSED (${refusal?.layer})`
-              : `to: ${to[0].toFixed(5)}, ${to[1].toFixed(5)}`,
-          ))
-        .addTo(mapRef.current);
-    }
-  }, [to, refusal]);
-
-  // Auto-pathfind when both markers are set or any control changes.
-  useEffect(() => {
-    if (!from || !to) {
+    if (points.length < 2) {
       setPath(null);
       return;
     }
@@ -889,7 +947,7 @@ export function PlotRoute() {
       setPath(null);
       // Kick off an async reader; don't await inside the effect.
       const overrideForReq = nonNullPatch(costPatch);
-      void streamPathfind(from, to, {
+      void streamPathfind(points, {
         profile,
         snap_radius_m: forceOffTrail ? 0 : snapRadius,
         bridge_radius_m: forceOffTrail ? 0 : bridgeRadius,
@@ -934,7 +992,7 @@ export function PlotRoute() {
     setLiveBestPath(null);
     setPath(null);
     const overrideForReq = nonNullPatch(costPatch);
-    void streamPathfind(from, to, {
+    void streamPathfind(points, {
       profile,
       snap_radius_m: forceOffTrail ? 0 : snapRadius,
       bridge_radius_m: forceOffTrail ? 0 : bridgeRadius,
@@ -973,7 +1031,7 @@ export function PlotRoute() {
       ac.abort();
       cancelled = true;
     };
-  }, [from, to, profile, snapRadius, bridgeRadius, meshCell, meshPad, refusalSnap, layerWeights, forceOffTrail, recordOn, liveMode, costPatch]);
+  }, [points, profile, snapRadius, bridgeRadius, meshCell, meshPad, refusalSnap, layerWeights, forceOffTrail, recordOn, liveMode, costPatch]);
 
   // Inspect overlay: fetch mesh + refused regions when the user
   // toggles "Show mesh" and we have both markers. Refetches when
@@ -1434,11 +1492,23 @@ export function PlotRoute() {
   }, [replayIdx, flatEvents, effectiveCursor]);
 
   const reset = () => {
-    setFrom(null);
-    setTo(null);
+    commitPoints([]);
     setPath(null);
     setErr(null);
   };
+  const deletePoint = (i: number) =>
+    commitPoints(pointsRef.current.filter((_, idx) => idx !== i));
+  const reversePoints = () =>
+    commitPoints([...pointsRef.current].reverse());
+  const reorderPoints = (fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx) return;
+    const next = [...pointsRef.current];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    commitPoints(next);
+  };
+  // Index of the row being dragged in the waypoint list (HTML5 DnD).
+  const dragRowRef = useRef<number | null>(null);
 
   return (
     <div className="flex h-screen">
@@ -1448,8 +1518,11 @@ export function PlotRoute() {
           <header>
             <h1 className="text-xl font-semibold">Plan a route</h1>
             <p className="text-sm text-ink-600 mt-1">
-              Tap the map for your <span className="text-emerald-600 font-medium">start</span>, then your{" "}
-              <span className="text-red-600 font-medium">destination</span>. We'll find the best way on foot.
+              Tap the map to drop a{" "}
+              <span className="font-medium" style={{ color: CVD_BLUE }}>start</span>, then keep
+              tapping to add stops — the last is your{" "}
+              <span className="font-medium" style={{ color: CVD_VERMILLION }}>destination</span>.
+              Drag a pin to move it, double-click to remove.
             </p>
           </header>
 
@@ -1465,18 +1538,84 @@ export function PlotRoute() {
             profile={profile}
           />
 
-          {/* Endpoints + reset. */}
+          {/* Ordered waypoint list. Reorder by drag-handle, remove with
+              ✕, undo/redo/reverse/clear in the header. Per-leg distance
+              comes from the stitched route's `waypoint_legs`. */}
           <section className="space-y-2">
-            <MarkerRow color="emerald" label="Start" pt={from} />
-            <MarkerRow color="red" label="End" pt={to} />
-            <button
-              type="button"
-              onClick={reset}
-              disabled={!from && !to}
-              className="w-full text-sm px-3 py-2 rounded-lg border border-ink-200 hover:bg-ink-100 disabled:opacity-40 disabled:hover:bg-transparent font-medium"
-            >
-              Reset
-            </button>
+            <div className="flex items-center justify-between">
+              <div className="text-xs uppercase tracking-wide text-ink-500">
+                Stops ({points.length})
+              </div>
+              <div className="flex gap-1 text-sm">
+                <button type="button" title="Undo" onClick={undoPoints}
+                  disabled={pointsPast.length === 0}
+                  className="px-2 py-0.5 rounded border border-ink-200 hover:bg-ink-100 disabled:opacity-30">↶</button>
+                <button type="button" title="Redo" onClick={redoPoints}
+                  disabled={pointsFuture.length === 0}
+                  className="px-2 py-0.5 rounded border border-ink-200 hover:bg-ink-100 disabled:opacity-30">↷</button>
+                <button type="button" title="Reverse route" onClick={reversePoints}
+                  disabled={points.length < 2}
+                  className="px-2 py-0.5 rounded border border-ink-200 hover:bg-ink-100 disabled:opacity-30">⇅</button>
+                <button type="button" title="Clear all" onClick={reset}
+                  disabled={points.length === 0}
+                  className="px-2 py-0.5 rounded border border-ink-200 hover:bg-ink-100 disabled:opacity-30">Clear</button>
+              </div>
+            </div>
+            {points.length === 0 ? (
+              <p className="text-sm text-ink-500">No stops yet — tap the map to begin.</p>
+            ) : (
+              <ol className="space-y-1">
+                {points.map((pt, i) => {
+                  const isStart = i === 0;
+                  const isEnd = i === points.length - 1 && points.length >= 2;
+                  const label = isStart ? "S" : isEnd ? "E" : String(i);
+                  const bg = isStart ? CVD_BLUE : isEnd ? CVD_VERMILLION : "#374151";
+                  const legToNext = path?.path.waypoint_legs?.[i];
+                  const refusedHere =
+                    (refusal?.which === "from" && isStart) ||
+                    (refusal?.which === "to" && isEnd);
+                  return (
+                    <li
+                      key={i}
+                      draggable
+                      onDragStart={() => { dragRowRef.current = i; }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => {
+                        if (dragRowRef.current != null) reorderPoints(dragRowRef.current, i);
+                        dragRowRef.current = null;
+                      }}
+                      className="flex items-center gap-2 text-sm rounded-lg border border-ink-200 px-2 py-1.5 bg-white"
+                    >
+                      <span title="Drag to reorder" className="cursor-grab text-ink-400 select-none">⠿</span>
+                      <span
+                        className="inline-flex items-center justify-center shrink-0"
+                        style={{
+                          width: 20, height: 20,
+                          borderRadius: isEnd ? 4 : 9999,
+                          background: bg, color: "#fff", fontSize: 11, fontWeight: 600,
+                          border: refusedHere ? "2px solid #dc2626" : "none",
+                        }}
+                      >
+                        {label}
+                      </span>
+                      <span className="flex-1 tabular-nums text-ink-700">
+                        {pt[1].toFixed(5)}, {pt[0].toFixed(5)}
+                        {legToNext ? (
+                          <span className="text-ink-400"> · {fmtDist(legToNext.length_m)} →</span>
+                        ) : null}
+                      </span>
+                      <button
+                        type="button" title="Remove stop"
+                        onClick={() => deletePoint(i)}
+                        className="text-ink-400 hover:text-red-600 px-1"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
           </section>
 
           {/* Travel mode. */}
@@ -2148,8 +2287,7 @@ function nonNullPatch(
 /// Callers pass an AbortSignal so a marker click that supersedes
 /// the previous query can cancel the in-flight stream cleanly.
 async function streamPathfind(
-  from: [number, number],
-  to: [number, number],
+  points: [number, number][],
   prefs: Record<string, unknown>,
   signal: AbortSignal,
   cb: {
@@ -2163,7 +2301,7 @@ async function streamPathfind(
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ from, to, prefs }),
+      body: JSON.stringify({ points, prefs }),
       signal,
     });
     if (!resp.ok || !resp.body) {
@@ -2409,18 +2547,9 @@ function formatDuration(min: number): string {
   return m === 0 ? `${h} h` : `${h} h ${String(m).padStart(2, "0")} min`;
 }
 
-function MarkerRow({ color, label, pt }: { color: string; label: string; pt: Marker | null }) {
-  const dot =
-    color === "emerald" ? "bg-emerald-500" : color === "red" ? "bg-red-500" : "bg-ink-400";
-  return (
-    <div className="text-sm flex items-center gap-2 font-mono">
-      <span className={`inline-block w-3 h-3 rounded-full ${dot}`} />
-      <span className="w-10 text-ink-500">{label}</span>
-      <span className="flex-1 text-xs">
-        {pt ? `${pt[0].toFixed(5)}, ${pt[1].toFixed(5)}` : "—"}
-      </span>
-    </div>
-  );
+/// Compact distance label: metres under 1 km, else km to 2 dp.
+function fmtDist(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
 }
 
 function RangeRow({
