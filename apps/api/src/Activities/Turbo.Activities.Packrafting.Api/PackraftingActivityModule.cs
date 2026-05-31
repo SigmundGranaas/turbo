@@ -55,6 +55,8 @@ public static class PackraftingActivityModule
         services.AddScoped<IPackraftingConditionsAdvisor>(sp => new PackraftingConditionsAdvisor(
             sp.GetRequiredService<IWeatherProvider>(),
             sp.GetService<IRiverFlowProvider>()));
+        services.AddScoped<PackraftingOrchestrator>();
+        services.AddScoped<IActivityRecommendationScorer, PackraftingRecommendationScorer>();
 
         services.AddSingleton(new ActivityKindDescriptor
         {

@@ -80,6 +80,9 @@ class SqliteActivitySummaryStore implements ActivitySummaryStore {
         'color_hex': s.colorHex,
         'updated_at': s.updatedAt.toUtc().millisecondsSinceEpoch,
         'version': s.version,
+        'summary_score': s.summaryScore,
+        'summary_score_at': s.summaryScoreAt?.toUtc().millisecondsSinceEpoch,
+        'top_driver_label': s.topDriverLabel,
       };
 
   ActivitySummary _fromRow(Map<String, Object?> row) {
@@ -96,6 +99,11 @@ class SqliteActivitySummaryStore implements ActivitySummaryStore {
           row['updated_at'] as int,
           isUtc: true),
       version: row['version'] as int,
+      summaryScore: row['summary_score'] as int?,
+      summaryScoreAt: row['summary_score_at'] is int
+          ? DateTime.fromMillisecondsSinceEpoch(row['summary_score_at'] as int, isUtc: true)
+          : null,
+      topDriverLabel: row['top_driver_label'] as String?,
     );
   }
 

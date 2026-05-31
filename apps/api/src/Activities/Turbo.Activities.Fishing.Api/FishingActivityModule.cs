@@ -69,6 +69,12 @@ public static class FishingActivityModule
         // will compose alongside this in follow-ups.
         services.AddScoped<IFishingConditionsAdvisor, FishingConditionsAdvisor>();
 
+        // v2 orchestrator. Pressure trend reads from the snapshot store
+        // (built up over time by the snapshotter daemon); solunar
+        // overlap is pure compute.
+        services.AddScoped<FishingOrchestrator>();
+        services.AddScoped<IActivityRecommendationScorer, FishingRecommendationScorer>();
+
         // Contribute the kind descriptor to the shared catalog. Composition:
         // the catalog discovers kinds via DI rather than a hardcoded enum.
         services.AddSingleton(new ActivityKindDescriptor

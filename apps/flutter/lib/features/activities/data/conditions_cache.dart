@@ -53,6 +53,27 @@ class ConditionsApi {
     }
     return r.data as Map<String, dynamic>;
   }
+
+  /// `GET /api/activities/{kind}/{id}/analysis` — the v2 orchestrator
+  /// endpoint. Returns the unparsed JSON map so the caller can stash it
+  /// in the analysis cache and re-parse on read.
+  Future<Map<String, dynamic>> getAnalysisJson({
+    required String kindUrlSlug,
+    required String activityId,
+    DateTime? at,
+  }) async {
+    final query = <String, dynamic>{};
+    if (at != null) query['at'] = at.toUtc().toIso8601String();
+    final r = await _client.get(
+      '/api/activities/$kindUrlSlug/$activityId/analysis',
+      queryParameters: query,
+    );
+    if (r.statusCode != 200) {
+      throw Exception(
+          'Failed to fetch analysis for $activityId: ${r.statusCode}');
+    }
+    return r.data as Map<String, dynamic>;
+  }
 }
 
 /// Cache-aware conditions fetch. Hits the network first; on success
@@ -111,6 +132,34 @@ Future<T> fetchActivityCached<T>({
     activityId: activityId,
     fromJson: fromJson,
     fetchRaw: () => ref.read(conditionsApiProvider).getActivityJson(
+          kindUrlSlug: kindUrlSlug,
+          activityId: activityId,
+        ),
+  );
+}
+
+/// Cache-aware analysis fetch — the v2 orchestrator counterpart of
+/// [fetchConditionsCached]. Hits the new `/analysis` endpoint, persists
+/// the raw JSON in the analysis cache, falls back to the cached payload
+/// on network failure so the detail screen still renders meaningful drivers
+/// and warnings when offline (with the `Provenance.fetchedAt` value
+/// visible so the user knows it's not current).
+Future<T> fetchAnalysisCached<T>({
+  required Ref ref,
+  required String kindUrlSlug,
+  required String kindKey,
+  required String activityId,
+  required T Function(Map<String, dynamic>) fromJson,
+}) async {
+  final cache = await ref.read(activityAnalysisCacheStoreProvider.future);
+  return _fetchWithCache<T>(
+    ref: ref,
+    cache: cache,
+    cacheLabel: 'analysis',
+    kindKey: kindKey,
+    activityId: activityId,
+    fromJson: fromJson,
+    fetchRaw: () => ref.read(conditionsApiProvider).getAnalysisJson(
           kindUrlSlug: kindUrlSlug,
           activityId: activityId,
         ),

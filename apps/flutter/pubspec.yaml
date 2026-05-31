@@ -44,7 +44,6 @@ dependencies:
   path: ^1.9.0
   sqflite_common_ffi: ^2.4.0+2
   path_provider: ^2.1.4
-  proj4dart: ^2.1.0
   uuid: ^4.4.0
   idb_shim: ^2.8.2+4
   http: ^1.6.0
@@ -54,8 +53,10 @@ dependencies:
   flutter_riverpod: ^3.2.1
   google_fonts: ^8.0.2
   shared_preferences: ^2.5.4
-  share_plus: ^10.1.4
-  file_picker: ^8.1.7
+  # Capped at 12.x: 13.x bumps win32 to ^6, conflicting with file_picker 11.x
+  # which still depends on win32 ^5.9.
+  share_plus: ^12.0.2
+  file_picker: ^11.0.2
 
   # Added for Google Sign-In
   google_sign_in: ^7.2.0
@@ -67,17 +68,22 @@ dependencies:
   # For handling deep links - useful for OAuth flow
   app_links: ^7.0.0
   intl: ^0.20.2
-  polygon: ^0.1.0
   flutter_compass: ^0.8.1
   image_picker: ^1.1.2
   logging: ^1.3.0
-  connectivity_plus: ^6.1.4
+  connectivity_plus: ^7.1.1
   archive: ^4.0.7
   wakelock_plus: ^1.2.8
   xml: ^6.6.1
   # MVT decoder used by features/curated_paths/ to parse vector tiles
   # served by the Turbo tileserver into flutter_map-renderable lines.
   vector_tile: ^4.0.0
+
+# sqflite_common_ffi 2.4.0+2 pins sqlite3 ^3.1.6, but 3.1.6's iOS-sim
+# prebuilt-binary hash check is broken (CDN serves a different dylib than the
+# package expects), failing iOS simulator builds. 3.3.1 ships corrected hashes.
+dependency_overrides:
+  sqlite3: ^3.3.1
 
 dev_dependencies:
   flutter_test:

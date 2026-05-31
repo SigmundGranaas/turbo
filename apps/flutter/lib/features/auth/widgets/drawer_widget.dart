@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
+import 'package:turbo/features/activities_today/api.dart';
 import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
@@ -25,6 +27,7 @@ class AppDrawer extends ConsumerWidget {
 
     final List<Map<String, dynamic>> destinations = [
       {'key': 'map', 'icon': Icons.map_outlined, 'selectedIcon': Icons.map, 'label': l10n.map},
+      {'key': 'today', 'icon': Icons.wb_sunny_outlined, 'selectedIcon': Icons.wb_sunny, 'label': 'Today'},
       {'key': 'collections', 'icon': Icons.folder_outlined, 'selectedIcon': Icons.folder, 'label': l10n.collections},
       {'key': 'all_markers', 'icon': Icons.place_outlined, 'selectedIcon': Icons.place, 'label': l10n.allMarkers},
       {'key': 'all_paths', 'icon': Icons.route_outlined, 'selectedIcon': Icons.route, 'label': l10n.allPaths},
@@ -119,6 +122,12 @@ class AppDrawer extends ConsumerWidget {
                 switch (selectedKey) {
                   case 'map':
                   // Already on map, do nothing
+                    break;
+                  case 'today':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const _TodayDrawerEntry()),
+                    );
                     break;
                   case 'collections':
                     Navigator.push(
@@ -222,5 +231,19 @@ class AppDrawer extends ConsumerWidget {
     if (confirmed) {
       notifier.logout();
     }
+  }
+}
+
+/// Thin wrapper that hands the device's current location (from
+/// [locationStateProvider]) into [TodayScreen]. Lives next to the
+/// drawer so the drawer's switch-on-destination stays a const-arity
+/// route push instead of an inline Consumer.
+class _TodayDrawerEntry extends ConsumerWidget {
+  const _TodayDrawerEntry();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final locationAsync = ref.watch(locationStateProvider);
+    return TodayScreen(location: locationAsync.value);
   }
 }

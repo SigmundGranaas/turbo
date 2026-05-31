@@ -10,7 +10,7 @@ namespace Turboapi.Auth.Domain.Aggregates
     public class Account : IHasDomainEvents
     {
         public Guid Id { get; private set; }
-        public string Email { get; private set; }
+        public string Email { get; private set; } = null!;
         public bool IsActive { get; private set; } // New property
         public DateTime CreatedAt { get; private set; }
         public DateTime? LastLoginAt { get; private set; }

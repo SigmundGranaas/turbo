@@ -22,4 +22,21 @@ public class ActivitySummaryEntity
     public DateTime UpdatedAt { get; set; }
     public DateTime? DeletedAt { get; set; }
     public long Version { get; set; }
+
+    /// <summary>0–100 composite score from the orchestrator's last
+    /// fetched analysis. Written back opportunistically (every analysis
+    /// fetch + the snapshotter's rotation); <c>null</c> means no recent
+    /// score is known.</summary>
+    public int? SummaryScore { get; set; }
+
+    /// <summary>When [SummaryScore] was last written. Clients use this
+    /// to decide whether to render a score halo at all (e.g. ignore
+    /// anything older than ~3h).</summary>
+    public DateTime? SummaryScoreAt { get; set; }
+
+    /// <summary>Localized label of the highest-weight driver from the
+    /// last analysis (e.g. "Avalanche danger considerable",
+    /// "Fresh groomed"). Used for the recommendation card's headline.
+    /// Truncated to 64 chars upstream.</summary>
+    public string? TopDriverLabel { get; set; }
 }

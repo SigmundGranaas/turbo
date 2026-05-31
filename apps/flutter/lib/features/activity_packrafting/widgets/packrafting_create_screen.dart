@@ -79,7 +79,7 @@ class _PackraftingCreateScreenState extends ConsumerState<PackraftingCreateScree
         builder: (ctx) => RouteDrawingScreen(
           seedCenter: _drawnRoute?.first ?? _seed,
           initialRoute: _drawnRoute,
-          color: const Color(0xFFEF6C00),
+          color: const Color(0xFF00838F),
         ),
       ),
     );

@@ -1,0 +1,21 @@
+[package]
+name = "turbomap-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Core wgpu map renderer — no I/O, no platform, host-agnostic."
+
+[lints]
+workspace = true
+
+[dependencies]
+wgpu.workspace = true
+glam.workspace = true
+bytemuck.workspace = true
+log.workspace = true
+thiserror.workspace = true
+turbomap-mvt = { path = "../turbomap-mvt" }
+lyon.workspace = true
+ab_glyph.workspace = true

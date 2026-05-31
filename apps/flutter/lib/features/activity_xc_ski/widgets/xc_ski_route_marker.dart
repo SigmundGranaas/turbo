@@ -8,6 +8,6 @@ class XcSkiRouteMarker extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
     message: summary.name,
-    child: const Icon(Icons.snowshoeing_outlined, color: Color(0xFF00838F), size: 32,
+    child: const Icon(Icons.snowshoeing_outlined, color: Color(0xFF0288D1), size: 32,
       semanticLabel: 'XC ski trail'));
 }

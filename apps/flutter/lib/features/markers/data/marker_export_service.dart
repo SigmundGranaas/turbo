@@ -20,7 +20,7 @@ class MarkerExportService {
   Future<void> shareAsLink(Marker marker, String webBaseUrl) async {
     final url = buildShareLink(marker, webBaseUrl);
     await Clipboard.setData(ClipboardData(text: url));
-    await Share.share(url, subject: marker.title);
+    await SharePlus.instance.share(ShareParams(uri: Uri.parse(url), subject: marker.title));
   }
 
   String _buildFilename(Marker marker) {
@@ -65,13 +65,13 @@ class MarkerExportService {
     final bytes = Uint8List.fromList(content.codeUnits);
     if (kIsWeb) {
       final xFile = XFile.fromData(bytes, name: filename, mimeType: mimeType);
-      await Share.shareXFiles([xFile]);
+      await SharePlus.instance.share(ShareParams(files: [xFile]));
     } else {
       final tempDir = await getTemporaryDirectory();
       final file = File('${tempDir.path}/$filename');
       await file.writeAsString(content);
       final xFile = XFile(file.path, mimeType: mimeType);
-      await Share.shareXFiles([xFile]);
+      await SharePlus.instance.share(ShareParams(files: [xFile]));
     }
   }
 
@@ -80,7 +80,7 @@ class MarkerExportService {
     final filename = _buildFilename(marker);
     final bytes = Uint8List.fromList(content.codeUnits);
 
-    final result = await FilePicker.platform.saveFile(
+    final result = await FilePicker.saveFile(
       dialogTitle: filename,
       fileName: filename,
       bytes: bytes,

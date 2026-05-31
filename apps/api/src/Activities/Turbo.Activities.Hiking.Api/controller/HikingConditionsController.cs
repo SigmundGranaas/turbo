@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Turboapi.Activities.domain.services;
 using Turboapi.Activities.Hiking.conditions;
 using Turboapi.Activities.Hiking.domain.handler;
 using Turboapi.Activities.Hiking.value;
+using Turboapi.Activities.value;
 
 namespace Turboapi.Activities.Hiking.controller;
 
@@ -14,15 +16,18 @@ public class HikingConditionsController : ControllerBase
 {
     private readonly IHikingActivityReader _reader;
     private readonly IHikingConditionsAdvisor _advisor;
+    private readonly HikingOrchestrator _orchestrator;
     private readonly ILogger<HikingConditionsController> _logger;
 
     public HikingConditionsController(
         IHikingActivityReader reader,
         IHikingConditionsAdvisor advisor,
+        HikingOrchestrator orchestrator,
         ILogger<HikingConditionsController> logger)
     {
         _reader = reader;
         _advisor = advisor;
+        _orchestrator = orchestrator;
         _logger = logger;
     }
 
@@ -56,6 +61,33 @@ public class HikingConditionsController : ControllerBase
             _logger.LogError(ex, "Error computing hiking conditions for {Id}", id);
             return StatusCode(StatusCodes.Status502BadGateway,
                 new ErrorResponse("Conditions unavailable", ex.Message));
+        }
+    }
+
+    [HttpGet("{id}/analysis")]
+    [ProducesResponseType(typeof(ActivityAnalysis), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ActivityAnalysis>> GetAnalysis(
+        Guid id, [FromQuery] DateTime? at, CancellationToken ct)
+    {
+        try
+        {
+            var userId = GetAuthenticatedUserId();
+            var activity = await _reader.GetByIdAsync(id, ct);
+            if (activity is null || activity.Core.OwnerId != userId)
+                return NotFound(new ErrorResponse("Not found", $"Hiking activity {id} not found"));
+            var instant = at.HasValue
+                ? new DateTimeOffset(DateTime.SpecifyKind(at.Value, DateTimeKind.Utc))
+                : DateTimeOffset.UtcNow;
+            var qctx = QueryContext.ForAnalysis(instant, userId: userId);
+            return Ok(await _orchestrator.RunAsync(activity, id, qctx, ct));
+        }
+        catch (UnauthorizedAccessException) { return Forbid(); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error computing hiking analysis for {Id}", id);
+            return StatusCode(StatusCodes.Status502BadGateway,
+                new ErrorResponse("Analysis unavailable", ex.Message));
         }
     }
 }

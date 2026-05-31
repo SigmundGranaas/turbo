@@ -36,6 +36,21 @@ final xcSkiConditionsProvider =
   );
 });
 
+/// v2 analysis provider. Hits `/api/activities/xc-ski/{id}/analysis` and
+/// falls back to the cached payload offline. Used by
+/// `XcSkiConditionsPanel` to render the new analysis surface (drivers +
+/// windows + warnings + provenance) instead of the legacy report.
+final xcSkiAnalysisProvider =
+    FutureProvider.family<activities.ActivityAnalysis, String>((ref, id) async {
+  return activities.fetchAnalysisCached<activities.ActivityAnalysis>(
+    ref: ref,
+    kindUrlSlug: 'xc-ski',
+    kindKey: 'xc_ski',
+    activityId: id,
+    fromJson: activities.ActivityAnalysis.fromJson,
+  );
+});
+
 final xcSkiRepositoryProvider = Provider<XcSkiRepository>((ref) => XcSkiRepository(ref));
 
 class XcSkiRepository {
@@ -55,7 +70,7 @@ class XcSkiRepository {
           activities.ActivitySummary(
             id: id, kind: 'xc_ski', name: name,
             geometry: activities.ActivityGeometry.fromServer(wkt: _wkt(route), geometryKind: 'LINESTRING'),
-            iconKey: 'xc_ski', colorHex: '#00838F',
+            iconKey: 'xc_ski', colorHex: '#0288D1',
             updatedAt: DateTime.now().toUtc(), version: 1));
     return id;
   }

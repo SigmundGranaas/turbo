@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:turbo/features/activities/api.dart';
 
+import 'models/fishing_analysis_extras.dart';
 import 'widgets/fishing_create_screen.dart';
 import 'widgets/fishing_detail_sheet.dart';
 import 'widgets/fishing_map_marker.dart';
@@ -18,5 +19,7 @@ final fishingActivityKindDescriptor = ActivityKindDescriptor(
   allowedGeometries: {ActivityGeometryKind.point},
   buildCreateScreen: (ctx, seed) => FishingCreateScreen(seedGeometry: seed),
   buildDetailScreen: (ctx, id) => FishingDetailSheet(activityId: id),
+  buildDetailContent: (ctx, id) => FishingDetailSheet(activityId: id),
+  parseAnalysisExtras: (slices) => FishingAnalysisExtras.tryParse(slices['fishing']),
   buildMapMarker: (summary) => FishingMapMarker(summary: summary),
 );

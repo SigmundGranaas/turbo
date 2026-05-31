@@ -171,14 +171,26 @@ class FutureImage extends ImageProvider<FutureImage> {
 
   @override
   ImageStreamCompleter loadImage(FutureImage key, ImageDecoderCallback decode) {
-    return MultiFrameImageStreamCompleter(
-      codec: _loadAsync(key, decode),
+    final codecFuture = _loadAsync(key, decode);
+    final completer = MultiFrameImageStreamCompleter(
+      codec: codecFuture,
       scale: 1.0,
       informationCollector: () => <DiagnosticsNode>[
         DiagnosticsProperty<FutureImage>('Image provider', this),
         DiagnosticsProperty<Future<Uint8List?>>('Future', futureBytes),
       ],
     );
+    // The codec future can reject before flutter_map attaches its listener.
+    // Pre-register an onError listener so the framework treats the error as
+    // handled and doesn't log it under "image resource service". flutter_map's
+    // own listener still receives the error and falls back to a parent tile.
+    final silencer = ImageStreamListener(
+      (_, _) {},
+      onError: (_, _) {},
+    );
+    completer.addListener(silencer);
+    codecFuture.whenComplete(() => completer.removeListener(silencer));
+    return completer;
   }
 
   Future<ui.Codec> _loadAsync(

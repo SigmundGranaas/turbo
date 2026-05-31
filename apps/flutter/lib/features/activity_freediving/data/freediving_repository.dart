@@ -36,6 +36,20 @@ final freedivingConditionsProvider =
   );
 });
 
+/// v2 analysis provider — orchestrator-backed surface with the computed
+/// visibility forecast that replaces the deprecated user-entered
+/// `typicalVisibilityMeters` field.
+final freedivingAnalysisProvider =
+    FutureProvider.family<activities.ActivityAnalysis, String>((ref, id) async {
+  return activities.fetchAnalysisCached<activities.ActivityAnalysis>(
+    ref: ref,
+    kindUrlSlug: 'freediving',
+    kindKey: 'freediving',
+    activityId: id,
+    fromJson: activities.ActivityAnalysis.fromJson,
+  );
+});
+
 final freedivingRepositoryProvider = Provider<FreedivingRepository>((ref) => FreedivingRepository(ref));
 
 class FreedivingRepository {

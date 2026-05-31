@@ -1,0 +1,22 @@
+[package]
+name = "turbomap-tiles-pmtiles"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "PMTiles v3 archive reader. Implements TileSource and VectorTileSource over a single .pmtiles file."
+
+[lints]
+workspace = true
+
+[dependencies]
+turbomap-core = { path = "../turbomap-core" }
+turbomap-mvt = { path = "../turbomap-mvt" }
+log.workspace = true
+thiserror.workspace = true
+flate2 = "1"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tempfile = "3"

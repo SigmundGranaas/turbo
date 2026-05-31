@@ -6,7 +6,7 @@ namespace Turboapi.Auth.Domain.Aggregates
 {
     public class PasswordAuthMethod : AuthenticationMethod
     {
-        public string PasswordHash { get; private set; }
+        public string PasswordHash { get; private set; } = null!;
 
         // Private constructor for EF Core - NO validation, NO base constructor call with parameters
         private PasswordAuthMethod() 

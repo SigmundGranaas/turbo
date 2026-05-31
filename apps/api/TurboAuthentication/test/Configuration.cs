@@ -16,7 +16,7 @@ namespace TurboAuthentication.Tests.Configuration
         {
             // Arrange
             var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string>
+                .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Jwt:Key"] = "MyTestSecretKey1234567890",
                     ["Jwt:Issuer"] = "test-issuer",
@@ -54,7 +54,7 @@ namespace TurboAuthentication.Tests.Configuration
         {
             // Arrange
             var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string>
+                .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Jwt:Key"] = "MyTestSecretKey1234567890"
                     // Missing other properties
@@ -93,7 +93,7 @@ namespace TurboAuthentication.Tests.Configuration
                 Environment.SetEnvironmentVariable("JWT_REFRESH_EXPIRATION_DAYS", "21");
                 
                 var configuration = new ConfigurationBuilder()
-                    .AddInMemoryCollection(new Dictionary<string, string>
+                    .AddInMemoryCollection(new Dictionary<string, string?>
                     {
                         ["Jwt:Key"] = "ConfigSecretKey",
                         ["Jwt:Issuer"] = "config-issuer",
@@ -135,7 +135,7 @@ namespace TurboAuthentication.Tests.Configuration
         {
             // Arrange
             var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string>
+                .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Cookie:Name"] = "CustomAuthCookie",
                     ["Cookie:HttpOnly"] = "true",
@@ -162,7 +162,7 @@ namespace TurboAuthentication.Tests.Configuration
         {
             // Arrange
             var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string>())
+                .AddInMemoryCollection(new Dictionary<string, string?>())
                 .Build();
             
             // Act
@@ -190,7 +190,7 @@ namespace TurboAuthentication.Tests.Configuration
                 Environment.SetEnvironmentVariable("COOKIE_SECURE", "Always");
                 
                 var configuration = new ConfigurationBuilder()
-                    .AddInMemoryCollection(new Dictionary<string, string>
+                    .AddInMemoryCollection(new Dictionary<string, string?>
                     {
                         ["Cookie:Name"] = "ConfigCookie",
                         ["Cookie:HttpOnly"] = "true",
@@ -229,7 +229,7 @@ namespace TurboAuthentication.Tests.Configuration
         {
             // Arrange
             var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string>
+                .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Jwt:Key"] = "MyTestSecretKey1234567890"
                 })
@@ -254,7 +254,7 @@ namespace TurboAuthentication.Tests.Configuration
         {
             // Arrange
             var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string>
+                .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Jwt:Key"] = "MyTestSecretKey1234567890",
                     ["Jwt:Issuer"] = "test-issuer",

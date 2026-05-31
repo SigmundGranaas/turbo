@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 
 import 'package:turbo/features/activities/api.dart';
 
+import 'models/hiking_analysis_extras.dart';
 import 'widgets/hiking_create_screen.dart';
 import 'widgets/hiking_detail_sheet.dart';
 import 'widgets/hiking_route_marker.dart';
@@ -17,6 +18,8 @@ final hikingActivityKindDescriptor = ActivityKindDescriptor(
   allowedGeometries: {ActivityGeometryKind.lineString},
   buildCreateScreen: (ctx, seed) => HikingCreateScreen(seedGeometry: seed),
   buildDetailScreen: (ctx, id) => HikingDetailSheet(activityId: id),
+  buildDetailContent: (ctx, id) => HikingDetailSheet(activityId: id),
+  parseAnalysisExtras: (slices) => HikingAnalysisExtras.tryParse(slices['hiking']),
   buildMapMarker: (summary) => HikingRouteMarker(summary: summary),
   buildMapPolyline: (summary) => Polyline(
     points: summary.geometry.coordinates,

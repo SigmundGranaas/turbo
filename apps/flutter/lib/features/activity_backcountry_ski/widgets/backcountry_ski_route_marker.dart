@@ -16,7 +16,7 @@ class BackcountrySkiRouteMarker extends StatelessWidget {
       message: summary.name,
       child: const Icon(
         Icons.downhill_skiing_outlined,
-        color: Color(0xFF7A3CCB),
+        color: Color(0xFF5E72A5),
         size: 32,
         semanticLabel: 'Backcountry ski route',
       ),

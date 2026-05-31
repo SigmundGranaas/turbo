@@ -50,6 +50,8 @@ public static class XcSkiActivityModule
         services.AddHostedService<OutboxDispatcherHostedService<XcSkiContext>>();
 
         services.AddScoped<IXcSkiConditionsAdvisor, XcSkiConditionsAdvisor>();
+        services.AddScoped<XcSkiOrchestrator>();
+        services.AddScoped<IActivityRecommendationScorer, XcSkiRecommendationScorer>();
 
         services.AddSingleton(new ActivityKindDescriptor
         {

@@ -152,6 +152,157 @@ public sealed class CachedTideProvider : ITideProvider
 }
 
 /// <summary>
+/// Cache decorator for turbidity providers. Day bucket (turbidity
+/// changes over hours-to-days, not minutes), 0.01° grid (Sentinel-2
+/// pixel scale). Keeps freediving viz reads cheap.
+/// </summary>
+public sealed class CachedTurbidityProvider : ITurbidityProvider
+{
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(12);
+
+    private readonly ITurbidityProvider _inner;
+    private readonly IConditionsCache _cache;
+    private readonly ILogger<CachedTurbidityProvider> _logger;
+    private readonly TimeProvider _clock;
+
+    public CachedTurbidityProvider(
+        ITurbidityProvider inner, IConditionsCache cache,
+        ILogger<CachedTurbidityProvider> logger, TimeProvider? clock = null)
+    {
+        _inner = inner; _cache = cache; _logger = logger;
+        _clock = clock ?? TimeProvider.System;
+    }
+
+    public string Key => _inner.Key;
+
+    public async Task<TurbiditySlice> GetAsync(
+        double latitude, double longitude, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        var bucket = ConditionsCacheKey.DayBucket(at);
+        var grid = $"{Math.Round(latitude, 2):F2}_{Math.Round(longitude, 2):F2}";
+        var hit = await _cache.TryGetAsync(_inner.Key, grid, bucket, cancellationToken);
+        if (hit is not null && hit.ExpiresAt > _clock.GetUtcNow())
+        {
+            try
+            {
+                var cached = JsonSerializer.Deserialize<TurbiditySlice>(hit.Payload.Span);
+                if (cached is not null) return cached;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Discarding corrupt turbidity cache for {Grid} {Bucket}", grid, bucket);
+            }
+        }
+        var fresh = await _inner.GetAsync(latitude, longitude, at, cancellationToken);
+        var now = _clock.GetUtcNow();
+        await _cache.PutAsync(_inner.Key, grid, bucket,
+            JsonSerializer.SerializeToUtf8Bytes(fresh), now, now + CacheTtl, cancellationToken);
+        return fresh;
+    }
+}
+
+/// <summary>
+/// Cache decorator for snowpack (regObs) providers. Day bucket; cell key
+/// snaps lat/lon to ~0.1° (the radius-based regObs query already
+/// aggregates within a few km, so a tighter grid would multiply upstream
+/// calls without improving relevance).
+/// </summary>
+public sealed class CachedSnowpackProvider : ISnowpackProvider
+{
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(2);
+
+    private readonly ISnowpackProvider _inner;
+    private readonly IConditionsCache _cache;
+    private readonly ILogger<CachedSnowpackProvider> _logger;
+    private readonly TimeProvider _clock;
+
+    public CachedSnowpackProvider(
+        ISnowpackProvider inner, IConditionsCache cache,
+        ILogger<CachedSnowpackProvider> logger, TimeProvider? clock = null)
+    {
+        _inner = inner; _cache = cache; _logger = logger;
+        _clock = clock ?? TimeProvider.System;
+    }
+
+    public string Key => _inner.Key;
+
+    public async Task<SnowpackSlice> GetAsync(
+        double latitude, double longitude, DateTimeOffset at, int lookbackDays,
+        CancellationToken cancellationToken)
+    {
+        var bucket = ConditionsCacheKey.DayBucket(at);
+        var grid = $"{Math.Round(latitude, 1):F1}_{Math.Round(longitude, 1):F1}_{lookbackDays}d";
+        var hit = await _cache.TryGetAsync(_inner.Key, grid, bucket, cancellationToken);
+        if (hit is not null && hit.ExpiresAt > _clock.GetUtcNow())
+        {
+            try
+            {
+                var cached = JsonSerializer.Deserialize<SnowpackSlice>(hit.Payload.Span);
+                if (cached is not null) return cached;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Discarding corrupt snowpack cache for {Grid} {Bucket}", grid, bucket);
+            }
+        }
+        var fresh = await _inner.GetAsync(latitude, longitude, at, lookbackDays, cancellationToken);
+        var now = _clock.GetUtcNow();
+        await _cache.PutAsync(_inner.Key, grid, bucket,
+            JsonSerializer.SerializeToUtf8Bytes(fresh), now, now + CacheTtl, cancellationToken);
+        return fresh;
+    }
+}
+
+/// <summary>
+/// Cache decorator for gridded snow (seNorge) providers. Day bucket; cell
+/// key snaps to seNorge's ~1km grid (0.01°).
+/// </summary>
+public sealed class CachedGriddedSnowProvider : IGriddedSnowProvider
+{
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(6);
+
+    private readonly IGriddedSnowProvider _inner;
+    private readonly IConditionsCache _cache;
+    private readonly ILogger<CachedGriddedSnowProvider> _logger;
+    private readonly TimeProvider _clock;
+
+    public CachedGriddedSnowProvider(
+        IGriddedSnowProvider inner, IConditionsCache cache,
+        ILogger<CachedGriddedSnowProvider> logger, TimeProvider? clock = null)
+    {
+        _inner = inner; _cache = cache; _logger = logger;
+        _clock = clock ?? TimeProvider.System;
+    }
+
+    public string Key => _inner.Key;
+
+    public async Task<GriddedSnowSlice> GetAsync(
+        double latitude, double longitude, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        var bucket = ConditionsCacheKey.DayBucket(at);
+        var grid = $"{Math.Round(latitude, 2):F2}_{Math.Round(longitude, 2):F2}";
+        var hit = await _cache.TryGetAsync(_inner.Key, grid, bucket, cancellationToken);
+        if (hit is not null && hit.ExpiresAt > _clock.GetUtcNow())
+        {
+            try
+            {
+                var cached = JsonSerializer.Deserialize<GriddedSnowSlice>(hit.Payload.Span);
+                if (cached is not null) return cached;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Discarding corrupt gridded snow cache for {Grid} {Bucket}", grid, bucket);
+            }
+        }
+        var fresh = await _inner.GetAsync(latitude, longitude, at, cancellationToken);
+        var now = _clock.GetUtcNow();
+        await _cache.PutAsync(_inner.Key, grid, bucket,
+            JsonSerializer.SerializeToUtf8Bytes(fresh), now, now + CacheTtl, cancellationToken);
+        return fresh;
+    }
+}
+
+/// <summary>
 /// Cache decorator for grooming providers. 1h time bucket; the trail
 /// id is the only key (no geography needed since the feed is per-
 /// trail).

@@ -1,0 +1,51 @@
+// Vector tile pipeline. Same world-to-clip transform as the raster
+// pipeline — `Camera::view_projection_matrix` packed as a single
+// mat4 so tilt + bearing flow through transparently.
+struct CameraUniform {
+    view_proj: mat4x4<f32>,
+};
+
+struct TileUniform {
+    tile_alpha: f32,
+    // No further fields needed. The buffer is laid out at 256-byte stride
+    // for dynamic-offset alignment, but the shader only reads the first
+    // four bytes from each binding.
+};
+
+@group(0) @binding(0) var<uniform> camera: CameraUniform;
+@group(1) @binding(0) var<uniform> tile: TileUniform;
+
+struct VertexInput {
+    @location(0) position: vec2<f32>, // world coords (pre-projected on CPU)
+    @location(1) color: vec4<f32>,    // 8-bit sRGB, fed as Unorm
+    // Cross-line position used for AA. .x: 0.0 at one stroke edge, 1.0 at
+    // the other, ~0.5 for fills (no AA). Other components unused.
+    @location(2) edge_pos: vec4<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) edge_pos: f32,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.clip_position = camera.view_proj * vec4<f32>(in.position, 0.0, 1.0);
+    out.color = in.color;
+    out.edge_pos = in.edge_pos.x;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Distance from the stroke centerline, in [0, 1]. Fills have
+    // edge_pos≈0.5 → dist≈0, no AA applied.
+    let dist = abs(in.edge_pos - 0.5) * 2.0;
+    // One screen pixel's worth of edge taper, computed from the screen-
+    // space derivative of `dist`. fwidth = |dFdx| + |dFdy|.
+    let fade = fwidth(dist);
+    let edge_alpha = 1.0 - smoothstep(1.0 - fade, 1.0, dist);
+    return vec4<f32>(in.color.rgb, in.color.a * edge_alpha * tile.tile_alpha);
+}

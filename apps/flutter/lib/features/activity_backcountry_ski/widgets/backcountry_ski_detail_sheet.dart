@@ -1,162 +1,212 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:turbo/features/activities/api.dart' show ActivityGeometry;
+import 'package:turbo/features/activities/api.dart';
 
 import '../data/backcountry_ski_repository.dart';
+import '../descriptor.dart' show backcountrySkiActivityKindDescriptor;
 import '../models/backcountry_ski_activity.dart';
+import '../models/backcountry_ski_analysis_extras.dart';
 import '../models/backcountry_ski_details.dart';
-import 'backcountry_ski_conditions_panel.dart';
 import 'backcountry_ski_create_screen.dart';
+import 'backcountry_ski_observation_extras.dart';
 
+/// Backcountry-ski detail sheet — design-aligned chassis.
+///
+/// Title / stats / description / actions paint instantly from the
+/// typed [BackcountrySkiActivity]; verdict, map overlays, weather
+/// metrics, and the per-aspect loading module fill in progressively
+/// from [backcountrySkiAnalysisProvider]. All four states
+/// (loading / ready / error / no-data) are shown without spinner or
+/// shimmer — the chassis is the architectural fix for the prior
+/// infinite-loading UX.
 class BackcountrySkiDetailSheet extends ConsumerWidget {
   final String activityId;
   const BackcountrySkiDetailSheet({super.key, required this.activityId});
 
+  static const _kindNoun = 'tour';
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(backcountrySkiActivityProvider(activityId));
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: async.when(
-          loading: () => const Padding(
-            padding: EdgeInsets.symmetric(vertical: 40),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-          error: (e, _) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            child: Text('Failed to load: $e'),
-          ),
-          data: (a) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(a.name, style: Theme.of(context).textTheme.headlineSmall),
-              if (a.description != null && a.description!.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(a.description!, style: Theme.of(context).textTheme.bodyMedium),
-              ],
-              const SizedBox(height: 12),
-              _row('Distance', '${a.details.distanceMeters} m'),
-              _row('Ascent / descent',
-                  '${a.details.ascentMeters} m / ${a.details.descentMeters} m'),
-              _row('Elevation',
-                  '${a.details.elevationMinMeters} – ${a.details.elevationMaxMeters} m'),
-              _row('ATES', _atesLabel(a.details.atesRating)),
-              if (a.details.dominantAspect != null)
-                _row('Dominant aspect',
-                    a.details.dominantAspect!.name.toUpperCase()),
-              if (a.details.varsomRegionId != null)
-                _row('Varsom region', a.details.varsomRegionId.toString()),
-              if (a.details.aspectMix.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text('Aspect mix',
-                    style: Theme.of(context).textTheme.titleSmall),
-                ...a.details.aspectMix.map(
-                  (m) => Text(
-                      '• ${m.aspect.name.toUpperCase()}: ${(m.fraction * 100).round()}%'),
-                ),
-              ],
-              if (a.details.legs.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text('Legs', style: Theme.of(context).textTheme.titleSmall),
-                ...a.details.legs.asMap().entries.map(
-                      (e) => Text(
-                          '• ${e.key + 1}. ${_legKindLabel(e.value.kind)} '
-                          '(${e.value.startElevationMeters} → ${e.value.endElevationMeters} m)'),
-                    ),
-              ],
-              BackcountrySkiConditionsPanel(activityId: a.id),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                    label: const Text('Close'),
-                  ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: () => _openEdit(context, a),
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Edit'),
-                  ),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(
-                        foregroundColor: Theme.of(context).colorScheme.error),
-                    onPressed: () => _confirmDelete(context, ref, a.id, a.name),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Delete'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+    final activityAsync = ref.watch(backcountrySkiActivityProvider(activityId));
+    return activityAsync.when(
+      loading: () => const ActivityLoadingHint(message: 'Loading $_kindNoun…'),
+      error: (e, _) => ActivityLoadingHint(
+        icon: Icons.error_outline,
+        message: 'Could not load $_kindNoun.',
+        subline: '$e',
       ),
+      data: (activity) => _Body(activity: activity),
     );
   }
+}
 
-  Widget _row(String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(width: 132, child: Text(label)),
-            Expanded(child: Text(value)),
-          ],
-        ),
-      );
+class _Body extends ConsumerWidget {
+  final BackcountrySkiActivity activity;
+  const _Body({required this.activity});
 
-  static String _atesLabel(AtesRating r) => switch (r) {
-        AtesRating.unrated => 'Unrated',
-        AtesRating.simple => 'Simple',
-        AtesRating.challenging => 'Challenging',
-        AtesRating.complex => 'Complex',
-      };
+  static const _tintColor = Color(0xFF5E72A5);
 
-  static String _legKindLabel(LegKind k) => switch (k) {
-        LegKind.ascent => 'Ascent',
-        LegKind.descent => 'Descent',
-        LegKind.traverse => 'Traverse',
-      };
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final analysisAsync =
+        ref.watch(backcountrySkiAnalysisProvider(activity.id));
+    final extras = analysisAsync.value == null
+        ? null
+        : backcountrySkiActivityKindDescriptor.parseAnalysisExtras?.call(
+            analysisAsync.value!.kindSlices) as BackcountrySkiAnalysisExtras?;
 
-  void _openEdit(BuildContext context, BackcountrySkiActivity a) {
-    Navigator.of(context).pop();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => BackcountrySkiCreateScreen(
-          seedGeometry: ActivityGeometry.fromRoute(a.route),
-          existing: a,
-        ),
+    return ActivityDetailChassis(
+      tintColor: _tintColor,
+      icon: Icons.downhill_skiing,
+      title: activity.name,
+      place: _placeText(activity),
+      onClose: () => Navigator.of(context).maybePop(),
+      onRefresh: () async {
+        ref.invalidate(backcountrySkiAnalysisProvider(activity.id));
+        try {
+          await ref.read(backcountrySkiAnalysisProvider(activity.id).future);
+        } catch (_) {/* surfaced by the panel */}
+      },
+      verdict: _verdict(analysisAsync),
+      mapPreview: ActivityMapPreviewFromAnalysis(
+        points: activity.route,
+        tintColor: _tintColor,
+        analysisAsync: analysisAsync,
       ),
-    );
-  }
-
-  Future<void> _confirmDelete(
-      BuildContext context, WidgetRef ref, String id, String name) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete route?'),
-        content: Text('"$name" will be removed.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(ctx).colorScheme.error),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
-          ),
+      weather: ActivityWeatherPanelFromAnalysis(
+        analysisAsync: analysisAsync,
+        title: 'Route conditions',
+        accent: _tintColor,
+        summaryBlurb: 'Route surface forecast',
+        metrics: const [
+          WeatherMetrics.wind,
+          WeatherMetrics.freshSnow24h,
+          WeatherMetrics.snowDepth,
         ],
+        onRefresh: () =>
+            ref.invalidate(backcountrySkiAnalysisProvider(activity.id)),
+      ),
+      stats: ActivityStatStrip(items: _stats(activity.details)),
+      module: switch (extras?.perAspect) {
+        final list? when list.isNotEmpty => ActivityModuleCard(
+            label: 'Aspect loading',
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: list
+                  .map((a) => _AspectChip(loading: a))
+                  .toList(growable: false),
+            ),
+          ),
+        _ => null,
+      },
+      description: activity.description,
+      actions: ActivityAction.standardTriple(
+        context,
+        onLogVisit: () => _logVisit(context, ref),
+        onEdit: () => _edit(context),
+        onDelete: () => _delete(context, ref),
       ),
     );
-    if (confirmed != true) return;
+  }
+
+  Widget _verdict(AsyncValue<ActivityAnalysis> async) {
+    return async.when(
+      loading: () => const ActivityVerdict.loading(),
+      error: (_, _) => ActivityVerdict.fallback(support: _fallbackHint()),
+      data: (a) =>
+          ActivityVerdict.fromScore(score: a.score, rationale: a.rationale),
+    );
+  }
+
+  String _fallbackHint() =>
+      'ATES ${_atesLabel(activity.details.atesRating)} · refresh to retry';
+
+  static String _placeText(BackcountrySkiActivity a) {
+    final desc = a.description;
+    return 'Backcountry ski${desc != null && desc.isNotEmpty ? " · $desc" : ""}';
+  }
+
+  static String _atesLabel(AtesRating? r) {
+    return switch (r) {
+      AtesRating.simple => 'Simple',
+      AtesRating.challenging => 'Challenging',
+      AtesRating.complex => 'Complex',
+      _ => '—',
+    };
+  }
+
+  static List<StatItem> _stats(BackcountrySkiDetails d) {
+    return [
+      StatItem('Distance', _distance(d.distanceMeters)),
+      StatItem('Ascent', '${d.ascentMeters} m'),
+      StatItem('ATES', _atesLabel(d.atesRating)),
+    ];
+  }
+
+  static String _distance(int meters) =>
+      meters >= 1000 ? '${(meters / 1000).toStringAsFixed(1)} km' : '$meters m';
+
+  Future<void> _logVisit(BuildContext context, WidgetRef ref) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ActivityObservationForm(
+          kindKey: 'backcountry_ski',
+          activityName: activity.name,
+          tintColor: _tintColor,
+          extrasBuilder: (ctx, draft, onChanged) => [
+            BackcountrySkiObservationExtras(draft: draft, onChanged: onChanged),
+          ],
+          onSubmit: ({
+            required observedAt,
+            required rating,
+            required comment,
+            required photoCount,
+            required kindPayload,
+          }) async {
+            await postObservation(
+              ref: ref,
+              kindUrlSlug: 'backcountry-ski',
+              activityId: activity.id,
+              observedAt: observedAt,
+              rating: rating,
+              comment: comment,
+              photoCount: photoCount,
+              kindPayload: kindPayload,
+            );
+          },
+        ),
+      ),
+    );
+    if (saved == true) {
+      ref.invalidate(backcountrySkiAnalysisProvider(activity.id));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Visit logged.')),
+        );
+      }
+    }
+  }
+
+  void _edit(BuildContext context) {
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (_) => BackcountrySkiCreateScreen(
+        seedGeometry: ActivityGeometry.fromRoute(activity.route),
+        existing: activity,
+      ),
+    ));
+  }
+
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    final ok = await showActivityDeleteDialog(
+      context,
+      name: activity.name,
+      kindNoun: 'tour',
+    );
+    if (!ok) return;
     try {
-      await ref.read(backcountrySkiRepositoryProvider).delete(id);
+      await ref.read(backcountrySkiRepositoryProvider).delete(activity.id);
       if (context.mounted) Navigator.of(context).pop();
     } catch (e) {
       if (context.mounted) {
@@ -165,5 +215,32 @@ class BackcountrySkiDetailSheet extends ConsumerWidget {
         );
       }
     }
+  }
+}
+
+class _AspectChip extends StatelessWidget {
+  final AspectLoading loading;
+  const _AspectChip({required this.loading});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = loading.loadedFractionOfFraction.clamp(0.0, 1.0);
+    final bg = Color.lerp(ConditionPalette.good, ConditionPalette.stop, t) ??
+        ConditionPalette.good;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        loading.aspect.toUpperCase(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
   }
 }

@@ -1,0 +1,21 @@
+[package]
+name = "turbomap-tiles-http"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "HTTP TileSource adapter (Kartverket Turkart, generic XYZ/WMTS)."
+
+[lints]
+workspace = true
+
+[dependencies]
+turbomap-core = { path = "../turbomap-core" }
+turbomap-mvt = { path = "../turbomap-mvt" }
+reqwest.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

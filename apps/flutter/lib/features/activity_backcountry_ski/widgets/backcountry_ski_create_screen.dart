@@ -86,7 +86,7 @@ class _BackcountrySkiCreateScreenState
         builder: (ctx) => RouteDrawingScreen(
           seedCenter: _drawnRoute?.first ?? _seed,
           initialRoute: _drawnRoute,
-          color: const Color(0xFF7A3CCB),
+          color: const Color(0xFF5E72A5),
         ),
       ),
     );

@@ -1,0 +1,41 @@
+//! Core wgpu map renderer — no I/O, no winit, no HTTP.
+//!
+//! The crate boundary is intentionally narrow: a host provides a `wgpu::Device`,
+//! constructs a [`Map`], adds raster and/or vector layers (each backed by a
+//! [`TileSource`] / [`VectorTileSource`]), drives input via `Map` methods,
+//! and is responsible for fetching tiles outside the renderer (pull-push
+//! pattern via [`Map::pending_tiles`] + ingest methods).
+
+pub mod camera;
+pub mod dem;
+pub mod error;
+pub mod geo;
+pub mod hit;
+pub mod map;
+mod render;
+pub mod scene;
+pub mod source;
+pub mod spatial_index;
+pub mod style;
+pub mod tessellate;
+pub mod text;
+pub mod tile;
+pub mod vector;
+
+pub use camera::{Camera, CameraAnimation, TILE_SIZE_PX};
+pub use dem::{decode_elevation, DemEncoding};
+pub use error::{MapError, TileError};
+pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
+pub use map::{
+    HitFeature, HitMarker, HitResult, Map, MapOptions, Marker, MarkerId, PendingTile,
+    PublicTerrainOptions as TerrainOptions,
+};
+pub use scene::Scene;
+pub use source::{RasterFormat, RasterTile, TileSource};
+pub use style::{Color, Filter, HillshadeStyle, Paint, Rule, VectorStyle};
+pub use tessellate::{tessellate, InteractiveFeature, LabelRequest, Mesh, VectorVertex};
+pub use tile::{SubUv, TileId};
+pub use vector::{
+    tile_local_to_world, Feature, GeomType, Geometry, Layer as VectorTileLayer,
+    Value as VectorValue, VectorTile, VectorTileSource,
+};

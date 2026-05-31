@@ -10,8 +10,8 @@ namespace Turboapi.Geo.domain.model
     {
         public Guid Id { get; private set; }
         public Guid OwnerId { get; private set; }
-        public Coordinates Coordinates { get; private set; }
-        public DisplayInformation Display { get; private set; }
+        public Coordinates Coordinates { get; private set; } = null!;
+        public DisplayInformation Display { get; private set; } = null!;
 
         private readonly List<DomainEvent> _events = new();
         public IReadOnlyList<DomainEvent> Events => _events.AsReadOnly();

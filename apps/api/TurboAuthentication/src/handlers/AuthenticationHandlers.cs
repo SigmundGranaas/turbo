@@ -11,8 +11,8 @@ namespace TurboAuth.Handlers
 {
     public class CookieJwtAuthenticationOptions : AuthenticationSchemeOptions
     {
-        public CookieBuilder Cookie { get; set; }
-        public TokenValidationParameters TokenValidationParameters { get; set; }
+        public CookieBuilder Cookie { get; set; } = new();
+        public TokenValidationParameters TokenValidationParameters { get; set; } = new();
     }
 
     public class CookieJwtHandler : AuthenticationHandler<CookieJwtAuthenticationOptions>
@@ -22,9 +22,8 @@ namespace TurboAuth.Handlers
         public CookieJwtHandler(
             IOptionsMonitor<CookieJwtAuthenticationOptions> options,
             ILoggerFactory logger,
-            UrlEncoder encoder,
-            ISystemClock clock) 
-            : base(options, logger, encoder, clock)
+            UrlEncoder encoder)
+            : base(options, logger, encoder)
         {
             _logger = logger.CreateLogger<CookieJwtHandler>();
         }
@@ -32,21 +31,23 @@ namespace TurboAuth.Handlers
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
             _logger.LogDebug("CookieJwtHandler: Authentication attempt");
-            
+
             // First check for JWT Bearer token
-            string authorization = Request.Headers["Authorization"];
+            string? authorization = Request.Headers.Authorization;
             if (!string.IsNullOrEmpty(authorization) && authorization.StartsWith("Bearer "))
             {
                 var token = authorization.Substring("Bearer ".Length).Trim();
                 return ValidateTokenAsync(token);
             }
-            
+
             // Then check for cookie
-            if (Request.Cookies.TryGetValue(Options.Cookie.Name, out var cookieToken))
+            var cookieName = Options.Cookie.Name;
+            if (!string.IsNullOrEmpty(cookieName) &&
+                Request.Cookies.TryGetValue(cookieName, out var cookieToken))
             {
                 return ValidateTokenAsync(cookieToken);
             }
-            
+
             return Task.FromResult(AuthenticateResult.NoResult());
         }
         

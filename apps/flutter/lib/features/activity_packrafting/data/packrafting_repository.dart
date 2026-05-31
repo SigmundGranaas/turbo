@@ -36,6 +36,19 @@ final packraftingConditionsProvider =
   );
 });
 
+/// v2 analysis provider — flow vs user window, DOY-percentile, cold-swim
+/// risk drivers, and the kindSlice with current discharge + trend.
+final packraftingAnalysisProvider =
+    FutureProvider.family<activities.ActivityAnalysis, String>((ref, id) async {
+  return activities.fetchAnalysisCached<activities.ActivityAnalysis>(
+    ref: ref,
+    kindUrlSlug: 'packrafting',
+    kindKey: 'packrafting',
+    activityId: id,
+    fromJson: activities.ActivityAnalysis.fromJson,
+  );
+});
+
 final packraftingRepositoryProvider = Provider<PackraftingRepository>((ref) => PackraftingRepository(ref));
 
 class PackraftingRepository {
@@ -55,7 +68,7 @@ class PackraftingRepository {
           activities.ActivitySummary(
             id: id, kind: 'packrafting', name: name,
             geometry: activities.ActivityGeometry.fromServer(wkt: _wkt(route), geometryKind: 'LINESTRING'),
-            iconKey: 'packrafting', colorHex: '#EF6C00',
+            iconKey: 'packrafting', colorHex: '#00838F',
             updatedAt: DateTime.now().toUtc(), version: 1));
     return id;
   }

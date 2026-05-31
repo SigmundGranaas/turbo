@@ -19,7 +19,17 @@ class ActivityKindDescriptor {
   final Widget Function(BuildContext ctx, ActivityGeometry seedGeometry) buildCreateScreen;
 
   /// Build the detail screen for an existing activity of this kind.
+  /// Legacy seam: rendered inside a modal bottom sheet by the map layer
+  /// when [buildDetailContent] is null.
   final Widget Function(BuildContext ctx, String activityId) buildDetailScreen;
+
+  /// Full-screen detail-content builder. Returns a scrollable [Widget]
+  /// (NOT a [Scaffold]) — the shell's [ActivityDetailScreen] owns the
+  /// chrome (app bar, action bar, hero collapse). When set, the map
+  /// layer pushes a full-screen route into [ActivityDetailScreen]
+  /// instead of opening a bottom sheet. Optional for backwards-compat
+  /// while kinds migrate.
+  final Widget Function(BuildContext ctx, String activityId)? buildDetailContent;
 
   /// Build the on-map marker for a summary of this kind. Point-geometry
   /// kinds always supply one; LineString / Polygon kinds use it to drop
@@ -32,6 +42,17 @@ class ActivityKindDescriptor {
   /// them in one [PolylineLayer] sitting below the marker layer.
   final Polyline Function(ActivitySummary summary)? buildMapPolyline;
 
+  /// Parse this kind's slice out of `analysis.kindSlices`. The result
+  /// is whatever typed `*AnalysisExtras` object the per-kind feature
+  /// defined (or `null` if the slice is missing/malformed). Returning
+  /// `Object?` instead of a generic keeps the descriptor heterogeneous
+  /// (different kinds, different extras shapes) — callers cast back
+  /// to the concrete type they own. The benefit: the magic string
+  /// `kindSlices['xc_ski']` lives in one place keyed by [key],
+  /// so backend renames break compile-time references in the kind's
+  /// own descriptor instead of silently emptying the UI.
+  final Object? Function(Map<String, Object?> kindSlices)? parseAnalysisExtras;
+
   const ActivityKindDescriptor({
     required this.key,
     required this.displayName,
@@ -40,7 +61,9 @@ class ActivityKindDescriptor {
     required this.allowedGeometries,
     required this.buildCreateScreen,
     required this.buildDetailScreen,
+    this.buildDetailContent,
     this.buildMapMarker,
     this.buildMapPolyline,
+    this.parseAnalysisExtras,
   });
 }

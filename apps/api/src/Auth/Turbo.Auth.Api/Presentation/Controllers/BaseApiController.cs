@@ -17,13 +17,13 @@ namespace Turboapi.Auth.Presentation.Controllers
                 return NoContent();
             }
 
-            return HandleError(result.Error);
+            return HandleError(result.Error!);
         }
-        
+
         protected IActionResult HandleResult<TSuccess, TError>(Result<TSuccess, TError> result)
             where TError : Enum
         {
-            
+
             if (result.IsSuccess)
             {
                 if (typeof(TSuccess) == typeof(OkResult))
@@ -33,7 +33,7 @@ namespace Turboapi.Auth.Presentation.Controllers
                 return Ok(result.Value);
             }
 
-            return HandleError(result.Error);
+            return HandleError(result.Error!);
         }
         
         private IActionResult HandleError<TError>(TError error) where TError : Enum

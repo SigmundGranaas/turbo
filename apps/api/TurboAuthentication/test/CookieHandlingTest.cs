@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using TurboAuthentication.Extensions;
 using Xunit;
@@ -20,9 +21,9 @@ namespace TurboAuthentication.Tests.Handlers
         private readonly string _validAudience = "test-audience";
         private readonly string _cookieName = "TurboAuth.AccessToken";
 
-        private TestServer CreateTestServer(Dictionary<string, string> configValues = null)
+        private TestServer CreateTestServer(Dictionary<string, string?>? configValues = null)
         {
-            var config = configValues ?? new Dictionary<string, string>
+            var config = configValues ?? new Dictionary<string, string?>
             {
                 ["Jwt:Key"] = _validKey,
                 ["Jwt:Issuer"] = _validIssuer,
@@ -34,54 +35,54 @@ namespace TurboAuthentication.Tests.Handlers
                 .AddInMemoryCollection(config)
                 .Build();
 
-            var builder = new WebHostBuilder()
-                .ConfigureServices(services =>
+            var host = new HostBuilder()
+                .ConfigureWebHost(webBuilder =>
                 {
-                    services.AddTurboAuth(configuration);
-                    services.AddRouting();
-                })
-                .Configure(app =>
-                {
-                   
-                    app.UseRouting();
-                    
-                    app.UseAuthentication();
-                    
-                    app.UseEndpoints(endpoints =>
-                    {
-                        endpoints.MapGet("/public", async context =>
+                    webBuilder
+                        .UseTestServer()
+                        .ConfigureServices(services =>
                         {
-                            await context.Response.WriteAsync("Public");
-                        });
-
-                        endpoints.MapGet("/protected", async context =>
+                            services.AddTurboAuth(configuration);
+                            services.AddRouting();
+                        })
+                        .Configure(app =>
                         {
-                            if (!context.User.Identity.IsAuthenticated)
+                            app.UseRouting();
+                            app.UseAuthentication();
+                            app.UseEndpoints(endpoints =>
                             {
-                                context.Response.StatusCode = 401;
-                                return;
-                            }
-                            
-                            var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
-                            await context.Response.WriteAsync($"Protected: {userId}");
+                                endpoints.MapGet("/public", async context =>
+                                {
+                                    await context.Response.WriteAsync("Public");
+                                });
+
+                                endpoints.MapGet("/protected", async context =>
+                                {
+                                    if (!(context.User.Identity?.IsAuthenticated ?? false))
+                                    {
+                                        context.Response.StatusCode = 401;
+                                        return;
+                                    }
+
+                                    var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+                                    await context.Response.WriteAsync($"Protected: {userId}");
+                                });
+                            });
                         });
-                    });
-                    
-                    
+                })
+                .Start();
 
-                });
-
-            return new TestServer(builder);
+            return host.GetTestServer();
         }
 
         private string GenerateToken(
             string userId = "test-user",
             string name = "Test User",
-            string[] roles = null,
+            string[]? roles = null,
             DateTime? expiration = null,
-            string key = null,
-            string issuer = null,
-            string audience = null)
+            string? key = null,
+            string? issuer = null,
+            string? audience = null)
         {
             var securityKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(key ?? _validKey));
@@ -254,7 +255,7 @@ namespace TurboAuthentication.Tests.Handlers
         public async Task DisabledValidations_AllowsInvalidValues()
         {
             // Arrange - Set up config with disabled validations
-            var config = new Dictionary<string, string>
+            var config = new Dictionary<string, string?>
             {
                 ["Jwt:Key"] = _validKey,
                 ["Jwt:ValidateIssuer"] = "false",
@@ -287,7 +288,7 @@ namespace TurboAuthentication.Tests.Handlers
         {
             // Arrange - Set up config with custom cookie name
             var customCookieName = "CustomAuthCookie";
-            var config = new Dictionary<string, string>
+            var config = new Dictionary<string, string?>
             {
                 ["Jwt:Key"] = _validKey,
                 ["Jwt:Issuer"] = _validIssuer,

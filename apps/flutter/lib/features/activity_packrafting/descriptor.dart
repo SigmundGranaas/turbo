@@ -3,11 +3,12 @@ import 'package:flutter_map/flutter_map.dart';
 
 import 'package:turbo/features/activities/api.dart';
 
+import 'models/packrafting_analysis_extras.dart';
 import 'widgets/packrafting_create_screen.dart';
 import 'widgets/packrafting_detail_sheet.dart';
 import 'widgets/packrafting_route_marker.dart';
 
-const _color = Color(0xFFEF6C00);
+const _color = Color(0xFF00838F);
 
 final packraftingActivityKindDescriptor = ActivityKindDescriptor(
   key: 'packrafting',
@@ -17,6 +18,9 @@ final packraftingActivityKindDescriptor = ActivityKindDescriptor(
   allowedGeometries: {ActivityGeometryKind.lineString},
   buildCreateScreen: (ctx, seed) => PackraftingCreateScreen(seedGeometry: seed),
   buildDetailScreen: (ctx, id) => PackraftingDetailSheet(activityId: id),
+  buildDetailContent: (ctx, id) => PackraftingDetailSheet(activityId: id),
+  parseAnalysisExtras: (slices) =>
+      PackraftingAnalysisExtras.tryParse(slices['packrafting']),
   buildMapMarker: (summary) => PackraftingRouteMarker(summary: summary),
   buildMapPolyline: (summary) => Polyline(
     points: summary.geometry.coordinates,

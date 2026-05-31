@@ -33,7 +33,7 @@ namespace Turboapi.Auth.Application.Results
             {
                  throw new InvalidOperationException("Error cannot be null for a failed result.");
             }
-            if (!isSuccess && typeof(TError).IsEnum && error.Equals(Activator.CreateInstance(typeof(TError))))
+            if (!isSuccess && typeof(TError).IsEnum && error!.Equals(Activator.CreateInstance(typeof(TError))))
             {
                  throw new InvalidOperationException("Error cannot be the default enum value for a failed result.");
             }

@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 12;
+const int _dbVersion = 14;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -22,6 +22,7 @@ const String vectorTileCacheTable = 'vector_tile_cache';
 const String activitySummariesTable = 'activity_summaries';
 const String activityConditionsCacheTable = 'activity_conditions_cache';
 const String activityDetailsCacheTable = 'activity_details_cache';
+const String activityAnalysisCacheTable = 'activity_analysis_cache';
 
 
 /// A provider that creates and holds the single instance of the app's database.
@@ -284,6 +285,21 @@ Future<void> _createDb(Database db, int version) async {
     )
   ''');
 
+  // activity_analysis_cache stores the last successful response from
+  // /api/activities/{kind}/{id}/analysis. Kept in its own table — rather
+  // than reusing the conditions cache — so the legacy /conditions
+  // payload and the richer ActivityAnalysis payload can coexist while
+  // kinds migrate one at a time.
+  batch.execute('''
+    CREATE TABLE $activityAnalysisCacheTable(
+      activity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (activity_id, kind)
+    )
+  ''');
+
   await batch.commit(noResult: true);
 }
 
@@ -312,7 +328,45 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV10ToV11(db);
       case 12:
         await _migrateV11ToV12(db);
+      case 13:
+        await _migrateV12ToV13(db);
+      case 14:
+        await _migrateV13ToV14(db);
     }
+  }
+}
+
+/// v13 — analysis cache: the per-kind orchestrator response from
+/// `/api/activities/{kind}/{id}/analysis`. Same shape as the existing
+/// conditions/details caches, separate table so the two payload formats
+/// can coexist while kinds migrate.
+Future<void> _migrateV12ToV13(Database db) async {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS $activityAnalysisCacheTable(
+      activity_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (activity_id, kind)
+    )
+  ''');
+}
+
+/// v14 — score halo plumbing: the summary projection carries the last
+/// orchestrator score so the map layer can shade pin halos without an
+/// expensive per-pin analysis fetch.
+Future<void> _migrateV13ToV14(Database db) async {
+  final columns = (await db.rawQuery('PRAGMA table_info($activitySummariesTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!columns.contains('summary_score')) {
+    await db.execute('ALTER TABLE $activitySummariesTable ADD COLUMN summary_score INTEGER');
+  }
+  if (!columns.contains('summary_score_at')) {
+    await db.execute('ALTER TABLE $activitySummariesTable ADD COLUMN summary_score_at INTEGER');
+  }
+  if (!columns.contains('top_driver_label')) {
+    await db.execute('ALTER TABLE $activitySummariesTable ADD COLUMN top_driver_label TEXT');
   }
 }
 
@@ -330,7 +384,10 @@ Future<void> _migrateV11ToV12(Database db) async {
       icon_key TEXT NOT NULL,
       color_hex TEXT,
       updated_at INTEGER NOT NULL,
-      version INTEGER NOT NULL
+      version INTEGER NOT NULL,
+      summary_score INTEGER,
+      summary_score_at INTEGER,
+      top_driver_label TEXT
     )
   ''');
   await db.execute(

@@ -13,6 +13,14 @@ class ActivitySummary {
   final DateTime updatedAt;
   final int version;
 
+  /// 0-100 score from the last orchestrator analysis the server wrote
+  /// back. Null when no recent score is known (a fresh activity or one
+  /// the snapshotter hasn't reached yet). The map layer uses it to
+  /// shade the marker halo.
+  final int? summaryScore;
+  final DateTime? summaryScoreAt;
+  final String? topDriverLabel;
+
   const ActivitySummary({
     required this.id,
     required this.kind,
@@ -22,6 +30,9 @@ class ActivitySummary {
     required this.colorHex,
     required this.updatedAt,
     required this.version,
+    this.summaryScore,
+    this.summaryScoreAt,
+    this.topDriverLabel,
   });
 
   factory ActivitySummary.fromJson(Map<String, dynamic> json) => ActivitySummary(
@@ -36,6 +47,11 @@ class ActivitySummary {
     colorHex: json['colorHex'] as String?,
     updatedAt: DateTime.parse(json['updatedAt'] as String),
     version: (json['version'] as num).toInt(),
+    summaryScore: (json['summaryScore'] as num?)?.toInt(),
+    summaryScoreAt: json['summaryScoreAt'] is String
+        ? DateTime.parse(json['summaryScoreAt'] as String)
+        : null,
+    topDriverLabel: json['topDriverLabel'] as String?,
   );
 }
 

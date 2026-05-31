@@ -25,7 +25,7 @@ class PathExportService {
   Future<void> shareAsLink(SavedPath path, String webBaseUrl) async {
     final url = buildShareLink(path, webBaseUrl);
     await Clipboard.setData(ClipboardData(text: url));
-    await Share.share(url, subject: path.title);
+    await SharePlus.instance.share(ShareParams(uri: Uri.parse(url), subject: path.title));
   }
 
   String serialize(SavedPath path, ExportFormat format) {
@@ -68,13 +68,13 @@ class PathExportService {
 
     if (kIsWeb) {
       final xFile = XFile.fromData(bytes, name: filename, mimeType: mimeType);
-      await Share.shareXFiles([xFile]);
+      await SharePlus.instance.share(ShareParams(files: [xFile]));
     } else {
       final tempDir = await getTemporaryDirectory();
       final file = File('${tempDir.path}/$filename');
       await file.writeAsString(content);
       final xFile = XFile(file.path, mimeType: mimeType);
-      await Share.shareXFiles([xFile]);
+      await SharePlus.instance.share(ShareParams(files: [xFile]));
     }
   }
 
@@ -83,7 +83,7 @@ class PathExportService {
     final filename = buildFilename(path, format);
     final bytes = Uint8List.fromList(content.codeUnits);
 
-    final result = await FilePicker.platform.saveFile(
+    final result = await FilePicker.saveFile(
       dialogTitle: filename,
       fileName: filename,
       bytes: bytes,

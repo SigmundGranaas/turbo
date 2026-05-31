@@ -37,6 +37,19 @@ final hikingConditionsProvider =
   );
 });
 
+/// v2 analysis provider — thermal + rain + wind-above-treeline +
+/// daylight-feasibility drivers.
+final hikingAnalysisProvider =
+    FutureProvider.family<activities.ActivityAnalysis, String>((ref, id) async {
+  return activities.fetchAnalysisCached<activities.ActivityAnalysis>(
+    ref: ref,
+    kindUrlSlug: 'hiking',
+    kindKey: 'hiking',
+    activityId: id,
+    fromJson: activities.ActivityAnalysis.fromJson,
+  );
+});
+
 final hikingRepositoryProvider = Provider<HikingRepository>((ref) => HikingRepository(ref));
 
 class HikingRepository {

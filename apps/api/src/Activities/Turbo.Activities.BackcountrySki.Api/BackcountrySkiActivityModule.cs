@@ -66,6 +66,11 @@ public static class BackcountrySkiActivityModule
             sp.GetRequiredService<IWeatherProvider>(),
             sp.GetService<IAvalancheProvider>()));
 
+        // v2 orchestrator. Fans out weather + Varsom + regObs + seNorge
+        // in parallel; synthesis emits the structured ActivityAnalysis.
+        services.AddScoped<BackcountrySkiOrchestrator>();
+        services.AddScoped<IActivityRecommendationScorer, BackcountrySkiRecommendationScorer>();
+
         services.AddSingleton(new ActivityKindDescriptor
         {
             Key = "backcountry_ski",

@@ -39,6 +39,12 @@ typedef CachedConditions = CachedPayload;
 /// Activity detail cache (last successful /api/activities/{kind}/{id}).
 typedef ActivityDetailsCacheStore = PayloadCacheStore;
 
+/// Analysis cache (last successful /api/activities/{kind}/{id}/analysis).
+/// Separate from the conditions cache so the legacy
+/// `{Kind}ConditionsReport` payload and the richer `ActivityAnalysis`
+/// payload can coexist while kinds migrate.
+typedef ActivityAnalysisCacheStore = PayloadCacheStore;
+
 class SqlitePayloadCacheStore implements PayloadCacheStore {
   final Database _db;
   final String _table;
@@ -51,6 +57,10 @@ class SqlitePayloadCacheStore implements PayloadCacheStore {
   /// Factory for the activity-details table.
   factory SqlitePayloadCacheStore.details(Database db) =>
       SqlitePayloadCacheStore(db, activityDetailsCacheTable);
+
+  /// Factory for the analysis table.
+  factory SqlitePayloadCacheStore.analysis(Database db) =>
+      SqlitePayloadCacheStore(db, activityAnalysisCacheTable);
 
   @override
   Future<CachedPayload?> get({required String activityId, required String kind}) async {

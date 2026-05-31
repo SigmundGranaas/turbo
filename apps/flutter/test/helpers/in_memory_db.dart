@@ -62,7 +62,10 @@ Future<Database> createActivitiesDb() async {
       icon_key TEXT NOT NULL,
       color_hex TEXT,
       updated_at INTEGER NOT NULL,
-      version INTEGER NOT NULL
+      version INTEGER NOT NULL,
+      summary_score INTEGER,
+      summary_score_at INTEGER,
+      top_driver_label TEXT
     )
   ''');
   batch.execute(

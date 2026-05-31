@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using TurboAuthentication.Extensions;
 using Xunit;
@@ -23,7 +24,7 @@ namespace TurboAuthentication.Tests.Handlers
         private TestServer CreateTestServer()
         {
             var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string>
+                .AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Jwt:Key"] = _validKey,
                     ["Jwt:Issuer"] = _validIssuer,
@@ -31,91 +32,93 @@ namespace TurboAuthentication.Tests.Handlers
                     ["Cookie:Name"] = _cookieName
                 })
                 .Build();
-            
-            var hostBuilder = new WebHostBuilder()
-                .ConfigureServices(services =>
-                    {
-                        services.AddTurboAuth(configuration);
-                        services.AddRouting();
-                    })
-                .Configure(app =>
-                    {
-                        app.UseRouting();
-                        app.UseAuthentication();
 
-                        app.UseEndpoints(endpoints =>
+            var host = new HostBuilder()
+                .ConfigureWebHost(webBuilder =>
+                {
+                    webBuilder
+                        .UseTestServer()
+                        .ConfigureServices(services =>
                         {
-                            // Public endpoint
-                            endpoints.MapGet("/public", async context =>
+                            services.AddTurboAuth(configuration);
+                            services.AddRouting();
+                        })
+                        .Configure(app =>
+                        {
+                            app.UseRouting();
+                            app.UseAuthentication();
+
+                            app.UseEndpoints(endpoints =>
                             {
-                                await context.Response.WriteAsync("Public");
-                            });
-                            
-                            // Protected endpoint
-                            endpoints.MapGet("/protected", async context =>
-                            {
-                                var authenticated = context.User.Identity?.IsAuthenticated ?? false;
-                                if (!authenticated)
+                                endpoints.MapGet("/public", async context =>
                                 {
-                                    context.Response.StatusCode = 401;
-                                    return;
-                                }
-                                
-                                var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
-                                await context.Response.WriteAsync($"Protected: {userId}");
-                            });
-                            
-                            // Role-specific endpoint
-                            endpoints.MapGet("/admin", async context =>
-                            {
-                                var authenticated = context.User.Identity?.IsAuthenticated ?? false;
-                                if (!authenticated)
+                                    await context.Response.WriteAsync("Public");
+                                });
+
+                                endpoints.MapGet("/protected", async context =>
                                 {
-                                    context.Response.StatusCode = 401;
-                                    return;
-                                }
-                                
-                                var isAdmin = context.User.IsInRole("Admin");
-                                if (!isAdmin)
+                                    var authenticated = context.User.Identity?.IsAuthenticated ?? false;
+                                    if (!authenticated)
+                                    {
+                                        context.Response.StatusCode = 401;
+                                        return;
+                                    }
+
+                                    var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+                                    await context.Response.WriteAsync($"Protected: {userId}");
+                                });
+
+                                endpoints.MapGet("/admin", async context =>
                                 {
-                                    context.Response.StatusCode = 403;
-                                    return;
-                                }
-                                
-                                await context.Response.WriteAsync("Admin area");
-                            });
-                            
-                            // User claims endpoint
-                            endpoints.MapGet("/claims", async context =>
-                            {
-                                var authenticated = context.User.Identity?.IsAuthenticated ?? false;
-                                if (!authenticated)
+                                    var authenticated = context.User.Identity?.IsAuthenticated ?? false;
+                                    if (!authenticated)
+                                    {
+                                        context.Response.StatusCode = 401;
+                                        return;
+                                    }
+
+                                    var isAdmin = context.User.IsInRole("Admin");
+                                    if (!isAdmin)
+                                    {
+                                        context.Response.StatusCode = 403;
+                                        return;
+                                    }
+
+                                    await context.Response.WriteAsync("Admin area");
+                                });
+
+                                endpoints.MapGet("/claims", async context =>
                                 {
-                                    context.Response.StatusCode = 401;
-                                    return;
-                                }
-                                
-                                var claims = context.User.Claims
-                                    .Select(c => $"{c.Type}: {c.Value}")
-                                    .ToList();
-                                
-                                await context.Response.WriteAsync(
-                                    string.Join(Environment.NewLine, claims));
+                                    var authenticated = context.User.Identity?.IsAuthenticated ?? false;
+                                    if (!authenticated)
+                                    {
+                                        context.Response.StatusCode = 401;
+                                        return;
+                                    }
+
+                                    var claims = context.User.Claims
+                                        .Select(c => $"{c.Type}: {c.Value}")
+                                        .ToList();
+
+                                    await context.Response.WriteAsync(
+                                        string.Join(Environment.NewLine, claims));
+                                });
                             });
                         });
-                });
-            
-            return new TestServer(hostBuilder);
+                })
+                .Start();
+
+            return host.GetTestServer();
         }
-        
+
         private string GenerateToken(
             string userId = "test-user",
             string name = "Test User",
-            string[] roles = null,
+            string[]? roles = null,
             DateTime? expiration = null,
-            string key = null,
-            string issuer = null,
-            string audience = null)
+            string? key = null,
+            string? issuer = null,
+            string? audience = null)
         {
             var securityKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(key ?? _validKey));

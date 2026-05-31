@@ -1,102 +1,265 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:turbo/features/activities/api.dart' show ActivityGeometry;
+import 'package:turbo/features/activities/api.dart';
 
 import '../data/freediving_repository.dart';
+import '../descriptor.dart' show freedivingActivityKindDescriptor;
 import '../models/freediving_activity.dart';
-import 'freediving_conditions_panel.dart';
+import '../models/freediving_analysis_extras.dart';
+import '../models/freediving_details.dart';
 import 'freediving_create_screen.dart';
+import 'freediving_observation_extras.dart';
 
+/// Freediving detail sheet — design-aligned chassis.
+///
+/// Title / stats / description / actions paint instantly from the
+/// typed [FreedivingActivity]; verdict, map overlays, weather metrics,
+/// and the visibility/tide module fill in progressively from
+/// [freedivingAnalysisProvider]. All four states (loading / ready /
+/// error / no-data) are shown without spinner or shimmer — the
+/// chassis is the architectural fix for the prior infinite-loading
+/// UX.
 class FreedivingDetailSheet extends ConsumerWidget {
   final String activityId;
   const FreedivingDetailSheet({super.key, required this.activityId});
 
+  static const _kindNoun = 'dive site';
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(freedivingActivityProvider(activityId));
-    return SafeArea(child: Padding(padding: const EdgeInsets.all(16),
-      child: async.when(
-        loading: () => const Padding(padding: EdgeInsets.symmetric(vertical: 40),
-          child: Center(child: CircularProgressIndicator())),
-        error: (e, _) => Text('Failed to load: $e'),
-        data: (a) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(a.name, style: Theme.of(context).textTheme.headlineSmall),
-          if (a.description != null && a.description!.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(a.description!, style: Theme.of(context).textTheme.bodyMedium),
-          ],
-          const SizedBox(height: 12),
-          _row('Water body', a.details.waterBody.name),
-          _row('Bottom', a.details.bottomType.name),
-          _row('Max depth', '${a.details.maxDepthMeters} m'),
-          if (a.details.typicalVisibilityMeters != null)
-            _row('Typical vis.', '${a.details.typicalVisibilityMeters} m'),
-          _row('Shore entry', a.details.shoreEntry ? 'Yes' : 'No'),
-          if (a.details.harpoonAllowed) _row('Harpoon', 'Allowed'),
-          if (a.details.accessNotes != null && a.details.accessNotes!.isNotEmpty)
-            _row('Access notes', a.details.accessNotes!),
-          _row('Position',
-            '${a.position.latitude.toStringAsFixed(5)}, ${a.position.longitude.toStringAsFixed(5)}'),
-          if (a.details.targetSpecies.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text('Target species', style: Theme.of(context).textTheme.titleSmall),
-            ...a.details.targetSpecies.map((t) =>
-              Text('• ${t.speciesCode}${t.notes != null ? " — ${t.notes}" : ""}')),
-          ],
-          FreedivingConditionsPanel(activityId: a.id),
-          const SizedBox(height: 8),
-          Row(children: [
-            TextButton.icon(onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(Icons.close), label: const Text('Close')),
-            const Spacer(),
-            TextButton.icon(
-              onPressed: () => _openEdit(context, a),
-              icon: const Icon(Icons.edit_outlined),
-              label: const Text('Edit')),
-            TextButton.icon(
-              style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
-              onPressed: () => _confirmDelete(context, ref, a.id, a.name),
-              icon: const Icon(Icons.delete_outline), label: const Text('Delete')),
-          ]),
-        ]),
+    final activityAsync = ref.watch(freedivingActivityProvider(activityId));
+    return activityAsync.when(
+      loading: () => const ActivityLoadingHint(message: 'Loading $_kindNoun…'),
+      error: (e, _) => ActivityLoadingHint(
+        icon: Icons.error_outline,
+        message: 'Could not load $_kindNoun.',
+        subline: '$e',
       ),
-    ));
+      data: (activity) => _Body(activity: activity),
+    );
   }
+}
 
-  Widget _row(String label, String value) => Padding(padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SizedBox(width: 132, child: Text(label)),
-      Expanded(child: Text(value)),
-    ]));
+class _Body extends ConsumerWidget {
+  final FreedivingActivity activity;
+  const _Body({required this.activity});
 
-  void _openEdit(BuildContext context, FreedivingActivity a) {
-    Navigator.of(context).pop();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => FreedivingCreateScreen(
-          seedGeometry: ActivityGeometry.fromPoint(a.position),
-          existing: a,
-        ),
+  static const _tintColor = Color(0xFF1565C0);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final analysisAsync = ref.watch(freedivingAnalysisProvider(activity.id));
+    final extras = analysisAsync.value == null
+        ? null
+        : freedivingActivityKindDescriptor.parseAnalysisExtras?.call(
+            analysisAsync.value!.kindSlices) as FreedivingAnalysisExtras?;
+
+    return ActivityDetailChassis(
+      tintColor: _tintColor,
+      icon: Icons.scuba_diving,
+      title: activity.name,
+      place: _placeText(activity),
+      onClose: () => Navigator.of(context).maybePop(),
+      onRefresh: () async {
+        ref.invalidate(freedivingAnalysisProvider(activity.id));
+        try {
+          await ref.read(freedivingAnalysisProvider(activity.id).future);
+        } catch (_) {/* surfaced by the panel */}
+      },
+      verdict: _verdict(analysisAsync),
+      mapPreview: ActivityMapPreviewFromAnalysis(
+        points: [activity.position],
+        tintColor: _tintColor,
+        analysisAsync: analysisAsync,
+      ),
+      weather: ActivityWeatherPanelFromAnalysis(
+        analysisAsync: analysisAsync,
+        title: 'Conditions at spot',
+        accent: _tintColor,
+        summaryBlurb: 'Dive site forecast',
+        metrics: const [
+          WeatherMetrics.wind,
+          WeatherMetrics.seaTemp,
+          WeatherMetrics.waveHeight,
+          WeatherMetrics.vizMeters,
+        ],
+        onRefresh: () => ref.invalidate(freedivingAnalysisProvider(activity.id)),
+      ),
+      stats: ActivityStatStrip(items: _stats(activity.details)),
+      module: _module(context, extras),
+      description: activity.description,
+      actions: ActivityAction.standardTriple(
+        context,
+        onLogVisit: () => _logVisit(context, ref),
+        onEdit: () => _edit(context),
+        onDelete: () => _delete(context, ref),
       ),
     );
   }
 
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref, String id, String name) async {
-    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('Delete spot?'), content: Text('"$name" will be removed.'),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-        FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
-          onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Delete')),
-      ]));
-    if (ok != true) return;
+  Widget _verdict(AsyncValue<ActivityAnalysis> async) {
+    return async.when(
+      loading: () => const ActivityVerdict.loading(),
+      error: (_, _) => ActivityVerdict.fallback(support: _fallbackHint()),
+      data: (a) => ActivityVerdict.fromScore(score: a.score, rationale: a.rationale),
+    );
+  }
+
+  String _fallbackHint() =>
+      '${_waterBodyLabel(activity.details.waterBody)} dive site · refresh to retry';
+
+  ActivityModuleCard? _module(BuildContext context, FreedivingAnalysisExtras? extras) {
+    return switch (extras) {
+      FreedivingAnalysisExtras(vizForecast: final viz?) => ActivityModuleCard(
+          label: 'Visibility forecast',
+          child: _moduleRow(
+            context,
+            icon: Icons.visibility,
+            text: _vizText(viz),
+          ),
+        ),
+      FreedivingAnalysisExtras(tide: final tide?) => ActivityModuleCard(
+          label: 'Tide',
+          child: _moduleRow(
+            context,
+            icon: Icons.water,
+            text: _tideText(tide),
+          ),
+        ),
+      _ => null,
+    };
+  }
+
+  static Widget _moduleRow(BuildContext context,
+      {required IconData icon, required String text}) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: _tintColor),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _vizText(VizForecast viz) {
+    final dir = (viz.direction?.isNotEmpty ?? false) ? ' · ${viz.direction}' : '';
+    final range = viz.low == viz.high
+        ? '${viz.high.toStringAsFixed(0)} m'
+        : '${viz.low.toStringAsFixed(0)}–${viz.high.toStringAsFixed(0)} m';
+    return '$range$dir';
+  }
+
+  static String _tideText(TideInfo tide) {
+    final parts = <String>[
+      if (tide.summary != null && tide.summary!.isNotEmpty) tide.summary!,
+      if (tide.heightM != null) '${tide.heightM!.toStringAsFixed(2)} m',
+    ];
+    return parts.isEmpty ? 'Next slack —' : parts.join(' · ');
+  }
+
+  static String _placeText(FreedivingActivity a) {
+    final desc = a.description;
+    return 'Freediving${desc != null && desc.isNotEmpty ? " · $desc" : ""}';
+  }
+
+  static List<StatItem> _stats(FreedivingDetails d) => [
+        StatItem('Water', _waterBodyLabel(d.waterBody)),
+        StatItem('Bottom', _bottomLabel(d.bottomType)),
+        StatItem('Max depth', '${d.maxDepthMeters.toStringAsFixed(0)} m'),
+      ];
+
+  static String _waterBodyLabel(WaterBody w) => switch (w) {
+        WaterBody.sea => 'Sea',
+        WaterBody.fjord => 'Fjord',
+        WaterBody.lake => 'Lake',
+      };
+
+  static String _bottomLabel(BottomType b) => switch (b) {
+        BottomType.unknown => 'Unknown',
+        BottomType.sandyShallow => 'Sandy shallow',
+        BottomType.rockyShallow => 'Rocky shallow',
+        BottomType.kelpForest => 'Kelp forest',
+        BottomType.wall => 'Wall',
+        BottomType.reef => 'Reef',
+        BottomType.seagrassMeadow => 'Seagrass',
+        BottomType.open => 'Open',
+      };
+
+  Future<void> _logVisit(BuildContext context, WidgetRef ref) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ActivityObservationForm(
+          kindKey: 'freediving',
+          activityName: activity.name,
+          tintColor: _tintColor,
+          extrasBuilder: (ctx, draft, onChanged) => [
+            FreedivingObservationExtras(draft: draft, onChanged: onChanged),
+          ],
+          onSubmit: ({
+            required observedAt,
+            required rating,
+            required comment,
+            required photoCount,
+            required kindPayload,
+          }) async {
+            await postObservation(
+              ref: ref,
+              kindUrlSlug: 'freediving',
+              activityId: activity.id,
+              observedAt: observedAt,
+              rating: rating,
+              comment: comment,
+              photoCount: photoCount,
+              kindPayload: kindPayload,
+            );
+          },
+        ),
+      ),
+    );
+    if (saved == true) {
+      ref.invalidate(freedivingAnalysisProvider(activity.id));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Visit logged.')),
+        );
+      }
+    }
+  }
+
+  void _edit(BuildContext context) {
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (_) => FreedivingCreateScreen(
+        seedGeometry: ActivityGeometry.fromPoint(activity.position),
+        existing: activity,
+      ),
+    ));
+  }
+
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    final ok = await showActivityDeleteDialog(
+      context,
+      name: activity.name,
+      kindNoun: 'dive site',
+    );
+    if (!ok) return;
     try {
-      await ref.read(freedivingRepositoryProvider).delete(id);
+      await ref.read(freedivingRepositoryProvider).delete(activity.id);
       if (context.mounted) Navigator.of(context).pop();
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Delete failed: $e')),
+        );
+      }
     }
   }
 }

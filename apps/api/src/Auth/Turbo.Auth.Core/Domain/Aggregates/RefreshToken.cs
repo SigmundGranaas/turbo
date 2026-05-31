@@ -7,7 +7,7 @@ namespace Turboapi.Auth.Domain.Aggregates
     {
         public Guid Id { get; private set; }
         public Guid AccountId { get; private set; } 
-        public string Token { get; private set; }
+        public string Token { get; private set; } = null!;
         public DateTime ExpiresAt { get; private set; }
         public DateTime CreatedAt { get; private set; }
         public bool IsRevoked { get; private set; }

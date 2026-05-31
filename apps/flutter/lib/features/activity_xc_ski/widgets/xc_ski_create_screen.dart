@@ -76,7 +76,7 @@ class _XcSkiCreateScreenState extends ConsumerState<XcSkiCreateScreen> {
         builder: (ctx) => RouteDrawingScreen(
           seedCenter: _drawnRoute?.first ?? _seed,
           initialRoute: _drawnRoute,
-          color: const Color(0xFF00838F),
+          color: const Color(0xFF0288D1),
         ),
       ),
     );

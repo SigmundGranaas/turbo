@@ -43,6 +43,12 @@ class ActivityConditionsMap extends ConsumerWidget {
   /// enough that the route shape reads at typical city-scale zooms.
   final double height;
 
+  /// Corner radius. Defaults to 14 to match the verdict / weather /
+  /// module cards' radius so the detail-sheet card rhythm stays
+  /// consistent — callers no longer need a wrapping `Container` to
+  /// re-clip.
+  final double borderRadius;
+
   const ActivityConditionsMap({
     super.key,
     required this.points,
@@ -54,6 +60,7 @@ class ActivityConditionsMap extends ConsumerWidget {
     this.precipitationNext1hMm,
     this.symbolCode,
     this.height = 180,
+    this.borderRadius = 14,
   });
 
   @override
@@ -114,7 +121,7 @@ class ActivityConditionsMap extends ConsumerWidget {
     ];
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(borderRadius),
       child: SizedBox(
         height: height,
         child: Stack(children: [

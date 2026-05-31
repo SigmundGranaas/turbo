@@ -43,6 +43,19 @@ final fishingConditionsProvider =
   );
 });
 
+/// v2 analysis provider — pressure trend (from snapshot history) +
+/// solunar overlap + bite-window prediction in kindSlices.
+final fishingAnalysisProvider =
+    FutureProvider.family<activities.ActivityAnalysis, String>((ref, id) async {
+  return activities.fetchAnalysisCached<activities.ActivityAnalysis>(
+    ref: ref,
+    kindUrlSlug: 'fishing',
+    kindKey: 'fishing',
+    activityId: id,
+    fromJson: activities.ActivityAnalysis.fromJson,
+  );
+});
+
 /// Imperative facade for the fishing kind. Wraps the typed API service
 /// and pokes the cross-kind summaries repository on success so the map
 /// updates without a delta-sync round-trip.

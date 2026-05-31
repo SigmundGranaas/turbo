@@ -79,24 +79,28 @@ public static class TurboAuthServiceCollection
 
     private static void ApplyEnvironmentVariables(JwtConfig jwtConfig, CookieConfig cookieConfig)
     {
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("JWT_KEY")))
-            jwtConfig.Key = Environment.GetEnvironmentVariable("JWT_KEY");
-        
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("JWT_ISSUER")))
-            jwtConfig.Issuer = Environment.GetEnvironmentVariable("JWT_ISSUER");
-        
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("JWT_AUDIENCE")))
-            jwtConfig.Audience = Environment.GetEnvironmentVariable("JWT_AUDIENCE");
-        
+        var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
+        if (!string.IsNullOrEmpty(jwtKey))
+            jwtConfig.Key = jwtKey;
+
+        var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER");
+        if (!string.IsNullOrEmpty(jwtIssuer))
+            jwtConfig.Issuer = jwtIssuer;
+
+        var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE");
+        if (!string.IsNullOrEmpty(jwtAudience))
+            jwtConfig.Audience = jwtAudience;
+
         if (int.TryParse(Environment.GetEnvironmentVariable("JWT_EXPIRATION_MINUTES"), out var expMins))
             jwtConfig.TokenExpirationMinutes = expMins;
-        
+
         if (int.TryParse(Environment.GetEnvironmentVariable("JWT_REFRESH_EXPIRATION_DAYS"), out var expDays))
             jwtConfig.RefreshTokenExpirationDays = expDays;
-        
+
         // Cookie Config
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("COOKIE_NAME")))
-            cookieConfig.Name = Environment.GetEnvironmentVariable("COOKIE_NAME");
+        var cookieName = Environment.GetEnvironmentVariable("COOKIE_NAME");
+        if (!string.IsNullOrEmpty(cookieName))
+            cookieConfig.Name = cookieName;
         
         if (bool.TryParse(Environment.GetEnvironmentVariable("COOKIE_HTTP_ONLY"), out var httpOnly))
             cookieConfig.HttpOnly = httpOnly;

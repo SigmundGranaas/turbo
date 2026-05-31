@@ -6,7 +6,7 @@ namespace Turboapi.Auth.Domain.Aggregates
     {
         public Guid Id { get; private set; }
         public Guid AccountId { get; private set; } 
-        public string Name { get; private set; }
+        public string Name { get; private set; } = null!;
         public DateTime CreatedAt { get; private set; }
 
         // Private constructor for EF Core - NO validation

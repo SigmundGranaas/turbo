@@ -9,12 +9,17 @@ using Turboapi.Activities.value;
 namespace Turboapi.Activities.conditions;
 
 /// <summary>
-/// Background service that periodically warms the weather cache for the
-/// most-recently-updated activity summaries. Bounded by configuration
-/// (max activities per tick, dedupe by grid cell) so a one-time scan
-/// can't melt the upstream provider's quota. Runs only when there's a
-/// configured <see cref="IWeatherProvider"/>; if no advisor in the
-/// system uses weather the work is harmless but pointless.
+/// Background service that periodically calls each configured provider
+/// for the most-recently-updated activities. Two effects per tick:
+///   1. The shared cache stays warm (a user opening a recent activity
+///      sees a sub-second analysis).
+///   2. Every call traverses the snapshotting decorator, so
+///      <c>activities.conditions_snapshots</c> accumulates the per-grid
+///      time-series the orchestrator's percentile + trend queries need.
+///
+/// Bounded by configuration (max activities per tick, dedupe by grid
+/// cell, single per-provider concurrent call) so a scan can't melt
+/// upstream quotas.
 /// </summary>
 public sealed class ConditionsCacheWarmerHostedService : BackgroundService
 {
@@ -69,7 +74,9 @@ public sealed class ConditionsCacheWarmerHostedService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ActivitySummariesContext>();
         var weather = scope.ServiceProvider.GetService<IWeatherProvider>();
-        if (weather is null) return 0; // no provider configured — nothing to do
+        var griddedSnow = scope.ServiceProvider.GetService<IGriddedSnowProvider>();
+        var snowpack = scope.ServiceProvider.GetService<ISnowpackProvider>();
+        if (weather is null && griddedSnow is null && snowpack is null) return 0;
 
         var cutoff = _clock.GetUtcNow().UtcDateTime - opts.LookbackWindow;
         var summaries = await db.Summaries
@@ -82,28 +89,74 @@ public sealed class ConditionsCacheWarmerHostedService : BackgroundService
         // Dedupe by grid cell so two activities in the same 1km cell
         // share one upstream call. Ordering by recency means the more
         // recent activity's geometry wins (lat/lon centroid).
-        var seen = new HashSet<string>();
-        var warmed = 0;
+        //
+        // Each provider rotates against its own dedupe set so the
+        // weather + snow + snowpack calls don't collide on the same
+        // SemaphoreSlim — we want per-provider concurrency, not
+        // global.
+        var weatherSeen = new HashSet<string>();
+        var snowSeen = new HashSet<string>();
+        var snowpackSeen = new HashSet<string>();
+        var touched = 0;
         var at = _clock.GetUtcNow();
+
         foreach (var summary in summaries)
         {
             if (ct.IsCancellationRequested) break;
             var centroid = summary.Geometry.Centroid;
-            var grid = $"{Math.Round(centroid.Y, 2):F2}_{Math.Round(centroid.X, 2):F2}";
-            if (!seen.Add(grid)) continue;
 
-            try
+            if (weather is not null)
             {
-                await weather.GetAsync(centroid.Y, centroid.X, at, ct);
-                warmed++;
+                var grid = $"{Math.Round(centroid.Y, 2):F2}_{Math.Round(centroid.X, 2):F2}";
+                if (weatherSeen.Add(grid))
+                {
+                    try
+                    {
+                        await weather.GetAsync(centroid.Y, centroid.X, at, ct);
+                        touched++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Snapshotter weather call failed for grid {Grid}", grid);
+                    }
+                }
             }
-            catch (Exception ex)
+
+            if (griddedSnow is not null)
             {
-                _logger.LogDebug(ex, "Cache warmer failed for grid {Grid}", grid);
-                // Soft failure — next tick will retry.
+                var grid = $"snow_{Math.Round(centroid.Y, 2):F2}_{Math.Round(centroid.X, 2):F2}";
+                if (snowSeen.Add(grid))
+                {
+                    try
+                    {
+                        await griddedSnow.GetAsync(centroid.Y, centroid.X, at, ct);
+                        touched++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Snapshotter gridded-snow call failed for grid {Grid}", grid);
+                    }
+                }
+            }
+
+            if (snowpack is not null)
+            {
+                var grid = $"snowpack_{Math.Round(centroid.Y, 1):F1}_{Math.Round(centroid.X, 1):F1}";
+                if (snowpackSeen.Add(grid))
+                {
+                    try
+                    {
+                        await snowpack.GetAsync(centroid.Y, centroid.X, at, lookbackDays: 7, ct);
+                        touched++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Snapshotter snowpack call failed for grid {Grid}", grid);
+                    }
+                }
             }
         }
-        return warmed;
+        return touched;
     }
 }
 

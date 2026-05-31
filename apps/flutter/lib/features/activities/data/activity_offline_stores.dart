@@ -35,6 +35,17 @@ final activityDetailsCacheStoreProvider =
   return SqlitePayloadCacheStore.details(db);
 });
 
+/// Local cache for per-(activity, kind) `ActivityAnalysis` payloads. Same
+/// web / non-web split as the other stores. Kept separate from the
+/// conditions cache so the legacy report shape and the richer analysis
+/// shape can coexist while kinds migrate.
+final activityAnalysisCacheStoreProvider =
+    FutureProvider<ActivityAnalysisCacheStore>((ref) async {
+  if (kIsWeb) return _NoopPayloadCacheStore();
+  final db = await ref.watch(databaseProvider.future);
+  return SqlitePayloadCacheStore.analysis(db);
+});
+
 class _NoopActivitySummaryStore implements ActivitySummaryStore {
   @override
   Future<List<ActivitySummary>> getAll() async => const [];

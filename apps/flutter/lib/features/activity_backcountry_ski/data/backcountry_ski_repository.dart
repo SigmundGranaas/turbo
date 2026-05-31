@@ -39,6 +39,19 @@ final backcountrySkiConditionsProvider =
   );
 });
 
+/// v2 analysis provider — orchestrator-backed surface with named drivers,
+/// per-aspect wind-loading slice, and warnings.
+final backcountrySkiAnalysisProvider =
+    FutureProvider.family<activities.ActivityAnalysis, String>((ref, id) async {
+  return activities.fetchAnalysisCached<activities.ActivityAnalysis>(
+    ref: ref,
+    kindUrlSlug: 'backcountry-ski',
+    kindKey: 'backcountry_ski',
+    activityId: id,
+    fromJson: activities.ActivityAnalysis.fromJson,
+  );
+});
+
 final backcountrySkiRepositoryProvider = Provider<BackcountrySkiRepository>((ref) {
   return BackcountrySkiRepository(ref);
 });
@@ -75,7 +88,7 @@ class BackcountrySkiRepository {
               geometryKind: 'LINESTRING',
             ),
             iconKey: 'backcountry_ski',
-            colorHex: '#7A3CCB',
+            colorHex: '#5E72A5',
             updatedAt: DateTime.now().toUtc(),
             version: 1,
           ),

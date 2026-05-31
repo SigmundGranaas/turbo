@@ -94,7 +94,7 @@ class PathsListPage extends ConsumerWidget {
     final l10n = context.l10n;
     FilePickerResult? picked;
     try {
-      picked = await FilePicker.platform.pickFiles(
+      picked = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['gpx', 'geojson', 'json', 'kml'],
         withData: kIsWeb,

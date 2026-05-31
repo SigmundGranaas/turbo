@@ -4,7 +4,7 @@ namespace Turboapi.Auth.Domain.Aggregates
 {
     public class OAuthAuthMethod : AuthenticationMethod
     {
-        public string ExternalUserId { get; private set; }
+        public string ExternalUserId { get; private set; } = null!;
         public string? AccessToken { get; private set; } 
         public string? OAuthRefreshToken { get; private set; } 
         public DateTime? TokenExpiry { get; private set; }

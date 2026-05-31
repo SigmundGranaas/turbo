@@ -55,6 +55,8 @@ public static class HikingActivityModule
         services.AddHostedService<OutboxDispatcherHostedService<HikingContext>>();
 
         services.AddScoped<IHikingConditionsAdvisor, HikingConditionsAdvisor>();
+        services.AddScoped<HikingOrchestrator>();
+        services.AddScoped<IActivityRecommendationScorer, HikingRecommendationScorer>();
 
         services.AddSingleton(new ActivityKindDescriptor
         {

@@ -54,6 +54,12 @@ public static class FreedivingActivityModule
             sp.GetRequiredService<IWeatherProvider>(),
             sp.GetService<ITideProvider>()));
 
+        // v2 orchestrator. Replaces the user-entered visibility field
+        // with a computed viz estimate (season × runoff × wind), tide
+        // phase driver, HAB / runoff warnings.
+        services.AddScoped<FreedivingOrchestrator>();
+        services.AddScoped<IActivityRecommendationScorer, FreedivingRecommendationScorer>();
+
         services.AddSingleton(new ActivityKindDescriptor
         {
             Key = "freediving",

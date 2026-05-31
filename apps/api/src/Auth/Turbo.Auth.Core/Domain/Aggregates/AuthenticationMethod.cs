@@ -6,7 +6,7 @@ namespace Turboapi.Auth.Domain.Aggregates
     {
         public Guid Id { get; protected set; }
         public Guid AccountId { get; protected set; } // Foreign key to Account
-        public string ProviderName { get; protected set; }
+        public string ProviderName { get; protected set; } = null!;
         public DateTime CreatedAt { get; protected set; }
         public DateTime? LastUsedAt { get; protected set; }
 

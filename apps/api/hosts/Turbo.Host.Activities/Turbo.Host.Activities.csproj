@@ -21,4 +21,17 @@
     <ProjectReference Include="..\..\TurboAuthentication\TurboAuthentication.csproj" />
   </ItemGroup>
 
+  <!-- Copy region polygon seed files into the output directory so the
+       GeoRegionSeeder hosted service finds them via the relative
+       FilePath in appsettings.json. Override the path or commit
+       larger sets (REGINE, Mareano) to deploy bundles when ready. -->
+  <ItemGroup>
+    <Content Include="..\..\seed\**\*.geojson"
+             Link="seed\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\seed\README.md"
+             Link="seed\README.md"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

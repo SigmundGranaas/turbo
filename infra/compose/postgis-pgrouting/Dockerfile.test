@@ -1,0 +1,11 @@
+# Stable PostGIS + pgRouting image used for autonomous integration
+# testing. The production Dockerfile uses 17-master to track the
+# latest PostGIS; that occasionally breaks (e.g. ST_MMin missing).
+# Tests need a stable target — pin to 17-3.5.
+
+FROM postgis/postgis:17-3.5
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        postgresql-17-pgrouting \
+    && rm -rf /var/lib/apt/lists/*

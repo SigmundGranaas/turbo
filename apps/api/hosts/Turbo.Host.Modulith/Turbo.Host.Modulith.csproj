@@ -23,4 +23,11 @@
     <ProjectReference Include="..\..\src\Shared\Turbo.Hosting.Postgres\Turbo.Hosting.Postgres.csproj" />
   </ItemGroup>
 
+  <!-- Region polygon seeds (shared across hosts). See apps/api/seed/README.md. -->
+  <ItemGroup>
+    <Content Include="..\..\seed\**\*.geojson"
+             Link="seed\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
