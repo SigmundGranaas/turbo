@@ -27,8 +27,8 @@ pub use core::off_trail_mesh::{
     build_local_mesh, BuiltMesh, CostSample, ExitNode, MeshBbox, MeshBuildInput, RefusedPolygon,
 };
 pub use config::{
-    BaseConfig, ConfigError, CostConfig, CostConfigPatch, OffTrailConfig, ProfileSurface,
-    SlopeConfig, SurfaceMultipliers, TotalGainConfig, TrailProximityConfig,
+    BaseConfig, ConfigError, CostConfig, CostConfigPatch, OffTrailConfig, Preset, PresetSet,
+    ProfileSurface, SlopeConfig, SurfaceMultipliers, TotalGainConfig, TrailProximityConfig,
 };
 pub use contributor::{
     compose_edge_walk_seconds, ContributorKind, CostContributor, EdgeContext, EdgeKind,

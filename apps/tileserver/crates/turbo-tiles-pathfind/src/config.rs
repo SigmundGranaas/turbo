@@ -313,6 +313,76 @@ impl CostConfig {
     }
 }
 
+impl CostConfigPatch {
+    /// Overlay `self` (e.g. an explicit per-request override) onto `base`
+    /// (e.g. a preset): for every field, `self`'s value wins when set,
+    /// else `base`'s. Used to layer a fine-tune override on a preset.
+    pub fn over(&self, base: &CostConfigPatch) -> CostConfigPatch {
+        macro_rules! pick {
+            ($f:ident) => {
+                self.$f.or(base.$f)
+            };
+        }
+        CostConfigPatch {
+            surface_pace_sti: pick!(surface_pace_sti),
+            surface_pace_vei: pick!(surface_pace_vei),
+            surface_pace_skiloype: pick!(surface_pace_skiloype),
+            surface_pace_unknown: pick!(surface_pace_unknown),
+            off_trail_base_foot: pick!(off_trail_base_foot),
+            off_trail_base_bicycle: pick!(off_trail_base_bicycle),
+            off_trail_base_ski: pick!(off_trail_base_ski),
+            trail_proximity_bonus_at_zero: pick!(trail_proximity_bonus_at_zero),
+            trail_proximity_influence_radius_m: pick!(trail_proximity_influence_radius_m),
+            slope_cell_quadratic_scale_deg: pick!(slope_cell_quadratic_scale_deg),
+            slope_cell_refuse_above_deg: pick!(slope_cell_refuse_above_deg),
+            slope_graph_quadratic_scale_deg: pick!(slope_graph_quadratic_scale_deg),
+            slope_graph_refuse_above_deg: pick!(slope_graph_refuse_above_deg),
+            total_gain_amplifier: pick!(total_gain_amplifier),
+            water_cost_s_per_m: pick!(water_cost_s_per_m),
+            water_shore_band_m: pick!(water_shore_band_m),
+            grade_limited_enabled: pick!(grade_limited_enabled),
+            grade_limited_max_grade_deg: pick!(grade_limited_max_grade_deg),
+            grade_limited_turn_penalty_s: pick!(grade_limited_turn_penalty_s),
+        }
+    }
+}
+
+/// One named trip preset: a friendly label + description and the sparse
+/// cost patch it applies. Loaded from `tools/route-presets.toml`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Preset {
+    pub name: String,
+    pub label: String,
+    pub description: String,
+    #[serde(default)]
+    pub patch: CostConfigPatch,
+}
+
+/// The set of trip presets, resolved at boot.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PresetSet {
+    #[serde(default, rename = "preset")]
+    pub presets: Vec<Preset>,
+}
+
+const EMBEDDED_PRESETS: &str = include_str!("../../../tools/route-presets.toml");
+
+impl PresetSet {
+    /// Resolve from `tools/route-presets.toml` (CWD) or the embedded
+    /// defaults baked into the binary.
+    pub fn load_or_default() -> Self {
+        let cwd = Path::new("tools/route-presets.toml");
+        let text = std::fs::read_to_string(cwd)
+            .ok()
+            .unwrap_or_else(|| EMBEDDED_PRESETS.to_string());
+        toml::from_str(&text).unwrap_or_else(|_| PresetSet { presets: Vec::new() })
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Preset> {
+        self.presets.iter().find(|p| p.name == name)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("io: {0}")]

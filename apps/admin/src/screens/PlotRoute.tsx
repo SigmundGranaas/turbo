@@ -144,6 +144,13 @@ export function PlotRoute() {
   const [from, setFrom] = useState<Marker | null>(null);
   const [to, setTo] = useState<Marker | null>(null);
   const [profile, setProfile] = useState<Profile>("foot");
+  // Trip-style preset (server-resolved cost bundle). Default "balanced".
+  const [preset, setPreset] = useState<string>(
+    () => localStorage.getItem("pf-preset") ?? "balanced",
+  );
+  const [presets, setPresets] = useState<
+    { name: string; label: string; description: string }[]
+  >([]);
   const [snapRadius, setSnapRadius] = useState(300);
   const [bridgeRadius, setBridgeRadius] = useState(3000);
   const [meshCell, setMeshCell] = useState(100);
@@ -290,6 +297,16 @@ export function PlotRoute() {
   // Current route, for the once-bound drag-to-insert handler to read.
   const pathRef = useRef<PathfindResp | null>(null);
   pathRef.current = path;
+
+  // Load trip-style presets once; persist the selection.
+  useEffect(() => {
+    v1.get<{ name: string; label: string; description: string }[]>("/route/presets")
+      .then(setPresets)
+      .catch(() => setPresets([]));
+  }, []);
+  useEffect(() => {
+    localStorage.setItem("pf-preset", preset);
+  }, [preset]);
 
   // Keep the derived endpoints in sync with the waypoint list so the
   // endpoint-keyed overlays (inspect, mesh, coverage) follow the start
@@ -1011,7 +1028,7 @@ export function PlotRoute() {
       setPath(null);
       // Kick off an async reader; don't await inside the effect.
       const overrideForReq = nonNullPatch(costPatch);
-      void streamPathfind(points, {
+      void streamPathfind(points, preset, {
         profile,
         snap_radius_m: forceOffTrail ? 0 : snapRadius,
         bridge_radius_m: forceOffTrail ? 0 : bridgeRadius,
@@ -1056,7 +1073,7 @@ export function PlotRoute() {
     setLiveBestPath(null);
     setPath(null);
     const overrideForReq = nonNullPatch(costPatch);
-    void streamPathfind(points, {
+    void streamPathfind(points, preset, {
       profile,
       snap_radius_m: forceOffTrail ? 0 : snapRadius,
       bridge_radius_m: forceOffTrail ? 0 : bridgeRadius,
@@ -1095,7 +1112,7 @@ export function PlotRoute() {
       ac.abort();
       cancelled = true;
     };
-  }, [points, profile, snapRadius, bridgeRadius, meshCell, meshPad, refusalSnap, layerWeights, forceOffTrail, recordOn, liveMode, costPatch]);
+  }, [points, preset, profile, snapRadius, bridgeRadius, meshCell, meshPad, refusalSnap, layerWeights, forceOffTrail, recordOn, liveMode, costPatch]);
 
   // Inspect overlay: fetch mesh + refused regions when the user
   // toggles "Show mesh" and we have both markers. Refetches when
@@ -1696,6 +1713,28 @@ export function PlotRoute() {
               </ol>
             )}
           </section>
+
+          {/* Trip style — preset cost bundle (road avoidance, climbing,
+              directness). The main lever for shaping a route. */}
+          {presets.length > 0 ? (
+            <section className="space-y-2">
+              <div className="text-xs uppercase tracking-wide text-ink-500">Trip style</div>
+              <select
+                value={preset}
+                onChange={(e) => setPreset(e.target.value)}
+                className="w-full text-sm px-3 py-2 rounded-lg border border-ink-200 bg-white"
+              >
+                {presets.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-ink-500 min-h-[2.5em]">
+                {presets.find((p) => p.name === preset)?.description ?? ""}
+              </p>
+            </section>
+          ) : null}
 
           {/* Travel mode. */}
           <section className="space-y-2">
@@ -2367,6 +2406,7 @@ function nonNullPatch(
 /// the previous query can cancel the in-flight stream cleanly.
 async function streamPathfind(
   points: [number, number][],
+  preset: string | null,
   prefs: Record<string, unknown>,
   signal: AbortSignal,
   cb: {
@@ -2380,7 +2420,7 @@ async function streamPathfind(
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ points, prefs }),
+      body: JSON.stringify(preset ? { points, preset, prefs } : { points, prefs }),
       signal,
     });
     if (!resp.ok || !resp.body) {

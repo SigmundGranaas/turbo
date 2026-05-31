@@ -55,6 +55,7 @@ pub fn router() -> Router<ApiState> {
         .route("/search/name", get(search::name))
         .route("/debug/search/coverage", get(search::coverage))
         // Stage 6: off-trail pathfinding (composes elev + mask + graph)
+        .route("/route/presets", get(pathfind::presets))
         .route("/pathfind", post(pathfind::pathfind))
         .route("/pathfind/record", post(pathfind::pathfind_record))
         .route("/pathfind/stream", post(pathfind::pathfind_stream))

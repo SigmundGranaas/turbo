@@ -1,0 +1,51 @@
+# Trip presets — named bundles of cost knobs surfaced as "trip styles".
+#
+# Each [[preset]] has a stable `name` (API value), a `label` +
+# `description` (shown in the SPA dropdown), and a sparse `[preset.patch]`
+# that maps 1:1 onto `CostConfigPatch` fields. An empty patch = the boot
+# `cost-config.toml` defaults. A request sends `preset = "<name>"`; the
+# server resolves it to the patch and applies it to that one solve. An
+# explicit per-request `cost_config_override` overlays on top (fine-tune).
+#
+# These are calibration starting points — tune against the scenario
+# corpus. Foot-focused; bicycle/ski inherit the boot config.
+
+[[preset]]
+name = "balanced"
+label = "Balanced"
+description = "Prefer trails; use roads only when they genuinely help. No big detours. (Default.)"
+# Empty patch — boot config already encodes Balanced (vei 2.0 / off-trail 2.3).
+
+[[preset]]
+name = "avoid_roads"
+label = "Avoid roads"
+description = "Treat car roads as no better than open ground. Stay in nature; touch tarmac only when unavoidable."
+[preset.patch]
+surface_pace_vei = 2.6
+off_trail_base_foot = 2.5
+
+[[preset]]
+name = "direct"
+label = "Direct (extreme)"
+description = "As the crow flies. Cut across off-trail and accept steep ground; minimal detouring."
+[preset.patch]
+off_trail_base_foot = 1.3
+surface_pace_vei = 1.3
+grade_limited_max_grade_deg = 38.0
+
+[[preset]]
+name = "easy_grade"
+label = "Easy grade"
+description = "Flat and gentle. Trade distance for less climbing and gentler slopes; switchbacks over steep pulls."
+[preset.patch]
+total_gain_amplifier = 2.5
+grade_limited_max_grade_deg = 18.0
+
+[[preset]]
+name = "trail_purist"
+label = "Trail purist"
+description = "Stay on marked trails almost always; leave them only to connect."
+[preset.patch]
+off_trail_base_foot = 4.0
+surface_pace_vei = 3.0
+trail_proximity_bonus_at_zero = 0.08

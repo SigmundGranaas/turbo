@@ -39,6 +39,10 @@ pub struct ApiState {
     /// the registered `CostLayer` stack — additions (custom layers
     /// for marsh, ridges, etc.) get plugged in at construction.
     pub pathfinder: Option<Arc<turbo_tiles_pathfind::Pathfinder>>,
+    /// Named trip presets (Balanced, Avoid roads, …) resolved at boot
+    /// from `tools/route-presets.toml`. A request's `preset` field maps
+    /// to one of these; the SPA lists them in its "Trip style" dropdown.
+    pub presets: Arc<turbo_tiles_pathfind::PresetSet>,
 }
 
 impl ApiState {
@@ -53,6 +57,7 @@ impl ApiState {
             search: None,
             landcover: std::collections::HashMap::new(),
             pathfinder: None,
+            presets: Arc::new(turbo_tiles_pathfind::PresetSet::load_or_default()),
         }
     }
 }

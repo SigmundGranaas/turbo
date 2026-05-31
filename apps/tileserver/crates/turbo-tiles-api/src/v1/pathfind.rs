@@ -30,8 +30,57 @@ pub struct PathfindReq {
     /// each point in order.
     #[serde(default)]
     pub points: Option<Vec<[f64; 2]>>,
+    /// Named trip preset ("balanced", "avoid_roads", "direct",
+    /// "easy_grade", "trail_purist"). Resolved server-side to a cost
+    /// patch; an explicit `prefs.cost_config_override` overlays on top.
+    #[serde(default)]
+    pub preset: Option<String>,
     #[serde(default)]
     pub prefs: Option<Prefs>,
+}
+
+/// Resolve `preset` into `prefs.cost_config_override`: the preset patch
+/// is the base, and any explicit override the client also sent overlays
+/// on top (fine-tune wins). Unknown preset → 400 with the valid names.
+fn apply_preset(
+    state: &ApiState,
+    preset: &Option<String>,
+    prefs: &mut Prefs,
+) -> Result<(), String> {
+    let Some(name) = preset else { return Ok(()) };
+    let Some(p) = state.presets.get(name) else {
+        let names: Vec<&str> = state.presets.presets.iter().map(|p| p.name.as_str()).collect();
+        return Err(format!("unknown preset '{name}'; valid: {}", names.join(", ")));
+    };
+    let base = p.patch.clone();
+    prefs.cost_config_override = Some(match prefs.cost_config_override.take() {
+        Some(explicit) => explicit.over(&base),
+        None => base,
+    });
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+pub struct PresetInfo {
+    pub name: String,
+    pub label: String,
+    pub description: String,
+}
+
+/// `GET /v1/route/presets` — the trip styles for the SPA dropdown.
+pub async fn presets(State(state): State<ApiState>) -> Json<Vec<PresetInfo>> {
+    Json(
+        state
+            .presets
+            .presets
+            .iter()
+            .map(|p| PresetInfo {
+                name: p.name.clone(),
+                label: p.label.clone(),
+                description: p.description.clone(),
+            })
+            .collect(),
+    )
 }
 
 impl PathfindReq {
@@ -71,7 +120,8 @@ pub async fn pathfind(
         .as_ref()
         .ok_or(ApiError::PrimitiveUnavailable("pathfind"))?
         .clone();
-    let prefs = req.prefs.clone().unwrap_or_default();
+    let mut prefs = req.prefs.clone().unwrap_or_default();
+    apply_preset(&state, &req.preset, &mut prefs).map_err(ApiError::BadRequest)?;
     let points = req.resolve_points()?;
     let start = Instant::now();
     // Wrap the synchronous solve in `catch_unwind` so a Rust panic
@@ -284,6 +334,13 @@ pub async fn pathfind_stream(
         }
     };
     let mut prefs = req.prefs.unwrap_or_default();
+    if let Err(msg) = apply_preset(&state, &req.preset, &mut prefs) {
+        let body = serde_json::json!({ "message": msg }).to_string();
+        let s = futures::stream::once(async move {
+            Ok::<_, std::convert::Infallible>(Event::default().event("error").data(body))
+        });
+        return Sse::new(s).keep_alive(KeepAlive::default()).into_response();
+    }
     // Streaming endpoint installs its OWN recorder externally
     // (the one that fans into the SSE channel). Setting
     // `prefs.record = false` prevents `Pathfinder::solve` from
