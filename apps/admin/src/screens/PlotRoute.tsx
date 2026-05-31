@@ -348,8 +348,9 @@ export function PlotRoute() {
   // every developer/calibration control lives inside the collapsed
   // "Advanced (testing)" drawer below.
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  // Stops list collapsed/expanded (keeps the sheet short with many stops).
-  const [stopsOpen, setStopsOpen] = useState(true);
+  // Stops list collapsed/expanded — collapsed by default (and stays
+  // collapsed as you add stops) to keep the sheet short; expand to edit.
+  const [stopsOpen, setStopsOpen] = useState(false);
   // Right-hand debug/layers pane — collapsed by default so it stays out
   // of the way; a small icon button reopens it.
   const [debugOpen, setDebugOpen] = useState(false);
