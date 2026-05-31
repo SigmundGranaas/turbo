@@ -1028,6 +1028,23 @@ impl Pathfinder {
             let mut wlegs: Vec<WaypointLeg> = Vec::new();
             let mut on_trail_m: f64 = 0.0;
             for i in 0..n_legs {
+                // Live-preview continuity: prefix this leg's snapshots
+                // with the already-finalized earlier legs (in UTM, the
+                // recorder's coord space), so the preview shows the whole
+                // route building rather than restarting at each via.
+                match (i, merged.as_ref()) {
+                    (0, _) => crate::solver_trace::set_snapshot_prefix(Vec::new()),
+                    (_, Some(m)) => crate::solver_trace::set_snapshot_prefix(
+                        m.geometry
+                            .iter()
+                            .map(|p| {
+                                let u = wgs84_to_utm33n(p[0], p[1]);
+                                [u.x as f32, u.y as f32]
+                            })
+                            .collect(),
+                    ),
+                    _ => {}
+                }
                 let seg = self
                     .solve_inner(points[i], points[i + 1], inner_prefs.clone())
                     // A 2-point route has one unambiguous leg — surface
@@ -1107,6 +1124,9 @@ impl Pathfinder {
                     }
                 }
             }
+            // Clear the prefix so it can't leak into a later solve on
+            // this worker thread.
+            crate::solver_trace::set_snapshot_prefix(Vec::new());
             let mut merged = merged.expect("points.len() >= 2 -> at least one segment");
             // Only recompute the (weighted) on-trail % for genuine
             // multi-point routes; a single segment keeps its own value

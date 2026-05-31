@@ -287,6 +287,9 @@ export function PlotRoute() {
   fromRef.current = from;
   toRef.current = to;
   inspectModeRef.current = inspectMode;
+  // Current route, for the once-bound drag-to-insert handler to read.
+  const pathRef = useRef<PathfindResp | null>(null);
+  pathRef.current = path;
 
   // Keep the derived endpoints in sync with the waypoint list so the
   // endpoint-keyed overlays (inspect, mesh, coverage) follow the start
@@ -418,6 +421,67 @@ export function PlotRoute() {
       // Append: each click adds a stop; the newest click is the new
       // destination, earlier ones become vias.
       commitPoints([...pointsRef.current, lonlat]);
+    });
+
+    // Drag-the-route-to-insert (the Komoot/Google gesture). Grab the
+    // invisible `path-hit` line anywhere and drag; on release a new stop
+    // is inserted into the leg that was grabbed. Bound once; reads the
+    // current route via pathRef so it stays correct as routes change.
+    const insertIndexFor = (lng: number, lat: number): number | null => {
+      const p = pathRef.current?.path;
+      if (!p || p.geometry.length < 2) return null;
+      let best = 0;
+      let bestD = Infinity;
+      for (let k = 0; k < p.geometry.length; k++) {
+        const dx = p.geometry[k][0] - lng;
+        const dy = p.geometry[k][1] - lat;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = k; }
+      }
+      const legs = p.waypoint_legs ?? [];
+      const leg = legs.find(
+        (l) => best >= l.geometry_start_idx && best <= l.geometry_end_idx,
+      );
+      // Insert between the grabbed leg's endpoints; fall back to before
+      // the final stop if leg metadata is missing.
+      return leg ? leg.from_point_idx + 1 : Math.max(1, pointsRef.current.length - 1);
+    };
+    let provisional: maplibregl.Marker | null = null;
+    // Cursor affordance: show "copy" when hovering the route.
+    map.on("mousemove", (e) => {
+      if (provisional) return;
+      const over = map.getLayer("path-hit")
+        ? map.queryRenderedFeatures(e.point, { layers: ["path-hit"] }).length > 0
+        : false;
+      map.getCanvas().style.cursor = over ? "copy" : "";
+    });
+    // General mousedown + hit-test (layer-scoped mousedown doesn't fire
+    // reliably here). If the press landed on the route, start an insert.
+    map.on("mousedown", (e) => {
+      if (!map.getLayer("path-hit")) return;
+      if (map.queryRenderedFeatures(e.point, { layers: ["path-hit"] }).length === 0) return;
+      e.preventDefault(); // suppress map pan while inserting
+      map.dragPan.disable();
+      provisional = new maplibregl.Marker({ color: "#374151" })
+        .setLngLat(e.lngLat)
+        .addTo(map);
+      const onMove = (ev: maplibregl.MapMouseEvent) =>
+        provisional?.setLngLat(ev.lngLat);
+      const onUp = (ev: maplibregl.MapMouseEvent) => {
+        map.off("mousemove", onMove);
+        map.dragPan.enable();
+        map.getCanvas().style.cursor = "";
+        provisional?.remove();
+        provisional = null;
+        const at = insertIndexFor(ev.lngLat.lng, ev.lngLat.lat);
+        if (at != null) {
+          const next = [...pointsRef.current];
+          next.splice(at, 0, [ev.lngLat.lng, ev.lngLat.lat]);
+          commitPoints(next);
+        }
+      };
+      map.on("mousemove", onMove);
+      map.once("mouseup", onUp);
     });
 
     return () => {
@@ -1202,6 +1266,21 @@ export function PlotRoute() {
           },
         });
       });
+      // Invisible wide hit-line over the whole route so the curator can
+      // grab it anywhere to insert a stop (drag-to-insert). Named with
+      // the `path-` prefix so the cleanup loop above tears it down too.
+      if (coords.length >= 2) {
+        map.addSource("path-hit", {
+          type: "geojson",
+          data: { type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} },
+        });
+        map.addLayer({
+          id: "path-hit",
+          type: "line",
+          source: "path-hit",
+          paint: { "line-width": 18, "line-opacity": 0, "line-color": "#000" },
+        });
+      }
       // Fit-to-bounds.
       if (coords.length >= 2) {
         let minX = coords[0][0], minY = coords[0][1], maxX = coords[0][0], maxY = coords[0][1];

@@ -256,6 +256,18 @@ impl Recorder {
 
 thread_local! {
     static ACTIVE: RefCell<Option<Arc<Recorder>>> = const { RefCell::new(None) };
+    // UTM coords (EPSG:25833) prepended to every `BestPathSnapshot`.
+    // Used by multi-waypoint `solve_route` so the live preview shows the
+    // already-finalized earlier legs while a later leg is still solving,
+    // instead of the preview jumping back to the current leg's start.
+    static SNAPSHOT_PREFIX: RefCell<Vec<[f32; 2]>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Set the coords (UTM33N) prepended to subsequent `BestPathSnapshot`
+/// events. Pass an empty vec to clear. Cheap; intended to be set at
+/// per-leg boundaries by `Pathfinder::solve_route`.
+pub fn set_snapshot_prefix(coords: Vec<[f32; 2]>) {
+    SNAPSHOT_PREFIX.with(|cell| *cell.borrow_mut() = coords);
 }
 
 /// Run `f` with the given recorder installed for the duration. The
@@ -282,7 +294,20 @@ pub fn record(event_fn: impl FnOnce() -> SolverEvent) {
     if !has {
         return;
     }
-    let event = event_fn();
+    let mut event = event_fn();
+    // Prepend the per-leg prefix so a multi-waypoint live preview shows
+    // the whole route built so far, not just the current leg.
+    if let SolverEvent::BestPathSnapshot { coords } = &mut event {
+        SNAPSHOT_PREFIX.with(|cell| {
+            let prefix = cell.borrow();
+            if !prefix.is_empty() {
+                let mut full = Vec::with_capacity(prefix.len() + coords.len());
+                full.extend_from_slice(&prefix);
+                full.append(coords);
+                *coords = full;
+            }
+        });
+    }
     ACTIVE.with(|cell| {
         if let Some(r) = cell.borrow().as_ref() {
             r.record(event);
