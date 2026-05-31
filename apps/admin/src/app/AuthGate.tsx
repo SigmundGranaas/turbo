@@ -47,6 +47,27 @@ export function AuthGate({ children }: { children?: React.ReactNode }) {
         if (cancelled) return;
         if (e instanceof ApiError) {
           if (e.status === 401) {
+            // Dev-mode escape hatch: when the tileserver was started
+            // with TURBO_DEV_AUTH=1, /admin/dev-login mints a curator
+            // JWT cookie and returns 302. We try that first; if the
+            // endpoint exists, we'll get the cookie and can retry the
+            // probe. If it 404s (production), fall through to the
+            // Google OAuth screen.
+            try {
+              const resp = await fetch("/admin/dev-login", {
+                credentials: "include",
+                redirect: "manual",
+              });
+              // `manual` redirect → opaqueredirect when the server
+              // returned 3xx. Either way: try the probe again.
+              if (resp.type === "opaqueredirect" || resp.ok) {
+                await api.get<unknown>("/resources");
+                if (!cancelled) setAuth({ kind: "signed-in" });
+                return;
+              }
+            } catch {
+              // ignore; fall through to SignInScreen
+            }
             setAuth({ kind: "needs-login" });
             return;
           }

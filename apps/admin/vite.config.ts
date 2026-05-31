@@ -14,6 +14,7 @@ export default defineConfig({
       // During `npm run dev`, forward API calls to the local tileserver
       // so the SPA can hit /admin/api/* and /v1/* without CORS pain.
       "/admin/api": "http://localhost:8090",
+      "/admin/dev-login": "http://localhost:8090",
       "/v1": "http://localhost:8090",
     },
   },

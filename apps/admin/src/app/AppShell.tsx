@@ -25,6 +25,9 @@ export function AppShell() {
         </div>
         <nav className="flex-1 p-2 space-y-1">
           <NavLink to="/" end className={linkClass}>
+            Plot a route
+          </NavLink>
+          <NavLink to="/dashboard" className={linkClass}>
             Dashboard
           </NavLink>
           <div className="pt-3 pb-1 px-3 text-xs uppercase tracking-wide text-ink-500">
@@ -49,6 +52,9 @@ export function AppShell() {
           </NavLink>
           <NavLink to="/jobs" className={linkClass}>
             Ingest jobs
+          </NavLink>
+          <NavLink to="/primitives" className={linkClass}>
+            Primitives
           </NavLink>
         </nav>
         <div className="p-3 text-xs text-ink-500 border-t border-ink-200">

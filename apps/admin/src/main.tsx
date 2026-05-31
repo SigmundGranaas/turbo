@@ -13,6 +13,8 @@ import { UploadGpx } from "./screens/UploadGpx";
 import { UploadBulk } from "./screens/UploadBulk";
 import { Incoming } from "./screens/Incoming";
 import { Jobs } from "./screens/Jobs";
+import { PlotRoute } from "./screens/PlotRoute";
+import { Primitives } from "./screens/Primitives";
 
 import "./index.css";
 
@@ -39,7 +41,9 @@ const router = createBrowserRouter(
         </AuthGate>
       ),
       children: [
-        { index: true, element: <Dashboard /> },
+        { index: true, element: <PlotRoute /> },
+        { path: "dashboard", element: <Dashboard /> },
+        { path: "plot", element: <PlotRoute /> },
         { path: "resources/:resource", element: <ResourceList /> },
         { path: "resources/:resource/new", element: <ResourceCreate /> },
         { path: "resources/:resource/:id", element: <ResourceEdit /> },
@@ -47,6 +51,7 @@ const router = createBrowserRouter(
         { path: "upload-bulk", element: <UploadBulk /> },
         { path: "incoming", element: <Incoming /> },
         { path: "jobs", element: <Jobs /> },
+        { path: "primitives", element: <Primitives /> },
       ],
     },
   ],
