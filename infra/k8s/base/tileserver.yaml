@@ -7,10 +7,11 @@
 #    secret, capacity confirmed). Keeping it unreferenced means `kustomize
 #    build` ignores it.
 #
-# Scope: serves the curated routing API (/v1/route/*) only, in --no-db
-# mode (the lazy pool means MVT/DB endpoints 503 on demand; routing reads
-# the on-disk artifacts, not Postgres). A tiles DB + curated MVT serving
-# is a later, separate step.
+# Scope: the routing API (/v1/route/*) is the first consumer, but this
+# runs the tileserver in FULL mode (connected to a tiles Postgres) — we
+# do NOT ship the --no-db shortcut. Routing only goes live once ALL the
+# data is in place: the tiles DB (provisioned + ingested) AND the on-disk
+# artifacts. See README-tileserver.md.
 #
 # Exposure: there is no YARP gateway in k8s — the Traefik ingress targets
 # this Service directly. A ReplacePathRegex middleware maps the public
@@ -72,8 +73,9 @@ spec:
         # One-shot artifact seed: pull the prebuilt Norway artifacts from
         # R2 onto the PVC on first boot (skips if the DEM is already
         # present). See README-tileserver.md for uploading them and for
-        # the r2-artifacts-creds sealed secret. Swap for a build Job if
-        # you'd rather ingest in-cluster.
+        # the EXISTING r2-backup-creds secret (the same R2 account as the
+        # CNPG backups) — no new secret needed. Artifacts live under the
+        # cleared turbo-db-backups bucket at artifacts/norway/.
         - name: fetch-artifacts
           image: rclone/rclone:1.68
           command: ["/bin/sh", "-c"]
@@ -83,28 +85,33 @@ spec:
               if [ -f /artifacts/norway.dem ]; then
                 echo "artifacts present; skipping fetch"; exit 0
               fi
-              echo "seeding artifacts from R2..."
+              echo "seeding artifacts from R2 (turbo-db-backups/artifacts/norway)..."
               rclone --config /dev/null \
                 --s3-provider Cloudflare \
                 --s3-access-key-id "$ACCESS_KEY_ID" \
                 --s3-secret-access-key "$ACCESS_SECRET_KEY" \
                 --s3-endpoint "$R2_ENDPOINT" \
-                copy ":s3:turbo-artifacts/norway/" /artifacts/ \
+                copy ":s3:turbo-db-backups/artifacts/norway/" /artifacts/ \
                 --transfers 4 --fast-list
           env:
+            # Reuses the CNPG R2 backup credentials (keys ACCESS_KEY_ID /
+            # ACCESS_SECRET_KEY, per base/db.yaml). The endpoint is not
+            # secret, so it's inline.
             - name: ACCESS_KEY_ID
-              valueFrom: { secretKeyRef: { name: r2-artifacts-creds, key: ACCESS_KEY_ID } }
+              valueFrom: { secretKeyRef: { name: r2-backup-creds, key: ACCESS_KEY_ID } }
             - name: ACCESS_SECRET_KEY
-              valueFrom: { secretKeyRef: { name: r2-artifacts-creds, key: ACCESS_SECRET_KEY } }
+              valueFrom: { secretKeyRef: { name: r2-backup-creds, key: ACCESS_SECRET_KEY } }
             - name: R2_ENDPOINT
-              valueFrom: { secretKeyRef: { name: r2-artifacts-creds, key: ENDPOINT } }
+              value: "https://ab82d920d2b19b70985673b43e474dd8.r2.cloudflarestorage.com"
           volumeMounts:
             - name: artifacts
               mountPath: /artifacts
       containers:
         - name: tileserver
           image: turbo-tileserver       # registry/tag set per-env via kustomize images:
-          args: ["serve", "--no-db", "--artifacts-dir", "/artifacts"]
+          # Full mode (no --no-db): connects to the tiles Postgres and
+          # runs migrations at boot. Serves routing + curated MVT.
+          args: ["serve", "--artifacts-dir", "/artifacts"]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -117,6 +124,12 @@ spec:
               value: "info,tower_http=warn,sqlx=warn"
             - name: TILESERVER_ARTIFACT_DIR
               value: "/artifacts"
+            - name: AUTO_MIGRATE
+              value: "true"
+            # Tiles Postgres (PostGIS). Must be provisioned + ingested
+            # before this deploy is wired in — see README-tileserver.md.
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: tiles-db-secrets, key: connectionstring } }
             - name: PUBLIC_BASE_URL
               value: "https://kart-api.sandring.no/api/route"
             # AuthConfig::from_env requires a secret even though the
