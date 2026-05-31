@@ -42,6 +42,12 @@ void main() {
   final container = ProviderContainer(
     overrides: [
       activities.activityKindRegistryProvider.overrideWithValue(activityKinds),
+      // Wire the sharing gate to live auth status. Tests skip this override
+      // and get the default (false), keeping the sharing UI hidden — and,
+      // crucially, keeping the auth notifier from being instantiated as a
+      // side-effect of building tested widgets.
+      sharingAvailableProvider.overrideWith((ref) =>
+          ref.watch(authStateProvider).status == AuthStatus.authenticated),
     ],
   );
   unawaited(_kickOffBackgroundInit(container));

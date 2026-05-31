@@ -1,5 +1,7 @@
+using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Testcontainers.PostgreSql;
@@ -16,6 +18,7 @@ using Turboapi.Activities.XcSki;
 using Turboapi.Auth.Infrastructure.Persistence;
 using Turboapi.Collections.data;
 using Turboapi.Geo.domain.query.model;
+using Turboapi.Sharing.data;
 using Turboapi.Tracks.data;
 using Xunit;
 
@@ -31,8 +34,29 @@ public sealed class ModulithHostFixture : IAsyncLifetime
     private readonly PostgreSqlContainer _postgres = TurboTestContainers.PostgresWithPostGis();
 
     private WebApplicationFactory<ModulithProgram>? _factory;
+    private TurboJwtIssuer? _jwt;
 
     public HttpClient CreateClient() => _factory!.CreateClient();
+
+    /// <summary>
+    /// Service provider behind the host. Useful for tests that need to
+    /// seed state directly through a module's DbContext.
+    /// </summary>
+    public IServiceProvider Services => _factory!.Services;
+
+    /// <summary>
+    /// Returns an HTTP client authenticated as <paramref name="userId"/>
+    /// using a test-only JWT signed with the host's Jwt:Key. Avoids the
+    /// full /api/auth/register dance for tests that only care about the
+    /// downstream module under test.
+    /// </summary>
+    public HttpClient CreateClientAs(Guid userId)
+    {
+        var client = _factory!.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", _jwt!.Issue(userId));
+        return client;
+    }
 
     public async Task InitializeAsync()
     {
@@ -40,6 +64,7 @@ public sealed class ModulithHostFixture : IAsyncLifetime
         var baseConn = _postgres.GetConnectionString();
 
         var authConn = RepoLayout.WithDatabase(baseConn, "auth");
+        var sharingConn = RepoLayout.WithDatabase(baseConn, "sharing");
         var tracksConn = RepoLayout.WithDatabase(baseConn, "tracks");
         var geoConn = RepoLayout.WithDatabase(baseConn, "geo");
         var collectionsConn = RepoLayout.WithDatabase(baseConn, "collections");
@@ -51,13 +76,20 @@ public sealed class ModulithHostFixture : IAsyncLifetime
         {
             builder.UseEnvironment("Test");
             builder.UseSetting("ConnectionStrings:Auth", authConn);
+            builder.UseSetting("ConnectionStrings:Sharing", sharingConn);
             builder.UseSetting("ConnectionStrings:Tracks", tracksConn);
             builder.UseSetting("ConnectionStrings:Geo", geoConn);
             builder.UseSetting("ConnectionStrings:Collections", collectionsConn);
             builder.UseSetting("ConnectionStrings:Activities", activitiesConn);
+            builder.ConfigureServices((context, _) =>
+            {
+                _jwt = new TurboJwtIssuer(context.Configuration["Jwt:Key"]
+                    ?? throw new InvalidOperationException("Jwt:Key not configured for the modulith host"));
+            });
         });
 
         await _factory.Services.MigrateModuleDatabaseAsync<AuthDbContext>(authConn);
+        await _factory.Services.MigrateModuleDatabaseAsync<SharingReadContext>(sharingConn);
         await _factory.Services.MigrateModuleDatabaseAsync<TrackReadContext>(tracksConn);
         await _factory.Services.MigrateModuleDatabaseAsync<LocationReadContext>(geoConn);
         await _factory.Services.MigrateModuleDatabaseAsync<CollectionsReadContext>(collectionsConn);

@@ -22,6 +22,7 @@ abstract class AppLocalizations {
   String get ok;
   String get cancel;
   String get close;
+  String get more;
   String get settings;
   String get theme;
   String get language;
@@ -150,6 +151,12 @@ abstract class AppLocalizations {
   String get layerDescriptionGoogleSatellite;
   String get layerNameAvalanche;
   String get layerDescriptionAvalanche;
+  String get layerNameOceanConditions;
+  String get layerDescriptionOceanConditions;
+  String get oceanConditionsTitle;
+  String get oceanWaveDirectionLabel;
+  String get oceanCurrentLabel;
+  String get oceanViewFullForecast;
 
   // Measuring Tool
   String get totalDistance;
@@ -257,6 +264,10 @@ abstract class AppLocalizations {
   String get dataLayers;
   String get showMarkers;
   String get showPaths;
+  String get showPhotos;
+  String get showPhotosSubtitle;
+  String get photoPermissionRequired;
+  String get photosNotAvailableHere;
   String get pathUpdated;
   String get pathDeleted;
   String errorSavingPath(String error);
@@ -495,6 +506,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get ok => 'OK';
   @override String get cancel => 'Cancel';
   @override String get close => 'Close';
+  @override String get more => 'More';
   @override String get settings => 'Settings';
   @override String get theme => 'Theme';
   @override String get language => 'Language';
@@ -617,6 +629,12 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get layerDescriptionGoogleSatellite => 'Satellite imagery from Google';
   @override String get layerNameAvalanche => 'Avalanche Danger';
   @override String get layerDescriptionAvalanche => 'Overlay of slope steepness and run-out zones';
+  @override String get layerNameOceanConditions => 'Ocean Conditions';
+  @override String get layerDescriptionOceanConditions => 'Wave height and direction from MET Norway';
+  @override String get oceanConditionsTitle => 'Ocean conditions';
+  @override String get oceanWaveDirectionLabel => 'Wave direction';
+  @override String get oceanCurrentLabel => 'Current';
+  @override String get oceanViewFullForecast => 'View full forecast';
 
   @override String get totalDistance => 'Total Distance';
   @override String get undoLastPoint => 'Undo Last Point';
@@ -711,6 +729,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override String get dataLayers => 'Data';
   @override String get showMarkers => 'Markers';
   @override String get showPaths => 'Paths';
+  @override String get showPhotos => 'Photos';
+  @override String get showPhotosSubtitle => 'Where your geotagged photos were taken';
+  @override String get photoPermissionRequired => 'Allow photo access to show where your photos were taken';
+  @override String get photosNotAvailableHere => 'Photo locations aren\'t available on this platform';
   @override String get pathUpdated => 'Path updated';
   @override String get pathDeleted => 'Path deleted';
   @override String errorSavingPath(String error) => 'Error saving path: $error';
@@ -939,6 +961,7 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get ok => 'OK';
   @override String get cancel => 'Avbryt';
   @override String get close => 'Lukk';
+  @override String get more => 'Mer';
   @override String get settings => 'Innstillinger';
   @override String get theme => 'Tema';
   @override String get language => 'Språk';
@@ -1061,6 +1084,12 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get layerDescriptionGoogleSatellite => 'Satellittbilder fra Google';
   @override String get layerNameAvalanche => 'Snøskredfare';
   @override String get layerDescriptionAvalanche => 'Oversikt over bratthet og utløpssoner';
+  @override String get layerNameOceanConditions => 'Havforhold';
+  @override String get layerDescriptionOceanConditions => 'Bølgehøyde og -retning fra MET';
+  @override String get oceanConditionsTitle => 'Havforhold';
+  @override String get oceanWaveDirectionLabel => 'Bølgeretning';
+  @override String get oceanCurrentLabel => 'Strøm';
+  @override String get oceanViewFullForecast => 'Se hele varselet';
 
   @override String get totalDistance => 'Total distanse';
   @override String get undoLastPoint => 'Angre siste punkt';
@@ -1152,6 +1181,10 @@ class AppLocalizationsNo extends AppLocalizations {
   @override String get dataLayers => 'Data';
   @override String get showMarkers => 'Markorer';
   @override String get showPaths => 'Ruter';
+  @override String get showPhotos => 'Bilder';
+  @override String get showPhotosSubtitle => 'Hvor bildene dine med posisjon ble tatt';
+  @override String get photoPermissionRequired => 'Gi tilgang til bilder for a vise hvor bildene ble tatt';
+  @override String get photosNotAvailableHere => 'Bildeposisjoner er ikke tilgjengelig pa denne plattformen';
   @override String get pathUpdated => 'Rute oppdatert';
   @override String get pathDeleted => 'Rute slettet';
   @override String errorSavingPath(String error) => 'Feil ved lagring av rute: $error';

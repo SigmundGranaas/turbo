@@ -65,5 +65,38 @@ void main() {
       expect(handled, isFalse);
       expect(container.read(pendingShareProvider), isNull);
     });
+
+    test('recognises /share/r/<token> and pushes onto the link-redemption provider', () {
+      final container = _container();
+      final handled = ShareRouteHandler(container)
+          .handle(Uri.parse('https://example.test/share/r/abc123'));
+
+      expect(handled, isTrue);
+      expect(container.read(pendingLinkRedemptionProvider), 'abc123');
+      // Stateless payload provider must NOT be populated for tracked links.
+      expect(container.read(pendingShareProvider), isNull);
+    });
+
+    test('/share/r without a token segment is not recognised', () {
+      final container = _container();
+      final handled = ShareRouteHandler(container)
+          .handle(Uri.parse('https://example.test/share/r/'));
+
+      expect(handled, isFalse);
+      expect(container.read(pendingLinkRedemptionProvider), isNull);
+    });
+  });
+
+  group('PendingLinkRedemptionNotifier', () {
+    test('take() returns the token and clears state', () {
+      final container = _container();
+      final notifier =
+          container.read(pendingLinkRedemptionProvider.notifier);
+
+      notifier.push('tok1');
+      expect(notifier.take(), 'tok1');
+      expect(container.read(pendingLinkRedemptionProvider), isNull);
+      expect(notifier.take(), isNull);
+    });
   });
 }

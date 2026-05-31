@@ -24,3 +24,17 @@ Thumbs.db
 
 # Docker / compose scratch
 infra/compose/data/
+
+# Stray Flutter scaffolding at the repo root. Flutter scaffolds these
+# under whatever cwd it runs from; the real ones live in apps/flutter/.
+# Guard against tools accidentally running `flutter` from the repo root.
+/.dart_tool/
+/.flutter-plugins
+/.flutter-plugins-dependencies
+/android/
+/ios/
+/linux/
+/macos/
+/windows/
+/web/
+/build/

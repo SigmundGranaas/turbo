@@ -1,0 +1,35 @@
+# CloudNativePG operator — manages the Postgres Cluster (see infra/k8s/base/db.yaml).
+# Installed via Helm by the app-of-apps root. ServerSideApply avoids the
+# large-CRD annotation limit.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.26.0          # operator app v1.27.0
+    helm:
+      values: |
+        replicaCount: 1
+        resources:
+          requests:
+            cpu: 50m
+            memory: 100Mi
+          limits:
+            memory: 256Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

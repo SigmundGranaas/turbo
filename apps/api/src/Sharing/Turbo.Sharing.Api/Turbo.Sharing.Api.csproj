@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Turboapi.Sharing</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Medo.Uuid7" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Turbo.Sharing.Core\Turbo.Sharing.Core.csproj" />
+    <ProjectReference Include="..\Turbo.Sharing.Contracts\Turbo.Sharing.Contracts.csproj" />
+    <ProjectReference Include="..\Turbo.Sharing.Infrastructure\Turbo.Sharing.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Collections\Turbo.Collections.Contracts\Turbo.Collections.Contracts.csproj" />
+    <ProjectReference Include="..\..\Geo\Turbo.Geo.Contracts\Turbo.Geo.Contracts.csproj" />
+    <ProjectReference Include="..\..\Tracks\Turbo.Tracks.Contracts\Turbo.Tracks.Contracts.csproj" />
+    <ProjectReference Include="..\..\Shared\Turbo.Messaging.Nats\Turbo.Messaging.Nats.csproj" />
+    <ProjectReference Include="..\..\..\TurboAuthentication\TurboAuthentication.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.AspNetCore.Builder" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.AspNetCore.Routing" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Hosting" />
+    <Using Include="Microsoft.Extensions.Logging" />
+  </ItemGroup>
+
+</Project>

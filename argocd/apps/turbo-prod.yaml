@@ -1,0 +1,41 @@
+# Production environment Application. Managed by the app-of-apps root
+# (argocd/root.yaml). To add staging later, copy this file to
+# turbo-staging.yaml, point path at infra/k8s/envs/staging and set the
+# destination namespace to turbo-staging.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: turbo-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/SigmundGranaas/turbo.git
+    targetRevision: main
+    path: infra/k8s/envs/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: turbo-prod
+  # HPA owns turbo-web's replica count — don't let selfHeal revert scaling.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: turbo-web
+      jsonPointers:
+        - /spec/replicas
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    # Pod Security Admission: enforce=restricted. All workloads (modulith,
+    # web, CNPG turbo-db) run non-root with dropped caps + RuntimeDefault
+    # seccomp; the legacy root-running shared-db has been retired.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/warn: restricted
+        pod-security.kubernetes.io/audit: restricted

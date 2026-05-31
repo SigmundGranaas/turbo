@@ -76,8 +76,8 @@ jobs:
       - name: Check if image with version tag already exists
         id: check_image
         run: |
-          echo "Checking for image: ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:${{ steps.get_version.outputs.version }}"
-          if docker manifest inspect ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:${{ steps.get_version.outputs.version }} >/dev/null 2>&1; then
+          echo "Checking for image: ghcr.io/${{ steps.string.outputs.owner_lc }}/turbo-${{ matrix.service }}:${{ steps.get_version.outputs.version }}"
+          if docker manifest inspect ghcr.io/${{ steps.string.outputs.owner_lc }}/turbo-${{ matrix.service }}:${{ steps.get_version.outputs.version }} >/dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "Image with this version tag already exists."
           else
@@ -93,14 +93,14 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:${{ steps.get_version.outputs.version }}
-            ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:latest
+            ghcr.io/${{ steps.string.outputs.owner_lc }}/turbo-${{ matrix.service }}:${{ steps.get_version.outputs.version }}
+            ghcr.io/${{ steps.string.outputs.owner_lc }}/turbo-${{ matrix.service }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Image already exists
         if: steps.check_image.outputs.exists == 'true'
-        run: echo "Image ghcr.io/${{ steps.string.outputs.owner_lc }}/turboapi-${{ matrix.service }}:${{ steps.get_version.outputs.version }} already exists. Skipping build."
+        run: echo "Image ghcr.io/${{ steps.string.outputs.owner_lc }}/turbo-${{ matrix.service }}:${{ steps.get_version.outputs.version }} already exists. Skipping build."
 
       - name: Dry Run Info for Pull Request
         if: steps.check_image.outputs.exists == 'false' && github.event_name == 'pull_request'

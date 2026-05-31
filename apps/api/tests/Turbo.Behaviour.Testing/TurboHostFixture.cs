@@ -42,6 +42,15 @@ public abstract class TurboHostFixture<THost> : IAsyncLifetime where THost : cla
     protected abstract string ConnectionStringKey { get; }
 
     /// <summary>
+    /// Subclass hook for extra config overrides — e.g. wiring
+    /// <c>ConnectionStrings:Sharing</c> on a payload-module host that
+    /// consults IAccessControl. Override to return a populated map;
+    /// defaults to empty.
+    /// </summary>
+    protected virtual IDictionary<string, string?> ExtraSettings
+        => new Dictionary<string, string?>();
+
+    /// <summary>
     /// Runs the module's EF Core migrations against the Testcontainers
     /// Postgres after the host's <see cref="WebApplicationFactory{THost}"/>
     /// has built its service provider. Typical implementation:
@@ -73,6 +82,12 @@ public abstract class TurboHostFixture<THost> : IAsyncLifetime where THost : cla
             // Override the connection string the host's Program.cs reads
             // when it calls MigrateModuleDatabaseAsync at startup.
             builder.UseSetting($"ConnectionStrings:{ConnectionStringKey}", _postgres.GetConnectionString());
+            // Subclass-supplied overrides — e.g. payload-module hosts that
+            // need ConnectionStrings:Sharing wired for their IAccessControl.
+            foreach (var kv in ExtraSettings)
+            {
+                builder.UseSetting(kv.Key, kv.Value);
+            }
             builder.ConfigureServices((context, services) =>
             {
                 _jwt = new TurboJwtIssuer(context.Configuration["Jwt:Key"]

@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Turbo.Collections.Contracts\Turbo.Collections.Contracts.csproj" />
+    <ProjectReference Include="..\..\Sharing\Turbo.Sharing.Contracts\Turbo.Sharing.Contracts.csproj" />
     <ProjectReference Include="..\..\Shared\Turbo.Messaging.Abstractions\Turbo.Messaging.Abstractions.csproj" />
     <ProjectReference Include="..\..\Shared\Turbo.Outbox.Abstractions\Turbo.Outbox.Abstractions.csproj" />
   </ItemGroup>

@@ -1,7 +1,7 @@
 export const config = {
-    AUTH_URL: __ENV.AUTH_URL || 'http://turboapi.local/auth',
-    GEO_URL: __ENV.GEO_URL || 'http://turboapi.local/geo',
-    ACTIVITY_URL: __ENV.ACTIVITY_URL || 'http://turboapi.local/activity',
+    AUTH_URL: __ENV.AUTH_URL || 'http://turbo.local/auth',
+    GEO_URL: __ENV.GEO_URL || 'http://turbo.local/geo',
+    ACTIVITY_URL: __ENV.ACTIVITY_URL || 'http://turbo.local/activity',
     TEST_USER_COUNT: parseInt(__ENV.TEST_USER_COUNT || '10'),
 
     // VU Configuration Options

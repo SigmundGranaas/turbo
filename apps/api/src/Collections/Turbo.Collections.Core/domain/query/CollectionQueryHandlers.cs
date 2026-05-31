@@ -1,20 +1,29 @@
 using Turboapi.Collections.data.model;
 using Turboapi.Collections.domain.queries;
 using Turboapi.Collections.domain.value;
+using Turboapi.Sharing;
 
 namespace Turboapi.Collections.domain.query;
 
 public class GetCollectionByIdHandler
 {
     private readonly ICollectionReadRepository _read;
-    public GetCollectionByIdHandler(ICollectionReadRepository read) => _read = read;
+    private readonly IAccessControl _access;
+
+    public GetCollectionByIdHandler(ICollectionReadRepository read, IAccessControl access)
+    {
+        _read = read;
+        _access = access;
+    }
 
     public async Task<CollectionData?> Handle(GetCollectionByIdQuery query)
     {
         var entity = await _read.GetEntityById(query.CollectionId);
         if (entity is null) return null;
-        if (entity.OwnerId != query.Owner) return null;
         if (entity.DeletedAt is not null) return null;
+        // Delegate to the universal sharing gate so a friend with a viewer
+        // or editor grant succeeds here even though they are not the owner.
+        if (!await _access.CanReadAsync(query.Owner, query.CollectionId)) return null;
         return entity.ToData();
     }
 }

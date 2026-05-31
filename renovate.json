@@ -1,0 +1,51 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Oslo",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Group Helm chart bumps for the GitOps platform apps",
+      "matchManagers": ["argocd", "helmv3", "helm-values"],
+      "groupName": "platform charts",
+      "labels": ["dependencies", "platform"]
+    },
+    {
+      "description": "Auto-merge digest + patch bumps for container images",
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["digest", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "Major bumps are manual review only (k3s, ArgoCD, CNPG, etc.)",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["dependencies", "major"]
+    },
+    {
+      "description": "NuGet (.NET modulith) grouped",
+      "matchManagers": ["nuget"],
+      "groupName": "dotnet packages"
+    }
+  ],
+  "argocd": {
+    "fileMatch": ["argocd/apps/.+\\.ya?ml$"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Bump pinned image tags in kustomize overlays",
+      "fileMatch": ["infra/k8s/.+\\.ya?ml$"],
+      "matchStrings": [
+        "newName:\\s*(?<depName>[^\\s]+)\\s*\\n\\s*newTag:\\s*(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ]
+}

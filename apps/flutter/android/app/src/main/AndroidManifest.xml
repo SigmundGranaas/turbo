@@ -5,6 +5,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Photo-locations map layer: read the device photo library and the GPS
+         EXIF embedded in those photos. READ_MEDIA_IMAGES covers Android 13+,
+         READ_EXTERNAL_STORAGE covers <=12, ACCESS_MEDIA_LOCATION is required
+         to read each photo's location. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <application
         android:label="turbo"
         android:name="${applicationName}"

@@ -1,121 +1,79 @@
-# Deployment Guide for TurboAPI on K3s
+# Production deployment & cutover runbook
+
+Prod is GitOps-managed by ArgoCD. Normal changes = commit to `main`; ArgoCD
+syncs `infra/k8s/envs/prod` into the `turbo-prod` namespace automatically.
+This doc covers the one-time bootstrap and the cutover from the legacy
+3-microservices stack (in `default`) to the modulith (in `turbo-prod`).
 
 ## Prerequisites
 
-- K3s cluster up and running
-- kubectl configured to access your K3s cluster
-- Access to GitHub Container Registry images
+- `kubectl` pointing at the k3s cluster (context `k3s`, server `192.168.1.210:6443`).
+- sealed-secrets controller installed and `infra/k8s/envs/prod/sealed-secrets.yaml`
+  generated + committed (see `README.md`).
+- The `turbo-modulith` image published to `ghcr.io/sigmundgranaas/turbo-modulith`
+  (CI: `.github/workflows/api_image_build.yaml`).
+- The `turbo-web` image published to `ghcr.io/sigmundgranaas/turbo-web`
+  (CI: `.github/workflows/github_publish.yml`, job `build-web-image`).
 
-## Step 1: Create Secrets
+## Web frontend (kart.sandring.no)
 
-Create the database secret with a secure password:
+`turbo-web` (nginx serving the Flutter web build) is part of the `turbo-prod`
+overlay and served by `turbo-web-ingress` at `kart.sandring.no`. TLS is
+terminated upstream (same Cloudflare/DO path as the API). Cloudflare Pages has
+been retired (the old `apps/flutter/.cloudflare/pages.toml` is removed); to make
+the public name resolve here, repoint `kart.sandring.no` at the cluster the same
+way `kart-api.sandring.no` reaches it.
 
-```bash
-# Generate a random password
-DB_PASSWORD=$(openssl rand -base64 16)
-
-# Create the secret
-kubectl create secret generic db-secrets \
-  --from-literal=postgres-password=$DB_PASSWORD \
-  --namespace default
-  
-# Generate a random JWT key
-JWT_KEY=$(openssl rand -base64 64)
-
-# Generate a secure password for Google OAuth (if needed)
-# Replace these with your actual Google OAuth credentials
-GOOGLE_CLIENT_ID="your-id"
-GOOGLE_CLIENT_SECRET="your-secret"
-
-# Create the auth secrets
-kubectl create secret generic auth-secrets \
-  --from-literal=jwt-key="$JWT_KEY" \
-  --from-literal=google-client-id="$GOOGLE_CLIENT_ID" \
-  --from-literal=google-client-secret="$GOOGLE_CLIENT_SECRET" \
-  --namespace default
-
-# Verify the secret was created
-kubectl get secret auth-secrets
-```
-
-## Step 2: Update Domain Name
-
-Edit the `k8s/overlays/prod/ingress.yaml` file to update your domain:
-
-```yaml
-spec:
-  rules:
-    - host: your-domain.com  # Replace with your actual domain
-```
-
-## Step 3: Deploy with Kustomize
-
-Apply the Kustomize configuration:
+## Bootstrap
 
 ```bash
-kubectl apply -k k8s/overlays/prod/
+kubectl apply -f argocd/root.yaml          # app-of-apps; creates turbo-prod + syncs
+kubectl -n argocd get applications         # turbo-root, turbo-prod -> Synced/Healthy
+kubectl -n turbo-prod get pods             # shared-db + turbo-modulith Running
 ```
 
-## Step 4: Verify Deployment
+The modulith runs every module's EF Core migrations in-process at startup, so
+no migration Jobs are needed. First boot is slower (readiness gives it ~60s).
+
+## Verify
 
 ```bash
-# Check that pods are running
-kubectl get pods
-
-# Verify services
-kubectl get svc
-
-# Check the ingress
-kubectl get ingress
+kubectl -n turbo-prod logs deploy/turbo-modulith | grep -i migrat   # migrations applied
+curl -fsS https://kart-api.sandring.no/api/auth/...                  # via ingress
+kubectl -n turbo-prod exec deploy/shared-db -- psql -U postgres -l   # auth/geo/tracks/... present
 ```
 
-## Troubleshooting
+## Cutover from the legacy stack (DESTRUCTIVE — data is nuked)
 
-### Image Pull Issues
-
-If you see `ImagePullBackOff` errors, you may need to set up registry credentials:
+The old per-service databases are **not** migrated; the shared-db starts empty
+(existing users must re-register). Run only when ready to take the API over.
 
 ```bash
-# If the secret already exists.    
-kubectl delete secret ghcr-auth --namespace default
+# 1. Stop ArgoCD managing the old stack
+kubectl -n argocd delete application turboapi          # legacy imperative app
 
-# Create a docker-registry secret for ghcr.io
-kubectl create secret docker-registry ghcr-auth \
-  --docker-server=ghcr.io \
-  --docker-username=your-github-username \
-  --docker-password=your-github-token \
-  --namespace default
+# 2. Bring up the new stack (if not already)
+kubectl apply -f argocd/root.yaml
 
-# Patch service accounts to use the credentials
-kubectl patch serviceaccount default \
-  -p '{"imagePullSecrets": [{"name": "ghcr-auth"}]}' \
-  --namespace default
- 
+# 3. Once turbo-prod is Healthy and the ingress serves kart-api.sandring.no,
+#    delete the legacy resources in the default namespace:
+kubectl -n default delete deploy turboapi-auth turboapi-geo turboapi-activity \
+                                 auth-db geo-db activity-db nats
+kubectl -n default delete svc  turboapi-auth turboapi-geo turboapi-activity \
+                                 auth-db geo-db activity-db nats \
+                                 prod-turboapi-auth prod-turboapi-geo prod-turboapi-activity \
+                                 prod-auth-db prod-geo-db prod-activity-db prod-kafka
+kubectl -n default delete pvc auth-db-pvc geo-db-pvc activity-db-pvc \
+                                 prod-auth-db-pvc prod-geo-db-pvc prod-activity-db-pvc
+kubectl -n default delete secret db-secrets auth-secrets google-oauth-secrets ghcr-auth prod-db-secrets
 ```
 
+Both ingresses target the same node IP; the new `turbo-ingress` in `turbo-prod`
+takes over once the old one is gone. Confirm DNS/Traefik routing after deletion.
 
+## Rollback
 
-### Database Migration Issues
-
-If the database migrations fail, check the logs of the init containers:
-
-```bash
-kubectl logs pod/prod-turboapi-auth-xxxx -c auth-db-migration
-```
-
-## Upgrading
-
-When you want to upgrade to newer container images:
-
-```bash
-# Update to a specific tag
-kubectl set image deployment/prod-turboapi-auth turboapi-auth=ghcr.io/sigmundgranaas/turboapi-auth:new-tag
-
-# Or simply re-apply the kustomization to pull the 'latest' tag
-kubectl apply -k k8s/overlays/prod/
-```
-
-## Dashboard
-```bash
-kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 8443:443
-```
+The legacy stack is plain Deployments; until the step-3 deletions run, the old
+pods keep serving. To revert before cutover, delete the `turbo-prod`
+Application (`kubectl -n argocd delete application turbo-prod`). After the
+destructive deletions there is no rollback (data is gone) — redeploy from git.

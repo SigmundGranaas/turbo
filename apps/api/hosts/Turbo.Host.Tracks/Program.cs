@@ -12,6 +12,9 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddTurboAuth(builder.Configuration);
 builder.Services.AddTracksModule(builder.Configuration);
+// Standalone Tracks host: wire IAccessControl against the Sharing schema
+// so read/write handlers can consult grants.
+builder.Services.AddTracksAccessControl(builder.Configuration);
 
 builder.Services.AddNatsMessaging(o =>
 {

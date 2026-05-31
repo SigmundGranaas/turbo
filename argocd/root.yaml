@@ -1,0 +1,28 @@
+# App-of-apps root. Apply this ONCE to bootstrap GitOps:
+#   kubectl apply -f argocd/root.yaml
+# Thereafter it syncs every Application manifest under argocd/apps/, so new
+# environments are added purely by committing a file there.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: turbo-root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/SigmundGranaas/turbo.git
+    targetRevision: main
+    path: argocd/apps
+    directory:
+      recurse: true        # also pick up Applications under argocd/apps/infra/
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

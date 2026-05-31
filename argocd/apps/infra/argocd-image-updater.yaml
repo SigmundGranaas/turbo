@@ -1,0 +1,36 @@
+# ArgoCD Image Updater — watches GHCR for new turbo-* image digests and writes
+# them back to git (configured per-app in P4). Runs in the argocd namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-image-updater
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argocd-image-updater
+    targetRevision: 0.12.3
+    helm:
+      values: |
+        config:
+          # write-back via git; per-app annotations select images + branch
+          gitCommitUser: argocd-image-updater
+          gitCommitMail: argocd-image-updater@turbo.local
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

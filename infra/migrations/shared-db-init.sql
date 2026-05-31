@@ -10,6 +10,7 @@
 -- startup (see MigrateModuleDatabaseAsync in src/Shared/Turbo.Hosting.Postgres).
 
 CREATE DATABASE auth;
+CREATE DATABASE sharing;
 CREATE DATABASE geo;
 CREATE DATABASE tracks;
 CREATE DATABASE collections;

@@ -957,7 +957,7 @@ packages:
     source: hosted
     version: "2.2.0"
   package_info_plus:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: package_info_plus
       sha256: "468c26b4254ab01979fa5e4a98cb343ea3631b9acee6f21028997419a80e1a20"
@@ -1068,6 +1068,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.2"
+  photo_manager:
+    dependency: "direct main"
+    description:
+      name: photo_manager
+      sha256: fb3bc8ea653370f88742b3baa304700107c83d12748aa58b2b9f2ed3ef15e6c2
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.9.0"
   platform:
     dependency: transitive
     description:

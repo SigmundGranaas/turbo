@@ -2,6 +2,7 @@ using Turbo.Outbox;
 using Turboapi.Geo.domain.commands;
 using Turboapi.Geo.domain.exception;
 using Turboapi.Geo.domain.query;
+using Turboapi.Sharing;
 
 namespace Turboapi.Geo.domain.handler;
 
@@ -11,15 +12,18 @@ public class UpdateLocationHandler
     private readonly ILocationReadRepository _repository;
     private readonly IOutbox<GeoScope> _outbox;
     private readonly IUnitOfWork<GeoScope> _uow;
+    private readonly IAccessControl _access;
 
     public UpdateLocationHandler(
         ILocationReadRepository repository,
         IOutbox<GeoScope> outbox,
-        IUnitOfWork<GeoScope> uow)
+        IUnitOfWork<GeoScope> uow,
+        IAccessControl access)
     {
         _repository = repository;
         _outbox = outbox;
         _uow = uow;
+        _access = access;
     }
 
     public async Task<Turboapi.Geo.domain.model.Location> Handle(UpdateLocationCommand command)
@@ -30,6 +34,8 @@ public class UpdateLocationHandler
 
         if (command.IfMatchVersion is { } expected && entity.Version != expected)
             throw new OptimisticConcurrencyException(expected, entity.Version);
+
+        await _access.RequireWriteAsync(command.UserId, command.LocationId);
 
         var location = await _repository.GetById(command.LocationId);
         if (location is null)

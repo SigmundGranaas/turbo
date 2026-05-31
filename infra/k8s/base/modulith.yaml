@@ -1,0 +1,149 @@
+# Single-process modular monolith host. Runs every module (auth, sharing,
+# geo, tracks, collections, activities) in one container; events flow
+# in-process (no NATS) and EF Core migrations run at startup
+# (MigrateModuleDatabaseAsync in src/Shared/Turbo.Hosting.Postgres) — so
+# there are no init/migration containers. All module APIs are served under
+# /api/{module} directly, so the ingress targets this Service with no gateway.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turbo-modulith
+  labels:
+    app: turbo-modulith
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0      # zero-downtime: new pod ready before old terminates
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: turbo-modulith
+  template:
+    metadata:
+      labels:
+        app: turbo-modulith
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654                    # matches the chiseled .NET image's app user
+        runAsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ghcr-auth                  # private ghcr.io/sigmundgranaas/turbo-* images
+      containers:
+        - name: turbo-modulith
+          image: turbo-modulith            # registry/tag set per-env via kustomize images:
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            # readOnlyRootFilesystem deferred: .NET writes temp + DataProtection keys.
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: ASPNETCORE_ENVIRONMENT
+            # Per-module connection strings -> single shared-db, one database per module
+            - name: ConnectionStrings__Auth
+              valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-auth } }
+            - name: ConnectionStrings__Sharing
+              valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-sharing } }
+            - name: ConnectionStrings__Geo
+              valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-geo } }
+            - name: ConnectionStrings__Tracks
+              valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-tracks } }
+            - name: ConnectionStrings__Collections
+              valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-collections } }
+            - name: ConnectionStrings__Activities
+              valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-activities } }
+            # CORS / frontend
+            - name: AllowedOrigins
+              valueFrom: { configMapKeyRef: { name: app-config, key: CORS__AllowedOrigins } }
+            - name: FrontendUrl
+              value: "https://kart.sandring.no"
+            # JWT
+            - name: Jwt__Key
+              valueFrom: { secretKeyRef: { name: auth-secrets, key: jwt-key } }
+            - name: Jwt__Issuer
+              valueFrom: { configMapKeyRef: { name: app-config, key: Jwt__Issuer } }
+            - name: Jwt__Audience
+              valueFrom: { configMapKeyRef: { name: app-config, key: Jwt__Audience } }
+            - name: Jwt__TokenExpirationMinutes
+              valueFrom: { configMapKeyRef: { name: app-config, key: Jwt__TokenExpirationMinutes } }
+            - name: Jwt__RefreshTokenExpirationDays
+              valueFrom: { configMapKeyRef: { name: app-config, key: Jwt__RefreshTokenExpirationDays } }
+            # Google OAuth
+            - name: Authentication__Google__ClientId
+              valueFrom: { secretKeyRef: { name: google-oauth-secrets, key: google-client-id } }
+            - name: Authentication__Google__ClientSecret
+              valueFrom: { secretKeyRef: { name: google-oauth-secrets, key: google-client-secret } }
+            - name: Authentication__Google__RedirectUri
+              value: "https://kart-api.sandring.no/api/auth/oauth/google/callback"
+            - name: Authentication__Google__TokenInfoEndpoint
+              valueFrom: { configMapKeyRef: { name: app-config, key: Authentication__Google__TokenInfoEndpoint } }
+            # Cookies
+            - name: COOKIE_DOMAIN
+              value: ".sandring.no"
+            - name: COOKIE_SAME_SITE
+              value: "None"
+            - name: COOKIE_SECURE
+              value: "true"
+            - name: COOKIE_EXPIRY_DAYS
+              value: "7"
+            - name: COOKIE_PATH
+              value: "/"
+            # Observability
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://alloy.observability.svc:4317"   # Alloy OTLP -> Prometheus (traces dropped until Tempo)
+            - name: OTEL_SERVICE_NAME
+              value: "turbo-modulith"
+          startupProbe:               # covers first-boot module migrations (advisory-locked)
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60      # up to ~5m to migrate before liveness/readiness kick in
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turbo-modulith
+  labels:
+    app: turbo-modulith
+spec:
+  selector:
+    app: turbo-modulith
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP

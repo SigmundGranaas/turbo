@@ -1,0 +1,137 @@
+# CloudNativePG-managed Postgres for the modulith. Single instance (the node
+# is single-node — durability comes from R2 backups + PITR, not replicas).
+# Primary datastore for the modulith (migrated off the legacy shared-db).
+#
+# Backups: in-tree barman-cloud -> Cloudflare R2 (turbo-db-backups), daily
+# base backup + continuous WAL archiving = point-in-time recovery.
+# (The barman-cloud *plugin* is CNPG's newer path but needs cert-manager,
+#  which this constrained node can't host yet — revisit when capacity grows.)
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: turbo-db
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgis:17-3.5
+
+  bootstrap:
+    initdb:
+      database: app           # placeholder primary db; real module DBs are the Database CRDs below
+      owner: app
+
+  storage:
+    size: 3Gi                 # local-path is thin-provisioned; module data is ~50MB total
+  walStorage:
+    size: 2Gi                 # separate WAL volume (CNPG best practice); WAL also archived to R2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 640Mi
+
+  # Tuned small for the shared node.
+  postgresql:
+    parameters:
+      shared_buffers: "128MB"
+      max_connections: "100"
+
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://turbo-db-backups/"
+      endpointURL: "https://ab82d920d2b19b70985673b43e474dd8.r2.cloudflarestorage.com"
+      s3Credentials:
+        accessKeyId:
+          name: r2-backup-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: r2-backup-creds
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+---
+# Daily base backup (WAL is archived continuously by the cluster above).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: turbo-db-daily
+spec:
+  schedule: "0 0 3 * * *"     # 03:00 every day (CNPG uses 6-field cron incl. seconds)
+  backupOwnerReference: self
+  cluster:
+    name: turbo-db
+---
+# Per-module databases (CNPG manages one primary db per cluster; the rest are
+# declared as Database objects). PostGIS enabled where the modules need it.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: turbo-db-auth
+spec:
+  cluster:
+    name: turbo-db
+  name: auth
+  owner: app
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: turbo-db-sharing
+spec:
+  cluster:
+    name: turbo-db
+  name: sharing
+  owner: app
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: turbo-db-geo
+spec:
+  cluster:
+    name: turbo-db
+  name: geo
+  owner: app
+  extensions:
+    - name: postgis
+      ensure: present
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: turbo-db-tracks
+spec:
+  cluster:
+    name: turbo-db
+  name: tracks
+  owner: app
+  extensions:
+    - name: postgis
+      ensure: present
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: turbo-db-collections
+spec:
+  cluster:
+    name: turbo-db
+  name: collections
+  owner: app
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: turbo-db-activities
+spec:
+  cluster:
+    name: turbo-db
+  name: activities
+  owner: app
+  extensions:
+    - name: postgis
+      ensure: present

@@ -18,6 +18,10 @@
     <ProjectReference Include="..\Turbo.Collections.Core\Turbo.Collections.Core.csproj" />
     <ProjectReference Include="..\Turbo.Collections.Contracts\Turbo.Collections.Contracts.csproj" />
     <ProjectReference Include="..\Turbo.Collections.Infrastructure\Turbo.Collections.Infrastructure.csproj" />
+    <!-- For wiring IAccessControl + SharingReadContext in the modulith. The
+         standalone Collections host registers its own access-control adapter
+         instead of pulling Sharing.Infrastructure in. -->
+    <ProjectReference Include="..\..\Sharing\Turbo.Sharing.Infrastructure\Turbo.Sharing.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Shared\Turbo.Messaging.Nats\Turbo.Messaging.Nats.csproj" />
     <ProjectReference Include="..\..\..\TurboAuthentication\TurboAuthentication.csproj" />
   </ItemGroup>

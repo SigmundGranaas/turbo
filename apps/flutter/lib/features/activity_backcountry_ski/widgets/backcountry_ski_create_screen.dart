@@ -42,6 +42,7 @@ class _BackcountrySkiCreateScreenState
   final _elevMax = TextEditingController(text: '1700');
   AtesRating _ates = AtesRating.challenging;
   Aspect _aspect = Aspect.n;
+  int? _preferredAvalancheMaxLevel;
   bool _saving = false;
 
   @override
@@ -58,6 +59,7 @@ class _BackcountrySkiCreateScreenState
       _elevMax.text = e.details.elevationMaxMeters.toString();
       _ates = e.details.atesRating;
       _aspect = e.details.dominantAspect ?? Aspect.n;
+      _preferredAvalancheMaxLevel = e.details.preferredAvalancheMaxLevel;
       _drawnRoute = List<LatLng>.from(e.route);
     }
   }
@@ -181,6 +183,31 @@ class _BackcountrySkiCreateScreenState
                     .toList(),
                 onChanged: (v) => setState(() => _aspect = v ?? Aspect.n),
               ),
+              const SizedBox(height: 16),
+              Text('Max acceptable avalanche danger',
+                  style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 4),
+              Text(
+                'Used to flag the route when the Varsom forecast exceeds this level.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 4),
+              DropdownButtonFormField<int?>(
+                initialValue: _preferredAvalancheMaxLevel,
+                decoration:
+                    const InputDecoration(border: OutlineInputBorder()),
+                items: const [
+                  DropdownMenuItem<int?>(value: null, child: Text('Any')),
+                  DropdownMenuItem<int?>(value: 1, child: Text('1 — Low')),
+                  DropdownMenuItem<int?>(value: 2, child: Text('2 — Moderate')),
+                  DropdownMenuItem<int?>(
+                      value: 3, child: Text('3 — Considerable')),
+                  DropdownMenuItem<int?>(value: 4, child: Text('4 — High')),
+                  DropdownMenuItem<int?>(value: 5, child: Text('5 — Extreme')),
+                ],
+                onChanged: (v) =>
+                    setState(() => _preferredAvalancheMaxLevel = v),
+              ),
               const SizedBox(height: 12),
               ListTile(
                 leading: const Icon(Icons.flag_outlined),
@@ -241,6 +268,7 @@ class _BackcountrySkiCreateScreenState
         elevationMaxMeters: int.parse(_elevMax.text),
         atesRating: _ates,
         dominantAspect: _aspect,
+        preferredAvalancheMaxLevel: _preferredAvalancheMaxLevel,
       );
       final repo = ref.read(backcountrySkiRepositoryProvider);
       final existing = widget.existing;
