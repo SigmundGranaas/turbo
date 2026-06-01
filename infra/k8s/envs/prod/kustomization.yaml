@@ -11,9 +11,6 @@ resources:
   - sealed-secrets-db.yaml       # db-secrets -> turbo-db-rw (CNPG), app role
   - r2-backup-sealedsecret.yaml  # R2 creds for CNPG barman backups (r2-backup-creds)
   - turbo-db-app-sealedsecret.yaml  # CNPG app-role creds (adopted by turbo-db Cluster)
-  # One-shot: reassign legacy-owned module-DB objects to `app`. Remove once
-  # the modulith is healthy.
-  - modulith-db-reassign-job.yaml
   # ── Routing (tileserver) — LIVE ──────────────────────────────────────
   # CNPG owns the tiles-db `app` credential (its auto-generated
   # `tiles-db-app` secret); the tileserver reads its `uri` key directly,
