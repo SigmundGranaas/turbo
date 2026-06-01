@@ -40,6 +40,32 @@ spec:
       memory: 256Mi
     limits:
       memory: 1Gi
+---
+# Extensions for the tiles DB, created by CNPG (the operator runs them with
+# the privileges the `app` role lacks). The tileserver migrations do
+# `CREATE EXTENSION IF NOT EXISTS {postgis,pgrouting,postgis_raster,pg_trgm}`
+# as the unprivileged `app` role — postgis/pgrouting/postgis_raster are
+# *untrusted* so app can't create them itself, but if CNPG already created
+# them the IF NOT EXISTS is a privilege-free no-op, so migrations pass.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: tiles-db-tiles
+spec:
+  cluster:
+    name: tiles-db
+  name: tiles
+  owner: app
+  ensure: present
+  extensions:
+    - name: postgis
+      ensure: present
+    - name: pgrouting
+      ensure: present
+    - name: postgis_raster
+      ensure: present
+    - name: pg_trgm
+      ensure: present
 
   postgresql:
     parameters:

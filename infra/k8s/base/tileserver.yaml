@@ -95,15 +95,13 @@ spec:
               value: "info,tower_http=warn,sqlx=warn"
             - name: TILESERVER_ARTIFACT_DIR
               value: "/artifacts"
-            # Off for now: the migrations build the DB graph-routing /
-            # tile schema (one needs the `pgrouting` extension, which the
-            # app role can't create and may not be in the postgis image).
-            # The curated /v1/route/* API solves from the on-disk artifacts,
-            # not the DB, so it doesn't need the schema. Re-enable once a
-            # pgrouting-capable image + superuser extension path is set up
-            # (for MVT tile serving / legacy graph routing).
+            # Migrations build the DB graph-routing / tile schema. They
+            # CREATE EXTENSION IF NOT EXISTS {postgis,pgrouting,postgis_raster,
+            # pg_trgm}; the untrusted ones are pre-created by CNPG (the
+            # `tiles-db-tiles` Database resource), so the IF NOT EXISTS calls
+            # no-op for the unprivileged `app` role and migrations pass.
             - name: AUTO_MIGRATE
-              value: "false"
+              value: "true"
             # CNPG owns the tiles-db `app` credential and publishes a
             # ready-made connection URI in its `tiles-db-app` secret
             # (`uri` key = postgresql://app:<pw>@tiles-db-rw:5432/tiles).
