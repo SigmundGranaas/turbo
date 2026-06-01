@@ -11,19 +11,10 @@ resources:
   - sealed-secrets-db.yaml       # db-secrets -> turbo-db-rw (CNPG), app role
   - r2-backup-sealedsecret.yaml  # R2 creds for CNPG barman backups (r2-backup-creds)
   - turbo-db-app-sealedsecret.yaml  # CNPG app-role creds (adopted by turbo-db Cluster)
-  # ── Routing (tileserver) — FLIP TO DEPLOY (see README-tileserver.md) ──
-  # Prereqs: rsync the artifacts to /mnt/tiles-artifacts on the node, then
-  # seal the two tiles-DB secrets. Then uncomment these (and the resources
-  # in ../../base/kustomization.yaml):
-  #   tileserver-artifacts-pv.yaml     — hostPath PV → /mnt/tiles-artifacts
-  #   tiles-db-app-sealedsecret.yaml   — CNPG app-role creds for tiles-db
-  #                                       (Secret `tiles-db-app`, basic-auth)
-  #   tiles-db-secrets-sealedsecret.yaml — Secret `tiles-db-secrets`, key
-  #                                       `connectionstring` =
-  #                                       postgres://app:<pwd>@tiles-db-rw:5432/tiles
-  # - tileserver-artifacts-pv.yaml
-  # - tiles-db-app-sealedsecret.yaml
-  # - tiles-db-secrets-sealedsecret.yaml
+  # ── Routing (tileserver) — LIVE ──────────────────────────────────────
+  - tileserver-artifacts-pv.yaml      # hostPath PV → /mnt/tiles-artifacts
+  - tiles-db-app-sealedsecret.yaml    # CNPG app-role creds for tiles-db
+  - tiles-db-secrets-sealedsecret.yaml  # tileserver DATABASE_URL
 
 labels:
   - pairs:
@@ -42,7 +33,6 @@ images:
   - name: turbo-web
     newName: ghcr.io/sigmundgranaas/turbo-web
     newTag: latest
-  # Routing (tileserver) — uncomment together with the resources above.
-  # - name: turbo-tileserver
-  #   newName: ghcr.io/sigmundgranaas/turbo-tileserver
-  #   newTag: latest
+  - name: turbo-tileserver
+    newName: ghcr.io/sigmundgranaas/turbo-tileserver
+    newTag: latest
