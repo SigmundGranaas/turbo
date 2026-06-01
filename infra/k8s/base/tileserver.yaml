@@ -125,13 +125,15 @@ spec:
             failureThreshold: 4
           resources:
             requests:
-              memory: "1Gi"             # mmap pages are reclaimable; RSS grows under load
+              memory: "512Mi"           # mmap pages are reclaimable; resident set is heap + hot DEM pages
               cpu: "250m"
             limits:
-              # The DEM is mmap'd (not all resident), but a Norway-wide
-              # solve touches large regions. Tune against real usage;
-              # the plan flags a possible dedicated node.
-              memory: "6Gi"
+              # Sized for this 5.7Gi node + the namespace ResourceQuota
+              # (limits.memory cap 6Gi, ~3Gi already used). The DEM is
+              # mmap'd, so cold pages evict to disk (SSD) under pressure —
+              # the working set is the solve corridor, not all of Norway.
+              # Bump (with the quota + node RAM) if big routes get OOMKilled.
+              memory: "1536Mi"
               cpu: "2000m"
           volumeMounts:
             - name: artifacts
