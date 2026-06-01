@@ -14,6 +14,13 @@ spec:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgis:17-3.5
 
+  # Superuser (postgres) credential, published as the `turbo-db-superuser`
+  # secret. Needed for the one-shot ownership-reassignment Job that fixes
+  # the legacy→CNPG object-owner mismatch (objects owned by a non-`app`
+  # role, blocking the modulith's EF migrations). Consider flipping back to
+  # false once that's settled.
+  enableSuperuserAccess: true
+
   bootstrap:
     initdb:
       database: app           # placeholder primary db; real module DBs are the Database CRDs below
