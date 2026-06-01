@@ -57,6 +57,7 @@ spec:
   name: tiles
   owner: app
   ensure: present
+  databaseReclaimPolicy: retain   # never drop the DB if this CR is removed
   extensions:
     - name: postgis
       ensure: present
