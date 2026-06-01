@@ -97,10 +97,13 @@ spec:
               value: "/artifacts"
             - name: AUTO_MIGRATE
               value: "true"
-            # Tiles Postgres (PostGIS). Must be provisioned + ingested
-            # before this deploy is wired in — see README-tileserver.md.
+            # CNPG owns the tiles-db `app` credential and publishes a
+            # ready-made connection URI in its `tiles-db-app` secret
+            # (`uri` key = postgresql://app:<pw>@tiles-db-rw:5432/tiles).
+            # Point straight at it so the password always matches what
+            # CNPG actually set — no separately-sealed secret to drift.
             - name: DATABASE_URL
-              valueFrom: { secretKeyRef: { name: tiles-db-secrets, key: connectionstring } }
+              valueFrom: { secretKeyRef: { name: tiles-db-app, key: uri } }
             - name: PUBLIC_BASE_URL
               value: "https://kart-api.sandring.no/api/route"
             # AuthConfig::from_env requires a secret even though the
