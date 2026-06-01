@@ -125,7 +125,6 @@ pub async fn upsert_vegnett(pool: &DbPool) -> Result<JobOutcome, JobError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn upsert_sql_files_all_baked() {

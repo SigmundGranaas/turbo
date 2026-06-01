@@ -1779,7 +1779,9 @@ pub struct Inspect {
 
 struct OffTrailSegment {
     geometry: Vec<Point2>,
-    /// Geometric length of the segment.
+    /// Geometric length of the segment. Kept for parity with the merged
+    /// `Path` legs; not currently read on its own.
+    #[allow(dead_code)]
     length_m: f64,
     /// Cost-weighted A* score, same units as graph router output.
     cost: f64,
@@ -1797,7 +1799,6 @@ struct OffTrailSegment {
 /// visibly straight line in MapLibre. Densifying just for the
 /// returned polyline gives the curator a visualisation that matches
 /// the mesh resolution without changing routing cost or length.
-
 fn cumulative_distances_utm(pts: &[Point2]) -> (Vec<f64>, f64) {
     let mut distances = Vec::with_capacity(pts.len());
     let mut total = 0.0;

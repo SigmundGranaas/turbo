@@ -409,15 +409,16 @@ impl MaskRefusalContributor {
         if !matches!(self.mask.refused(x, y), Ok(RefusalKind::Water)) {
             return WaterState::NotWater;
         }
+        use std::f64::consts::FRAC_1_SQRT_2 as D;
         const DIRS: [(f64, f64); 8] = [
             (1.0, 0.0),
             (-1.0, 0.0),
             (0.0, 1.0),
             (0.0, -1.0),
-            (0.7071, 0.7071),
-            (-0.7071, 0.7071),
-            (0.7071, -0.7071),
-            (-0.7071, -0.7071),
+            (D, D),
+            (-D, D),
+            (D, -D),
+            (-D, -D),
         ];
         // Hole-robust shore test: a cell is "shoreline" (passable) only if
         // genuine land lies within the band in some direction. We sample
@@ -550,7 +551,8 @@ impl CostContributor for ContourCrossingContributor {
             zs.push(self.dem.sample(PointXY { x, y }).ok().flatten());
         }
         // Need endpoint elevations to define the linear interp.
-        let (Some(z0), Some(zN)) = (zs.first().and_then(|z| *z), zs.last().and_then(|z| *z)) else {
+        let (Some(z0), Some(z_n)) = (zs.first().and_then(|z| *z), zs.last().and_then(|z| *z))
+        else {
             return 0.0;
         };
         let mut sum_sq = 0.0f64;
@@ -558,7 +560,7 @@ impl CostContributor for ContourCrossingContributor {
         for (i, z) in zs.iter().enumerate().skip(1).take(n.saturating_sub(1)) {
             let Some(zv) = z else { continue };
             let t = i as f64 / n as f64;
-            let z_lin = z0 as f64 + t * (zN - z0) as f64;
+            let z_lin = z0 as f64 + t * (z_n - z0) as f64;
             let dev = *zv as f64 - z_lin;
             sum_sq += dev * dev;
             count += 1;

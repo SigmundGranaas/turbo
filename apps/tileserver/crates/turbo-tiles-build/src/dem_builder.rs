@@ -238,7 +238,7 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<DemBuildReport, Buil
         uncompressed_bytes += raw_bytes.len() as u64;
         compressed_bytes += comp_len as u64;
         tiles_written += 1;
-        if tiles_written % 1000 == 0 {
+        if tiles_written.is_multiple_of(1000) {
             info!(tiles_written, "DEM build progress");
         }
     }

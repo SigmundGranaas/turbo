@@ -478,8 +478,8 @@ fn profile_cost(e: &EdgeRecord, profile_id: u32) -> f32 {
 /// through 1 km of N50 road sees an effective 1.6 km cost — making
 /// Dijkstra naturally prefer a slightly longer trail-based route.
 ///
-/// Values are conservative defaults intended for hiking + cycling
-/// + cross-country skiing. The trait-based `CostLayer` system lets
+/// Values are conservative defaults intended for hiking, cycling,
+/// and cross-country skiing. The trait-based `CostLayer` system lets
 /// callers reweight or veto edges per-request without rebuilding
 /// the artifact (see `PreferredEdgeLayer` / `MarkingLayer`).
 fn surface_multiplier(fkb_type: u8, profile_id: u32) -> f32 {

@@ -60,12 +60,8 @@ impl MeshBbox {
         if cell_m <= 0.0 || !self.is_valid() {
             return (0, 0);
         }
-        let nx = (((self.max_x - self.min_x) / cell_m).ceil() as i64)
-            .max(2)
-            .min(400);
-        let ny = (((self.max_y - self.min_y) / cell_m).ceil() as i64)
-            .max(2)
-            .min(400);
+        let nx = (((self.max_x - self.min_x) / cell_m).ceil() as i64).clamp(2, 400);
+        let ny = (((self.max_y - self.min_y) / cell_m).ceil() as i64).clamp(2, 400);
         (nx as u32, ny as u32)
     }
 }

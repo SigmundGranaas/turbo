@@ -128,7 +128,6 @@ pub async fn upsert(pool: &DbPool) -> Result<JobOutcome, JobError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn upsert_sql_handles_norwegian_mark_colours() {

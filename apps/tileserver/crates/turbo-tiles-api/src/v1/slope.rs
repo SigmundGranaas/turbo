@@ -108,12 +108,11 @@ pub async fn along(
         let t = i as f64 / (nsteps - 1) as f64;
         let d = t * total;
         let mut seg_idx = 0;
-        for j in 1..seg_lens.len() {
-            if d <= seg_lens[j] + 1e-6 {
-                seg_idx = j - 1;
+        for (j, &len) in seg_lens.iter().enumerate().skip(1) {
+            seg_idx = j - 1;
+            if d <= len + 1e-6 {
                 break;
             }
-            seg_idx = j - 1;
         }
         let a = projected[seg_idx];
         let b = projected[seg_idx + 1];

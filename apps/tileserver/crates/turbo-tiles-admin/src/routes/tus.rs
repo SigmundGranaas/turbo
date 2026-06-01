@@ -453,7 +453,7 @@ fn free_disk_bytes(path: &Path) -> Option<u64> {
         if rc != 0 {
             return None;
         }
-        Some(u64::from(stat.f_bavail) * u64::from(stat.f_frsize))
+        Some(u64::from(stat.f_bavail) * stat.f_frsize)
     }
     #[cfg(not(unix))]
     {

@@ -440,11 +440,8 @@ pub(crate) fn solve_unified(
         // Split indices: both junctions + interior vertices inside the corridor.
         let last = poly.len() - 1;
         let mut splits = vec![0usize];
-        for k in 1..last {
-            if corr
-                .world_to_cell(poly[k].x as f64, poly[k].y as f64)
-                .is_some()
-            {
+        for (k, p) in poly.iter().enumerate().take(last).skip(1) {
+            if corr.world_to_cell(p.x as f64, p.y as f64).is_some() {
                 splits.push(k);
             }
         }
@@ -757,8 +754,8 @@ pub(crate) fn solve_unified(
             let fkb = graph.edge(eid).map(|e| e.fkb_type).unwrap_or(0);
             let poly = graph.edge_polyline(eid);
             if kf <= kt {
-                for k in (kf as usize + 1)..=(kt as usize) {
-                    geom.push((poly[k].x as f64, poly[k].y as f64));
+                for p in &poly[(kf as usize + 1)..=(kt as usize)] {
+                    geom.push((p.x as f64, p.y as f64));
                     on_trail.push(true);
                     on_fkb.push(fkb);
                 }

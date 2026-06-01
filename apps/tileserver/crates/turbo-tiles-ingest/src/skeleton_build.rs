@@ -189,6 +189,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::assertions_on_constants)] // guards the const length bounds against drift
     fn length_bounds_are_reasonable() {
         // The min must exclude near-zero pairs (sub-200m) and the max
         // must keep off-trail routing local (<4km). If these drift

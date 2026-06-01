@@ -8,6 +8,20 @@
 //! - Theta\* + local mesh builder live in `core::off_trail*`. Pure;
 //!   no I/O.
 
+// Design-level clippy lints we deliberately accept crate-wide:
+//  - type_complexity: the cost layers store boxed closures
+//    (`Box<dyn Fn(..., &AttrView, Profile) -> f64 + Send + Sync>`) — naming
+//    each via a type alias hurts more than it helps.
+//  - arc_with_non_send_sync: the solver recorder/tracer Arcs are
+//    thread-local plumbing; Arc keeps the API uniform.
+//  - too_many_arguments: a couple of internal solve entry points thread
+//    many tuning knobs; grouping them into a struct is a separate refactor.
+#![allow(
+    clippy::type_complexity,
+    clippy::arc_with_non_send_sync,
+    clippy::too_many_arguments
+)]
+
 pub mod config;
 pub mod contributor;
 pub mod core;

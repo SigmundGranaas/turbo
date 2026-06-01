@@ -21,10 +21,7 @@
 use std::path::PathBuf;
 
 use turbo_tiles_db::{DbConfig, DbPool};
-use turbo_tiles_ingest::{
-    job::{JobName, JobOptions},
-    n50, pgdump_load, run_job_with_options, turbase,
-};
+use turbo_tiles_ingest::{n50, pgdump_load, turbase};
 
 /// Connect to the test DB or skip the test. Reads from
 /// `INGEST_TEST_DATABASE_URL` (or falls back to the local docker

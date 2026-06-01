@@ -239,7 +239,7 @@ mod tests {
         // geographic point as the no-halo image's pixel (0, 0). This
         // is the contract that lets the GPU consumer crop to the
         // interior and still get the legacy tile content.
-        let z = 11;
+        let _z = 11;
         let x = 1054;
         let y = 590;
         for halo in [1u32, 2, 4] {
@@ -259,7 +259,7 @@ mod tests {
         // geographic envelope — that's the whole point. Verifies the
         // sampler actually reaches the neighbour's terrain rather
         // than re-sampling this tile's edge.
-        let z = 11;
+        let _z = 11;
         let x = 1054;
         let y = 590;
         let halo: u32 = 1;

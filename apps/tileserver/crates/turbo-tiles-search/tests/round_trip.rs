@@ -5,6 +5,7 @@ use turbo_tiles_search::{
     write_meta, AnchorKind, AnchorRecord, AnchorsMeta, Index, SEARCH_FORMAT_VERSION,
 };
 
+#[allow(clippy::type_complexity)] // test helper: a flat tuple per anchor row reads fine
 fn write_artifact(
     path: &std::path::Path,
     anchors: &[(u64, AnchorKind, f32, f32, f32, Option<&str>)],

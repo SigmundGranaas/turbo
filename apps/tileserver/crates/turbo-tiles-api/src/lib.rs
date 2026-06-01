@@ -1,3 +1,8 @@
+// The solver recorder/tracer Arcs that reach the streaming pathfind /
+// route handlers are thread-local plumbing (their inner type isn't
+// Send+Sync); Arc keeps the recorder API uniform across call sites.
+#![allow(clippy::arc_with_non_send_sync)]
+
 pub mod crash_dump;
 pub mod error;
 pub mod state;

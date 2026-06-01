@@ -139,7 +139,7 @@ pub async fn pathfind(
     // debug binary. See `crash_dump.rs`.
     let req_json = serde_json::json!({
         "points": points,
-        "prefs": serde_json::to_value(&PrefsEcho::from(&prefs)).unwrap_or_default(),
+        "prefs": serde_json::to_value(PrefsEcho::from(&prefs)).unwrap_or_default(),
     });
     let points_for_solve = points.clone();
     let solve_result = run_or_dump("/v1/pathfind", req_json, move || {

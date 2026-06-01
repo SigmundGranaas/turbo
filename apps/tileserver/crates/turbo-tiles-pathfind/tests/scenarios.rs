@@ -23,6 +23,7 @@
 //! Override the host with `TURBO_TEST_HOST=http://...`. The test
 //! also accepts `TURBO_TEST_SCENARIO=<substring>` to run a single
 //! scenario by name match (useful when iterating on one case).
+#![allow(dead_code)] // some parsed scenario fields are for documentation/future asserts
 
 use std::time::Duration;
 

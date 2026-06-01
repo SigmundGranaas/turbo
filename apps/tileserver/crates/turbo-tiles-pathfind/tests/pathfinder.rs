@@ -1,4 +1,7 @@
 //! Pathfinder composition tests against synthetic artifacts.
+// Test scaffolding: not every helper is used by every test, and
+// `Default` + field tweaks reads clearer than full struct literals here.
+#![allow(dead_code, clippy::field_reassign_with_default)]
 
 use std::io::Write;
 use std::sync::Arc;

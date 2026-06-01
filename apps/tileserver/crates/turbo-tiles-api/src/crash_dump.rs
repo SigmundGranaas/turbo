@@ -145,9 +145,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         std::env::set_var("TURBO_CRASH_DIR", tmp.path());
         let req = serde_json::json!({"from": [0.0, 0.0], "to": [1.0, 1.0]});
-        let err = run_or_dump::<_, i32>("/v1/test", req, || panic!("boom"))
-            .err()
-            .expect("should panic");
+        let err =
+            run_or_dump::<_, i32>("/v1/test", req, || panic!("boom")).expect_err("should panic");
         assert!(err.message.contains("boom"));
         let dumped = err.dump_path.expect("dump file written");
         assert!(dumped.exists());

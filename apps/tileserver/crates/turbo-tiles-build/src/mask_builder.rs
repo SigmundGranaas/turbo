@@ -239,7 +239,7 @@ pub async fn build_from_polygons(
             };
             polygon_count += 1;
             scanline_fill(&poly, 1u8, &mut cells, cells_x, cells_y, min_x, max_y, res);
-            if polygon_count % 50_000 == 0 {
+            if polygon_count.is_multiple_of(50_000) {
                 info!(name, polygon_count, "polygon-mask progress");
             }
         }
@@ -322,7 +322,7 @@ pub async fn build_landcover(
     let res = DEFAULT_RESOLUTION_M as f64;
     let tile_align = res;
 
-    let ext = sqlx::query(&format!(
+    let ext = sqlx::query(
         r#"
             SELECT
               MIN(ST_XMin(geom))::float8 AS min_x,
@@ -331,8 +331,8 @@ pub async fn build_landcover(
               MAX(ST_YMax(geom))::float8 AS max_y
             FROM terrain.landcover_patch
             WHERE class = $1
-            "#
-    ))
+            "#,
+    )
     .bind(class)
     .fetch_one(pool)
     .await?;
@@ -361,10 +361,9 @@ pub async fn build_landcover(
     // Stream + scanline-fill — same code path as the water/glacier
     // mask. Filtering by class keeps the SQL streaming and only
     // pulls the rows we need.
-    let sql = format!(
-        "SELECT ST_AsBinary((ST_Dump(geom)).geom) AS wkb \
+    let sql = "SELECT ST_AsBinary((ST_Dump(geom)).geom) AS wkb \
          FROM terrain.landcover_patch WHERE class = $1"
-    );
+        .to_string();
     let mut rows = sqlx::query(&sql).bind(class).fetch(pool);
     let mut polygon_count: u32 = 0;
     while let Some(row) = rows.try_next().await? {
@@ -374,7 +373,7 @@ pub async fn build_landcover(
         };
         polygon_count += 1;
         scanline_fill(&poly, 1u8, &mut cells, cells_x, cells_y, min_x, max_y, res);
-        if polygon_count % 50_000 == 0 {
+        if polygon_count.is_multiple_of(50_000) {
             info!(class, polygon_count, "landcover progress");
         }
     }
@@ -619,7 +618,7 @@ async fn rasterise_layer(
         };
         polygon_count += 1;
         scanline_fill(&poly, v, cells, cells_x, cells_y, min_x, max_y, res);
-        if polygon_count % 10_000 == 0 {
+        if polygon_count.is_multiple_of(10_000) {
             info!(table, polygon_count, "mask layer progress");
         }
     }

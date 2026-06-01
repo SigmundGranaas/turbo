@@ -90,13 +90,15 @@ pub async fn plan(
         ));
     }
 
-    let mut prefs = Prefs::default();
-    prefs.profile = match req.profile.as_deref() {
+    let profile = match req.profile.as_deref() {
         Some("bicycle") => Profile::Bicycle,
         Some("ski") => Profile::Ski,
         _ => Profile::Foot,
     };
-    let profile = prefs.profile;
+    let mut prefs = Prefs {
+        profile,
+        ..Default::default()
+    };
     // Default to the "balanced" preset (the app's default) when omitted.
     let preset = req.preset.clone().or_else(|| Some("balanced".to_string()));
     apply_preset(&state, &preset, &mut prefs).map_err(ApiError::BadRequest)?;
@@ -130,13 +132,15 @@ pub async fn plan_stream(
         return sse_error("`points` needs at least 2 entries".to_string());
     }
 
-    let mut prefs = Prefs::default();
-    prefs.profile = match req.profile.as_deref() {
+    let profile = match req.profile.as_deref() {
         Some("bicycle") => Profile::Bicycle,
         Some("ski") => Profile::Ski,
         _ => Profile::Foot,
     };
-    let profile = prefs.profile;
+    let mut prefs = Prefs {
+        profile,
+        ..Default::default()
+    };
     let preset = req.preset.clone().or_else(|| Some("balanced".to_string()));
     if let Err(msg) = apply_preset(&state, &preset, &mut prefs) {
         return sse_error(msg);

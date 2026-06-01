@@ -196,15 +196,16 @@ mod tests {
         // The exit gets cost_mul=0.5 but its neighbouring grid cells
         // are refused, so Theta* has no edge to traverse. The function
         // must return None instead of crashing.
-        let mut nodes = Vec::new();
-        nodes.push(MeshNode {
-            pt: pt(0.0, 0.0),
-            cost_mul: 1.0,
-        });
-        nodes.push(MeshNode {
-            pt: pt(100.0, 0.0),
-            cost_mul: 0.5, // exit
-        });
+        let nodes = vec![
+            MeshNode {
+                pt: pt(0.0, 0.0),
+                cost_mul: 1.0,
+            },
+            MeshNode {
+                pt: pt(100.0, 0.0),
+                cost_mul: 0.5, // exit
+            },
+        ];
         // No edges between them — they're in separate components.
         let mesh = Mesh::new(nodes);
         let mut exits = std::collections::HashMap::new();

@@ -486,7 +486,7 @@ pub fn audit_vector_layer(name: &str, feature_count: u32, total_vertices: u32) -
                     .to_string(),
             ),
         });
-    } else if feature_count > 0 && total_vertices < (feature_count as u32 * 2) {
+    } else if feature_count > 0 && total_vertices < (feature_count * 2) {
         // Polygons need ≥3 vertices, lines need ≥2. If the ratio
         // is under 2 something went wrong at parse time.
         issues.push(HealthIssue {
