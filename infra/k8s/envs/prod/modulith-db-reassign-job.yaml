@@ -52,19 +52,31 @@ spec:
               # system objects). Instead, ALTER ownership of only the
               # user objects in the public schema (tables/sequences/views)
               # to `app`, generated via format() and piped back into psql.
+              # Cover ALL user schemas (some modules — e.g. activities —
+              # pin their tables to a per-module schema, not public), plus
+              # every table/sequence/view in them. Generated via format()
+              # and piped back into psql.
               for DB in auth sharing geo tracks collections activities; do
                 echo "== ${DB} =="
                 psql -tAqc "
+                  SELECT format('ALTER SCHEMA %I OWNER TO app;', nspname)
+                    FROM pg_namespace
+                    WHERE nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+                      AND nspname NOT LIKE 'pg_%'
+                  UNION ALL
+                  SELECT format('GRANT ALL ON SCHEMA %I TO app;', nspname)
+                    FROM pg_namespace
+                    WHERE nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+                      AND nspname NOT LIKE 'pg_%'
+                  UNION ALL
                   SELECT format('ALTER TABLE %I.%I OWNER TO app;', schemaname, tablename)
-                    FROM pg_tables WHERE schemaname='public'
+                    FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')
                   UNION ALL
                   SELECT format('ALTER SEQUENCE %I.%I OWNER TO app;', sequence_schema, sequence_name)
-                    FROM information_schema.sequences WHERE sequence_schema='public'
+                    FROM information_schema.sequences WHERE sequence_schema NOT IN ('pg_catalog','information_schema')
                   UNION ALL
                   SELECT format('ALTER VIEW %I.%I OWNER TO app;', table_schema, table_name)
-                    FROM information_schema.views WHERE table_schema='public'
+                    FROM information_schema.views WHERE table_schema NOT IN ('pg_catalog','information_schema')
                 " "$DB" | psql -v ON_ERROR_STOP=1 -b "$DB"
-                psql -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO app" "$DB"
-                psql -v ON_ERROR_STOP=1 -c "GRANT ALL ON SCHEMA public TO app" "$DB"
               done
               echo "ownership reassignment complete"
