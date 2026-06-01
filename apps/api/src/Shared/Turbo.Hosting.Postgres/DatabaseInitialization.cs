@@ -91,6 +91,26 @@ public static class DatabaseInitialization
         // every operator add explicit `depends_on` per topology.
         await OpenWithRetryAsync(conn, logger, cancellationToken);
 
+        // Skip CREATE when the database already exists. In production the
+        // module databases are provisioned externally (CNPG `Database`
+        // resources), and the connecting role deliberately lacks CREATEDB —
+        // so issuing CREATE DATABASE would fail with 42501 (permission
+        // denied) *before* Postgres reports the database as a duplicate,
+        // crashing startup. Checking first lets us coexist with an
+        // externally-managed cluster while still self-creating the DBs on a
+        // fresh local stack (where the role can create).
+        await using (var check = conn.CreateCommand())
+        {
+            check.CommandText = "SELECT 1 FROM pg_database WHERE datname = @db";
+            check.Parameters.AddWithValue("db", targetDb);
+            if (await check.ExecuteScalarAsync(cancellationToken) is not null)
+            {
+                logger?.LogInformation(
+                    "Database {Database} already exists; skipping create", targetDb);
+                return;
+            }
+        }
+
         await using var cmd = conn.CreateCommand();
         // Identifier must be inlined, not parameterised — Postgres does not
         // allow parameters in CREATE DATABASE.
@@ -102,7 +122,7 @@ public static class DatabaseInitialization
         }
         catch (PostgresException ex) when (ex.SqlState == "42P04")
         {
-            // 42P04 = duplicate_database; already exists, nothing to do.
+            // 42P04 = duplicate_database; created concurrently, nothing to do.
         }
     }
 
