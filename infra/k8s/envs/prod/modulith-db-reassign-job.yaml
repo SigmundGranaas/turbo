@@ -1,0 +1,60 @@
+# One-shot remediation: reassign ownership of every object in each module
+# database to `app`.
+#
+# The legacy→CNPG migration left the module-DB objects owned by a non-`app`
+# role, so the modulith (which connects as `app`) hit "permission denied
+# for table __EFMigrationsHistory" and crash-looped. This Job runs as the
+# CNPG superuser and reassigns all object ownership to `app`, preserving
+# data. Idempotent — re-running finds nothing to reassign.
+#
+# Remove this file once the modulith is healthy (and optionally flip
+# enableSuperuserAccess back to false on turbo-db).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: modulith-db-reassign-owners
+  labels:
+    app: modulith-db-reassign
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: modulith-db-reassign
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 26          # postgres user in the cloudnative-pg image
+        runAsGroup: 26
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reassign
+          image: ghcr.io/cloudnative-pg/postgis:17-3.5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: PGHOST
+              value: turbo-db-rw
+            - name: PGUSER
+              valueFrom: { secretKeyRef: { name: turbo-db-superuser, key: username } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: turbo-db-superuser, key: password } }
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              for DB in auth sharing geo tracks collections activities; do
+                echo "== ${DB} =="
+                OWNERS=$(psql -tAqc "SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname='public' AND tableowner <> 'app'" "$DB")
+                for O in $OWNERS; do
+                  echo "  REASSIGN OWNED BY ${O} -> app"
+                  psql -v ON_ERROR_STOP=1 -c "REASSIGN OWNED BY \"${O}\" TO app" "$DB"
+                done
+                psql -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO app" "$DB"
+                psql -v ON_ERROR_STOP=1 -c "GRANT ALL ON SCHEMA public TO app" "$DB"
+              done
+              echo "ownership reassignment complete"
