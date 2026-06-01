@@ -3,9 +3,9 @@
 # ⚠️ NOT YET WIRED INTO kustomization.yaml. This manifest is a reviewed
 #    draft (Stage 3 of the routing-API rollout). It deploys nothing until
 #    it is added to base/kustomization.yaml AND the prerequisites in
-#    infra/k8s/README-tileserver.md are met (artifacts in R2, sealed
-#    secret, capacity confirmed). Keeping it unreferenced means `kustomize
-#    build` ignores it.
+#    infra/k8s/README-tileserver.md are met (artifacts rsync'd onto the
+#    node + hostPath PV, tiles-db secrets sealed, capacity confirmed).
+#    Keeping it unreferenced means `kustomize build` ignores it.
 #
 # Scope: the routing API (/v1/route/*) is the first consumer, but this
 # runs the tileserver in FULL mode (connected to a tiles Postgres) — we
@@ -26,6 +26,11 @@ metadata:
     app: tileserver
 spec:
   accessModes: ["ReadWriteOnce"]
+  # Statically bound to the pre-staged hostPath PV
+  # (envs/prod/tileserver-artifacts-pv.yaml). Empty class disables dynamic
+  # provisioning — the artifacts are rsync'd onto the node ahead of deploy
+  # (see README-tileserver.md), not pulled at boot.
+  storageClassName: ""
   resources:
     requests:
       # Routing artifacts ≈ 14Gi today (norway.dem 11Gi + mask/graph/
@@ -64,48 +69,14 @@ spec:
         runAsNonRoot: true
         runAsUser: 65532      # chiseled/distroless nonroot
         runAsGroup: 65532
-        fsGroup: 65532        # so the artifact PVC is group-writable by the seed init
         seccompProfile:
           type: RuntimeDefault
       imagePullSecrets:
         - name: ghcr-auth
-      initContainers:
-        # One-shot artifact seed: pull the prebuilt Norway artifacts from
-        # R2 onto the PVC on first boot (skips if the DEM is already
-        # present). See README-tileserver.md for uploading them and for
-        # the EXISTING r2-backup-creds secret (the same R2 account as the
-        # CNPG backups) — no new secret needed. Artifacts live under the
-        # cleared turbo-db-backups bucket at artifacts/norway/.
-        - name: fetch-artifacts
-          image: rclone/rclone:1.68
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -e
-              if [ -f /artifacts/norway.dem ]; then
-                echo "artifacts present; skipping fetch"; exit 0
-              fi
-              echo "seeding artifacts from R2 (turbo-db-backups/artifacts/norway)..."
-              rclone --config /dev/null \
-                --s3-provider Cloudflare \
-                --s3-access-key-id "$ACCESS_KEY_ID" \
-                --s3-secret-access-key "$ACCESS_SECRET_KEY" \
-                --s3-endpoint "$R2_ENDPOINT" \
-                copy ":s3:turbo-db-backups/artifacts/norway/" /artifacts/ \
-                --transfers 4 --fast-list
-          env:
-            # Reuses the CNPG R2 backup credentials (keys ACCESS_KEY_ID /
-            # ACCESS_SECRET_KEY, per base/db.yaml). The endpoint is not
-            # secret, so it's inline.
-            - name: ACCESS_KEY_ID
-              valueFrom: { secretKeyRef: { name: r2-backup-creds, key: ACCESS_KEY_ID } }
-            - name: ACCESS_SECRET_KEY
-              valueFrom: { secretKeyRef: { name: r2-backup-creds, key: ACCESS_SECRET_KEY } }
-            - name: R2_ENDPOINT
-              value: "https://ab82d920d2b19b70985673b43e474dd8.r2.cloudflarestorage.com"
-          volumeMounts:
-            - name: artifacts
-              mountPath: /artifacts
+      # No artifact-seed init container: the artifacts are pre-staged on the
+      # node at /mnt/tiles-artifacts (rsync'd from your machine over the
+      # LAN) and exposed read-only via the hostPath PV. The container just
+      # mmaps them at boot — nothing to download. See README-tileserver.md.
       containers:
         - name: tileserver
           image: turbo-tileserver       # registry/tag set per-env via kustomize images:

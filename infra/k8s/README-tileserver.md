@@ -21,11 +21,9 @@ is the compose/local proxy only).
 
 ## Prerequisites (do these before flipping)
 
-1. **Push the ~14 GB Norway artifacts to R2** — into the existing
-   (now-cleared) `turbo-db-backups` bucket under `artifacts/norway/`. Same
-   R2 account as the CNPG backups, so the init container reuses
-   `r2-backup-creds` (no new R2 secret). Commands in "Pushing the
-   artifacts" below.
+1. **Stage the ~14 GB artifacts on the node** at `/mnt/tiles-artifacts`
+   (rsync'd directly from your machine over the LAN — no R2). Commands in
+   "Staging the artifacts" below.
 
 2. **Seal the two tiles-DB secrets.** `base/tiles-db.yaml` is a CNPG
    PostGIS cluster (`tiles-db`); the tileserver connects to it in full
@@ -50,63 +48,59 @@ is the compose/local proxy only).
 
 3. **Confirm capacity.** The 11 GB DEM is mmap'd; a Norway-wide solve
    touches large regions. `tileserver.yaml` sets `requests.memory=1Gi`,
-   `limits.memory=6Gi`. Verify a node can host that + the 20 Gi RWO
-   artifacts PVC + tiles-db's 12 Gi (the plan flags a possible dedicated
-   node/taint).
+   `limits.memory=6Gi`. Verify the node has room for `/mnt/tiles-artifacts`
+   (~14 GB) plus tiles-db's ~12 Gi PVC, and ideally that `/mnt/tiles-artifacts`
+   is on SSD/NVMe (the DEM is mmap'd and randomly read).
 
 4. **Image — already automated.** `tileserver_build.yml` builds and pushes
    `ghcr.io/sigmundgranaas/turbo-tileserver:latest` on merge to main.
    Nothing to do beyond merging.
 
-## Pushing the artifacts (you run this once)
+## Staging the artifacts (you run this once)
 
-Everything is wired to pull from `turbo-db-backups/artifacts/norway/`. To
-populate it, push your local `~/turbo-artifacts` there with the **same R2
-credentials** that back `r2-backup-creds`.
+The tileserver reads the artifacts from a hostPath PV at
+`/mnt/tiles-artifacts` on the node — they're **not** pulled at boot, so you
+copy them onto the node directly from your machine over the LAN. Much
+faster than an R2 round-trip (gigabit ≈ 2–4 min vs uploading 14 GB to the
+cloud first).
 
-What you need:
-- **Endpoint:** `https://ab82d920d2b19b70985673b43e474dd8.r2.cloudflarestorage.com`
-- **Bucket / prefix:** `turbo-db-backups` / `artifacts/norway/`
-- **Access key id + secret:** your Cloudflare R2 access key (the same pair
-  stored in the `r2-backup-creds` secret). If you don't have them to hand,
-  mint a new R2 API token (S3-compatible) scoped to this bucket in the
-  Cloudflare dashboard.
-
-Configure an rclone remote once:
+On the node (the k3s VM), create the directory on the SSD/cache-backed
+disk:
 ```sh
-rclone config create r2 s3 \
-  provider=Cloudflare \
-  access_key_id=<YOUR_R2_ACCESS_KEY_ID> \
-  secret_access_key=<YOUR_R2_SECRET> \
-  endpoint=https://ab82d920d2b19b70985673b43e474dd8.r2.cloudflarestorage.com
+mkdir -p /mnt/tiles-artifacts
 ```
 
-Push the six artifacts the routing solver needs (skip the `*.prewater.bak`
-backups):
+From your machine, rsync the artifacts the routing solver needs (skip the
+`*.prewater.bak` backups):
 ```sh
-rclone copy ~/turbo-artifacts/ r2:turbo-db-backups/artifacts/norway/ \
-  --include 'norway.dem' --include 'norway.mask' \
-  --include 'norway.graph' --include 'norway.graph_geom' \
-  --include 'norway.vectors' --include 'norway.anchors' \
-  --include 'norway.*.health.json' \
-  --progress --transfers 4 --s3-chunk-size 64M
+rsync -av --progress \
+  ~/turbo-artifacts/norway.{dem,mask,graph,graph_geom,vectors,anchors} \
+  ~/turbo-artifacts/norway.*.health.json \
+  <user>@192.168.1.210:/mnt/tiles-artifacts/
 ```
 
-Verify:
+The tileserver container runs as non-root (uid 65532) and mounts the volume
+read-only, so make the files world-readable:
 ```sh
-rclone ls r2:turbo-db-backups/artifacts/norway/   # expect norway.dem (~11G) + the rest
+# on the node
+chmod -R a+rX /mnt/tiles-artifacts
+ls -lh /mnt/tiles-artifacts        # expect norway.dem (~11G) + the rest
 ```
-That's the only manual data step — the init container does the pull on the
-pod's first boot.
+
+That's the only manual data step. At boot the container mmaps these files
+(seconds — it does not read all 11 GB into RAM); pages fault in on demand
+during solves. The data survives pod/PVC churn (the PV is `Retain` +
+hostPath), so you only stage it once.
 
 ## Flip to deploy
 
 Once 1–4 are done, uncomment the four "FLIP TO DEPLOY" lines:
 
 - `base/kustomization.yaml` → `- tiles-db.yaml` and `- tileserver.yaml`
-- `envs/prod/kustomization.yaml` → the two sealed-secret resources
-  (`tiles-db-app-sealedsecret.yaml`, `tiles-db-secrets-sealedsecret.yaml`)
-  **and** the `turbo-tileserver` image entry.
+- `envs/prod/kustomization.yaml` → `- tileserver-artifacts-pv.yaml`, the two
+  sealed-secret resources (`tiles-db-app-sealedsecret.yaml`,
+  `tiles-db-secrets-sealedsecret.yaml`) **and** the `turbo-tileserver`
+  image entry.
 
 Validate before ArgoCD syncs:
 ```sh
@@ -134,5 +128,8 @@ curl -fsS -X POST https://kart-api.sandring.no/api/route/plan \
 - **DB / curated tiles:** full mode means the tiles PostGIS (CNPG) +
   ingestion is a hard prerequisite (step 0), not a later add-on. Once it's
   up, curated MVT tiles can also be served from this same deploy.
-- **Seeding:** R2 init-container vs an in-cluster build Job. The draft
-  uses the R2 pull (practical: artifacts already build locally).
+- **Seeding:** direct rsync onto the node + a hostPath PV (chosen — it's a
+  single self-hosted k3s VM on the LAN, so a direct copy is faster and
+  simpler than an R2 round-trip, and needs no extra secret). If the cluster
+  ever goes multi-node or loses node access, switch back to an R2 init
+  container or a `local` PV + nodeAffinity.

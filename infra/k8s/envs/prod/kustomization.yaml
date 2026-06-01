@@ -12,13 +12,16 @@ resources:
   - r2-backup-sealedsecret.yaml  # R2 creds for CNPG barman backups (r2-backup-creds)
   - turbo-db-app-sealedsecret.yaml  # CNPG app-role creds (adopted by turbo-db Cluster)
   # ── Routing (tileserver) — FLIP TO DEPLOY (see README-tileserver.md) ──
-  # Create these two sealed secrets first, then uncomment (and uncomment
-  # the resources in ../../base/kustomization.yaml):
+  # Prereqs: rsync the artifacts to /mnt/tiles-artifacts on the node, then
+  # seal the two tiles-DB secrets. Then uncomment these (and the resources
+  # in ../../base/kustomization.yaml):
+  #   tileserver-artifacts-pv.yaml     — hostPath PV → /mnt/tiles-artifacts
   #   tiles-db-app-sealedsecret.yaml   — CNPG app-role creds for tiles-db
   #                                       (Secret `tiles-db-app`, basic-auth)
-  #   tiles-db-secrets-sealedsecret.yaml — Secret `tiles-db-secrets` with key
+  #   tiles-db-secrets-sealedsecret.yaml — Secret `tiles-db-secrets`, key
   #                                       `connectionstring` =
   #                                       postgres://app:<pwd>@tiles-db-rw:5432/tiles
+  # - tileserver-artifacts-pv.yaml
   # - tiles-db-app-sealedsecret.yaml
   # - tiles-db-secrets-sealedsecret.yaml
 

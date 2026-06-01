@@ -1,0 +1,25 @@
+# Pre-staged artifacts volume for the tileserver, bound statically to the
+# `tileserver-artifacts` PVC. The ~14 GB Norway artifacts are rsync'd onto
+# the node at /mnt/tiles-artifacts ahead of deploy (see
+# README-tileserver.md) — nothing is pulled at boot; the container mmaps
+# them read-only.
+#
+# hostPath (not a `local` volume) so no nodeAffinity is needed — fine on
+# this single-node k3s. If the cluster ever grows past one node, switch to
+# a `local` PV with nodeAffinity pinned to the node holding the data.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: tileserver-artifacts-pv
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain   # never wipe the staged artifacts
+  storageClassName: ""                    # static bind (no dynamic provisioning)
+  hostPath:
+    path: /mnt/tiles-artifacts            # create + rsync this on the node first
+    type: Directory
+  claimRef:
+    namespace: turbo-prod
+    name: tileserver-artifacts
