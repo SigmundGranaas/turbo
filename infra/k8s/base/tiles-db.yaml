@@ -40,6 +40,14 @@ spec:
       memory: 256Mi
     limits:
       memory: 1Gi
+
+  # Tuned small for the shared node (these are Cluster-level Postgres
+  # params — they do NOT belong on the Database CRD below, whose schema
+  # silently drops unknown fields).
+  postgresql:
+    parameters:
+      shared_buffers: "256MB"
+      max_connections: "100"
 ---
 # Extensions for the tiles DB, created by CNPG (the operator runs them with
 # the privileges the `app` role lacks). The tileserver migrations do
@@ -67,8 +75,3 @@ spec:
       ensure: present
     - name: pg_trgm
       ensure: present
-
-  postgresql:
-    parameters:
-      shared_buffers: "256MB"
-      max_connections: "100"
