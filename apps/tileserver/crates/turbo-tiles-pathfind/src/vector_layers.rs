@@ -74,11 +74,7 @@ pub struct PolygonIntegralLayer {
 }
 
 impl PolygonIntegralLayer {
-    pub fn new<F>(
-        name: &'static str,
-        collection: Arc<VectorCollection>,
-        cost_fn: F,
-    ) -> Self
+    pub fn new<F>(name: &'static str, collection: Arc<VectorCollection>, cost_fn: F) -> Self
     where
         F: Fn(f64, &AttrView<'_>, Profile) -> f64 + Send + Sync + 'static,
     {
@@ -88,7 +84,12 @@ impl PolygonIntegralLayer {
             "PolygonIntegralLayer expects a Polygon collection, got {:?}",
             collection.kind()
         );
-        Self { name, collection, cost_fn: Box::new(cost_fn), aabb_pad_m: 0.0 }
+        Self {
+            name,
+            collection,
+            cost_fn: Box::new(cost_fn),
+            aabb_pad_m: 0.0,
+        }
     }
 
     pub fn with_aabb_pad(mut self, m: f32) -> Self {
@@ -121,16 +122,11 @@ impl PolygonIntegralLayer {
 }
 
 impl CostLayer for PolygonIntegralLayer {
-    fn name(&self) -> &'static str { self.name }
+    fn name(&self) -> &'static str {
+        self.name
+    }
 
-    fn edge_cost_modifier(
-        &self,
-        fx: f64,
-        fy: f64,
-        tx: f64,
-        ty: f64,
-        profile: Profile,
-    ) -> f32 {
+    fn edge_cost_modifier(&self, fx: f64, fy: f64, tx: f64, ty: f64, profile: Profile) -> f32 {
         let dx = tx - fx;
         let dy = ty - fy;
         let edge_len = (dx * dx + dy * dy).sqrt();
@@ -185,11 +181,7 @@ pub struct LineCrossingLayer {
 }
 
 impl LineCrossingLayer {
-    pub fn new<F>(
-        name: &'static str,
-        collection: Arc<VectorCollection>,
-        cost_fn: F,
-    ) -> Self
+    pub fn new<F>(name: &'static str, collection: Arc<VectorCollection>, cost_fn: F) -> Self
     where
         F: Fn(usize, &AttrView<'_>, Profile) -> f64 + Send + Sync + 'static,
     {
@@ -199,7 +191,12 @@ impl LineCrossingLayer {
             "LineCrossingLayer expects a LineString collection, got {:?}",
             collection.kind()
         );
-        Self { name, collection, cost_fn: Box::new(cost_fn), aabb_pad_m: 0.0 }
+        Self {
+            name,
+            collection,
+            cost_fn: Box::new(cost_fn),
+            aabb_pad_m: 0.0,
+        }
     }
 
     pub fn with_aabb_pad(mut self, m: f32) -> Self {
@@ -229,16 +226,11 @@ impl LineCrossingLayer {
 }
 
 impl CostLayer for LineCrossingLayer {
-    fn name(&self) -> &'static str { self.name }
+    fn name(&self) -> &'static str {
+        self.name
+    }
 
-    fn edge_cost_modifier(
-        &self,
-        fx: f64,
-        fy: f64,
-        tx: f64,
-        ty: f64,
-        profile: Profile,
-    ) -> f32 {
+    fn edge_cost_modifier(&self, fx: f64, fy: f64, tx: f64, ty: f64, profile: Profile) -> f32 {
         let dx = tx - fx;
         let dy = ty - fy;
         let edge_len = (dx * dx + dy * dy).sqrt();
@@ -288,7 +280,12 @@ impl PointProximityLayer {
             "PointProximityLayer expects a Point collection, got {:?}",
             collection.kind()
         );
-        Self { name, collection, cost_fn: Box::new(cost_fn), influence_radius_m }
+        Self {
+            name,
+            collection,
+            cost_fn: Box::new(cost_fn),
+            influence_radius_m,
+        }
     }
 
     fn evaluate(&self, x: f64, y: f64, profile: Profile) -> f32 {
@@ -312,7 +309,9 @@ impl PointProximityLayer {
                 _ => best = Some((d2, fid)),
             }
         }
-        let Some((d2, fid)) = best else { return 1.0; };
+        let Some((d2, fid)) = best else {
+            return 1.0;
+        };
         let attrs = self.collection.feature_attrs(fid);
         let dist = d2.sqrt();
         (self.cost_fn)(dist, &attrs, profile) as f32
@@ -320,7 +319,9 @@ impl PointProximityLayer {
 }
 
 impl CostLayer for PointProximityLayer {
-    fn name(&self) -> &'static str { self.name }
+    fn name(&self) -> &'static str {
+        self.name
+    }
 
     fn cell_cost(&self, x: f64, y: f64, profile: Profile) -> CellCost {
         let m = self.evaluate(x, y, profile);
@@ -331,14 +332,7 @@ impl CostLayer for PointProximityLayer {
         }
     }
 
-    fn edge_cost_modifier(
-        &self,
-        fx: f64,
-        fy: f64,
-        tx: f64,
-        ty: f64,
-        profile: Profile,
-    ) -> f32 {
+    fn edge_cost_modifier(&self, fx: f64, fy: f64, tx: f64, ty: f64, profile: Profile) -> f32 {
         // Average the midpoint contribution. Point features are
         // small enough that finer integration isn't worthwhile;
         // the cell-level pass already samples the per-cell value.
@@ -365,18 +359,18 @@ pub struct PolygonRefusalLayer {
 }
 
 impl PolygonRefusalLayer {
-    pub fn new(
-        name: &'static str,
-        collection: Arc<VectorCollection>,
-        label: &'static str,
-    ) -> Self {
+    pub fn new(name: &'static str, collection: Arc<VectorCollection>, label: &'static str) -> Self {
         assert_eq!(
             collection.kind(),
             GeomKind::Polygon,
             "PolygonRefusalLayer expects a Polygon collection, got {:?}",
             collection.kind()
         );
-        Self { name, collection, label }
+        Self {
+            name,
+            collection,
+            label,
+        }
     }
 
     fn point_inside(&self, x: f64, y: f64) -> bool {
@@ -393,7 +387,9 @@ impl PolygonRefusalLayer {
 }
 
 impl CostLayer for PolygonRefusalLayer {
-    fn name(&self) -> &'static str { self.name }
+    fn name(&self) -> &'static str {
+        self.name
+    }
 
     fn cell_cost(&self, x: f64, y: f64, _profile: Profile) -> CellCost {
         if self.point_inside(x, y) {
@@ -403,14 +399,7 @@ impl CostLayer for PolygonRefusalLayer {
         }
     }
 
-    fn edge_cost_modifier(
-        &self,
-        fx: f64,
-        fy: f64,
-        tx: f64,
-        ty: f64,
-        _profile: Profile,
-    ) -> f32 {
+    fn edge_cost_modifier(&self, fx: f64, fy: f64, tx: f64, ty: f64, _profile: Profile) -> f32 {
         // If any metre of the edge intersects a refusal polygon
         // the edge is impassable. Use the integral helper at zero
         // cost just to compute "did we hit any polygon at all".
@@ -435,7 +424,10 @@ impl CostLayer for PolygonRefusalLayer {
 /// Total length of polylines in a collection that lie within an AABB.
 /// Useful for debug diagnostics ("how much stream length is in this
 /// 5 km bbox?"). Not part of the cost path.
-pub fn collection_polyline_length_in(collection: &VectorCollection, bbox: turbo_tiles_geom::Aabb) -> f64 {
+pub fn collection_polyline_length_in(
+    collection: &VectorCollection,
+    bbox: turbo_tiles_geom::Aabb,
+) -> f64 {
     let mut acc = 0.0;
     for fid in collection.query_aabb(bbox) {
         acc += polyline_length(collection.feature_coords(fid));
@@ -489,11 +481,7 @@ mod tests {
     fn small_tarn_adds_cost_proportional_to_crossing() {
         let coll = build_water_with_two_tarns();
         // 80 effective metres per metre in water.
-        let layer = PolygonIntegralLayer::new(
-            "water",
-            coll,
-            |len, _attrs, _p| len * 80.0,
-        );
+        let layer = PolygonIntegralLayer::new("water", coll, |len, _attrs, _p| len * 80.0);
         // Edge cuts straight through the tiny tarn: 5 m inside.
         // Edge length 200 m. Expected multiplier = 1 + (5*80)/200 = 3.0.
         let mul = layer.edge_cost_modifier(0.0, 102.0, 200.0, 102.0, Profile::Foot);
@@ -503,11 +491,7 @@ mod tests {
     #[test]
     fn edge_that_misses_water_is_neutral() {
         let coll = build_water_with_two_tarns();
-        let layer = PolygonIntegralLayer::new(
-            "water",
-            coll,
-            |len, _, _| len * 80.0,
-        );
+        let layer = PolygonIntegralLayer::new("water", coll, |len, _, _| len * 80.0);
         // Edge nowhere near either tarn.
         let mul = layer.edge_cost_modifier(0.0, 0.0, 50.0, 0.0, Profile::Foot);
         assert!((mul - 1.0).abs() < 1e-3);
@@ -516,11 +500,7 @@ mod tests {
     #[test]
     fn infinite_cost_propagates_as_inf_multiplier() {
         let coll = build_water_with_two_tarns();
-        let layer = PolygonIntegralLayer::new(
-            "water",
-            coll,
-            |_, _, _| f64::INFINITY,
-        );
+        let layer = PolygonIntegralLayer::new("water", coll, |_, _, _| f64::INFINITY);
         let mul = layer.edge_cost_modifier(0.0, 102.0, 200.0, 102.0, Profile::Foot);
         assert!(mul.is_infinite());
     }
@@ -540,11 +520,7 @@ mod tests {
     #[test]
     fn larger_water_body_is_more_expensive() {
         let coll = build_water_with_two_tarns();
-        let layer = PolygonIntegralLayer::new(
-            "water",
-            coll,
-            |len, _, _| len * 80.0,
-        );
+        let layer = PolygonIntegralLayer::new("water", coll, |len, _, _| len * 80.0);
         // Tiny tarn crossing: 5 m through tarn A, edge len 200 m.
         let tiny = layer.edge_cost_modifier(0.0, 102.0, 200.0, 102.0, Profile::Foot);
         // Big tarn crossing: 50 m through tarn B, edge len 400 m.
@@ -577,14 +553,10 @@ mod tests {
         ));
         std::mem::forget(dir);
         let coll = store.collection("streams").unwrap();
-        let layer = LineCrossingLayer::new(
-            "streams",
-            coll,
-            |n, attrs, _p| {
-                let w = attrs.f32("width_m").unwrap_or(2.0) as f64;
-                (n as f64) * (10.0 + 5.0 * w)
-            },
-        );
+        let layer = LineCrossingLayer::new("streams", coll, |n, attrs, _p| {
+            let w = attrs.f32("width_m").unwrap_or(2.0) as f64;
+            (n as f64) * (10.0 + 5.0 * w)
+        });
         // Vertical edge crosses the stream once.
         // expected extra = 1 * (10 + 5*3) = 25
         // edge length = 100

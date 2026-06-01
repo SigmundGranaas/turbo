@@ -37,24 +37,24 @@ pub const N_HEADINGS: u32 = 16;
 /// `(di, dj, step_length_in_cells)` per heading `k`, ordered CCW from
 /// East by bearing. Mix of 1-cell compass and 2-cell knight moves.
 const SQRT2: f32 = std::f32::consts::SQRT_2;
-const SQRT5: f32 = 2.2360680;
+const SQRT5: f32 = 2.236_068;
 const DIRS: [(i32, i32, f32); 16] = [
-    (1, 0, 1.0),       //   0°
-    (2, 1, SQRT5),     //  26.6°
-    (1, 1, SQRT2),     //  45°
-    (1, 2, SQRT5),     //  63.4°
-    (0, 1, 1.0),       //  90°
-    (-1, 2, SQRT5),    // 116.6°
-    (-1, 1, SQRT2),    // 135°
-    (-2, 1, SQRT5),    // 153.4°
-    (-1, 0, 1.0),      // 180°
-    (-2, -1, SQRT5),   // 206.6°
-    (-1, -1, SQRT2),   // 225°
-    (-1, -2, SQRT5),   // 243.4°
-    (0, -1, 1.0),      // 270°
-    (1, -2, SQRT5),    // 296.6°
-    (1, -1, SQRT2),    // 315°
-    (2, -1, SQRT5),    // 333.4°
+    (1, 0, 1.0),     //   0°
+    (2, 1, SQRT5),   //  26.6°
+    (1, 1, SQRT2),   //  45°
+    (1, 2, SQRT5),   //  63.4°
+    (0, 1, 1.0),     //  90°
+    (-1, 2, SQRT5),  // 116.6°
+    (-1, 1, SQRT2),  // 135°
+    (-2, 1, SQRT5),  // 153.4°
+    (-1, 0, 1.0),    // 180°
+    (-2, -1, SQRT5), // 206.6°
+    (-1, -1, SQRT2), // 225°
+    (-1, -2, SQRT5), // 243.4°
+    (0, -1, 1.0),    // 270°
+    (1, -2, SQRT5),  // 296.6°
+    (1, -1, SQRT2),  // 315°
+    (2, -1, SQRT5),  // 333.4°
 ];
 
 /// Per-cell cost overlay the lifted solver consults so it sees more than
@@ -64,6 +64,7 @@ const DIRS: [(i32, i32, f32); 16] = [
 ///     into the cell costs `∞`.
 ///   - `pace_mul` ⇒ multiplier on the move pace into the cell (< 1 near
 ///     trails, > 1 on expensive ground; 1.0 neutral).
+///
 /// Looked up on demand so the adapter can evaluate cells lazily (only those
 /// the A* actually visits) instead of baking the whole corridor up front.
 pub trait CellOverlay {
@@ -192,7 +193,10 @@ impl<E: Elevation, O: CellOverlay> GradeLimitedCost<E, O> {
         // bonus exactly as before). `off_trail_factor` survives only as
         // the A* heuristic's pace floor (see `min_pace` below).
         let mul = self.overlay.pace_mul(ni as u32, nj as u32);
-        match (self.elev.at(shape, i, j), self.elev.at(shape, ni as u32, nj as u32)) {
+        match (
+            self.elev.at(shape, i, j),
+            self.elev.at(shape, ni as u32, nj as u32),
+        ) {
             (Some(z0), Some(z1)) => {
                 let grad = ((z1 - z0) / step_m).abs();
                 let grade_deg = grad.atan().to_degrees();
@@ -257,7 +261,10 @@ pub fn solve_lifted_grade_limited<E: Elevation, O: CellOverlay>(
     goal_cell: (u32, u32),
     mut on_progress: Option<&mut dyn FnMut(&LiftedProgress)>,
 ) -> LiftedResult {
-    debug_assert_eq!(shape.nz, N_HEADINGS, "lifted solver expects nz == N_HEADINGS");
+    debug_assert_eq!(
+        shape.nz, N_HEADINGS,
+        "lifted solver expects nz == N_HEADINGS"
+    );
     let n = shape.len();
     let mut arrival: FmmGrid<f32> = FmmGrid::filled(shape, f32::INFINITY);
     let mut parent: Vec<u32> = vec![NO_PARENT; n];
@@ -329,7 +336,7 @@ pub fn solve_lifted_grade_limited<E: Elevation, O: CellOverlay>(
                 loop {
                     let (i, j, _) = shape.unpack(cur);
                     let (x, y) = shape.cell_centre(i, j);
-                    if pts.last().map_or(true, |&(px, py): &(f64, f64)| {
+                    if pts.last().is_none_or(|&(px, py): &(f64, f64)| {
                         (px - x).abs() > 1e-6 || (py - y).abs() > 1e-6
                     }) {
                         pts.push((x, y));
@@ -356,10 +363,13 @@ pub fn solve_lifted_grade_limited<E: Elevation, O: CellOverlay>(
 
         // Relax candidates: one forward move + two ±45° turns. The heap key
         // is `g + h(neighbour)`; `arrival` stores the true `g`.
-        let mut relax = |ni: u32, nj: u32, nk: u32, edge: f32,
-                         arrival: &mut FmmGrid<f32>,
-                         parent: &mut [u32],
-                         heap: &mut NarrowBandHeap| {
+        let relax = |ni: u32,
+                     nj: u32,
+                     nk: u32,
+                     edge: f32,
+                     arrival: &mut FmmGrid<f32>,
+                     parent: &mut [u32],
+                     heap: &mut NarrowBandHeap| {
             if !edge.is_finite() {
                 return;
             }
@@ -381,16 +391,37 @@ pub fn solve_lifted_grade_limited<E: Elevation, O: CellOverlay>(
         let fj = aj as i32 + dj;
         if fi >= 0 && fj >= 0 && fi < shape.nx as i32 && fj < shape.ny as i32 {
             let c = cost.forward_cost(&shape, ai, aj, ak);
-            relax(fi as u32, fj as u32, ak, c, &mut arrival, &mut parent, &mut heap);
+            relax(
+                fi as u32,
+                fj as u32,
+                ak,
+                c,
+                &mut arrival,
+                &mut parent,
+                &mut heap,
+            );
         }
         // Turns (stay in place, rotate ±45°).
         for &dk in &[1i32, N_HEADINGS as i32 - 1] {
             let nk = ((ak as i32 + dk) % N_HEADINGS as i32) as u32;
-            relax(ai, aj, nk, cost.turn_penalty_s, &mut arrival, &mut parent, &mut heap);
+            relax(
+                ai,
+                aj,
+                nk,
+                cost.turn_penalty_s,
+                &mut arrival,
+                &mut parent,
+                &mut heap,
+            );
         }
     }
 
-    LiftedResult { arrival, parent, goal_state, cells_accepted }
+    LiftedResult {
+        arrival,
+        parent,
+        goal_state,
+        cells_accepted,
+    }
 }
 
 /// Backtrack the Dijkstra parent tree from the goal state to the seed,
@@ -414,7 +445,10 @@ pub fn extract_path_lifted(
         let (i, j, _) = shape.unpack(cur);
         let (cx, cy) = shape.cell_centre(i, j);
         // Skip duplicate cell (turns produce same (i,j)).
-        if pts.last().map_or(true, |&(px, py)| (px - cx).abs() > 1e-6 || (py - cy).abs() > 1e-6) {
+        if pts
+            .last()
+            .is_none_or(|&(px, py)| (px - cx).abs() > 1e-6 || (py - cy).abs() > 1e-6)
+        {
             pts.push((cx, cy));
         }
         let p = result.parent[cur];

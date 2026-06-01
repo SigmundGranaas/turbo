@@ -156,11 +156,7 @@ where
 /// Theta* pathfinding. Returns `None` when no path exists (graph
 /// disconnected, or every connecting route passes through a refused
 /// node).
-pub fn theta_star(
-    mesh: &Mesh,
-    start: MeshNodeId,
-    goal: MeshNodeId,
-) -> Option<PathResult> {
+pub fn theta_star(mesh: &Mesh, start: MeshNodeId, goal: MeshNodeId) -> Option<PathResult> {
     theta_star_inner(mesh, start, goal, &|m: &Mesh, a, b| edge_cost(m, a, b))
 }
 
@@ -422,10 +418,7 @@ fn reconstruct(
     }
     chain.reverse();
     let geometry: Vec<Point2> = chain.iter().map(|n| mesh.pt(*n)).collect();
-    let length_m = geometry
-        .windows(2)
-        .map(|w| w[0].dist(w[1]))
-        .sum::<f64>();
+    let length_m = geometry.windows(2).map(|w| w[0].dist(w[1])).sum::<f64>();
     PathResult {
         nodes: chain,
         geometry,
@@ -590,8 +583,8 @@ mod tests {
         ]);
         let start = MeshNodeId(0); // (0,0)
         let goal = MeshNodeId(4); // (4,0)
-        // Without blocker, Theta* would shortcut diagonally. With
-        // it, line of sight is rejected and the path is longer.
+                                  // Without blocker, Theta* would shortcut diagonally. With
+                                  // it, line of sight is rejected and the path is longer.
         let path = theta_star(&mesh, start, goal).unwrap();
         let direct = mesh.pt(start).dist(mesh.pt(goal));
         assert!(

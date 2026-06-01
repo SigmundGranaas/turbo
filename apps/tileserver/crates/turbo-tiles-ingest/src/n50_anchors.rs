@@ -41,25 +41,24 @@ pub struct AnchorIn {
 const FIXTURE: &str = include_str!("../data/n50_anchors_fixture.json");
 
 pub async fn run(pool: &DbPool, opts_force_fixture: bool) -> Result<JobOutcome, JobError> {
-    let anchors: Vec<AnchorIn> = if opts_force_fixture
-        || std::env::var("TURBO_N50_FIXTURE").ok().as_deref() == Some("1")
-    {
-        parse_fixture()?
-    } else {
-        // WFS fetch — when available. Fall back to fixture on any
-        // network/parse failure so dev environments aren't blocked.
-        match fetch_wfs().await {
-            Ok(v) if !v.is_empty() => v,
-            Ok(_) => {
-                tracing::warn!("N50 WFS returned no anchors — falling back to fixture");
-                parse_fixture()?
+    let anchors: Vec<AnchorIn> =
+        if opts_force_fixture || std::env::var("TURBO_N50_FIXTURE").ok().as_deref() == Some("1") {
+            parse_fixture()?
+        } else {
+            // WFS fetch — when available. Fall back to fixture on any
+            // network/parse failure so dev environments aren't blocked.
+            match fetch_wfs().await {
+                Ok(v) if !v.is_empty() => v,
+                Ok(_) => {
+                    tracing::warn!("N50 WFS returned no anchors — falling back to fixture");
+                    parse_fixture()?
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "N50 WFS fetch failed — falling back to fixture");
+                    parse_fixture()?
+                }
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "N50 WFS fetch failed — falling back to fixture");
-                parse_fixture()?
-            }
-        }
-    };
+        };
 
     upsert(pool, anchors).await
 }

@@ -110,16 +110,19 @@ pub async fn restore(
     .await?;
     for (s,) in prior {
         tracing::info!(schema = %s, "pgdump-load: dropping prior hash-named schema");
-        sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", quote_ident(&s)))
-            .execute(pool)
-            .await?;
+        sqlx::query(&format!(
+            "DROP SCHEMA IF EXISTS {} CASCADE",
+            quote_ident(&s)
+        ))
+        .execute(pool)
+        .await?;
     }
 
     // 3. Restore via psql. `-v ON_ERROR_STOP=1` so a malformed dump
     // fails fast; `-q` to silence the per-statement chatter (Kartverket
     // dumps have hundreds of thousands of COPY statements).
-    let database_url = std::env::var("DATABASE_URL")
-        .map_err(|_| JobError::Fetch("DATABASE_URL unset".into()))?;
+    let database_url =
+        std::env::var("DATABASE_URL").map_err(|_| JobError::Fetch("DATABASE_URL unset".into()))?;
     let file_str = sql_path
         .to_str()
         .ok_or_else(|| JobError::Fetch("non-UTF8 path".into()))?;
@@ -152,14 +155,12 @@ pub async fn restore(
     .bind(config.source_schema_pattern)
     .fetch_optional(pool)
     .await?;
-    let source_schema = row
-        .map(|(s,)| s)
-        .ok_or_else(|| {
-            JobError::Parse(format!(
-                "no schema matching `{}` after restore",
-                config.source_schema_pattern
-            ))
-        })?;
+    let source_schema = row.map(|(s,)| s).ok_or_else(|| {
+        JobError::Parse(format!(
+            "no schema matching `{}` after restore",
+            config.source_schema_pattern
+        ))
+    })?;
 
     sqlx::query(&format!(
         "ALTER SCHEMA {} RENAME TO {}",

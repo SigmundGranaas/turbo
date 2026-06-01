@@ -38,7 +38,7 @@ use turbo_tiles_mask::{Mask, RefusalKind};
 use turbo_tiles_vector::{AttrView, GeomKind, VectorCollection};
 
 use crate::contributor::{
-    CostContributor, ContributorKind, EdgeContext, EdgeKind, BASE_PACE_S_PER_M,
+    ContributorKind, CostContributor, EdgeContext, EdgeKind, BASE_PACE_S_PER_M,
 };
 
 /// Slope cost via Tobler's hiking function, integrated along the
@@ -85,7 +85,11 @@ pub struct ToblerSlopeContributor {
 
 impl ToblerSlopeContributor {
     pub fn new(dem: Arc<Dem>, refuse_above_deg: f32) -> Self {
-        Self { dem, refuse_above_deg, sample_step_m: 6.0 }
+        Self {
+            dem,
+            refuse_above_deg,
+            sample_step_m: 6.0,
+        }
     }
 
     fn sample_count(&self, length_m: f64) -> usize {
@@ -154,7 +158,11 @@ impl ToblerSlopeContributor {
                 missing += 1;
             }
         }
-        if total == 0 { 0.0 } else { missing as f64 / total as f64 }
+        if total == 0 {
+            0.0
+        } else {
+            missing as f64 / total as f64
+        }
     }
 
     /// Pure function over slope-degrees → walk-seconds per metre
@@ -176,7 +184,11 @@ impl ToblerSlopeContributor {
     /// Asymmetric Tobler — minimum at `s = -0.05` (gentle descent).
     fn pace_at_signed_slope(slope: f64) -> f64 {
         let v = 1.6667 * (-3.5 * (slope + 0.05).abs()).exp();
-        if v <= 1e-6 { 100.0 } else { 1.0 / v }
+        if v <= 1e-6 {
+            100.0
+        } else {
+            1.0 / v
+        }
     }
 }
 
@@ -254,7 +266,9 @@ impl Default for MarkingBonusContributor {
         tbl[2] = -(BASE_PACE_S_PER_M) * 0.10; // cairn
         tbl[3] = -(BASE_PACE_S_PER_M) * 0.08; // blue paint
         tbl[4] = (BASE_PACE_S_PER_M) * 0.15; // unmarked → mild penalty
-        Self { seconds_per_metre: tbl }
+        Self {
+            seconds_per_metre: tbl,
+        }
     }
 }
 
@@ -299,7 +313,9 @@ impl SurfacePaceContributor {
     /// laid out by `fkb_type` code: `[unknown, sti, vei, skiloype]`.
     pub fn from_config(cfg: &crate::config::SurfacePaceConfig) -> Self {
         let row = |p: &crate::config::SurfacePaceProfile| [p.unknown, p.sti, p.vei, p.skiloype];
-        Self { factor: [row(&cfg.foot), row(&cfg.bicycle), row(&cfg.ski)] }
+        Self {
+            factor: [row(&cfg.foot), row(&cfg.bicycle), row(&cfg.ski)],
+        }
     }
 }
 
@@ -394,8 +410,14 @@ impl MaskRefusalContributor {
             return WaterState::NotWater;
         }
         const DIRS: [(f64, f64); 8] = [
-            (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0),
-            (0.7071, 0.7071), (-0.7071, 0.7071), (0.7071, -0.7071), (-0.7071, -0.7071),
+            (1.0, 0.0),
+            (-1.0, 0.0),
+            (0.0, 1.0),
+            (0.0, -1.0),
+            (0.7071, 0.7071),
+            (-0.7071, 0.7071),
+            (0.7071, -0.7071),
+            (-0.7071, -0.7071),
         ];
         // Hole-robust shore test: a cell is "shoreline" (passable) only if
         // genuine land lies within the band in some direction. We sample
@@ -495,7 +517,11 @@ pub struct ContourCrossingContributor {
 
 impl ContourCrossingContributor {
     pub fn new(dem: Arc<Dem>) -> Self {
-        Self { dem, k: 0.4, sample_step_m: 6.0 }
+        Self {
+            dem,
+            k: 0.4,
+            sample_step_m: 6.0,
+        }
     }
 }
 
@@ -645,7 +671,10 @@ pub struct NaismithGainContributor {
 
 impl NaismithGainContributor {
     pub fn new(dem: Arc<Dem>) -> Self {
-        Self { dem, sample_step_m: 6.0 }
+        Self {
+            dem,
+            sample_step_m: 6.0,
+        }
     }
 
     fn sample_count(&self, length_m: f64) -> usize {
@@ -824,8 +853,7 @@ impl AvalancheTerrainContributor {
             Ok(Some(e)) => e,
             _ => return 0.0,
         };
-        let elev_factor =
-            (((elev - (self.treeline_m - 200.0)) / 200.0).clamp(0.0, 1.0)) as f64;
+        let elev_factor = (((elev - (self.treeline_m - 200.0)) / 200.0).clamp(0.0, 1.0)) as f64;
         lee_factor * slope_factor * elev_factor
     }
 }
@@ -860,7 +888,11 @@ pub struct LandcoverContributor {
 
 impl LandcoverContributor {
     pub fn new(mask: Arc<Mask>, name: &'static str, delta_s_per_m: f64) -> Self {
-        Self { mask, name, delta_s_per_m }
+        Self {
+            mask,
+            name,
+            delta_s_per_m,
+        }
     }
 
     fn present_at_midpoint(&self, ctx: &EdgeContext<'_>) -> bool {
@@ -918,7 +950,9 @@ impl Default for PreferredEdgeContributor {
         // a preference, matching the red-T marking magnitude.
         tbl[3] = -0.15 * BASE_PACE_S_PER_M; // dnt
         tbl[4] = -0.15 * BASE_PACE_S_PER_M; // manual
-        Self { seconds_per_metre: tbl }
+        Self {
+            seconds_per_metre: tbl,
+        }
     }
 }
 
@@ -957,7 +991,9 @@ pub struct OffTrailRoughnessContributor {
 
 impl OffTrailRoughnessContributor {
     pub fn new(factor: f32) -> Self {
-        Self { factor: factor as f64 }
+        Self {
+            factor: factor as f64,
+        }
     }
 }
 
@@ -1042,7 +1078,9 @@ pub struct TotalGainContributor {
 
 impl Default for TotalGainContributor {
     fn default() -> Self {
-        Self { gain_amplifier: 1.0 }
+        Self {
+            gain_amplifier: 1.0,
+        }
     }
 }
 
@@ -1168,7 +1206,9 @@ impl TrailProximityContributor {
 
     fn delta_at(&self, x: f64, y: f64, profile: Profile) -> f64 {
         let rt = self.rtree_for(profile);
-        let Some(seg) = rt.nearest_neighbor(&[x, y]) else { return 0.0; };
+        let Some(seg) = rt.nearest_neighbor(&[x, y]) else {
+            return 0.0;
+        };
         let d = seg.distance_2(&[x, y]).sqrt();
         if d >= self.influence_radius_m {
             return 0.0;
@@ -1400,7 +1440,9 @@ impl PointProximityContributor {
                 _ => best = Some((d2, fid)),
             }
         }
-        let Some((d2, fid)) = best else { return 1.0; };
+        let Some((d2, fid)) = best else {
+            return 1.0;
+        };
         let attrs = self.collection.feature_attrs(fid);
         (self.cost_fn)(d2.sqrt(), &attrs, profile)
     }
@@ -1425,7 +1467,10 @@ impl CostContributor for PointProximityContributor {
     fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
         let mid_x = 0.5 * (ctx.fx + ctx.tx);
         let mid_y = 0.5 * (ctx.fy + ctx.ty);
-        if !self.nearest_multiplier(mid_x, mid_y, ctx.profile).is_finite() {
+        if !self
+            .nearest_multiplier(mid_x, mid_y, ctx.profile)
+            .is_finite()
+        {
             Some(self.name)
         } else {
             None
@@ -1445,7 +1490,11 @@ pub struct PolygonRefusalContributor {
 impl PolygonRefusalContributor {
     pub fn new(name: &'static str, collection: Arc<VectorCollection>, label: &'static str) -> Self {
         assert_eq!(collection.kind(), GeomKind::Polygon);
-        Self { name, collection, label }
+        Self {
+            name,
+            collection,
+            label,
+        }
     }
     fn intersects_segment(&self, ctx: &EdgeContext<'_>) -> bool {
         use turbo_tiles_geom::segment_polygon_intersection_length;
@@ -1513,7 +1562,7 @@ pub const DISPLACED_LEGACY_LAYERS: &[&str] = &[
 
 /// True if `legacy_name` has a registered native replacement.
 pub fn has_native_replacement(legacy_name: &str) -> bool {
-    DISPLACED_LEGACY_LAYERS.iter().any(|n| *n == legacy_name)
+    DISPLACED_LEGACY_LAYERS.contains(&legacy_name)
 }
 
 #[cfg(test)]
@@ -1681,7 +1730,9 @@ mod tests {
     #[test]
     fn total_gain_amplifies_only_on_climb() {
         use turbo_tiles_graph::EdgeRecord;
-        let layer = TotalGainContributor { gain_amplifier: 2.0 };
+        let layer = TotalGainContributor {
+            gain_amplifier: 2.0,
+        };
         let mut er: EdgeRecord = unsafe { std::mem::zeroed() };
         er.gain_m = 50.0;
         er.length_m = 1000.0;
@@ -1715,8 +1766,15 @@ mod tests {
     #[test]
     fn displaced_layers_list_covers_all_legacy() {
         for name in [
-            "slope", "slope_direction", "avalanche_terrain", "mask_refusal",
-            "preferred_edge", "marking", "graph_slope", "total_gain", "trail_proximity",
+            "slope",
+            "slope_direction",
+            "avalanche_terrain",
+            "mask_refusal",
+            "preferred_edge",
+            "marking",
+            "graph_slope",
+            "total_gain",
+            "trail_proximity",
         ] {
             assert!(
                 has_native_replacement(name),
@@ -1731,9 +1789,15 @@ mod tests {
         // a known delta should add it to base pace.
         struct FixedDelta(f64);
         impl CostContributor for FixedDelta {
-            fn name(&self) -> &'static str { "fixed" }
-            fn kind(&self) -> ContributorKind { ContributorKind::Slope }
-            fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 { self.0 * ctx.length_m }
+            fn name(&self) -> &'static str {
+                "fixed"
+            }
+            fn kind(&self) -> ContributorKind {
+                ContributorKind::Slope
+            }
+            fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
+                self.0 * ctx.length_m
+            }
         }
         let contribs: Vec<Arc<dyn CostContributor>> = vec![Arc::new(FixedDelta(0.1))];
         let c = mesh_ctx(100.0);

@@ -24,9 +24,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use memmap2::Mmap;
 use rstar::RTree;
 use thiserror::Error;
-use turbo_tiles_artifacts::{
-    check_header, read_header, ArtifactError, ArtifactKind, HEADER_BYTES,
-};
+use turbo_tiles_artifacts::{check_header, read_header, ArtifactError, ArtifactKind, HEADER_BYTES};
 
 pub const SEARCH_FORMAT_VERSION: u32 = 1;
 
@@ -185,7 +183,9 @@ impl Index {
         let off_names = off_records + recs_bytes;
         let end = off_names + meta.names_size as usize;
         if mmap.len() < end {
-            return Err(SearchError::Malformed("file shorter than declared sections"));
+            return Err(SearchError::Malformed(
+                "file shorter than declared sections",
+            ));
         }
 
         let bytes: &[u8] = &mmap;
@@ -195,8 +195,7 @@ impl Index {
 
         let records_static =
             unsafe { std::mem::transmute::<&[AnchorRecord], &'static [AnchorRecord]>(records) };
-        let names_static =
-            unsafe { std::mem::transmute::<&[u8], &'static [u8]>(names_blob) };
+        let names_static = unsafe { std::mem::transmute::<&[u8], &'static [u8]>(names_blob) };
 
         let tree_nodes: Vec<TreeNode> = records_static
             .iter()
@@ -351,7 +350,11 @@ impl Index {
             .collect();
         if matches.len() > max_count {
             let stride = (matches.len() / max_count).max(1);
-            matches = matches.into_iter().step_by(stride).take(max_count).collect();
+            matches = matches
+                .into_iter()
+                .step_by(stride)
+                .take(max_count)
+                .collect();
         }
         matches
             .into_iter()

@@ -68,7 +68,10 @@ pub struct DemMeta {
 /// 4 + 4 + 4 + 4 + 1 + 27 reserved = 44.
 pub const DEM_META_BYTES: usize = 44;
 const _DEM_META_BYTES_CHECK: () = {
-    assert!(DEM_META_BYTES == 44, "DemMeta layout drifted; bump format version");
+    assert!(
+        DEM_META_BYTES == 44,
+        "DemMeta layout drifted; bump format version"
+    );
 };
 
 #[derive(Debug, Clone, Copy)]

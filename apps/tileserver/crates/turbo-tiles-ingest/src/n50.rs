@@ -39,11 +39,10 @@ pub async fn upsert_vann(pool: &DbPool) -> Result<JobOutcome, JobError> {
     sqlx::raw_sql(include_str!("../sql/upsert_n50_vann.sql"))
         .execute(pool)
         .await?;
-    let (count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint FROM terrain.water_polygon WHERE source = 'n50'",
-    )
-    .fetch_one(pool)
-    .await?;
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM terrain.water_polygon WHERE source = 'n50'")
+            .fetch_one(pool)
+            .await?;
     Ok(JobOutcome {
         rows_in: count,
         rows_upserted: count,
@@ -55,11 +54,10 @@ pub async fn upsert_isogbre(pool: &DbPool) -> Result<JobOutcome, JobError> {
     sqlx::raw_sql(include_str!("../sql/upsert_n50_isogbre.sql"))
         .execute(pool)
         .await?;
-    let (count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint FROM terrain.glacier_polygon WHERE source = 'n50'",
-    )
-    .fetch_one(pool)
-    .await?;
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM terrain.glacier_polygon WHERE source = 'n50'")
+            .fetch_one(pool)
+            .await?;
     Ok(JobOutcome {
         rows_in: count,
         rows_upserted: count,
@@ -71,11 +69,10 @@ pub async fn upsert_landcover(pool: &DbPool) -> Result<JobOutcome, JobError> {
     sqlx::raw_sql(include_str!("../sql/upsert_n50_landcover.sql"))
         .execute(pool)
         .await?;
-    let (count,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint FROM terrain.landcover_patch WHERE source = 'n50'",
-    )
-    .fetch_one(pool)
-    .await?;
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM terrain.landcover_patch WHERE source = 'n50'")
+            .fetch_one(pool)
+            .await?;
     // Landcover changed → bump attr_version so cached CandidateIds invalidate.
     if count > 0 {
         sqlx::query(

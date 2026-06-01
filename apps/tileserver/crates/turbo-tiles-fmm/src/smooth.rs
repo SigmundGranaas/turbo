@@ -115,14 +115,11 @@ fn sample(shape: &GridShape, arrival: &FmmGrid<f32>, p: PathPoint) -> f32 {
     let ty = (fj - j0 as f64) as f32;
     let i = i0 as u32;
     let j = j0 as u32;
-    let u00 = arrival.get(i,     j,     0);
-    let u10 = arrival.get(i + 1, j,     0);
-    let u01 = arrival.get(i,     j + 1, 0);
+    let u00 = arrival.get(i, j, 0);
+    let u10 = arrival.get(i + 1, j, 0);
+    let u01 = arrival.get(i, j + 1, 0);
     let u11 = arrival.get(i + 1, j + 1, 0);
-    (1.0 - tx) * (1.0 - ty) * u00
-        + tx * (1.0 - ty) * u10
-        + (1.0 - tx) * ty * u01
-        + tx * ty * u11
+    (1.0 - tx) * (1.0 - ty) * u00 + tx * (1.0 - ty) * u10 + (1.0 - tx) * ty * u01 + tx * ty * u11
 }
 
 #[cfg(test)]
@@ -167,8 +164,8 @@ mod tests {
 
         let path = vec![
             PathPoint { x: 2.5, y: 2.5 },
-            PathPoint { x: 9.5, y: 2.5 },   // corner just south of refused box
-            PathPoint { x: 9.5, y: 18.0 },  // corner just east of refused box
+            PathPoint { x: 9.5, y: 2.5 }, // corner just south of refused box
+            PathPoint { x: 9.5, y: 18.0 }, // corner just east of refused box
         ];
         let smoothed = chaikin_smooth_cost_aware(&path, &result.arrival, &shape, 3, 1000);
 

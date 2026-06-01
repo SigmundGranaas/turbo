@@ -84,7 +84,15 @@ pub async fn rgb(
         .map_err(|e| ApiError::Internal(format!("join: {e}")))??;
     let took_ms = started.elapsed().as_millis();
     let out_size = TILE_PX + 2 * halo;
-    tracing::debug!(z, x, y, halo, took_ms, bytes = png_bytes.len(), "dem rgb tile");
+    tracing::debug!(
+        z,
+        x,
+        y,
+        halo,
+        took_ms,
+        bytes = png_bytes.len(),
+        "dem rgb tile"
+    );
 
     Response::builder()
         .status(StatusCode::OK)
@@ -163,7 +171,9 @@ fn encode_terrain_rgb(elevation_m: f64) -> [u8; 4] {
     // Offset by 10000 m so subaqueous terrain stays non-negative; 0.1 m
     // increments per unit gives ±~1.6 Mm of range with one mm of
     // precision. Plenty for terrestrial DEMs.
-    let scaled = ((elevation_m + 10000.0) * 10.0).round().clamp(0.0, 16_777_215.0) as u32;
+    let scaled = ((elevation_m + 10000.0) * 10.0)
+        .round()
+        .clamp(0.0, 16_777_215.0) as u32;
     let r = ((scaled >> 16) & 0xFF) as u8;
     let g = ((scaled >> 8) & 0xFF) as u8;
     let b = (scaled & 0xFF) as u8;
@@ -189,8 +199,8 @@ mod tests {
         // round-trip elevations with sub-metre accuracy.
         for h in [-100.0, 0.0, 100.5, 1234.7, 2469.0_f64] {
             let [r, g, b, _] = encode_terrain_rgb(h);
-            let decoded = -10000.0
-                + ((r as f64 * 256.0 * 256.0 + g as f64 * 256.0 + b as f64) * 0.1);
+            let decoded =
+                -10000.0 + ((r as f64 * 256.0 * 256.0 + g as f64 * 256.0 + b as f64) * 0.1);
             assert!(
                 (decoded - h).abs() < 0.1,
                 "{h} → {r:?},{g:?},{b:?} → {decoded} (delta {})",
@@ -256,7 +266,13 @@ mod tests {
         let halo_f = halo as f64;
         let frac_halo_corner_x = (x as f64) + (0.5 - halo_f) / TILE_PX as f64;
         let frac_halo_corner_y = (y as f64) + (0.5 - halo_f) / TILE_PX as f64;
-        assert!(frac_halo_corner_x < x as f64, "halo did not reach left neighbour");
-        assert!(frac_halo_corner_y < y as f64, "halo did not reach top neighbour");
+        assert!(
+            frac_halo_corner_x < x as f64,
+            "halo did not reach left neighbour"
+        );
+        assert!(
+            frac_halo_corner_y < y as f64,
+            "halo did not reach top neighbour"
+        );
     }
 }

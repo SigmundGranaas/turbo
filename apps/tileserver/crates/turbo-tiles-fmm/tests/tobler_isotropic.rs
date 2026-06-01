@@ -31,12 +31,14 @@ fn flat_terrain_matches_isotropic_baseline() {
     // 100×100 grid, h=10, flat. Wave from one corner should give
     // arrival ≈ euclidean distance × base pace. Compare against a
     // pure isotropic with the same constant cost.
-    let nx = 100u32; let ny = 100u32;
+    let nx = 100u32;
+    let ny = 100u32;
     let h = 10.0_f64;
     let shape = GridShape::new_2d(nx, ny, 0.0, 0.0, h);
     let elev = ArrayElevation {
         data: vec![Some(100.0); (nx * ny) as usize],
-        nx, ny,
+        nx,
+        ny,
     };
     let metric = make_metric(elev);
     let result = solve_2d_with_metric(shape, &metric, &[(0, 0, 0.0)], StopCondition::AllAccepted);
@@ -50,7 +52,9 @@ fn flat_terrain_matches_isotropic_baseline() {
     assert!(
         rel_err < 0.2,
         "flat far-corner arrival {} vs expected {}; rel_err {:.3}",
-        u_corner, expected, rel_err
+        u_corner,
+        expected,
+        rel_err
     );
 }
 
@@ -66,7 +70,8 @@ fn uphill_ramp_slows_wave() {
     // Compared to a flat-terrain baseline, both directions are
     // slower. Assert that the wave reaches cell (10, 25) in MORE
     // time than on flat terrain.
-    let nx = 50u32; let ny = 50u32;
+    let nx = 50u32;
+    let ny = 50u32;
     let h = 10.0_f64;
     let shape = GridShape::new_2d(nx, ny, 0.0, 0.0, h);
 
@@ -74,23 +79,48 @@ fn uphill_ramp_slows_wave() {
     let ramp_data: Vec<Option<f32>> = (0..ny)
         .flat_map(|_| (0..nx).map(move |i| Some(i as f32 * rise)))
         .collect();
-    let ramp = ArrayElevation { data: ramp_data, nx, ny };
+    let ramp = ArrayElevation {
+        data: ramp_data,
+        nx,
+        ny,
+    };
     let metric_ramp = make_metric(ramp);
-    let r_ramp = solve_2d_with_metric(shape, &metric_ramp, &[(0, 25, 0.0)], StopCondition::AllAccepted);
+    let r_ramp = solve_2d_with_metric(
+        shape,
+        &metric_ramp,
+        &[(0, 25, 0.0)],
+        StopCondition::AllAccepted,
+    );
 
     let flat_data: Vec<Option<f32>> = vec![Some(100.0); (nx * ny) as usize];
-    let flat = ArrayElevation { data: flat_data, nx, ny };
+    let flat = ArrayElevation {
+        data: flat_data,
+        nx,
+        ny,
+    };
     let metric_flat = make_metric(flat);
-    let r_flat = solve_2d_with_metric(shape, &metric_flat, &[(0, 25, 0.0)], StopCondition::AllAccepted);
+    let r_flat = solve_2d_with_metric(
+        shape,
+        &metric_flat,
+        &[(0, 25, 0.0)],
+        StopCondition::AllAccepted,
+    );
 
     let u_ramp = r_ramp.arrival.get(10, 25, 0);
     let u_flat = r_flat.arrival.get(10, 25, 0);
     let ratio = u_ramp / u_flat;
-    eprintln!("ramp arrival {} vs flat {}; ratio {}", u_ramp, u_flat, ratio);
+    eprintln!(
+        "ramp arrival {} vs flat {}; ratio {}",
+        u_ramp, u_flat, ratio
+    );
     // Tobler at 30° vs flat is roughly 5×. The 4-cell distance is
     // short enough that the dominant effect is the per-cell pace
     // ratio.
-    assert!(ratio > 3.0, "30° ramp should slow wave significantly; got {}×", ratio);
+    assert!(
+        ratio > 3.0,
+        "30° ramp should slow wave significantly; got {}×",
+        ratio
+    );
 }
 
 #[test]
@@ -103,7 +133,8 @@ fn refused_cliff_creates_island() {
     //   - the cliff cells themselves have +∞ arrival
     //   - cells past the cliff (i = 35, j = 30) ARE reachable
     //     (i.e. finite) but with a detour cost > straight-line
-    let nx = 60u32; let ny = 60u32;
+    let nx = 60u32;
+    let ny = 60u32;
     let h = 5.0_f64;
     let shape = GridShape::new_2d(nx, ny, 0.0, 0.0, h);
 
@@ -135,7 +166,11 @@ fn refused_cliff_creates_island() {
     // a known artefact of finite-difference slope sampling at a
     // discontinuity, not a bug in the refusal logic.
     let u_centre = result.arrival.get(30, 30, 0);
-    assert!(u_centre.is_infinite(), "cliff centre should be refused; got {}", u_centre);
+    assert!(
+        u_centre.is_infinite(),
+        "cliff centre should be refused; got {}",
+        u_centre
+    );
 
     // Past-cliff cell on the same row. Even with the centre cell
     // refused, the wave can squeeze through the adjacent slow cells
@@ -143,16 +178,23 @@ fn refused_cliff_creates_island() {
     // slope). Assert the arrival is finite AND substantially higher
     // than a flat-terrain crossing of the same distance.
     let u_past = result.arrival.get(40, 30, 0);
-    assert!(u_past.is_finite(), "post-cliff cell should be reachable, got {}", u_past);
+    assert!(
+        u_past.is_finite(),
+        "post-cliff cell should be reachable, got {}",
+        u_past
+    );
     let flat_baseline = 40.0_f32 * h as f32 * 0.714; // ≈ 142.8 s
     assert!(
         u_past > 1.5 * flat_baseline,
         "post-cliff arrival should be at least 1.5× flat baseline ({}); got {}",
-        flat_baseline, u_past
+        flat_baseline,
+        u_past
     );
     eprintln!(
         "cliff test: post-cliff arrival {:.0} s vs flat baseline {:.0} s ({:.2}× slowdown)",
-        u_past, flat_baseline, u_past / flat_baseline
+        u_past,
+        flat_baseline,
+        u_past / flat_baseline
     );
 }
 
@@ -189,7 +231,10 @@ fn slope_field_visible_in_arrival_isocontour() {
     let seed_i = (ci - r_cone) as u32 - 5;
     let seed_j = cj as u32;
     let result = solve_2d_with_metric(
-        shape, &metric, &[(seed_i, seed_j, 0.0)], StopCondition::AllAccepted,
+        shape,
+        &metric,
+        &[(seed_i, seed_j, 0.0)],
+        StopCondition::AllAccepted,
     );
 
     // Goal A: directly across the cone (east side, same row).
@@ -214,6 +259,7 @@ fn slope_field_visible_in_arrival_isocontour() {
     assert!(
         ub < ua,
         "around-cone path should be cheaper than through-peak; got around={} through={}",
-        ub, ua
+        ub,
+        ua
     );
 }

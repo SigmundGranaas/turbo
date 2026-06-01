@@ -93,9 +93,17 @@ pub struct Tracer {
     inner: RefCell<TracerInner>,
 }
 
+impl Default for Tracer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Tracer {
     pub fn new() -> Self {
-        Self { inner: RefCell::new(TracerInner::default()) }
+        Self {
+            inner: RefCell::new(TracerInner::default()),
+        }
     }
 
     /// Record one call to a layer's cost method.
@@ -113,7 +121,9 @@ impl Tracer {
         if contribution.is_finite() {
             s.contribution_sum += contribution;
         }
-        if refused { s.refusals += 1; }
+        if refused {
+            s.refusals += 1;
+        }
     }
 
     /// Record one phase duration. Calling the same phase twice
@@ -142,16 +152,26 @@ impl Tracer {
         let mut per_layer: Vec<NamedLayerStats> = g
             .per_layer
             .iter()
-            .map(|(k, v)| NamedLayerStats { name: (*k).to_string(), stats: v.clone() })
+            .map(|(k, v)| NamedLayerStats {
+                name: (*k).to_string(),
+                stats: v.clone(),
+            })
             .collect();
         per_layer.sort_by_key(|n| n.name.clone());
         let mut phases: Vec<NamedPhase> = g
             .phases
             .iter()
-            .map(|(k, v)| NamedPhase { name: (*k).to_string(), phase: v.clone() })
+            .map(|(k, v)| NamedPhase {
+                name: (*k).to_string(),
+                phase: v.clone(),
+            })
             .collect();
         phases.sort_by_key(|n| n.name.clone());
-        TraceSnapshot { per_layer, phases, mesh: g.mesh.clone() }
+        TraceSnapshot {
+            per_layer,
+            phases,
+            mesh: g.mesh.clone(),
+        }
     }
 }
 
@@ -233,11 +253,7 @@ mod tests {
     fn installed_tracer_records_calls() {
         let t = Arc::new(Tracer::new());
         with_installed(t.clone(), || {
-            let _ = layer_call(
-                "water",
-                || 2.0_f32,
-                |&m| ((m - 1.0) as f64, !m.is_finite()),
-            );
+            let _ = layer_call("water", || 2.0_f32, |&m| ((m - 1.0) as f64, !m.is_finite()));
         });
         let snap = t.snapshot();
         let water = snap.per_layer.iter().find(|n| n.name == "water").unwrap();

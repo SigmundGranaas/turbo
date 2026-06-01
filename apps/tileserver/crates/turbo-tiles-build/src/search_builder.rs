@@ -14,8 +14,7 @@ use tracing::info;
 use turbo_tiles_artifacts::{write_header, ArtifactKind, Header};
 use turbo_tiles_db::DbPool;
 use turbo_tiles_search::{
-    write_meta, AnchorKind, AnchorRecord, AnchorsMeta, ANCHOR_RECORD_BYTES,
-    SEARCH_FORMAT_VERSION,
+    write_meta, AnchorKind, AnchorRecord, AnchorsMeta, ANCHOR_RECORD_BYTES, SEARCH_FORMAT_VERSION,
 };
 
 use crate::BuildError;
@@ -76,7 +75,11 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<SearchBuildReport, B
         });
     }
     drop(rows);
-    info!(anchors = records.len(), names_bytes = names_blob.len(), "loaded anchors");
+    info!(
+        anchors = records.len(),
+        names_bytes = names_blob.len(),
+        "loaded anchors"
+    );
 
     let out_path = out_dir.join(ArtifactKind::Anchors.filename());
     let tmp_path = out_dir.join(format!("{}.tmp", ArtifactKind::Anchors.filename()));

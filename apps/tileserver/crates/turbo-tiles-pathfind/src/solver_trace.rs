@@ -75,9 +75,22 @@ pub enum SolverEvent {
     /// edge between `from` and `to`. The SPA renders LoS shortcut
     /// relaxations differently so the curator can see exactly
     /// where the any-angle optimisation fired.
-    EdgeRelaxed { fx: f32, fy: f32, tx: f32, ty: f32, new_g: f32, took_los: bool },
+    EdgeRelaxed {
+        fx: f32,
+        fy: f32,
+        tx: f32,
+        ty: f32,
+        new_g: f32,
+        took_los: bool,
+    },
     /// Line-of-sight cast. Emitted for every test, hit or miss.
-    LineOfSightCast { fx: f32, fy: f32, tx: f32, ty: f32, blocked: bool },
+    LineOfSightCast {
+        fx: f32,
+        fy: f32,
+        tx: f32,
+        ty: f32,
+        blocked: bool,
+    },
     /// Current best-path snapshot. Emitted only at the end of
     /// reconstruction so the SPA can show the answer snapping
     /// into place. Coordinates are EPSG:25833 metres.
@@ -164,10 +177,7 @@ impl Recorder {
     /// happens. Channel backpressure is handled via `try_send` —
     /// dropped events are counted but the solver continues at
     /// full speed.
-    pub fn new_streaming(
-        cap: u64,
-        tx: tokio::sync::mpsc::Sender<SolverEvent>,
-    ) -> Self {
+    pub fn new_streaming(cap: u64, tx: tokio::sync::mpsc::Sender<SolverEvent>) -> Self {
         Self::with_channel(cap, Some(tx))
     }
 
@@ -217,7 +227,7 @@ impl Recorder {
         if g.retained >= (cap.saturating_mul(8) / 10) {
             g.keep_every = g.keep_every.saturating_mul(2).max(2);
         }
-        let keep_in_memory = g.observed % g.keep_every == 0;
+        let keep_in_memory = g.observed.is_multiple_of(g.keep_every);
         if keep_in_memory {
             if g.phases.is_empty() {
                 let started_at_us = g.started_at.elapsed().as_micros() as u64;
@@ -341,8 +351,18 @@ mod tests {
         let rec = Arc::new(Recorder::new(1000));
         with_installed(rec.clone(), || {
             begin_phase("theta_star");
-            record(|| SolverEvent::NodePopped { x: 1.0, y: 2.0, g: 0.0, h: 5.0 });
-            record(|| SolverEvent::NodePopped { x: 3.0, y: 4.0, g: 1.0, h: 4.0 });
+            record(|| SolverEvent::NodePopped {
+                x: 1.0,
+                y: 2.0,
+                g: 0.0,
+                h: 5.0,
+            });
+            record(|| SolverEvent::NodePopped {
+                x: 3.0,
+                y: 4.0,
+                g: 1.0,
+                h: 4.0,
+            });
         });
         let snap = rec.snapshot();
         assert_eq!(snap.phases.len(), 1);
@@ -373,8 +393,16 @@ mod tests {
         assert_eq!(snap.events_observed, 5000);
         assert!(snap.decimated, "should have decimated");
         // Retained should stay within an order of magnitude of cap.
-        assert!(snap.events_retained <= 200, "retained={}", snap.events_retained);
-        assert!(snap.events_retained >= 50, "retained={}", snap.events_retained);
+        assert!(
+            snap.events_retained <= 200,
+            "retained={}",
+            snap.events_retained
+        );
+        assert!(
+            snap.events_retained >= 50,
+            "retained={}",
+            snap.events_retained
+        );
     }
 
     #[test]
@@ -382,9 +410,19 @@ mod tests {
         let rec = Arc::new(Recorder::new(1000));
         with_installed(rec.clone(), || {
             begin_phase("a");
-            record(|| SolverEvent::NodePopped { x: 0.0, y: 0.0, g: 0.0, h: 0.0 });
+            record(|| SolverEvent::NodePopped {
+                x: 0.0,
+                y: 0.0,
+                g: 0.0,
+                h: 0.0,
+            });
             begin_phase("b");
-            record(|| SolverEvent::NodePopped { x: 1.0, y: 1.0, g: 1.0, h: 0.0 });
+            record(|| SolverEvent::NodePopped {
+                x: 1.0,
+                y: 1.0,
+                g: 1.0,
+                h: 0.0,
+            });
         });
         let snap = rec.snapshot();
         assert_eq!(snap.phases.len(), 2);

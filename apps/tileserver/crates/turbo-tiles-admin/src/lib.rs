@@ -37,8 +37,7 @@ pub fn router(state: AdminState) -> Router {
     if routes::dev_login::enabled() {
         r = r.route("/dev-login", get(routes::dev_login::dev_login));
     }
-    r
-        .route("/api/resources", get(routes::resources::summary))
+    r.route("/api/resources", get(routes::resources::summary))
         .route("/api/resources/:resource", get(routes::resources::list))
         .route("/api/resources/:resource", post(routes::resources::create))
         .route(

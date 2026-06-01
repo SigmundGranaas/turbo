@@ -42,7 +42,10 @@ pub async fn route(
     State(state): State<ApiState>,
     Json(req): Json<RouteReq>,
 ) -> Result<Json<RouteResp>, ApiError> {
-    let g = state.graph.as_ref().ok_or(ApiError::PrimitiveUnavailable("graph"))?;
+    let g = state
+        .graph
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("graph"))?;
     let from_p = wgs84_to_utm33n(req.from[0], req.from[1]);
     let to_p = wgs84_to_utm33n(req.to[0], req.to[1]);
     let from = g
@@ -74,10 +77,11 @@ pub async fn route(
     }))
 }
 
-pub async fn stats(
-    State(state): State<ApiState>,
-) -> Result<Json<GraphStats>, ApiError> {
-    let g = state.graph.as_ref().ok_or(ApiError::PrimitiveUnavailable("graph"))?;
+pub async fn stats(State(state): State<ApiState>) -> Result<Json<GraphStats>, ApiError> {
+    let g = state
+        .graph
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("graph"))?;
     Ok(Json(g.stats()))
 }
 
@@ -93,16 +97,16 @@ pub struct DensityResp {
 /// Returns a stride-sampled set of graph node positions for the
 /// admin "show me trail density" overlay. Default sample size is
 /// 5000 — enough to convey shape, small enough to draw cheaply.
-pub async fn density(
-    State(state): State<ApiState>,
-) -> Result<Json<DensityResp>, ApiError> {
-    let g = state.graph.as_ref().ok_or(ApiError::PrimitiveUnavailable("graph"))?;
+pub async fn density(State(state): State<ApiState>) -> Result<Json<DensityResp>, ApiError> {
+    let g = state
+        .graph
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("graph"))?;
     let nodes = g.sample_nodes(5_000);
     let points: Vec<[f64; 2]> = nodes
         .into_iter()
         .map(|p| {
-            let (lon, lat) =
-                turbo_tiles_pathfind::utm33n_to_wgs84(p.x as f64, p.y as f64);
+            let (lon, lat) = turbo_tiles_pathfind::utm33n_to_wgs84(p.x as f64, p.y as f64);
             [lon, lat]
         })
         .collect();

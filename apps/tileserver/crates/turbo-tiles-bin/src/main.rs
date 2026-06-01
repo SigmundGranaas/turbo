@@ -162,14 +162,18 @@ async fn serve(
             statement_timeout_ms: 1_000,
         };
         let pool = cfg.connect_lazy().context("preparing lazy DB pool")?;
-        tracing::warn!("--no-db: skipping DB connect and migrations; DB endpoints will 503 on demand");
+        tracing::warn!(
+            "--no-db: skipping DB connect and migrations; DB endpoints will 503 on demand"
+        );
         pool
     } else {
         let db_cfg = DbConfig::from_env().context("DATABASE_URL must be set")?;
         let pool = db_cfg.connect().await.context("connecting to database")?;
         if auto_migrate {
             tracing::info!("running migrations");
-            migrations::apply(&pool).await.context("running migrations")?;
+            migrations::apply(&pool)
+                .await
+                .context("running migrations")?;
         }
         pool
     };
@@ -198,7 +202,9 @@ async fn serve(
                     );
                     api_state.dem = Some(std::sync::Arc::new(d));
                 }
-                Err(e) => tracing::error!(error = %e, path = %dem_path.display(), "failed to open DEM artifact; running in degraded mode"),
+                Err(e) => {
+                    tracing::error!(error = %e, path = %dem_path.display(), "failed to open DEM artifact; running in degraded mode")
+                }
             }
         } else {
             tracing::warn!(path = %dem_path.display(), "DEM artifact not present; elev endpoints will return 503");
@@ -219,7 +225,9 @@ async fn serve(
                     );
                     api_state.mask = Some(std::sync::Arc::new(m));
                 }
-                Err(e) => tracing::error!(error = %e, path = %mask_path.display(), "failed to open mask artifact"),
+                Err(e) => {
+                    tracing::error!(error = %e, path = %mask_path.display(), "failed to open mask artifact")
+                }
             }
         }
         let graph_path = dir.join("norway.graph");
@@ -255,7 +263,9 @@ async fn serve(
                     );
                     api_state.graph = Some(std::sync::Arc::new(g));
                 }
-                Err(e) => tracing::error!(error = %e, path = %graph_path.display(), "failed to open graph artifact"),
+                Err(e) => {
+                    tracing::error!(error = %e, path = %graph_path.display(), "failed to open graph artifact")
+                }
             }
         }
         let anchors_path = dir.join("norway.anchors");
@@ -271,7 +281,9 @@ async fn serve(
                     );
                     api_state.search = Some(std::sync::Arc::new(s));
                 }
-                Err(e) => tracing::error!(error = %e, path = %anchors_path.display(), "failed to open search artifact"),
+                Err(e) => {
+                    tracing::error!(error = %e, path = %anchors_path.display(), "failed to open search artifact")
+                }
             }
         }
     }
@@ -287,15 +299,14 @@ async fn serve(
     // embedded defaults compiled into the binary. The same knobs
     // drive every layer's hardcoded values that previously had to
     // be touched in three or four files to recalibrate.
-    let cost_config = turbo_tiles_pathfind::CostConfig::load_or_default(None)
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                error = %e,
-                "failed to load cost-config; falling back to embedded defaults"
-            );
-            turbo_tiles_pathfind::CostConfig::from_embedded()
-                .expect("embedded cost-config defaults must parse")
-        });
+    let cost_config = turbo_tiles_pathfind::CostConfig::load_or_default(None).unwrap_or_else(|e| {
+        tracing::warn!(
+            error = %e,
+            "failed to load cost-config; falling back to embedded defaults"
+        );
+        turbo_tiles_pathfind::CostConfig::from_embedded()
+            .expect("embedded cost-config defaults must parse")
+    });
     tracing::info!(
         off_trail_base_foot = cost_config.off_trail_base.foot,
         proximity_bonus = cost_config.trail_proximity.bonus_at_zero,
@@ -356,7 +367,10 @@ async fn serve(
                             coll,
                             |len, _attrs, _p| len * WATER_CROSS_PENALTY_PER_M,
                         );
-                        pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
+                        pf.push_with_native(
+                            std::sync::Arc::new(legacy),
+                            std::sync::Arc::new(native),
+                        );
                         taken_layer_names.insert("water");
                         // Tell the raster `mask_refusal` layer to
                         // stop vetoing water cells — the integral
@@ -382,7 +396,10 @@ async fn serve(
                             coll,
                             |len, _attrs, _p| len * 1.5,
                         );
-                        pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
+                        pf.push_with_native(
+                            std::sync::Arc::new(legacy),
+                            std::sync::Arc::new(native),
+                        );
                         taken_layer_names.insert("wetland");
                     }
                     if let Some(coll) = store.try_collection("cultivated") {
@@ -398,7 +415,10 @@ async fn serve(
                             coll,
                             |len, _attrs, _p| len * 3.0,
                         );
-                        pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
+                        pf.push_with_native(
+                            std::sync::Arc::new(legacy),
+                            std::sync::Arc::new(native),
+                        );
                         taken_layer_names.insert("cultivated");
                     }
                     if let Some(coll) = store.try_collection("ocean") {
@@ -413,11 +433,12 @@ async fn serve(
                             "ocean",
                         );
                         let native = turbo_tiles_pathfind::PolygonRefusalContributor::new(
-                            "ocean",
-                            coll,
-                            "ocean",
+                            "ocean", coll, "ocean",
                         );
-                        pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
+                        pf.push_with_native(
+                            std::sync::Arc::new(legacy),
+                            std::sync::Arc::new(native),
+                        );
                         taken_layer_names.insert("ocean");
                     }
                     if let Some(coll) = store.try_collection("building") {
@@ -431,11 +452,12 @@ async fn serve(
                             "building",
                         );
                         let native = turbo_tiles_pathfind::PolygonRefusalContributor::new(
-                            "building",
-                            coll,
-                            "building",
+                            "building", coll, "building",
                         );
-                        pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
+                        pf.push_with_native(
+                            std::sync::Arc::new(legacy),
+                            std::sync::Arc::new(native),
+                        );
                         taken_layer_names.insert("building");
                     }
                     if let Some(coll) = store.try_collection("streams") {
@@ -461,7 +483,10 @@ async fn serve(
                                 (n as f64) * (10.0 + 5.0 * w)
                             },
                         );
-                        pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
+                        pf.push_with_native(
+                            std::sync::Arc::new(legacy),
+                            std::sync::Arc::new(native),
+                        );
                         taken_layer_names.insert("streams");
                         // Mask-based stream_barrier + bridge_zone are
                         // strictly weaker than this — skip both.
@@ -553,20 +578,18 @@ async fn serve(
                     let delta_s_per_m = if multiplier.is_infinite() {
                         f64::INFINITY
                     } else {
-                        ((*multiplier as f64) - 1.0)
-                            * turbo_tiles_pathfind::BASE_PACE_S_PER_M
+                        ((*multiplier as f64) - 1.0) * turbo_tiles_pathfind::BASE_PACE_S_PER_M
                     };
                     let native = turbo_tiles_pathfind::LandcoverContributor::new(
                         arc,
                         layer_name,
                         delta_s_per_m,
                     );
-                    pf.push_with_native(
-                        std::sync::Arc::new(legacy),
-                        std::sync::Arc::new(native),
-                    );
+                    pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
                 }
-                Err(e) => tracing::error!(error = %e, path = %path.display(), "failed to open landcover artifact"),
+                Err(e) => {
+                    tracing::error!(error = %e, path = %path.display(), "failed to open landcover artifact")
+                }
             }
         }
     }
@@ -880,12 +903,12 @@ async fn verify_artifacts(
                 Ok(v) => v,
                 _ => continue,
             };
-            let cur_report: turbo_tiles_build::HealthReport = match serde_json::from_value(
-                cur_v.pointer("/report").cloned().unwrap_or_default(),
-            ) {
-                Ok(r) => r,
-                _ => continue,
-            };
+            let cur_report: turbo_tiles_build::HealthReport =
+                match serde_json::from_value(cur_v.pointer("/report").cloned().unwrap_or_default())
+                {
+                    Ok(r) => r,
+                    _ => continue,
+                };
             let base_report: turbo_tiles_build::HealthReport = match serde_json::from_value(
                 base_v.pointer("/report").cloned().unwrap_or_default(),
             ) {
@@ -912,7 +935,10 @@ async fn verify_artifacts(
         }
     }
     if !probed_any && !report.contains_key("health") && !report.contains_key("drift") {
-        anyhow::bail!("no artifacts or sidecar health reports found in {}", dir.display());
+        anyhow::bail!(
+            "no artifacts or sidecar health reports found in {}",
+            dir.display()
+        );
     }
     println!("{}", serde_json::Value::Object(report));
     Ok(())

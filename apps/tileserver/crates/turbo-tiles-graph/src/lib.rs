@@ -29,9 +29,7 @@ use std::path::Path;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use memmap2::Mmap;
 use thiserror::Error;
-use turbo_tiles_artifacts::{
-    check_header, read_header, ArtifactError, ArtifactKind, HEADER_BYTES,
-};
+use turbo_tiles_artifacts::{check_header, read_header, ArtifactError, ArtifactKind, HEADER_BYTES};
 
 pub const GRAPH_FORMAT_VERSION: u32 = 1;
 pub const GRAPH_GEOM_FORMAT_VERSION: u32 = 1;
@@ -97,7 +95,10 @@ pub struct EdgeRecord {
 }
 pub const EDGE_RECORD_BYTES: usize = std::mem::size_of::<EdgeRecord>();
 
-const _: () = assert!(EDGE_RECORD_BYTES == 32, "EdgeRecord must be exactly 32 bytes");
+const _: () = assert!(
+    EDGE_RECORD_BYTES == 32,
+    "EdgeRecord must be exactly 32 bytes"
+);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, serde::Serialize)]
@@ -154,7 +155,13 @@ pub enum DijkstraEvent {
     /// Edge from (fx, fy) to (tx, ty) was relaxed — i.e. the cost
     /// to reach `(tx, ty)` via this edge was lower than any
     /// previous path and the queue got a new entry.
-    EdgeRelaxed { fx: f32, fy: f32, tx: f32, ty: f32, new_g: f32 },
+    EdgeRelaxed {
+        fx: f32,
+        fy: f32,
+        tx: f32,
+        ty: f32,
+        new_g: f32,
+    },
 }
 
 pub struct Graph {
@@ -309,18 +316,15 @@ impl Graph {
             bytemuck::cast_slice(&bytes[off_edges..off_edges + ec * EDGE_RECORD_BYTES]);
         let csr_offsets: &[u32] =
             bytemuck::cast_slice(&bytes[off_offsets..off_offsets + (nc + 1) * 4]);
-        let csr_edges: &[u32] =
-            bytemuck::cast_slice(&bytes[off_csr_edges..off_csr_edges + ec * 4]);
-        let costs: &[f32] =
-            bytemuck::cast_slice(&bytes[off_costs..off_costs + ec * pc * 4]);
+        let csr_edges: &[u32] = bytemuck::cast_slice(&bytes[off_csr_edges..off_csr_edges + ec * 4]);
+        let costs: &[f32] = bytemuck::cast_slice(&bytes[off_costs..off_costs + ec * pc * 4]);
 
         let nodes_static = unsafe { std::mem::transmute::<&[NodePos], &'static [NodePos]>(nodes) };
         let edges_static =
             unsafe { std::mem::transmute::<&[EdgeRecord], &'static [EdgeRecord]>(edges) };
         let csr_offsets_static =
             unsafe { std::mem::transmute::<&[u32], &'static [u32]>(csr_offsets) };
-        let csr_edges_static =
-            unsafe { std::mem::transmute::<&[u32], &'static [u32]>(csr_edges) };
+        let csr_edges_static = unsafe { std::mem::transmute::<&[u32], &'static [u32]>(csr_edges) };
         let costs_static = unsafe { std::mem::transmute::<&[f32], &'static [f32]>(costs) };
 
         // Bulk-load an rstar over node positions. ~80 ms for
@@ -368,10 +372,18 @@ impl Graph {
                 let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
                 let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
                 for p in &poly {
-                    if p.x < min_x { min_x = p.x; }
-                    if p.y < min_y { min_y = p.y; }
-                    if p.x > max_x { max_x = p.x; }
-                    if p.y > max_y { max_y = p.y; }
+                    if p.x < min_x {
+                        min_x = p.x;
+                    }
+                    if p.y < min_y {
+                        min_y = p.y;
+                    }
+                    if p.x > max_x {
+                        max_x = p.x;
+                    }
+                    if p.y > max_y {
+                        max_y = p.y;
+                    }
                 }
                 let _ = er;
                 entries.push(EdgeAabb {
@@ -410,7 +422,9 @@ impl Graph {
         let off_verts = off_index + ec * GRAPH_GEOM_INDEX_BYTES;
         let end = off_verts + vc * std::mem::size_of::<NodePos>();
         if mmap.len() < end {
-            return Err(GraphError::Malformed("geom file shorter than declared sections"));
+            return Err(GraphError::Malformed(
+                "geom file shorter than declared sections",
+            ));
         }
         // SAFETY: bounds checked above; mmap owned by `GraphGeom`.
         let bytes: &[u8] = &mmap;
@@ -419,8 +433,9 @@ impl Graph {
         let verts: &[NodePos] = bytemuck::cast_slice(
             &bytes[off_verts..off_verts + vc * std::mem::size_of::<NodePos>()],
         );
-        let index_static =
-            unsafe { std::mem::transmute::<&[GraphGeomIndexEntry], &'static [GraphGeomIndexEntry]>(index) };
+        let index_static = unsafe {
+            std::mem::transmute::<&[GraphGeomIndexEntry], &'static [GraphGeomIndexEntry]>(index)
+        };
         let verts_static = unsafe { std::mem::transmute::<&[NodePos], &'static [NodePos]>(verts) };
         self.geom = Some(GraphGeom {
             _mmap: mmap,
@@ -475,6 +490,7 @@ impl Graph {
     ///
     /// Returns each match as ((x1, y1), (x2, y2), fkb_type) so the
     /// caller can colour by surface type.
+    #[allow(clippy::type_complexity)] // ((x1,y1),(x2,y2),fkb) edge tuple reads fine inline
     pub fn edges_in_bbox(
         &self,
         min_x: f64,
@@ -499,8 +515,7 @@ impl Graph {
         // their incident edges. Misses edges that thread *through* the
         // bbox without either endpoint inside, but those are rare at
         // sensible zoom levels (an edge is typically ~100 m).
-        let mut seen_edge: std::collections::HashSet<u32> =
-            std::collections::HashSet::new();
+        let mut seen_edge: std::collections::HashSet<u32> = std::collections::HashSet::new();
         let mut out: Vec<((f32, f32), (f32, f32), u8)> = Vec::new();
         let mut total_candidates = 0usize;
         for node in self.rtree.locate_in_envelope_intersecting(&probe_aabb) {
@@ -550,8 +565,14 @@ impl Graph {
         max_y: f64,
         max_count: usize,
     ) -> Vec<EdgeId> {
-        let lo = SnapPoint { pos: [min_x as f32, min_y as f32], idx: u32::MAX };
-        let hi = SnapPoint { pos: [max_x as f32, max_y as f32], idx: u32::MAX };
+        let lo = SnapPoint {
+            pos: [min_x as f32, min_y as f32],
+            idx: u32::MAX,
+        };
+        let hi = SnapPoint {
+            pos: [max_x as f32, max_y as f32],
+            idx: u32::MAX,
+        };
         let probe_aabb = rstar::AABB::from_corners(lo, hi);
         let mut out: Vec<EdgeId> = Vec::new();
         for node in self.rtree.locate_in_envelope_intersecting(&probe_aabb) {
@@ -601,14 +622,14 @@ impl Graph {
         // queried the node rstar and walked incident edges, which
         // misses precisely those threading edges — the bug behind
         // Panel 5's empty zoom-15 overlay.
-        let probe = rstar::AABB::from_corners(
-            [min_x as f32, min_y as f32],
-            [max_x as f32, max_y as f32],
-        );
-        let mut seen_pair: std::collections::HashSet<(u32, u32)> =
-            std::collections::HashSet::new();
+        let probe =
+            rstar::AABB::from_corners([min_x as f32, min_y as f32], [max_x as f32, max_y as f32]);
+        let mut seen_pair: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
         let mut out: Vec<(Vec<NodePos>, u8)> = Vec::new();
-        for ent in self.edge_aabb_rtree().locate_in_envelope_intersecting(&probe) {
+        for ent in self
+            .edge_aabb_rtree()
+            .locate_in_envelope_intersecting(&probe)
+        {
             let eidx = ent.edge_id;
             let er = &self.edges[eidx as usize];
             if let Some(filter) = fkb_filter {
@@ -647,10 +668,7 @@ impl Graph {
     /// Used by `TrailProximityLayer` (in `turbo-tiles-pathfind`) to
     /// build a spatial index over the trail network so the off-
     /// trail solver can bias cells toward existing trails.
-    pub fn collect_segments_with_fkb_types(
-        &self,
-        kinds: &[u8],
-    ) -> Vec<((f32, f32), (f32, f32))> {
+    pub fn collect_segments_with_fkb_types(&self, kinds: &[u8]) -> Vec<((f32, f32), (f32, f32))> {
         self.edges
             .iter()
             .filter(|e| kinds.is_empty() || kinds.contains(&e.fkb_type))
@@ -833,7 +851,11 @@ impl Graph {
         while let Some(OpenEntry(d, u)) = open.pop() {
             if let Some(obs) = on_event.as_ref() {
                 let np = self.nodes[u as usize];
-                obs(DijkstraEvent::NodePopped { x: np.x, y: np.y, g: d });
+                obs(DijkstraEvent::NodePopped {
+                    x: np.x,
+                    y: np.y,
+                    g: d,
+                });
             }
             if u == to {
                 break;
@@ -845,8 +867,7 @@ impl Graph {
             let e = self.csr_offsets[u as usize + 1] as usize;
             for &eidx in &self.csr_edges[s..e] {
                 let er = &self.edges[eidx as usize];
-                let cost_idx = eidx as usize * self.meta.profile_count as usize
-                    + prof_id as usize;
+                let cost_idx = eidx as usize * self.meta.profile_count as usize + prof_id as usize;
                 // `baked` is the build-time per-profile cost in
                 // "effective metres"; it is `+inf` when the profile
                 // forbids the edge. We no longer multiply by it —

@@ -241,8 +241,7 @@ fn route_scenarios() {
         return;
     }
 
-    let corpus: Corpus =
-        toml::from_str(CORPUS_TOML).expect("route-scenarios.toml failed to parse");
+    let corpus: Corpus = toml::from_str(CORPUS_TOML).expect("route-scenarios.toml failed to parse");
 
     let filter = std::env::var("TURBO_TEST_SCENARIO").ok();
     let scenarios: Vec<&Scenario> = corpus
@@ -266,7 +265,11 @@ fn route_scenarios() {
             }
         }
     }
-    eprintln!("\nscenarios: {} pass, {} fail", passes.len(), failures.len());
+    eprintln!(
+        "\nscenarios: {} pass, {} fail",
+        passes.len(),
+        failures.len()
+    );
 
     if !failures.is_empty() {
         panic!(

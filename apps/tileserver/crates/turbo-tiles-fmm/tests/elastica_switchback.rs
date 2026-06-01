@@ -4,8 +4,8 @@
 //! the behaviour a convex-metric eikonal provably cannot produce.
 
 use turbo_tiles_fmm::{
-    extract_path_lifted, solve_lifted_grade_limited, ArrayElevation, ArrayOverlay, GradeLimitedCost,
-    GridShape, N_HEADINGS,
+    extract_path_lifted, solve_lifted_grade_limited, ArrayElevation, ArrayOverlay,
+    GradeLimitedCost, GridShape, N_HEADINGS,
 };
 
 /// A refused-cell barrier ("lake") must be routed around: the extracted
@@ -18,7 +18,11 @@ fn routes_around_a_refused_lake_never_entering_it() {
     let cell_m = 10.0;
     // Flat ground (elevation 0): grade never refuses, so the ONLY thing
     // that can deflect the route is the refused overlay.
-    let elev = ArrayElevation { data: vec![Some(0.0); (n * n) as usize], nx: n, ny: n };
+    let elev = ArrayElevation {
+        data: vec![Some(0.0); (n * n) as usize],
+        nx: n,
+        ny: n,
+    };
     let shape = GridShape::new_3d(n, n, N_HEADINGS, 0.0, 0.0, cell_m);
 
     // A "lake": refuse columns 18..=22 for rows j >= 8, leaving a gap only
@@ -38,12 +42,19 @@ fn routes_around_a_refused_lake_never_entering_it() {
         off_trail_factor: 1.0,
         max_grade_deg: 45.0,
         turn_penalty_s: 4.0,
-        overlay: ArrayOverlay { nx: n, refused: refused.clone(), pace_mul: vec![] },
+        overlay: ArrayOverlay {
+            nx: n,
+            refused: refused.clone(),
+            pace_mul: vec![],
+        },
     };
     let start = (5u32, 20u32);
     let goal = (35u32, 20u32);
     let r = solve_lifted_grade_limited(shape, &cost, start, goal, None);
-    assert!(r.goal_state.is_some(), "goal must be reachable around the lake");
+    assert!(
+        r.goal_state.is_some(),
+        "goal must be reachable around the lake"
+    );
 
     let (sx, sy) = shape.cell_centre(start.0, start.1);
     let (gx, gy) = shape.cell_centre(goal.0, goal.1);
@@ -71,7 +82,10 @@ fn routes_around_a_refused_lake_never_entering_it() {
     // row 20 past the lake MUST dip into it. Proves a real detour, not a
     // straight chord that the assertion above happened to miss.
     eprintln!("lake detour: min_j_reached={min_j_reached} (gap is j<8 on cols 18..=22)");
-    assert!(min_j_reached < 8, "expected the route to detour through the j<8 gap");
+    assert!(
+        min_j_reached < 8,
+        "expected the route to detour through the j<8 gap"
+    );
 }
 
 /// Constant-slope ramp climbing in +x at `slope_deg`.
@@ -101,13 +115,20 @@ fn switchbacks_up_a_steep_ramp_within_grade_cap() {
         off_trail_factor: 1.0,
         max_grade_deg,
         turn_penalty_s: 8.0,
-        overlay: ArrayOverlay { nx: n, refused: vec![], pace_mul: vec![] },
+        overlay: ArrayOverlay {
+            nx: n,
+            refused: vec![],
+            pace_mul: vec![],
+        },
     };
     // Climb in +x (up the fall line) across the middle row.
     let start = (5u32, 30u32);
     let goal = (55u32, 30u32);
     let r = solve_lifted_grade_limited(shape, &cost, start, goal, None);
-    assert!(r.goal_state.is_some(), "goal must be reachable via switchbacks");
+    assert!(
+        r.goal_state.is_some(),
+        "goal must be reachable via switchbacks"
+    );
 
     let (sx, sy) = shape.cell_centre(start.0, start.1);
     let (gx, gy) = shape.cell_centre(goal.0, goal.1);
@@ -164,7 +185,11 @@ fn gentle_ramp_goes_roughly_straight() {
         off_trail_factor: 1.0,
         max_grade_deg: 20.0,
         turn_penalty_s: 8.0,
-        overlay: ArrayOverlay { nx: n, refused: vec![], pace_mul: vec![] },
+        overlay: ArrayOverlay {
+            nx: n,
+            refused: vec![],
+            pace_mul: vec![],
+        },
     };
     let start = (5u32, 30u32);
     let goal = (55u32, 30u32);
@@ -177,5 +202,9 @@ fn gentle_ramp_goes_roughly_straight() {
         .windows(2)
         .map(|w| ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt())
         .sum();
-    assert!(len / straight < 1.2, "gentle ramp should be ~straight; tort={:.2}", len / straight);
+    assert!(
+        len / straight < 1.2,
+        "gentle ramp should be ~straight; tort={:.2}",
+        len / straight
+    );
 }

@@ -119,10 +119,7 @@ impl Dem {
         Self::open_with_cache(path, DEFAULT_CACHE_BYTES)
     }
 
-    pub fn open_with_cache<P: AsRef<Path>>(
-        path: P,
-        cache_bytes: usize,
-    ) -> Result<Self, DemError> {
+    pub fn open_with_cache<P: AsRef<Path>>(path: P, cache_bytes: usize) -> Result<Self, DemError> {
         let file = File::open(path.as_ref())?;
         let file_size_bytes = file.metadata()?.len();
         let mmap = unsafe { Mmap::map(&file)? };
@@ -225,11 +222,9 @@ impl Dem {
             }
         }
         let res_f = pixel as f32;
-        let dzdx = ((n[0][2] + 2.0 * n[1][2] + n[2][2])
-            - (n[0][0] + 2.0 * n[1][0] + n[2][0]))
+        let dzdx = ((n[0][2] + 2.0 * n[1][2] + n[2][2]) - (n[0][0] + 2.0 * n[1][0] + n[2][0]))
             / (8.0 * res_f);
-        let dzdy_grid = ((n[2][0] + 2.0 * n[2][1] + n[2][2])
-            - (n[0][0] + 2.0 * n[0][1] + n[0][2]))
+        let dzdy_grid = ((n[2][0] + 2.0 * n[2][1] + n[2][2]) - (n[0][0] + 2.0 * n[0][1] + n[0][2]))
             / (8.0 * res_f);
         // World-space gradient is north-positive; n[2] is one row
         // *south* of n[0] in world terms, so grid-space dz/dy needs
@@ -352,8 +347,7 @@ impl Dem {
             return Err(DemError::Malformed("tile payload past EOF"));
         }
         let compressed = &self.mmap[off..off + sz];
-        let raw_bytes = zstd::decode_all(compressed)
-            .map_err(|e| DemError::Zstd(e.to_string()))?;
+        let raw_bytes = zstd::decode_all(compressed).map_err(|e| DemError::Zstd(e.to_string()))?;
         if raw_bytes.len() != cells_per_tile * std::mem::size_of::<f32>() {
             return Err(DemError::Malformed("decoded tile wrong size"));
         }
@@ -405,16 +399,17 @@ pub fn wgs84_to_utm33n(lon_deg: f64, lat_deg: f64) -> PointXY {
             + (5.0 - 18.0 * t + t * t + 72.0 * c - 58.0 * ep2) * a_term.powi(5) / 120.0)
         + false_e;
     let y = k0
-        * (m
-            + n * tan_phi
-                * (a_term * a_term / 2.0
-                    + (5.0 - t + 9.0 * c + 4.0 * c * c) * a_term.powi(4) / 24.0
-                    + (61.0 - 58.0 * t + t * t + 600.0 * c - 330.0 * ep2)
-                        * a_term.powi(6)
-                        / 720.0))
+        * (m + n
+            * tan_phi
+            * (a_term * a_term / 2.0
+                + (5.0 - t + 9.0 * c + 4.0 * c * c) * a_term.powi(4) / 24.0
+                + (61.0 - 58.0 * t + t * t + 600.0 * c - 330.0 * ep2) * a_term.powi(6) / 720.0))
         + false_n;
     PointXY { x, y }
 }
+
+#[allow(dead_code)]
+pub use crate::format::DemMeta as DemMetaPub;
 
 #[cfg(test)]
 mod tests {
@@ -428,6 +423,3 @@ mod tests {
         assert!(dx < 1000.0 && dy < 1000.0);
     }
 }
-
-#[allow(dead_code)]
-pub use crate::format::DemMeta as DemMetaPub;

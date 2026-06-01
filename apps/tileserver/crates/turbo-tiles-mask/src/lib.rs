@@ -12,9 +12,7 @@ use std::path::Path;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use memmap2::Mmap;
 use thiserror::Error;
-use turbo_tiles_artifacts::{
-    check_header, read_header, ArtifactError, ArtifactKind, HEADER_BYTES,
-};
+use turbo_tiles_artifacts::{check_header, read_header, ArtifactError, ArtifactKind, HEADER_BYTES};
 
 pub const MASK_FORMAT_VERSION: u32 = 1;
 pub const DEFAULT_RESOLUTION_M: f32 = 100.0;
@@ -92,7 +90,7 @@ pub fn read_meta<R: Read>(r: &mut R) -> std::io::Result<MaskMeta> {
 }
 
 pub fn packed_bytes(cells: u64) -> u64 {
-    (cells + 3) / 4
+    cells.div_ceil(4)
 }
 
 #[derive(Debug, Error)]
@@ -154,10 +152,7 @@ impl Mask {
 
     /// Refusal class at an EPSG:25833 point.
     pub fn refused(&self, x: f64, y: f64) -> Result<RefusalKind, MaskError> {
-        if x < self.meta.min_x
-            || x > self.meta.max_x
-            || y < self.meta.min_y
-            || y > self.meta.max_y
+        if x < self.meta.min_x || x > self.meta.max_x || y < self.meta.min_y || y > self.meta.max_y
         {
             return Err(MaskError::OutOfCoverage);
         }
@@ -211,8 +206,7 @@ impl Mask {
         let col1 = col1.min(cx);
         let row0 = row0.max(0);
         let row1 = row1.min(cy);
-        let cells_in_window = ((col1 - col0).max(0) as usize)
-            * ((row1 - row0).max(0) as usize);
+        let cells_in_window = ((col1 - col0).max(0) as usize) * ((row1 - row0).max(0) as usize);
         // Stride-sample when too many cells would be returned. A
         // stride of `s` keeps roughly `cells / s²` of them, evenly
         // distributed; visually still tells the curator where this

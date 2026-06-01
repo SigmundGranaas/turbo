@@ -92,7 +92,10 @@ impl NarrowBandHeap {
     pub fn decrease_key(&mut self, cell: u32, new_key: f32) {
         let pos = self.idx_in_heap[cell as usize] as usize;
         debug_assert!(pos != NOT_IN_HEAP as usize, "decrease_key on absent cell");
-        debug_assert!(new_key <= self.entries[pos].key, "decrease_key with larger key");
+        debug_assert!(
+            new_key <= self.entries[pos].key,
+            "decrease_key with larger key"
+        );
         self.entries[pos].key = new_key;
         self.sift_up(pos);
     }
@@ -147,7 +150,10 @@ impl NarrowBandHeap {
                 assert!(
                     self.entries[parent].key <= entry.key,
                     "heap order violated at pos {} (key {}) vs parent {} (key {})",
-                    pos, entry.key, parent, self.entries[parent].key
+                    pos,
+                    entry.key,
+                    parent,
+                    self.entries[parent].key
                 );
             }
         }

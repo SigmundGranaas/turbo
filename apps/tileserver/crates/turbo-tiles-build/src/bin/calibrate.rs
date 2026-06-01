@@ -101,9 +101,7 @@ fn main() -> ExitCode {
         .call()
         .is_err()
     {
-        eprintln!(
-            "ERROR: tileserver not reachable at {host} — start one and rerun"
-        );
+        eprintln!("ERROR: tileserver not reachable at {host} — start one and rerun");
         return ExitCode::from(1);
     }
 
@@ -137,7 +135,11 @@ fn main() -> ExitCode {
             let glyph = if ok { '✓' } else { '·' };
             eprint!("{glyph}");
             grid.get_mut(&sc.name).unwrap().insert(key.clone(), ok);
-            if ok { pass += 1; } else { fail += 1; }
+            if ok {
+                pass += 1;
+            } else {
+                fail += 1;
+            }
         }
         eprintln!("  {pass}/{}", pass + fail);
         totals.insert(key, (pass, fail));
@@ -250,10 +252,14 @@ fn run_scenario(host: &str, sc: &Scenario, knob: &str, value: f64) -> bool {
             }
             let length = path["length_m"].as_f64().unwrap_or(0.0);
             if let Some(m) = sc.assert.length_m_min {
-                if length < m { return false; }
+                if length < m {
+                    return false;
+                }
             }
             if let Some(m) = sc.assert.length_m_max {
-                if length > m { return false; }
+                if length > m {
+                    return false;
+                }
             }
             let total = length.max(1.0);
             if let Some(min) = sc.assert.fkb_breakdown_sti_pct_min {

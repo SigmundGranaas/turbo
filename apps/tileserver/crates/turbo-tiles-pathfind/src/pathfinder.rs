@@ -32,9 +32,9 @@ use turbo_tiles_elev::{wgs84_to_utm33n, Dem, PointXY};
 use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
-use crate::cost::{compose_cell, CostLayer};
 use crate::core::off_trail::Point2;
 use crate::core::off_trail_mesh::{CostSample, MeshBbox, RefusedPolygon};
+use crate::cost::{compose_cell, CostLayer};
 use crate::layers::{
     AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, MarkingLayer, MaskRefusalLayer,
     PreferredEdgeLayer, SlopeLayer, TotalGainLayer, TrailProximityLayer,
@@ -510,8 +510,11 @@ impl Prefs {
         self.off_trail_base.map(f64::to_bits).hash(&mut h);
         // Sort layer_weights for a deterministic order (HashMap iteration
         // order isn't stable).
-        let mut lw: Vec<(&str, u32)> =
-            self.layer_weights.iter().map(|(k, v)| (k.as_str(), v.to_bits())).collect();
+        let mut lw: Vec<(&str, u32)> = self
+            .layer_weights
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.to_bits()))
+            .collect();
         lw.sort_unstable();
         lw.hash(&mut h);
         // Debug-format the override patch + cost mode (struct field order
@@ -700,10 +703,10 @@ impl Pathfinder {
         }
         if let Some(m) = mask.as_ref() {
             layers.push(Arc::new(MaskRefusalLayer::new(m.clone())));
-            natives.push(Arc::new(
-                MaskRefusalContributor::new(m.clone())
-                    .with_water(cost_config.water.cost_s_per_m, cost_config.water.shore_band_m),
-            ));
+            natives.push(Arc::new(MaskRefusalContributor::new(m.clone()).with_water(
+                cost_config.water.cost_s_per_m,
+                cost_config.water.shore_band_m,
+            )));
         }
         if let Some(g) = graph.as_ref() {
             layers.push(Arc::new(TrailProximityLayer::new(
@@ -782,9 +785,8 @@ impl Pathfinder {
     pub fn defer_mask_water_to_vector(&mut self, mask: Arc<Mask>) {
         for i in 0..self.layers.len() {
             if self.layers[i].name() == "mask_refusal" {
-                self.layers[i] = Arc::new(
-                    crate::layers::MaskRefusalLayer::new(mask.clone()).deferring_water(),
-                );
+                self.layers[i] =
+                    Arc::new(crate::layers::MaskRefusalLayer::new(mask.clone()).deferring_water());
                 break;
             }
         }
@@ -961,9 +963,7 @@ impl Pathfinder {
     /// migrated) we fall back to wrapping every legacy layer in
     /// [`crate::contributor::LegacyLayerAdapter`] as a last resort
     /// so the breakdown still has data to show.
-    pub fn contributors_for_breakdown(
-        &self,
-    ) -> Vec<Arc<dyn crate::contributor::CostContributor>> {
+    pub fn contributors_for_breakdown(&self) -> Vec<Arc<dyn crate::contributor::CostContributor>> {
         if !self.native_contributors.is_empty() {
             return self.native_contributors.clone();
         }
@@ -980,12 +980,7 @@ impl Pathfinder {
     /// thinks. Powers the SPA's click-a-cell-to-inspect UX — the
     /// user wants to understand *why* a cell is red, not just see
     /// that it is.
-    pub fn inspect_point(
-        &self,
-        lon: f64,
-        lat: f64,
-        profile: Profile,
-    ) -> InspectPoint {
+    pub fn inspect_point(&self, lon: f64, lat: f64, profile: Profile) -> InspectPoint {
         let p = wgs84_to_utm33n(lon, lat);
         let mut layers = Vec::with_capacity(self.layers.len());
         let mut composed = 1.0f32;
@@ -1023,12 +1018,7 @@ impl Pathfinder {
     /// same off-trail mesh the solver would, but returns the cells
     /// (cost samples + refused polygons) instead of running Theta\*.
     /// Lets the admin UI visualise *why* the solver did what it did.
-    pub fn inspect(
-        &self,
-        from_lonlat: [f64; 2],
-        to_lonlat: [f64; 2],
-        prefs: &Prefs,
-    ) -> Inspect {
+    pub fn inspect(&self, from_lonlat: [f64; 2], to_lonlat: [f64; 2], prefs: &Prefs) -> Inspect {
         let from_xy = wgs84_to_utm33n(from_lonlat[0], from_lonlat[1]);
         let to_xy = wgs84_to_utm33n(to_lonlat[0], to_lonlat[1]);
         // Inspect with the same effective padding the solver would
@@ -1043,12 +1033,8 @@ impl Pathfinder {
             min_y: from_xy.y.min(to_xy.y) - pad_m,
             max_y: from_xy.y.max(to_xy.y) + pad_m,
         };
-        let (samples, refused, refused_by) = self.mesh_inputs_for_bbox(
-            bbox,
-            prefs.mesh_cell_m,
-            prefs.profile,
-            &prefs.layer_weights,
-        );
+        let (samples, refused, refused_by) =
+            self.mesh_inputs_for_bbox(bbox, prefs.mesh_cell_m, prefs.profile, &prefs.layer_weights);
         let cells: Vec<InspectCell> = samples
             .into_iter()
             .map(|s| {
@@ -1120,11 +1106,7 @@ impl Pathfinder {
     /// own — standard and expected). A failing segment surfaces as
     /// [`PathfindError::SegmentFailed`] carrying the 0-based leg index
     /// and its endpoints, so the caller can point at the exact stop.
-    pub fn solve_route(
-        &self,
-        points: &[[f64; 2]],
-        prefs: Prefs,
-    ) -> Result<Path, PathfindError> {
+    pub fn solve_route(&self, points: &[[f64; 2]], prefs: Prefs) -> Result<Path, PathfindError> {
         if points.len() < 2 {
             return Err(PathfindError::DegenerateInputs { dist_m: 0.0 });
         }
@@ -1135,9 +1117,7 @@ impl Pathfinder {
         let recorder = prefs
             .record
             .then(|| Arc::new(crate::solver_trace::Recorder::new(prefs.record_cap)));
-        let tracer = prefs
-            .debug
-            .then(|| Arc::new(crate::tracer::Tracer::new()));
+        let tracer = prefs.debug.then(|| Arc::new(crate::tracer::Tracer::new()));
 
         let n_legs = points.len() - 1;
         let solve_all = |inner_prefs: Prefs| -> Result<Path, PathfindError> {
@@ -1253,10 +1233,8 @@ impl Pathfinder {
         // semantically a lie. Honest failure beats silent nonsense.
         let from_covered = self.point_covered(from_xy.x, from_xy.y);
         let to_covered = self.point_covered(to_xy.x, to_xy.y);
-        let from_graph =
-            self.has_graph_anchor(from_xy.x, from_xy.y, prefs.bridge_radius_m);
-        let to_graph =
-            self.has_graph_anchor(to_xy.x, to_xy.y, prefs.bridge_radius_m);
+        let from_graph = self.has_graph_anchor(from_xy.x, from_xy.y, prefs.bridge_radius_m);
+        let to_graph = self.has_graph_anchor(to_xy.x, to_xy.y, prefs.bridge_radius_m);
         if !from_covered && !to_covered && !from_graph && !to_graph {
             return Err(PathfindError::NoCoverage {
                 from_covered,
@@ -1301,7 +1279,9 @@ impl Pathfinder {
             });
         }
         crate::solver_trace::begin_phase("solve_unified");
-        crate::tracer::phase("solve_unified", || self.solve_unified_path(from_xy, to_xy, &prefs))
+        crate::tracer::phase("solve_unified", || {
+            self.solve_unified_path(from_xy, to_xy, &prefs)
+        })
     }
 
     /// FMM dispatch for off-trail. Sizes a corridor, bakes the
@@ -1329,9 +1309,9 @@ impl Pathfinder {
             Some(patch) => self.cost_config.with_patch(patch),
             None => self.cost_config.clone(),
         };
-        let off_trail_base = prefs.off_trail_base.unwrap_or_else(|| {
-            effective_cfg.off_trail_base.for_profile(prefs.profile)
-        });
+        let off_trail_base = prefs
+            .off_trail_base
+            .unwrap_or_else(|| effective_cfg.off_trail_base.for_profile(prefs.profile));
         // Naismith vertical-gain weight folded directionally into the
         // FMM along-fall-line pace (effective flat-metres per gain-metre,
         // matching on-graph pricing). DEFAULT 0 (amplifier = 1.0): the
@@ -1376,22 +1356,21 @@ impl Pathfinder {
             turn_penalty_s: effective_cfg.grade_limited.turn_penalty_s,
         };
         let contributors = self.native_contributors.clone();
-        let out = crate::fmm_adapter::solve_fmm_path(
-            inputs, dem.clone(), &contributors, prefs.profile,
-        )
-        .map_err(|e| {
-            use crate::fmm_adapter::FmmAdapterError;
-            match e {
-                // Goal genuinely unreachable through the terrain (corridor
-                // severed by water/glacier/cliff, or no DEM coverage). This
-                // is an honest "no route", NOT an internal error — and there
-                // is no Theta* fallback to paper over it with a garbage line.
-                FmmAdapterError::GoalUnreachable
-                | FmmAdapterError::StartOutsideGrid
-                | FmmAdapterError::GoalOutsideGrid => PathfindError::NoRoute,
-                other => PathfindError::Internal(format!("off-trail solver: {other}")),
-            }
-        })?;
+        let out =
+            crate::fmm_adapter::solve_fmm_path(inputs, dem.clone(), &contributors, prefs.profile)
+                .map_err(|e| {
+                use crate::fmm_adapter::FmmAdapterError;
+                match e {
+                    // Goal genuinely unreachable through the terrain (corridor
+                    // severed by water/glacier/cliff, or no DEM coverage). This
+                    // is an honest "no route", NOT an internal error — and there
+                    // is no Theta* fallback to paper over it with a garbage line.
+                    FmmAdapterError::GoalUnreachable
+                    | FmmAdapterError::StartOutsideGrid
+                    | FmmAdapterError::GoalOutsideGrid => PathfindError::NoRoute,
+                    other => PathfindError::Internal(format!("off-trail solver: {other}")),
+                }
+            })?;
         tracing::debug!(
             cells_accepted = out.cells_accepted,
             vetoed_cells = out.vetoed_cells,
@@ -1541,26 +1520,49 @@ impl Pathfinder {
             let mut run_start = 0usize;
             let mut run_kind = route.seg_on_trail[0];
             let mut run_len = 0.0f64;
-            let mut push = |kind: bool, start: usize, end: usize, len: f64,
-                            legs: &mut Vec<PathLeg>, on_m: &mut f64, off_m: &mut f64| {
+            let push = |kind: bool,
+                        start: usize,
+                        end: usize,
+                        len: f64,
+                        legs: &mut Vec<PathLeg>,
+                        on_m: &mut f64,
+                        off_m: &mut f64| {
                 legs.push(PathLeg {
-                    kind: if kind { LegKind::Graph } else { LegKind::OffTrailPrefix },
+                    kind: if kind {
+                        LegKind::Graph
+                    } else {
+                        LegKind::OffTrailPrefix
+                    },
                     start_idx: start as u32,
                     end_idx: end as u32,
                     length_m: len,
                 });
-                if kind { *on_m += len } else { *off_m += len }
+                if kind {
+                    *on_m += len
+                } else {
+                    *off_m += len
+                }
             };
             for k in 0..route.seg_on_trail.len() {
                 if route.seg_on_trail[k] != run_kind {
-                    push(run_kind, run_start, k, run_len, &mut legs, &mut on_m, &mut off_m);
+                    push(
+                        run_kind, run_start, k, run_len, &mut legs, &mut on_m, &mut off_m,
+                    );
                     run_start = k;
                     run_kind = route.seg_on_trail[k];
                     run_len = 0.0;
                 }
                 run_len += seg_len(k);
             }
-            push(run_kind, run_start, route.seg_on_trail.len(), run_len, &mut legs, &mut on_m, &mut off_m);
+            push(
+                run_kind,
+                run_start,
+                route.seg_on_trail.len(),
+                run_len,
+                &mut legs,
+                &mut on_m,
+                &mut off_m,
+            );
         }
         // Per-surface breakdown from the route's per-segment fkb codes, so
         // the response distinguishes trail (sti) from road (vei) from
@@ -1580,7 +1582,11 @@ impl Pathfinder {
         }
         fkb_breakdown.retain(|_, v| *v > 0.0);
         let _ = off_m;
-        let on_trail_pct = if length_m > 0.0 { (on_m / length_m * 100.0) as f32 } else { 0.0 };
+        let on_trail_pct = if length_m > 0.0 {
+            (on_m / length_m * 100.0) as f32
+        } else {
+            0.0
+        };
 
         Ok(Path {
             strategy: PathStrategy::Hybrid,
@@ -1671,9 +1677,7 @@ impl Pathfinder {
         profile: Profile,
         weights: &HashMap<String, f32>,
     ) -> (Vec<CostSample>, Vec<RefusedPolygon>, Vec<String>) {
-        let weight_fn = |name: &str| -> f32 {
-            weights.get(name).copied().unwrap_or(1.0)
-        };
+        let weight_fn = |name: &str| -> f32 { weights.get(name).copied().unwrap_or(1.0) };
         let (nx, ny) = bbox.grid_dims(cell_m);
         let mut samples = Vec::with_capacity((nx * ny) as usize);
         let mut refused = Vec::new();
@@ -1694,11 +1698,26 @@ impl Pathfinder {
                     refused_layers.insert(reason.to_string());
                     refused.push(RefusedPolygon {
                         ring: vec![
-                            Point2 { x: x - half_x, y: y - half_y },
-                            Point2 { x: x + half_x, y: y - half_y },
-                            Point2 { x: x + half_x, y: y + half_y },
-                            Point2 { x: x - half_x, y: y + half_y },
-                            Point2 { x: x - half_x, y: y - half_y },
+                            Point2 {
+                                x: x - half_x,
+                                y: y - half_y,
+                            },
+                            Point2 {
+                                x: x + half_x,
+                                y: y - half_y,
+                            },
+                            Point2 {
+                                x: x + half_x,
+                                y: y + half_y,
+                            },
+                            Point2 {
+                                x: x - half_x,
+                                y: y + half_y,
+                            },
+                            Point2 {
+                                x: x - half_x,
+                                y: y - half_y,
+                            },
                         ],
                     });
                 } else {
@@ -1713,7 +1732,6 @@ impl Pathfinder {
         refused_by.sort();
         (samples, refused, refused_by)
     }
-
 }
 
 /// Per-layer contribution at a single (lon, lat) point.
@@ -1807,8 +1825,7 @@ pub fn utm33n_to_wgs84(x: f64, y: f64) -> (f64, f64) {
     let m = y / k0;
 
     let e1 = (1.0 - (1.0 - e2).sqrt()) / (1.0 + (1.0 - e2).sqrt());
-    let mu =
-        m / (A * (1.0 - e2 / 4.0 - 3.0 * e2 * e2 / 64.0 - 5.0 * e2 * e2 * e2 / 256.0));
+    let mu = m / (A * (1.0 - e2 / 4.0 - 3.0 * e2 * e2 / 64.0 - 5.0 * e2 * e2 * e2 / 256.0));
     let phi1 = mu
         + (3.0 * e1 / 2.0 - 27.0 * e1.powi(3) / 32.0) * (2.0 * mu).sin()
         + (21.0 * e1.powi(2) / 16.0 - 55.0 * e1.powi(4) / 32.0) * (4.0 * mu).sin()
@@ -1824,10 +1841,8 @@ pub fn utm33n_to_wgs84(x: f64, y: f64) -> (f64, f64) {
     let phi = phi1
         - (n1 * tan_phi1 / r1)
             * (d * d / 2.0
-                - (5.0 + 3.0 * t1 + 10.0 * c1 - 4.0 * c1 * c1 - 9.0 * ep2) * d.powi(4)
-                    / 24.0
-                + (61.0 + 90.0 * t1 + 298.0 * c1 + 45.0 * t1 * t1 - 252.0 * ep2
-                    - 3.0 * c1 * c1)
+                - (5.0 + 3.0 * t1 + 10.0 * c1 - 4.0 * c1 * c1 - 9.0 * ep2) * d.powi(4) / 24.0
+                + (61.0 + 90.0 * t1 + 298.0 * c1 + 45.0 * t1 * t1 - 252.0 * ep2 - 3.0 * c1 * c1)
                     * d.powi(6)
                     / 720.0);
     let lambda = lon0

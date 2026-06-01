@@ -45,21 +45,31 @@ pub async fn reset(
         }
     };
     tracing::info!(scope = %scope, ?actions, "admin: reset complete");
-    Ok(Json(json!({ "ok": true, "scope": scope, "actions": actions })))
+    Ok(Json(
+        json!({ "ok": true, "scope": scope, "actions": actions }),
+    ))
 }
 
 async fn reset_recommend(db: &turbo_tiles_db::DbPool) -> Result<Vec<String>, AdminError> {
     // Drop the fixture seed rows specifically — leaves any real-data
     // ingest untouched.
-    let mut tx = db.begin().await.map_err(|e| AdminError::Db(e.to_string()))?;
+    let mut tx = db
+        .begin()
+        .await
+        .map_err(|e| AdminError::Db(e.to_string()))?;
     let counts: Vec<(&str, i64)> = vec![
         run_count(&mut tx, "DELETE FROM anchors.anchor WHERE source_ref LIKE 'n50-fixture-%' OR source_ref LIKE 'seed-%' RETURNING 1", "anchors_fixture").await?,
         run_count(&mut tx, "DELETE FROM terrain.water_polygon WHERE source = 'seed' RETURNING 1", "water_seed").await?,
         run_count(&mut tx, "DELETE FROM trails.trail_edge WHERE trail_id IN (SELECT id FROM trails.trail WHERE source = 'manual' AND source_ref LIKE 'seed-%') RETURNING 1", "trail_edge_seed").await?,
         run_count(&mut tx, "DELETE FROM trails.trail WHERE source = 'manual' AND source_ref LIKE 'seed-%' RETURNING 1", "trails_seed").await?,
     ];
-    tx.commit().await.map_err(|e| AdminError::Db(e.to_string()))?;
-    Ok(counts.into_iter().map(|(k, n)| format!("{k}: {n}")).collect())
+    tx.commit()
+        .await
+        .map_err(|e| AdminError::Db(e.to_string()))?;
+    Ok(counts
+        .into_iter()
+        .map(|(k, n)| format!("{k}: {n}"))
+        .collect())
 }
 
 async fn reset_skeleton(db: &turbo_tiles_db::DbPool) -> Result<Vec<String>, AdminError> {
@@ -67,7 +77,10 @@ async fn reset_skeleton(db: &turbo_tiles_db::DbPool) -> Result<Vec<String>, Admi
         .execute(db)
         .await
         .map_err(|e| AdminError::Db(e.to_string()))?;
-    Ok(vec![format!("skeleton_edges_deleted: {}", r.rows_affected())])
+    Ok(vec![format!(
+        "skeleton_edges_deleted: {}",
+        r.rows_affected()
+    )])
 }
 
 async fn reset_n50_staging(db: &turbo_tiles_db::DbPool) -> Result<Vec<String>, AdminError> {
@@ -106,10 +119,13 @@ async fn drop_schema_with_pattern(
     .await
     .map_err(|e| AdminError::Db(e.to_string()))?;
     for (s,) in leftovers {
-        sqlx::query(&format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", s.replace('"', "\"\"")))
-            .execute(db)
-            .await
-            .map_err(|e| AdminError::Db(e.to_string()))?;
+        sqlx::query(&format!(
+            "DROP SCHEMA IF EXISTS \"{}\" CASCADE",
+            s.replace('"', "\"\"")
+        ))
+        .execute(db)
+        .await
+        .map_err(|e| AdminError::Db(e.to_string()))?;
         actions.push(format!("dropped_leftover: {}", s));
     }
     Ok(actions)
@@ -120,23 +136,76 @@ async fn reset_canonical(db: &turbo_tiles_db::DbPool) -> Result<Vec<String>, Adm
     // routing graph) and paths.dem (rasters). Use this when the
     // curator wants to re-run the upsert pipeline against a fresh
     // canonical schema without re-doing the restore.
-    let mut tx = db.begin().await.map_err(|e| AdminError::Db(e.to_string()))?;
+    let mut tx = db
+        .begin()
+        .await
+        .map_err(|e| AdminError::Db(e.to_string()))?;
     let counts = vec![
-        run_count(&mut tx, "DELETE FROM trails.trail_edge RETURNING 1", "trail_edge").await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM trails.trail_edge RETURNING 1",
+            "trail_edge",
+        )
+        .await?,
         run_count(&mut tx, "DELETE FROM trails.trail RETURNING 1", "trail").await?,
         run_count(&mut tx, "DELETE FROM anchors.anchor RETURNING 1", "anchor").await?,
-        run_count(&mut tx, "DELETE FROM terrain.water_polygon RETURNING 1", "water_polygon").await?,
-        run_count(&mut tx, "DELETE FROM terrain.glacier_polygon RETURNING 1", "glacier_polygon").await?,
-        run_count(&mut tx, "DELETE FROM terrain.landcover_patch RETURNING 1", "landcover_patch").await?,
-        run_count(&mut tx, "DELETE FROM terrain.ridgeline RETURNING 1", "ridgeline").await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM terrain.water_polygon RETURNING 1",
+            "water_polygon",
+        )
+        .await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM terrain.glacier_polygon RETURNING 1",
+            "glacier_polygon",
+        )
+        .await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM terrain.landcover_patch RETURNING 1",
+            "landcover_patch",
+        )
+        .await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM terrain.ridgeline RETURNING 1",
+            "ridgeline",
+        )
+        .await?,
         run_count(&mut tx, "DELETE FROM terrain.saddle RETURNING 1", "saddle").await?,
-        run_count(&mut tx, "DELETE FROM terrain.drainage RETURNING 1", "drainage").await?,
-        run_count(&mut tx, "DELETE FROM terrain.landform_patch RETURNING 1", "landform_patch").await?,
-        run_count(&mut tx, "DELETE FROM terrain.treeline RETURNING 1", "treeline").await?,
-        run_count(&mut tx, "DELETE FROM paths.edge WHERE ingest_source = 'skeleton' RETURNING 1", "skeleton_edges").await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM terrain.drainage RETURNING 1",
+            "drainage",
+        )
+        .await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM terrain.landform_patch RETURNING 1",
+            "landform_patch",
+        )
+        .await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM terrain.treeline RETURNING 1",
+            "treeline",
+        )
+        .await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM paths.edge WHERE ingest_source = 'skeleton' RETURNING 1",
+            "skeleton_edges",
+        )
+        .await?,
     ];
-    tx.commit().await.map_err(|e| AdminError::Db(e.to_string()))?;
-    Ok(counts.into_iter().map(|(k, n)| format!("{k}: {n}")).collect())
+    tx.commit()
+        .await
+        .map_err(|e| AdminError::Db(e.to_string()))?;
+    Ok(counts
+        .into_iter()
+        .map(|(k, n)| format!("{k}: {n}"))
+        .collect())
 }
 
 async fn reset_all(db: &turbo_tiles_db::DbPool) -> Result<Vec<String>, AdminError> {
@@ -148,12 +217,20 @@ async fn reset_all(db: &turbo_tiles_db::DbPool) -> Result<Vec<String>, AdminErro
     // Now wipe paths.edge (all sources), paths.node, paths.dem,
     // paths.ingest_job. The DB ends up in the same state as a fresh
     // `tileserver migrate` — schemas + extensions intact, no data.
-    let mut tx = db.begin().await.map_err(|e| AdminError::Db(e.to_string()))?;
+    let mut tx = db
+        .begin()
+        .await
+        .map_err(|e| AdminError::Db(e.to_string()))?;
     let counts = vec![
         run_count(&mut tx, "DELETE FROM paths.edge RETURNING 1", "paths_edge").await?,
         run_count(&mut tx, "DELETE FROM paths.node RETURNING 1", "paths_node").await?,
         run_count(&mut tx, "DELETE FROM paths.dem RETURNING 1", "paths_dem").await?,
-        run_count(&mut tx, "DELETE FROM paths.ingest_job RETURNING 1", "ingest_job").await?,
+        run_count(
+            &mut tx,
+            "DELETE FROM paths.ingest_job RETURNING 1",
+            "ingest_job",
+        )
+        .await?,
     ];
     sqlx::query(
         "UPDATE recommend.attr_version SET version = 1, notes = 'reset all', set_at = now() WHERE singleton = true",
@@ -161,7 +238,9 @@ async fn reset_all(db: &turbo_tiles_db::DbPool) -> Result<Vec<String>, AdminErro
     .execute(&mut *tx)
     .await
     .map_err(|e| AdminError::Db(e.to_string()))?;
-    tx.commit().await.map_err(|e| AdminError::Db(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| AdminError::Db(e.to_string()))?;
     actions.extend(counts.into_iter().map(|(k, n)| format!("{k}: {n}")));
     actions.push("attr_version_reset: 1".into());
     Ok(actions)

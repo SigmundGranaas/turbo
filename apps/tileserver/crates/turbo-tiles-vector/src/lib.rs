@@ -212,11 +212,21 @@ pub struct VectorCollection {
 }
 
 impl VectorCollection {
-    pub fn name(&self) -> &str { &self.name }
-    pub fn kind(&self) -> GeomKind { self.kind }
-    pub fn len(&self) -> usize { self.features.len() }
-    pub fn is_empty(&self) -> bool { self.features.is_empty() }
-    pub fn schema(&self) -> &AttrSchema { &self.attr_schema }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn kind(&self) -> GeomKind {
+        self.kind
+    }
+    pub fn len(&self) -> usize {
+        self.features.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.features.is_empty()
+    }
+    pub fn schema(&self) -> &AttrSchema {
+        &self.attr_schema
+    }
 
     /// Coordinates of one feature: the ring of a polygon, the
     /// vertices of a polyline, or the single point.
@@ -230,7 +240,12 @@ impl VectorCollection {
     /// Per-feature AABB.
     pub fn feature_aabb(&self, idx: u32) -> Aabb {
         let f = &self.features[idx as usize];
-        Aabb { min_x: f.min_x, min_y: f.min_y, max_x: f.max_x, max_y: f.max_y }
+        Aabb {
+            min_x: f.min_x,
+            min_y: f.min_y,
+            max_x: f.max_x,
+            max_y: f.max_y,
+        }
     }
 
     pub fn feature_attrs(&self, idx: u32) -> AttrView<'_> {
@@ -239,7 +254,11 @@ impl VectorCollection {
         let start = f.attr_offset as usize;
         AttrView {
             schema: &self.attr_schema,
-            blob: if bytes_per == 0 { &[] } else { &self.attrs[start..start + bytes_per] },
+            blob: if bytes_per == 0 {
+                &[]
+            } else {
+                &self.attrs[start..start + bytes_per]
+            },
         }
     }
 
@@ -248,10 +267,7 @@ impl VectorCollection {
     /// the polygon edge?) is the caller's responsibility — this
     /// is just a cheap pre-filter via rstar.
     pub fn query_aabb<'a>(&'a self, bbox: Aabb) -> impl Iterator<Item = u32> + 'a {
-        let envelope = AABB::from_corners(
-            [bbox.min_x, bbox.min_y],
-            [bbox.max_x, bbox.max_y],
-        );
+        let envelope = AABB::from_corners([bbox.min_x, bbox.min_y], [bbox.max_x, bbox.max_y]);
         self.rtree
             .locate_in_envelope_intersecting(&envelope)
             .map(|f| f.feature_id)
@@ -278,11 +294,7 @@ impl VectorCollection {
 
     /// Features whose AABB lies within `radius_m` of `p`. Used by
     /// point-proximity layers that don't need an edge segment.
-    pub fn query_point<'a>(
-        &'a self,
-        p: Point,
-        radius_m: f32,
-    ) -> impl Iterator<Item = u32> + 'a {
+    pub fn query_point<'a>(&'a self, p: Point, radius_m: f32) -> impl Iterator<Item = u32> + 'a {
         let bbox = Aabb {
             min_x: p.x - radius_m,
             min_y: p.y - radius_m,
@@ -307,29 +319,47 @@ impl<'a> AttrView<'a> {
 
     pub fn f32(&self, name: &str) -> Option<f32> {
         let f = self.field(name)?;
-        if f.ty != AttrType::F32 { return None; }
+        if f.ty != AttrType::F32 {
+            return None;
+        }
         let off = f.offset as usize;
-        if off + 4 > self.blob.len() { return None; }
+        if off + 4 > self.blob.len() {
+            return None;
+        }
         Some(f32::from_le_bytes([
-            self.blob[off], self.blob[off + 1], self.blob[off + 2], self.blob[off + 3],
+            self.blob[off],
+            self.blob[off + 1],
+            self.blob[off + 2],
+            self.blob[off + 3],
         ]))
     }
 
     pub fn u32(&self, name: &str) -> Option<u32> {
         let f = self.field(name)?;
-        if f.ty != AttrType::U32 { return None; }
+        if f.ty != AttrType::U32 {
+            return None;
+        }
         let off = f.offset as usize;
-        if off + 4 > self.blob.len() { return None; }
+        if off + 4 > self.blob.len() {
+            return None;
+        }
         Some(u32::from_le_bytes([
-            self.blob[off], self.blob[off + 1], self.blob[off + 2], self.blob[off + 3],
+            self.blob[off],
+            self.blob[off + 1],
+            self.blob[off + 2],
+            self.blob[off + 3],
         ]))
     }
 
     pub fn u8(&self, name: &str) -> Option<u8> {
         let f = self.field(name)?;
-        if f.ty != AttrType::U8 { return None; }
+        if f.ty != AttrType::U8 {
+            return None;
+        }
         let off = f.offset as usize;
-        if off >= self.blob.len() { return None; }
+        if off >= self.blob.len() {
+            return None;
+        }
         Some(self.blob[off])
     }
 }
@@ -363,7 +393,8 @@ impl VectorStore {
         if (manifest_offset + manifest_len) as usize > mmap.len() {
             return Err(VectorError::Malformed("manifest out of bounds"));
         }
-        let manifest_bytes = &mmap[manifest_offset as usize..(manifest_offset + manifest_len) as usize];
+        let manifest_bytes =
+            &mmap[manifest_offset as usize..(manifest_offset + manifest_len) as usize];
         let manifest: Manifest = serde_json::from_slice(manifest_bytes)?;
 
         // Each collection's blob is owned by the mmap. We hand each
@@ -413,7 +444,9 @@ fn parse_collection_blob(
     let coord_count = u32::from_le_bytes([blob[4], blob[5], blob[6], blob[7]]);
     let attrs_bytes = u32::from_le_bytes([blob[8], blob[9], blob[10], blob[11]]);
     if feature_count != cm.feature_count {
-        return Err(VectorError::Malformed("feature_count mismatch in blob header"));
+        return Err(VectorError::Malformed(
+            "feature_count mismatch in blob header",
+        ));
     }
 
     let off_features = 12usize;
@@ -421,7 +454,9 @@ fn parse_collection_blob(
     let off_attrs = off_coords + (coord_count as usize) * std::mem::size_of::<Point>();
     let off_rtree = off_attrs + attrs_bytes as usize;
     if blob.len() < off_rtree {
-        return Err(VectorError::Malformed("collection blob shorter than declared sections"));
+        return Err(VectorError::Malformed(
+            "collection blob shorter than declared sections",
+        ));
     }
 
     let features_slice: &[FeatureIndex] = bytemuck::cast_slice(
@@ -453,8 +488,7 @@ fn parse_collection_blob(
     // the mmap, so the 'static transmute is sound.
     let features_static =
         unsafe { std::mem::transmute::<&[FeatureIndex], &'static [FeatureIndex]>(features_slice) };
-    let coords_static =
-        unsafe { std::mem::transmute::<&[Point], &'static [Point]>(coords_slice) };
+    let coords_static = unsafe { std::mem::transmute::<&[Point], &'static [Point]>(coords_slice) };
     let attrs_static = unsafe { std::mem::transmute::<&[u8], &'static [u8]>(attrs_slice) };
 
     Ok(VectorCollection {
@@ -502,7 +536,9 @@ impl CollectionBuilder {
     /// equal `attr_schema.bytes_per_feature`.
     pub fn push_feature(&mut self, coords: &[Point], attrs: &[u8]) -> Result<(), VectorError> {
         if attrs.len() != self.attr_schema.bytes_per_feature as usize {
-            return Err(VectorError::Malformed("attr blob length != schema bytes_per_feature"));
+            return Err(VectorError::Malformed(
+                "attr blob length != schema bytes_per_feature",
+            ));
         }
         let coord_offset = self.coords.len() as u32;
         let coord_count = coords.len() as u32;
@@ -523,7 +559,9 @@ impl CollectionBuilder {
         Ok(())
     }
 
-    pub fn feature_count(&self) -> u32 { self.features.len() as u32 }
+    pub fn feature_count(&self) -> u32 {
+        self.features.len() as u32
+    }
 }
 
 /// Streams a complete `norway.vectors` artifact in one pass.
@@ -690,11 +728,21 @@ mod tests {
         let store = VectorStore::open(&path).unwrap();
         let coll = store.collection("water").unwrap();
         let hits: Vec<u32> = coll
-            .query_aabb(Aabb { min_x: 5.0, min_y: 5.0, max_x: 6.0, max_y: 6.0 })
+            .query_aabb(Aabb {
+                min_x: 5.0,
+                min_y: 5.0,
+                max_x: 6.0,
+                max_y: 6.0,
+            })
             .collect();
         assert_eq!(hits, vec![0]);
         let misses: Vec<u32> = coll
-            .query_aabb(Aabb { min_x: 100.0, min_y: 100.0, max_x: 110.0, max_y: 110.0 })
+            .query_aabb(Aabb {
+                min_x: 100.0,
+                min_y: 100.0,
+                max_x: 110.0,
+                max_y: 110.0,
+            })
             .collect();
         assert!(misses.is_empty());
     }

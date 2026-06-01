@@ -207,7 +207,11 @@ fn slope_aspect_flat_returns_zero() {
         })
         .unwrap()
         .expect("interior cell");
-    assert!(sa.slope_deg.abs() < 1e-3, "flat ground must yield 0 slope, got {}", sa.slope_deg);
+    assert!(
+        sa.slope_deg.abs() < 1e-3,
+        "flat ground must yield 0 slope, got {}",
+        sa.slope_deg
+    );
 }
 
 #[test]
@@ -223,7 +227,10 @@ fn slope_aspect_edge_returns_none() {
             y: 6_500_039.0,
         })
         .unwrap();
-    assert!(sa.is_none(), "edge cell should not have a 3×3 neighbourhood");
+    assert!(
+        sa.is_none(),
+        "edge cell should not have a 3×3 neighbourhood"
+    );
 }
 
 #[test]
@@ -238,5 +245,8 @@ fn round_trip_rejects_wrong_magic() {
         Err(e) => e,
     };
     let msg = err.to_string();
-    assert!(msg.contains("magic") || msg.contains("artifact"), "got: {msg}");
+    assert!(
+        msg.contains("magic") || msg.contains("artifact"),
+        "got: {msg}"
+    );
 }

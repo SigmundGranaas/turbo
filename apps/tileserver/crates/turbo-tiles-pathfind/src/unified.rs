@@ -30,9 +30,7 @@ use std::sync::Arc;
 use turbo_tiles_elev::{Dem, PointXY};
 use turbo_tiles_graph::{Graph, Profile};
 
-use crate::contributor::{
-    compose_edge_walk_seconds, CostContributor, EdgeContext, EdgeKind,
-};
+use crate::contributor::{compose_edge_walk_seconds, CostContributor, EdgeContext, EdgeKind};
 use crate::native_contributors::OffTrailRoughnessContributor;
 
 // Steep-terrain shaping for off-trail mesh edges (own copy — see module
@@ -73,10 +71,22 @@ const HALF_WIDTH_CAP_M: f64 = 3000.0;
 /// moves add ~26.6°/63.4° headings so off-trail legs travel at natural
 /// angles instead of staircasing.
 const NEIGH: [(i32, i32); 16] = [
-    (1, 0), (-1, 0), (0, 1), (0, -1),
-    (1, 1), (1, -1), (-1, 1), (-1, -1),
-    (2, 1), (2, -1), (-2, 1), (-2, -1),
-    (1, 2), (1, -2), (-1, 2), (-1, -2),
+    (1, 0),
+    (-1, 0),
+    (0, 1),
+    (0, -1),
+    (1, 1),
+    (1, -1),
+    (-1, 1),
+    (-1, -1),
+    (2, 1),
+    (2, -1),
+    (-2, 1),
+    (-2, -1),
+    (1, 2),
+    (1, -2),
+    (-1, 2),
+    (-1, -2),
 ];
 
 /// Tobler hiking pace (s/m) from gradient magnitude (tan of slope).
@@ -121,13 +131,29 @@ impl Corridor {
         let cx = (from.x + to.x) * 0.5;
         let cy = (from.y + to.y) * 0.5;
         let corners = [
-            (cx + along * u.0 + cross * v.0, cy + along * u.1 + cross * v.1),
-            (cx + along * u.0 - cross * v.0, cy + along * u.1 - cross * v.1),
-            (cx - along * u.0 + cross * v.0, cy - along * u.1 + cross * v.1),
-            (cx - along * u.0 - cross * v.0, cy - along * u.1 - cross * v.1),
+            (
+                cx + along * u.0 + cross * v.0,
+                cy + along * u.1 + cross * v.1,
+            ),
+            (
+                cx + along * u.0 - cross * v.0,
+                cy + along * u.1 - cross * v.1,
+            ),
+            (
+                cx - along * u.0 + cross * v.0,
+                cy - along * u.1 + cross * v.1,
+            ),
+            (
+                cx - along * u.0 - cross * v.0,
+                cy - along * u.1 - cross * v.1,
+            ),
         ];
-        let (mut min_x, mut max_x, mut min_y, mut max_y) =
-            (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        let (mut min_x, mut max_x, mut min_y, mut max_y) = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
         for (x, y) in corners {
             min_x = min_x.min(x);
             max_x = max_x.max(x);
@@ -138,7 +164,13 @@ impl Corridor {
         let origin_y = (min_y / cell_m).floor() * cell_m;
         let nx = ((max_x - origin_x) / cell_m).ceil() as u32 + 1;
         let ny = ((max_y - origin_y) / cell_m).ceil() as u32 + 1;
-        Some(Corridor { origin_x, origin_y, nx, ny, cell_m })
+        Some(Corridor {
+            origin_x,
+            origin_y,
+            nx,
+            ny,
+            cell_m,
+        })
     }
 
     #[inline]
@@ -326,7 +358,9 @@ pub(crate) fn solve_unified(
     // the factor is applied uniformly by the cost stack and never touches
     // graph (trail) edges.
     let mut mesh_contribs: Vec<Arc<dyn CostContributor>> = contributors.to_vec();
-    mesh_contribs.push(Arc::new(OffTrailRoughnessContributor::new(off_trail_factor)));
+    mesh_contribs.push(Arc::new(OffTrailRoughnessContributor::new(
+        off_trail_factor,
+    )));
     let overlay = MeshOverlay::new(&corr, base_pace_s_per_m, profile, &mesh_contribs);
 
     // ---- Splice the trail network over a GENEROUS region ----
@@ -378,8 +412,13 @@ pub(crate) fn solve_unified(
         // trail bridging a river isn't water-vetoed (which would fragment
         // the network at every crossing).
         let ctx = EdgeContext {
-            fx: 0.0, fy: 0.0, tx: er.length_m as f64, ty: 0.0,
-            length_m: er.length_m as f64, profile, kind: EdgeKind::Graph(er),
+            fx: 0.0,
+            fy: 0.0,
+            tx: er.length_m as f64,
+            ty: 0.0,
+            length_m: er.length_m as f64,
+            profile,
+            kind: EdgeKind::Graph(er),
         };
         let cost = compose_edge_walk_seconds(contributors, &ctx);
         if !cost.total_walk_seconds.is_finite() {
@@ -390,9 +429,7 @@ pub(crate) fn solve_unified(
             continue;
         }
         let seg: Vec<f64> = (0..poly.len() - 1)
-            .map(|k| {
-                ((poly[k + 1].x - poly[k].x) as f64).hypot((poly[k + 1].y - poly[k].y) as f64)
-            })
+            .map(|k| ((poly[k + 1].x - poly[k].x) as f64).hypot((poly[k + 1].y - poly[k].y) as f64))
             .collect();
         let total: f64 = seg.iter().sum();
         if total <= 0.0 {
@@ -404,7 +441,10 @@ pub(crate) fn solve_unified(
         let last = poly.len() - 1;
         let mut splits = vec![0usize];
         for k in 1..last {
-            if corr.world_to_cell(poly[k].x as f64, poly[k].y as f64).is_some() {
+            if corr
+                .world_to_cell(poly[k].x as f64, poly[k].y as f64)
+                .is_some()
+            {
                 splits.push(k);
             }
         }
@@ -463,7 +503,9 @@ pub(crate) fn solve_unified(
         eprintln!(
             "UNIFIED: corr {nx}x{ny} cell_m={:.0}; eids={} trail_nodes={nt} adj_edges={adj} \
              cells_with_trail={} start_cell_trails={start_has} goal_cell_trails={goal_has}",
-            corr.cell_m, eids.len(), cell_trails.len()
+            corr.cell_m,
+            eids.len(),
+            cell_trails.len()
         );
     }
     let goal_pos = corr.cell_centre(goal_cell.0, goal_cell.1);
@@ -495,7 +537,10 @@ pub(crate) fn solve_unified(
                 let t = s as f32 / steps as f32;
                 let ci = (i as f32 + di as f32 * t).round() as i32;
                 let cj = (j as f32 + dj as f32 * t).round() as i32;
-                if ci >= 0 && cj >= 0 && (ci as u32) < corr.nx && (cj as u32) < corr.ny
+                if ci >= 0
+                    && cj >= 0
+                    && (ci as u32) < corr.nx
+                    && (cj as u32) < corr.ny
                     && overlay.refused(ci as u32, cj as u32)
                 {
                     return None;
@@ -544,7 +589,10 @@ pub(crate) fn solve_unified(
     let mut prev_seg: Vec<(u32, u32, u32)> = vec![(u32::MAX, 0, 0); n_total];
     let mut heap: BinaryHeap<HeapItem> = BinaryHeap::new();
     g[start] = 0.0;
-    heap.push(HeapItem { f: heuristic(start), node: start as u32 });
+    heap.push(HeapItem {
+        f: heuristic(start),
+        node: start as u32,
+    });
 
     // Live progress: stream the best-path-so-far reaching toward the
     // goal as A* advances (same mechanism the FMM off-trail solver
@@ -593,9 +641,13 @@ pub(crate) fn solve_unified(
             }
         }
         let gu = g[node];
-        let mut relax = |v: usize, w: f32, seg: (u32, u32, u32),
-                         g: &mut [f32], prev: &mut [u32], prev_seg: &mut [(u32, u32, u32)],
-                         heap: &mut BinaryHeap<HeapItem>| {
+        let relax = |v: usize,
+                     w: f32,
+                     seg: (u32, u32, u32),
+                     g: &mut [f32],
+                     prev: &mut [u32],
+                     prev_seg: &mut [(u32, u32, u32)],
+                     heap: &mut BinaryHeap<HeapItem>| {
             if !w.is_finite() {
                 return;
             }
@@ -604,7 +656,10 @@ pub(crate) fn solve_unified(
                 g[v] = nd;
                 prev[v] = node as u32;
                 prev_seg[v] = seg;
-                heap.push(HeapItem { f: nd + heuristic(v), node: v as u32 });
+                heap.push(HeapItem {
+                    f: nd + heuristic(v),
+                    node: v as u32,
+                });
             }
         };
         const NONE_SEG: (u32, u32, u32) = (u32::MAX, 0, 0);
@@ -617,28 +672,56 @@ pub(crate) fn solve_unified(
                     continue;
                 }
                 if let Some(w) = mesh_step(i, j, ni as u32, nj as u32) {
-                    relax((nj as usize) * nx + (ni as usize), w, NONE_SEG,
-                          &mut g, &mut prev, &mut prev_seg, &mut heap);
+                    relax(
+                        (nj as usize) * nx + (ni as usize),
+                        w,
+                        NONE_SEG,
+                        &mut g,
+                        &mut prev,
+                        &mut prev_seg,
+                        &mut heap,
+                    );
                 }
             }
             if let Some(ts) = cell_trails.get(&node) {
                 for &t in ts {
                     // Getting ON a trail costs the stickiness penalty.
-                    relax(nm + t as usize, TRANSITION_PENALTY_S, NONE_SEG,
-                          &mut g, &mut prev, &mut prev_seg, &mut heap);
+                    relax(
+                        nm + t as usize,
+                        TRANSITION_PENALTY_S,
+                        NONE_SEG,
+                        &mut g,
+                        &mut prev,
+                        &mut prev_seg,
+                        &mut heap,
+                    );
                 }
             }
         } else {
             let t = node - nm;
             for &(to_global, w, eid, kf, kt) in &trail_adj[t] {
-                relax(to_global as usize, w, (eid, kf, kt),
-                      &mut g, &mut prev, &mut prev_seg, &mut heap);
+                relax(
+                    to_global as usize,
+                    w,
+                    (eid, kf, kt),
+                    &mut g,
+                    &mut prev,
+                    &mut prev_seg,
+                    &mut heap,
+                );
             }
             let (x, y) = trail_pos[t];
             if let Some((ci, cj)) = corr.world_to_cell(x, y) {
                 // Getting OFF a trail costs the stickiness penalty.
-                relax((cj as usize) * nx + (ci as usize), TRANSITION_PENALTY_S, NONE_SEG,
-                      &mut g, &mut prev, &mut prev_seg, &mut heap);
+                relax(
+                    (cj as usize) * nx + (ci as usize),
+                    TRANSITION_PENALTY_S,
+                    NONE_SEG,
+                    &mut g,
+                    &mut prev,
+                    &mut prev_seg,
+                    &mut heap,
+                );
             }
         }
     }
@@ -702,7 +785,10 @@ pub(crate) fn solve_unified(
     // Final snapshot: the exact answer, so the live preview snaps into
     // place when the solve completes.
     crate::solver_trace::record(|| crate::solver_trace::SolverEvent::BestPathSnapshot {
-        coords: geometry_utm.iter().map(|&(x, y)| [x as f32, y as f32]).collect(),
+        coords: geometry_utm
+            .iter()
+            .map(|&(x, y)| [x as f32, y as f32])
+            .collect(),
     });
 
     // refused_by is empty by construction: `mesh_step` never steps onto a

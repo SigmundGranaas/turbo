@@ -96,12 +96,11 @@ pub async fn run(pool: &DbPool, zip_path: PathBuf, source: String) -> Result<Job
             .and_then(|o| o.to_str())
             .unwrap_or("")
             .to_string();
-        let already: Option<(String,)> = sqlx::query_as(
-            "SELECT filename FROM paths.dem_tile_log WHERE filename = $1",
-        )
-        .bind(&fname)
-        .fetch_optional(pool)
-        .await?;
+        let already: Option<(String,)> =
+            sqlx::query_as("SELECT filename FROM paths.dem_tile_log WHERE filename = $1")
+                .bind(&fname)
+                .fetch_optional(pool)
+                .await?;
         if already.is_some() {
             total_skipped += 1;
             continue;

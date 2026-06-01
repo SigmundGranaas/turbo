@@ -173,7 +173,7 @@ pub fn extract_path_discrete(
                 if !u.is_finite() {
                     continue;
                 }
-                if best.map_or(true, |(bu, _, _)| u < bu) {
+                if best.is_none_or(|(bu, _, _)| u < bu) {
                     best = Some((u, ni, nj));
                 }
             }
@@ -235,7 +235,7 @@ fn extract_path_with_dir(
     let mut path = Vec::with_capacity(max_iters as usize);
     path.push(p);
 
-    for iter in 0..max_iters {
+    for _ in 0..max_iters {
         // Stop if we're within half a cell of the start.
         let dx = p.x - start.x;
         let dy = p.y - start.y;
@@ -260,7 +260,10 @@ fn extract_path_with_dir(
         let mag = (d.0 * d.0 + d.1 * d.1).sqrt();
         let mut moved = false;
         if mag.is_finite() && mag > 1e-6 {
-            let cand = PathPoint { x: p.x - step * d.0 / mag, y: p.y - step * d.1 / mag };
+            let cand = PathPoint {
+                x: p.x - step * d.0 / mag,
+                y: p.y - step * d.1 / mag,
+            };
             let u_cand = sample_arrival(shape, arrival, cand);
             // Accept the smooth continuous step only if it makes real
             // progress (arrival strictly decreases). Near refused-cell
@@ -327,7 +330,7 @@ fn steepest_descent_dir(
             if !u.is_finite() {
                 continue;
             }
-            if best.map_or(true, |(bu, _, _)| u < bu) {
+            if best.is_none_or(|(bu, _, _)| u < bu) {
                 let (wx, wy) = shape.cell_centre(ni as u32, nj as u32);
                 best = Some((u, wx - p.x, wy - p.y));
             }
@@ -387,14 +390,11 @@ fn sample_arrival(shape: &GridShape, arrival: &FmmGrid<f32>, p: PathPoint) -> f3
     let ty = (fj - j0 as f64) as f32;
     let i = i0 as u32;
     let j = j0 as u32;
-    let u00 = arrival.get(i,     j,     0);
-    let u10 = arrival.get(i + 1, j,     0);
-    let u01 = arrival.get(i,     j + 1, 0);
+    let u00 = arrival.get(i, j, 0);
+    let u10 = arrival.get(i + 1, j, 0);
+    let u01 = arrival.get(i, j + 1, 0);
     let u11 = arrival.get(i + 1, j + 1, 0);
-    (1.0 - tx) * (1.0 - ty) * u00
-        + tx * (1.0 - ty) * u10
-        + (1.0 - tx) * ty * u01
-        + tx * ty * u11
+    (1.0 - tx) * (1.0 - ty) * u00 + tx * (1.0 - ty) * u10 + (1.0 - tx) * ty * u01 + tx * ty * u11
 }
 
 /// Bilinearly-interpolated ∇u at sub-cell point `p`. Returns
@@ -416,9 +416,9 @@ fn gradient_at(shape: &GridShape, arrival: &FmmGrid<f32>, p: PathPoint) -> (f64,
     let ty = (fj - j0 as f64) as f32;
     let i = i0 as u32;
     let j = j0 as u32;
-    let u00 = arrival.get(i,     j,     0);
-    let u10 = arrival.get(i + 1, j,     0);
-    let u01 = arrival.get(i,     j + 1, 0);
+    let u00 = arrival.get(i, j, 0);
+    let u10 = arrival.get(i + 1, j, 0);
+    let u01 = arrival.get(i, j + 1, 0);
     let u11 = arrival.get(i + 1, j + 1, 0);
     // Replace +∞ with a large finite "wall" so the gradient pushes
     // away rather than producing NaN. The constant is large enough
@@ -431,10 +431,7 @@ fn gradient_at(shape: &GridShape, arrival: &FmmGrid<f32>, p: PathPoint) -> (f64,
     let u11 = if u11.is_finite() { u11 } else { wall };
     let dux = (1.0 - ty) * (u10 - u00) + ty * (u11 - u01);
     let duy = (1.0 - tx) * (u01 - u00) + tx * (u11 - u10);
-    (
-        dux as f64 / shape.cell_m,
-        duy as f64 / shape.cell_m,
-    )
+    (dux as f64 / shape.cell_m, duy as f64 / shape.cell_m)
 }
 
 #[cfg(test)]
@@ -451,11 +448,9 @@ mod tests {
         let h = 1.0_f64;
         let shape = GridShape::new_2d(n, n, 0.0, 0.0, h);
         let cost: FmmGrid<f32> = FmmGrid::filled(shape, 1.0);
-        let result = solve_2d_isotropic(
-            shape, &cost, &[(10, 50, 0.0)], StopCondition::AllAccepted,
-        );
+        let result = solve_2d_isotropic(shape, &cost, &[(10, 50, 0.0)], StopCondition::AllAccepted);
         let start = PathPoint { x: 10.5, y: 50.5 };
-        let goal  = PathPoint { x: 90.5, y: 50.5 };
+        let goal = PathPoint { x: 90.5, y: 50.5 };
         let path = extract_path(&shape, &result.arrival, start, goal, None, None)
             .expect("extract should succeed on uniform field");
         // Sum lengths.
@@ -472,8 +467,10 @@ mod tests {
         );
         // First point near start, last near goal.
         assert!((path[0].x - start.x).abs() < 1.0 && (path[0].y - start.y).abs() < 1.0);
-        assert!((path[path.len() - 1].x - goal.x).abs() < 1.0
-                && (path[path.len() - 1].y - goal.y).abs() < 1.0);
+        assert!(
+            (path[path.len() - 1].x - goal.x).abs() < 1.0
+                && (path[path.len() - 1].y - goal.y).abs() < 1.0
+        );
     }
 
     #[test]
@@ -501,8 +498,12 @@ mod tests {
         let mut min_y = f64::INFINITY;
         let mut max_y = f64::NEG_INFINITY;
         for p in &path {
-            if p.y < min_y { min_y = p.y; }
-            if p.y > max_y { max_y = p.y; }
+            if p.y < min_y {
+                min_y = p.y;
+            }
+            if p.y > max_y {
+                max_y = p.y;
+            }
         }
         let y_extent = (max_y - min_y).abs();
         assert!(

@@ -17,9 +17,7 @@ pub async fn dev_auto_login(req: Request, next: Next) -> Response {
     // sense for the document load that initiates the SPA session.
     let is_get = req.method() == axum::http::Method::GET;
     let path = req.uri().path().to_string();
-    let looks_like_doc = !path.contains('.')
-        || path.ends_with(".html")
-        || path.ends_with("/");
+    let looks_like_doc = !path.contains('.') || path.ends_with(".html") || path.ends_with("/");
     let has_cookie = req
         .headers()
         .get(header::COOKIE)
@@ -52,9 +50,8 @@ pub async fn dev_auto_login(req: Request, next: Next) -> Response {
             StatusCode::FOUND,
             [(
                 header::LOCATION,
-                HeaderValue::from_str(&location).unwrap_or_else(|_| {
-                    HeaderValue::from_static("/admin/dev-login")
-                }),
+                HeaderValue::from_str(&location)
+                    .unwrap_or_else(|_| HeaderValue::from_static("/admin/dev-login")),
             )],
             "redirecting to dev-login",
         )

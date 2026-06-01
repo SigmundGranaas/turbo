@@ -99,11 +99,8 @@ impl HealthReport {
                 });
             }
         }
-        let baseline_codes: std::collections::HashSet<&str> = baseline
-            .warnings
-            .iter()
-            .map(|i| i.code.as_str())
-            .collect();
+        let baseline_codes: std::collections::HashSet<&str> =
+            baseline.warnings.iter().map(|i| i.code.as_str()).collect();
         let new_warnings: Vec<HealthIssue> = self
             .warnings
             .iter()
@@ -145,10 +142,7 @@ use turbo_tiles_graph::{EdgeRecord, NodePos};
 /// The session-long mystery — "trails don't connect to each
 /// other" — got tracked back to a 49 K-component sti subgraph
 /// that nothing flagged. This audit catches that at build time.
-pub fn audit_graph(
-    nodes: &[NodePos],
-    edges: &[EdgeRecord],
-) -> HealthReport {
+pub fn audit_graph(nodes: &[NodePos], edges: &[EdgeRecord]) -> HealthReport {
     let mut report = HealthReport::default();
     report.stat("nodes", nodes.len() as f64);
     report.stat("edges_directed", edges.len() as f64);
@@ -262,11 +256,7 @@ struct ComponentStats {
     median_size: u64,
 }
 
-fn connectivity_stats(
-    n: usize,
-    edges: &[EdgeRecord],
-    filter_fkb: Option<u8>,
-) -> ComponentStats {
+fn connectivity_stats(n: usize, edges: &[EdgeRecord], filter_fkb: Option<u8>) -> ComponentStats {
     let mut parent: Vec<u32> = (0..n as u32).collect();
     let mut rank: Vec<u8> = vec![0; n];
     fn find(parent: &mut [u32], mut x: u32) -> u32 {
@@ -279,7 +269,9 @@ fn connectivity_stats(
     fn union(parent: &mut [u32], rank: &mut [u8], a: u32, b: u32) {
         let ra = find(parent, a);
         let rb = find(parent, b);
-        if ra == rb { return; }
+        if ra == rb {
+            return;
+        }
         let (ra, rb) = if rank[ra as usize] < rank[rb as usize] {
             (ra, rb)
         } else {
@@ -296,7 +288,9 @@ fn connectivity_stats(
     let mut touched: Vec<bool> = vec![false; n];
     for e in edges {
         if let Some(k) = filter_fkb {
-            if e.fkb_type != k { continue; }
+            if e.fkb_type != k {
+                continue;
+            }
         }
         if (e.from_id as usize) >= n || (e.to_id as usize) >= n {
             continue;
@@ -308,16 +302,26 @@ fn connectivity_stats(
     // Aggregate.
     let mut comp_sizes: BTreeMap<u32, u64> = BTreeMap::new();
     for i in 0..n as u32 {
-        if !touched[i as usize] { continue; }
+        if !touched[i as usize] {
+            continue;
+        }
         let r = find(&mut parent, i);
         *comp_sizes.entry(r).or_insert(0) += 1;
     }
     let total: u64 = comp_sizes.values().sum();
     let largest = comp_sizes.values().copied().max().unwrap_or(0);
-    let largest_pct = if total > 0 { 100.0 * largest as f64 / total as f64 } else { 0.0 };
+    let largest_pct = if total > 0 {
+        100.0 * largest as f64 / total as f64
+    } else {
+        0.0
+    };
     let mut sizes: Vec<u64> = comp_sizes.values().copied().collect();
     sizes.sort();
-    let median = if sizes.is_empty() { 0 } else { sizes[sizes.len() / 2] };
+    let median = if sizes.is_empty() {
+        0
+    } else {
+        sizes[sizes.len() / 2]
+    };
     ComponentStats {
         component_count: comp_sizes.len() as u64,
         largest_component_size: largest,
@@ -328,9 +332,15 @@ fn connectivity_stats(
 }
 
 fn record_connectivity(report: &mut HealthReport, prefix: &str, s: &ComponentStats) {
-    report.stat(&format!("{prefix}_component_count"), s.component_count as f64);
+    report.stat(
+        &format!("{prefix}_component_count"),
+        s.component_count as f64,
+    );
     report.stat(&format!("{prefix}_largest_pct"), s.largest_pct);
-    report.stat(&format!("{prefix}_largest_size"), s.largest_component_size as f64);
+    report.stat(
+        &format!("{prefix}_largest_size"),
+        s.largest_component_size as f64,
+    );
     report.stat(&format!("{prefix}_median_size"), s.median_size as f64);
     report.stat(
         &format!("{prefix}_touched_nodes"),
@@ -369,8 +379,7 @@ pub fn audit_dem_coverage(coverage: &turbo_tiles_elev::DemCoverage) -> HealthRep
 
     let total_tiles = coverage.tiles_present.saturating_add(coverage.tiles_absent);
     if total_tiles > 0 {
-        let absent_pct =
-            100.0 * coverage.tiles_absent as f64 / total_tiles as f64;
+        let absent_pct = 100.0 * coverage.tiles_absent as f64 / total_tiles as f64;
         report.stat("dem_tiles_absent_pct", absent_pct);
         if absent_pct > 20.0 {
             report.warn(
@@ -465,11 +474,7 @@ pub fn audit_mask_coverage(
 /// Audit a vector layer as it's being built. Catches the ingest
 /// pattern that bit this session: feature counts dropping silently
 /// because of an attr_hash collision in the upsert SQL.
-pub fn audit_vector_layer(
-    name: &str,
-    feature_count: u32,
-    total_vertices: u32,
-) -> Vec<HealthIssue> {
+pub fn audit_vector_layer(name: &str, feature_count: u32, total_vertices: u32) -> Vec<HealthIssue> {
     let mut issues = Vec::new();
     if feature_count == 0 {
         issues.push(HealthIssue {
@@ -491,8 +496,7 @@ pub fn audit_vector_layer(
                  {total_vertices} vertices — geometry parse failed?"
             ),
             hint: Some(
-                "check WKB parser branches in turbo-tiles-build/src/vector_builder.rs"
-                    .to_string(),
+                "check WKB parser branches in turbo-tiles-build/src/vector_builder.rs".to_string(),
             ),
         });
     }
@@ -504,7 +508,9 @@ mod tests {
     use super::*;
     use turbo_tiles_graph::{EdgeRecord, NodePos};
 
-    fn node(x: f32, y: f32) -> NodePos { NodePos { x, y } }
+    fn node(x: f32, y: f32) -> NodePos {
+        NodePos { x, y }
+    }
     fn edge(from: u32, to: u32, len: f32, fkb: u8) -> EdgeRecord {
         EdgeRecord {
             from_id: from,
@@ -525,14 +531,21 @@ mod tests {
     fn fully_connected_one_component() {
         // 0—1—2—3 chain. One component, largest 100%.
         let nodes: Vec<NodePos> = (0..4).map(|i| node(i as f32, 0.0)).collect();
-        let edges = vec![edge(0,1,10.0,1), edge(1,2,10.0,1), edge(2,3,10.0,1)];
+        let edges = vec![
+            edge(0, 1, 10.0, 1),
+            edge(1, 2, 10.0, 1),
+            edge(2, 3, 10.0, 1),
+        ];
         let report = audit_graph(&nodes, &edges);
         // Largest component = 100% of touched nodes.
         let pct = report.stats["all_largest_pct"];
         assert!((pct - 100.0).abs() < 1e-3);
         assert_eq!(report.stats["all_component_count"], 1.0);
         // No fragmentation warning.
-        assert!(!report.warnings.iter().any(|w| w.code.starts_with("subgraph_fragmented")));
+        assert!(!report
+            .warnings
+            .iter()
+            .any(|w| w.code.starts_with("subgraph_fragmented")));
     }
 
     #[test]
@@ -541,7 +554,7 @@ mod tests {
         let nodes: Vec<NodePos> = (0..10).map(|i| node(i as f32, 0.0)).collect();
         let mut edges = Vec::new();
         for i in 0..5 {
-            edges.push(edge(i*2, i*2+1, 100.0, 1));
+            edges.push(edge(i * 2, i * 2 + 1, 100.0, 1));
         }
         // Bump to over 1000 touched nodes by repeating the pattern.
         // Actually for the warning to fire we need >1000 touched nodes
@@ -561,7 +574,7 @@ mod tests {
         let nodes: Vec<NodePos> = (0..2000).map(|i| node(i as f32, 0.0)).collect();
         let mut edges = Vec::new();
         for i in 0..1000 {
-            edges.push(edge(i*2, i*2+1, 50.0, 1));
+            edges.push(edge(i * 2, i * 2 + 1, 50.0, 1));
         }
         let report = audit_graph(&nodes, &edges);
         let warns: Vec<&HealthIssue> = report

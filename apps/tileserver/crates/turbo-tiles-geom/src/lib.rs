@@ -33,7 +33,9 @@ use serde::{Deserialize, Serialize};
 /// store can hand a `&[Point]` directly to the geometry kernel
 /// without copying.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Serialize, Deserialize, bytemuck::Pod, bytemuck::Zeroable,
+)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
@@ -60,19 +62,37 @@ impl Aabb {
     /// that care should check before invoking.
     pub fn of(points: &[Point]) -> Self {
         if points.is_empty() {
-            return Aabb { min_x: 0.0, min_y: 0.0, max_x: 0.0, max_y: 0.0 };
+            return Aabb {
+                min_x: 0.0,
+                min_y: 0.0,
+                max_x: 0.0,
+                max_y: 0.0,
+            };
         }
         let mut min_x = f32::INFINITY;
         let mut min_y = f32::INFINITY;
         let mut max_x = f32::NEG_INFINITY;
         let mut max_y = f32::NEG_INFINITY;
         for p in points {
-            if p.x < min_x { min_x = p.x; }
-            if p.y < min_y { min_y = p.y; }
-            if p.x > max_x { max_x = p.x; }
-            if p.y > max_y { max_y = p.y; }
+            if p.x < min_x {
+                min_x = p.x;
+            }
+            if p.y < min_y {
+                min_y = p.y;
+            }
+            if p.x > max_x {
+                max_x = p.x;
+            }
+            if p.y > max_y {
+                max_y = p.y;
+            }
         }
-        Aabb { min_x, min_y, max_x, max_y }
+        Aabb {
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        }
     }
 
     pub fn expand(&self, m: f32) -> Aabb {
@@ -121,11 +141,19 @@ pub fn clip_segment_to_aabb(a: Point, b: Point, bbox: Aabb) -> Option<(Point, Po
         } else {
             let t = q[i] / p[i];
             if p[i] < 0.0 {
-                if t > t_max { return None; }
-                if t > t_min { t_min = t; }
+                if t > t_max {
+                    return None;
+                }
+                if t > t_min {
+                    t_min = t;
+                }
             } else {
-                if t < t_min { return None; }
-                if t < t_max { t_max = t; }
+                if t < t_min {
+                    return None;
+                }
+                if t < t_max {
+                    t_max = t;
+                }
             }
         }
     }
@@ -309,10 +337,7 @@ pub fn segment_polygon_intersection_length(a: Point, b: Point, ring: &[Point]) -
             continue;
         }
         let mid_t = 0.5 * (t0 + t1);
-        let mid = Point::new(
-            (ax + mid_t * rx) as f32,
-            (ay + mid_t * ry) as f32,
-        );
+        let mid = Point::new((ax + mid_t * rx) as f32, (ay + mid_t * ry) as f32);
         if point_in_polygon_f64(mid, ring, ax, ay, rx, ry, mid_t) {
             inside_len += (t1 - t0) * seg_len;
         }
@@ -393,7 +418,11 @@ pub fn segment_linestring_crossings(a: Point, b: Point, line: &[Point]) -> Vec<C
     let mut out: Vec<Crossing> = Vec::new();
     for i in 0..line.len() - 1 {
         if let Some((t, p)) = segment_segment_intersection(a, b, line[i], line[i + 1]) {
-            out.push(Crossing { t_on_query: t, point: p, seg_index: i as u32 });
+            out.push(Crossing {
+                t_on_query: t,
+                point: p,
+                seg_index: i as u32,
+            });
         }
     }
     out.sort_by(|x, y| {
@@ -526,7 +555,10 @@ mod tests {
             &sq,
         );
         let expected = (2.0_f64).sqrt() * 10.0;
-        assert!((len - expected).abs() < 1e-2, "got {len} expected {expected}");
+        assert!(
+            (len - expected).abs() < 1e-2,
+            "got {len} expected {expected}"
+        );
     }
 
     #[test]
@@ -539,11 +571,8 @@ mod tests {
             Point::new(6.0, 4.0),
             Point::new(8.0, 6.0),
         ];
-        let crossings = segment_linestring_crossings(
-            Point::new(0.0, 5.0),
-            Point::new(10.0, 5.0),
-            &line,
-        );
+        let crossings =
+            segment_linestring_crossings(Point::new(0.0, 5.0), Point::new(10.0, 5.0), &line);
         assert_eq!(crossings.len(), 3, "got {crossings:?}");
         // Sorted by t — crossings should be in left-to-right order.
         assert!(crossings[0].t_on_query < crossings[1].t_on_query);
@@ -552,26 +581,30 @@ mod tests {
 
     #[test]
     fn clip_segment_to_aabb_works() {
-        let bbox = Aabb { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 10.0 };
-        let (a, b) = clip_segment_to_aabb(
-            Point::new(-5.0, 5.0),
-            Point::new(15.0, 5.0),
-            bbox,
-        )
-        .unwrap();
+        let bbox = Aabb {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 10.0,
+            max_y: 10.0,
+        };
+        let (a, b) =
+            clip_segment_to_aabb(Point::new(-5.0, 5.0), Point::new(15.0, 5.0), bbox).unwrap();
         assert!((a.x - 0.0).abs() < 1e-3);
         assert!((b.x - 10.0).abs() < 1e-3);
     }
 
     #[test]
     fn clip_segment_outside_returns_none() {
-        let bbox = Aabb { min_x: 0.0, min_y: 0.0, max_x: 10.0, max_y: 10.0 };
-        assert!(clip_segment_to_aabb(
-            Point::new(100.0, 100.0),
-            Point::new(120.0, 100.0),
-            bbox
-        )
-        .is_none());
+        let bbox = Aabb {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 10.0,
+            max_y: 10.0,
+        };
+        assert!(
+            clip_segment_to_aabb(Point::new(100.0, 100.0), Point::new(120.0, 100.0), bbox)
+                .is_none()
+        );
     }
 
     #[test]

@@ -91,7 +91,11 @@ where
                 panic = %message,
                 "panic caught in {endpoint} — server kept alive"
             );
-            Err(CaughtPanic { dump_id: id, message, dump_path })
+            Err(CaughtPanic {
+                dump_id: id,
+                message,
+                dump_path,
+            })
         }
     }
 }
@@ -110,12 +114,12 @@ fn panic_message_from_payload(payload: &Box<dyn std::any::Any + Send>) -> String
 /// Newest first; capped at `limit`.
 pub fn list_recent_crashes(limit: usize) -> Vec<serde_json::Value> {
     let dir = crash_dir();
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new(); };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
     let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path().extension().and_then(|s| s.to_str()) == Some("json")
-        })
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("json"))
         .filter_map(|e| {
             let m = e.metadata().ok()?;
             Some((m.modified().ok()?, e.path()))

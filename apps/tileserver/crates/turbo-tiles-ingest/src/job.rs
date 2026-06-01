@@ -182,9 +182,8 @@ async fn run_job_with_options_owned(
 
     let job_row_id = open_job_row(pool_ref, job, run_id).await?;
 
-    type FutResult = std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<JobOutcome, JobError>> + Send>,
-    >;
+    type FutResult =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<JobOutcome, JobError>> + Send>>;
     let fut: FutResult = match job {
         JobName::FkbSti => {
             let p = pool.clone();
@@ -306,7 +305,14 @@ async fn run_job_with_options_owned(
         }
         Err(e) => {
             let outcome = JobOutcome::default();
-            close_job_row(pool_ref, job_row_id, "failed", &outcome, Some(&e.to_string())).await?;
+            close_job_row(
+                pool_ref,
+                job_row_id,
+                "failed",
+                &outcome,
+                Some(&e.to_string()),
+            )
+            .await?;
             return Err(e);
         }
     };

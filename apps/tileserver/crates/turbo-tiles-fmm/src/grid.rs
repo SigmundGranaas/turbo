@@ -29,11 +29,25 @@ pub struct GridShape {
 
 impl GridShape {
     pub fn new_2d(nx: u32, ny: u32, origin_x: f64, origin_y: f64, cell_m: f64) -> Self {
-        Self { nx, ny, nz: 1, origin_x, origin_y, cell_m }
+        Self {
+            nx,
+            ny,
+            nz: 1,
+            origin_x,
+            origin_y,
+            cell_m,
+        }
     }
 
     pub fn new_3d(nx: u32, ny: u32, nz: u32, origin_x: f64, origin_y: f64, cell_m: f64) -> Self {
-        Self { nx, ny, nz, origin_x, origin_y, cell_m }
+        Self {
+            nx,
+            ny,
+            nz,
+            origin_x,
+            origin_y,
+            cell_m,
+        }
     }
 
     /// Total cell count. Allocator and heap sizing use this.
@@ -111,13 +125,19 @@ pub struct FmmGrid<T: Copy + Default> {
 impl<T: Copy + Default> FmmGrid<T> {
     /// Allocate a grid of `T::default()`.
     pub fn new(shape: GridShape) -> Self {
-        Self { shape, data: vec![T::default(); shape.len()] }
+        Self {
+            shape,
+            data: vec![T::default(); shape.len()],
+        }
     }
 
     /// Allocate filled with `fill`. Used by the solve loop to start
     /// arrival times at `+∞` (encoded as `f32::INFINITY`).
     pub fn filled(shape: GridShape, fill: T) -> Self {
-        Self { shape, data: vec![fill; shape.len()] }
+        Self {
+            shape,
+            data: vec![fill; shape.len()],
+        }
     }
 
     #[inline(always)]

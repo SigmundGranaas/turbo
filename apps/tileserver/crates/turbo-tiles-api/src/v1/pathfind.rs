@@ -49,8 +49,16 @@ pub(crate) fn apply_preset(
 ) -> Result<(), String> {
     let Some(name) = preset else { return Ok(()) };
     let Some(p) = state.presets.get(name) else {
-        let names: Vec<&str> = state.presets.presets.iter().map(|p| p.name.as_str()).collect();
-        return Err(format!("unknown preset '{name}'; valid: {}", names.join(", ")));
+        let names: Vec<&str> = state
+            .presets
+            .presets
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+        return Err(format!(
+            "unknown preset '{name}'; valid: {}",
+            names.join(", ")
+        ));
     };
     let base = p.patch.clone();
     prefs.cost_config_override = Some(match prefs.cost_config_override.take() {
@@ -310,9 +318,7 @@ pub async fn pathfind_stream(
                 Ok::<_, std::convert::Infallible>(
                     Event::default()
                         .event("error")
-                        .data(
-                            r#"{"message":"pathfind primitive not loaded"}"#,
-                        ),
+                        .data(r#"{"message":"pathfind primitive not loaded"}"#),
                 )
             });
             return Sse::new(s).keep_alive(KeepAlive::default()).into_response();
@@ -358,21 +364,20 @@ pub async fn pathfind_stream(
     // Out-of-band done/error channel for the terminal frame —
     // separate so it can NEVER lose its single message even when
     // the event channel is full.
-    let (terminal_tx, mut terminal_rx) =
-        tokio::sync::mpsc::channel::<TerminalFrame>(2);
+    let (terminal_tx, mut terminal_rx) = tokio::sync::mpsc::channel::<TerminalFrame>(2);
 
     // Run the synchronous solver on a blocking thread. The
     // streaming recorder fans every record() call into event_tx
     // via try_send. When solve returns we ship the terminal frame
     // through terminal_tx.
     tokio::task::spawn_blocking(move || {
-        let recorder = std::sync::Arc::new(
-            turbo_tiles_pathfind::Recorder::new_streaming(prefs.record_cap, event_tx.clone()),
-        );
-        let result = turbo_tiles_pathfind::solver_trace::with_installed(
-            recorder,
-            || pf.solve_route(&points, prefs),
-        );
+        let recorder = std::sync::Arc::new(turbo_tiles_pathfind::Recorder::new_streaming(
+            prefs.record_cap,
+            event_tx.clone(),
+        ));
+        let result = turbo_tiles_pathfind::solver_trace::with_installed(recorder, || {
+            pf.solve_route(&points, prefs)
+        });
         let terminal = match result {
             Ok(path) => TerminalFrame::Done(Box::new(path)),
             Err(e) => TerminalFrame::Error(e.to_string()),
@@ -432,17 +437,48 @@ fn project_solver_event(
     match ev {
         SolverEvent::NodePopped { x, y, g, h } => {
             let p = proj(x, y);
-            SolverEvent::NodePopped { x: p[0], y: p[1], g, h }
+            SolverEvent::NodePopped {
+                x: p[0],
+                y: p[1],
+                g,
+                h,
+            }
         }
-        SolverEvent::EdgeRelaxed { fx, fy, tx, ty, new_g, took_los } => {
+        SolverEvent::EdgeRelaxed {
+            fx,
+            fy,
+            tx,
+            ty,
+            new_g,
+            took_los,
+        } => {
             let a = proj(fx, fy);
             let b = proj(tx, ty);
-            SolverEvent::EdgeRelaxed { fx: a[0], fy: a[1], tx: b[0], ty: b[1], new_g, took_los }
+            SolverEvent::EdgeRelaxed {
+                fx: a[0],
+                fy: a[1],
+                tx: b[0],
+                ty: b[1],
+                new_g,
+                took_los,
+            }
         }
-        SolverEvent::LineOfSightCast { fx, fy, tx, ty, blocked } => {
+        SolverEvent::LineOfSightCast {
+            fx,
+            fy,
+            tx,
+            ty,
+            blocked,
+        } => {
             let a = proj(fx, fy);
             let b = proj(tx, ty);
-            SolverEvent::LineOfSightCast { fx: a[0], fy: a[1], tx: b[0], ty: b[1], blocked }
+            SolverEvent::LineOfSightCast {
+                fx: a[0],
+                fy: a[1],
+                tx: b[0],
+                ty: b[1],
+                blocked,
+            }
         }
         SolverEvent::BestPathSnapshot { coords } => {
             let projected = coords
@@ -495,7 +531,9 @@ pub struct RecentCrashesQuery {
     #[serde(default = "default_recent_limit")]
     pub limit: usize,
 }
-fn default_recent_limit() -> usize { 20 }
+fn default_recent_limit() -> usize {
+    20
+}
 
 pub async fn recent_crashes(
     axum::extract::Query(q): axum::extract::Query<RecentCrashesQuery>,
@@ -580,9 +618,7 @@ pub async fn inspect(
     }))
 }
 
-pub async fn layers(
-    State(state): State<ApiState>,
-) -> Result<Json<LayersResp>, ApiError> {
+pub async fn layers(State(state): State<ApiState>) -> Result<Json<LayersResp>, ApiError> {
     let pf = state
         .pathfinder
         .as_ref()

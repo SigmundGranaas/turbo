@@ -72,9 +72,7 @@ pub async fn dev_login() -> Response {
     // so navigations from typed URLs include it but cross-site
     // POSTs don't. HttpOnly omitted because the SPA never reads
     // the cookie itself — it only relies on `credentials: include`.
-    let cookie = format!(
-        "access_token={token}; Path=/; Max-Age=3600; SameSite=Lax"
-    );
+    let cookie = format!("access_token={token}; Path=/; Max-Age=3600; SameSite=Lax");
     let mut resp = (
         StatusCode::FOUND,
         [

@@ -98,8 +98,7 @@ struct DntCabinRecord {
 }
 
 pub fn parse_json(bytes: &[u8]) -> Result<Vec<CabinIn>, JobError> {
-    let v: CabinJson =
-        serde_json::from_slice(bytes).map_err(|e| JobError::Parse(e.to_string()))?;
+    let v: CabinJson = serde_json::from_slice(bytes).map_err(|e| JobError::Parse(e.to_string()))?;
     let mut out = Vec::new();
     match v {
         CabinJson::FeatureCollection(fc) => {
@@ -157,13 +156,15 @@ pub fn parse_json(bytes: &[u8]) -> Result<Vec<CabinIn>, JobError> {
     Ok(out)
 }
 
-pub async fn run(pool: &DbPool, file: Option<PathBuf>, url: Option<String>) -> Result<JobOutcome, JobError> {
+pub async fn run(
+    pool: &DbPool,
+    file: Option<PathBuf>,
+    url: Option<String>,
+) -> Result<JobOutcome, JobError> {
     let bytes = if let Some(p) = file {
         std::fs::read(&p).map_err(|e| JobError::Fetch(e.to_string()))?
     } else {
-        let url = url.unwrap_or_else(|| {
-            "https://nasjonalturbase.no/api/legacy/cabins".to_string()
-        });
+        let url = url.unwrap_or_else(|| "https://nasjonalturbase.no/api/legacy/cabins".to_string());
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(60))
             .user_agent("turbo-tileserver/0.1 (+https://github.com/sigmundgranaas/turbo)")

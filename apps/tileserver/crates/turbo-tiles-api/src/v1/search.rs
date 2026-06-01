@@ -79,9 +79,7 @@ pub async fn name(
     }))
 }
 
-pub async fn coverage(
-    State(state): State<ApiState>,
-) -> Result<Json<IndexStats>, ApiError> {
+pub async fn coverage(State(state): State<ApiState>) -> Result<Json<IndexStats>, ApiError> {
     let idx = state
         .search
         .as_ref()

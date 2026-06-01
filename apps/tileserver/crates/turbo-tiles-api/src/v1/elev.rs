@@ -37,13 +37,14 @@ pub async fn sample(
     State(state): State<ApiState>,
     Json(req): Json<SampleReq>,
 ) -> Result<Json<SampleResp>, ApiError> {
-    let dem = state.dem.as_ref().ok_or(ApiError::PrimitiveUnavailable("dem"))?;
+    let dem = state
+        .dem
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
     let p = wgs84_to_utm33n(req.lon, req.lat);
     let start = Instant::now();
     let z = dem.sample(p).map_err(|e| match e {
-        turbo_tiles_elev::DemError::OutOfCoverage { .. } => {
-            ApiError::BadRequest(e.to_string())
-        }
+        turbo_tiles_elev::DemError::OutOfCoverage { .. } => ApiError::BadRequest(e.to_string()),
         other => ApiError::Internal(other.to_string()),
     })?;
     let took_us = start.elapsed().as_micros() as u64;
@@ -78,9 +79,14 @@ pub async fn profile(
     State(state): State<ApiState>,
     Json(req): Json<ProfileReq>,
 ) -> Result<Json<ProfileResp>, ApiError> {
-    let dem = state.dem.as_ref().ok_or(ApiError::PrimitiveUnavailable("dem"))?;
+    let dem = state
+        .dem
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
     if req.line.len() < 2 {
-        return Err(ApiError::BadRequest("line needs at least 2 vertices".into()));
+        return Err(ApiError::BadRequest(
+            "line needs at least 2 vertices".into(),
+        ));
     }
     // Convert vertices to EPSG:25833 first; sampling is uniformly
     // spaced along the polyline in projected coordinates so the
@@ -99,10 +105,7 @@ pub async fn profile(
         total += (dx * dx + dy * dy).sqrt();
         seg_lens.push(total);
     }
-    let samples = req
-        .samples
-        .unwrap_or(projected.len() as u32)
-        .clamp(2, 4096) as usize;
+    let samples = req.samples.unwrap_or(projected.len() as u32).clamp(2, 4096) as usize;
     let mut pts = Vec::with_capacity(samples);
     let mut distances = Vec::with_capacity(samples);
     for i in 0..samples {
@@ -137,7 +140,9 @@ pub async fn profile(
         distances.push(d);
     }
     let start = Instant::now();
-    let elev = dem.profile(&pts).map_err(|e| ApiError::Internal(e.to_string()))?;
+    let elev = dem
+        .profile(&pts)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
     let took_us = start.elapsed().as_micros() as u64;
     Ok(Json(ProfileResp {
         elev_m: elev,
@@ -149,7 +154,10 @@ pub async fn profile(
 pub async fn coverage(
     State(state): State<ApiState>,
 ) -> Result<Json<turbo_tiles_elev::DemCoverage>, ApiError> {
-    let dem = state.dem.as_ref().ok_or(ApiError::PrimitiveUnavailable("dem"))?;
+    let dem = state
+        .dem
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
     Ok(Json(dem.coverage()))
 }
 
@@ -169,10 +177,11 @@ pub struct BenchResp {
 /// In-process micro-benchmark. Picks random points inside the loaded
 /// DEM extent and times sample()/profile(). Useful as a quick smoke
 /// from the admin UI; the criterion benches are the real gate.
-pub async fn bench(
-    State(state): State<ApiState>,
-) -> Result<Json<BenchResp>, ApiError> {
-    let dem = state.dem.as_ref().ok_or(ApiError::PrimitiveUnavailable("dem"))?;
+pub async fn bench(State(state): State<ApiState>) -> Result<Json<BenchResp>, ApiError> {
+    let dem = state
+        .dem
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
     let cov = dem.coverage();
     // Deterministic stream of pseudo-randoms — splitmix is the
     // smallest decent generator that doesn't need a crate.

@@ -43,24 +43,35 @@ fn point_source_disc_uniform_speed() {
             let dy = j as f32 - cj as f32;
             let analytic = (dx * dx + dy * dy).sqrt();
             let err = (u - analytic).abs();
-            if analytic > max_radius { continue; }
+            if analytic > max_radius {
+                continue;
+            }
             if dx.abs() < 1e-3 || dy.abs() < 1e-3 {
                 // Pure axis cell — should be exact.
                 axis_total += 1;
-                if err < 1e-4 { within_axis_eps += 1; }
+                if err < 1e-4 {
+                    within_axis_eps += 1;
+                }
             }
             if analytic > 5.0 {
                 let rel = err / analytic;
-                if rel > max_rel_err { max_rel_err = rel; }
+                if rel > max_rel_err {
+                    max_rel_err = rel;
+                }
             }
-            if err > max_abs_err { max_abs_err = err; }
+            if err > max_abs_err {
+                max_abs_err = err;
+            }
         }
     }
     eprintln!(
         "disc: axis_exact = {axis_total}/{axis_total}; max_rel_err = {:.4}; max_abs_err = {:.3}",
         max_rel_err, max_abs_err
     );
-    assert_eq!(within_axis_eps, axis_total, "axis-aligned cells must be exact under Sethian");
+    assert_eq!(
+        within_axis_eps, axis_total,
+        "axis-aligned cells must be exact under Sethian"
+    );
     // The 4-neighbour first-order Sethian stencil over-estimates
     // diagonal distance by ~0.293·h per √2 step (the diagonal-
     // update error), which cumulates linearly along 45° rays. At
@@ -70,11 +81,14 @@ fn point_source_disc_uniform_speed() {
     // absolute error to a sensible multiple of h.
     assert!(
         max_rel_err < 0.15,
-        "max relative FMM error {} exceeds 15%", max_rel_err
+        "max relative FMM error {} exceeds 15%",
+        max_rel_err
     );
     assert!(
         max_abs_err < 2.0 * h as f32,
-        "max absolute FMM error {} exceeds 2·h = {}", max_abs_err, 2.0 * h as f32
+        "max absolute FMM error {} exceeds 2·h = {}",
+        max_abs_err,
+        2.0 * h as f32
     );
 }
 
@@ -156,13 +170,24 @@ fn refused_cells_block_wave() {
     // around the wall, adding several h. Assert u > 15.5 (detour
     // exists) and u is still finite (the wall isn't a closed box).
     let u_behind = result.arrival.get(15, 10, 0);
-    assert!(u_behind.is_finite(), "cell behind wall should be reachable around the ends");
-    assert!(u_behind > 15.5, "wall didn't force a detour; u = {}", u_behind);
+    assert!(
+        u_behind.is_finite(),
+        "cell behind wall should be reachable around the ends"
+    );
+    assert!(
+        u_behind > 15.5,
+        "wall didn't force a detour; u = {}",
+        u_behind
+    );
 
     // The wall cells themselves stay at +∞.
     for j in 5..15 {
         let u_wall = result.arrival.get(10, j, 0);
-        assert!(u_wall.is_infinite(), "wall cell (10,{j}) should be +∞, got {}", u_wall);
+        assert!(
+            u_wall.is_infinite(),
+            "wall cell (10,{j}) should be +∞, got {}",
+            u_wall
+        );
     }
 }
 
@@ -180,17 +205,26 @@ fn goal_reached_stops_early() {
     let centre = n / 2;
     let goal_radius = 20u32; // ≈ 20 cells from centre
     let result = solve_2d_isotropic(
-        shape, &cost, &[(centre, centre, 0.0)],
-        StopCondition::GoalReached { gi: centre + goal_radius, gj: centre },
+        shape,
+        &cost,
+        &[(centre, centre, 0.0)],
+        StopCondition::GoalReached {
+            gi: centre + goal_radius,
+            gj: centre,
+        },
     );
-    assert!(result.arrival.get(centre + goal_radius, centre, 0).is_finite());
+    assert!(result
+        .arrival
+        .get(centre + goal_radius, centre, 0)
+        .is_finite());
     // The wave-front area at arrival ≈ π·r² ≈ π·20² ≈ 1257 cells.
     // Even with some over-march from the heap, we should be far
     // below n² = 10000.
     assert!(
         result.cells_accepted < (n * n) / 2,
         "GoalReached should stop before half coverage, got {} of {}",
-        result.cells_accepted, n * n
+        result.cells_accepted,
+        n * n
     );
     // And we should have accepted MORE than the analytic disc area
     // (because the FMM front is over-marched until the goal pops).

@@ -106,7 +106,10 @@ pub struct MaskRefusalLayer {
 
 impl MaskRefusalLayer {
     pub fn new(mask: Arc<Mask>) -> Self {
-        Self { mask, defer_water_to_vector: false }
+        Self {
+            mask,
+            defer_water_to_vector: false,
+        }
     }
 
     /// Tell this layer to ignore water cells — the caller has wired
@@ -300,14 +303,7 @@ impl CostLayer for DirectionalSlopeLayer {
     fn name(&self) -> &'static str {
         "slope_direction"
     }
-    fn edge_cost_modifier(
-        &self,
-        fx: f64,
-        fy: f64,
-        tx: f64,
-        ty: f64,
-        profile: Profile,
-    ) -> f32 {
+    fn edge_cost_modifier(&self, fx: f64, fy: f64, tx: f64, ty: f64, profile: Profile) -> f32 {
         // Cycling on uphill roads is direction-aware too, but the
         // model below is calibrated for hiking. For ski we re-use
         // the hiking model — coarse but conservative.
@@ -438,8 +434,7 @@ impl CostLayer for AvalancheTerrainLayer {
             Ok(Some(e)) => e,
             _ => return CellCost::default(),
         };
-        let elev_factor =
-            ((elev - (self.treeline_m - 200.0)) / 200.0).clamp(0.0, 1.0);
+        let elev_factor = ((elev - (self.treeline_m - 200.0)) / 200.0).clamp(0.0, 1.0);
         let risk = lee_factor * slope_factor * elev_factor;
         let extra = (self.base_multiplier - 1.0) * risk;
         CellCost::multiplier(1.0 + extra)
@@ -589,7 +584,7 @@ impl TrailProximityLayer {
 /// over peaks and cliffs. A 30° spike inside a 1 km edge now costs
 /// 4–5× more, a 45° spike pushes the edge close to refusal, and a
 /// > 50° "trail through a cliff face" (which N50/Turrutebasen
-/// genuinely sometimes contain) becomes impassable.
+/// > genuinely sometimes contain) becomes impassable.
 pub struct GraphSlopeLayer {
     pub quadratic_scale_deg: f32,
     /// Edges with `slope_max_deg >= refuse_above_deg` are refused
@@ -643,7 +638,9 @@ pub struct TotalGainLayer {
 
 impl Default for TotalGainLayer {
     fn default() -> Self {
-        Self { gain_amplifier: 1.0 }
+        Self {
+            gain_amplifier: 1.0,
+        }
     }
 }
 
@@ -759,15 +756,30 @@ mod tests {
     fn graph_slope_layer_quadratic_under_45() {
         let l = GraphSlopeLayer::default();
         // 0° → 1.0
-        assert!((l.edge_multiplier(&mk_edge_with_slope(0.0, 0.0, 100.0), Profile::Foot) - 1.0).abs() < 1e-3);
+        assert!(
+            (l.edge_multiplier(&mk_edge_with_slope(0.0, 0.0, 100.0), Profile::Foot) - 1.0).abs()
+                < 1e-3
+        );
         // 5° → 1.0 (flat band)
-        assert!((l.edge_multiplier(&mk_edge_with_slope(5.0, 0.0, 100.0), Profile::Foot) - 1.0).abs() < 1e-3);
+        assert!(
+            (l.edge_multiplier(&mk_edge_with_slope(5.0, 0.0, 100.0), Profile::Foot) - 1.0).abs()
+                < 1e-3
+        );
         // 15° → 1 + (15/15)² = 2.0
-        assert!((l.edge_multiplier(&mk_edge_with_slope(15.0, 0.0, 100.0), Profile::Foot) - 2.0).abs() < 1e-2);
+        assert!(
+            (l.edge_multiplier(&mk_edge_with_slope(15.0, 0.0, 100.0), Profile::Foot) - 2.0).abs()
+                < 1e-2
+        );
         // 30° → 1 + 4 = 5.0
-        assert!((l.edge_multiplier(&mk_edge_with_slope(30.0, 0.0, 100.0), Profile::Foot) - 5.0).abs() < 1e-2);
+        assert!(
+            (l.edge_multiplier(&mk_edge_with_slope(30.0, 0.0, 100.0), Profile::Foot) - 5.0).abs()
+                < 1e-2
+        );
         // 45° → 1 + 9 = 10.0
-        assert!((l.edge_multiplier(&mk_edge_with_slope(45.0, 0.0, 100.0), Profile::Foot) - 10.0).abs() < 1e-2);
+        assert!(
+            (l.edge_multiplier(&mk_edge_with_slope(45.0, 0.0, 100.0), Profile::Foot) - 10.0).abs()
+                < 1e-2
+        );
     }
 
     #[test]
@@ -788,7 +800,9 @@ mod tests {
 
     #[test]
     fn total_gain_amplifier_scales_naismith_term() {
-        let l = TotalGainLayer { gain_amplifier: 2.0 };
+        let l = TotalGainLayer {
+            gain_amplifier: 2.0,
+        };
         // edge: 1000m length, 100m gain. Naismith baseline = 800.
         // Extra = baseline × (2-1) = 800. Multiplier = 1 + 800/1000 = 1.8.
         let m = l.edge_multiplier(&mk_edge_with_slope(0.0, 100.0, 1000.0), Profile::Foot);
@@ -800,7 +814,9 @@ mod tests {
         // amplifier = 0 → effective gain cost removed.
         // Naismith baseline 800 over 1000m → multiplier should be
         // 1 - 800/1000 = 0.2 (i.e. uphill becomes cheaper).
-        let l = TotalGainLayer { gain_amplifier: 0.0 };
+        let l = TotalGainLayer {
+            gain_amplifier: 0.0,
+        };
         let m = l.edge_multiplier(&mk_edge_with_slope(0.0, 100.0, 1000.0), Profile::Foot);
         assert!((m - 0.2).abs() < 1e-2, "got {m}");
     }

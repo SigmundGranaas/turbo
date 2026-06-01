@@ -75,7 +75,9 @@ impl LocalCost {
 pub trait Metric: Send + Sync {
     /// Number of state dimensions. 2 in phase 2; 3 in phase 5
     /// (the (x, y, θ) elastica extension).
-    fn dim(&self) -> usize { 2 }
+    fn dim(&self) -> usize {
+        2
+    }
 
     /// Cell cost at the given grid index.
     fn local(&self, shape: &GridShape, i: u32, j: u32, k: u32) -> LocalCost;
@@ -90,6 +92,8 @@ pub struct UniformMetric {
 
 impl Metric for UniformMetric {
     fn local(&self, _shape: &GridShape, _i: u32, _j: u32, _k: u32) -> LocalCost {
-        LocalCost::Walkable { pace_s_per_m: self.pace_s_per_m }
+        LocalCost::Walkable {
+            pace_s_per_m: self.pace_s_per_m,
+        }
     }
 }

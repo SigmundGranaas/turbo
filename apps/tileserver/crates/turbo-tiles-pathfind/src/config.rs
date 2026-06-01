@@ -55,7 +55,11 @@ pub struct GradeLimitedConfig {
 
 impl Default for GradeLimitedConfig {
     fn default() -> Self {
-        Self { enabled: false, max_grade_deg: 27.0, turn_penalty_s: 8.0 }
+        Self {
+            enabled: false,
+            max_grade_deg: 27.0,
+            turn_penalty_s: 8.0,
+        }
     }
 }
 
@@ -78,7 +82,10 @@ pub struct WaterConfig {
 
 impl Default for WaterConfig {
     fn default() -> Self {
-        Self { cost_s_per_m: 4.0, shore_band_m: 60.0 }
+        Self {
+            cost_s_per_m: 4.0,
+            shore_band_m: 60.0,
+        }
     }
 }
 
@@ -191,7 +198,12 @@ fn one_f64() -> f64 {
 
 impl Default for SurfacePaceProfile {
     fn default() -> Self {
-        Self { sti: 1.0, vei: 1.0, skiloype: 1.0, unknown: 1.0 }
+        Self {
+            sti: 1.0,
+            vei: 1.0,
+            skiloype: 1.0,
+            unknown: 1.0,
+        }
     }
 }
 
@@ -278,13 +290,27 @@ impl CostConfig {
     pub fn with_patch(&self, patch: &CostConfigPatch) -> CostConfig {
         let mut c = self.clone();
         // Surface-pace overrides apply to the foot profile (preset focus).
-        if let Some(v) = patch.surface_pace_sti { c.surface_pace.foot.sti = v; }
-        if let Some(v) = patch.surface_pace_vei { c.surface_pace.foot.vei = v; }
-        if let Some(v) = patch.surface_pace_skiloype { c.surface_pace.foot.skiloype = v; }
-        if let Some(v) = patch.surface_pace_unknown { c.surface_pace.foot.unknown = v; }
-        if let Some(v) = patch.off_trail_base_foot { c.off_trail_base.foot = v; }
-        if let Some(v) = patch.off_trail_base_bicycle { c.off_trail_base.bicycle = v; }
-        if let Some(v) = patch.off_trail_base_ski { c.off_trail_base.ski = v; }
+        if let Some(v) = patch.surface_pace_sti {
+            c.surface_pace.foot.sti = v;
+        }
+        if let Some(v) = patch.surface_pace_vei {
+            c.surface_pace.foot.vei = v;
+        }
+        if let Some(v) = patch.surface_pace_skiloype {
+            c.surface_pace.foot.skiloype = v;
+        }
+        if let Some(v) = patch.surface_pace_unknown {
+            c.surface_pace.foot.unknown = v;
+        }
+        if let Some(v) = patch.off_trail_base_foot {
+            c.off_trail_base.foot = v;
+        }
+        if let Some(v) = patch.off_trail_base_bicycle {
+            c.off_trail_base.bicycle = v;
+        }
+        if let Some(v) = patch.off_trail_base_ski {
+            c.off_trail_base.ski = v;
+        }
         if let Some(v) = patch.trail_proximity_bonus_at_zero {
             c.trail_proximity.bonus_at_zero = v;
         }
@@ -303,12 +329,24 @@ impl CostConfig {
         if let Some(v) = patch.slope_graph_refuse_above_deg {
             c.slope_graph.refuse_above_deg = v;
         }
-        if let Some(v) = patch.total_gain_amplifier { c.total_gain.amplifier = v; }
-        if let Some(v) = patch.water_cost_s_per_m { c.water.cost_s_per_m = v; }
-        if let Some(v) = patch.water_shore_band_m { c.water.shore_band_m = v; }
-        if let Some(v) = patch.grade_limited_enabled { c.grade_limited.enabled = v; }
-        if let Some(v) = patch.grade_limited_max_grade_deg { c.grade_limited.max_grade_deg = v; }
-        if let Some(v) = patch.grade_limited_turn_penalty_s { c.grade_limited.turn_penalty_s = v; }
+        if let Some(v) = patch.total_gain_amplifier {
+            c.total_gain.amplifier = v;
+        }
+        if let Some(v) = patch.water_cost_s_per_m {
+            c.water.cost_s_per_m = v;
+        }
+        if let Some(v) = patch.water_shore_band_m {
+            c.water.shore_band_m = v;
+        }
+        if let Some(v) = patch.grade_limited_enabled {
+            c.grade_limited.enabled = v;
+        }
+        if let Some(v) = patch.grade_limited_max_grade_deg {
+            c.grade_limited.max_grade_deg = v;
+        }
+        if let Some(v) = patch.grade_limited_turn_penalty_s {
+            c.grade_limited.turn_penalty_s = v;
+        }
         c
     }
 }
@@ -375,7 +413,9 @@ impl PresetSet {
         let text = std::fs::read_to_string(cwd)
             .ok()
             .unwrap_or_else(|| EMBEDDED_PRESETS.to_string());
-        toml::from_str(&text).unwrap_or_else(|_| PresetSet { presets: Vec::new() })
+        toml::from_str(&text).unwrap_or_else(|_| PresetSet {
+            presets: Vec::new(),
+        })
     }
 
     pub fn get(&self, name: &str) -> Option<&Preset> {
@@ -420,7 +460,10 @@ mod tests {
         assert!((c.trail_proximity.bonus_at_zero - 0.5).abs() < 1e-6);
         // Unspecified knobs unchanged.
         assert_eq!(c.off_trail_base.bicycle, base.off_trail_base.bicycle);
-        assert_eq!(c.slope_cell.refuse_above_deg, base.slope_cell.refuse_above_deg);
+        assert_eq!(
+            c.slope_cell.refuse_above_deg,
+            base.slope_cell.refuse_above_deg
+        );
     }
 
     #[test]

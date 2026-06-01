@@ -18,12 +18,12 @@ use sqlx::Row;
 use tracing::info;
 use turbo_tiles_artifacts::{write_header, ArtifactKind, Header};
 use turbo_tiles_db::DbPool;
+use turbo_tiles_elev::{Dem, PointXY};
 use turbo_tiles_graph::{
     write_graph_geom_meta, write_meta, EdgeRecord, GraphGeomIndexEntry, GraphGeomMeta, GraphMeta,
     NodePos, EDGE_RECORD_BYTES, GRAPH_FORMAT_VERSION, GRAPH_GEOM_FORMAT_VERSION,
     GRAPH_GEOM_INDEX_BYTES, PROFILE_COUNT,
 };
-use turbo_tiles_elev::{Dem, PointXY};
 
 use crate::BuildError;
 
@@ -78,8 +78,9 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<GraphBuildReport, Bu
     // pgr_createTopology added for the rest of the edge table.
     let mut node_rows = sqlx::query(
         "SELECT id::bigint, ST_X(the_geom)::float8 AS x, ST_Y(the_geom)::float8 AS y \
-         FROM paths.edge_vertices_pgr ORDER BY id"
-    ).fetch(pool);
+         FROM paths.edge_vertices_pgr ORDER BY id",
+    )
+    .fetch(pool);
 
     use std::collections::HashMap;
     let mut id_map: HashMap<i64, u32> = HashMap::new();
@@ -159,10 +160,7 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<GraphBuildReport, Bu
         let mut fwd_pts = parse_wkb_linestring(&geom_wkb).unwrap_or_else(|| {
             // Fall back to a 2-point line between endpoints so the
             // edge still has *some* polyline rather than zero.
-            vec![
-                nodes[u as usize],
-                nodes[v as usize],
-            ]
+            vec![nodes[u as usize], nodes[v as usize]]
         });
         // Make sure the polyline endpoints match the graph nodes —
         // pgrouting topology snaps edges to nearby nodes, and small
@@ -189,7 +187,10 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<GraphBuildReport, Bu
             let mut sampled: Vec<f32> = Vec::with_capacity(fwd_pts.len());
             for p in &fwd_pts {
                 let r = d
-                    .sample(PointXY { x: p.x as f64, y: p.y as f64 })
+                    .sample(PointXY {
+                        x: p.x as f64,
+                        y: p.y as f64,
+                    })
                     .ok()
                     .flatten();
                 match r {
@@ -277,8 +278,10 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<GraphBuildReport, Bu
     let mut perm: Vec<u32> = (0..edges.len() as u32).collect();
     perm.sort_by_key(|&i| edges[i as usize].from_id);
     let sorted_edges: Vec<EdgeRecord> = perm.iter().map(|&i| edges[i as usize]).collect();
-    let sorted_polylines: Vec<Vec<NodePos>> =
-        perm.iter().map(|&i| std::mem::take(&mut polylines[i as usize])).collect();
+    let sorted_polylines: Vec<Vec<NodePos>> = perm
+        .iter()
+        .map(|&i| std::mem::take(&mut polylines[i as usize]))
+        .collect();
     edges = sorted_edges;
     polylines = sorted_polylines;
 
@@ -526,8 +529,14 @@ fn parse_wkb_linestring(wkb: &[u8]) -> Option<Vec<NodePos>> {
     };
     let read_f64 = |off: usize| -> f64 {
         f64::from_le_bytes([
-            wkb[off], wkb[off + 1], wkb[off + 2], wkb[off + 3],
-            wkb[off + 4], wkb[off + 5], wkb[off + 6], wkb[off + 7],
+            wkb[off],
+            wkb[off + 1],
+            wkb[off + 2],
+            wkb[off + 3],
+            wkb[off + 4],
+            wkb[off + 5],
+            wkb[off + 6],
+            wkb[off + 7],
         ])
     };
     let geom_type = read_u32(1);
@@ -641,8 +650,7 @@ mod tests {
         ];
         let mut perm: Vec<u32> = (0..edges.len() as u32).collect();
         perm.sort_by_key(|&i| edges[i as usize].from_id);
-        let sorted_edges: Vec<EdgeRecord> =
-            perm.iter().map(|&i| edges[i as usize]).collect();
+        let sorted_edges: Vec<EdgeRecord> = perm.iter().map(|&i| edges[i as usize]).collect();
         let sorted_polylines: Vec<Vec<NodePos>> = perm
             .iter()
             .map(|&i| std::mem::take(&mut polylines[i as usize]))

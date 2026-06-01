@@ -31,13 +31,14 @@ pub async fn sample(
     State(state): State<ApiState>,
     Json(req): Json<SampleReq>,
 ) -> Result<Json<SampleResp>, ApiError> {
-    let dem = state.dem.as_ref().ok_or(ApiError::PrimitiveUnavailable("dem"))?;
+    let dem = state
+        .dem
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
     let p = wgs84_to_utm33n(req.lon, req.lat);
     let start = Instant::now();
     let sa = dem.slope_aspect(p).map_err(|e| match e {
-        turbo_tiles_elev::DemError::OutOfCoverage { .. } => {
-            ApiError::BadRequest(e.to_string())
-        }
+        turbo_tiles_elev::DemError::OutOfCoverage { .. } => ApiError::BadRequest(e.to_string()),
         other => ApiError::Internal(other.to_string()),
     })?;
     let took_us = start.elapsed().as_micros() as u64;
@@ -77,9 +78,14 @@ pub async fn along(
     State(state): State<ApiState>,
     Json(req): Json<AlongReq>,
 ) -> Result<Json<AlongResp>, ApiError> {
-    let dem = state.dem.as_ref().ok_or(ApiError::PrimitiveUnavailable("dem"))?;
+    let dem = state
+        .dem
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
     if req.line.len() < 2 {
-        return Err(ApiError::BadRequest("line needs at least 2 vertices".into()));
+        return Err(ApiError::BadRequest(
+            "line needs at least 2 vertices".into(),
+        ));
     }
     let step_m = req.step_m.unwrap_or(25.0).max(1.0);
     let projected: Vec<PointXY> = req

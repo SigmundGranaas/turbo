@@ -140,7 +140,10 @@ pub async fn edges(
     State(state): State<ApiState>,
     Query(q): Query<BboxQuery>,
 ) -> Result<Json<EdgesResp>, ApiError> {
-    let g = state.graph.as_ref().ok_or(ApiError::PrimitiveUnavailable("graph"))?;
+    let g = state
+        .graph
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("graph"))?;
     let (min_x, min_y, max_x, max_y) = bbox_to_utm(&q);
     // Filter by fkb_type name from `?filter=sti|vei|skiloype|all`.
     // Default = all surfaces.
@@ -151,14 +154,7 @@ pub async fn edges(
         Some("all") | None | Some("") => None,
         Some(_) => Some(vec![]),
     };
-    let polys = g.edge_polylines_in_bbox(
-        min_x,
-        min_y,
-        max_x,
-        max_y,
-        codes.as_deref(),
-        q.limit,
-    );
+    let polys = g.edge_polylines_in_bbox(min_x, min_y, max_x, max_y, codes.as_deref(), q.limit);
     let was_capped = polys.len() == q.limit;
     let edges: Vec<EdgePolyline> = polys
         .into_iter()
@@ -203,7 +199,10 @@ pub async fn anchors(
     State(state): State<ApiState>,
     Query(q): Query<BboxQuery>,
 ) -> Result<Json<AnchorsResp>, ApiError> {
-    let idx = state.search.as_ref().ok_or(ApiError::PrimitiveUnavailable("search"))?;
+    let idx = state
+        .search
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("search"))?;
     let (min_x, min_y, max_x, max_y) = bbox_to_utm(&q);
     let kind_filter = match q.filter.as_deref() {
         Some("all") | None | Some("") => None,

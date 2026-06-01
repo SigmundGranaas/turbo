@@ -19,11 +19,11 @@ use turbo_tiles_pathfind::{utm33n_to_wgs84, PathStrategy, Pathfinder, Prefs};
 /// geodesic — exactly the "off-trail diagonal vs graph detour"
 /// scenario the tests assert.
 fn write_flat_dem(path: &std::path::Path, ulx: f64, uly: f64, cells: u32, elev: f32) {
+    use turbo_tiles_artifacts::HEADER_BYTES;
     use turbo_tiles_elev::{
         write_meta as write_dem_meta, write_tile_entry, DemMeta, TileEntry, COMPRESSION_ZSTD,
         DEM_FORMAT_VERSION, DEM_META_BYTES, NODATA_SENTINEL, TILE_ENTRY_BYTES,
     };
-    use turbo_tiles_artifacts::HEADER_BYTES;
     let meta = DemMeta {
         tile_count: 1,
         tile_cells: cells,
@@ -271,7 +271,11 @@ fn pathfinder_picks_cheapest_strategy() {
         "expected a near-diagonal off-trail path (≈{diag:.1} m, < 170 m), got {}",
         path.length_m
     );
-    assert!(path.cost <= 200.0, "cost ({}) should beat 2-hop graph (200)", path.cost);
+    assert!(
+        path.cost <= 200.0,
+        "cost ({}) should beat 2-hop graph (200)",
+        path.cost
+    );
 }
 
 #[test]
@@ -300,10 +304,7 @@ fn pathfinder_hybrid_when_one_end_off_graph() {
     // is a function of cost, not test expectation.
     assert!(path.length_m > 0.0);
     assert!(
-        matches!(
-            path.strategy,
-            PathStrategy::Hybrid | PathStrategy::OffTrail
-        ),
+        matches!(path.strategy, PathStrategy::Hybrid | PathStrategy::OffTrail),
         "got unexpected strategy: {:?}",
         path.strategy
     );
@@ -327,11 +328,18 @@ fn multi_waypoint_stitches_into_one_continuous_path() {
     let p1 = utm33n_to_wgs84(anchor.x, anchor.y); // mid stop
     let p2 = utm33n_to_wgs84(anchor.x + 800.0, anchor.y);
 
-    let leg_a = pf.solve([p0.0, p0.1], [p1.0, p1.1], Prefs::default()).unwrap();
-    let leg_b = pf.solve([p1.0, p1.1], [p2.0, p2.1], Prefs::default()).unwrap();
+    let leg_a = pf
+        .solve([p0.0, p0.1], [p1.0, p1.1], Prefs::default())
+        .unwrap();
+    let leg_b = pf
+        .solve([p1.0, p1.1], [p2.0, p2.1], Prefs::default())
+        .unwrap();
 
     let route = pf
-        .solve_route(&[[p0.0, p0.1], [p1.0, p1.1], [p2.0, p2.1]], Prefs::default())
+        .solve_route(
+            &[[p0.0, p0.1], [p1.0, p1.1], [p2.0, p2.1]],
+            Prefs::default(),
+        )
         .unwrap();
 
     // Two inter-waypoint legs.
@@ -382,7 +390,10 @@ fn multi_waypoint_attributes_failing_leg() {
     let p2 = utm33n_to_wgs84(anchor.x + 10.0, anchor.y); // 10 m from p1 < mesh_cell
 
     let err = pf
-        .solve_route(&[[p0.0, p0.1], [p1.0, p1.1], [p2.0, p2.1]], Prefs::default())
+        .solve_route(
+            &[[p0.0, p0.1], [p1.0, p1.1], [p2.0, p2.1]],
+            Prefs::default(),
+        )
         .expect_err("degenerate final leg must fail the route");
     match err {
         turbo_tiles_pathfind::PathfindError::SegmentFailed { leg_index, .. } => {
@@ -404,7 +415,9 @@ fn two_point_route_emits_single_waypoint_leg() {
     let pf = Pathfinder::with_defaults(Some(dem), None, Some(Arc::new(g)));
     let from = utm33n_to_wgs84(anchor.x, anchor.y + 600.0);
     let to = utm33n_to_wgs84(anchor.x + 600.0, anchor.y);
-    let path = pf.solve([from.0, from.1], [to.0, to.1], Prefs::default()).unwrap();
+    let path = pf
+        .solve([from.0, from.1], [to.0, to.1], Prefs::default())
+        .unwrap();
     assert_eq!(path.waypoint_legs.len(), 1);
     assert_eq!(path.waypoint_legs[0].geometry_start_idx, 0);
     assert_eq!(
@@ -461,9 +474,7 @@ fn cost_based_selection_beats_long_graph_detour() {
     let to = utm33n_to_wgs84(p.x + 200.0, p.y);
     let mut prefs = Prefs::default();
     prefs.mesh_cell_m = 25.0; // fine grid for the small bbox
-    let path = pf
-        .solve([from.0, from.1], [to.0, to.1], prefs)
-        .unwrap();
+    let path = pf.solve([from.0, from.1], [to.0, to.1], prefs).unwrap();
     // The unified router cuts across (~200 m) rather than taking the
     // ~10 km graph detour. Assert on length (the regression we care about),
     // not the strategy enum.
@@ -540,7 +551,13 @@ fn switchback_gap_uniform_steep_face() {
                 grades.push((dz.abs() / horiz).atan().to_degrees());
             }
             let dx = b.0 - a.0;
-            let sign = if dx > 0.5 { 1 } else if dx < -0.5 { -1 } else { 0 };
+            let sign = if dx > 0.5 {
+                1
+            } else if dx < -0.5 {
+                -1
+            } else {
+                0
+            };
             if sign != 0 {
                 if last_sign != 0 && sign != last_sign {
                     reversals += 1;
@@ -596,7 +613,10 @@ fn write_long_detour_graph(path: &std::path::Path, ox: f32, oy: f32) {
             if i == 0 {
                 NodePos { x: ox, y: oy }
             } else if i == 11 {
-                NodePos { x: ox + 10.0, y: oy }
+                NodePos {
+                    x: ox + 10.0,
+                    y: oy,
+                }
             } else {
                 NodePos {
                     x: ox + (i as f32) * 1000.0,
@@ -666,9 +686,18 @@ fn write_long_detour_graph(path: &std::path::Path, ox: f32, oy: f32) {
 fn write_square_graph_at(path: &std::path::Path, ox: f32, oy: f32) {
     let mut f = std::fs::File::create(path).unwrap();
     let nodes = vec![
-        NodePos { x: ox, y: oy + 100.0 },
-        NodePos { x: ox + 100.0, y: oy + 100.0 },
-        NodePos { x: ox + 100.0, y: oy },
+        NodePos {
+            x: ox,
+            y: oy + 100.0,
+        },
+        NodePos {
+            x: ox + 100.0,
+            y: oy + 100.0,
+        },
+        NodePos {
+            x: ox + 100.0,
+            y: oy,
+        },
         NodePos { x: ox, y: oy },
     ];
     let edges = vec![

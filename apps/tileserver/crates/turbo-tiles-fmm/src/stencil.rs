@@ -103,7 +103,12 @@ mod tests {
     fn diagonal_update_matches_sethian_closed_form() {
         let u = solve_quadratic_2d(1.0, 1.0, 1.0, 1.0);
         let expected = 1.0 + 2.0f32.sqrt() / 2.0;
-        assert!((u - expected).abs() < 1e-5, "got {}, expected {}", u, expected);
+        assert!(
+            (u - expected).abs() < 1e-5,
+            "got {}, expected {}",
+            u,
+            expected
+        );
     }
 
     /// On an axis (one neighbour `0`, the other `+∞`), the update

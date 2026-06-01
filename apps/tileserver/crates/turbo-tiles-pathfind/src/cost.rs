@@ -114,14 +114,7 @@ pub trait CostLayer: Send + Sync {
     /// vs downhill vs traverse on a slope, lee vs windward aspect)
     /// override this. The `cell_cost` impl can still return `1.0`
     /// — the two are independent contributions.
-    fn edge_cost_modifier(
-        &self,
-        _fx: f64,
-        _fy: f64,
-        _tx: f64,
-        _ty: f64,
-        _profile: Profile,
-    ) -> f32 {
+    fn edge_cost_modifier(&self, _fx: f64, _fy: f64, _tx: f64, _ty: f64, _profile: Profile) -> f32 {
         1.0
     }
 
@@ -284,10 +277,8 @@ mod tests {
 
     #[test]
     fn compose_multiplies() {
-        let layers: Vec<Arc<dyn CostLayer>> = vec![
-            Arc::new(Fixed("a", 2.0)),
-            Arc::new(Fixed("b", 1.5)),
-        ];
+        let layers: Vec<Arc<dyn CostLayer>> =
+            vec![Arc::new(Fixed("a", 2.0)), Arc::new(Fixed("b", 1.5))];
         let c = compose_cell(&layers, &unit_weight, 0.0, 0.0, Profile::Foot);
         // 2.0 × 1.5 = 3.0
         assert!((c.multiplier - 3.0).abs() < 1e-3);
@@ -296,10 +287,8 @@ mod tests {
 
     #[test]
     fn refusal_wins_over_multiplier() {
-        let layers: Vec<Arc<dyn CostLayer>> = vec![
-            Arc::new(Fixed("a", 5.0)),
-            Arc::new(Refuser("water")),
-        ];
+        let layers: Vec<Arc<dyn CostLayer>> =
+            vec![Arc::new(Fixed("a", 5.0)), Arc::new(Refuser("water"))];
         let c = compose_cell(&layers, &unit_weight, 0.0, 0.0, Profile::Foot);
         assert_eq!(c.refused, Some("test"));
     }

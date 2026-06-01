@@ -85,7 +85,9 @@ pub async fn plan(
         .ok_or(ApiError::PrimitiveUnavailable("pathfind"))?
         .clone();
     if req.points.len() < 2 {
-        return Err(ApiError::BadRequest("`points` needs at least 2 entries".into()));
+        return Err(ApiError::BadRequest(
+            "`points` needs at least 2 entries".into(),
+        ));
     }
 
     let mut prefs = Prefs::default();
@@ -163,20 +165,23 @@ pub async fn plan_stream(
     // Forward only best-path snapshots as `progress` events, projected to
     // WGS84 [lon,lat]. Everything else (node pops, edge relaxations) is
     // dropped — clients only want the evolving line.
-    let progress = tokio_stream::wrappers::ReceiverStream::new(event_rx).filter_map(|ev| async move {
-        let SolverEvent::BestPathSnapshot { coords } = ev else {
-            return None;
-        };
-        let projected: Vec<[f64; 2]> = coords
-            .iter()
-            .map(|c| {
-                let (lon, lat) = utm33n_to_wgs84(c[0] as f64, c[1] as f64);
-                [lon, lat]
-            })
-            .collect();
-        let body = serde_json::json!({ "coordinates": projected }).to_string();
-        Some(Ok::<Event, Infallible>(Event::default().event("progress").data(body)))
-    });
+    let progress =
+        tokio_stream::wrappers::ReceiverStream::new(event_rx).filter_map(|ev| async move {
+            let SolverEvent::BestPathSnapshot { coords } = ev else {
+                return None;
+            };
+            let projected: Vec<[f64; 2]> = coords
+                .iter()
+                .map(|c| {
+                    let (lon, lat) = utm33n_to_wgs84(c[0] as f64, c[1] as f64);
+                    [lon, lat]
+                })
+                .collect();
+            let body = serde_json::json!({ "coordinates": projected }).to_string();
+            Some(Ok::<Event, Infallible>(
+                Event::default().event("progress").data(body),
+            ))
+        });
 
     let state_for_tail = state.clone();
     let tail = async_stream::stream! {
@@ -251,7 +256,10 @@ fn build_resp(state: &ApiState, path: &Path, profile: Profile) -> RoutePlanResp 
         ascent_m,
         on_trail_pct: path.on_trail_pct,
         surfaces,
-        geometry: GeoLineString { kind: "LineString", coordinates: path.geometry.clone() },
+        geometry: GeoLineString {
+            kind: "LineString",
+            coordinates: path.geometry.clone(),
+        },
         legs,
     }
 }
@@ -259,7 +267,9 @@ fn build_resp(state: &ApiState, path: &Path, profile: Profile) -> RoutePlanResp 
 /// Total positive ascent (m) along the geometry, sampled from the DEM.
 /// 0 when no DEM is loaded or the route falls outside coverage.
 fn ascent_along(state: &ApiState, geom: &[[f64; 2]]) -> f64 {
-    let Some(dem) = state.dem.as_ref() else { return 0.0 };
+    let Some(dem) = state.dem.as_ref() else {
+        return 0.0;
+    };
     let mut prev: Option<f32> = None;
     let mut gain = 0.0_f64;
     for c in geom {

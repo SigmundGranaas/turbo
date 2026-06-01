@@ -163,7 +163,10 @@ pub async fn build_from_polygons(
     let mut max_y_src = f64::NEG_INFINITY;
     for src in sources {
         let table = format!("{}.{}", src.schema, src.table);
-        let where_sql = src.where_clause.map(|w| format!("WHERE {w}")).unwrap_or_default();
+        let where_sql = src
+            .where_clause
+            .map(|w| format!("WHERE {w}"))
+            .unwrap_or_default();
         let geom_expr: String = src
             .geom_expression
             .map(|e| e.to_string())
@@ -213,7 +216,10 @@ pub async fn build_from_polygons(
     let mut polygon_count: u32 = 0;
     for src in sources {
         let table = format!("{}.{}", src.schema, src.table);
-        let where_sql = src.where_clause.map(|w| format!("WHERE {w}")).unwrap_or_default();
+        let where_sql = src
+            .where_clause
+            .map(|w| format!("WHERE {w}"))
+            .unwrap_or_default();
         let geom_expr: String = src
             .geom_expression
             .map(|e| e.to_string())
@@ -316,9 +322,8 @@ pub async fn build_landcover(
     let res = DEFAULT_RESOLUTION_M as f64;
     let tile_align = res;
 
-    let ext = sqlx::query(
-        &format!(
-            r#"
+    let ext = sqlx::query(&format!(
+        r#"
             SELECT
               MIN(ST_XMin(geom))::float8 AS min_x,
               MIN(ST_YMin(geom))::float8 AS min_y,
@@ -327,8 +332,7 @@ pub async fn build_landcover(
             FROM terrain.landcover_patch
             WHERE class = $1
             "#
-        ),
-    )
+    ))
     .bind(class)
     .fetch_one(pool)
     .await?;
@@ -336,14 +340,15 @@ pub async fn build_landcover(
     let max_x_src: Option<f64> = ext.try_get("max_x").ok();
     let min_y_src: Option<f64> = ext.try_get("min_y").ok();
     let max_y_src: Option<f64> = ext.try_get("max_y").ok();
-    let (min_x_src, max_x_src, min_y_src, max_y_src) = match (min_x_src, max_x_src, min_y_src, max_y_src) {
-        (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
-        _ => {
-            return Err(BuildError::Logic(format!(
-                "no terrain.landcover_patch rows for class='{class}'"
-            )))
-        }
-    };
+    let (min_x_src, max_x_src, min_y_src, max_y_src) =
+        match (min_x_src, max_x_src, min_y_src, max_y_src) {
+            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+            _ => {
+                return Err(BuildError::Logic(format!(
+                    "no terrain.landcover_patch rows for class='{class}'"
+                )))
+            }
+        };
     let min_x = (min_x_src / tile_align).floor() * tile_align;
     let max_x = (max_x_src / tile_align).ceil() * tile_align;
     let min_y = (min_y_src / tile_align).floor() * tile_align;
@@ -418,7 +423,10 @@ pub async fn build_landcover(
     std::fs::rename(&tmp_path, &out_path)?;
     let file_size_bytes = std::fs::metadata(&out_path)?.len();
 
-    info!(class, polygon_count, present_cells, file_size_bytes, "landcover mask built");
+    info!(
+        class,
+        polygon_count, present_cells, file_size_bytes, "landcover mask built"
+    );
     let health = audit_and_persist(&out_path);
     Ok(MaskBuildReport {
         out_path,
@@ -483,7 +491,15 @@ pub async fn build(pool: &DbPool, out_dir: &Path) -> Result<MaskBuildReport, Bui
     if cells_x == 0 || cells_y == 0 {
         return Err(BuildError::Logic("empty mask grid".into()));
     }
-    info!(cells_x, cells_y, ?min_x, ?min_y, ?max_x, ?max_y, "computed mask grid");
+    info!(
+        cells_x,
+        cells_y,
+        ?min_x,
+        ?min_y,
+        ?max_x,
+        ?max_y,
+        "computed mask grid"
+    );
 
     // ---- 2. Working buffer (one byte per cell) ------------------------------
     let total = cells_x as usize * cells_y as usize;
@@ -592,9 +608,7 @@ async fn rasterise_layer(
 ) -> Result<u32, BuildError> {
     // Stream the polygons as WKB via ST_AsBinary, after exploding
     // MultiPolygons via ST_Dump so each row is a single polygon.
-    let sql = format!(
-        "SELECT ST_AsBinary((ST_Dump(geom)).geom) AS wkb FROM {table}"
-    );
+    let sql = format!("SELECT ST_AsBinary((ST_Dump(geom)).geom) AS wkb FROM {table}");
     let mut rows = sqlx::query(&sql).fetch(pool);
     let mut polygon_count: u32 = 0;
     let v = value as u8;
@@ -675,8 +689,7 @@ fn parse_wkb_polygon(wkb: &[u8]) -> Option<Polygon<f64>> {
         rings.push(ring);
     }
     let exterior = LineString::from(rings.remove(0));
-    let interiors: Vec<LineString<f64>> =
-        rings.into_iter().map(LineString::from).collect();
+    let interiors: Vec<LineString<f64>> = rings.into_iter().map(LineString::from).collect();
     Some(Polygon::new(exterior, interiors))
 }
 

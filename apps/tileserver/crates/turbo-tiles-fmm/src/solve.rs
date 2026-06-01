@@ -41,18 +41,16 @@ use crate::stencil::solve_quadratic_2d;
 /// grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Default)]
 pub enum NodeState {
     /// Not yet reached by the wave. `u = +∞`.
+    #[default]
     Far = 0,
     /// In the heap; has at least one ACCEPTED neighbour so a
     /// candidate `u` has been computed.
     Considered = 1,
     /// Final value committed; never updated again.
     Accepted = 2,
-}
-
-impl Default for NodeState {
-    fn default() -> Self { NodeState::Far }
 }
 
 /// Result of one FMM solve. Holds the arrival-time field plus
@@ -182,7 +180,10 @@ pub fn solve_2d_isotropic(
 
         if let StopCondition::GoalReached { gi, gj } = stop {
             if i == gi && j == gj {
-                return FmmResult { arrival, cells_accepted };
+                return FmmResult {
+                    arrival,
+                    cells_accepted,
+                };
             }
         }
 
@@ -225,12 +226,18 @@ pub fn solve_2d_isotropic(
         }
     }
 
-    FmmResult { arrival, cells_accepted }
+    FmmResult {
+        arrival,
+        cells_accepted,
+    }
 }
 
 /// Which axis to scan for the minimum ACCEPTED neighbour.
 #[derive(Clone, Copy)]
-enum AxisDir { X, Y }
+enum AxisDir {
+    X,
+    Y,
+}
 
 /// Minimum arrival time among the two ACCEPTED neighbours along
 /// `axis`. Returns `+∞` when neither neighbour is accepted (i.e.
@@ -238,7 +245,8 @@ enum AxisDir { X, Y }
 /// cell yet).
 #[inline]
 fn axis_min_accepted(
-    i: u32, j: u32,
+    i: u32,
+    j: u32,
     arrival: &FmmGrid<f32>,
     state: &[NodeState],
     shape: &GridShape,
@@ -258,7 +266,9 @@ fn axis_min_accepted(
         let nflat = shape.idx(ni as u32, nj as u32, 0);
         if state[nflat] == NodeState::Accepted {
             let u = arrival.flat()[nflat];
-            if u < best { best = u; }
+            if u < best {
+                best = u;
+            }
         }
     }
     best

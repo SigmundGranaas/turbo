@@ -81,12 +81,12 @@ impl<E: Elevation> ToblerIsotropic<E> {
         if i == 0 || j == 0 || i + 1 >= shape.nx || j + 1 >= shape.ny {
             return None;
         }
-        let z_left  = self.elev.at(shape, i - 1, j)?;
+        let z_left = self.elev.at(shape, i - 1, j)?;
         let z_right = self.elev.at(shape, i + 1, j)?;
-        let z_down  = self.elev.at(shape, i, j - 1)?;
-        let z_up    = self.elev.at(shape, i, j + 1)?;
+        let z_down = self.elev.at(shape, i, j - 1)?;
+        let z_up = self.elev.at(shape, i, j + 1)?;
         let dz_dx = (z_right - z_left) / (2.0 * shape.cell_m as f32);
-        let dz_dy = (z_up    - z_down) / (2.0 * shape.cell_m as f32);
+        let dz_dy = (z_up - z_down) / (2.0 * shape.cell_m as f32);
         Some((dz_dx * dz_dx + dz_dy * dz_dy).sqrt())
     }
 
@@ -127,7 +127,9 @@ impl<E: Elevation> Metric for ToblerIsotropic<E> {
         // than the base — that's the project-wide flat-trail
         // baseline the rest of the cost model is calibrated to.
         let final_pace = pace.max(self.base_pace_s_per_m) * self.off_trail_factor;
-        LocalCost::Walkable { pace_s_per_m: final_pace }
+        LocalCost::Walkable {
+            pace_s_per_m: final_pace,
+        }
     }
 }
 
@@ -138,7 +140,8 @@ mod tests {
     fn flat(nx: u32, ny: u32) -> ArrayElevation {
         ArrayElevation {
             data: vec![Some(100.0); (nx * ny) as usize],
-            nx, ny,
+            nx,
+            ny,
         }
     }
 
@@ -157,14 +160,18 @@ mod tests {
         let LocalCost::Walkable { pace_s_per_m } = metric.local(&shape, 5, 5, 0) else {
             panic!("flat cell shouldn't be refused");
         };
-        assert!((pace_s_per_m - 0.714).abs() < 1e-3,
-            "expected ≈0.714, got {}", pace_s_per_m);
+        assert!(
+            (pace_s_per_m - 0.714).abs() < 1e-3,
+            "expected ≈0.714, got {}",
+            pace_s_per_m
+        );
     }
 
     #[test]
     fn steep_slope_returns_higher_pace() {
         // 30° ramp: dz/dx = tan(30°) ≈ 0.577 over 10 m → rise of 5.77 m per cell
-        let nx = 7u32; let ny = 7u32;
+        let nx = 7u32;
+        let ny = 7u32;
         let mut data = Vec::with_capacity((nx * ny) as usize);
         let rise = 5.77_f32;
         for j in 0..ny {
@@ -187,16 +194,23 @@ mod tests {
         // Tobler at 30° slope: tan(30°) = 0.577, exp(-3.5·0.627) ≈
         // 0.111, v ≈ 0.185 m/s, pace ≈ 5.39 s/m. Definitely much
         // higher than the 0.714 base pace.
-        assert!(pace_s_per_m > 4.0,
-            "30° slope should be slow; got {}", pace_s_per_m);
-        assert!(pace_s_per_m < 7.0,
-            "30° slope pace looks too extreme; got {}", pace_s_per_m);
+        assert!(
+            pace_s_per_m > 4.0,
+            "30° slope should be slow; got {}",
+            pace_s_per_m
+        );
+        assert!(
+            pace_s_per_m < 7.0,
+            "30° slope pace looks too extreme; got {}",
+            pace_s_per_m
+        );
     }
 
     #[test]
     fn slope_above_threshold_refused() {
         // 50° ramp; refuse_above_deg = 45° → refused.
-        let nx = 5u32; let ny = 5u32;
+        let nx = 5u32;
+        let ny = 5u32;
         let rise = (50.0_f32.to_radians().tan()) * 10.0;
         let mut data = Vec::new();
         for j in 0..ny {

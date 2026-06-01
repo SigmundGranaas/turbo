@@ -55,7 +55,9 @@ pub struct SymMat2 {
 }
 
 impl SymMat2 {
-    pub fn new(a: f64, b: f64, c: f64) -> Self { Self { a, b, c } }
+    pub fn new(a: f64, b: f64, c: f64) -> Self {
+        Self { a, b, c }
+    }
 
     /// `vᵀ M v` for any world-coord vector.
     #[inline]
@@ -204,7 +206,12 @@ mod tests {
             assert!(
                 (direct - reconstructed).abs() < 1e-5 * direct.abs().max(1.0),
                 "M = (a={}, b={}, c={}); v = {:?}; direct = {}, reconstructed = {}",
-                m.a, m.b, m.c, v, direct, reconstructed
+                m.a,
+                m.b,
+                m.c,
+                v,
+                direct,
+                reconstructed
             );
         }
     }
@@ -270,7 +277,9 @@ mod tests {
                     assert!(
                         nf.weights[k] >= -1e-6,
                         "negative weight {} at angle {}, ratio {}",
-                        nf.weights[k], deg, ratio_db
+                        nf.weights[k],
+                        deg,
+                        ratio_db
                     );
                 }
             }
@@ -285,4 +294,3 @@ mod tests {
         assert!(selling_reduce(SymMat2::new(-1.0, 0.0, 1.0)).is_none());
     }
 }
-

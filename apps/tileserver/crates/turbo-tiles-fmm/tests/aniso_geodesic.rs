@@ -74,7 +74,7 @@ fn geodesic_does_not_balloon_around_a_modest_hill() {
         refuse_above_deg: 45.0,
         base_pace_s_per_m: 0.714,
         off_trail_factor: 1.0,
-            gain_factor_k: 0.0,
+        gain_factor_k: 0.0,
     };
     let forms = bake_aniso_corridor(shape, &metric);
 
@@ -163,7 +163,7 @@ fn geodesic_does_not_drift_on_long_anisotropic_traverse() {
         refuse_above_deg: 45.0,
         base_pace_s_per_m: 0.714,
         off_trail_factor: 1.0,
-            gain_factor_k: 0.0,
+        gain_factor_k: 0.0,
     };
     let forms = bake_aniso_corridor(shape, &metric);
     // Seed bottom-left-ish, goal top-right-ish: the path must both climb
@@ -175,9 +175,13 @@ fn geodesic_does_not_drift_on_long_anisotropic_traverse() {
     let (sx, sy) = shape.cell_centre(si, sj);
     let (gx, gy) = shape.cell_centre(gi, gj);
     let path = extract_path_aniso(
-        &shape, &r.arrival, &forms,
-        PathPoint { x: sx, y: sy }, PathPoint { x: gx, y: gy },
-        None, None,
+        &shape,
+        &r.arrival,
+        &forms,
+        PathPoint { x: sx, y: sy },
+        PathPoint { x: gx, y: gy },
+        None,
+        None,
     )
     .expect("extraction should converge");
     let straight = ((gx - sx).powi(2) + (gy - sy).powi(2)).sqrt();
@@ -189,8 +193,8 @@ fn geodesic_does_not_drift_on_long_anisotropic_traverse() {
     let v = 1.6667 * (-3.5 * (tan + 0.05)).exp();
     let tau_along = (1.0 / v).max(0.714);
     let tau_perp = 0.714_f64;
-    let analytic = ((tau_along * tau_along + tau_perp * tau_perp).sqrt() / 2.0_f64.sqrt())
-        * straight as f64;
+    let analytic =
+        ((tau_along * tau_along + tau_perp * tau_perp).sqrt() / 2.0_f64.sqrt()) * straight;
     let goal_u = r.arrival.get(gi, gj, 0) as f64;
     // Monotonicity of arrival along the extracted path.
     let mut max_inc = 0.0f32;
@@ -199,7 +203,9 @@ fn geodesic_does_not_drift_on_long_anisotropic_traverse() {
         if let Some((i, j)) = shape.world_to_cell(pp.x, pp.y) {
             let u = r.arrival.get(i, j, 0);
             if u.is_finite() {
-                if u > prev { max_inc = max_inc.max(u - prev); }
+                if u > prev {
+                    max_inc = max_inc.max(u - prev);
+                }
                 prev = u;
             }
         }
@@ -233,7 +239,7 @@ fn geodesic_does_not_balloon_on_noisy_gentle_terrain() {
         refuse_above_deg: 45.0,
         base_pace_s_per_m: 0.714,
         off_trail_factor: 1.0,
-            gain_factor_k: 0.0,
+        gain_factor_k: 0.0,
     };
     let forms = bake_aniso_corridor(shape, &metric);
     let (si, sj) = (8u32, n / 2);
@@ -242,9 +248,13 @@ fn geodesic_does_not_balloon_on_noisy_gentle_terrain() {
     let (sx, sy) = shape.cell_centre(si, sj);
     let (gx, gy) = shape.cell_centre(gi, gj);
     let path = extract_path_aniso(
-        &shape, &r.arrival, &forms,
-        PathPoint { x: sx, y: sy }, PathPoint { x: gx, y: gy },
-        None, None,
+        &shape,
+        &r.arrival,
+        &forms,
+        PathPoint { x: sx, y: sy },
+        PathPoint { x: gx, y: gy },
+        None,
+        None,
     )
     .expect("extraction should converge");
     let straight = ((gx - sx).powi(2) + (gy - sy).powi(2)).sqrt();
@@ -282,7 +292,12 @@ fn gain_factor_raises_uphill_arrival_monotonically() {
             gain_factor_k: k,
         };
         let forms = bake_aniso_corridor(shape, &metric);
-        let r = solve_2d_anisotropic(shape, &forms, &[(30u32, 30u32, 0.0)], StopCondition::AllAccepted);
+        let r = solve_2d_anisotropic(
+            shape,
+            &forms,
+            &[(30u32, 30u32, 0.0)],
+            StopCondition::AllAccepted,
+        );
         let climb = r.arrival.get(50, 30, 0); // +20 cells uphill (+x)
         eprintln!("gain_factor_k={k}: uphill arrival={climb:.1}");
         assert!(climb.is_finite(), "uphill cell must be reachable");

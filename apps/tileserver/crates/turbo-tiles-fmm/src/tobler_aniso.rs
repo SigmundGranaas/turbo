@@ -167,7 +167,11 @@ impl<E: Elevation> ToblerAnisotropic<E> {
 #[inline]
 fn tobler_pace(grad_mag: f32) -> f32 {
     let v = 1.6667 * (-3.5 * (grad_mag.abs() + 0.05)).exp();
-    if v < 1e-4 { 1.0e6 } else { 1.0 / v }
+    if v < 1e-4 {
+        1.0e6
+    } else {
+        1.0 / v
+    }
 }
 
 /// Bake an anisotropic corridor: walk every cell, build its metric
@@ -186,7 +190,9 @@ pub fn bake_aniso_corridor<E: Elevation>(
     let mut grid: FmmGrid<CellForm> = FmmGrid::filled(shape, CellForm::refused());
     for j in 0..shape.ny {
         for i in 0..shape.nx {
-            let Some(m) = metric.metric_at(&shape, i, j) else { continue; };
+            let Some(m) = metric.metric_at(&shape, i, j) else {
+                continue;
+            };
             let Some(norm) = selling_reduce(m) else {
                 // Fall back to axis-aligned isotropic at base pace.
                 // Eigenvalues are 1/τ² (dual metric).
@@ -197,7 +203,15 @@ pub fn bake_aniso_corridor<E: Elevation>(
                     weights: [inv_p2, inv_p2, 0.0],
                     n_terms: 2,
                 };
-                grid.set(i, j, 0, CellForm { norm: fallback, rhs });
+                grid.set(
+                    i,
+                    j,
+                    0,
+                    CellForm {
+                        norm: fallback,
+                        rhs,
+                    },
+                );
                 continue;
             };
             grid.set(i, j, 0, CellForm { norm, rhs });
@@ -253,13 +267,17 @@ mod tests {
         let forms = bake_aniso_corridor(shape, &metric);
         let centre = n / 2;
         let r = solve_2d_anisotropic(
-            shape, &forms,
+            shape,
+            &forms,
             &[(centre, centre, 0.0)],
             StopCondition::AllAccepted,
         );
         let u_east = r.arrival.get(centre + 10, centre, 0);
         let u_north = r.arrival.get(centre, centre + 10, 0);
-        eprintln!("u_east (climbing) = {u_east}, u_north (contour) = {u_north}, ratio = {}", u_east / u_north);
+        eprintln!(
+            "u_east (climbing) = {u_east}, u_north (contour) = {u_north}, ratio = {}",
+            u_east / u_north
+        );
         assert!(
             u_north < u_east,
             "contour should be cheaper than climbing; \
@@ -267,8 +285,10 @@ mod tests {
         );
         // Sanity: north arrival ≈ 10 cells × base pace × cell_m
         //  ≈ 10 × 0.714 × 10 = 71.4 seconds (allow generous slack).
-        assert!(u_north < 80.0 && u_north > 60.0,
-            "u_north out of expected range: {u_north}");
+        assert!(
+            u_north < 80.0 && u_north > 60.0,
+            "u_north out of expected range: {u_north}"
+        );
         // East should be much slower because Tobler at 30° is ~7× base.
         let ratio = u_east / u_north;
         assert!(ratio > 3.0, "expected >3× contour preference; got {ratio}");
@@ -284,7 +304,8 @@ mod tests {
         let shape = GridShape::new_2d(n, n, 0.0, 0.0, cell_m);
         let elev = ArrayElevation {
             data: vec![Some(100.0); (n * n) as usize],
-            nx: n, ny: n,
+            nx: n,
+            ny: n,
         };
         let metric = ToblerAnisotropic {
             elev,
@@ -296,7 +317,8 @@ mod tests {
         let forms = bake_aniso_corridor(shape, &metric);
         let centre = n / 2;
         let r = solve_2d_anisotropic(
-            shape, &forms,
+            shape,
+            &forms,
             &[(centre, centre, 0.0)],
             StopCondition::AllAccepted,
         );
@@ -310,7 +332,9 @@ mod tests {
         // u_east (slightly less). Tolerance generous because Sethian
         // diagonal updates have ~10% error.
         let expected_ne = u_east * (98.0_f32.sqrt() / 10.0);
-        assert!((u_ne - expected_ne).abs() < 0.2 * u_east,
-            "u_east={u_east}, u_north={u_north}, u_ne={u_ne}, expected_ne={expected_ne}");
+        assert!(
+            (u_ne - expected_ne).abs() < 0.2 * u_east,
+            "u_east={u_east}, u_north={u_north}, u_ne={u_ne}, expected_ne={expected_ne}"
+        );
     }
 }

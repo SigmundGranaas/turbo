@@ -47,7 +47,7 @@ fn round_trip_water_cell_classifies_as_water() {
     let tmp = tempfile::NamedTempFile::new().unwrap();
     // 4×4 grid; cell (1,1) is water.
     let mut cells = vec![0u8; 16];
-    cells[1 * 4 + 1] = 1;
+    cells[4 + 1] = 1;
     write_synthetic(tmp.path(), 4, 4, &cells);
 
     let mask = Mask::open(tmp.path()).expect("open");

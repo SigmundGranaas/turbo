@@ -17,9 +17,9 @@ use std::sync::Arc;
 
 use turbo_tiles_elev::{Dem, PointXY};
 use turbo_tiles_fmm::{
-    bake_aniso_corridor, bake_metric_2d, chaikin_smooth_cost_aware, extract_path,
-    extract_path_aniso, extract_path_discrete, solve_2d_anisotropic, solve_2d_isotropic, CellForm,
-    Elevation, FmmGrid, GridShape, PathPoint, StopCondition, ToblerAnisotropic, ToblerIsotropic,
+    bake_aniso_corridor, bake_metric_2d, chaikin_smooth_cost_aware, extract_path_discrete,
+    solve_2d_anisotropic, solve_2d_isotropic, CellForm, Elevation, FmmGrid, GridShape, PathPoint,
+    StopCondition, ToblerAnisotropic, ToblerIsotropic,
 };
 
 use crate::contributor::{CostContributor, EdgeContext, EdgeKind};
@@ -296,7 +296,8 @@ pub fn compute_corridor_shape(
     if d < cell_m * 0.5 {
         return Err(FmmAdapterError::DegenerateCorridor(format!(
             "distance {:.2} m is below half a cell ({:.2} m)",
-            d, cell_m * 0.5
+            d,
+            cell_m * 0.5
         )));
     }
     // Corridor extents are clamped so the search area grows O(d), not O(d²).
@@ -311,27 +312,47 @@ pub fn compute_corridor_shape(
     // form: along-axis u = (dx/d, dy/d); perp-axis v = (-dy/d, dx/d).
     let u = (dx / d, dy / d);
     let v = (-u.1, u.0);
-    let along = (d * 0.5 + pad) as f64;
-    let cross = (half_width + pad) as f64;
+    let along = d * 0.5 + pad;
+    let cross = half_width + pad;
     // Rectangle centre.
     let cx = (from.x + to.x) * 0.5;
     let cy = (from.y + to.y) * 0.5;
     // Four corners in world coordinates.
     let corners = [
-        (cx + along * u.0 + cross * v.0, cy + along * u.1 + cross * v.1),
-        (cx + along * u.0 - cross * v.0, cy + along * u.1 - cross * v.1),
-        (cx - along * u.0 + cross * v.0, cy - along * u.1 + cross * v.1),
-        (cx - along * u.0 - cross * v.0, cy - along * u.1 - cross * v.1),
+        (
+            cx + along * u.0 + cross * v.0,
+            cy + along * u.1 + cross * v.1,
+        ),
+        (
+            cx + along * u.0 - cross * v.0,
+            cy + along * u.1 - cross * v.1,
+        ),
+        (
+            cx - along * u.0 + cross * v.0,
+            cy - along * u.1 + cross * v.1,
+        ),
+        (
+            cx - along * u.0 - cross * v.0,
+            cy - along * u.1 - cross * v.1,
+        ),
     ];
     let mut min_x = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     for (x, y) in corners {
-        if x < min_x { min_x = x; }
-        if x > max_x { max_x = x; }
-        if y < min_y { min_y = y; }
-        if y > max_y { max_y = y; }
+        if x < min_x {
+            min_x = x;
+        }
+        if x > max_x {
+            max_x = x;
+        }
+        if y < min_y {
+            min_y = y;
+        }
+        if y > max_y {
+            max_y = y;
+        }
     }
     // Snap origin to grid alignment so cell centres land at
     // consistent fractions of `cell_m`. Doesn't affect correctness
@@ -470,7 +491,9 @@ fn apply_contributor_factors_aniso(
         for i in 0..shape.nx {
             let idx = shape.idx(i, j, 0);
             let cell = forms.flat()[idx];
-            if cell.is_refused() { continue; }
+            if cell.is_refused() {
+                continue;
+            }
             let (cx, cy) = shape.cell_centre(i, j);
             let ctx = EdgeContext {
                 fx: cx - 0.5 * cell_m,
@@ -493,10 +516,12 @@ fn apply_contributor_factors_aniso(
                     factor *= pf;
                 }
             }
-            if extra_s.abs() < 1e-6 && (factor - 1.0).abs() < 1e-6 { continue; }
+            if extra_s.abs() < 1e-6 && (factor - 1.0).abs() < 1e-6 {
+                continue;
+            }
             let extra_pace = (extra_s / cell_m) as f32;
-            let f = (((base_pace_s_per_m + extra_pace) / base_pace_s_per_m) as f64 * factor).max(0.1)
-                as f32;
+            let f = (((base_pace_s_per_m + extra_pace) / base_pace_s_per_m) as f64 * factor)
+                .max(0.1) as f32;
             let scale = 1.0 / (f * f);
             let mut new_form = cell;
             for k in 0..new_form.norm.n_terms as usize {
@@ -577,7 +602,10 @@ fn solve_fmm_corridor_aniso(
     };
     let mut forms = bake_aniso_corridor(shape, &metric);
     apply_contributor_factors_aniso(
-        shape, &mut forms, contributors, profile,
+        shape,
+        &mut forms,
+        contributors,
+        profile,
         inputs.base_pace_s_per_m * inputs.off_trail_factor,
     );
     let (vetoed_cells, refused_by) = bake_vetoes_aniso(shape, &mut forms, contributors, profile);
@@ -587,7 +615,10 @@ fn solve_fmm_corridor_aniso(
         shape,
         &forms,
         &[(start_cell.0, start_cell.1, 0.0)],
-        StopCondition::GoalReached { gi: goal_cell.0, gj: goal_cell.1 },
+        StopCondition::GoalReached {
+            gi: goal_cell.0,
+            gj: goal_cell.1,
+        },
     );
     let solve_ms = t0.elapsed().as_millis() as u32;
 
@@ -669,7 +700,13 @@ pub fn solve_fmm_corridor(
     //    factor is applied uniformly by the cost stack rather than
     //    hard-coded into the solver.
     let augmented = with_off_trail(contributors, inputs.off_trail_factor);
-    bake_contributor_pace(shape, &mut cost, &augmented, profile, inputs.base_pace_s_per_m);
+    bake_contributor_pace(
+        shape,
+        &mut cost,
+        &augmented,
+        profile,
+        inputs.base_pace_s_per_m,
+    );
 
     // 3) Bake hard refusals on top — water/ocean/glacier/building
     //    polygons. Sets `cost = +∞` for vetoed cells.
@@ -681,7 +718,10 @@ pub fn solve_fmm_corridor(
         shape,
         &cost,
         &[(start_cell.0, start_cell.1, 0.0)],
-        StopCondition::GoalReached { gi: goal_cell.0, gj: goal_cell.1 },
+        StopCondition::GoalReached {
+            gi: goal_cell.0,
+            gj: goal_cell.1,
+        },
     );
     let solve_ms = t0.elapsed().as_millis() as u32;
 
@@ -738,7 +778,10 @@ pub fn solve_fmm_path(
     let to = inputs.to;
     let use_aniso = inputs.use_anisotropic;
     let solve = solve_fmm_corridor(inputs, dem, contributors, profile)?;
-    let start_pp = PathPoint { x: from.x, y: from.y };
+    let start_pp = PathPoint {
+        x: from.x,
+        y: from.y,
+    };
     let goal_pp = PathPoint { x: to.x, y: to.y };
     // Anisotropic corridors must extract along the metric characteristic
     // (-G*∇u), not the raw gradient (-∇u): on an anisotropic field the
@@ -798,7 +841,12 @@ fn solve_grade_limited_path(
         .world_to_cell(inputs.to.x, inputs.to.y)
         .ok_or(FmmAdapterError::GoalOutsideGrid)?;
     let shape3d = GridShape::new_3d(
-        shape2d.nx, shape2d.ny, N_HEADINGS, shape2d.origin_x, shape2d.origin_y, shape2d.cell_m,
+        shape2d.nx,
+        shape2d.ny,
+        N_HEADINGS,
+        shape2d.origin_x,
+        shape2d.origin_y,
+        shape2d.cell_m,
     );
 
     // Lazy per-cell overlay over the SAME CostContributor stack the 2-D FMM
@@ -812,12 +860,8 @@ fn solve_grade_limited_path(
     // `off_trail_factor` in `forward_cost`. It survives on
     // `GradeLimitedCost` purely as the A* heuristic's pace floor.
     let augmented = with_off_trail(contributors, inputs.off_trail_factor);
-    let overlay = LazyContributorOverlay::new(
-        shape2d,
-        inputs.base_pace_s_per_m,
-        profile,
-        &augmented,
-    );
+    let overlay =
+        LazyContributorOverlay::new(shape2d, inputs.base_pace_s_per_m, profile, &augmented);
 
     let cost = GradeLimitedCost {
         elev: DemElevation { dem: dem.clone() },
@@ -835,12 +879,15 @@ fn solve_grade_limited_path(
     // Dijkstra emitted events.
     let mut emit = |p: &turbo_tiles_fmm::LiftedProgress| {
         crate::solver_trace::record(|| crate::solver_trace::SolverEvent::BestPathSnapshot {
-            coords: p.best_path.iter().map(|&(x, y)| [x as f32, y as f32]).collect(),
+            coords: p
+                .best_path
+                .iter()
+                .map(|&(x, y)| [x as f32, y as f32])
+                .collect(),
         });
     };
     let t0 = std::time::Instant::now();
-    let result =
-        solve_lifted_grade_limited(shape3d, &cost, start_cell, goal_cell, Some(&mut emit));
+    let result = solve_lifted_grade_limited(shape3d, &cost, start_cell, goal_cell, Some(&mut emit));
     let solve_ms = t0.elapsed().as_millis() as u32;
 
     let goal_state = result.goal_state.ok_or(FmmAdapterError::GoalUnreachable)?;
@@ -851,7 +898,10 @@ fn solve_grade_limited_path(
         (inputs.to.x, inputs.to.y),
     )
     .ok_or(FmmAdapterError::GoalUnreachable)?;
-    let raw_path: Vec<PathPoint> = raw_xy.into_iter().map(|(x, y)| PathPoint { x, y }).collect();
+    let raw_path: Vec<PathPoint> = raw_xy
+        .into_iter()
+        .map(|(x, y)| PathPoint { x, y })
+        .collect();
 
     // Project the lifted arrival to a 2D min-over-heading field so the
     // cost-aware Chaikin smoother has a sensible scalar field.
@@ -907,7 +957,9 @@ fn solve_grade_limited_path(
         // Raw lattice path is segment-safe by construction (forward_cost
         // refuses any move whose chord clips a refused cell).
         smoothed = repaired.unwrap_or_else(|| raw_path.clone());
-        tracing::debug!("grade-limited: smoothed path clipped a refused cell; repaired to safe variant");
+        tracing::debug!(
+            "grade-limited: smoothed path clipped a refused cell; repaired to safe variant"
+        );
     }
     let cost_seconds = result.arrival.flat()[goal_state] as f64;
     Ok(FmmPathOutput {
@@ -946,11 +998,17 @@ mod tests {
         let to = PointXY { x: 1000.0, y: 0.0 };
         let shape = compute_corridor_shape(from, to, 10.0).expect("should compute");
         // x extent: 1000 + 2·pad where pad = max(40, 300) = 300; → 1600 m
-        assert!(shape.nx >= 160 && shape.nx <= 180,
-            "nx out of expected range: {}", shape.nx);
+        assert!(
+            shape.nx >= 160 && shape.nx <= 180,
+            "nx out of expected range: {}",
+            shape.nx
+        );
         // y extent: 2 × (max(800, 200) + 300) = 2200 m → ny ≈ 220
-        assert!(shape.ny >= 220 && shape.ny <= 240,
-            "ny out of expected range: {}", shape.ny);
+        assert!(
+            shape.ny >= 220 && shape.ny <= 240,
+            "ny out of expected range: {}",
+            shape.ny
+        );
         // Origin snapped to a multiple of cell_m.
         assert!((shape.origin_x / shape.cell_m).fract().abs() < 1e-6);
         assert!((shape.origin_y / shape.cell_m).fract().abs() < 1e-6);
@@ -962,11 +1020,22 @@ mod tests {
     fn rotated_corridor_inflates_aabb() {
         let from = PointXY { x: 0.0, y: 0.0 };
         let d = 1000.0_f64;
-        let to = PointXY { x: d / 2.0_f64.sqrt(), y: d / 2.0_f64.sqrt() };
+        let to = PointXY {
+            x: d / 2.0_f64.sqrt(),
+            y: d / 2.0_f64.sqrt(),
+        };
         let shape = compute_corridor_shape(from, to, 10.0).expect("should compute");
         // The AABB grows by ~sin(45°) factor in each dimension.
         // Both nx and ny should be comfortably > the axis-aligned case.
-        assert!(shape.nx > 180, "rotated corridor should inflate nx; got {}", shape.nx);
-        assert!(shape.ny > 180, "rotated corridor should inflate ny; got {}", shape.ny);
+        assert!(
+            shape.nx > 180,
+            "rotated corridor should inflate nx; got {}",
+            shape.nx
+        );
+        assert!(
+            shape.ny > 180,
+            "rotated corridor should inflate ny; got {}",
+            shape.ny
+        );
     }
 }

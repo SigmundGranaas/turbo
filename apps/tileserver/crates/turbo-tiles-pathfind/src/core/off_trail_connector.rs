@@ -36,7 +36,10 @@ pub fn nearest_exit_via_mesh(built: &BuiltMesh) -> Option<OffTrailConnector> {
         let Some(path) = theta_star(&built.mesh, start, exit_mid) else {
             continue;
         };
-        let current_best_len = best.as_ref().map(|b| b.path.length_m).unwrap_or(f64::INFINITY);
+        let current_best_len = best
+            .as_ref()
+            .map(|b| b.path.length_m)
+            .unwrap_or(f64::INFINITY);
         if path.length_m < current_best_len {
             best = Some(OffTrailConnector {
                 graph_node_id: graph_id,
@@ -56,11 +59,11 @@ pub fn connector_geometry(c: &OffTrailConnector) -> &[Point2] {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::off_trail::{Mesh, MeshNode};
     use super::super::off_trail_mesh::{
         build_local_mesh, ExitNode, MeshBbox, MeshBuildInput, RefusedPolygon,
     };
+    use super::*;
 
     fn pt(x: f64, y: f64) -> Point2 {
         Point2 { x, y }

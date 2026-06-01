@@ -44,9 +44,7 @@ async fn pool_or_skip() -> Option<DbPool> {
     match cfg.connect().await {
         Ok(p) => Some(p),
         Err(e) => {
-            eprintln!(
-                "skipping E2E test: cannot connect to INGEST_TEST_DATABASE_URL: {e}"
-            );
+            eprintln!("skipping E2E test: cannot connect to INGEST_TEST_DATABASE_URL: {e}");
             None
         }
     }
@@ -94,7 +92,9 @@ async fn n50_restore_creates_canonical_staging_schema() {
     ensure_clean(&pool).await;
 
     let fixture = fixture_path("n50_mini.sql");
-    let outcome = n50::restore(&pool, fixture, true).await.expect("restore ok");
+    let outcome = n50::restore(&pool, fixture, true)
+        .await
+        .expect("restore ok");
     assert!(outcome.rows_in > 0);
 
     let (exists,): (bool,) = sqlx::query_as(
@@ -106,11 +106,10 @@ async fn n50_restore_creates_canonical_staging_schema() {
     .unwrap();
     assert!(exists, "n50_staging schema must exist after restore");
 
-    let (innsjo_count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*)::bigint FROM n50_staging.innsjo")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (innsjo_count,): (i64,) = sqlx::query_as("SELECT COUNT(*)::bigint FROM n50_staging.innsjo")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert!(innsjo_count > 0, "innsjo rows must have been restored");
 }
 
@@ -127,12 +126,11 @@ async fn n50_upsert_vann_populates_water_polygons() {
     let outcome = n50::upsert_vann(&pool).await.expect("upsert");
     assert!(outcome.rows_in >= 2, "fixture has 2 lakes");
 
-    let (n,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint FROM terrain.water_polygon WHERE source = 'n50'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (n,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM terrain.water_polygon WHERE source = 'n50'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(n, 2);
 }
 
@@ -147,12 +145,11 @@ async fn n50_upsert_isogbre_populates_glaciers() {
         .expect("restore");
     n50::upsert_isogbre(&pool).await.expect("upsert");
 
-    let (n,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint FROM terrain.glacier_polygon WHERE source = 'n50'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (n,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM terrain.glacier_polygon WHERE source = 'n50'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(n, 1, "fixture has 1 glacier");
 }
 
@@ -396,7 +393,9 @@ async fn reset_all_clears_every_namespace_to_zero() {
         return;
     };
     ensure_clean(&pool).await;
-    n50::restore(&pool, fixture_path("n50_mini.sql"), true).await.expect("restore");
+    n50::restore(&pool, fixture_path("n50_mini.sql"), true)
+        .await
+        .expect("restore");
     n50::upsert_vann(&pool).await.expect("vann");
     n50::upsert_landcover(&pool).await.expect("landcover");
 
@@ -421,8 +420,14 @@ async fn reset_all_clears_every_namespace_to_zero() {
 
     for (label, sql) in [
         ("anchors", "SELECT COUNT(*)::bigint FROM anchors.anchor"),
-        ("water", "SELECT COUNT(*)::bigint FROM terrain.water_polygon"),
-        ("landcover", "SELECT COUNT(*)::bigint FROM terrain.landcover_patch"),
+        (
+            "water",
+            "SELECT COUNT(*)::bigint FROM terrain.water_polygon",
+        ),
+        (
+            "landcover",
+            "SELECT COUNT(*)::bigint FROM terrain.landcover_patch",
+        ),
         ("edges", "SELECT COUNT(*)::bigint FROM paths.edge"),
         ("nodes", "SELECT COUNT(*)::bigint FROM paths.node"),
     ] {

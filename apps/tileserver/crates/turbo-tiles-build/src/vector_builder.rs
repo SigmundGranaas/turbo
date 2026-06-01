@@ -128,8 +128,14 @@ pub async fn build_from_config(
     // ride along on the report.
     let mut health = crate::health::HealthReport::default();
     for r in &reports {
-        health.stat(&format!("vector_{}_features", r.name), r.feature_count as f64);
-        health.stat(&format!("vector_{}_vertices", r.name), r.total_vertices as f64);
+        health.stat(
+            &format!("vector_{}_features", r.name),
+            r.feature_count as f64,
+        );
+        health.stat(
+            &format!("vector_{}_vertices", r.name),
+            r.total_vertices as f64,
+        );
         for issue in crate::health::audit_vector_layer(&r.name, r.feature_count, r.total_vertices) {
             tracing::warn!(code = %issue.code, "{}", issue.message);
             health.warnings.push(issue);
@@ -168,14 +174,19 @@ async fn build_one_layer(
         offset += a.ty.size();
     }
     let bytes_per_feature = offset;
-    let schema = AttrSchema { fields, bytes_per_feature };
+    let schema = AttrSchema {
+        fields,
+        bytes_per_feature,
+    };
 
     // SQL projection: ST_AsBinary(geom) plus each attribute source
     // expression. Geometry comes back as little-endian WKB. We use
     // ST_Force2D so any 3D leftovers from elevation joins decay
     // cleanly (the integral cost layers are 2D anyway).
-    let mut select_cols: Vec<String> =
-        vec![format!("ST_AsBinary(ST_Force2D({})) AS geom_wkb", spec.geom_column)];
+    let mut select_cols: Vec<String> = vec![format!(
+        "ST_AsBinary(ST_Force2D({})) AS geom_wkb",
+        spec.geom_column
+    )];
     for a in &spec.attrs {
         select_cols.push(format!("({}) AS \"{}\"", a.source, a.name));
     }
@@ -247,19 +258,23 @@ fn encode_attrs(
     for spec in specs {
         match spec.ty {
             AttrType::F32 => {
-                let v: f32 = row.try_get::<Option<f32>, _>(spec.name.as_str())?.unwrap_or(0.0);
+                let v: f32 = row
+                    .try_get::<Option<f32>, _>(spec.name.as_str())?
+                    .unwrap_or(0.0);
                 buf[offset..offset + 4].copy_from_slice(&v.to_le_bytes());
                 offset += 4;
             }
             AttrType::U32 => {
-                let v: i64 =
-                    row.try_get::<Option<i64>, _>(spec.name.as_str())?.unwrap_or(0);
+                let v: i64 = row
+                    .try_get::<Option<i64>, _>(spec.name.as_str())?
+                    .unwrap_or(0);
                 buf[offset..offset + 4].copy_from_slice(&(v as u32).to_le_bytes());
                 offset += 4;
             }
             AttrType::U8 => {
-                let v: i32 =
-                    row.try_get::<Option<i32>, _>(spec.name.as_str())?.unwrap_or(0);
+                let v: i32 = row
+                    .try_get::<Option<i32>, _>(spec.name.as_str())?
+                    .unwrap_or(0);
                 buf[offset..offset + 1].copy_from_slice(&[v as u8]);
                 offset += 1;
             }
@@ -279,7 +294,12 @@ fn read_u32(buf: &[u8], off: usize) -> Option<u32> {
     if off + 4 > buf.len() {
         return None;
     }
-    Some(u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]]))
+    Some(u32::from_le_bytes([
+        buf[off],
+        buf[off + 1],
+        buf[off + 2],
+        buf[off + 3],
+    ]))
 }
 fn read_f64(buf: &[u8], off: usize) -> Option<f64> {
     if off + 8 > buf.len() {

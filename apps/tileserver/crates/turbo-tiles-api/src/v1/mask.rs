@@ -30,7 +30,10 @@ pub async fn sample(
     State(state): State<ApiState>,
     Json(req): Json<SampleReq>,
 ) -> Result<Json<SampleResp>, ApiError> {
-    let mask = state.mask.as_ref().ok_or(ApiError::PrimitiveUnavailable("mask"))?;
+    let mask = state
+        .mask
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("mask"))?;
     let p = wgs84_to_utm33n(req.lon, req.lat);
     let start = Instant::now();
     // "Outside the mask extent" means the artifact has no opinion
@@ -52,9 +55,10 @@ pub async fn sample(
     }))
 }
 
-pub async fn coverage(
-    State(state): State<ApiState>,
-) -> Result<Json<MaskCoverage>, ApiError> {
-    let mask = state.mask.as_ref().ok_or(ApiError::PrimitiveUnavailable("mask"))?;
+pub async fn coverage(State(state): State<ApiState>) -> Result<Json<MaskCoverage>, ApiError> {
+    let mask = state
+        .mask
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("mask"))?;
     Ok(Json(mask.coverage()))
 }

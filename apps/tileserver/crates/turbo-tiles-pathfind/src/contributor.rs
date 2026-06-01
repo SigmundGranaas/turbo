@@ -326,7 +326,9 @@ mod tests {
 
     struct LegacyFlat(f32);
     impl CostLayer for LegacyFlat {
-        fn name(&self) -> &'static str { "flat_test" }
+        fn name(&self) -> &'static str {
+            "flat_test"
+        }
         fn cell_cost(&self, _x: f64, _y: f64, _p: Profile) -> CellCost {
             CellCost::multiplier(1.0)
         }

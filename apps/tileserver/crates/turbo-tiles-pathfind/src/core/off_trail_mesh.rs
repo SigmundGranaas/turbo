@@ -60,8 +60,12 @@ impl MeshBbox {
         if cell_m <= 0.0 || !self.is_valid() {
             return (0, 0);
         }
-        let nx = (((self.max_x - self.min_x) / cell_m).ceil() as i64).max(2).min(400);
-        let ny = (((self.max_y - self.min_y) / cell_m).ceil() as i64).max(2).min(400);
+        let nx = (((self.max_x - self.min_x) / cell_m).ceil() as i64)
+            .max(2)
+            .min(400);
+        let ny = (((self.max_y - self.min_y) / cell_m).ceil() as i64)
+            .max(2)
+            .min(400);
         (nx as u32, ny as u32)
     }
 }
@@ -415,18 +419,8 @@ mod tests {
             ..Default::default()
         });
         // Find a left cell and a right cell, compare costs.
-        let left = built
-            .mesh
-            .nodes
-            .iter()
-            .find(|n| n.pt.x < 200.0)
-            .unwrap();
-        let right = built
-            .mesh
-            .nodes
-            .iter()
-            .find(|n| n.pt.x > 200.0)
-            .unwrap();
+        let left = built.mesh.nodes.iter().find(|n| n.pt.x < 200.0).unwrap();
+        let right = built.mesh.nodes.iter().find(|n| n.pt.x > 200.0).unwrap();
         assert!(left.cost_mul < right.cost_mul);
     }
 
@@ -551,6 +545,9 @@ mod tests {
     fn point_in_polygon_degenerate_returns_false() {
         // < 3 vertices isn't a polygon — defensive return rather
         // than panic on a malformed input.
-        assert!(!point_in_polygon(&[pt(0.0, 0.0), pt(1.0, 0.0)], pt(0.5, 0.0)));
+        assert!(!point_in_polygon(
+            &[pt(0.0, 0.0), pt(1.0, 0.0)],
+            pt(0.5, 0.0)
+        ));
     }
 }

@@ -72,10 +72,7 @@ impl Builder {
     /// can union multiple source tables — e.g. `developed` blends
     /// `tettbebyggelse` (built-up areas) and `bygning_omrade`
     /// (individual buildings).
-    pub async fn n50_landcover(
-        &self,
-        name: &str,
-    ) -> Result<MaskBuildReport, BuildError> {
+    pub async fn n50_landcover(&self, name: &str) -> Result<MaskBuildReport, BuildError> {
         use mask_builder::PolygonSource;
         // Per-kind resolution. Water shoreline and stream barriers
         // need fine cells (10 m); landcover stays coarse (100 m).
@@ -152,14 +149,8 @@ impl Builder {
                 )))
             }
         };
-        mask_builder::build_from_polygons(
-            &self.pool,
-            &self.out_dir,
-            name,
-            sources,
-            resolution_m,
-        )
-        .await
+        mask_builder::build_from_polygons(&self.pool, &self.out_dir, name, sources, resolution_m)
+            .await
     }
     pub async fn graph(&self) -> Result<GraphBuildReport, BuildError> {
         graph_builder::build(&self.pool, &self.out_dir).await
@@ -171,10 +162,7 @@ impl Builder {
     /// Build `norway.vectors` from a TOML config (one row per named
     /// feature collection). Adding a new feature class is a config
     /// change — no Rust code required.
-    pub async fn vectors(
-        &self,
-        config: &VectorConfig,
-    ) -> Result<VectorBuildReport, BuildError> {
+    pub async fn vectors(&self, config: &VectorConfig) -> Result<VectorBuildReport, BuildError> {
         vector_builder::build_from_config(&self.pool, &self.out_dir, config).await
     }
 }
