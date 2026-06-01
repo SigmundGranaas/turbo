@@ -47,13 +47,23 @@ spec:
           args:
             - |
               set -euo pipefail
+              # The legacy data was loaded as the `postgres` superuser, so a
+              # blanket `REASSIGN OWNED BY postgres` is refused (it owns
+              # system objects). Instead, ALTER ownership of only the
+              # user objects in the public schema (tables/sequences/views)
+              # to `app`, generated via format() and piped back into psql.
               for DB in auth sharing geo tracks collections activities; do
                 echo "== ${DB} =="
-                OWNERS=$(psql -tAqc "SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname='public' AND tableowner <> 'app'" "$DB")
-                for O in $OWNERS; do
-                  echo "  REASSIGN OWNED BY ${O} -> app"
-                  psql -v ON_ERROR_STOP=1 -c "REASSIGN OWNED BY \"${O}\" TO app" "$DB"
-                done
+                psql -tAqc "
+                  SELECT format('ALTER TABLE %I.%I OWNER TO app;', schemaname, tablename)
+                    FROM pg_tables WHERE schemaname='public'
+                  UNION ALL
+                  SELECT format('ALTER SEQUENCE %I.%I OWNER TO app;', sequence_schema, sequence_name)
+                    FROM information_schema.sequences WHERE sequence_schema='public'
+                  UNION ALL
+                  SELECT format('ALTER VIEW %I.%I OWNER TO app;', table_schema, table_name)
+                    FROM information_schema.views WHERE table_schema='public'
+                " "$DB" | psql -v ON_ERROR_STOP=1 -b "$DB"
                 psql -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO app" "$DB"
                 psql -v ON_ERROR_STOP=1 -c "GRANT ALL ON SCHEMA public TO app" "$DB"
               done
