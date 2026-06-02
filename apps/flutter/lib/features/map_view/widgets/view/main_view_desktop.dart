@@ -20,6 +20,7 @@ class DesktopMapView extends StatelessWidget {
   final LatLng initialCenter;
   final double initialZoom;
   final MapEventCallback? onMapEvent;
+  final Crs crs;
 
   const DesktopMapView({
     super.key,
@@ -34,6 +35,7 @@ class DesktopMapView extends StatelessWidget {
     required this.initialCenter,
     required this.initialZoom,
     this.onMapEvent,
+    this.crs = const Epsg3857(),
   });
 
   @override
@@ -54,6 +56,7 @@ class DesktopMapView extends StatelessWidget {
         initialCenter: initialCenter,
         initialZoom: initialZoom,
         onMapEvent: onMapEvent,
+        crs: crs,
         overlayWidgets: [
           ...overlayWidgets,
           MapControls(controls: mapControls),

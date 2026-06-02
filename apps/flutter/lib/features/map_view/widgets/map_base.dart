@@ -18,6 +18,10 @@ class MapBase extends ConsumerWidget {
   final InteractionOptions? interactionOptions;
   final MapEventCallback? onMapEvent; // Changed from onPositionChanged
 
+  /// The coordinate reference system the map renders in. Defaults to Web
+  /// Mercator; switches to UTM33 (EPSG:25833) for high-detail Norwegian topo.
+  final Crs crs;
+
   const MapBase({
     super.key,
     required this.mapController,
@@ -33,6 +37,7 @@ class MapBase extends ConsumerWidget {
     this.onPointerUp,
     this.interactionOptions,
     this.onMapEvent, // Changed
+    this.crs = const Epsg3857(),
   });
 
   @override
@@ -40,8 +45,14 @@ class MapBase extends ConsumerWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     final flutterMap = FlutterMap(
+      // Rebuild the map from scratch when the CRS changes (e.g. toggling the
+      // high-detail UTM33 topo base). flutter_map reads `crs` once at creation,
+      // so a fresh element is required for the switch to take effect and to
+      // drop tiles cached against the previous projection.
+      key: ValueKey('flutter_map_${crs.code}'),
       mapController: mapController,
       options: MapOptions(
+        crs: crs,
         backgroundColor: colorScheme.surfaceBright,
         initialCenter: initialCenter,
         initialZoom: initialZoom,

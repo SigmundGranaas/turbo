@@ -23,6 +23,17 @@ abstract class TileProviderConfig {
   /// supply parsed WMS options.
   WMSTileLayerOptions? get wmsOptions => null;
 
+  /// Optional high-detail tile template for Kartverket's UTM33 (EPSG:25833)
+  /// grid. When the map switches to the UTM33 projection (topo-only mode),
+  /// providers that expose this are rendered from it instead of their Web
+  /// Mercator [urlTemplate]; providers that leave it null have no UTM33 grid
+  /// and are therefore hidden while the map is in UTM33 mode.
+  String? get utm33UrlTemplate => null;
+
+  /// Highest native zoom level available on the [utm33UrlTemplate] grid.
+  /// Only meaningful when [utm33UrlTemplate] is non-null.
+  double get utm33MaxNativeZoom => 18;
+
   /// `true` for overlays that don't ship any raster tiles — they only
   /// surface as a toggle so a vector-rendered layer elsewhere can ask
   /// "am I currently active?". OSM Overpass paths and N50 Sti work this

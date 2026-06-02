@@ -15,6 +15,7 @@ export 'data/tile_registry.dart' show tileRegistryProvider, TileRegistry;
 export 'data/tile_layer_providers.dart'
     show
         activeTileLayersProvider,
+        mapProjectionProvider,
         globalLayersProvider,
         localLayersProvider,
         overlayLayersProvider,

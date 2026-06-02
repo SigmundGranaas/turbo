@@ -49,6 +49,10 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final Set<String> _hiddenDownloadIds = {};
 
+  /// The projection the map was last built with, so we can translate the
+  /// camera zoom when it flips (UTM33 ↔ Web Mercator) and avoid a scale jump.
+  MapProjection? _renderedProjection;
+
   AnimationController? _followAnimController;
   AnimationController? _compassAnimController;
 
@@ -216,6 +220,34 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final initialMapState = ref.watch(mapViewStateProvider);
     final tileLayers = ref.watch(activeTileLayersProvider);
 
+    // Resolve the map projection. When it flips (e.g. enabling the high-detail
+    // UTM33 topo base) the FlutterMap is recreated against the new CRS, so we
+    // translate the camera zoom to keep the same visible scale — a given
+    // integer zoom means different scales in the two grids.
+    final projection = ref.watch(mapProjectionProvider);
+    final crs = crsForProjection(projection);
+    var initialCenter = initialMapState.center;
+    var initialZoom = initialMapState.zoom;
+    if (_renderedProjection != null && _renderedProjection != projection) {
+      // Prefer the live camera (the outgoing map is still attached on the
+      // flip frame) over the persisted state, which lags a frame and would
+      // make rapid toggles drift the zoom.
+      try {
+        final camera = _mapController.camera;
+        initialCenter = camera.center;
+        initialZoom = camera.zoom;
+      } catch (_) {
+        // Camera not ready yet; fall back to the persisted view.
+      }
+      initialZoom = convertZoomBetweenProjections(
+        zoom: initialZoom,
+        latitude: initialCenter.latitude,
+        from: _renderedProjection!,
+        to: projection,
+      );
+    }
+    _renderedProjection = projection;
+
     // Build attribution widgets for active layers
     final attributions = tileRegistryState.activeGlobalIds
         .followedBy(tileRegistryState.activeLocalIds)
@@ -344,8 +376,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
             overlayWidgets: overlayWidgets,
             onLongPress: (tap, point) => _handleLongPress(context, point),
             temporaryPin: _temporaryPin,
-            initialCenter: initialMapState.center,
-            initialZoom: initialMapState.zoom,
+            initialCenter: initialCenter,
+            initialZoom: initialZoom,
+            crs: crs,
             onMapEvent: _onMapEvent,
           );
         } else {
@@ -358,8 +391,9 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
             overlayWidgets: overlayWidgets,
             onLongPress: (tap, point) => _handleLongPress(context, point),
             temporaryPin: _temporaryPin,
-            initialCenter: initialMapState.center,
-            initialZoom: initialMapState.zoom,
+            initialCenter: initialCenter,
+            initialZoom: initialZoom,
+            crs: crs,
             onMapEvent: _onMapEvent,
           );
         }

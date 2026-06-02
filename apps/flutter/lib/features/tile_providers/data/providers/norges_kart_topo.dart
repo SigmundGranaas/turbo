@@ -19,6 +19,13 @@ class NorgeskartTopoConfig extends TileProviderConfig {
   String get urlTemplate =>
       'https://cache.atgcp1-prod.kartverket.cloud/v1/service?layer=topo&style=default&tilematrixset=webmercator&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/png&TileMatrix={z}&TileCol={x}&TileRow={y}';
 
+  /// High-detail topo on Kartverket's UTM33 grid. The Web Mercator cache above
+  /// stops at native zoom 18 (~1:2 132); the UTM33 grid reaches ~1:295, ~3
+  /// effective zoom levels sharper. Used when the map runs in UTM33 mode.
+  @override
+  String get utm33UrlTemplate =>
+      'https://cache.atgcp1-prod.kartverket.cloud/v1/service?layer=topo&style=default&tilematrixset=utm33n&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/png&TileMatrix={z}&TileCol={x}&TileRow={y}';
+
   @override
   double get minZoom => 4.0;
 

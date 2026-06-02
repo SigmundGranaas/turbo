@@ -19,6 +19,7 @@ class MobileMapView extends StatelessWidget {
   final LatLng initialCenter;
   final double initialZoom;
   final MapEventCallback? onMapEvent;
+  final Crs crs;
 
   const MobileMapView({
     super.key,
@@ -33,6 +34,7 @@ class MobileMapView extends StatelessWidget {
     required this.initialCenter,
     required this.initialZoom,
     this.onMapEvent,
+    this.crs = const Epsg3857(),
   });
 
   @override
@@ -52,6 +54,7 @@ class MobileMapView extends StatelessWidget {
         initialCenter: initialCenter,
         initialZoom: initialZoom,
         onMapEvent: onMapEvent,
+        crs: crs,
         overlayWidgets: [
           ...overlayWidgets,
           MapControls(controls: mapControls),

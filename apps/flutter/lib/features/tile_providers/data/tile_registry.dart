@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:turbo/features/map_view/data/norway_utm33_crs.dart';
 import 'custom_provider_store.dart';
 import 'layer_preference_service.dart';
 import 'package:turbo/features/tile_providers/data/providers/avalanche_overlay.dart';
@@ -217,8 +218,18 @@ class TileRegistry extends Notifier<TileRegistryState> {
     _persistState();
   }
 
-  List<TileLayer> getActiveLayers() {
+  /// Builds the raster [TileLayer]s for the currently active providers,
+  /// projected for [projection].
+  ///
+  /// In [MapProjection.utm33] mode the map renders in EPSG:25833 so only
+  /// providers that publish a UTM33 grid (topo) can be drawn; Web Mercator
+  /// rasters (satellite, OSM, the NVE avalanche overlay, offline regions)
+  /// would misalign and are skipped. Vector/MVT overlays are unaffected —
+  /// they draw from lat/lng and live outside this list.
+  List<TileLayer> getActiveLayers(
+      {MapProjection projection = MapProjection.webMercator}) {
     final layers = <TileLayer>[];
+    final useUtm33 = projection == MapProjection.utm33;
 
     // --- WEB IMPLEMENTATION ---
     // For web, we bypass the custom caching mechanism which is not web-compatible
@@ -236,20 +247,24 @@ class TileRegistry extends Notifier<TileRegistryState> {
         // (VectorDataLayer); they have no raster URL of their own.
         if (config.isVectorOnly) continue;
 
+        // In UTM33 mode only providers that publish a UTM33 grid (topo) can be
+        // drawn; Web Mercator rasters/WMS would misalign — skip them.
+        if (useUtm33 && config.utm33UrlTemplate == null) continue;
         final wms = config.wmsOptions;
+        final (url, maxNative) = _projectedSource(config, useUtm33);
         layers.add(TileLayer(
           // Stable per-provider key so flutter_map disposes exactly this
           // layer (and its tiles) when the provider is toggled off, rather
           // than positionally reusing the State for a different provider —
           // which left disabled overlays' tiles lingering on screen.
-          key: ValueKey('tile_${config.id}'),
+          key: ValueKey('tile_${config.id}_${projection.name}'),
           tileProvider: NetworkTileProvider(
               headers: config.headers, silenceExceptions: true),
-          urlTemplate: wms == null ? config.urlTemplate : null,
+          urlTemplate: wms == null ? url : null,
           wmsOptions: wms,
           minZoom: config.minZoom,
           maxZoom: 22, // Allow overzooming visually
-          maxNativeZoom: config.maxZoom.toInt(),
+          maxNativeZoom: maxNative,
           panBuffer: 2,
           evictErrorTileStrategy: EvictErrorTileStrategy.none,
           tileDisplay: TileDisplay.instantaneous(opacity: config.opacity),
@@ -281,7 +296,12 @@ class TileRegistry extends Notifier<TileRegistryState> {
       if (config == null) continue;
       if (config.isVectorOnly) continue;
 
+      // In UTM33 mode only providers that publish a UTM33 grid (topo) can be
+      // drawn; Web Mercator rasters/WMS and offline regions would misalign.
+      if (useUtm33 && config.utm33UrlTemplate == null) continue;
       final wms = config.wmsOptions;
+      final (url, maxNative) = _projectedSource(config, useUtm33);
+
       final TileProvider? tileProvider;
       if (config.category == TileProviderCategory.offline) {
         tileProvider = offlineNotifier.createTileProvider(
@@ -292,7 +312,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
         // wmsOptions, so the cache still keys by (providerId, coords) and
         // works end-to-end.
         tileProvider = cacheService?.createTileProvider(
-          urlTemplate: config.urlTemplate,
+          urlTemplate: url!,
           headers: config.headers,
         );
       }
@@ -302,13 +322,15 @@ class TileRegistry extends Notifier<TileRegistryState> {
           // See the web branch above: a stable per-provider key keeps each
           // layer's identity across rebuilds so toggling an overlay off
           // actually removes it instead of leaving stale (cached) tiles.
-          key: ValueKey('tile_${config.id}'),
+          // The projection is part of the key so switching grids rebuilds
+          // the layer against the new CRS instead of reusing stale tiles.
+          key: ValueKey('tile_${config.id}_${projection.name}'),
           tileProvider: tileProvider,
-          urlTemplate: wms == null ? config.urlTemplate : null,
+          urlTemplate: wms == null ? url : null,
           wmsOptions: wms,
           minZoom: config.minZoom,
           maxZoom: 22,
-          maxNativeZoom: config.maxZoom.toInt(),
+          maxNativeZoom: maxNative,
           panBuffer: 2,
           evictErrorTileStrategy: EvictErrorTileStrategy.none,
           tileDisplay: TileDisplay.instantaneous(opacity: config.opacity),
@@ -316,5 +338,18 @@ class TileRegistry extends Notifier<TileRegistryState> {
       }
     }
     return layers;
+  }
+
+  /// Resolves the (urlTemplate, maxNativeZoom) a provider should use for the
+  /// given projection. Returns a null url when the provider has no grid for
+  /// that projection (e.g. a Web Mercator-only raster in UTM33 mode), which
+  /// signals the caller to skip it.
+  (String?, int) _projectedSource(TileProviderConfig config, bool useUtm33) {
+    if (useUtm33) {
+      final utm = config.utm33UrlTemplate;
+      if (utm == null) return (null, config.maxZoom.toInt());
+      return (utm, config.utm33MaxNativeZoom.toInt());
+    }
+    return (config.urlTemplate, config.maxZoom.toInt());
   }
 }

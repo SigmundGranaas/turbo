@@ -39,6 +39,8 @@ dependencies:
   flutter_map: ^8.2.2
   latlong2: ^0.9.1
   flutter_map_cache: ^2.0.0
+  # UTM33 (EPSG:25833) projection for high-detail Norwegian topo tiles.
+  proj4dart: ^2.1.0
   dio: ^5.9.1
   sqflite: ^2.3.3+1
   path: ^1.9.0
