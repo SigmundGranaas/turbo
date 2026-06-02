@@ -21,8 +21,14 @@ class NorgeskartTopoConfig extends TileProviderConfig {
 
   @override
   double get minZoom => 4.0;
+
+  /// Kartverket's `topo` webmercator tile matrix set only serves native tiles
+  /// up to zoom 18 (per the WMTS GetCapabilities). Requesting z19+ returns
+  /// missing tiles, which made the map appear "capped" when zoomed in. Keeping
+  /// this at the true native max lets flutter_map overzoom (upscale) the z18
+  /// tiles for deeper zoom levels instead of fetching tiles that don't exist.
   @override
-  double get maxZoom => 20.0;
+  double get maxZoom => 18.0;
   @override
   Map<String, String>? get headers => {
     'User-Agent': kTurboUserAgent,

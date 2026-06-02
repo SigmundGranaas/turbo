@@ -238,6 +238,11 @@ class TileRegistry extends Notifier<TileRegistryState> {
 
         final wms = config.wmsOptions;
         layers.add(TileLayer(
+          // Stable per-provider key so flutter_map disposes exactly this
+          // layer (and its tiles) when the provider is toggled off, rather
+          // than positionally reusing the State for a different provider —
+          // which left disabled overlays' tiles lingering on screen.
+          key: ValueKey('tile_${config.id}'),
           tileProvider: NetworkTileProvider(
               headers: config.headers, silenceExceptions: true),
           urlTemplate: wms == null ? config.urlTemplate : null,
@@ -294,6 +299,10 @@ class TileRegistry extends Notifier<TileRegistryState> {
 
       if (tileProvider != null) {
         layers.add(TileLayer(
+          // See the web branch above: a stable per-provider key keeps each
+          // layer's identity across rebuilds so toggling an overlay off
+          // actually removes it instead of leaving stale (cached) tiles.
+          key: ValueKey('tile_${config.id}'),
           tileProvider: tileProvider,
           urlTemplate: wms == null ? config.urlTemplate : null,
           wmsOptions: wms,
