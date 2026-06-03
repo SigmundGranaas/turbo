@@ -19,61 +19,48 @@ Widget _hostFor(void Function(BuildContext) onPressed) {
 
 void main() {
   group('AppSnackbars.success', () {
-    testWidgets('shows the message with a check icon and pill shape',
+    testWidgets('shows the message with a check icon on the inverse surface',
         (tester) async {
       await tester.pumpWidget(
         _hostFor((ctx) => AppSnackbars.success(ctx, 'Path saved')),
       );
 
       await tester.tap(find.text('show'));
-      await tester.pump(); // start animation
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('Path saved'), findsOneWidget);
-      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
 
-      // SnackBar uses the pill shape on success.
       final snack = tester.widget<SnackBar>(find.byType(SnackBar));
-      expect(snack.shape, isA<StadiumBorder>());
+      expect(snack.shape, isA<RoundedRectangleBorder>());
       expect(snack.behavior, SnackBarBehavior.floating);
     });
   });
 
   group('AppSnackbars.error', () {
-    testWidgets('shows the message in an errorContainer-tinted snackbar',
+    testWidgets('shows the message with an error icon on the inverse surface',
         (tester) async {
-      const scheme = ColorScheme.light(errorContainer: Color(0xFFFFE0E0));
-      await tester.pumpWidget(MaterialApp(
-        theme: ThemeData.from(colorScheme: scheme),
-        home: Scaffold(
-          body: Builder(
-            builder: (ctx) => Center(
-              child: ElevatedButton(
-                onPressed: () => AppSnackbars.error(ctx, 'Network down'),
-                child: const Text('show'),
-              ),
-            ),
-          ),
-        ),
-      ));
+      await tester.pumpWidget(
+        _hostFor((ctx) => AppSnackbars.error(ctx, 'Network down')),
+      );
 
       await tester.tap(find.text('show'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('Network down'), findsOneWidget);
-      // No success-icon on errors — purely text.
-      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      // Unified surface — never the success check.
+      expect(find.byIcon(Icons.check_circle_outline), findsNothing);
 
       final snack = tester.widget<SnackBar>(find.byType(SnackBar));
-      expect(snack.backgroundColor, scheme.errorContainer);
       expect(snack.behavior, SnackBarBehavior.floating);
     });
   });
 
   group('AppSnackbars.info', () {
-    testWidgets('shows the message with no leading icon and no special shape',
-        (tester) async {
+    testWidgets('shows the message with an info icon', (tester) async {
       await tester.pumpWidget(
         _hostFor((ctx) => AppSnackbars.info(ctx, 'You have arrived')),
       );
@@ -83,7 +70,27 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.text('You have arrived'), findsOneWidget);
-      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(find.byIcon(Icons.info_outline), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_outline), findsNothing);
+    });
+
+    testWidgets('clears any current snackbar so they never stack',
+        (tester) async {
+      await tester.pumpWidget(
+        _hostFor((ctx) {
+          AppSnackbars.info(ctx, 'first');
+          AppSnackbars.success(ctx, 'second');
+        }),
+      );
+
+      await tester.tap(find.text('show'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Only the latest survives — no overlap.
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('second'), findsOneWidget);
+      expect(find.text('first'), findsNothing);
     });
   });
 }

@@ -20,6 +20,13 @@ class DesktopMapView extends StatelessWidget {
   final LatLng initialCenter;
   final double initialZoom;
   final MapEventCallback? onMapEvent;
+  final Function(TapPosition, LatLng)? onTap;
+  final InteractionOptions? interactionOptions;
+  final bool hideSearchBar;
+  final void Function(LocationSearchResult result)? onResultSelected;
+  final void Function(PointerDownEvent, LatLng)? onPointerDown;
+  final void Function(PointerMoveEvent, LatLng)? onPointerMove;
+  final void Function(PointerUpEvent, LatLng)? onPointerUp;
 
   const DesktopMapView({
     super.key,
@@ -34,6 +41,13 @@ class DesktopMapView extends StatelessWidget {
     required this.initialCenter,
     required this.initialZoom,
     this.onMapEvent,
+    this.onTap,
+    this.interactionOptions,
+    this.hideSearchBar = false,
+    this.onResultSelected,
+    this.onPointerDown,
+    this.onPointerMove,
+    this.onPointerUp,
   });
 
   @override
@@ -51,16 +65,22 @@ class DesktopMapView extends StatelessWidget {
         mapController: mapController,
         mapLayers: allMapLayers,
         onLongPress: onLongPress,
+        onTap: onTap,
+        onPointerDown: onPointerDown,
+        onPointerMove: onPointerMove,
+        onPointerUp: onPointerUp,
+        interactionOptions: interactionOptions,
         initialCenter: initialCenter,
         initialZoom: initialZoom,
         onMapEvent: onMapEvent,
         overlayWidgets: [
           ...overlayWidgets,
           MapControls(controls: mapControls),
-          Positioned(
-            top: 16,
-            left: 16,
-            child: Row(
+          if (!hideSearchBar)
+            Positioned(
+              top: 16,
+              left: 16,
+              child: Row(
               children: [
                 MapControlButtonBase(
                   onPressed: () => scaffoldKey.currentState?.openDrawer(),
@@ -70,6 +90,7 @@ class DesktopMapView extends StatelessWidget {
                 DesktopSearchBar(
                   mapController: mapController,
                   tickerProvider: tickerProvider,
+                  onResultSelected: onResultSelected,
                 ),
               ],
             ),

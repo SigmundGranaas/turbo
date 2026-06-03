@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
@@ -69,10 +70,8 @@ class MarkersListPage extends ConsumerWidget {
 
   Future<void> _openInfo(BuildContext context, Marker marker) async {
     final l10n = context.l10n;
-    final result = await showModalBottomSheet<MarkerInfoResult>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final result = await showExclusiveSheet<MarkerInfoResult>(
+      context,
       builder: (_) => MarkerInfoSheet(marker: marker),
     );
     if (!context.mounted) return;

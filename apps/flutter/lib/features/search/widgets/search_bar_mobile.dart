@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:turbo/core/overlay/transient_surface.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:turbo/core/connectivity/connectivity_provider.dart';
@@ -16,11 +17,18 @@ class MobileSearchBar extends ConsumerStatefulWidget {
   final TickerProvider tickerProvider;
   final VoidCallback onMenuPressed;
 
+  /// Called after a result is picked (and the map has panned to it). The shell
+  /// uses this to select the result so the shared detail/action bar appears —
+  /// making search a universal entry point. Search stays decoupled from the
+  /// selection seam by emitting the result rather than selecting it itself.
+  final void Function(LocationSearchResult result)? onResultSelected;
+
   const MobileSearchBar({
     super.key,
     required this.mapController,
     required this.tickerProvider,
     required this.onMenuPressed,
+    this.onResultSelected,
   });
 
   @override
@@ -102,6 +110,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
       },
     );
     overlay.insert(_overlayEntry!);
+    TransientSurface.setSearchDismisser(_removeOverlay);
   }
 
   void _removeOverlay() {
@@ -109,6 +118,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
     _log.fine('Removing overlay');
     _overlayEntry?.remove();
     _overlayEntry = null;
+    TransientSurface.clearSearchDismisser(_removeOverlay);
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
@@ -124,6 +134,7 @@ class _MobileSearchBarState extends ConsumerState<MobileSearchBar> {
       widget.mapController,
       widget.tickerProvider,
     );
+    widget.onResultSelected?.call(suggestion);
   }
 
   void _unfocusSearchBar() {

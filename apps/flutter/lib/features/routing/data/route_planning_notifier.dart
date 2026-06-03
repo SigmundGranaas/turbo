@@ -32,6 +32,32 @@ class RoutePlanningNotifier extends Notifier<RoutePlanningState> {
     _scheduleReplan();
   }
 
+  /// Insert [point] as an intermediate stop in the gap where it adds the least
+  /// detour — i.e. tapping the drawn route drops a movable via-point between the
+  /// two surrounding stops rather than appending to the end. Falls back to an
+  /// append when there aren't yet two stops to sit between.
+  void insertWaypoint(LatLng point) {
+    final wps = state.waypoints;
+    if (wps.length < 2) {
+      addWaypoint(point);
+      return;
+    }
+    const distance = Distance();
+    var bestIndex = 1;
+    var bestCost = double.infinity;
+    for (var i = 0; i < wps.length - 1; i++) {
+      final detour = distance.distance(wps[i], point) +
+          distance.distance(point, wps[i + 1]) -
+          distance.distance(wps[i], wps[i + 1]);
+      if (detour < bestCost) {
+        bestCost = detour;
+        bestIndex = i + 1;
+      }
+    }
+    state = state.copyWith(waypoints: [...wps]..insert(bestIndex, point));
+    _scheduleReplan();
+  }
+
   void undoLast() {
     if (state.waypoints.isEmpty) return;
     final next = state.waypoints.sublist(0, state.waypoints.length - 1);

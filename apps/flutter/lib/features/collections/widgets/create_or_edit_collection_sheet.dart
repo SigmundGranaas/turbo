@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
@@ -18,10 +19,9 @@ class CreateOrEditCollectionSheet extends ConsumerStatefulWidget {
     BuildContext context, {
     Collection? existing,
   }) {
-    return showModalBottomSheet<Collection>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    return showExclusiveSheet<Collection>(
+      context,
+      replace: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

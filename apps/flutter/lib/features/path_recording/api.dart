@@ -10,6 +10,7 @@ export 'data/position_source.dart'
 export 'data/recording_notifier.dart'
     show recordingNotifierProvider, RecordingNotifier;
 export 'models/recording_result.dart' show RecordingResult;
+export 'models/recording_geo_path.dart' show RecordingResultGeoPath;
 export 'models/recording_sample.dart' show RecordingSample;
 export 'models/recording_state.dart' show RecordingState, RecordingStatus;
 export 'widgets/recording_panel.dart' show RecordingPanel;

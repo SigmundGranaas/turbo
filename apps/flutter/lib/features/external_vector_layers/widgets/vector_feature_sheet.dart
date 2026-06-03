@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 import '../models/vector_feature.dart';
 import '../models/vector_layer_source.dart';
 
@@ -15,11 +17,8 @@ Future<void> showVectorFeatureSheet(
   List<String>? shownKeys,
   Map<String, String> Function(BuildContext)? labelOverrides,
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: false,
-    useSafeArea: true,
+  return showExclusiveSheet<void>(
+    context,
     backgroundColor: Colors.transparent,
     builder: (sheetContext) {
       final custom = source.sheetBuilder;
@@ -74,16 +73,7 @@ class VectorFeatureSheet extends StatelessWidget {
             controller: controller,
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+              const SheetDragHandle(),
               const SizedBox(height: 16),
               Text(source.name(context), style: tt.labelMedium?.copyWith(
                 color: scheme.onSurfaceVariant,

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
+import 'package:turbo/core/widgets/map/map_marker_pin.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,22 +10,19 @@ import '../models/activity_kind_descriptor.dart';
 import '../models/activity_summary.dart';
 import 'activity_detail_screen.dart';
 
-/// Renders cross-kind activity summaries on the map. For each summary,
-/// looks up the registered kind descriptor and asks it for a marker
-/// and/or polyline — composition rather than a hardcoded switch. Falls
-/// back to a generic pin if a kind has no `buildMapMarker`. Returns a
-/// [Stack] containing first the polyline layer (so routes sit
-/// underneath) and then the marker layer (start-pins on top).
+/// Renders cross-kind activity summaries on the map. Each summary is pinned
+/// with the shared [MapMarkerPin] carrying the kind's icon (one marker type
+/// across the whole app), and the kind's optional [buildMapPolyline] draws the
+/// route underneath — composition rather than a hardcoded switch.
 ///
 /// Tap behaviour: a kind that has opted into the new shell by setting
 /// [ActivityKindDescriptor.buildDetailContent] pushes a full-screen
 /// [ActivityDetailScreen] route. Kinds that haven't migrated fall back
 /// to a modal bottom sheet on [buildDetailScreen].
 ///
-/// Each pin also renders a score halo (green/amber/red) when the
-/// summary carries a fresh [ActivitySummary.summaryScore]. The halo
-/// lets the map itself act as a recommender without per-pin analysis
-/// fetches.
+/// When a summary carries a fresh [ActivitySummary.summaryScore], the pin's
+/// glyph is tinted green/amber/red so the map itself acts as a recommender
+/// without per-pin analysis fetches.
 class ActivitiesMapLayer extends ConsumerWidget {
   const ActivitiesMapLayer({super.key});
 
@@ -47,22 +46,28 @@ class ActivitiesMapLayer extends ConsumerWidget {
       // one but did produce coordinates we can pin (e.g. polyline start).
       final pos = s.geometry.firstPoint;
       if (pos == null) continue;
+      // Same pin as every other map entity (MapMarkerPin), carrying the kind's
+      // icon. The score still shades the pin — now as the glyph tint (fresh
+      // green/amber/red) rather than a bespoke ring — so activities read as the
+      // same marker type as markers / saved paths instead of each kind drawing
+      // its own widget.
+      final score = _freshScore(s);
+      final accent = score != null
+          ? _scoreColor(score)
+          : (descriptor?.tintColor ?? _parseHex(s.colorHex));
       markers.add(Marker(
         // Stable per-activity key so integration tests can target the
         // exact pin (`Key('activity-pin-<id>')`). Cheap at runtime.
         key: Key('activity-pin-${s.id}'),
         point: pos,
-        width: 44,
-        height: 44,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
+        width: MapMarkerPin.baseWidth,
+        height: MapMarkerPin.baseHeight,
+        alignment: Alignment.bottomCenter,
+        child: MapMarkerPin(
+          icon: descriptor?.icon ?? Icons.place,
+          accent: accent,
+          title: s.name,
           onTap: () => _openDetail(context, descriptor, s.id),
-          child: _ScoreHalo(
-            score: _freshScore(s),
-            child: descriptor?.buildMapMarker != null
-                ? descriptor!.buildMapMarker!(s)
-                : _DefaultMarker(summary: s, color: _parseHex(s.colorHex)),
-          ),
         ),
       ));
     }
@@ -81,10 +86,8 @@ class ActivitiesMapLayer extends ConsumerWidget {
       ));
       return;
     }
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    showExclusiveSheet<void>(
+      context,
       builder: (ctx) => descriptor.buildDetailScreen(ctx, id),
     );
   }
@@ -107,45 +110,11 @@ class ActivitiesMapLayer extends ConsumerWidget {
     if (v == null) return Colors.indigo;
     return Color(0xFF000000 | v);
   }
-}
 
-/// Adds a score-tinted ring around a kind's marker so the map shades
-/// pins by today's analysis without each kind needing to re-implement
-/// it. Returns the child unchanged when [score] is null.
-class _ScoreHalo extends StatelessWidget {
-  final int? score;
-  final Widget child;
-  const _ScoreHalo({required this.score, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    if (score == null) return Center(child: child);
-    final color = score! >= 70
-        ? Colors.green.shade600
-        : score! >= 40
-            ? Colors.amber.shade700
-            : Colors.red.shade600;
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: color, width: 2.5),
-          color: color.withValues(alpha: 0.10),
-        ),
-        child: child,
-      ),
-    );
-  }
-}
-
-class _DefaultMarker extends StatelessWidget {
-  final ActivitySummary summary;
-  final Color color;
-  const _DefaultMarker({required this.summary, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Icon(Icons.place, color: color, size: 32, semanticLabel: summary.name);
-  }
+  /// Fresh-score → pin tint (the recommender shading), green/amber/red.
+  static Color _scoreColor(int score) => score >= 70
+      ? Colors.green.shade600
+      : score >= 40
+          ? Colors.amber.shade700
+          : Colors.red.shade600;
 }

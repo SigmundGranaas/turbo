@@ -21,6 +21,11 @@ class SavedPath {
   final double? descent;
   final int? movingTimeSeconds;
 
+  /// The planned route geometry this track was recorded against — set when the
+  /// user saved a track while following a planned route. Null for hand-recorded
+  /// or imported tracks. Local-only; drives the planned-vs-actual deviation view.
+  final List<LatLng>? plannedGeometry;
+
   /// Sync state: true once the row has been successfully written to the
   /// server's read model. Locally-created paths default to false; the
   /// sync orchestrator flips this to true after upload.
@@ -54,6 +59,7 @@ class SavedPath {
     this.ascent,
     this.descent,
     this.movingTimeSeconds,
+    this.plannedGeometry,
     this.synced = false,
     this.version,
     this.updatedAt,
@@ -85,6 +91,8 @@ class SavedPath {
     bool clearDescent = false,
     int? movingTimeSeconds,
     bool clearMovingTimeSeconds = false,
+    List<LatLng>? plannedGeometry,
+    bool clearPlannedGeometry = false,
     bool? synced,
     int? version,
     bool clearVersion = false,
@@ -110,6 +118,8 @@ class SavedPath {
       descent: clearDescent ? null : (descent ?? this.descent),
       movingTimeSeconds:
           clearMovingTimeSeconds ? null : (movingTimeSeconds ?? this.movingTimeSeconds),
+      plannedGeometry:
+          clearPlannedGeometry ? null : (plannedGeometry ?? this.plannedGeometry),
       synced: synced ?? this.synced,
       version: clearVersion ? null : (version ?? this.version),
       updatedAt: clearUpdatedAt ? null : (updatedAt ?? this.updatedAt),
@@ -146,6 +156,15 @@ class SavedPath {
       elevations = decoded.map((e) => (e as num).toDouble()).toList();
     }
 
+    List<LatLng>? plannedGeometry;
+    final plannedRaw = map['planned_geometry'];
+    if (plannedRaw is String && plannedRaw.isNotEmpty) {
+      final decoded = jsonDecode(plannedRaw) as List;
+      plannedGeometry = decoded
+          .map((p) => LatLng((p as List)[0] as double, p[1] as double))
+          .toList();
+    }
+
     DateTime? recordedAt;
     final recRaw = map['recorded_at'];
     if (recRaw is String && recRaw.isNotEmpty) {
@@ -173,6 +192,7 @@ class SavedPath {
       ascent: (map['ascent'] as num?)?.toDouble(),
       descent: (map['descent'] as num?)?.toDouble(),
       movingTimeSeconds: (map['moving_time_seconds'] as num?)?.toInt(),
+      plannedGeometry: plannedGeometry,
       synced: map['synced'] == 1 || map['synced'] == true,
       version: (map['version'] as num?)?.toInt(),
       updatedAt: parseOptional(map['updated_at']),
@@ -198,6 +218,10 @@ class SavedPath {
       'smoothing': smoothing ? 1 : 0,
       'line_style': lineStyleKey,
       'elevations': elevations == null ? null : jsonEncode(elevations),
+      'planned_geometry': plannedGeometry == null
+          ? null
+          : jsonEncode(
+              plannedGeometry!.map((p) => [p.latitude, p.longitude]).toList()),
       'recorded_at': recordedAt?.toIso8601String(),
       'ascent': ascent,
       'descent': descent,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -156,9 +157,8 @@ class _MvtDataLayerState extends ConsumerState<MvtDataLayer> {
         if (feature == null) return;
         final builder = widget.source.sheetBuilder;
         if (builder == null) return;
-        showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
+        showExclusiveSheet(
+          context,
           builder: (ctx) => builder(ctx, feature),
         );
       },

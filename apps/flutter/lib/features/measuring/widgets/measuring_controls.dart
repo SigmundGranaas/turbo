@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_pill.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/settings/api.dart';
 
@@ -49,6 +50,7 @@ class MeasuringControls extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          const SheetDragHandle(),
           // Row 1: Distance display and Save button
           Padding(
             padding: const EdgeInsets.fromLTRB(

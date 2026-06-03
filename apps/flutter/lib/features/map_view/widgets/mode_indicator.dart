@@ -10,141 +10,188 @@ import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_pill.dart';
+import 'package:turbo/features/journey/api.dart';
 import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/path_recording/api.dart';
 import 'package:turbo/features/settings/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
+/// A single adaptive "what am I doing right now" chip.
+///
+/// Previously this stacked up to four separate chips (journey, point-nav,
+/// follow, compass). Those are facets of one live state, so they're now
+/// composed into ONE chip showing the dominant mode, with the compass heading
+/// folded in as an inline badge rather than a second stacked row. Priority:
+/// following a path → navigating to a point → follow (snap) → compass-only.
+/// See `docs/architecture/2026-06-composition-overhaul-plan.md` (Phase 3,
+/// state-combining pass).
 class ModeIndicator extends ConsumerWidget {
   const ModeIndicator({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final followMode = ref.watch(followModeProvider);
-    final isCompassMode = ref.watch(compassModeProvider);
-    final compassHeading = ref.watch(compassStateProvider).value;
-    final navState = ref.watch(navigationStateProvider);
-
-    final showFollow = followMode.isOnOrPaused;
-    final showModeChips = showFollow || isCompassMode;
-    final showNavChip = navState.isActive && navState.target != null;
-
-    if (!showModeChips && !showNavChip) {
-      return const SizedBox.shrink();
-    }
-
-    final colorScheme = Theme.of(context).colorScheme;
+    final follow = ref.watch(followModeProvider);
+    final compassOn = ref.watch(compassModeProvider);
+    final heading = ref.watch(compassStateProvider).value;
+    final journey = ref.watch(activeJourneyProvider);
+    final nav = ref.watch(navigationStateProvider);
+    final scheme = Theme.of(context).colorScheme;
     final l10n = context.l10n;
 
-    return Positioned(
-      bottom: 16,
-      left: 16,
-      right: 16,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (showNavChip)
-            _NavigationInfoChip(
-              target: navState.target!,
-              compassHeading: compassHeading,
-              colorScheme: colorScheme,
-            ),
-          if (showNavChip && showModeChips)
-            const SizedBox(height: 8),
-          if (showModeChips)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (showFollow)
-                  _ModeChip(
-                    icon: followMode == FollowMode.paused
-                        ? Icons.location_searching
-                        : Icons.my_location,
-                    label: followMode == FollowMode.paused
-                        ? '${l10n.following} · paused'
-                        : l10n.following,
-                    colorScheme: colorScheme,
-                    onTap: followMode == FollowMode.paused
-                        ? () =>
-                            ref.read(followModeProvider.notifier).resume()
-                        : null,
-                    onDismiss: () =>
-                        ref.read(followModeProvider.notifier).disable(),
-                  ),
-                if (showFollow && isCompassMode)
-                  const SizedBox(width: 8),
-                if (isCompassMode)
-                  _ModeChip(
-                    icon: Icons.explore,
-                    label: compassHeading != null
-                        ? '${_headingToCardinal(compassHeading)} ${compassHeading.round()}°'
-                        : l10n.compassOrientation,
-                    colorScheme: colorScheme,
-                    onDismiss: () =>
-                        ref.read(compassModeProvider.notifier).disable(),
-                  ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
+    // This chip is orientation-only now: following-a-path and recording are
+    // owned by the single ActiveOutingPanel. Hide entirely while an outing is
+    // active so the two never stack.
+    final outingActive = journey.kind == JourneyKind.followingPath ||
+        ref.watch(recordingNotifierProvider).isActive;
 
-  static String _headingToCardinal(double heading) {
-    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    final index = ((heading + 22.5) % 360 / 45).floor();
-    return directions[index];
+    // Compass folds into whatever the dominant chip is, as an inline badge.
+    final Widget? compassBadge = (compassOn && heading != null)
+        ? _CompassBadge(heading: heading, scheme: scheme)
+        : null;
+
+    // 1) Point-to-point navigation (computes live bearing → its own chip).
+    if (nav.isActive && nav.target != null) {
+      return _NavChip(
+        target: nav.target!,
+        compassHeading: heading,
+        scheme: scheme,
+        trailing: compassBadge,
+        onDismiss: () =>
+            ref.read(navigationStateProvider.notifier).stopNavigation(),
+      );
+    }
+
+    // 2) Follow (snap-to-me) without a destination — hidden during an outing.
+    if (follow.isOnOrPaused && !outingActive) {
+      final paused = follow == FollowMode.paused;
+      return _StatusChip(
+        icon: paused ? Icons.location_searching : Icons.my_location,
+        scheme: scheme,
+        primary: paused ? '${l10n.following} · paused' : l10n.following,
+        trailing: compassBadge,
+        onTap: paused
+            ? () => ref.read(followModeProvider.notifier).resume()
+            : null,
+        onDismiss: () => ref.read(followModeProvider.notifier).disable(),
+      );
+    }
+
+    // 4) Compass orientation only.
+    if (compassOn) {
+      return _StatusChip(
+        icon: Icons.explore,
+        scheme: scheme,
+        primary: heading != null
+            ? '${_cardinal(heading)} ${heading.round()}°'
+            : l10n.compassOrientation,
+        onDismiss: () => ref.read(compassModeProvider.notifier).disable(),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 }
 
-class _NavigationInfoChip extends ConsumerWidget {
+/// Generic single-row chip: leading icon, primary (+ optional secondary)
+/// label, an optional trailing badge, and a dismiss button (48dp target).
+class _StatusChip extends StatelessWidget {
+  final IconData icon;
+  final ColorScheme scheme;
+  final String primary;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final VoidCallback onDismiss;
+
+  const _StatusChip({
+    required this.icon,
+    required this.scheme,
+    required this.primary,
+    required this.onDismiss,
+    this.trailing,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final body = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: scheme.onSurfaceVariant),
+        const SizedBox(width: AppSpacing.m),
+        Flexible(
+          child: Text(
+            primary,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w500, color: scheme.onSurface),
+          ),
+        ),
+        if (trailing != null) ...[
+          const SizedBox(width: AppSpacing.s),
+          trailing!,
+        ],
+        IconButton(
+          visualDensity: VisualDensity.compact,
+          onPressed: onDismiss,
+          icon: Icon(Icons.close, size: 20, color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+    final pill = AppPill(child: body);
+    if (onTap == null) return pill;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadius.xl),
+      child: pill,
+    );
+  }
+}
+
+/// Point-navigation chip — needs live position to compute distance + turn.
+class _NavChip extends ConsumerWidget {
   final LatLng target;
   final double? compassHeading;
-  final ColorScheme colorScheme;
+  final ColorScheme scheme;
+  final Widget? trailing;
+  final VoidCallback onDismiss;
 
-  const _NavigationInfoChip({
+  const _NavChip({
     required this.target,
     required this.compassHeading,
-    required this.colorScheme,
+    required this.scheme,
+    required this.onDismiss,
+    this.trailing,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final locationAsync = ref.watch(locationStateProvider);
-    final userPosition = locationAsync.value;
+    final userPosition = ref.watch(locationStateProvider).value;
     final textTheme = Theme.of(context).textTheme;
     final l10n = context.l10n;
-
     if (userPosition == null) return const SizedBox.shrink();
 
     final distanceM = const Distance().distance(userPosition, target);
     final unit = ref.watch(settingsProvider
         .select((s) => s.value?.distanceUnit ?? DistanceUnit.metric));
     final distanceText = formatDistance(distanceM, unit);
-
     final bearingToTarget = const Distance().bearing(userPosition, target);
 
-    // Compute turn angle and direction label
     String directionText;
-    double arrowRotation; // radians for the arrow icon
-
+    double arrowRotation;
     if (compassHeading != null) {
-      double turnAngle = (bearingToTarget - compassHeading!) % 360;
-      if (turnAngle > 180) turnAngle -= 360;
-      // turnAngle: positive = turn right, negative = turn left
-
-      if (turnAngle.abs() <= 10) {
+      double turn = (bearingToTarget - compassHeading!) % 360;
+      if (turn > 180) turn -= 360;
+      if (turn.abs() <= 10) {
         directionText = l10n.navigationAhead;
-      } else if (turnAngle > 0) {
-        directionText = l10n.navigationTurnRight(turnAngle.round());
+      } else if (turn > 0) {
+        directionText = l10n.navigationTurnRight(turn.round());
       } else {
-        directionText = l10n.navigationTurnLeft(turnAngle.abs().round());
+        directionText = l10n.navigationTurnLeft(turn.abs().round());
       }
-
-      // Arrow points toward target relative to current heading
-      arrowRotation = turnAngle * (math.pi / 180);
+      arrowRotation = turn * (math.pi / 180);
     } else {
-      // No compass — show absolute bearing
-      directionText = '${_headingToCardinal(bearingToTarget)} ${bearingToTarget.round()}°';
+      directionText = '${_cardinal(bearingToTarget)} ${bearingToTarget.round()}°';
       arrowRotation = bearingToTarget * (math.pi / 180);
     }
 
@@ -154,98 +201,55 @@ class _NavigationInfoChip extends ConsumerWidget {
         children: [
           Transform.rotate(
             angle: arrowRotation,
-            child: Icon(
-              Icons.navigation,
-              color: colorScheme.onSurfaceVariant,
-            ),
+            child: Icon(Icons.navigation, color: scheme.onSurfaceVariant),
           ),
           const SizedBox(width: AppSpacing.m),
-          Text(
-            distanceText,
-            style: textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w500,
-              color: colorScheme.onSurface,
-            ),
-          ),
+          Text(distanceText,
+              style: textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w500, color: scheme.onSurface)),
           const SizedBox(width: AppSpacing.s),
-          Text(
-            directionText,
-            style: textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
+          Text(directionText,
+              style: textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+          if (trailing != null) ...[
+            const SizedBox(width: AppSpacing.s),
+            trailing!,
+          ],
           IconButton(
             visualDensity: VisualDensity.compact,
-            onPressed: () =>
-                ref.read(navigationStateProvider.notifier).stopNavigation(),
-            icon: Icon(
-              Icons.close,
-              size: 20,
-              color: colorScheme.onSurfaceVariant,
-            ),
+            onPressed: onDismiss,
+            icon: Icon(Icons.close, size: 20, color: scheme.onSurfaceVariant),
           ),
         ],
       ),
     );
   }
-
-  static String _headingToCardinal(double heading) {
-    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    final index = ((heading % 360 + 22.5) % 360 / 45).floor();
-    return directions[index];
-  }
 }
 
-class _ModeChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final ColorScheme colorScheme;
-  final VoidCallback onDismiss;
-
-  /// When non-null, the chip body itself is tappable (used for the paused
-  /// follow chip — tapping resumes). The X always dismisses.
-  final VoidCallback? onTap;
-
-  const _ModeChip({
-    required this.icon,
-    required this.label,
-    required this.colorScheme,
-    required this.onDismiss,
-    this.onTap,
-  });
+/// Small inline compass heading, folded into the dominant chip instead of
+/// stacking a second chip.
+class _CompassBadge extends StatelessWidget {
+  final double heading;
+  final ColorScheme scheme;
+  const _CompassBadge({required this.heading, required this.scheme});
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
-    final body = Row(
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: colorScheme.onSurfaceVariant),
-        const SizedBox(width: AppSpacing.m),
-        Text(
-          label,
-          style: textTheme.titleSmall?.copyWith(
-            color: colorScheme.onSurface,
-          ),
-        ),
-        IconButton(
-          visualDensity: VisualDensity.compact,
-          onPressed: onDismiss,
-          icon: Icon(
-            Icons.close,
-            size: 20,
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
+        Icon(Icons.explore, size: 16, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 2),
+        Text('${_cardinal(heading)} ${heading.round()}°',
+            style: Theme.of(context)
+                .textTheme
+                .labelSmall
+                ?.copyWith(color: scheme.onSurfaceVariant)),
       ],
     );
-
-    if (onTap == null) return AppPill(child: body);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.xl),
-      child: AppPill(child: body),
-    );
   }
+}
+
+String _cardinal(double heading) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[((heading % 360 + 22.5) % 360 / 45).floor()];
 }

@@ -38,7 +38,7 @@ ProviderContainer _container(LocationService service) {
 /// is exercised by [SearchNotifier].
 class _AsCompositeService extends CompositeSearchService {
   final LocationService inner;
-  _AsCompositeService(this.inner) : super(inner, inner, inner, inner);
+  _AsCompositeService(this.inner) : super(inner, inner, inner, inner, inner);
 
   @override
   Future<List<LocationSearchResult>> findLocationsBy(String name) =>

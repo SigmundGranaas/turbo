@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:turbo/core/overlay/transient_surface.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:turbo/core/connectivity/connectivity_provider.dart';
@@ -15,10 +16,16 @@ class DesktopSearchBar extends ConsumerStatefulWidget {
   final MapController mapController;
   final TickerProvider tickerProvider;
 
+  /// Called after a result is picked (and the map has panned to it). The shell
+  /// selects the result so the shared detail/action bar appears. Keeps search
+  /// decoupled from the selection seam.
+  final void Function(LocationSearchResult result)? onResultSelected;
+
   const DesktopSearchBar({
     super.key,
     required this.mapController,
     required this.tickerProvider,
+    this.onResultSelected,
   });
 
   @override
@@ -100,6 +107,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
       ),
     );
     overlay.insert(_overlayEntry!);
+    TransientSurface.setSearchDismisser(_removeOverlay);
   }
 
   void _removeOverlay() {
@@ -107,6 +115,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
     _log.fine('Removing overlay');
     _overlayEntry?.remove();
     _overlayEntry = null;
+    TransientSurface.clearSearchDismisser(_removeOverlay);
   }
 
   void _onSuggestionSelected(LocationSearchResult suggestion) {
@@ -122,6 +131,7 @@ class _DesktopSearchBarState extends ConsumerState<DesktopSearchBar> {
       widget.mapController,
       widget.tickerProvider,
     );
+    widget.onResultSelected?.call(suggestion);
   }
 
   @override

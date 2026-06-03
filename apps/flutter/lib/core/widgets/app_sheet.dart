@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 
 /// Standard bottom sheet shell: rounded top corners, drag handle, a title
-/// row with close button, and 16dp body padding.
-///
-/// Opt-outs: `LayerSelectionSheet` (edge-to-edge horizontal carousel) and
-/// `DownloadDetailsSheet` (currently keeps its own padding) continue to use
-/// `showModalBottomSheet` directly.
+/// row with close button, and 16dp body padding. A thin convenience over
+/// [showExclusiveSheet] — it supplies the shell chrome; the single sheet
+/// mechanism still lives in one place.
 Future<T?> showAppSheet<T>(
   BuildContext context, {
   required String title,
@@ -16,10 +16,9 @@ Future<T?> showAppSheet<T>(
   bool showCloseButton = true,
   bool showDragHandle = true,
 }) {
-  return showModalBottomSheet<T>(
-    context: context,
+  return showExclusiveSheet<T>(
+    context,
     isScrollControlled: isScrollControlled,
-    useSafeArea: true,
     enableDrag: enableDrag,
     builder: (sheetContext) => _AppSheetShell(
       title: title,
@@ -46,7 +45,6 @@ class _AppSheetShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final colorScheme = Theme.of(context).colorScheme;
     final mediaQuery = MediaQuery.of(context);
     final bottomPadding = mediaQuery.viewInsets.bottom > 0
         ? mediaQuery.viewInsets.bottom
@@ -63,21 +61,7 @@ class _AppSheetShell extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (showDragHandle)
-            Center(
-              child: Container(
-                width: 32,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: AppSpacing.s),
-                decoration: BoxDecoration(
-                  color: colorScheme.outlineVariant,
-                  // The drag-handle pill is the one place in the codebase
-                  // that uses a 2dp radius; intentionally localized here so
-                  // no callsite needs Radius.circular(2).
-                  borderRadius: const BorderRadius.all(Radius.circular(2)),
-                ),
-              ),
-            ),
+          if (showDragHandle) const SheetDragHandle(),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [

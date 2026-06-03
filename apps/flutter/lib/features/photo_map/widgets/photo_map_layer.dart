@@ -239,7 +239,7 @@ class _PhotoMarkerBadge extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
             decoration: BoxDecoration(
-              color: colorScheme.primary,
+              color: colorScheme.surface,
               shape: BoxShape.rectangle,
               borderRadius: BorderRadius.circular(11),
               border: Border.all(color: Colors.white, width: 1.5),
@@ -248,7 +248,7 @@ class _PhotoMarkerBadge extends StatelessWidget {
             child: Text(
               count! > 99 ? '99+' : '$count',
               style: TextStyle(
-                color: colorScheme.onPrimary,
+                color: colorScheme.onSurface,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
               ),

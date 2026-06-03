@@ -30,37 +30,6 @@ class WeatherSymbolIcon extends StatelessWidget {
   }
 }
 
-/// Small icon + label + value triple used across the weather UI.
-class WeatherChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  const WeatherChip({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final colorScheme = Theme.of(context).colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: colorScheme.onSurfaceVariant),
-        const SizedBox(width: 4),
-        Text(label,
-            style: textTheme.bodySmall
-                ?.copyWith(color: colorScheme.onSurfaceVariant)),
-        const SizedBox(width: 4),
-        Text(value, style: textTheme.bodyMedium),
-      ],
-    );
-  }
-}
-
 /// Rotated arrow pointing in the direction the wind is *going* (downstream).
 /// MET reports `fromDeg` as the bearing wind is coming from — the arrow head
 /// is therefore rotated `fromDeg + 180°` from north. `null` direction renders

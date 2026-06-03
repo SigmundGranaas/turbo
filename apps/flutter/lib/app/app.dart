@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:turbo/app/app_theme.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/core/overlay/transient_surface.dart';
 import 'package:turbo/core/service/logger.dart';
 import 'package:turbo/features/auth/api.dart';
 import 'package:turbo/features/map_view/api.dart';
@@ -32,6 +33,9 @@ class TurboApp extends ConsumerWidget {
     return MaterialApp(
       onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
       debugShowCheckedModeBanner: false,
+      // Dismiss the search dropdown whenever any sheet/dialog/page opens, so a
+      // transient overlay never lingers over a modal surface.
+      navigatorObservers: [SearchDismissObserver()],
       theme: theme.light(),
       darkTheme: theme.dark(),
       themeMode: settingsAsync.value?.themeMode ?? ThemeMode.system,

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
@@ -203,10 +204,8 @@ class PathsListPage extends ConsumerWidget {
 
   Future<void> _openInfo(BuildContext context, SavedPath path) async {
     final l10n = context.l10n;
-    final result = await showModalBottomSheet<PathDetailResult>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final result = await showExclusiveSheet<PathDetailResult>(
+      context,
       builder: (_) => PathInfoSheet(path: path),
     );
     if (!context.mounted) return;

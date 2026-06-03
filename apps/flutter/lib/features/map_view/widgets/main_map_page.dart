@@ -3,27 +3,18 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/map_view/api.dart';
-import 'package:turbo/features/map_view/widgets/layers/current_location_layer.dart';
-import 'package:turbo/features/map_view/widgets/layers/viewport_marker_layer.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
-import 'package:turbo/features/curated_paths/api.dart';
-
-import 'package:turbo/features/external_vector_layers/api.dart';
-import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_desktop.dart';
 import 'package:turbo/features/map_view/widgets/view/main_view_mobile.dart';
 import 'package:turbo/features/measuring/api.dart';
 import 'package:turbo/features/routing/api.dart';
-import 'package:turbo/features/path_recording/api.dart';
+import 'package:turbo/features/journey/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
-import 'package:turbo/features/tile_storage/offline_regions/api.dart'
-as offline_api;
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/navigation/api.dart';
-import 'package:turbo/features/photo_map/api.dart';
+import 'package:turbo/features/search/api.dart' show LocationSearchResult;
 import 'package:turbo/features/sharing/api.dart';
-import 'package:turbo/features/weather/api.dart' show OceanConditionsLayer;
 
 import 'package:turbo/core/location/compass_mode_state.dart';
 import 'package:turbo/core/location/compass_state.dart';
@@ -31,8 +22,8 @@ import 'package:turbo/core/location/follow_mode_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/core/widgets/map/controller/map_utility.dart';
 import 'package:turbo/core/widgets/map/controls/default_map_controls.dart';
-import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
-import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
+import 'package:turbo/core/widgets/map/map_overlay_host.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 
 class MainMapPage extends ConsumerStatefulWidget {
@@ -47,7 +38,6 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   late final MapController _mapController;
   Marker? _temporaryPin;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final Set<String> _hiddenDownloadIds = {};
 
   AnimationController? _followAnimController;
   AnimationController? _compassAnimController;
@@ -196,6 +186,15 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
       }
     });
 
+    // The detail host owns the selection sheet's lifecycle; when the selection
+    // clears (sheet dismissed), drop the temporary long-press pin so it doesn't
+    // linger on the map.
+    ref.listen<MapSelection?>(selectedMapEntityProvider, (previous, next) {
+      if (next == null && _temporaryPin != null && mounted) {
+        setState(() => _temporaryPin = null);
+      }
+    });
+
     // Navigation arrival detection: auto-cancel when within 15m of target
     ref.listen<AsyncValue<LatLng?>>(locationStateProvider, (previous, next) {
       final position = next.value;
@@ -216,6 +215,19 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final initialMapState = ref.watch(mapViewStateProvider);
     final tileLayers = ref.watch(activeTileLayersProvider);
 
+    // Active map tool (e.g. route planning) mounted on this single shared map
+    // — no second MapController, no pushed screen. The host iterates the
+    // registry and never names a concrete tool.
+    final activeToolId = ref.watch(activeMapToolProvider);
+    final activeTool = activeToolId == null
+        ? null
+        : ref.watch(mapToolRegistryProvider).get(activeToolId);
+    final toolCtx = MapToolContext(ref: ref, mapController: _mapController);
+    final toolLayers =
+        activeTool != null ? activeTool.buildLayers(toolCtx) : const <Widget>[];
+    final toolOverlay = activeTool?.buildOverlay?.call(toolCtx);
+    final toolInteraction = activeTool?.interaction?.call(toolCtx);
+
     // Build attribution widgets for active layers
     final attributions = tileRegistryState.activeGlobalIds
         .followedBy(tileRegistryState.activeLocalIds)
@@ -227,101 +239,69 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     ))
         .toList();
 
-    final activeOverlayIds = tileRegistryState.activeOverlayIds.toSet();
-    final trailVectorLayers = <Widget>[
-      for (final entry in trailOverlayIdToSubtype.entries)
-        VectorDataLayer(
-          source: trailVectorSource(entry.value),
-          mapController: _mapController,
-          visible: activeOverlayIds.contains(entry.key),
-        ),
-      // OSM Overpass paths and Kartverket N50 Sti — additional vector
-      // sources, toggled via their own overlay configs (vector-only,
-      // see `vector_path_overlays.dart`). They render alongside the
-      // Turrutebasen layers and reuse the same TrailFeatureSheet on tap.
-      VectorDataLayer(
-        source: osmPathVectorSource(),
-        mapController: _mapController,
-        visible: activeOverlayIds.contains('osm_paths'),
-      ),
-      VectorDataLayer(
-        source: n50StiVectorSource(),
-        mapController: _mapController,
-        visible: activeOverlayIds.contains('n50_sti'),
-      ),
-      // Curated MVT overlays served by the Turbo tileserver
-      // (apps/tileserver). Stylistically parallel to the existing
-      // GeoJSON-backed overlays above, but use MvtDataLayer which
-      // fetches per-tile from `/v1/{resource}/tiles/{z}/{x}/{y}.mvt`.
-      for (final entry in ref.watch(curatedSourcesByIdProvider).entries)
-        MvtDataLayer(
-          source: entry.value,
-          mapController: _mapController,
-          visible: activeOverlayIds.contains(entry.key),
-        ),
-    ];
+    // Feature layers come from the MapLayerRegistry (composed in app/main.dart)
+    // instead of being hand-listed here. Base tiles + attributions sit below,
+    // the active tool's layers sit on top.
+    final layerCtx =
+        MapLayerContext(ref: ref, mapController: _mapController);
+    final registryLayers = ref
+        .watch(mapLayerRegistryProvider)
+        .all
+        .expand((d) => d.build(layerCtx));
 
     final commonMapLayers = <Widget>[
       ...tileLayers,
       ...attributions,
-      // Recording trace renders below the location marker so the dot stays
-      // visually on top of its own track.
-      const RecordingTraceLayer(),
-      const CurrentLocationLayer(),
-      const NavigationPolylineLayer(),
-      const NavigationTargetMarker(),
-      SavedPathsLayer(mapController: _mapController),
-      ...trailVectorLayers,
-      OceanConditionsLayer(
-        mapController: _mapController,
-        visible: activeOverlayIds.contains('ocean_conditions'),
-      ),
-      ViewportMarkers(mapController: _mapController),
-      const activities.ActivitiesMapLayer(),
-      PhotoMapLayer(mapController: _mapController),
+      ...registryLayers,
+      // Active tool's layers render on top of everything else.
+      ...toolLayers,
     ];
 
+    // Persistent overlays come from the MapOverlayRegistry (composed in
+    // app/main.dart): each feature contributes a descriptor and the host lays
+    // them out collision-free by slot — no hand-placed Positioned widgets.
+    final overlayRegistry = ref.watch(mapOverlayRegistryProvider);
+    final overlayCtx = MapOverlayContext(ref: ref);
+    final bottomBarDescs = overlayRegistry.inSlot(MapOverlaySlot.bottomBar);
     final overlayWidgets = <Widget>[
-      const ModeIndicator(),
-      const Positioned(
-        left: 0,
-        right: 0,
-        bottom: 0,
-        child: marker_model.MarkerSelectionBar(),
+      MapOverlayHost(
+        bottomBar: bottomBarDescs.isEmpty
+            ? null
+            : bottomBarDescs.first.build(overlayCtx),
+        bottomChildren: [
+          for (final d in overlayRegistry.inSlot(MapOverlaySlot.bottomFloating))
+            d.build(overlayCtx),
+        ],
+        topChildren: [
+          for (final d in overlayRegistry.inSlot(MapOverlaySlot.topCenter))
+            d.build(overlayCtx),
+        ],
       ),
-      const Positioned(
-        left: 0,
-        right: 0,
-        bottom: 20,
-        child: Center(child: RecordingPanel()),
-      ),
+      // The active tool's overlay (sheets, hint, close button) on top.
+      if (toolOverlay != null) Positioned.fill(child: toolOverlay),
     ];
-    final offlineRegionsAsync = ref.watch(offline_api.offlineRegionsProvider);
-    final activeDownloads = offlineRegionsAsync.value
-        ?.where((r) =>
-    r.status == offline_api.DownloadStatus.downloading &&
-        !_hiddenDownloadIds.contains(r.id))
-        .toList() ??
-        [];
 
-    if (activeDownloads.isNotEmpty) {
-      overlayWidgets.add(
-        Positioned(
-          bottom: 24,
-          left: 16,
-          right: 16,
-          child: Center(
-            child: offline_api.DownloadProgressToolbar(
-              region: activeDownloads.first,
-              onHide: () {
-                setState(() {
-                  _hiddenDownloadIds.add(activeDownloads.first.id);
-                });
-              },
-            ),
-          ),
-        ),
-      );
+    // While a tool owns the map, taps feed the tool, interaction can be
+    // overridden (e.g. frozen during a waypoint drag), long-press is
+    // suppressed and the search bar hidden so the tool's UI is unobstructed.
+    final toolActive = activeTool != null;
+    void Function(TapPosition, LatLng)? handleTap;
+    if (activeTool?.onMapTap != null) {
+      handleTap = (tap, point) => activeTool!.onMapTap!(toolCtx, point);
+    }
+    void Function(PointerDownEvent, LatLng)? handlePointerDown;
+    void Function(PointerMoveEvent, LatLng)? handlePointerMove;
+    void Function(PointerUpEvent, LatLng)? handlePointerUp;
+    if (activeTool?.onPointerDown != null) {
+      handlePointerDown =
+          (e, ll) => activeTool!.onPointerDown!(toolCtx, e, ll);
+    }
+    if (activeTool?.onPointerMove != null) {
+      handlePointerMove =
+          (e, ll) => activeTool!.onPointerMove!(toolCtx, e, ll);
+    }
+    if (activeTool?.onPointerUp != null) {
+      handlePointerUp = (e, ll) => activeTool!.onPointerUp!(toolCtx, e, ll);
     }
 
     return SharedLinkRedemptionListener(
@@ -342,7 +322,16 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
             mapLayers: commonMapLayers,
             mapControls: mapControls,
             overlayWidgets: overlayWidgets,
-            onLongPress: (tap, point) => _handleLongPress(context, point),
+            onLongPress: (tap, point) {
+              if (!toolActive) _handleLongPress(context, point);
+            },
+            onTap: handleTap,
+            onResultSelected: _selectSearchResult,
+            onPointerDown: handlePointerDown,
+            onPointerMove: handlePointerMove,
+            onPointerUp: handlePointerUp,
+            interactionOptions: toolInteraction,
+            hideSearchBar: toolActive,
             temporaryPin: _temporaryPin,
             initialCenter: initialMapState.center,
             initialZoom: initialMapState.zoom,
@@ -356,7 +345,16 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
             mapLayers: commonMapLayers,
             mapControls: mapControls,
             overlayWidgets: overlayWidgets,
-            onLongPress: (tap, point) => _handleLongPress(context, point),
+            onLongPress: (tap, point) {
+              if (!toolActive) _handleLongPress(context, point);
+            },
+            onTap: handleTap,
+            onResultSelected: _selectSearchResult,
+            onPointerDown: handlePointerDown,
+            onPointerMove: handlePointerMove,
+            onPointerUp: handlePointerUp,
+            interactionOptions: toolInteraction,
+            hideSearchBar: toolActive,
             temporaryPin: _temporaryPin,
             initialCenter: initialMapState.center,
             initialZoom: initialMapState.zoom,
@@ -373,8 +371,17 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     setState(() {
       _temporaryPin = Marker(
         point: point,
-        child: Icon(Icons.location_pin,
-            color: Theme.of(context).colorScheme.error, size: 30),
+        // Surface (not the salmon `error`/`primary`, which is near-invisible on
+        // the always-light topo) with a white outline so the dropped pin reads.
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(Icons.location_pin,
+                color: Theme.of(context).colorScheme.onSurface, size: 34),
+            Icon(Icons.location_pin,
+                color: Theme.of(context).colorScheme.surface, size: 30),
+          ],
+        ),
         alignment: Alignment.topCenter,
       );
     });
@@ -386,38 +393,108 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     final latSpan = camera.visibleBounds.north - camera.visibleBounds.south;
     final target = LatLng(point.latitude - latSpan * 0.25, point.longitude);
     animatedMapMove(target, camera.zoom, _mapController, this);
-    _showPinOptionsSheet(context, point);
+    _selectCoordinate(point);
   }
 
-  void _showPinOptionsSheet(BuildContext context, LatLng point) {
+  /// Long-press → select the tapped coordinate. The shared detail host renders
+  /// the place-info + weather body and the coordinate's own action set through
+  /// the same action bar every entity uses. `includeStandardActions: false`
+  /// because a bare coordinate's actions (Navigate-as-route, Create marker,
+  /// Measure, Plan route) are coordinate-specific and shouldn't mix with the
+  /// entity defaults.
+  void _selectCoordinate(LatLng point) {
     final isNavigating = ref.read(navigationStateProvider).isActive;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext sheetContext) {
-        return PinOptionsSheet(
-          point: point,
-          isNavigating: isNavigating,
-          onCreateMarker: (namePreview) => _showCreateSheet(
-            context,
-            newLocation: point,
-            prefillName: namePreview,
+    ref.read(selectedMapEntityProvider.notifier).select(
+          MapSelection(
+            point: point,
+            title: context.l10n.pinSheetSelectedLocation,
+            includeStandardActions: false,
+            bodyBuilder: (_) => CoordinateDetailBody(point: point),
+            extraActions: _coordinateActions(point, isNavigating: isNavigating),
           ),
-          onCreateActivity: () => _showActivityCreatePicker(context, point),
-          onMeasure: () => _navigateToMeasuring(point),
-          onPlanRoute: () => _navigateToRoutePlanning([point]),
-          onNavigate: () => _routeFromMyLocation(point),
-          onStopNavigation: () =>
-              ref.read(navigationStateProvider.notifier).stopNavigation(),
         );
-      },
-    ).whenComplete(() {
-      if (mounted) {
-        setState(() => _temporaryPin = null);
-      }
-    });
+  }
+
+  /// Search result picked → select it so the shared detail sheet appears,
+  /// making search a universal entry point (Navigate / Conditions on any hit).
+  /// The map has already panned to the result; here we just surface its actions.
+  void _selectSearchResult(LocationSearchResult result) {
+    ref.read(selectedMapEntityProvider.notifier).select(
+          MapSelection(point: result.position, title: result.title),
+        );
+  }
+
+  /// The coordinate action set, matching the long-press sheet that preceded the
+  /// selection seam: Navigate (route from my location → follow) or Stop, then
+  /// Create marker / Create activity / Measure / Plan route.
+  List<MapEntityAction> _coordinateActions(LatLng point,
+      {required bool isNavigating}) {
+    return [
+      // Short labels to match the icon-over-label action bar (the registry's
+      // standard actions are 'Follow'/'Navigate'/'Save' — same convention).
+      isNavigating
+          ? MapEntityAction(
+              id: 'coord_stop_nav',
+              label: 'Stop',
+              icon: Icons.stop_circle_outlined,
+              isAvailable: (_) => true,
+              invoke: (c) {
+                c.afterJourneyAction?.call();
+                ref.read(navigationStateProvider.notifier).stopNavigation();
+              },
+            )
+          : MapEntityAction(
+              id: 'coord_navigate',
+              label: 'Navigate',
+              icon: Icons.navigation_outlined,
+              isAvailable: (_) => true,
+              invoke: (c) {
+                c.afterJourneyAction?.call();
+                _routeFromMyLocation(point);
+              },
+            ),
+      MapEntityAction(
+        id: 'coord_marker',
+        label: 'Marker',
+        icon: Icons.add_location_alt_outlined,
+        isAvailable: (_) => true,
+        invoke: (c) {
+          final prefill = CoordinateDetailBody.resolvedTitle(c.ref, point);
+          c.afterJourneyAction?.call();
+          _showCreateSheet(context, newLocation: point, prefillName: prefill);
+        },
+      ),
+      MapEntityAction(
+        id: 'coord_activity',
+        label: 'Activity',
+        icon: Icons.outdoor_grill_outlined,
+        isAvailable: (_) => true,
+        invoke: (c) {
+          c.afterJourneyAction?.call();
+          _showActivityCreatePicker(context, point);
+        },
+      ),
+      MapEntityAction(
+        id: 'coord_measure',
+        label: 'Measure',
+        icon: Icons.straighten,
+        isAvailable: (_) => true,
+        invoke: (c) {
+          c.afterJourneyAction?.call();
+          _navigateToMeasuring(point);
+        },
+      ),
+      MapEntityAction(
+        id: 'coord_route',
+        label: 'Route',
+        icon: Icons.route_outlined,
+        isAvailable: (_) => true,
+        invoke: (c) {
+          c.afterJourneyAction?.call();
+          _navigateToRoutePlanning([point]);
+        },
+      ),
+    ];
   }
 
   /// Open the cross-kind activity picker seeded at the tapped point.
@@ -426,50 +503,59 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
   /// The picker itself renders a sign-in CTA for anonymous users so we
   /// don't need an auth check here.
   void _showActivityCreatePicker(BuildContext context, LatLng point) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    showExclusiveSheet<void>(
+      context,
       builder: (sheetCtx) => activities.ActivityCreatePicker.fromPoint(point),
     );
   }
 
+  /// Start route planning *in place* on this map (no pushed screen / second
+  /// map). Seeds the stops, then mounts the route-planning tool — the active
+  /// map tool seam handles layers, taps and the planning sheet.
   void _navigateToRoutePlanning(List<LatLng> seeds) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (context) => RoutePlanningPage(
-          initialCenter: _mapController.camera.center,
-          initialZoom: _mapController.camera.zoom,
-          initialWaypoints: seeds,
-        ),
-      ),
-    );
+    final notifier = ref.read(routePlanningProvider.notifier);
+    notifier.clear();
+    for (final wp in seeds) {
+      notifier.addWaypoint(wp);
+    }
+    ref.read(activeMapToolProvider.notifier).activate(routePlanningToolId);
   }
 
-  /// "Navigate to here" → plot an actual route from the user's current
-  /// location to the tapped point (not a straight line). Falls back to
-  /// seeding just the destination if location isn't available yet.
-  void _routeFromMyLocation(LatLng destination) {
+  /// "Navigate to here" → solve a route from the user's current location to the
+  /// tapped point, then go straight into following it. Mirrors the entity
+  /// Navigate action exactly: no surprise "route create" planner — if there's
+  /// no fix to route from, head straight there as a last resort; if the solve
+  /// fails, the same. (Use the explicit "Plan route" action to open the
+  /// planner.)
+  Future<void> _routeFromMyLocation(LatLng destination) async {
+    final notifier = ref.read(activeJourneyProvider.notifier);
     final me = ref.read(locationStateProvider).value;
     if (me == null) {
-      AppSnackbars.info(
-          context, 'Location unavailable — tap the map to set your start');
+      notifier.navigateToPoint(destination, label: 'Destination');
+      return;
     }
-    _navigateToRoutePlanning(me != null ? [me, destination] : [destination]);
+    try {
+      final plan =
+          await ref.read(routingRepositoryProvider).plan(points: [me, destination]);
+      if (!mounted) return;
+      notifier.followPath(
+            plan.toGeoPath(),
+            label: 'Route',
+            waypoints: [me, destination],
+          );
+    } catch (_) {
+      if (!mounted) return;
+      notifier.navigateToPoint(destination, label: 'Destination');
+      AppSnackbars.error(
+          context, 'Could not plan a route — heading straight there.');
+    }
   }
 
-  void _navigateToMeasuring(LatLng startPoint) async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (context) => MeasuringMapPage(
-          initialPosition: _mapController.camera.center,
-          zoom: _mapController.camera.zoom,
-        ),
-      ),
-    );
-    if (result == true && mounted) {
-      AppSnackbars.success(context, context.l10n.pathSaved);
-    }
+  /// Measure in place on this map, seeded with the long-pressed point so the
+  /// first measurement vertex is already placed (no blank start).
+  void _navigateToMeasuring(LatLng startPoint) {
+    ref.read(activeMapToolProvider.notifier).activate(measuringToolId);
+    ref.read(measuringStateProvider.notifier).addPoint(startPoint);
   }
 
   void _showCreateSheet(
@@ -483,10 +569,8 @@ class _MainMapPageState extends ConsumerState<MainMapPage>
     }
 
     if (!context.mounted) return;
-    final result = await showModalBottomSheet<marker_model.Marker>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final result = await showExclusiveSheet<marker_model.Marker>(
+      context,
       builder: (BuildContext context) {
         return marker_model.CreateLocationSheet(
           newLocation: newLocation,

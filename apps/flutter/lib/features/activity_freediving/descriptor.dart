@@ -5,7 +5,6 @@ import 'package:turbo/features/activities/api.dart';
 import 'models/freediving_analysis_extras.dart';
 import 'widgets/freediving_create_screen.dart';
 import 'widgets/freediving_detail_sheet.dart';
-import 'widgets/freediving_map_marker.dart';
 
 final freedivingActivityKindDescriptor = ActivityKindDescriptor(
   key: 'freediving',
@@ -19,5 +18,4 @@ final freedivingActivityKindDescriptor = ActivityKindDescriptor(
   // surface together no longer fit in a 60% bottom sheet.
   buildDetailContent: (ctx, id) => FreedivingDetailSheet(activityId: id),
   parseAnalysisExtras: (slices) => FreedivingAnalysisExtras.tryParse(slices['freediving']),
-  buildMapMarker: (summary) => FreedivingMapMarker(summary: summary),
 );

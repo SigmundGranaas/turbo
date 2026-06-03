@@ -20,7 +20,6 @@ import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/data/region_repository.dart';
 import 'package:turbo/features/tile_storage/offline_regions/data/tile_job_queue.dart';
-import 'package:turbo/features/tile_storage/offline_regions/widgets/download_details_sheet.dart';
 import 'package:turbo/features/tile_storage/tile_store/api.dart';
 
 class _ServerBackedProvider extends TileProviderConfig {

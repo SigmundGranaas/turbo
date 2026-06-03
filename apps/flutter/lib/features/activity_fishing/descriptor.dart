@@ -5,7 +5,6 @@ import 'package:turbo/features/activities/api.dart';
 import 'models/fishing_analysis_extras.dart';
 import 'widgets/fishing_create_screen.dart';
 import 'widgets/fishing_detail_sheet.dart';
-import 'widgets/fishing_map_marker.dart';
 
 /// Single descriptor the fishing kind contributes to the shell's
 /// [ActivityKindRegistry]. Pure composition: the shell's create-picker,
@@ -21,5 +20,4 @@ final fishingActivityKindDescriptor = ActivityKindDescriptor(
   buildDetailScreen: (ctx, id) => FishingDetailSheet(activityId: id),
   buildDetailContent: (ctx, id) => FishingDetailSheet(activityId: id),
   parseAnalysisExtras: (slices) => FishingAnalysisExtras.tryParse(slices['fishing']),
-  buildMapMarker: (summary) => FishingMapMarker(summary: summary),
 );

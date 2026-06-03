@@ -255,6 +255,7 @@ void main() {
         smoothing INTEGER NOT NULL DEFAULT 0,
         line_style TEXT,
         elevations TEXT,
+        planned_geometry TEXT,
         recorded_at TEXT,
         ascent REAL,
         descent REAL,

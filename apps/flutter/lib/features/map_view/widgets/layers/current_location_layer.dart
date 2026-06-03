@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:turbo/core/widgets/map/map_line_style.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -31,7 +32,7 @@ class CurrentLocationLayer extends ConsumerWidget {
         final scale = settings?.locationMarkerSize ?? 1.0;
         final showHeading = settings?.showHeadingArrow ?? false;
         final arrowColor = hexToColor(settings?.markerArrowColorHex) ??
-            Theme.of(context).colorScheme.primary;
+            LocationMarkerTokens.defaultFill;
         final outlineColor = hexToColor(settings?.markerOutlineColorHex) ??
             LocationMarkerTokens.defaultOutline;
 
@@ -120,7 +121,9 @@ class CurrentLocationMarker extends StatelessWidget {
     if (isRecording) {
       iconWidget = _RecordingHalo(
         baseSize: haloSize,
-        color: Theme.of(context).colorScheme.error,
+        // Shared recording red (matches the recording trace line) — NOT theme
+        // `error`, a pale salmon in dark mode that barely reads on the topo.
+        color: MapLineStyle.recording,
         child: iconWidget,
       );
     }
@@ -186,7 +189,6 @@ class CurrentLocationMarker extends StatelessWidget {
 
   Widget _buildBuiltinIcon(
       BuildContext context, double dotSize, double haloSize) {
-    final colorScheme = Theme.of(context).colorScheme;
     final iconService = IconService();
     final namedIcon = iconService.getIcon(context, iconKey);
     return Stack(
@@ -197,7 +199,7 @@ class CurrentLocationMarker extends StatelessWidget {
           height: haloSize,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: colorScheme.primary.withValues(alpha: 0.2),
+            color: LocationMarkerTokens.defaultFill.withValues(alpha: 0.2),
           ),
         ),
         Container(
@@ -205,7 +207,7 @@ class CurrentLocationMarker extends StatelessWidget {
           height: dotSize + 8 * scale,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: colorScheme.primary,
+            color: LocationMarkerTokens.defaultFill,
             border: Border.all(color: outlineColor, width: 2),
           ),
           child: Icon(
@@ -220,7 +222,6 @@ class CurrentLocationMarker extends StatelessWidget {
 
   Widget _buildCustomIcon(
       BuildContext context, double dotSize, double haloSize) {
-    final colorScheme = Theme.of(context).colorScheme;
     if (imagePath == null) return _buildDefaultDot(dotSize, haloSize);
 
     return FutureBuilder<Directory>(
@@ -241,7 +242,7 @@ class CurrentLocationMarker extends StatelessWidget {
               height: haloSize,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: colorScheme.primary.withValues(alpha: 0.2),
+                color: LocationMarkerTokens.defaultFill.withValues(alpha: 0.2),
               ),
             ),
             Container(

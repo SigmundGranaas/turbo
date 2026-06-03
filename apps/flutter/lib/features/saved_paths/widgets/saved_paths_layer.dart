@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart' hide CatmullRomSpline;
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
+import 'package:turbo/core/widgets/map/map_marker_pin.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/util/catmull_rom_spline.dart';
@@ -194,15 +196,14 @@ class _SavedPathsLayerState extends ConsumerState<SavedPathsLayer> {
 
                 return Marker(
                   point: center,
-                  width: 40,
-                  height: 40,
-                  child: GestureDetector(
+                  width: MapMarkerPin.baseWidth,
+                  height: MapMarkerPin.baseHeight,
+                  alignment: Alignment.bottomCenter,
+                  child: MapMarkerPin(
+                    icon: namedIcon.icon,
+                    accent: color,
+                    title: path.title,
                     onTap: () => _showInfoSheet(context, path),
-                    child: Icon(
-                      namedIcon.icon,
-                      color: color,
-                      size: 32,
-                    ),
                   ),
                 );
               }).toList(),
@@ -214,10 +215,8 @@ class _SavedPathsLayerState extends ConsumerState<SavedPathsLayer> {
 
   void _showInfoSheet(BuildContext context, SavedPath path) async {
     final l10n = context.l10n;
-    final result = await showModalBottomSheet<PathDetailResult>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final result = await showExclusiveSheet<PathDetailResult>(
+      context,
       builder: (_) => PathInfoSheet(path: path),
     );
     if (!context.mounted) return;

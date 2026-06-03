@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
@@ -30,10 +31,9 @@ class AddToCollectionSheet extends ConsumerStatefulWidget {
 
   /// Binding mode — writes membership for [ref] when the user saves.
   static Future<void> show(BuildContext context, CollectionItemRef ref) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    return showExclusiveSheet<void>(
+      context,
+      replace: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -47,10 +47,9 @@ class AddToCollectionSheet extends ConsumerStatefulWidget {
     BuildContext context, {
     Set<String> initialSelected = const {},
   }) {
-    return showModalBottomSheet<Set<String>>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    return showExclusiveSheet<Set<String>>(
+      context,
+      replace: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

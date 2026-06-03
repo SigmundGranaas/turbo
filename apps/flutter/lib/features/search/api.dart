@@ -9,6 +9,8 @@ export 'data/composite_search_service.dart'
     show compositeSearchServiceProvider, stedsnavnSearchBackendProvider;
 export 'data/backends/stedsnavn_search_backend.dart'
     show StedsnavnSearchBackend;
+export 'data/activity_search_service.dart'
+    show activitySearchServiceProvider, ActivitySearchService;
 export 'data/stedsnavn_descriptors.dart'
     show LocationMatchTier, StedsnavnHit, describeFeature, readPlaceName;
 export 'data/reverse_geocoder.dart'

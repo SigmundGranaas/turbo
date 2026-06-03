@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:intl/intl.dart';
 import 'package:photo_manager/photo_manager.dart' hide LatLng;
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 
 import '../models/photo_location.dart';
 import 'photo_thumbnail.dart';
@@ -25,10 +27,8 @@ Future<void> showPhotoClusterSheet(
   BuildContext context,
   List<PhotoLocation> photos,
 ) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
+  return showExclusiveSheet<void>(
+    context,
     builder: (ctx) => _PhotoClusterSheet(photos: photos),
   );
 }
@@ -89,17 +89,7 @@ class _PhotoClusterSheet extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
-              const SizedBox(height: 12),
-              Center(
-                child: Container(
-                  width: 32,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colorScheme.outlineVariant,
-                    borderRadius: const BorderRadius.all(Radius.circular(2)),
-                  ),
-                ),
-              ),
+              const SheetDragHandle(),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(

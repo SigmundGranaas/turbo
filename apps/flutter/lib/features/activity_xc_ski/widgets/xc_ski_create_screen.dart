@@ -90,73 +90,55 @@ class _XcSkiCreateScreenState extends ConsumerState<XcSkiCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit XC ski trail' : 'New XC ski trail')),
-      body: SafeArea(child: Form(key: _formKey, child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          TextFormField(controller: _name,
-            decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
-            validator: (v) => (v?.trim().isEmpty ?? true) ? 'Required' : null),
-          const SizedBox(height: 12),
-          TextFormField(controller: _description, maxLines: 2,
-            decoration: const InputDecoration(labelText: 'Description (optional)', border: OutlineInputBorder())),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(child: _num(_distance, 'Distance m')),
-            const SizedBox(width: 8),
-            Expanded(child: _num(_ascent, 'Ascent m')),
-            const SizedBox(width: 8),
-            Expanded(child: _num(_descent, 'Descent m')),
-          ]),
-          const SizedBox(height: 16),
-          Text('Technique', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 4),
-          SegmentedButton<XcSkiTechnique>(
-            segments: const [
-              ButtonSegment(value: XcSkiTechnique.classic, label: Text('Classic')),
-              ButtonSegment(value: XcSkiTechnique.skate, label: Text('Skate')),
-              ButtonSegment(value: XcSkiTechnique.both, label: Text('Both')),
-              ButtonSegment(value: XcSkiTechnique.backcountry, label: Text('BC')),
-            ],
-            selected: {_technique},
-            onSelectionChanged: (s) => setState(() => _technique = s.first)),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<GroomingStatus>(
-            initialValue: _grooming,
-            decoration: const InputDecoration(labelText: 'Grooming', border: OutlineInputBorder()),
-            items: GroomingStatus.values.map((g) =>
-              DropdownMenuItem(value: g, child: Text(g.name))).toList(),
-            onChanged: (v) => setState(() => _grooming = v ?? GroomingStatus.unknown)),
-          const SizedBox(height: 8),
-          SwitchListTile(value: _lit, onChanged: (v) => setState(() => _lit = v),
-            title: const Text('Lit trail'), contentPadding: EdgeInsets.zero),
-          SwitchListTile(value: _seasonPass, onChanged: (v) => setState(() => _seasonPass = v),
-            title: const Text('Requires season pass'), contentPadding: EdgeInsets.zero),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: _saving ? null : _drawRoute,
-            icon: const Icon(Icons.timeline_outlined),
-            label: Text(_drawnRoute == null
-                ? 'Draw trail on map'
-                : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
-          ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: _saving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.check),
-            label: const Text('Save')),
-        ],
-      ))),
+    return ActivityCreateScaffold(
+      title: _isEdit ? 'Edit XC ski trail' : 'New XC ski trail',
+      formKey: _formKey,
+      nameController: _name,
+      descriptionController: _description,
+      saving: _saving,
+      onSave: _save,
+      routeButton: OutlinedButton.icon(
+        onPressed: _saving ? null : _drawRoute,
+        icon: const Icon(Icons.timeline_outlined),
+        label: Text(_drawnRoute == null
+            ? 'Draw trail on map'
+            : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
+      ),
+      fields: [
+        Row(children: [
+          Expanded(child: ActivityCreateScaffold.numberField(_distance, 'Distance m')),
+          const SizedBox(width: 8),
+          Expanded(child: ActivityCreateScaffold.numberField(_ascent, 'Ascent m')),
+          const SizedBox(width: 8),
+          Expanded(child: ActivityCreateScaffold.numberField(_descent, 'Descent m')),
+        ]),
+        const SizedBox(height: 16),
+        Text('Technique', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        SegmentedButton<XcSkiTechnique>(
+          segments: const [
+            ButtonSegment(value: XcSkiTechnique.classic, label: Text('Classic')),
+            ButtonSegment(value: XcSkiTechnique.skate, label: Text('Skate')),
+            ButtonSegment(value: XcSkiTechnique.both, label: Text('Both')),
+            ButtonSegment(value: XcSkiTechnique.backcountry, label: Text('BC')),
+          ],
+          selected: {_technique},
+          onSelectionChanged: (s) => setState(() => _technique = s.first)),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<GroomingStatus>(
+          initialValue: _grooming,
+          decoration: const InputDecoration(labelText: 'Grooming', border: OutlineInputBorder()),
+          items: GroomingStatus.values.map((g) =>
+            DropdownMenuItem(value: g, child: Text(g.name))).toList(),
+          onChanged: (v) => setState(() => _grooming = v ?? GroomingStatus.unknown)),
+        const SizedBox(height: 8),
+        SwitchListTile(value: _lit, onChanged: (v) => setState(() => _lit = v),
+          title: const Text('Lit trail'), contentPadding: EdgeInsets.zero),
+        SwitchListTile(value: _seasonPass, onChanged: (v) => setState(() => _seasonPass = v),
+          title: const Text('Requires season pass'), contentPadding: EdgeInsets.zero),
+      ],
     );
   }
-
-  Widget _num(TextEditingController c, String label) => TextFormField(
-    controller: c, keyboardType: TextInputType.number,
-    decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true),
-    validator: (v) => int.tryParse(v ?? '') == null ? 'Number required' : null);
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;

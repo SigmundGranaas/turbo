@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
@@ -175,10 +176,9 @@ class _PathDetailSheetState extends ConsumerState<PathDetailSheet> {
       wkt: wkt,
       geometryKind: 'LINESTRING',
     );
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final saved = await showExclusiveSheet<bool>(
+      context,
+      replace: false,
       builder: (sheetCtx) => activities.ActivityCreatePicker(seedGeometry: seed),
     );
     // If the user actually saved a new activity, close this path sheet

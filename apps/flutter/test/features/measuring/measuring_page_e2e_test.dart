@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/features/measuring/widgets/measuring_controls.dart';
-import 'package:turbo/features/measuring/widgets/measuring_map_page.dart';
+import 'package:turbo/features/measuring/widgets/measuring_tool.dart';
 
 import '../../helpers/pump_app.dart';
 

@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_pill.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 import 'package:turbo/features/saved_paths/api.dart';
+import 'package:turbo/features/journey/api.dart';
+import 'package:turbo/features/map_view/api.dart';
 
 import '../data/route_planning_notifier.dart';
 import '../data/route_planning_state.dart';
 import '../models/route_models.dart';
+import '../models/route_geo_path.dart';
 import '../providers/routing_providers.dart';
 
 /// Center-bottom planning panel. Built from the app's own map-control
@@ -26,10 +31,11 @@ class RoutePlanningSheet extends ConsumerWidget {
 
     return AppCardSurface(
       margin: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
-      maxWidth: 700,
+      maxWidth: 460,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          const SheetDragHandle(),
           // Row 1: live summary + Save.
           Padding(
             padding: const EdgeInsets.fromLTRB(
@@ -42,6 +48,13 @@ class RoutePlanningSheet extends ConsumerWidget {
                   text: 'Save',
                   onPressed: state.plan != null
                       ? () => _saveAsTrack(context, state)
+                      : null,
+                ),
+                const SizedBox(width: AppSpacing.s),
+                AppButton.primary(
+                  text: 'Follow',
+                  onPressed: state.plan != null
+                      ? () => _followRoute(context, ref, state)
                       : null,
                 ),
               ],
@@ -79,18 +92,32 @@ class RoutePlanningSheet extends ConsumerWidget {
     );
   }
 
+  /// Start a live journey that follows the solved route, then return to the
+  /// map so the user can watch their position track along it. This is the
+  /// integration the old flow lacked — a planned route was a dead-end snapshot.
+  /// Start following the planned route. Recording is opt-in from the
+  /// active-outing panel ("Record this outing"); the route's waypoints ride
+  /// along so the outing panel's Edit can reopen the planner.
+  void _followRoute(
+      BuildContext context, WidgetRef ref, RoutePlanningState state) {
+    final plan = state.plan;
+    if (plan == null) return;
+    ref.read(activeJourneyProvider.notifier).followPath(
+          plan.toGeoPath(),
+          label: 'Planned route',
+          waypoints: state.waypoints,
+        );
+    // Close the planning tool to reveal the live map following the route.
+    ref.read(activeMapToolProvider.notifier).deactivate();
+  }
+
   Future<void> _saveAsTrack(BuildContext context, RoutePlanningState state) async {
     final plan = state.plan;
     if (plan == null) return;
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => SavePathSheet(
-        points: plan.geometry,
-        distance: plan.distanceM,
-        ascent: plan.ascentM,
-      ),
+    final saved = await showExclusiveSheet<bool>(
+      context,
+      replace: false,
+      builder: (_) => SavePathSheet.fromGeoPath(plan.toGeoPath()),
     );
     if (saved == true && context.mounted) {
       AppSnackbars.success(context, 'Route saved as a track');
@@ -264,9 +291,9 @@ class _RouteStyleButton extends StatelessWidget {
   }
 
   void _openPicker(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
+    showExclusiveSheet<void>(
+      context,
+      replace: false,
       builder: (sheetCtx) {
         final theme = Theme.of(sheetCtx);
         return SafeArea(

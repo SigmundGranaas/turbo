@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -19,10 +20,8 @@ import 'package:turbo/app/l10n/app_localizations.dart';
 /// already shown directly on the settings page below the icon row, and the
 /// nested sheets made the affordance feel hidden.
 void showLocationIconPickerSheet(BuildContext context, WidgetRef ref) {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
+  showExclusiveSheet(
+    context,
     builder: (_) => _LocationIconPickerSheet(
       ref: ref,
       navigatorContext: context,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -76,8 +77,8 @@ class _TodayScreenState extends ConsumerState<TodayScreen> {
   }
 
   Future<void> _openFilters(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
+    await showExclusiveSheet<void>(
+      context,
       builder: (ctx) => _FilterSheet(
         kinds: _kindFilter,
         radiusKm: _radiusKm,

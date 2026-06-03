@@ -31,11 +31,6 @@ class ActivityKindDescriptor {
   /// while kinds migrate.
   final Widget Function(BuildContext ctx, String activityId)? buildDetailContent;
 
-  /// Build the on-map marker for a summary of this kind. Point-geometry
-  /// kinds always supply one; LineString / Polygon kinds use it to drop
-  /// a start-pin alongside the polyline.
-  final Widget Function(ActivitySummary summary)? buildMapMarker;
-
   /// Build a flutter_map [Polyline] for a route-shaped summary. Returns
   /// null when the kind has no polyline representation (e.g. point
   /// kinds). The shell collects polylines across all kinds and renders
@@ -62,7 +57,6 @@ class ActivityKindDescriptor {
     required this.buildCreateScreen,
     required this.buildDetailScreen,
     this.buildDetailContent,
-    this.buildMapMarker,
     this.buildMapPolyline,
     this.parseAnalysisExtras,
   });

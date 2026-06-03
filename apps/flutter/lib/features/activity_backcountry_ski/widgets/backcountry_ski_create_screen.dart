@@ -108,153 +108,101 @@ class _BackcountrySkiCreateScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEdit ? 'Edit backcountry route' : 'New backcountry route'),
+    return ActivityCreateScaffold(
+      title: _isEdit ? 'Edit backcountry route' : 'New backcountry route',
+      formKey: _formKey,
+      nameController: _name,
+      descriptionController: _description,
+      saving: _saving,
+      onSave: _save,
+      routeButton: OutlinedButton.icon(
+        onPressed: _saving ? null : _drawRoute,
+        icon: const Icon(Icons.timeline_outlined),
+        label: Text(_drawnRoute == null
+            ? 'Draw route on map'
+            : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
       ),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              TextFormField(
-                controller: _name,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _description,
-                decoration: const InputDecoration(
-                  labelText: 'Description (optional)',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: _intField(_ascent, 'Ascent m')),
-                  const SizedBox(width: 8),
-                  Expanded(child: _intField(_descent, 'Descent m')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(child: _intField(_distance, 'Distance m')),
-                  const SizedBox(width: 8),
-                  Expanded(child: _intField(_elevMin, 'Min elev m')),
-                  const SizedBox(width: 8),
-                  Expanded(child: _intField(_elevMax, 'Max elev m')),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text('ATES', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              // `AtesRating.unrated` exists on the model — leaving it
-              // out of the segment list crashes SegmentedButton when
-              // editing a legacy activity whose rating is unrated.
-              SegmentedButton<AtesRating>(
-                segments: const [
-                  ButtonSegment(value: AtesRating.unrated, label: Text('Unrated')),
-                  ButtonSegment(value: AtesRating.simple, label: Text('Simple')),
-                  ButtonSegment(value: AtesRating.challenging, label: Text('Challenging')),
-                  ButtonSegment(value: AtesRating.complex, label: Text('Complex')),
-                ],
-                selected: {_ates},
-                onSelectionChanged: (s) => setState(() => _ates = s.first),
-              ),
-              const SizedBox(height: 16),
-              Text('Dominant aspect',
-                  style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              DropdownButtonFormField<Aspect>(
-                initialValue: _aspect,
-                decoration: const InputDecoration(border: OutlineInputBorder()),
-                items: Aspect.values
-                    .map((a) =>
-                        DropdownMenuItem(value: a, child: Text(a.name.toUpperCase())))
-                    .toList(),
-                onChanged: (v) => setState(() => _aspect = v ?? Aspect.n),
-              ),
-              const SizedBox(height: 16),
-              Text('Max acceptable avalanche danger',
-                  style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              Text(
-                'Used to flag the route when the Varsom forecast exceeds this level.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 4),
-              DropdownButtonFormField<int?>(
-                initialValue: _preferredAvalancheMaxLevel,
-                decoration:
-                    const InputDecoration(border: OutlineInputBorder()),
-                items: const [
-                  DropdownMenuItem<int?>(value: null, child: Text('Any')),
-                  DropdownMenuItem<int?>(value: 1, child: Text('1 — Low')),
-                  DropdownMenuItem<int?>(value: 2, child: Text('2 — Moderate')),
-                  DropdownMenuItem<int?>(
-                      value: 3, child: Text('3 — Considerable')),
-                  DropdownMenuItem<int?>(value: 4, child: Text('4 — High')),
-                  DropdownMenuItem<int?>(value: 5, child: Text('5 — Extreme')),
-                ],
-                onChanged: (v) =>
-                    setState(() => _preferredAvalancheMaxLevel = v),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                leading: const Icon(Icons.flag_outlined),
-                title: const Text('Start'),
-                subtitle: Text(
-                  '${_seed.latitude.toStringAsFixed(5)}, '
-                  '${_seed.longitude.toStringAsFixed(5)}',
-                ),
-                contentPadding: EdgeInsets.zero,
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: _saving ? null : _drawRoute,
-                icon: const Icon(Icons.timeline_outlined),
-                label: Text(_drawnRoute == null
-                    ? 'Draw route on map'
-                    : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.check),
-                label: const Text('Save'),
-              ),
-            ],
-          ),
+      fields: [
+        Row(
+          children: [
+            Expanded(child: ActivityCreateScaffold.numberField(_ascent, 'Ascent m')),
+            const SizedBox(width: 8),
+            Expanded(child: ActivityCreateScaffold.numberField(_descent, 'Descent m')),
+          ],
         ),
-      ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: ActivityCreateScaffold.numberField(_distance, 'Distance m')),
+            const SizedBox(width: 8),
+            Expanded(child: ActivityCreateScaffold.numberField(_elevMin, 'Min elev m')),
+            const SizedBox(width: 8),
+            Expanded(child: ActivityCreateScaffold.numberField(_elevMax, 'Max elev m')),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text('ATES', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        // `AtesRating.unrated` exists on the model — leaving it out of the
+        // segment list crashes SegmentedButton when editing a legacy activity
+        // whose rating is unrated.
+        SegmentedButton<AtesRating>(
+          segments: const [
+            ButtonSegment(value: AtesRating.unrated, label: Text('Unrated')),
+            ButtonSegment(value: AtesRating.simple, label: Text('Simple')),
+            ButtonSegment(value: AtesRating.challenging, label: Text('Challenging')),
+            ButtonSegment(value: AtesRating.complex, label: Text('Complex')),
+          ],
+          selected: {_ates},
+          onSelectionChanged: (s) => setState(() => _ates = s.first),
+        ),
+        const SizedBox(height: 16),
+        Text('Dominant aspect', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<Aspect>(
+          initialValue: _aspect,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          items: Aspect.values
+              .map((a) =>
+                  DropdownMenuItem(value: a, child: Text(a.name.toUpperCase())))
+              .toList(),
+          onChanged: (v) => setState(() => _aspect = v ?? Aspect.n),
+        ),
+        const SizedBox(height: 16),
+        Text('Max acceptable avalanche danger',
+            style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        Text(
+          'Used to flag the route when the Varsom forecast exceeds this level.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<int?>(
+          initialValue: _preferredAvalancheMaxLevel,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          items: const [
+            DropdownMenuItem<int?>(value: null, child: Text('Any')),
+            DropdownMenuItem<int?>(value: 1, child: Text('1 — Low')),
+            DropdownMenuItem<int?>(value: 2, child: Text('2 — Moderate')),
+            DropdownMenuItem<int?>(value: 3, child: Text('3 — Considerable')),
+            DropdownMenuItem<int?>(value: 4, child: Text('4 — High')),
+            DropdownMenuItem<int?>(value: 5, child: Text('5 — Extreme')),
+          ],
+          onChanged: (v) => setState(() => _preferredAvalancheMaxLevel = v),
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          leading: const Icon(Icons.flag_outlined),
+          title: const Text('Start'),
+          subtitle: Text(
+            '${_seed.latitude.toStringAsFixed(5)}, '
+            '${_seed.longitude.toStringAsFixed(5)}',
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+      ],
     );
   }
-
-  Widget _intField(TextEditingController c, String label) => TextFormField(
-        controller: c,
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          isDense: true,
-        ),
-        validator: (v) =>
-            int.tryParse(v ?? '') == null ? 'Number required' : null,
-      );
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;

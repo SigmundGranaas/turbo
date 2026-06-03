@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_button.dart';
@@ -11,6 +12,7 @@ import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/settings/api.dart';
 
 import '../data/recording_notifier.dart';
+import '../models/recording_geo_path.dart';
 import '../models/recording_state.dart';
 
 /// Bottom-anchored control panel shown while a recording is in flight.
@@ -155,19 +157,9 @@ class _RecordingPanelState extends ConsumerState<RecordingPanel> {
       return;
     }
     if (!context.mounted) return;
-    await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => SavePathSheet(
-        points: result.points,
-        distance: result.distanceMeters,
-        elevations: result.elevations,
-        recordedAt: result.recordedAt,
-        ascent: result.ascent,
-        descent: result.descent,
-        movingTimeSeconds: result.movingTimeSeconds,
-      ),
+    await showExclusiveSheet<bool>(
+      context,
+      builder: (_) => SavePathSheet.fromGeoPath(result.toGeoPath()),
     );
   }
 

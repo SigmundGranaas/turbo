@@ -6,7 +6,6 @@ import 'package:turbo/features/activities/api.dart';
 import 'models/backcountry_ski_analysis_extras.dart';
 import 'widgets/backcountry_ski_create_screen.dart';
 import 'widgets/backcountry_ski_detail_sheet.dart';
-import 'widgets/backcountry_ski_route_marker.dart';
 
 const _color = Color(0xFF5E72A5);
 
@@ -28,7 +27,6 @@ final backcountrySkiActivityKindDescriptor = ActivityKindDescriptor(
   buildDetailContent: (ctx, id) => BackcountrySkiDetailSheet(activityId: id),
   parseAnalysisExtras: (slices) =>
       BackcountrySkiAnalysisExtras.tryParse(slices['backcountry_ski']),
-  buildMapMarker: (summary) => BackcountrySkiRouteMarker(summary: summary),
   buildMapPolyline: (summary) => Polyline(
     points: summary.geometry.coordinates,
     color: _color.withValues(alpha: 0.75),

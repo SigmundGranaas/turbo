@@ -6,7 +6,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const String _dbName = 'turbo_app_v1.db';
-const int _dbVersion = 14;
+const int _dbVersion = 15;
 
 // Table Names
 const String regionsTable = 'offline_regions';
@@ -149,6 +149,7 @@ Future<void> _createDb(Database db, int version) async {
       smoothing INTEGER NOT NULL DEFAULT 0,
       line_style TEXT,
       elevations TEXT,
+      planned_geometry TEXT,
       recorded_at TEXT,
       ascent REAL,
       descent REAL,
@@ -332,7 +333,22 @@ Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
         await _migrateV12ToV13(db);
       case 14:
         await _migrateV13ToV14(db);
+      case 15:
+        await _migrateV14ToV15(db);
     }
+  }
+}
+
+/// v15 — planned-vs-actual: a saved track recorded while following a planned
+/// route stashes that planned geometry so the detail view can show how closely
+/// the walk matched the plan. Nullable: hand-recorded/imported tracks have none.
+Future<void> _migrateV14ToV15(Database db) async {
+  final columns = (await db.rawQuery('PRAGMA table_info($savedPathsTable)'))
+      .map((row) => row['name'] as String)
+      .toSet();
+  if (!columns.contains('planned_geometry')) {
+    await db.execute(
+        'ALTER TABLE $savedPathsTable ADD COLUMN planned_geometry TEXT');
   }
 }
 

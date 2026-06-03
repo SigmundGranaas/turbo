@@ -2,15 +2,16 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
-import 'package:turbo/core/widgets/sheet_action_bar.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
 import 'package:turbo/features/collections/api.dart';
-import 'package:turbo/features/navigation/api.dart';
+import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/saved_paths/api.dart' show hexToColor;
 import 'package:turbo/features/weather/api.dart' show WeatherSummaryRow;
 import '../data/icon_service.dart';
@@ -60,6 +61,7 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SheetDragHandle(),
           // Header: icon + title + close
           Row(
             children: [
@@ -136,44 +138,42 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Actions: the high-traffic trio (Navigate / Edit / Export) stays
-          // inline; Photo, Save-as-activity and Delete fold into the "More"
-          // overflow so the row never wraps or overflows on narrow phones.
-          SheetActionBar(
-            actions: [
-              SheetAction(
-                icon: Icons.navigation_outlined,
-                label: l10n.navigateToHere,
-                onPressed: _startNavigation,
-              ),
-              SheetAction(
-                icon: Icons.edit_outlined,
-                label: l10n.edit,
-                onPressed: _openEdit,
-              ),
-              SheetAction(
-                icon: Icons.ios_share_outlined,
-                label: l10n.export,
-                onPressed: _openExport,
-              ),
-              if (!kIsWeb)
-                SheetAction(
-                  icon: Icons.add_a_photo_outlined,
-                  label: 'Photo',
-                  onPressed: () => _addPhoto(context),
+          // Unified entity action bar (point capability): Navigate ·
+          // Conditions · Collection · Edit · Export · Delete come from the
+          // registry; the marker-specific Save-as-activity / Photo plug in via
+          // extraActions so it's still ONE bar.
+          MapEntityActionBar(
+            entity: MapEntityActionContext(
+              ref: ref,
+              context: context,
+              title: _marker.title,
+              point: _marker.position,
+              onAddToCollection: _openAddToCollection,
+              onEdit: _openEdit,
+              onExport: _openExport,
+              onDelete: _isDeleting ? null : _confirmDelete,
+              // Navigate started → close this sheet (the standard Navigate
+              // action does the confirm-replace; this just dismisses).
+              afterJourneyAction: () =>
+                  Navigator.of(context).pop(MarkerInfoResult.navigationStarted),
+              extraActions: [
+                MapEntityAction(
+                  id: 'save_as_activity',
+                  label: l10n.saveAsActivity,
+                  icon: Icons.outdoor_grill_outlined,
+                  isAvailable: (_) => true,
+                  invoke: (_) => _promoteToActivity(),
                 ),
-              SheetAction(
-                icon: Icons.outdoor_grill_outlined,
-                label: l10n.saveAsActivity,
-                onPressed: _promoteToActivity,
-              ),
-              SheetAction(
-                icon: Icons.delete_outline,
-                label: l10n.delete,
-                onPressed: _isDeleting ? null : _confirmDelete,
-                isDestructive: true,
-              ),
-            ],
+                if (!kIsWeb)
+                  MapEntityAction(
+                    id: 'photo',
+                    label: 'Photo',
+                    icon: Icons.add_a_photo_outlined,
+                    isAvailable: (_) => true,
+                    invoke: (_) => _addPhoto(context),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -190,10 +190,9 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
       wkt: activities.ActivityGeometry.pointWkt(_marker.position),
       geometryKind: 'POINT',
     );
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final saved = await showExclusiveSheet<bool>(
+      context,
+      replace: false,
       builder: (sheetCtx) => activities.ActivityCreatePicker(seedGeometry: seed),
     );
     // Auto-dismiss this marker sheet on save so the user is back on
@@ -203,8 +202,9 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
 
   Future<void> _addPhoto(BuildContext context) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final choice = await showModalBottomSheet<ImageSource>(
-      context: context,
+    final choice = await showExclusiveSheet<ImageSource>(
+      context,
+      replace: false,
       builder: (ctx) => SafeArea(
         child: Wrap(children: [
           ListTile(
@@ -243,39 +243,10 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
     );
   }
 
-  Future<void> _startNavigation() async {
-    final l10n = context.l10n;
-    final notifier = ref.read(navigationStateProvider.notifier);
-    final currentState = ref.read(navigationStateProvider);
-
-    // Same target → no-op; just tell the user.
-    if (currentState.isActive && currentState.target == _marker.position) {
-      AppSnackbars.info(context, l10n.alreadyNavigatingHere);
-      return;
-    }
-
-    // Different target active → confirm before replacing.
-    if (currentState.isActive && currentState.target != _marker.position) {
-      final confirmed = await AppDialog.confirm(
-        context,
-        title: l10n.replaceNavigationTitle,
-        content: l10n.replaceNavigationMessage,
-        confirmLabel: l10n.replace,
-      );
-      if (!confirmed || !mounted) return;
-    }
-
-    notifier.startNavigation(_marker.position);
-    if (mounted) {
-      Navigator.of(context).pop(MarkerInfoResult.navigationStarted);
-    }
-  }
-
   Future<void> _openEdit() async {
-    final result = await showModalBottomSheet<MarkerInfoResult>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final result = await showExclusiveSheet<MarkerInfoResult>(
+      context,
+      replace: false,
       builder: (_) => EditLocationSheet(location: _marker),
     );
     if (result != null && mounted) {
@@ -284,10 +255,9 @@ class _MarkerInfoSheetState extends ConsumerState<MarkerInfoSheet> {
   }
 
   void _openExport() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    showExclusiveSheet(
+      context,
+      replace: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

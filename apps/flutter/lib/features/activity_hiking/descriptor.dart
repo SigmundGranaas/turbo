@@ -6,7 +6,6 @@ import 'package:turbo/features/activities/api.dart';
 import 'models/hiking_analysis_extras.dart';
 import 'widgets/hiking_create_screen.dart';
 import 'widgets/hiking_detail_sheet.dart';
-import 'widgets/hiking_route_marker.dart';
 
 const _color = Color(0xFF2E7D32);
 
@@ -20,7 +19,6 @@ final hikingActivityKindDescriptor = ActivityKindDescriptor(
   buildDetailScreen: (ctx, id) => HikingDetailSheet(activityId: id),
   buildDetailContent: (ctx, id) => HikingDetailSheet(activityId: id),
   parseAnalysisExtras: (slices) => HikingAnalysisExtras.tryParse(slices['hiking']),
-  buildMapMarker: (summary) => HikingRouteMarker(summary: summary),
   buildMapPolyline: (summary) => Polyline(
     points: summary.geometry.coordinates,
     color: _color.withValues(alpha: 0.75),

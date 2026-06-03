@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
@@ -7,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_selection_pill.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 import 'package:turbo/features/avalanche_forecast/api.dart'
     show AvalancheWarningBadge;
 import 'package:turbo/features/markers/api.dart' show Marker;
@@ -17,11 +19,8 @@ import 'weather_widgets_internal.dart';
 /// Opens the weather detail as an expanding bottom sheet anchored over the
 /// current route. Returns once the sheet is dismissed.
 Future<void> showWeatherDetailSheet(BuildContext context, Marker marker) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: false,
-    useSafeArea: true,
+  return showExclusiveSheet<void>(
+    context,
     backgroundColor: Colors.transparent,
     builder: (_) => WeatherDetailSheet(marker: marker),
   );
@@ -52,7 +51,7 @@ class WeatherDetailSheet extends StatelessWidget {
           ),
           child: Column(
             children: [
-              const WeatherDragHandle(),
+              const SheetDragHandle(),
               _Header(title: marker.title),
               const SizedBox(height: AppSpacing.s),
               Expanded(
@@ -72,8 +71,8 @@ class WeatherDetailSheet extends StatelessWidget {
 
 /// The "guts" of the weather sheet — day strip, Weather/Ocean tab pills,
 /// and the swipeable preset body. Designed to be embedded in any
-/// container that supplies its own header (e.g. the long-press
-/// [PinOptionsSheet] embeds this under its Weather tab).
+/// container that supplies its own header (e.g. the coordinate detail body
+/// shown for a long-pressed point).
 class EmbeddedWeatherBody extends ConsumerStatefulWidget {
   final LatLng position;
   final ScrollController? scrollController;
@@ -236,27 +235,6 @@ class _EmbeddedWeatherBodyState extends ConsumerState<EmbeddedWeatherBody>
       ];
 }
 
-class WeatherDragHandle extends StatelessWidget {
-  const WeatherDragHandle({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 8),
-      child: Center(
-        child: Container(
-          width: 40,
-          height: 4,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(
-                  alpha: 0.4,
-                ),
-            borderRadius: BorderRadius.circular(AppRadius.s),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _Header extends StatelessWidget {
   final String title;
