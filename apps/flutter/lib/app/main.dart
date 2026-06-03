@@ -5,6 +5,9 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:turbo/app/app.dart';
+import 'package:turbo/app/map_conditions.dart';
+import 'package:turbo/app/map_layers.dart';
+import 'package:turbo/app/map_overlays.dart';
 import 'package:turbo/core/data/database_provider.dart';
 import 'package:turbo/core/service/logger.dart';
 import 'package:turbo/features/activities/api.dart' as activities;
@@ -18,7 +21,10 @@ import 'package:turbo/features/activity_packrafting/api.dart'
     as activity_packrafting;
 import 'package:turbo/features/activity_xc_ski/api.dart' as activity_xc_ski;
 import 'package:turbo/features/auth/api.dart';
+import 'package:turbo/features/map_view/api.dart' as map_view;
 import 'package:turbo/features/markers/api.dart';
+import 'package:turbo/features/measuring/api.dart' as measuring;
+import 'package:turbo/features/routing/api.dart' as routing;
 import 'package:turbo/features/sharing/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart'
     as offline_regions;
@@ -39,9 +45,25 @@ void main() {
     activity_freediving.freedivingActivityKindDescriptor,
   ]);
 
+  // Compose the map-tool registry from each tool feature's descriptor. Adding
+  // a tool = add its descriptor here; the map host iterates the registry and
+  // never names a specific tool.
+  final mapTools = map_view.MapToolRegistry([
+    routing.routePlanningTool,
+    measuring.measuringTool,
+    offline_regions.regionSelectTool,
+  ]);
+
   final container = ProviderContainer(
     overrides: [
       activities.activityKindRegistryProvider.overrideWithValue(activityKinds),
+      map_view.mapToolRegistryProvider.overrideWithValue(mapTools),
+      map_view.mapLayerRegistryProvider
+          .overrideWithValue(buildDefaultMapLayerRegistry()),
+      map_view.mapOverlayRegistryProvider
+          .overrideWithValue(buildDefaultMapOverlayRegistry()),
+      map_view.mapConditionsRegistryProvider
+          .overrideWithValue(buildDefaultMapConditionsRegistry()),
       // Wire the sharing gate to live auth status. Tests skip this override
       // and get the default (false), keeping the sharing UI hidden — and,
       // crucially, keeping the auth notifier from being instantiated as a

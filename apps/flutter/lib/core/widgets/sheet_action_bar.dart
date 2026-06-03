@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/app/tokens.dart';
@@ -91,9 +92,9 @@ class SheetActionBar extends StatelessWidget {
 
   Future<void> _showOverflow(
       BuildContext context, List<SheetAction> overflow) {
-    return showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
+    return showExclusiveSheet<void>(
+      context,
+      replace: false,
       builder: (sheetContext) {
         final colorScheme = Theme.of(sheetContext).colorScheme;
         return SafeArea(

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_section_header.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
@@ -30,11 +32,9 @@ class MapLayerButton extends ConsumerWidget {
   }
 
   void _showBottomSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
+    showExclusiveSheet(
+      context,
       backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      useSafeArea: true,
       builder: (BuildContext context) {
         return const LayerSelectionSheet();
       },
@@ -76,17 +76,7 @@ class LayerSelectionSheet extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 12),
-              Center(
-                child: Container(
-                  width: 32,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colorScheme.outlineVariant,
-                    // Drag-handle pill is intentionally tiny; localized here.
-                    borderRadius: const BorderRadius.all(Radius.circular(2)),
-                  ),
-                ),
-              ),
+              const SheetDragHandle(),
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
                 child: Row(
@@ -228,18 +218,12 @@ class LayerSelectionSheet extends ConsumerWidget {
                     text: context.l10n.download,
                     fullWidth: true,
                     onPressed: () {
-                      final mapState = ref.read(mapViewStateProvider);
-                      final activeLayers = ref.read(activeTileLayersProvider);
+                      // Close the layer sheet and select the offline region in
+                      // place on the live map (no pushed screen / second map).
                       Navigator.of(context).pop();
-                      Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) =>
-                            offline_regions_api.RegionCreationPage(
-                          initialCenter: mapState.center,
-                          initialZoom: mapState.zoom,
-                          activeTileLayer:
-                              activeLayers.isNotEmpty ? activeLayers.first : null,
-                        ),
-                      ));
+                      ref
+                          .read(activeMapToolProvider.notifier)
+                          .activate(offline_regions_api.regionSelectToolId);
                     },
                   ),
                 ),

@@ -93,78 +93,58 @@ class _PackraftingCreateScreenState extends ConsumerState<PackraftingCreateScree
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit packrafting trip' : 'New packrafting trip')),
-      body: SafeArea(child: Form(key: _formKey, child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          TextFormField(controller: _name,
-            decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
-            validator: (v) => (v?.trim().isEmpty ?? true) ? 'Required' : null),
-          const SizedBox(height: 12),
-          TextFormField(controller: _description, maxLines: 2,
-            decoration: const InputDecoration(labelText: 'Description (optional)', border: OutlineInputBorder())),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(child: _num(_distance, 'Distance m', required: true)),
-            const SizedBox(width: 8),
-            Expanded(child: _num(_paddle, 'Paddle m', required: true)),
-            const SizedBox(width: 8),
-            Expanded(child: _num(_portage, 'Portage m', required: true)),
-          ]),
-          const SizedBox(height: 16),
-          Text('Typical grade', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 4),
-          DropdownButtonFormField<WaterGrade>(
-            initialValue: _typical,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-            items: WaterGrade.values.map((g) =>
-              DropdownMenuItem(value: g, child: Text(_gradeLabel(g)))).toList(),
-            onChanged: (v) => setState(() => _typical = v ?? WaterGrade.ii)),
-          const SizedBox(height: 8),
-          Text('Max grade', style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 4),
-          DropdownButtonFormField<WaterGrade>(
-            initialValue: _max,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-            items: WaterGrade.values.map((g) =>
-              DropdownMenuItem(value: g, child: Text(_gradeLabel(g)))).toList(),
-            onChanged: (v) => setState(() => _max = v ?? WaterGrade.iii)),
-          const SizedBox(height: 16),
-          TextFormField(controller: _nve,
-            decoration: const InputDecoration(labelText: 'NVE station code (optional)', border: OutlineInputBorder())),
-          const SizedBox(height: 8),
-          Row(children: [
-            Expanded(child: _num(_minFlow, 'Min flow m³/s', required: false)),
-            const SizedBox(width: 8),
-            Expanded(child: _num(_maxFlow, 'Max flow m³/s', required: false)),
-          ]),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: _saving ? null : _drawRoute,
-            icon: const Icon(Icons.timeline_outlined),
-            label: Text(_drawnRoute == null
-                ? 'Draw river course on map'
-                : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
-          ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: _saving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.check),
-            label: const Text('Save')),
-        ],
-      ))),
+    return ActivityCreateScaffold(
+      title: _isEdit ? 'Edit packrafting trip' : 'New packrafting trip',
+      formKey: _formKey,
+      nameController: _name,
+      descriptionController: _description,
+      saving: _saving,
+      onSave: _save,
+      routeButton: OutlinedButton.icon(
+        onPressed: _saving ? null : _drawRoute,
+        icon: const Icon(Icons.timeline_outlined),
+        label: Text(_drawnRoute == null
+            ? 'Draw river course on map'
+            : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
+      ),
+      fields: [
+        Row(children: [
+          Expanded(child: ActivityCreateScaffold.numberField(_distance, 'Distance m')),
+          const SizedBox(width: 8),
+          Expanded(child: ActivityCreateScaffold.numberField(_paddle, 'Paddle m')),
+          const SizedBox(width: 8),
+          Expanded(child: ActivityCreateScaffold.numberField(_portage, 'Portage m')),
+        ]),
+        const SizedBox(height: 16),
+        Text('Typical grade', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<WaterGrade>(
+          initialValue: _typical,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          items: WaterGrade.values.map((g) =>
+            DropdownMenuItem(value: g, child: Text(_gradeLabel(g)))).toList(),
+          onChanged: (v) => setState(() => _typical = v ?? WaterGrade.ii)),
+        const SizedBox(height: 8),
+        Text('Max grade', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<WaterGrade>(
+          initialValue: _max,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          items: WaterGrade.values.map((g) =>
+            DropdownMenuItem(value: g, child: Text(_gradeLabel(g)))).toList(),
+          onChanged: (v) => setState(() => _max = v ?? WaterGrade.iii)),
+        const SizedBox(height: 16),
+        TextFormField(controller: _nve,
+          decoration: const InputDecoration(labelText: 'NVE station code (optional)', border: OutlineInputBorder())),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: ActivityCreateScaffold.numberField(_minFlow, 'Min flow m³/s', required: false)),
+          const SizedBox(width: 8),
+          Expanded(child: ActivityCreateScaffold.numberField(_maxFlow, 'Max flow m³/s', required: false)),
+        ]),
+      ],
     );
   }
-
-  Widget _num(TextEditingController c, String label, {required bool required}) => TextFormField(
-    controller: c, keyboardType: TextInputType.number,
-    decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true),
-    validator: required
-      ? (v) => double.tryParse(v ?? '') == null ? 'Number required' : null
-      : (v) => (v == null || v.isEmpty) ? null : (double.tryParse(v) == null ? 'Number' : null));
 
   static String _gradeLabel(WaterGrade g) => switch (g) {
     WaterGrade.flatwater => 'Flatwater',

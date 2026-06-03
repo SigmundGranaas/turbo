@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:turbo/core/widgets/map/map_line_style.dart';
 import '../data/recording_notifier.dart';
 
 /// Live polyline of the in-flight recording. Renders the points the recorder
@@ -19,8 +20,7 @@ class RecordingTraceLayer extends ConsumerWidget {
     if (!rec.isActive || rec.points.length < 2) {
       return const SizedBox.shrink();
     }
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.error;
+    final color = MapLineStyle.recording;
     return PolylineLayer(
       polylines: [
         Polyline(

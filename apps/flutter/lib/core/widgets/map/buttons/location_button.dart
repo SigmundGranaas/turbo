@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
@@ -102,9 +103,8 @@ class LocationButtonState extends ConsumerState<LocationButton>
   }
 
   void _showLocationSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      useSafeArea: true,
+    showExclusiveSheet(
+      context,
       builder: (BuildContext context) {
         return Consumer(
           builder: (context, ref, _) {
@@ -217,19 +217,9 @@ class LocationButtonState extends ConsumerState<LocationButton>
       );
       return;
     }
-    await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => SavePathSheet(
-        points: result.points,
-        distance: result.distanceMeters,
-        elevations: result.elevations,
-        recordedAt: result.recordedAt,
-        ascent: result.ascent,
-        descent: result.descent,
-        movingTimeSeconds: result.movingTimeSeconds,
-      ),
+    await showExclusiveSheet<bool>(
+      context,
+      builder: (_) => SavePathSheet.fromGeoPath(result.toGeoPath()),
     );
   }
 

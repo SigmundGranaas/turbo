@@ -1020,6 +1020,8 @@ void main() {
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN version INTEGER');
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN updated_at TEXT');
       await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN deleted_at TEXT');
+      // Run v15 migration (planned-vs-actual geometry).
+      await migrationDb.execute('ALTER TABLE $savedPathsTable ADD COLUMN planned_geometry TEXT');
 
       // All 3 paths should survive and have default customization values
       final store = SQLiteSavedPathDataStore(migrationDb);

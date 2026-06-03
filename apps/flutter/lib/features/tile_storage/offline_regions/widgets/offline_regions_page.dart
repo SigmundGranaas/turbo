@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import 'package:turbo/app/tokens.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
 import 'package:turbo/features/map_view/api.dart';
-import 'package:turbo/features/tile_providers/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 
@@ -113,17 +112,12 @@ class OfflineRegionsPage extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          final mapState = ref.read(mapViewStateProvider);
-          final activeLayers = ref.read(activeTileLayersProvider);
-
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => RegionCreationPage(
-              initialCenter: mapState.center,
-              initialZoom: mapState.zoom,
-              activeTileLayer:
-              activeLayers.isNotEmpty ? activeLayers.first : null,
-            ),
-          ));
+          // Return to the map and select the region in place (the region tool
+          // lives on the single shared map, not a pushed screen).
+          Navigator.of(context).pop();
+          ref
+              .read(activeMapToolProvider.notifier)
+              .activate(regionSelectToolId);
         },
         label: Text(l10n.addOfflineRegion),
         icon: const Icon(Icons.download_outlined),

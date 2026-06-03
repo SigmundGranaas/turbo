@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/config/env_config.dart';
@@ -26,10 +27,9 @@ class ShareSheet extends ConsumerStatefulWidget {
   const ShareSheet({super.key, required this.resourceId, this.title});
 
   static Future<void> show(BuildContext context, String resourceId, {String? title}) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    return showExclusiveSheet<void>(
+      context,
+      replace: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

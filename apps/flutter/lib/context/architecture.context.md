@@ -42,7 +42,7 @@ This directory holds code that is truly generic and can be used by any feature, 
 *   `config/`: Environment configuration (`env_config.dart`).
 *   `persistence/`: Abstract data storage interfaces (`MarkerDataStore`) and their concrete implementations (`SQLiteMarkerDataStore`, `IndexedDBMarkerDataStore`).
 *   `providers/`: App-wide providers that are not specific to one feature, like the `markerDataStoreProvider`.
-*   `widgets/`: Truly generic widgets used across multiple features (e.g., `AppDrawer`, `DevModeBanner`).
+*   `widgets/`: Truly generic widgets used across multiple features (e.g., `AppDrawer`).
 
 ### `features/` - The Heart of the Application
 

@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 
-/// A draggable route waypoint dot.
+/// A route waypoint dot.
 ///
-/// Dragging a marker on a [FlutterMap] fights the map's own pan in the
-/// gesture arena — relying on `onPanStart` to then freeze the map loses
-/// the first frames (the map pans instead). So we freeze on pointer
-/// **down** via a [Listener] (`onDragStart`): by the time a pan could
-/// begin, the map already has no drag recognizer, so the dot wins
-/// uncontested. Tap is absorbed (so it doesn't add a stray stop) and
-/// long-press removes the stop. Start is green, end is flagged red,
+/// Interaction model: a **tap removes** the stop; a **press-and-hold then drag
+/// moves** it. Using the long-press gesture for the drag means it wins the
+/// gesture arena outright once recognised, so the map never pans mid-move (no
+/// raw pointer-down freeze needed). Start is green, end is flagged red,
 /// intermediate stops are numbered in the theme primary.
 class RouteWaypointDot extends StatelessWidget {
   final int index;
@@ -16,12 +13,16 @@ class RouteWaypointDot extends StatelessWidget {
   final bool isEnd;
   final bool isDragging;
 
-  /// Pointer went down on the dot — caller should freeze the map.
+  /// Hold recognised — caller should freeze the map / enlarge the dot.
   final VoidCallback onDragStart;
-  final ValueChanged<DragUpdateDetails> onDragUpdate;
 
-  /// Pointer released / cancelled — caller should unfreeze the map.
+  /// Drag move — the global pointer position to project onto the map.
+  final ValueChanged<Offset> onDragUpdate;
+
+  /// Hold released / cancelled — caller should unfreeze the map.
   final VoidCallback onDragEnd;
+
+  /// Tap — remove this stop.
   final VoidCallback onRemove;
 
   const RouteWaypointDot({
@@ -39,21 +40,24 @@ class RouteWaypointDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Fixed, basemap-independent colours: green start, red end, neutral surface
+    // for the via-points (NOT the theme primary/error, which become a pale
+    // "skin" salmon in dark mode and vanish on the always-light topo).
     final fill = isStart
         ? const Color(0xFF2E7D32)
         : isEnd
-            ? scheme.error
-            : scheme.primary;
+            ? const Color(0xFFD32F2F)
+            : scheme.surface;
 
-    return Listener(
-      onPointerDown: (_) => onDragStart(),
-      onPointerUp: (_) => onDragEnd(),
-      onPointerCancel: (_) => onDragEnd(),
-      child: GestureDetector(
+    return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {}, // absorb so the map's onTap doesn't add a stop
-        onLongPress: onRemove,
-        onPanUpdate: onDragUpdate,
+        // Tap removes the stop (also absorbs the tap so the map doesn't append).
+        onTap: onRemove,
+        // Press-and-hold then drag to reposition.
+        onLongPressStart: (_) => onDragStart(),
+        onLongPressMoveUpdate: (d) => onDragUpdate(d.globalPosition),
+        onLongPressEnd: (_) => onDragEnd(),
+        onLongPressCancel: onDragEnd,
         child: MouseRegion(
           cursor: SystemMouseCursors.grab,
           child: Center(
@@ -78,7 +82,6 @@ class RouteWaypointDot extends StatelessWidget {
             ),
           ),
         ),
-      ),
     );
   }
 

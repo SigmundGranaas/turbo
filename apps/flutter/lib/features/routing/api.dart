@@ -11,6 +11,7 @@ export 'data/routing_api_client.dart'
 export 'data/routing_repository.dart' show RoutingRepository;
 export 'models/route_models.dart'
     show RouteRequest, RoutePlan, RouteLeg, RoutePreset;
+export 'models/route_geo_path.dart' show RoutePlanGeoPath;
 export 'providers/routing_providers.dart'
     show
         routingBaseUrlProvider,
@@ -21,4 +22,5 @@ export 'data/route_planning_notifier.dart'
     show RoutePlanningNotifier, routePlanningProvider;
 export 'data/route_planning_state.dart' show RoutePlanningState;
 export 'widgets/route_layer.dart' show RoutePolylineLayer;
-export 'widgets/route_planning_page.dart' show RoutePlanningPage;
+export 'widgets/route_planning_tool.dart'
+    show routePlanningTool, routePlanningToolId;

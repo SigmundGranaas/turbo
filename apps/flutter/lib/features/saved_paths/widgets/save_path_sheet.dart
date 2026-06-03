@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:turbo/core/geo/geo_path.dart';
 import 'package:turbo/core/widgets/app_button.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
 import 'package:turbo/core/widgets/app_text_field.dart';
@@ -22,6 +23,10 @@ class SavePathSheet extends ConsumerStatefulWidget {
   final double? descent;
   final int? movingTimeSeconds;
 
+  /// The planned route this track was recorded against, if any — persisted so
+  /// the detail view can show how closely the walk matched the plan.
+  final List<LatLng>? plannedGeometry;
+
   const SavePathSheet({
     super.key,
     required this.points,
@@ -32,7 +37,32 @@ class SavePathSheet extends ConsumerStatefulWidget {
     this.ascent,
     this.descent,
     this.movingTimeSeconds,
+    this.plannedGeometry,
   });
+
+  /// Build the save sheet from the shared [GeoPath] value type. This is the
+  /// preferred entry point — every producer (route, recording, measure)
+  /// converts to a `GeoPath` first, so there is a single mapping into the
+  /// persistence form rather than one ad-hoc field copy per call site.
+  factory SavePathSheet.fromGeoPath(
+    GeoPath path, {
+    Key? key,
+    bool isSmoothing = false,
+    List<LatLng>? plannedGeometry,
+  }) {
+    return SavePathSheet(
+      key: key,
+      points: path.points,
+      distance: path.distanceM,
+      elevations: path.elevations,
+      recordedAt: path.recordedAt,
+      ascent: path.ascentM,
+      descent: path.descentM,
+      movingTimeSeconds: path.movingTimeSeconds,
+      isSmoothing: isSmoothing,
+      plannedGeometry: plannedGeometry,
+    );
+  }
 
   @override
   ConsumerState<SavePathSheet> createState() => _SavePathSheetState();
@@ -206,6 +236,7 @@ class _SavePathSheetState extends ConsumerState<SavePathSheet> {
         ascent: widget.ascent,
         descent: widget.descent,
         movingTimeSeconds: widget.movingTimeSeconds,
+        plannedGeometry: widget.plannedGeometry,
       );
 
       await ref.read(savedPathRepositoryProvider.notifier).addPath(path);

@@ -82,112 +82,76 @@ class _FishingCreateScreenState extends ConsumerState<FishingCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEdit ? 'Edit fishing spot' : 'New fishing spot'),
-      ),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              TextFormField(
-                controller: _name,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _description,
-                decoration: const InputDecoration(
-                  labelText: 'Description (optional)',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 16),
-              Text('Water kind', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              SegmentedButton<WaterKind>(
-                segments: const [
-                  ButtonSegment(value: WaterKind.river, label: Text('River')),
-                  ButtonSegment(value: WaterKind.lake, label: Text('Lake')),
-                  ButtonSegment(value: WaterKind.sea, label: Text('Sea')),
-                ],
-                selected: {_waterKind},
-                onSelectionChanged: (s) => setState(() => _waterKind = s.first),
-              ),
-              const SizedBox(height: 16),
-              Text('Access', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              SegmentedButton<ShoreOrBoat>(
-                segments: const [
-                  ButtonSegment(value: ShoreOrBoat.shore, label: Text('Shore')),
-                  ButtonSegment(value: ShoreOrBoat.boat, label: Text('Boat')),
-                  ButtonSegment(value: ShoreOrBoat.either, label: Text('Either')),
-                ],
-                selected: {_shoreOrBoat},
-                onSelectionChanged: (s) => setState(() => _shoreOrBoat = s.first),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _accessNotes,
-                decoration: const InputDecoration(
-                  labelText: 'Access notes (optional)',
-                  border: OutlineInputBorder(),
-                  hintText: 'Where to park, scrambles, gates, …',
-                ),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 20),
-              Text('Preferred conditions (optional)',
-                  style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              Text(
-                'Used to score weather and tides for this spot.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                      child: _preferredIntField(
-                          _pressureMin, 'Pressure min (hPa)')),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: _preferredIntField(
-                          _pressureMax, 'Pressure max (hPa)')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              _preferredDoubleField(_windMax, 'Max wind (m/s)'),
-              const SizedBox(height: 12),
-              ListTile(
-                leading: const Icon(Icons.location_on_outlined),
-                title: const Text('Location'),
-                subtitle: Text(
-                  '${_position.latitude.toStringAsFixed(5)}, '
-                  '${_position.longitude.toStringAsFixed(5)}',
-                ),
-                contentPadding: EdgeInsets.zero,
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.check),
-                label: const Text('Save'),
-              ),
-            ],
-          ),
+    return ActivityCreateScaffold(
+      title: _isEdit ? 'Edit fishing spot' : 'New fishing spot',
+      formKey: _formKey,
+      nameController: _name,
+      descriptionController: _description,
+      saving: _saving,
+      onSave: _save,
+      fields: [
+        Text('Water kind', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        SegmentedButton<WaterKind>(
+          segments: const [
+            ButtonSegment(value: WaterKind.river, label: Text('River')),
+            ButtonSegment(value: WaterKind.lake, label: Text('Lake')),
+            ButtonSegment(value: WaterKind.sea, label: Text('Sea')),
+          ],
+          selected: {_waterKind},
+          onSelectionChanged: (s) => setState(() => _waterKind = s.first),
         ),
-      ),
+        const SizedBox(height: 16),
+        Text('Access', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        SegmentedButton<ShoreOrBoat>(
+          segments: const [
+            ButtonSegment(value: ShoreOrBoat.shore, label: Text('Shore')),
+            ButtonSegment(value: ShoreOrBoat.boat, label: Text('Boat')),
+            ButtonSegment(value: ShoreOrBoat.either, label: Text('Either')),
+          ],
+          selected: {_shoreOrBoat},
+          onSelectionChanged: (s) => setState(() => _shoreOrBoat = s.first),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _accessNotes,
+          decoration: const InputDecoration(
+            labelText: 'Access notes (optional)',
+            border: OutlineInputBorder(),
+            hintText: 'Where to park, scrambles, gates, …',
+          ),
+          maxLines: 2,
+        ),
+        const SizedBox(height: 20),
+        Text('Preferred conditions (optional)',
+            style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        Text(
+          'Used to score weather and tides for this spot.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(child: _preferredIntField(_pressureMin, 'Pressure min (hPa)')),
+            const SizedBox(width: 8),
+            Expanded(child: _preferredIntField(_pressureMax, 'Pressure max (hPa)')),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _preferredDoubleField(_windMax, 'Max wind (m/s)'),
+        const SizedBox(height: 12),
+        ListTile(
+          leading: const Icon(Icons.location_on_outlined),
+          title: const Text('Location'),
+          subtitle: Text(
+            '${_position.latitude.toStringAsFixed(5)}, '
+            '${_position.longitude.toStringAsFixed(5)}',
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+      ],
     );
   }
 

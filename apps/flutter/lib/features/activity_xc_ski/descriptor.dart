@@ -6,7 +6,6 @@ import 'package:turbo/features/activities/api.dart';
 import 'models/xc_ski_analysis_extras.dart';
 import 'widgets/xc_ski_create_screen.dart';
 import 'widgets/xc_ski_detail_sheet.dart';
-import 'widgets/xc_ski_route_marker.dart';
 
 const _color = Color(0xFF0288D1);
 
@@ -22,7 +21,6 @@ final xcSkiActivityKindDescriptor = ActivityKindDescriptor(
   // ActivityDetailScreen with the shell's app bar and chrome instead
   // of a 60% bottom sheet.
   buildDetailContent: (ctx, id) => XcSkiDetailSheet(activityId: id),
-  buildMapMarker: (summary) => XcSkiRouteMarker(summary: summary),
   parseAnalysisExtras: (slices) => XcSkiAnalysisExtras.tryParse(slices['xc_ski']),
   buildMapPolyline: (summary) => Polyline(
     points: summary.geometry.coordinates,

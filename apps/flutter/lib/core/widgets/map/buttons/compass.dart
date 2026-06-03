@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -77,9 +78,8 @@ class _CustomMapCompassState extends ConsumerState<CustomMapCompass> with Ticker
 
   void _showCompassSheet(BuildContext context) {
     final l10n = context.l10n;
-    showModalBottomSheet(
-      context: context,
-      useSafeArea: true,
+    showExclusiveSheet(
+      context,
       builder: (BuildContext context) {
         return Consumer(
           builder: (context, ref, _) {

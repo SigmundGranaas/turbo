@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo/core/location/compass_state.dart';
 import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/features/map_view/widgets/mode_indicator.dart';
-import 'package:turbo/features/map_view/widgets/pin_options_sheet.dart';
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/search/api.dart';
 import 'package:turbo/features/weather/api.dart';
@@ -32,10 +31,11 @@ class _StubLocation extends LocationState {
   Future<LatLng?> build() async => _pos;
 }
 
-/// Hosts a button that opens [PinOptionsSheet] as a proper modal (so
-/// `Navigator.pop(context)` inside the sheet's onTaps closes the sheet, not
-/// the test route). The [ModeIndicator] sits on the underlying screen so we
-/// can observe the navigation chip light up after the user taps "Navigate".
+/// Drives the navigation state the way the coordinate detail sheet's "Navigate"
+/// / "Stop Navigation" actions do, with the [ModeIndicator] on the underlying
+/// screen so we can observe the navigation chip light up. (The coordinate
+/// actions now live in the shared detail host; this harness exercises the same
+/// state transitions the chip reacts to.)
 class _NavigateFlowHarness extends ConsumerWidget {
   final LatLng target;
   const _NavigateFlowHarness({required this.target});
@@ -43,31 +43,19 @@ class _NavigateFlowHarness extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final navState = ref.watch(navigationStateProvider);
+    final notifier = ref.read(navigationStateProvider.notifier);
     return Stack(
       children: [
         Center(
-          child: ElevatedButton(
-            child: const Text('open sheet'),
-            onPressed: () => showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              useSafeArea: true,
-              backgroundColor: Colors.transparent,
-              builder: (_) => PinOptionsSheet(
-                point: target,
-                isNavigating: navState.isActive,
-                onCreateMarker: (_) {},
-                onCreateActivity: () {},
-                onMeasure: () {},
-                onNavigate: () => ref
-                    .read(navigationStateProvider.notifier)
-                    .startNavigation(target),
-                onStopNavigation: () => ref
-                    .read(navigationStateProvider.notifier)
-                    .stopNavigation(),
-              ),
-            ),
-          ),
+          child: navState.isActive
+              ? ElevatedButton(
+                  onPressed: notifier.stopNavigation,
+                  child: const Text('Stop Navigation'),
+                )
+              : ElevatedButton(
+                  onPressed: () => notifier.startNavigation(target),
+                  child: const Text('Navigate Here'),
+                ),
         ),
         const ModeIndicator(),
       ],
@@ -81,7 +69,7 @@ void main() {
 
     testWidgets(
         'tapping "Navigate Here" starts navigation and surfaces the '
-        'Following chip in the mode indicator', (tester) async {
+        'navigation chip in the mode indicator', (tester) async {
       await pumpTestApp(
         tester,
         const _NavigateFlowHarness(target: target),
@@ -95,21 +83,20 @@ void main() {
       );
 
       // Sanity: indicator empty before any action.
-      expect(find.text('Following'), findsNothing);
+      expect(find.byIcon(Icons.navigation), findsNothing);
 
-      await tester.tap(find.text('open sheet'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Navigate Here'));
       await tester.pumpAndSettle();
 
-      // Sheet closed; mode indicator now shows the Following chip because
-      // startNavigation flipped followModeProvider.
-      expect(find.text('Following'), findsOneWidget);
+      // The consolidated status chip now shows the navigation chip (distance +
+      // direction). Follow is implied by the journey, so there is no separate
+      // redundant "Following" chip stacked alongside it.
+      expect(find.byIcon(Icons.navigation), findsOneWidget);
     });
 
     testWidgets(
-        're-opening the sheet while navigating shows "Stop Navigation" and '
-        'tapping it returns the state to inactive', (tester) async {
+        'while navigating the control reads "Stop Navigation" and tapping it '
+        'returns the state to inactive', (tester) async {
       await pumpTestApp(
         tester,
         const _NavigateFlowHarness(target: target),
@@ -122,23 +109,16 @@ void main() {
         ],
       );
 
-      // Start navigation.
-      await tester.tap(find.text('open sheet'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Navigate Here'));
       await tester.pumpAndSettle();
 
-      // Re-open the sheet — it now reads as Stop.
-      await tester.tap(find.text('open sheet'));
-      await tester.pumpAndSettle();
+      // The control now reads as Stop.
       expect(find.text('Stop Navigation'), findsOneWidget);
 
       await tester.tap(find.text('Stop Navigation'));
       await tester.pumpAndSettle();
 
-      // Re-open once more — back to "Navigate Here".
-      await tester.tap(find.text('open sheet'));
-      await tester.pumpAndSettle();
+      // Back to "Navigate Here".
       expect(find.text('Navigate Here'), findsOneWidget);
     });
 
@@ -158,8 +138,6 @@ void main() {
         ],
       );
 
-      await tester.tap(find.text('open sheet'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Navigate Here'));
       await tester.pumpAndSettle();
 
@@ -191,8 +169,6 @@ void main() {
         ],
       );
 
-      await tester.tap(find.text('open sheet'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Navigate Here'));
       await tester.pumpAndSettle();
 
@@ -224,20 +200,13 @@ void main() {
       );
 
       for (final _ in [1, 2]) {
-        await tester.tap(find.text('open sheet'));
-        await tester.pumpAndSettle();
         await tester.tap(find.text('Navigate Here'));
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.text('open sheet'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Stop Navigation'));
         await tester.pumpAndSettle();
       }
 
-      // After the loop the sheet defaults back to Navigate Here.
-      await tester.tap(find.text('open sheet'));
-      await tester.pumpAndSettle();
+      // After the loop the control defaults back to Navigate Here.
       expect(find.text('Navigate Here'), findsOneWidget);
     });
   });

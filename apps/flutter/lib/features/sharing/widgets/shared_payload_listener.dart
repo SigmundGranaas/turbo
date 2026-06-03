@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -51,10 +52,8 @@ class _SharedPayloadListenerState
     };
     if (center != null) widget.onCenter?.call(center);
 
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    showExclusiveSheet<void>(
+      context,
       builder: (_) => switch (payload) {
         SharedMarkerPayload(:final marker) =>
           SharedMarkerPreviewSheet(marker: marker),

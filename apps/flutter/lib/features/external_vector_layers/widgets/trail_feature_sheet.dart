@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
 import 'package:turbo/app/tokens.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
+import 'package:turbo/features/map_view/api.dart';
+import 'package:turbo/features/saved_paths/api.dart'
+    show SavePathSheet, PathStatsPanel;
+import '../data/vector_geo_path.dart';
 import '../models/vector_feature.dart';
 import 'trail_property_decoder.dart';
 
@@ -73,7 +80,7 @@ class TrailFeatureSheet extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.xl, AppSpacing.m, AppSpacing.xl, AppSpacing.xl),
             children: [
-              _DragHandle(),
+              const SheetDragHandle(),
               const SizedBox(height: AppSpacing.m),
               _Header(
                 subtypeLabel: subtypeLabel,
@@ -81,6 +88,31 @@ class TrailFeatureSheet extends StatelessWidget {
                 routeNumber: decoded.routeNumber,
                 accent: accent,
               ),
+              if (feature.toGeoPath() != null) ...[
+                const SizedBox(height: AppSpacing.l),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final title = decoded.title ?? l10n.trailNameUnknown;
+                    final path = feature.toGeoPath();
+                    return MapEntityActionBar(
+                      entity: MapEntityActionContext(
+                        ref: ref,
+                        context: context,
+                        title: title,
+                        path: path,
+                        // A curated trail can be captured as your own track.
+                        onSaveAsTrack: () => showExclusiveSheet<bool>(
+                          context,
+                          builder: (_) => SavePathSheet.fromGeoPath(path!),
+                        ),
+                        afterJourneyAction: () => Navigator.pop(context),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: AppSpacing.m),
+                PathStatsPanel(path: feature.toGeoPath()!),
+              ],
               if (decoded.hasChips) ...[
                 const SizedBox(height: AppSpacing.l),
                 _ChipsRow(decoded: decoded, accent: accent),
@@ -131,25 +163,6 @@ class TrailFeatureSheet extends StatelessWidget {
         const SizedBox(height: AppSpacing.s),
       ],
     ];
-  }
-}
-
-class _DragHandle extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: Theme.of(context)
-              .colorScheme
-              .onSurfaceVariant
-              .withValues(alpha: 0.4),
-          borderRadius: BorderRadius.circular(AppRadius.s),
-        ),
-      ),
-    );
   }
 }
 

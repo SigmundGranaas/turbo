@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 import '../data/avalanche_forecast_notifier.dart';
 import '../models/avalanche_warning.dart';
 
@@ -60,17 +61,7 @@ class AvalancheWarningSheet extends ConsumerWidget {
       controller: controller,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
       children: [
-        Center(
-          child: Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.onSurfaceVariant
-                  .withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ),
+        const SheetDragHandle(),
         const SizedBox(height: 16),
         Text(l10n.avalancheForecast, style: theme.textTheme.titleLarge),
         const SizedBox(height: 4),

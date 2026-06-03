@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
-import 'package:turbo/app/shadows.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/core/widgets/map/map_marker_pin.dart';
 import 'package:turbo/features/collections/api.dart';
 import 'package:turbo/features/markers/api.dart' as marker_model;
 import 'package:turbo/features/markers/api.dart' hide Marker;
@@ -106,17 +106,17 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
     Marker buildMarker(marker_model.Marker location, double offsetY) {
       final namedIcon = iconService.getIcon(context, location.icon);
       const double markerScale = 1.0;
-      const double markerHeight = MapMarkerWidget.baseHeight * markerScale;
+      const double markerHeight = MapMarkerPin.baseHeight * markerScale;
       final isSelected = selection.contains(location.uuid);
       return Marker(
-        width: MapMarkerWidget.baseWidth * markerScale,
+        width: MapMarkerPin.baseWidth * markerScale,
         height: markerHeight,
         point: location.position,
         alignment: Alignment.bottomCenter,
         child: Transform.translate(
           offset: Offset(0, offsetY),
-          child: MapMarkerWidget(
-            namedIcon: namedIcon,
+          child: MapMarkerPin(
+            icon: location.icon != null ? namedIcon.icon : null,
             title: location.title,
             isSelected: isSelected,
             onTap: () => _handleMarkerTap(context, location),
@@ -133,7 +133,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
       data: (locations) => MarkerLayer(
         markers: applyFilter(locations)
             .map((l) =>
-                buildMarker(l, -MapMarkerWidget.baseHeight))
+                buildMarker(l, -MapMarkerPin.baseHeight))
             .toList(),
       ),
       loading: () {
@@ -142,7 +142,7 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
         if (previousData != null && previousData.isNotEmpty) {
           return MarkerLayer(
             markers: applyFilter(previousData)
-                .map((l) => buildMarker(l, -MapMarkerWidget.baseHeight / 2))
+                .map((l) => buildMarker(l, -MapMarkerPin.baseHeight / 2))
                 .toList(),
           );
         }
@@ -169,10 +169,8 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
   void _showInfoSheet(
       BuildContext context, WidgetRef ref, marker_model.Marker marker) async {
     final l10n = context.l10n;
-    final result = await showModalBottomSheet<MarkerInfoResult>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final result = await showExclusiveSheet<MarkerInfoResult>(
+      context,
       builder: (_) => MarkerInfoSheet(marker: marker),
     );
     if (!context.mounted) return;
@@ -185,164 +183,5 @@ class _ViewportMarkersState extends ConsumerState<ViewportMarkers> {
     } else if (result == MarkerInfoResult.deleted) {
       AppSnackbars.success(context, l10n.markerDeleted);
     }
-  }
-}
-
-class MapMarkerWidget extends StatefulWidget {
-  final NamedIcon namedIcon;
-  final String title;
-  final VoidCallback onTap;
-  final VoidCallback? onLongPress;
-  final bool isSelected;
-  final double scale;
-
-  static const double baseWidth = 40.0;
-  static const double baseHeight = 60.0; // Adjusted for a taller, more classic look
-  static const double iconSize = 24.0;
-
-  const MapMarkerWidget({
-    super.key,
-    required this.namedIcon,
-    required this.title,
-    required this.onTap,
-    this.onLongPress,
-    this.isSelected = false,
-    this.scale = 1.0,
-  });
-
-  @override
-  State<MapMarkerWidget> createState() => _MapMarkerWidgetState();
-}
-
-class _MapMarkerWidgetState extends State<MapMarkerWidget> {
-  bool _isHovering = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    final width = MapMarkerWidget.baseWidth * widget.scale;
-    final height = MapMarkerWidget.baseHeight * widget.scale;
-    final iconSizeScaled = MapMarkerWidget.iconSize * widget.scale;
-    final circleRadius = width / 2;
-    final pinColor = widget.isSelected
-        ? colorScheme.secondaryContainer
-        : colorScheme.surface;
-
-    final pinWidget = CustomPaint(
-      size: Size(width, height),
-      painter: DropletPainter(
-        color: pinColor,
-      ),
-      child: Center(
-        child: Padding(
-          padding: EdgeInsets.only(bottom: height - (circleRadius * 2)),
-          child: Icon(
-            widget.namedIcon.icon,
-            color: widget.isSelected
-                ? colorScheme.onSecondaryContainer
-                : colorScheme.primary,
-            size: iconSizeScaled,
-          ),
-        ),
-      ),
-    );
-
-    final labelWidget = AnimatedOpacity(
-      opacity: _isHovering ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 150),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: 8.0 * widget.scale,
-          vertical: 4.0 * widget.scale,
-        ),
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8.0 * widget.scale),
-          boxShadow: AppShadows.mapOverlay,
-        ),
-        child: Text(
-          widget.title,
-          style: textTheme.labelMedium?.copyWith(
-            fontWeight: FontWeight.w500,
-            color: colorScheme.onSurface,
-            fontSize: (textTheme.labelMedium?.fontSize ?? 12) * widget.scale,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    );
-
-    return SizedBox(
-      width: width,
-      height: height,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _isHovering = true),
-          onExit: (_) => setState(() => _isHovering = false),
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.topCenter,
-            children: [
-              pinWidget,
-              Positioned(
-                top: height,
-                child: labelWidget,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class DropletPainter extends CustomPainter {
-  final Color color;
-  final double scale;
-
-  DropletPainter({
-    required this.color,
-    this.scale = 1.0,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final double w = size.width;
-    final double h = size.height;
-    final double circleRadius = w / 2;
-    final Offset center = Offset(w / 2, circleRadius);
-
-    final paintFill = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    final path = Path()
-      ..moveTo(w / 2, h)
-      ..cubicTo(
-          w / 2, h * 0.80,
-          0, h * 0.65,
-          0, circleRadius
-      )
-      ..arcTo(Rect.fromCircle(center: center, radius: circleRadius),
-          math.pi, math.pi, false)
-      ..cubicTo(
-          w, h * 0.65,
-          w / 2, h * 0.80,
-          w / 2, h
-      )
-      ..close();
-
-    canvas.drawPath(path, paintFill);
-  }
-
-  @override
-  bool shouldRepaint(covariant DropletPainter oldDelegate) {
-    return oldDelegate.color != color || oldDelegate.scale != scale;
   }
 }

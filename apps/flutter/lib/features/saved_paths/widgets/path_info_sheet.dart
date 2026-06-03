@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/core/widgets/app_dialog.dart';
-import 'package:turbo/core/widgets/sheet_action_bar.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/core/widgets/sheet_drag_handle.dart';
 import 'package:turbo/features/collections/api.dart';
+import 'package:turbo/features/map_view/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
 import '../data/saved_path_repository.dart';
 import '../models/path_style.dart';
 import '../models/saved_path.dart';
+import '../models/saved_path_geo_path.dart';
 import 'export_options_sheet.dart';
 import 'path_detail_sheet.dart';
+import 'path_stats_panel.dart';
 
 class PathInfoSheet extends ConsumerStatefulWidget {
   final SavedPath path;
@@ -52,6 +56,7 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SheetDragHandle(),
           // Header: icon + title + close
           Row(
             children: [
@@ -85,21 +90,14 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Details
-          Row(
-            children: [
-              Icon(Icons.straighten,
-                  size: 18, color: colorScheme.onSurfaceVariant),
-              const SizedBox(width: 8),
-              Text(
-                '${l10n.totalDistance}: ${(_path.distance / 1000).toStringAsFixed(2)} km',
-                style: textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
+          // Shared stats + elevation profile (distance · ascent · descent · ETA),
+          // plus a planned-vs-actual row when this track was recorded against a
+          // planned route.
+          PathStatsPanel(
+            path: _path.toGeoPath(),
+            plannedGeometry: _path.plannedGeometry,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Row(
             children: [
               Icon(Icons.calendar_today_outlined,
@@ -136,26 +134,22 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Actions — same adaptive bar the marker info sheet uses.
-          SheetActionBar(
-            actions: [
-              SheetAction(
-                icon: Icons.edit_outlined,
-                label: l10n.edit,
-                onPressed: _openEdit,
-              ),
-              SheetAction(
-                icon: Icons.ios_share_outlined,
-                label: l10n.export,
-                onPressed: _openExport,
-              ),
-              SheetAction(
-                icon: Icons.delete_outline,
-                label: l10n.delete,
-                onPressed: _isDeleting ? null : _confirmDelete,
-                isDestructive: true,
-              ),
-            ],
+          // Unified entity action bar: Follow + Track come from the registry
+          // (the path capability), Edit/Export/Delete are wired via callbacks.
+          MapEntityActionBar(
+            // Follow · Track · Edit · Export · Delete — keep all inline so the
+            // destructive action stays one tap away.
+            maxInline: 5,
+            entity: MapEntityActionContext(
+              ref: ref,
+              context: context,
+              title: _path.title,
+              path: _path.toGeoPath(),
+              onEdit: _openEdit,
+              onExport: _openExport,
+              onDelete: _isDeleting ? null : _confirmDelete,
+              afterJourneyAction: () => Navigator.pop(context),
+            ),
           ),
         ],
       ),
@@ -173,10 +167,9 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
   }
 
   Future<void> _openEdit() async {
-    final result = await showModalBottomSheet<PathDetailResult>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    final result = await showExclusiveSheet<PathDetailResult>(
+      context,
+      replace: false,
       builder: (_) => PathDetailSheet(path: _path),
     );
     if (result != null && mounted) {
@@ -185,10 +178,9 @@ class _PathInfoSheetState extends ConsumerState<PathInfoSheet> {
   }
 
   void _openExport() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    showExclusiveSheet(
+      context,
+      replace: false,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

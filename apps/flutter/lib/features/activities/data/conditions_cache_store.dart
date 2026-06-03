@@ -34,7 +34,6 @@ class CachedPayload {
 
 /// Conditions-report cache (last successful /conditions response).
 typedef ConditionsCacheStore = PayloadCacheStore;
-typedef CachedConditions = CachedPayload;
 
 /// Activity detail cache (last successful /api/activities/{kind}/{id}).
 typedef ActivityDetailsCacheStore = PayloadCacheStore;

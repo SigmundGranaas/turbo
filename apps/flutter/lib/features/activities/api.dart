@@ -5,6 +5,7 @@
 
 export 'models/activity_geometry.dart'
     show ActivityGeometry, ActivityGeometryKind;
+export 'data/activity_geo_path.dart' show ActivityGeometryGeoPath;
 export 'models/activity_summary.dart' show ActivitySummary, ActivitySummaryTombstone;
 export 'models/activity_kind_descriptor.dart' show ActivityKindDescriptor;
 export 'models/driver_keys.dart' show DriverKeys;
@@ -31,6 +32,7 @@ export 'data/activity_summaries_api.dart'
 export 'data/conditions_cache.dart'
     show fetchConditionsCached, fetchActivityCached, fetchAnalysisCached;
 export 'widgets/activity_create_picker.dart' show ActivityCreatePicker;
+export 'widgets/activity_create_scaffold.dart' show ActivityCreateScaffold;
 export 'widgets/activities_map_layer.dart' show ActivitiesMapLayer;
 export 'widgets/route_drawing_screen.dart'
     show RouteDrawingScreen, routeDistanceMeters;

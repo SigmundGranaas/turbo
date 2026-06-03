@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:turbo/core/widgets/exclusive_sheet.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+import 'package:turbo/core/geo/geo_path.dart';
 import 'package:turbo/core/widgets/app_snackbars.dart';
+import 'package:turbo/features/journey/api.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
 import 'package:turbo/features/sharing/api.dart';
@@ -92,6 +95,22 @@ class _LoadedState extends ConsumerState<_Loaded> {
     });
   }
 
+  /// Stitch the collection's saved paths (in order) into one [GeoPath] and
+  /// follow it as a single journey — "follow trip". Returns to the map so the
+  /// active-outing panel takes over.
+  void _followTrip(BuildContext context, List<SavedPath> tripPaths) {
+    final points = [for (final p in tripPaths) ...p.points];
+    if (points.length < 2) {
+      AppSnackbars.info(context, 'This collection has no route to follow yet.');
+      return;
+    }
+    ref.read(activeJourneyProvider.notifier).followPath(
+          GeoPath.fromPoints(points, source: GeoPathSource.saved),
+          label: widget.collection.name,
+        );
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -114,10 +133,23 @@ class _LoadedState extends ConsumerState<_Loaded> {
     final markerByUuid = {for (final m in markers) m.uuid: m};
     final pathByUuid = {for (final p in paths) p.uuid: p};
 
+    // The collection's paths in insertion order — the "trip" you can follow as
+    // one continuous journey.
+    final tripPaths = [
+      for (final r in pathRefs)
+        if (pathByUuid[r.uuid] != null) pathByUuid[r.uuid]!,
+    ];
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.collection.name),
         actions: [
+          if (tripPaths.isNotEmpty)
+            IconButton(
+              tooltip: 'Follow trip',
+              icon: const Icon(Icons.directions_walk),
+              onPressed: () => _followTrip(context, tripPaths),
+            ),
           IconButton(
             tooltip: isVisible ? l10n.visibleOnMap : l10n.hiddenOnMap,
             icon: Icon(isVisible
@@ -316,10 +348,8 @@ class _MarkerRow extends ConsumerWidget {
           : null,
       trailing: const Icon(Icons.chevron_right),
       onTap: () async {
-        final result = await showModalBottomSheet<MarkerInfoResult>(
-          context: context,
-          isScrollControlled: true,
-          useSafeArea: true,
+        final result = await showExclusiveSheet<MarkerInfoResult>(
+          context,
           builder: (_) => MarkerInfoSheet(marker: marker),
         );
         if (!context.mounted) return;
@@ -362,10 +392,8 @@ class _PathRow extends ConsumerWidget {
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () async {
-        final result = await showModalBottomSheet<PathDetailResult>(
-          context: context,
-          isScrollControlled: true,
-          useSafeArea: true,
+        final result = await showExclusiveSheet<PathDetailResult>(
+          context,
           builder: (_) => PathInfoSheet(path: path),
         );
         if (!context.mounted) return;

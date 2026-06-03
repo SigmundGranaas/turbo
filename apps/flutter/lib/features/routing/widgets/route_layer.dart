@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 
+import 'package:turbo/core/widgets/map/map_line_style.dart';
 import '../models/route_models.dart';
 
 /// Renders a planned route as a polyline on a [FlutterMap]. Drop it into
@@ -33,8 +34,8 @@ class RoutePolylineLayer extends StatelessWidget {
     // light or dark mode (theme `onSurface` flips to near-white in dark
     // mode, which is why it looked "skin"-light before). Dark slate line
     // over a white halo.
-    final main = color ?? const Color(0xFF15233A);
-    final casing = Colors.white.withValues(alpha: 0.92);
+    final main = color ?? MapLineStyle.path;
+    final casing = MapLineStyle.casing;
 
     return PolylineLayer(
       polylines: [

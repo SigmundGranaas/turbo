@@ -102,117 +102,86 @@ class _HikingCreateScreenState extends ConsumerState<HikingCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'Edit hike' : 'New hike')),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              TextFormField(controller: _name,
-                decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
-                validator: (v) => (v?.trim().isEmpty ?? true) ? 'Required' : null),
-              const SizedBox(height: 12),
-              TextFormField(controller: _description, maxLines: 2,
-                decoration: const InputDecoration(labelText: 'Description (optional)', border: OutlineInputBorder())),
-              const SizedBox(height: 16),
-              Row(children: [
-                Expanded(child: _num(_distance, 'Distance m')),
-                const SizedBox(width: 8),
-                // `estimatedHours` is nullable on the model — leave
-                // empty to omit it. Editing an activity that was
-                // saved without an estimate would otherwise be
-                // blocked by a "Number required" validator.
-                Expanded(child: _num(_hours, 'Hours', required: false)),
-              ]),
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: _num(_ascent, 'Ascent m')),
-                const SizedBox(width: 8),
-                Expanded(child: _num(_descent, 'Descent m')),
-              ]),
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: _num(_elevMin, 'Min elev m')),
-                const SizedBox(width: 8),
-                Expanded(child: _num(_elevMax, 'Max elev m')),
-              ]),
-              const SizedBox(height: 16),
-              Text('Difficulty', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 4),
-              SegmentedButton<HikingDifficulty>(
-                segments: const [
-                  ButtonSegment(value: HikingDifficulty.easy, label: Text('Easy')),
-                  ButtonSegment(value: HikingDifficulty.moderate, label: Text('Moderate')),
-                  ButtonSegment(value: HikingDifficulty.hard, label: Text('Hard')),
-                  ButtonSegment(value: HikingDifficulty.expert, label: Text('Expert')),
-                ],
-                selected: {_difficulty},
-                onSelectionChanged: (s) => setState(() => _difficulty = s.first),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<TrailSurface>(
-                initialValue: _surface,
-                decoration: const InputDecoration(labelText: 'Surface', border: OutlineInputBorder()),
-                items: TrailSurface.values.map((s) =>
-                  DropdownMenuItem(value: s, child: Text(s.name))).toList(),
-                onChanged: (v) => setState(() => _surface = v ?? TrailSurface.path),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<TrailMarking>(
-                initialValue: _marking,
-                decoration: const InputDecoration(labelText: 'Marking', border: OutlineInputBorder()),
-                items: TrailMarking.values.map((m) =>
-                  DropdownMenuItem(value: m, child: Text(m.name))).toList(),
-                onChanged: (v) => setState(() => _marking = v ?? TrailMarking.signposted),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile(value: _water, onChanged: (v) => setState(() => _water = v),
-                title: const Text('Water sources along trail'), contentPadding: EdgeInsets.zero),
-              SwitchListTile(value: _shelter, onChanged: (v) => setState(() => _shelter = v),
-                title: const Text('Shelter or hut on route'), contentPadding: EdgeInsets.zero),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: _saving ? null : _drawRoute,
-                icon: const Icon(Icons.timeline_outlined),
-                label: Text(_drawnRoute == null
-                    ? 'Draw route on map'
-                    : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.check),
-                label: const Text('Save'),
-              ),
-            ],
-          ),
-        ),
+    return ActivityCreateScaffold(
+      title: _isEdit ? 'Edit hike' : 'New hike',
+      formKey: _formKey,
+      nameController: _name,
+      descriptionController: _description,
+      saving: _saving,
+      onSave: _save,
+      routeButton: OutlinedButton.icon(
+        onPressed: _saving ? null : _drawRoute,
+        icon: const Icon(Icons.timeline_outlined),
+        label: Text(_drawnRoute == null
+            ? 'Draw route on map'
+            : 'Drawn: ${_drawnRoute!.length} pts · ${(routeDistanceMeters(_drawnRoute!) / 1000).toStringAsFixed(2)} km'),
       ),
+      fields: [
+        Row(children: [
+          Expanded(child: ActivityCreateScaffold.numberField(_distance, 'Distance m')),
+          const SizedBox(width: 8),
+          // `estimatedHours` is nullable on the model — leave empty to omit it.
+          Expanded(
+              child: ActivityCreateScaffold.numberField(_hours, 'Hours',
+                  required: false)),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: ActivityCreateScaffold.numberField(_ascent, 'Ascent m')),
+          const SizedBox(width: 8),
+          Expanded(child: ActivityCreateScaffold.numberField(_descent, 'Descent m')),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: ActivityCreateScaffold.numberField(_elevMin, 'Min elev m')),
+          const SizedBox(width: 8),
+          Expanded(child: ActivityCreateScaffold.numberField(_elevMax, 'Max elev m')),
+        ]),
+        const SizedBox(height: 16),
+        Text('Difficulty', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 4),
+        SegmentedButton<HikingDifficulty>(
+          segments: const [
+            ButtonSegment(value: HikingDifficulty.easy, label: Text('Easy')),
+            ButtonSegment(value: HikingDifficulty.moderate, label: Text('Moderate')),
+            ButtonSegment(value: HikingDifficulty.hard, label: Text('Hard')),
+            ButtonSegment(value: HikingDifficulty.expert, label: Text('Expert')),
+          ],
+          selected: {_difficulty},
+          onSelectionChanged: (s) => setState(() => _difficulty = s.first),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<TrailSurface>(
+          initialValue: _surface,
+          decoration: const InputDecoration(labelText: 'Surface', border: OutlineInputBorder()),
+          items: TrailSurface.values
+              .map((s) => DropdownMenuItem(value: s, child: Text(s.name)))
+              .toList(),
+          onChanged: (v) => setState(() => _surface = v ?? TrailSurface.path),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<TrailMarking>(
+          initialValue: _marking,
+          decoration: const InputDecoration(labelText: 'Marking', border: OutlineInputBorder()),
+          items: TrailMarking.values
+              .map((m) => DropdownMenuItem(value: m, child: Text(m.name)))
+              .toList(),
+          onChanged: (v) => setState(() => _marking = v ?? TrailMarking.signposted),
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+            value: _water,
+            onChanged: (v) => setState(() => _water = v),
+            title: const Text('Water sources along trail'),
+            contentPadding: EdgeInsets.zero),
+        SwitchListTile(
+            value: _shelter,
+            onChanged: (v) => setState(() => _shelter = v),
+            title: const Text('Shelter or hut on route'),
+            contentPadding: EdgeInsets.zero),
+      ],
     );
   }
-
-  Widget _num(
-    TextEditingController c,
-    String label, {
-    bool required = true,
-  }) =>
-      TextFormField(
-        controller: c,
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(
-            labelText: label,
-            border: const OutlineInputBorder(),
-            isDense: true),
-        validator: (v) {
-          final s = v?.trim() ?? '';
-          if (s.isEmpty) return required ? 'Number required' : null;
-          return double.tryParse(s) == null ? 'Number required' : null;
-        },
-      );
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;

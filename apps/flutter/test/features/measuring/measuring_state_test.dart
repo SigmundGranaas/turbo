@@ -4,7 +4,7 @@ import 'package:latlong2/latlong.dart' hide DistanceCalculator;
 import 'package:turbo/features/measuring/data/measure_point_collection.dart';
 import 'package:turbo/features/measuring/models/distance_calculator.dart';
 import 'package:turbo/features/measuring/models/measure_point_type.dart';
-import 'package:turbo/features/measuring/widgets/measuring_map_page.dart';
+import 'package:turbo/features/measuring/widgets/measuring_tool.dart';
 
 /// A fake implementation of [DistanceCalculator] for testing purposes.
 /// It returns a predictable, constant value for distance calculations.

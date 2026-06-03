@@ -4,10 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:turbo/features/collections/api.dart';
+import 'package:turbo/core/location/location_state.dart';
 import 'package:turbo/features/markers/api.dart';
 import 'package:turbo/features/navigation/api.dart';
 import 'package:turbo/features/weather/api.dart';
 import 'package:turbo/app/l10n/app_localizations.dart';
+
+/// Returns no fix, so the Navigate action takes its straight-line fallback
+/// (route-from-location needs a start). Also avoids leaking the real
+/// geolocation stream's timer into the test.
+class _NullLocation extends LocationState {
+  @override
+  Future<LatLng?> build() async => null;
+}
 
 class _NoopPhotoStore implements MarkerPhotoDataStore {
   @override
@@ -120,6 +129,7 @@ Future<ProviderContainer> _openSheetWith(
   final container = ProviderContainer(
     overrides: [
       locationRepositoryProvider.overrideWith(() => fakeRepo),
+      locationStateProvider.overrideWith(() => _NullLocation()),
       collectionRepositoryProvider.overrideWith(() => _FakeCollectionRepo()),
       localMarkerPhotoDataStoreProvider
           .overrideWith((ref) async => _NoopPhotoStore()),
@@ -246,15 +256,12 @@ void main() {
         (tester) async {
       await _openSheet(tester);
 
-      // High-traffic actions stay inline.
-      expect(find.text('Navigate Here'), findsOneWidget);
-      expect(find.text('Edit'), findsOneWidget);
-      expect(find.text('Export'), findsOneWidget);
+      // Navigate is the lead inline action; the long tail folds into "More".
+      expect(find.text('Navigate'), findsOneWidget);
       expect(find.text('More'), findsOneWidget);
       expect(find.byIcon(Icons.navigation_outlined), findsOneWidget);
 
-      // The long tail (Delete, Save as activity, Photo) is tucked away
-      // until the user opens the overflow menu.
+      // The long tail (incl. Delete) is tucked away until the menu opens.
       expect(find.text('Delete'), findsNothing);
 
       await tester.tap(find.text('More'));
@@ -269,7 +276,7 @@ void main() {
       // Initially inactive.
       expect(container.read(navigationStateProvider).isActive, isFalse);
 
-      await tester.tap(find.text('Navigate Here'));
+      await tester.tap(find.text('Navigate'));
       await tester.pumpAndSettle();
 
       final navState = container.read(navigationStateProvider);
@@ -289,7 +296,7 @@ void main() {
           .startNavigation(const LatLng(63.4, 10.4));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Navigate Here'));
+      await tester.tap(find.text('Navigate'));
       await tester.pumpAndSettle();
 
       // Sheet stays open.
@@ -307,7 +314,7 @@ void main() {
           .startNavigation(const LatLng(59.9, 10.7));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Navigate Here'));
+      await tester.tap(find.text('Navigate'));
       await tester.pumpAndSettle();
 
       // Dialog appears.
@@ -331,7 +338,7 @@ void main() {
           .startNavigation(const LatLng(59.9, 10.7));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Navigate Here'));
+      await tester.tap(find.text('Navigate'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
