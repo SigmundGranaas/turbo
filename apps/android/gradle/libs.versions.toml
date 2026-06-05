@@ -1,30 +1,30 @@
 [versions]
 agp = "9.2.1"
-kotlin = "2.3.20"
-coreKtx = "1.15.0"
-lifecycle = "2.8.7"
-activityCompose = "1.10.1"
+kotlin = "2.3.21"
+coreKtx = "1.19.0"
+lifecycle = "2.10.0"
+activityCompose = "1.13.0"
 # Material 3 Expressive lives on the 1.5.0-alpha line (unstable, not nightly).
 # It pulls Compose foundation/ui/runtime/animation 1.12.0-alpha03 — pinned here so
 # every Compose artifact resolves to the same version (no BOM on the alpha track).
 composeUi = "1.12.0-alpha03"
 material3 = "1.5.0-alpha21"
 iconsExtended = "1.7.8"
-graphicsShapes = "1.0.1"
-navigationCompose = "2.9.5"
-kotlinxSerialization = "1.7.3"
-kotlinxCoroutines = "1.9.0"
+graphicsShapes = "1.1.0"
+navigationCompose = "2.9.8"
+kotlinxSerialization = "1.9.0"
+kotlinxCoroutines = "1.11.0"
 javaxInject = "1"
 junit = "4.13.2"
 konsist = "0.17.3"
 detekt = "1.23.8"
-maplibre = "11.8.0"
+maplibre = "13.2.0"
 ksp = "2.3.9"
 hilt = "2.59.2"
 hiltNavigationCompose = "1.4.0-rc01"
 room = "2.8.4"
-datastore = "1.1.7"
-ktor = "3.0.3"
+datastore = "1.2.1"
+ktor = "3.5.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
