@@ -59,6 +59,12 @@ abstract class DataModule {
                 })
                 .build()
 
+        /** Application-lifetime scope for engines that outlive any screen (e.g. recording). */
+        @Provides
+        @Singleton
+        fun provideAppScope(): kotlinx.coroutines.CoroutineScope =
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+
         @Provides
         fun provideMarkerDao(db: TurboDatabase): MarkerDao = db.markerDao()
 

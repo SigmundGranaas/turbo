@@ -3,9 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.data
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,8 +34,8 @@ data class RecordingSession(
 @Singleton
 class RecordingController @Inject constructor(
     private val location: LocationRepository,
+    private val scope: CoroutineScope,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _session = MutableStateFlow(RecordingSession())
     val session: StateFlow<RecordingSession> = _session.asStateFlow()
 

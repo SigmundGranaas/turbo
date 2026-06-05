@@ -63,7 +63,7 @@ import com.sigmundgranaas.turbo.expressive.ui.theme.icon
  * otherwise render the name plain. Avoids the "StorSjurfjellet" artifact where a
  * non-matching name had the query blindly prepended in bold.
  */
-private fun highlightPrefix(name: String, query: String): AnnotatedString = buildAnnotatedString {
+internal fun highlightPrefix(name: String, query: String): AnnotatedString = buildAnnotatedString {
     val q = query.trim()
     if (q.isNotEmpty() && name.startsWith(q, ignoreCase = true)) {
         withStyle(SpanStyle(fontWeight = FontWeight.W800)) { append(name.substring(0, q.length)) }

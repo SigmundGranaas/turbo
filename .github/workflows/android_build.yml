@@ -37,7 +37,14 @@ jobs:
         run: ./gradlew detekt --no-configuration-cache
 
       - name: Unit + architecture tests
-        run: ./gradlew :core:model:test :core:data:testDebugUnitTest :app:testDebugUnitTest --no-configuration-cache
+        run: >-
+          ./gradlew
+          :core:model:test :core:common:test
+          :core:data:testDebugUnitTest
+          :feature:search:testDebugUnitTest :feature:map:testDebugUnitTest
+          :feature:recording:testDebugUnitTest
+          :app:testDebugUnitTest
+          --no-configuration-cache
 
       - name: Assemble debug
         run: ./gradlew :app:assembleDebug --no-configuration-cache

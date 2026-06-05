@@ -1,6 +1,5 @@
 package com.sigmundgranaas.turbo.expressive.feature.recording
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
@@ -11,7 +10,6 @@ import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +39,7 @@ data class RecordingUiState(
  */
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+    private val launcher: RecordingLauncher,
     private val controller: RecordingController,
     private val location: LocationRepository,
     private val paths: PathRepository,
@@ -67,13 +65,13 @@ class RecordingViewModel @Inject constructor(
     /** Start (or no-op if already running) the foreground recording service. */
     fun start() {
         if (!location.hasPermission()) return
-        RecordingService.start(context)
+        launcher.start()
     }
 
     fun togglePause() = controller.togglePause()
 
     fun stop() {
-        RecordingService.stop(context)
+        launcher.stop()
     }
 
     fun save(name: String, onSaved: () -> Unit) {
