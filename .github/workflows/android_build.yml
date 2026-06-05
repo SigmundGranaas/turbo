@@ -42,7 +42,7 @@ jobs:
           :core:model:test :core:common:test
           :core:data:testDebugUnitTest
           :feature:search:testDebugUnitTest :feature:map:testDebugUnitTest
-          :feature:recording:testDebugUnitTest
+          :feature:recording:testDebugUnitTest :feature:settings:testDebugUnitTest
           :app:testDebugUnitTest
           --no-configuration-cache
 

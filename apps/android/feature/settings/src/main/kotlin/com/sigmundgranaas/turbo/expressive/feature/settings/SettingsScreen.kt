@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -95,7 +96,7 @@ fun SettingsScreen(
                 HorizontalDivider(color = cs.outlineVariant)
                 ListRowItem(
                     Icons.Rounded.Straighten, "Units", subtitle = if (settings.metricUnits) "Metric · km, m" else "Imperial · mi, ft",
-                    trailing = { Switch(settings.metricUnits, viewModel::setMetric) },
+                    trailing = { Switch(settings.metricUnits, viewModel::setMetric, modifier = Modifier.testTag("unitsSwitch")) },
                 )
             }
             SettingsGroup {

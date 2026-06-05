@@ -17,6 +17,7 @@ kotlinxCoroutines = "1.11.0"
 javaxInject = "1"
 junit = "4.13.2"
 turbine = "1.2.1"
+robolectric = "4.16.1"
 konsist = "0.17.3"
 detekt = "1.23.8"
 maplibre = "13.2.0"
@@ -52,6 +53,9 @@ javax-inject = { group = "javax.inject", name = "javax.inject", version.ref = "j
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4", version.ref = "composeUi" }
+androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest", version.ref = "composeUi" }
 konsist = { group = "com.lemonappdev", name = "konsist", version.ref = "konsist" }
 
 maplibre = { group = "org.maplibre.gl", name = "android-sdk", version.ref = "maplibre" }
