@@ -1,0 +1,51 @@
+# Pragmatic detekt config: keep the real-bug rules, silence the style/complexity
+# noise that fights idiomatic Compose + Android (PascalCase @Composables, dp/sp
+# literals, long composable functions, empty callback lambdas).
+config:
+  validation: false
+
+naming:
+  FunctionNaming:
+    active: false
+  TopLevelPropertyNaming:
+    active: false
+  MatchingDeclarationName:
+    active: false
+
+style:
+  MagicNumber:
+    active: false
+  WildcardImport:
+    active: false
+  MaxLineLength:
+    active: false
+  UnusedPrivateMember:
+    active: false
+  ReturnCount:
+    active: false
+  UnnecessaryAbstractClass:
+    active: false
+  DataClassContainsFunctions:
+    active: false
+
+complexity:
+  LongMethod:
+    active: false
+  LongParameterList:
+    active: false
+  TooManyFunctions:
+    active: false
+  CyclomaticComplexMethod:
+    active: false
+  ComplexCondition:
+    active: false
+
+empty-blocks:
+  EmptyFunctionBlock:
+    active: false
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: false   # intentional at Result/Outcome + repository boundaries
+  SwallowedException:
+    active: false

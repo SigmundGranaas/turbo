@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="turbo_surface_light">#FFF8F6</color>
+    <color name="turbo_surface_dark">#1A110F</color>
+    <color name="turbo_primary">#8F4C38</color>
+    <color name="turbo_primary_container">#FFDBD1</color>
+</resources>

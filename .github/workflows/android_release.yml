@@ -1,0 +1,62 @@
+name: Android release (downloadable APK)
+
+# On every push to main that touches the Android app, build the APK and publish
+# it to a versioned GitHub Release so it can be downloaded and installed.
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android_release.yml'
+  workflow_dispatch: {}   # also runnable on demand from the Actions tab
+
+permissions:
+  contents: write   # required to create releases + tags
+
+jobs:
+  publish-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+      - name: Read version name
+        id: ver
+        run: |
+          V=$(grep -oE 'versionName = "[^"]+"' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "name=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Build debug APK (installable / sideloadable)
+        run: ./gradlew :app:assembleDebug --no-configuration-cache
+
+      - name: Stage APK with a versioned name
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            "$RUNNER_TEMP/out/turbo-expressive-${{ steps.ver.outputs.name }}-build${{ github.run_number }}.apk"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ steps.ver.outputs.name }}-build${{ github.run_number }}
+          name: Turbo Expressive ${{ steps.ver.outputs.name }} (build ${{ github.run_number }})
+          body: |
+            Native Jetpack Compose · Material 3 Expressive build of Turbo.
+            Debug-signed, sideloadable APK — download the `.apk` below and install it
+            (enable "install from unknown sources"). Built from ${{ github.sha }}.
+          files: ${{ runner.temp }}/out/*.apk
+          fail_on_unmatched_files: true

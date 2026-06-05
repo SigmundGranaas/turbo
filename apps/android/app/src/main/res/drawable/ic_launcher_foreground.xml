@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Peach squircle on the inner safe zone -->
+    <path
+        android:fillColor="#FFDBD1"
+        android:pathData="M44,32 H64 A12,12 0 0 1 76,44 V64 A12,12 0 0 1 64,76 H44 A12,12 0 0 1 32,64 V44 A12,12 0 0 1 44,32 Z" />
+    <!-- Bold T wordmark -->
+    <path
+        android:fillColor="#8F4C38"
+        android:pathData="M42,44 H66 V49 H57 V66 H51 V49 H42 Z" />
+</vector>
