@@ -19,6 +19,8 @@ data class RecordingSession(
     val active: Boolean = false,
     val paused: Boolean = false,
     val points: List<LatLng> = emptyList(),
+    /** Altitude (m) per point; parallel to [points]. Null entries = fix had no altitude. */
+    val elevations: List<Double?> = emptyList(),
     val distanceM: Double = 0.0,
     val elapsedSec: Int = 0,
 ) {
@@ -53,21 +55,23 @@ class RecordingController @Inject constructor(
                 _session.update {
                     it.copy(
                         points = draft.points,
+                        elevations = draft.elevations,
                         distanceM = GeoMetrics.pathLengthMeters(draft.points),
                         elapsedSec = draft.elapsedSec,
                     )
                 }
             }
-            location.locationUpdates().collect { fix ->
+            location.samples().collect { sample ->
+                val fix = sample.position
                 val updated = _session.updateAndGet { s ->
                     if (!s.active || s.paused) return@updateAndGet s
-                    if (s.points.isEmpty()) return@updateAndGet s.copy(points = listOf(fix))
+                    if (s.points.isEmpty()) return@updateAndGet s.copy(points = listOf(fix), elevations = listOf(sample.altitude))
                     val step = GeoMetrics.haversineMeters(s.points.last(), fix)
                     if (step < MIN_STEP_M) return@updateAndGet s
-                    s.copy(points = s.points + fix, distanceM = s.distanceM + step)
+                    s.copy(points = s.points + fix, elevations = s.elevations + sample.altitude, distanceM = s.distanceM + step)
                 }
                 // Persist the growing track so it survives process death.
-                draftStore.save(updated.points, updated.elapsedSec)
+                draftStore.save(updated.points, updated.elevations, updated.elapsedSec)
             }
         }
         timerJob = scope.launch {

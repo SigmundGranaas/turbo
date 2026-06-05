@@ -14,16 +14,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /** A recording snapshot persisted across process death so a track survives a kill. */
-data class RecordingDraft(val points: List<LatLng>, val elapsedSec: Int)
+data class RecordingDraft(val points: List<LatLng>, val elevations: List<Double?>, val elapsedSec: Int)
 
 /**
  * Durable scratch store for the in-progress recording. The controller writes the
- * accumulated points + elapsed time as they grow and clears it on save/discard,
- * so a foreground-service restart (or process death) can resume the track.
+ * accumulated points (+ elevations + elapsed time) as they grow and clears it on
+ * save/discard, so a foreground-service restart (or process death) can resume the
+ * track — elevation profile included.
  */
 interface RecordingDraftStore {
     suspend fun load(): RecordingDraft?
-    suspend fun save(points: List<LatLng>, elapsedSec: Int)
+    suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int)
     suspend fun clear()
 }
 
@@ -36,6 +37,7 @@ class DataStoreRecordingDraftStore @Inject constructor(
 
     private object Keys {
         val POINTS = stringPreferencesKey("draft_points")
+        val ELEVATIONS = stringPreferencesKey("draft_elevations")
         val ELAPSED = intPreferencesKey("draft_elapsed")
     }
 
@@ -49,12 +51,19 @@ class DataStoreRecordingDraftStore @Inject constructor(
             if (lat != null && lng != null) LatLng(lat, lng) else null
         }
         if (points.isEmpty()) return null
-        return RecordingDraft(points, prefs[Keys.ELAPSED] ?: 0)
+        // Elevations are parallel to points; an empty token means "no altitude".
+        val elevations = prefs[Keys.ELEVATIONS]
+            ?.split(";")
+            ?.map { it.toDoubleOrNull() }
+            ?.takeIf { it.size == points.size }
+            ?: List(points.size) { null }
+        return RecordingDraft(points, elevations, prefs[Keys.ELAPSED] ?: 0)
     }
 
-    override suspend fun save(points: List<LatLng>, elapsedSec: Int) {
+    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int) {
         context.recordingDraftStore.edit { prefs ->
             prefs[Keys.POINTS] = points.joinToString(";") { "${it.lat},${it.lng}" }
+            prefs[Keys.ELEVATIONS] = elevations.joinToString(";") { it?.toString().orEmpty() }
             prefs[Keys.ELAPSED] = elapsedSec
         }
     }

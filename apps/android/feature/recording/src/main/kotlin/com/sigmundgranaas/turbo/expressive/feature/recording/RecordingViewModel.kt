@@ -77,7 +77,9 @@ class RecordingViewModel @Inject constructor(
     fun save(name: String, onSaved: () -> Unit) {
         val session = controller.session.value
         if (session.points.size < 2) { controller.reset(); onSaved(); return }
-        val geo = GeoPath.fromPoints(session.points, GeoPathSource.Recording).copy(
+        // Only attach elevations when at least one fix actually carried altitude.
+        val elevations = session.elevations.takeIf { e -> e.any { it != null } }
+        val geo = GeoPath.fromPoints(session.points, GeoPathSource.Recording, elevations).copy(
             movingTimeSeconds = session.elapsedSec,
             recordedAtEpochMs = System.currentTimeMillis(),
         )

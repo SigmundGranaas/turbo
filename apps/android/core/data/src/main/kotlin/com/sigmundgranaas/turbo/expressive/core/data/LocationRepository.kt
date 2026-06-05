@@ -13,16 +13,23 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+
+/** A single GPS fix with optional altitude (metres above the WGS84 ellipsoid). */
+data class LocationSample(val position: LatLng, val altitude: Double?)
 
 /**
  * Device location, sourced from the framework [LocationManager] (no Google Play
- * Services dependency). [locationUpdates] is a cold flow of fixes — it requires
- * the location permission to already be granted; otherwise it completes empty.
+ * Services dependency). The flows are cold and require the location permission to
+ * already be granted; otherwise they complete empty. [samples] carries altitude
+ * (used to build recording elevation profiles); [locationUpdates] is the 2D
+ * position only, derived from it.
  */
 interface LocationRepository {
     fun hasPermission(): Boolean
-    fun locationUpdates(): Flow<LatLng>
+    fun samples(): Flow<LocationSample>
+    fun locationUpdates(): Flow<LatLng> = samples().map { it.position }
 }
 
 class AndroidLocationRepository @Inject constructor(
@@ -37,14 +44,15 @@ class AndroidLocationRepository @Inject constructor(
             context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("MissingPermission")
-    override fun locationUpdates(): Flow<LatLng> = callbackFlow {
+    override fun samples(): Flow<LocationSample> = callbackFlow {
         if (!hasPermission()) {
             close()
             return@callbackFlow
         }
+        fun Location.toSample() = LocationSample(LatLng(latitude, longitude), if (hasAltitude()) altitude else null)
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                trySend(LatLng(location.latitude, location.longitude))
+                trySend(location.toSample())
             }
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
             override fun onProviderEnabled(provider: String) = Unit
@@ -57,7 +65,7 @@ class AndroidLocationRepository @Inject constructor(
         }
         // Seed with the last known fix so the dot appears immediately.
         providers.firstNotNullOfOrNull { manager.getLastKnownLocation(it) }
-            ?.let { trySend(LatLng(it.latitude, it.longitude)) }
+            ?.let { trySend(it.toSample()) }
 
         providers.forEach { provider ->
             manager.requestLocationUpdates(provider, MIN_INTERVAL_MS, MIN_DISTANCE_M, listener, context.mainLooper)

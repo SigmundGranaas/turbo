@@ -44,18 +44,29 @@ private fun decodePoints(encoded: String): List<LatLng> =
         }
     }
 
+/** Decode ";"-joined elevations, keeping them parallel to [pointCount]; null if absent. */
+private fun decodeElevations(encoded: String?, pointCount: Int): List<Double?>? {
+    val parts = encoded?.takeIf { it.isNotBlank() }?.split(";") ?: return null
+    if (parts.size != pointCount) return null
+    val values = parts.map { it.toDoubleOrNull() }
+    return if (values.any { it != null }) values else null
+}
+
 internal fun PathEntity.toDomain(): SavedPath = SavedPath(
     id = id,
     name = name,
-    path = GeoPath(
-        points = decodePoints(points),
-        source = runCatching { GeoPathSource.valueOf(source) }.getOrDefault(GeoPathSource.Saved),
-        distanceM = distanceM,
-        ascentM = ascentM,
-        descentM = descentM,
-        movingTimeSeconds = durationSec,
-        recordedAtEpochMs = createdAtEpochMs,
-    ),
+    path = decodePoints(points).let { pts ->
+        GeoPath(
+            points = pts,
+            source = runCatching { GeoPathSource.valueOf(source) }.getOrDefault(GeoPathSource.Saved),
+            elevations = decodeElevations(elevations, pts.size),
+            distanceM = distanceM,
+            ascentM = ascentM,
+            descentM = descentM,
+            movingTimeSeconds = durationSec,
+            recordedAtEpochMs = createdAtEpochMs,
+        )
+    },
 )
 
 internal fun SavedPath.toEntity(): PathEntity = PathEntity(
@@ -68,4 +79,5 @@ internal fun SavedPath.toEntity(): PathEntity = PathEntity(
     descentM = path.descentM,
     durationSec = path.movingTimeSeconds,
     createdAtEpochMs = path.recordedAtEpochMs ?: 0L,
+    elevations = path.elevations?.joinToString(";") { it?.toString().orEmpty() },
 )

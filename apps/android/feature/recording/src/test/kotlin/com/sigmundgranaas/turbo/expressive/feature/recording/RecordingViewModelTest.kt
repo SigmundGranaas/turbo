@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.recording
 
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
+import com.sigmundgranaas.turbo.expressive.core.data.LocationSample
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingDraft
@@ -30,9 +31,10 @@ private class FakeRecordingLauncher : RecordingLauncher {
 }
 
 private class FakeLocationRepository(var permitted: Boolean = true) : LocationRepository {
-    val fixes = MutableSharedFlow<LatLng>(extraBufferCapacity = 8)
+    val feed = MutableSharedFlow<LocationSample>(extraBufferCapacity = 8)
     override fun hasPermission(): Boolean = permitted
-    override fun locationUpdates(): Flow<LatLng> = fixes
+    override fun samples(): Flow<LocationSample> = feed
+    suspend fun emit(lat: Double, lng: Double, alt: Double? = null) = feed.emit(LocationSample(LatLng(lat, lng), alt))
 }
 
 private class FakePathRepository : PathRepository {
@@ -45,7 +47,7 @@ private class FakePathRepository : PathRepository {
 
 private class NoopDraftStore : RecordingDraftStore {
     override suspend fun load(): RecordingDraft? = null
-    override suspend fun save(points: List<com.sigmundgranaas.turbo.expressive.domain.LatLng>, elapsedSec: Int) = Unit
+    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int) = Unit
     override suspend fun clear() = Unit
 }
 
@@ -95,8 +97,8 @@ class RecordingViewModelTest {
         backgroundScope.launch { vm.state.collect { } }
         controller.start()
         runCurrent()
-        location.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
-        location.fixes.emit(LatLng(69.001, 18.0)); runCurrent()
+        location.emit(69.0, 18.0); runCurrent()
+        location.emit(69.001, 18.0); runCurrent()
         advanceUntilIdle()
 
         assertTrue(vm.state.value.recording)
@@ -110,8 +112,8 @@ class RecordingViewModelTest {
         val (vm, controller, _) = vmWith(backgroundScope, location = location, paths = paths)
         controller.start()
         runCurrent()
-        location.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
-        location.fixes.emit(LatLng(69.001, 18.0)); runCurrent()
+        location.emit(69.0, 18.0, alt = 10.0); runCurrent()
+        location.emit(69.001, 18.0, alt = 30.0); runCurrent()
 
         var savedCalled = false
         vm.save("Hike") { savedCalled = true }
@@ -122,6 +124,9 @@ class RecordingViewModelTest {
         assertEquals("Hike", paths.saved[0].name)
         assertEquals(GeoPathSource.Recording, paths.saved[0].path.source)
         assertEquals(2, paths.saved[0].path.points.size)
+        // Altitude was captured → elevations + ascent persisted on the GeoPath.
+        assertEquals(listOf(10.0, 30.0), paths.saved[0].path.elevations)
+        assertEquals(20.0, paths.saved[0].path.ascentM!!, 1e-6)
         // Session cleared after save.
         assertTrue(controller.session.value.points.isEmpty())
     }
@@ -133,7 +138,7 @@ class RecordingViewModelTest {
         val (vm, controller, _) = vmWith(backgroundScope, location = location, paths = paths)
         controller.start()
         runCurrent()
-        location.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
+        location.emit(69.0, 18.0); runCurrent()
 
         var done = false
         vm.discard { done = true }

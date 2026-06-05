@@ -13,15 +13,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private class FakeLocationRepository(var permitted: Boolean = true) : LocationRepository {
-    val fixes = MutableSharedFlow<LatLng>(extraBufferCapacity = 32)
+    val feed = MutableSharedFlow<LocationSample>(extraBufferCapacity = 32)
     override fun hasPermission(): Boolean = permitted
-    override fun locationUpdates(): Flow<LatLng> = fixes
+    override fun samples(): Flow<LocationSample> = feed
+    suspend fun emit(lat: Double, lng: Double, alt: Double? = null) = feed.emit(LocationSample(LatLng(lat, lng), alt))
 }
 
 private class FakeDraftStore(var draft: RecordingDraft? = null) : RecordingDraftStore {
     var cleared = false
     override suspend fun load(): RecordingDraft? = draft
-    override suspend fun save(points: List<LatLng>, elapsedSec: Int) { draft = RecordingDraft(points, elapsedSec) }
+    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int) {
+        draft = RecordingDraft(points, elevations, elapsedSec)
+    }
     override suspend fun clear() { draft = null; cleared = true }
 }
 
@@ -35,12 +38,26 @@ class RecordingControllerTest {
         controller.start()
         runCurrent()
 
-        loc.fixes.emit(LatLng(69.0000, 18.0)); runCurrent()
-        loc.fixes.emit(LatLng(69.0010, 18.0)); runCurrent() // ~111 m north
+        loc.emit(69.0000, 18.0); runCurrent()
+        loc.emit(69.0010, 18.0); runCurrent() // ~111 m north
 
         val session = controller.session.value
         assertEquals(2, session.points.size)
         assertTrue("distance ~111m but was ${session.distanceM}", session.distanceM in 100.0..125.0)
+    }
+
+    @Test
+    fun `captures altitude into the session elevation track`() = runTest {
+        val loc = FakeLocationRepository()
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
+        controller.start()
+        runCurrent()
+
+        loc.emit(69.0000, 18.0, alt = 12.0); runCurrent()
+        loc.emit(69.0010, 18.0, alt = 40.0); runCurrent()
+
+        val session = controller.session.value
+        assertEquals(listOf(12.0, 40.0), session.elevations)
     }
 
     @Test
@@ -50,8 +67,8 @@ class RecordingControllerTest {
         controller.start()
         runCurrent()
 
-        loc.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
-        loc.fixes.emit(LatLng(69.000005, 18.0)); runCurrent() // < 1 m
+        loc.emit(69.0, 18.0); runCurrent()
+        loc.emit(69.000005, 18.0); runCurrent() // < 1 m
 
         val session = controller.session.value
         assertEquals(1, session.points.size)
@@ -64,9 +81,9 @@ class RecordingControllerTest {
         val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         runCurrent()
-        loc.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
+        loc.emit(69.0, 18.0); runCurrent()
         controller.togglePause()
-        loc.fixes.emit(LatLng(69.001, 18.0)); runCurrent()
+        loc.emit(69.001, 18.0); runCurrent()
 
         assertEquals(1, controller.session.value.points.size)
         assertTrue(controller.session.value.paused)
@@ -88,7 +105,7 @@ class RecordingControllerTest {
         val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         runCurrent()
-        loc.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
+        loc.emit(69.0, 18.0); runCurrent()
         controller.reset()
         assertEquals(0, controller.session.value.points.size)
         assertFalse(controller.session.value.active)
@@ -106,13 +123,16 @@ class RecordingControllerTest {
     @Test
     fun `start resumes a persisted draft (process-death recovery)`() = runTest {
         val loc = FakeLocationRepository()
-        val draft = FakeDraftStore(RecordingDraft(listOf(LatLng(69.0, 18.0), LatLng(69.001, 18.0)), elapsedSec = 42))
+        val draft = FakeDraftStore(
+            RecordingDraft(listOf(LatLng(69.0, 18.0), LatLng(69.001, 18.0)), listOf(10.0, 25.0), elapsedSec = 42),
+        )
         val controller = RecordingController(loc, draft, backgroundScope)
         controller.start()
         runCurrent()
 
         val s = controller.session.value
         assertEquals(2, s.points.size)
+        assertEquals(listOf(10.0, 25.0), s.elevations)
         assertEquals(42, s.elapsedSec)
         assertTrue(s.distanceM > 90.0)
     }
@@ -124,8 +144,8 @@ class RecordingControllerTest {
         val controller = RecordingController(loc, draft, backgroundScope)
         controller.start()
         runCurrent()
-        loc.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
-        loc.fixes.emit(LatLng(69.001, 18.0)); runCurrent()
+        loc.emit(69.0, 18.0); runCurrent()
+        loc.emit(69.001, 18.0); runCurrent()
 
         assertEquals(2, draft.draft?.points?.size)
 

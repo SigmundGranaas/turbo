@@ -18,7 +18,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Terrain
@@ -43,8 +45,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.content.ClipData
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -59,6 +67,10 @@ import kotlin.math.roundToInt
 private fun SavedPath.distanceKm(): String = "%.1f km".format(path.distanceM / 1000.0)
 
 private fun SavedPath.ascentText(): String = "${(path.ascentM ?: 0.0).roundToInt()} m"
+
+private fun SavedPath.descentText(): String = "${(path.descentM ?: 0.0).roundToInt()} m"
+
+private fun SavedPath.hasElevation(): Boolean = (path.elevations?.count { it != null } ?: 0) >= 2
 
 private fun SavedPath.durationText(): String {
     val secs = path.movingTimeSeconds ?: return "—"
@@ -159,6 +171,7 @@ fun PathDetailScreen(
             }
             return@Column
         }
+        val context = LocalContext.current
         Column(Modifier.padding(16.dp)) {
             Text(path.name, style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
             Spacer(Modifier.height(14.dp))
@@ -167,8 +180,19 @@ fun PathDetailScreen(
                 StatTile(path.ascentText(), "Ascent", Modifier.weight(1f), Icons.Rounded.Terrain)
                 StatTile(path.durationText(), "Time", Modifier.weight(1f), Icons.Rounded.Timer)
             }
+
+            if (path.hasElevation()) {
+                Spacer(Modifier.height(16.dp))
+                ElevationCard(path)
+            }
+
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledIconButton(
+                    onClick = { shareGpx(context, path) },
+                    modifier = Modifier.size(54.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer),
+                ) { Icon(Icons.Rounded.IosShare, "Export GPX") }
                 FilledIconButton(
                     onClick = { viewModel.delete(path.id); onBack() },
                     modifier = Modifier.size(54.dp),
@@ -177,6 +201,75 @@ fun PathDetailScreen(
             }
         }
     }
+}
+
+/** Elevation profile card: ascent/descent summary + a filled distance-vs-height chart. */
+@Composable
+private fun ElevationCard(path: SavedPath) {
+    val cs = MaterialTheme.colorScheme
+    TurboCard(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Elevation")
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.Rounded.Terrain, null, tint = cs.primary, modifier = Modifier.size(16.dp))
+            Text(" ${path.ascentText()}", style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
+            Spacer(Modifier.size(10.dp))
+            Icon(Icons.AutoMirrored.Rounded.TrendingDown, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Text(" ${path.descentText()}", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(12.dp))
+        ElevationProfile(
+            elevations = path.path.elevations.orEmpty(),
+            line = cs.primary,
+            fill = cs.primary.copy(alpha = 0.18f),
+            modifier = Modifier.fillMaxWidth().height(96.dp),
+        )
+    }
+}
+
+/** Filled elevation curve over point index; null altitudes are bridged across. */
+@Composable
+private fun ElevationProfile(elevations: List<Double?>, line: Color, fill: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val present = elevations.withIndex().filter { it.value != null }
+        if (present.size < 2) return@Canvas
+        val minE = present.minOf { it.value!! }
+        val maxE = present.maxOf { it.value!! }
+        val range = (maxE - minE).coerceAtLeast(1.0)
+        val lastIdx = (elevations.size - 1).coerceAtLeast(1)
+        fun px(i: Int) = i.toFloat() / lastIdx * size.width
+        fun py(e: Double) = (1f - ((e - minE) / range).toFloat()) * size.height
+
+        val stroke = Path()
+        present.forEachIndexed { order, (i, e) ->
+            val x = px(i); val y = py(e!!)
+            if (order == 0) stroke.moveTo(x, y) else stroke.lineTo(x, y)
+        }
+        val area = Path().apply {
+            addPath(stroke)
+            lineTo(px(present.last().index), size.height)
+            lineTo(px(present.first().index), size.height)
+            close()
+        }
+        drawPath(area, fill)
+        drawPath(stroke, line, style = Stroke(width = 4f))
+    }
+}
+
+/** Write the track to a cache .gpx and fire a share chooser via FileProvider. */
+private fun shareGpx(context: Context, path: SavedPath) {
+    val dir = File(context.cacheDir, "gpx").apply { mkdirs() }
+    val file = File(dir, gpxFileName(path.name))
+    file.writeText(pathToGpx(path))
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "application/gpx+xml"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        // ClipData grants the read permission to the chooser preview + target alike.
+        clipData = ClipData.newRawUri(path.name, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Share GPX").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 /** Normalised polyline sketch of a path's points into the given box. */

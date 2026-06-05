@@ -58,6 +58,25 @@ class PathRepositoryTest {
     }
 
     @Test
+    fun `save then load round-trips per-point elevations`() = runTest {
+        val repo = RoomPathRepository(FakePathDao())
+        val withElevation = sample.copy(
+            id = "p-ele",
+            path = sample.path.copy(elevations = listOf(10.0, null, 55.0)),
+        )
+        repo.save(withElevation)
+        val loaded = repo.byId("p-ele")!!
+        assertEquals(listOf(10.0, null, 55.0), loaded.path.elevations)
+    }
+
+    @Test
+    fun `a track with no elevations loads back as null`() = runTest {
+        val repo = RoomPathRepository(FakePathDao())
+        repo.save(sample) // sample has no elevations
+        assertNull(repo.byId("p-1")!!.path.elevations)
+    }
+
+    @Test
     fun `observeAll reflects saves and deletes`() = runTest {
         val repo = RoomPathRepository(FakePathDao())
         repo.save(sample)

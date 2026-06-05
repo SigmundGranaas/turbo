@@ -48,6 +48,8 @@ data class PathEntity(
     val descentM: Double?,
     val durationSec: Int?,
     val createdAtEpochMs: Long,
+    /** Per-point altitude (m), parallel to [points], encoded as ";"-joined; empty = none. */
+    val elevations: String? = null,
 )
 
 @Dao
@@ -65,7 +67,7 @@ interface PathDao {
     suspend fun delete(id: String)
 }
 
-@Database(entities = [MarkerEntity::class, PathEntity::class], version = 3, exportSchema = false)
+@Database(entities = [MarkerEntity::class, PathEntity::class], version = 4, exportSchema = false)
 abstract class TurboDatabase : RoomDatabase() {
     abstract fun markerDao(): MarkerDao
     abstract fun pathDao(): PathDao
