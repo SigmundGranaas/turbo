@@ -4,6 +4,7 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -20,13 +22,17 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +68,7 @@ import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 @Composable
@@ -73,9 +80,11 @@ fun MapScreen(
     focusRequest: LatLng? = null,
     onFocusConsumed: () -> Unit = {},
     viewModel: MapViewModel = hiltViewModel(),
+    routeViewModel: RouteViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val routeState by routeViewModel.state.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -141,6 +150,7 @@ fun MapScreen(
                 initialCamera = SampleData.initialCamera,
                 initialZoom = SampleData.initialZoom,
                 markers = state.markers,
+                route = routeState.polyline.takeIf { it.isNotEmpty() },
                 selectedMarkerId = selectionState.selection?.id,
                 userLocation = state.userLocation,
                 onMarkerClick = { marker ->
@@ -151,7 +161,10 @@ fun MapScreen(
                             subtitle = "${marker.kind.label} · ${formatCoords(marker.position)}",
                             icon = marker.kind.icon,
                             point = marker.position,
-                            onNavigate = { controller?.flyTo(marker.position, 14.0) },
+                            onNavigate = {
+                                val from = state.userLocation ?: controller?.center() ?: SampleData.initialCamera
+                                routeViewModel.planRoute(from, marker.position)
+                            },
                             onDelete = { pendingDelete = marker },
                             body = { ConditionsBody(marker.position) },
                         ),
@@ -217,6 +230,14 @@ fun MapScreen(
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             )
 
+            RouteCard(
+                state = routeState,
+                onSave = { routeViewModel.saveAsTrack("Route") },
+                onClear = { routeViewModel.clear() },
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(16.dp),
+            )
         }
     }
 
@@ -254,4 +275,72 @@ fun MapScreen(
             onDismiss = { pendingDelete = null },
         )
     }
+}
+
+/** Bottom card reflecting the route solve: solving spinner, result stats, or error. */
+@Composable
+private fun RouteCard(
+    state: RouteUiState,
+    onSave: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (state is RouteUiState.Idle) return
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(TurboRadius.xl),
+        color = cs.surfaceContainerHigh,
+        shadowElevation = 4.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+            when (state) {
+                is RouteUiState.Solving -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Text("Finding the best route…", style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onClear) { Text("Cancel") }
+                }
+                is RouteUiState.Error -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(state.message, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onClear) { Text("Dismiss") }
+                }
+                is RouteUiState.Done -> {
+                    val p = state.plan
+                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        RouteStat("%.1f km".format(p.distanceM / 1000.0), "Distance")
+                        RouteStat(formatDuration(p.durationS), "Time")
+                        RouteStat("${p.ascentM.roundToInt()} m", "Ascent")
+                        RouteStat("${p.onTrailPct.roundToInt()}%", "On trail")
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = onSave, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Rounded.Bookmark, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Save as track")
+                        }
+                        TextButton(onClick = onClear) { Text("Clear") }
+                    }
+                }
+                RouteUiState.Idle -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteStat(value: String, label: String) {
+    val cs = MaterialTheme.colorScheme
+    Column {
+        Text(value, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+    }
+}
+
+private fun formatDuration(seconds: Double): String {
+    val total = seconds.roundToInt()
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    return if (h > 0) "${h}h ${m}m" else "$m min"
 }

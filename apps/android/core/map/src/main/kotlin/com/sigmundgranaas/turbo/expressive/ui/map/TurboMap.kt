@@ -48,6 +48,9 @@ class MapController(internal val map: MapLibreMap) {
     fun zoomOut() = map.animateCamera(CameraUpdateFactory.zoomBy(-1.0))
     fun flyTo(target: LatLng, zoom: Double) =
         map.animateCamera(CameraUpdateFactory.newLatLngZoom(MlLatLng(target.lat, target.lng), zoom))
+
+    /** The current camera centre — a sensible route origin when there's no GPS fix. */
+    fun center(): LatLng = map.cameraPosition.target.let { LatLng(it!!.latitude, it.longitude) }
 }
 
 /**
