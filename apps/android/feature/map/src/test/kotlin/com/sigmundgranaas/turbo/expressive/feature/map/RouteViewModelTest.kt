@@ -20,8 +20,13 @@ import org.junit.Rule
 import org.junit.Test
 
 private class FakeRouteRepository(private val events: List<RouteStreamEvent>) : RouteRepository {
-    override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String): Flow<RouteStreamEvent> =
-        flowOf(*events.toTypedArray())
+    var calls = 0
+    var lastPreset: RoutePreset? = null
+    override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String): Flow<RouteStreamEvent> {
+        calls++
+        lastPreset = preset
+        return flowOf(*events.toTypedArray())
+    }
 }
 
 private class FakePathRepository : PathRepository {
@@ -106,5 +111,34 @@ class RouteViewModelTest {
         advanceUntilIdle()
         vm.clear()
         assertTrue(vm.state.value is RouteUiState.Idle)
+    }
+
+    @Test
+    fun `selectPreset re-plans the same trip with the new style`() = runTest(mainRule.dispatcher) {
+        val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
+        val vm = RouteViewModel(repo, FakePathRepository())
+        vm.planRoute(a, b)
+        advanceUntilIdle()
+        assertEquals(1, repo.calls)
+
+        vm.selectPreset(RoutePreset.AvoidRoads)
+        advanceUntilIdle()
+
+        assertEquals(2, repo.calls)
+        assertEquals(RoutePreset.AvoidRoads, repo.lastPreset)
+        assertEquals(RoutePreset.AvoidRoads, vm.preset.value)
+        assertTrue(vm.state.value is RouteUiState.Done)
+    }
+
+    @Test
+    fun `follow moves a solved route into Following with the same geometry`() = runTest(mainRule.dispatcher) {
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository())
+        vm.planRoute(a, b)
+        advanceUntilIdle()
+        vm.follow()
+
+        val following = vm.state.value as RouteUiState.Following
+        assertEquals(plan, following.plan)
+        assertEquals(plan.geometry, vm.state.value.polyline)
     }
 }

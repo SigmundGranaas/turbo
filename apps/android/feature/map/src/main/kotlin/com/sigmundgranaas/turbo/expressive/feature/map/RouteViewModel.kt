@@ -24,6 +24,7 @@ sealed interface RouteUiState {
     data object Idle : RouteUiState
     data class Solving(val progress: List<LatLng>) : RouteUiState
     data class Done(val plan: RoutePlan) : RouteUiState
+    data class Following(val plan: RoutePlan) : RouteUiState
     data class Error(val message: String) : RouteUiState
 
     /** The polyline to draw for this state (empty when nothing to show). */
@@ -31,6 +32,7 @@ sealed interface RouteUiState {
         get() = when (this) {
             is Solving -> progress
             is Done -> plan.geometry
+            is Following -> plan.geometry
             else -> emptyList()
         }
 }
@@ -44,9 +46,17 @@ class RouteViewModel @Inject constructor(
     private val _state = MutableStateFlow<RouteUiState>(RouteUiState.Idle)
     val state: StateFlow<RouteUiState> = _state.asStateFlow()
 
-    private var job: Job? = null
+    private val _preset = MutableStateFlow(RoutePreset.Balanced)
+    val preset: StateFlow<RoutePreset> = _preset.asStateFlow()
 
-    fun planRoute(from: LatLng, to: LatLng, preset: RoutePreset = RoutePreset.Balanced) {
+    private var job: Job? = null
+    private var from: LatLng? = null
+    private var to: LatLng? = null
+
+    fun planRoute(from: LatLng, to: LatLng, preset: RoutePreset = _preset.value) {
+        this.from = from
+        this.to = to
+        _preset.value = preset
         job?.cancel()
         // Seed with the straight line so the user sees intent immediately.
         _state.value = RouteUiState.Solving(listOf(from, to))
@@ -65,13 +75,32 @@ class RouteViewModel @Inject constructor(
         }
     }
 
+    /** Re-plan the current trip with a different style. */
+    fun selectPreset(preset: RoutePreset) {
+        val origin = from
+        val dest = to
+        _preset.value = preset
+        if (origin != null && dest != null) planRoute(origin, dest, preset)
+    }
+
+    /** Enter turn-by-route following for a solved route. */
+    fun follow() {
+        (_state.value as? RouteUiState.Done)?.let { _state.value = RouteUiState.Following(it.plan) }
+    }
+
     fun clear() {
         job?.cancel()
+        from = null
+        to = null
         _state.value = RouteUiState.Idle
     }
 
     fun saveAsTrack(name: String) {
-        val plan = (_state.value as? RouteUiState.Done)?.plan ?: return
+        val plan = when (val s = _state.value) {
+            is RouteUiState.Done -> s.plan
+            is RouteUiState.Following -> s.plan
+            else -> return
+        }
         if (plan.geometry.size < 2) return
         val geo = GeoPath(
             points = plan.geometry,

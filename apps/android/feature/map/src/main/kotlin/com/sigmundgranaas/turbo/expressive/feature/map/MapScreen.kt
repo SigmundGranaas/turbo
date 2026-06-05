@@ -4,6 +4,7 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,12 +22,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
@@ -47,7 +52,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
+import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
 import com.sigmundgranaas.turbo.expressive.core.map.MapEntityDetailHost
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelection
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
@@ -85,6 +92,7 @@ fun MapScreen(
     val cs = MaterialTheme.colorScheme
     val state by viewModel.state.collectAsStateWithLifecycle()
     val routeState by routeViewModel.state.collectAsStateWithLifecycle()
+    val routePreset by routeViewModel.preset.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -232,8 +240,20 @@ fun MapScreen(
 
             RouteCard(
                 state = routeState,
+                preset = routePreset,
+                userLocation = state.userLocation,
+                onSelectPreset = { routeViewModel.selectPreset(it) },
+                onFollow = {
+                    if (viewModel.hasLocationPermission()) {
+                        viewModel.enableLocation()
+                        viewModel.setFollowing(true)
+                        routeViewModel.follow()
+                    } else {
+                        locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }
+                },
                 onSave = { routeViewModel.saveAsTrack("Route") },
-                onClear = { routeViewModel.clear() },
+                onClear = { routeViewModel.clear(); viewModel.setFollowing(false) },
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(16.dp),
@@ -277,10 +297,14 @@ fun MapScreen(
     }
 }
 
-/** Bottom card reflecting the route solve: solving spinner, result stats, or error. */
+/** Bottom card reflecting the route solve: presets, solving spinner, result stats, follow, or error. */
 @Composable
 private fun RouteCard(
     state: RouteUiState,
+    preset: RoutePreset,
+    userLocation: LatLng?,
+    onSelectPreset: (RoutePreset) -> Unit,
+    onFollow: () -> Unit,
     onSave: () -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
@@ -295,11 +319,14 @@ private fun RouteCard(
     ) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
             when (state) {
-                is RouteUiState.Solving -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
-                    Spacer(Modifier.width(14.dp))
-                    Text("Finding the best route…", style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onClear) { Text("Cancel") }
+                is RouteUiState.Solving -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Text("Finding the best route…", style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
+                        TextButton(onClick = onClear) { Text("Cancel") }
+                    }
+                    PresetRow(preset, onSelectPreset)
                 }
                 is RouteUiState.Error -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(state.message, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
@@ -313,18 +340,58 @@ private fun RouteCard(
                         RouteStat("${p.ascentM.roundToInt()} m", "Ascent")
                         RouteStat("${p.onTrailPct.roundToInt()}%", "On trail")
                     }
+                    PresetRow(preset, onSelectPreset)
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = onSave, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Rounded.Bookmark, null, modifier = Modifier.size(18.dp))
+                        Button(onClick = onFollow, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Rounded.Navigation, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Save as track")
+                            Text("Follow")
+                        }
+                        FilledTonalButton(onClick = onSave) {
+                            Icon(Icons.Rounded.Bookmark, null, modifier = Modifier.size(18.dp))
                         }
                         TextButton(onClick = onClear) { Text("Clear") }
                     }
                 }
+                is RouteUiState.Following -> {
+                    val progress = userLocation?.let { GeoMetrics.progress(state.plan.geometry, it, state.plan.ascentM) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Navigation, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Following route", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+                            Text(
+                                text = progress?.let {
+                                    "%.1f km left".format(it.distanceRemainingM / 1000.0) +
+                                        (it.etaSeconds?.let { s -> " · ${formatDuration(s.toDouble())}" } ?: "")
+                                } ?: "Waiting for GPS…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = cs.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = onClear) { Text("Stop") }
+                    }
+                }
                 RouteUiState.Idle -> Unit
             }
+        }
+    }
+}
+
+@Composable
+private fun PresetRow(selected: RoutePreset, onSelect: (RoutePreset) -> Unit) {
+    Spacer(Modifier.height(10.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RoutePreset.entries.forEach { p ->
+            FilterChip(
+                selected = p == selected,
+                onClick = { onSelect(p) },
+                label = { Text(p.label) },
+            )
         }
     }
 }
