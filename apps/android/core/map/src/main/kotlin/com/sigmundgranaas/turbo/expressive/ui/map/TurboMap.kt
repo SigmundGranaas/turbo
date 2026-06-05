@@ -1,9 +1,14 @@
 package com.sigmundgranaas.turbo.expressive.ui.map
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -61,6 +66,7 @@ fun TurboMap(
     route: List<LatLng>? = null,
     routeColor: Color = Color(0xFF8F4C38),
     selectedMarkerId: String? = null,
+    userLocation: LatLng? = null,
     onMarkerClick: (Marker) -> Unit = {},
     onMapLongClick: (LatLng) -> Unit = {},
     onMapReady: (MapController) -> Unit = {},
@@ -116,6 +122,24 @@ fun TurboMap(
                     }
                     drawPath(path, color = routeColor, style = Stroke(width = 5.dp.toPx()))
                 }
+            }
+            // User location: a blue dot with a white ring, projected like markers.
+            if (userLocation != null) {
+                val dotPx = with(density) { 18.dp.toPx() }
+                Box(
+                    Modifier
+                        .offset {
+                            @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
+                            val pt = ml.projection.toScreenLocation(MlLatLng(userLocation.lat, userLocation.lng))
+                            IntOffset((pt.x - dotPx / 2f).roundToInt(), (pt.y - dotPx / 2f).roundToInt())
+                        }
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .padding(3.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1A73E8)),
+                )
             }
             markers.forEach { m ->
                 val selected = m.id == selectedMarkerId

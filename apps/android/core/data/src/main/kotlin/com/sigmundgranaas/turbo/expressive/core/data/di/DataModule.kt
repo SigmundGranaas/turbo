@@ -4,11 +4,16 @@ import android.content.Context
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.sigmundgranaas.turbo.expressive.core.data.AndroidLocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.DataStoreSettingsRepository
+import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RoomMarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.RoomPathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.database.MarkerDao
+import com.sigmundgranaas.turbo.expressive.core.data.database.PathDao
 import com.sigmundgranaas.turbo.expressive.core.data.database.TurboDatabase
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
 import dagger.Binds
@@ -29,11 +34,18 @@ abstract class DataModule {
     @Binds
     abstract fun bindSettingsRepository(impl: DataStoreSettingsRepository): SettingsRepository
 
+    @Binds
+    abstract fun bindPathRepository(impl: RoomPathRepository): PathRepository
+
+    @Binds
+    abstract fun bindLocationRepository(impl: AndroidLocationRepository): LocationRepository
+
     companion object {
         @Provides
         @Singleton
         fun provideDatabase(@ApplicationContext context: Context): TurboDatabase =
             Room.databaseBuilder(context, TurboDatabase::class.java, "turbo.db")
+                .fallbackToDestructiveMigration(dropAllTables = true)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         // Seed the sample markers so the map opens populated.
@@ -49,5 +61,8 @@ abstract class DataModule {
 
         @Provides
         fun provideMarkerDao(db: TurboDatabase): MarkerDao = db.markerDao()
+
+        @Provides
+        fun providePathDao(db: TurboDatabase): PathDao = db.pathDao()
     }
 }

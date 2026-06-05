@@ -49,7 +49,6 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":feature:map"))
     implementation(project(":feature:settings"))
-    implementation(project(":feature:activity"))
     implementation(project(":feature:search"))
     implementation(project(":feature:recording"))
 

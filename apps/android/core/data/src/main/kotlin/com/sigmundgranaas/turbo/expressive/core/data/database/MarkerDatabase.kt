@@ -35,7 +35,37 @@ interface MarkerDao {
     suspend fun delete(id: String)
 }
 
-@Database(entities = [MarkerEntity::class], version = 1, exportSchema = false)
+@Entity(tableName = "path")
+data class PathEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val source: String,
+    /** Points encoded as "lat,lng;lat,lng;…". */
+    val points: String,
+    val distanceM: Double,
+    val ascentM: Double?,
+    val descentM: Double?,
+    val durationSec: Int?,
+    val createdAtEpochMs: Long,
+)
+
+@Dao
+interface PathDao {
+    @Query("SELECT * FROM path ORDER BY createdAtEpochMs DESC")
+    fun observeAll(): Flow<List<PathEntity>>
+
+    @Query("SELECT * FROM path WHERE id = :id")
+    suspend fun byId(id: String): PathEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: PathEntity)
+
+    @Query("DELETE FROM path WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Database(entities = [MarkerEntity::class, PathEntity::class], version = 2, exportSchema = false)
 abstract class TurboDatabase : RoomDatabase() {
     abstract fun markerDao(): MarkerDao
+    abstract fun pathDao(): PathDao
 }

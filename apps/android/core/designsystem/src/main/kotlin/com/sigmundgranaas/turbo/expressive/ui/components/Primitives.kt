@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MyLocation
@@ -89,11 +88,8 @@ fun SearchPill(
 fun MapControlRail(
     modifier: Modifier = Modifier,
     following: Boolean = false,
-    compassOn: Boolean = false,
-    compassRotation: Float = 0f,
     onLayers: () -> Unit = {},
     onLocate: () -> Unit = {},
-    onCompass: () -> Unit = {},
     onZoomIn: () -> Unit = {},
     onZoomOut: () -> Unit = {},
 ) {
@@ -105,7 +101,6 @@ fun MapControlRail(
             active = following,
             onClick = onLocate,
         )
-        RailButton(Icons.Rounded.Explore, "Compass", active = compassOn, rotation = -compassRotation, onClick = onCompass)
         Surface(
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,

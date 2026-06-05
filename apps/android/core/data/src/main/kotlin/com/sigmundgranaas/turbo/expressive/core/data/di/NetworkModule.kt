@@ -1,5 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.core.data.di
 
+import com.sigmundgranaas.turbo.expressive.core.data.ConditionsRepository
+import com.sigmundgranaas.turbo.expressive.core.data.HttpConditionsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.KartverketSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
 import dagger.Binds
@@ -20,6 +22,9 @@ abstract class NetworkModule {
 
     @Binds
     abstract fun bindSearchRepository(impl: KartverketSearchRepository): SearchRepository
+
+    @Binds
+    abstract fun bindConditionsRepository(impl: HttpConditionsRepository): ConditionsRepository
 
     companion object {
         @Provides

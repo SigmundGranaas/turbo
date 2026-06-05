@@ -1,0 +1,71 @@
+package com.sigmundgranaas.turbo.expressive.core.data
+
+import com.sigmundgranaas.turbo.expressive.core.data.database.PathDao
+import com.sigmundgranaas.turbo.expressive.core.data.database.PathEntity
+import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
+import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
+import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.SavedPath
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import javax.inject.Inject
+
+/** Offline-first store of recorded tracks / saved routes. */
+interface PathRepository {
+    fun observeAll(): Flow<List<SavedPath>>
+    suspend fun byId(id: String): SavedPath?
+    suspend fun save(path: SavedPath)
+    suspend fun delete(id: String)
+}
+
+class RoomPathRepository @Inject constructor(
+    private val dao: PathDao,
+) : PathRepository {
+    override fun observeAll(): Flow<List<SavedPath>> =
+        dao.observeAll().map { rows -> rows.map(PathEntity::toDomain) }
+
+    override suspend fun byId(id: String): SavedPath? = dao.byId(id)?.toDomain()
+    override suspend fun save(path: SavedPath) = dao.upsert(path.toEntity())
+    override suspend fun delete(id: String) = dao.delete(id)
+}
+
+private fun encodePoints(points: List<LatLng>): String =
+    points.joinToString(";") { "${it.lat},${it.lng}" }
+
+private fun decodePoints(encoded: String): List<LatLng> =
+    if (encoded.isBlank()) {
+        emptyList()
+    } else {
+        encoded.split(";").mapNotNull { pair ->
+            val parts = pair.split(",")
+            val lat = parts.getOrNull(0)?.toDoubleOrNull()
+            val lng = parts.getOrNull(1)?.toDoubleOrNull()
+            if (lat != null && lng != null) LatLng(lat, lng) else null
+        }
+    }
+
+internal fun PathEntity.toDomain(): SavedPath = SavedPath(
+    id = id,
+    name = name,
+    path = GeoPath(
+        points = decodePoints(points),
+        source = runCatching { GeoPathSource.valueOf(source) }.getOrDefault(GeoPathSource.Saved),
+        distanceM = distanceM,
+        ascentM = ascentM,
+        descentM = descentM,
+        movingTimeSeconds = durationSec,
+        recordedAtEpochMs = createdAtEpochMs,
+    ),
+)
+
+internal fun SavedPath.toEntity(): PathEntity = PathEntity(
+    id = id,
+    name = name,
+    source = path.source.name,
+    points = encodePoints(path.points),
+    distanceM = path.distanceM,
+    ascentM = path.ascentM,
+    descentM = path.descentM,
+    durationSec = path.movingTimeSeconds,
+    createdAtEpochMs = path.recordedAtEpochMs ?: 0L,
+)

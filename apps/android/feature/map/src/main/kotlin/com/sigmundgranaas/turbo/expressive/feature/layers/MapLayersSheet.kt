@@ -16,19 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AcUnit
-import androidx.compose.material.icons.rounded.Air
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Satellite
 import androidx.compose.material.icons.rounded.Terrain
-import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -43,8 +38,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
-import com.sigmundgranaas.turbo.expressive.domain.OverlayId
-import com.sigmundgranaas.turbo.expressive.ui.components.ListRowItem
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
@@ -52,9 +45,7 @@ import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 @Composable
 fun MapLayersSheet(
     selected: BaseLayer,
-    overlays: Set<OverlayId>,
     onSelectBase: (BaseLayer) -> Unit,
-    onToggleOverlay: (OverlayId) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -74,24 +65,8 @@ fun MapLayersSheet(
                 LayerCard(BaseLayer.Osm, Icons.Rounded.Map, selected == BaseLayer.Osm, Modifier.weight(1f)) { onSelectBase(BaseLayer.Osm) }
                 LayerCard(BaseLayer.Satellite, Icons.Rounded.Satellite, selected == BaseLayer.Satellite, Modifier.weight(1f)) { onSelectBase(BaseLayer.Satellite) }
             }
-
-            Spacer(Modifier.height(24.dp))
-            SectionLabel("Overlays")
-            Spacer(Modifier.height(8.dp))
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.xl)).background(cs.surfaceContainerHigh).padding(horizontal = 18.dp)) {
-                OverlayRow(OverlayId.Waves, Icons.Rounded.Waves, OverlayId.Waves in overlays) { onToggleOverlay(OverlayId.Waves) }
-                HorizontalDivider(color = cs.outlineVariant)
-                OverlayRow(OverlayId.Wind, Icons.Rounded.Air, OverlayId.Wind in overlays) { onToggleOverlay(OverlayId.Wind) }
-                HorizontalDivider(color = cs.outlineVariant)
-                OverlayRow(OverlayId.Avalanche, Icons.Rounded.AcUnit, OverlayId.Avalanche in overlays) { onToggleOverlay(OverlayId.Avalanche) }
-            }
         }
     }
-}
-
-@Composable
-private fun OverlayRow(id: OverlayId, icon: ImageVector, on: Boolean, onToggle: () -> Unit) {
-    ListRowItem(icon = icon, title = id.title, subtitle = id.subtitle, trailing = { Switch(checked = on, onCheckedChange = { onToggle() }) })
 }
 
 @Composable

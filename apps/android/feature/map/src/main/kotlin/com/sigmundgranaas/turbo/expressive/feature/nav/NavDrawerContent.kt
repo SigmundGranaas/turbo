@@ -11,11 +11,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.DownloadForOffline
-import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Map
-import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
@@ -34,11 +31,8 @@ import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 enum class DrawerDestination(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Map("Map", Icons.Rounded.Map),
-    Markers("All Markers", Icons.Rounded.Place),
-    Paths("All Paths", Icons.Rounded.Route),
-    Activities("Activities", Icons.Rounded.Explore),
+    Paths("Saved Tracks", Icons.Rounded.Route),
     Record("Record Track", Icons.Rounded.FiberManualRecord),
-    Offline("Offline Maps", Icons.Rounded.DownloadForOffline),
     Settings("Settings", Icons.Rounded.Settings),
 }
 

@@ -1,7 +1,9 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,6 +49,7 @@ import com.sigmundgranaas.turbo.expressive.core.map.defaultMapEntityActionRegist
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
+import com.sigmundgranaas.turbo.expressive.feature.conditions.ConditionsBody
 import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
 import com.sigmundgranaas.turbo.expressive.feature.markers.NewMarkerSheet
 import com.sigmundgranaas.turbo.expressive.feature.nav.DrawerDestination
@@ -67,8 +70,6 @@ fun MapScreen(
     onOpenSettings: () -> Unit,
     onOpenRecording: () -> Unit,
     onOpenPaths: () -> Unit,
-    onOpenActivities: () -> Unit,
-    onOpenOffline: () -> Unit,
     focusRequest: LatLng? = null,
     onFocusConsumed: () -> Unit = {},
     viewModel: MapViewModel = hiltViewModel(),
@@ -79,6 +80,23 @@ fun MapScreen(
     val scope = rememberCoroutineScope()
 
     var controller by remember { mutableStateOf<MapController?>(null) }
+
+    val locationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            viewModel.enableLocation()
+            viewModel.setFollowing(true)
+        }
+    }
+
+    // Show the user's location on first load if the permission is already granted.
+    LaunchedEffect(Unit) { if (viewModel.hasLocationPermission()) viewModel.enableLocation() }
+
+    // While following, keep the camera centred on the latest fix.
+    LaunchedEffect(state.userLocation, state.following) {
+        if (state.following) state.userLocation?.let { controller?.flyTo(it, 15.0) }
+    }
 
     // A search pick (or other external request) flies the camera to a coordinate
     // once the map controller is ready, then clears the one-shot request.
@@ -110,11 +128,9 @@ fun MapScreen(
                 scope.launch { drawerState.close() }
                 when (dest) {
                     DrawerDestination.Settings -> onOpenSettings()
-                    DrawerDestination.Activities -> onOpenActivities()
                     DrawerDestination.Paths -> onOpenPaths()
-                    DrawerDestination.Offline -> onOpenOffline()
                     DrawerDestination.Record -> onOpenRecording()
-                    else -> {}
+                    DrawerDestination.Map -> Unit
                 }
             }
         },
@@ -126,6 +142,7 @@ fun MapScreen(
                 initialZoom = SampleData.initialZoom,
                 markers = state.markers,
                 selectedMarkerId = selectionState.selection?.id,
+                userLocation = state.userLocation,
                 onMarkerClick = { marker ->
                     selectionState.select(
                         MapSelection(
@@ -136,7 +153,7 @@ fun MapScreen(
                             point = marker.position,
                             onNavigate = { controller?.flyTo(marker.position, 14.0) },
                             onDelete = { pendingDelete = marker },
-                            body = { MarkerConditionsBody() },
+                            body = { ConditionsBody(marker.position) },
                         ),
                     )
                 },
@@ -157,13 +174,17 @@ fun MapScreen(
 
             MapControlRail(
                 following = state.following,
-                compassOn = state.compassOn,
                 onLayers = { showLayers = true },
                 onLocate = {
-                    viewModel.toggleFollowing()
-                    controller?.flyTo(SampleData.initialCamera, 13.0)
+                    if (viewModel.hasLocationPermission()) {
+                        viewModel.enableLocation()
+                        val next = !state.following
+                        viewModel.setFollowing(next)
+                        if (next) state.userLocation?.let { controller?.flyTo(it, 15.0) }
+                    } else {
+                        locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }
                 },
-                onCompass = { viewModel.toggleCompass() },
                 onZoomIn = { controller?.zoomIn() },
                 onZoomOut = { controller?.zoomOut() },
                 modifier = Modifier
@@ -181,7 +202,7 @@ fun MapScreen(
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp)) {
                         Icon(Icons.Rounded.MyLocation, null, tint = cs.onTertiaryContainer, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Following · NE 18°", style = MaterialTheme.typography.labelLarge, color = cs.onTertiaryContainer)
+                        Text("Following", style = MaterialTheme.typography.labelLarge, color = cs.onTertiaryContainer)
                     }
                 }
             }
@@ -206,9 +227,7 @@ fun MapScreen(
     if (showLayers) {
         MapLayersSheet(
             selected = state.baseLayer,
-            overlays = state.overlays,
             onSelectBase = viewModel::setBaseLayer,
-            onToggleOverlay = viewModel::toggleOverlay,
             onDismiss = { showLayers = false },
         )
     }
@@ -234,30 +253,5 @@ fun MapScreen(
             },
             onDismiss = { pendingDelete = null },
         )
-    }
-}
-
-/** The "Conditions now" body rendered inside the selection detail host. */
-@Composable
-private fun MarkerConditionsBody() {
-    val cs = MaterialTheme.colorScheme
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.xl)).background(cs.surfaceContainerHigh).padding(18.dp),
-    ) {
-        SectionLabel("Conditions now")
-        Spacer(Modifier.size(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SampleData.conditionsNow.forEach { tile ->
-                Box(
-                    Modifier.weight(1f).clip(RoundedCornerShape(TurboRadius.m)).background(cs.surfaceContainerLowest).padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(tile.value, style = MaterialTheme.typography.titleLarge, color = cs.onSurface)
-                        Text(tile.label, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                    }
-                }
-            }
-        }
     }
 }
