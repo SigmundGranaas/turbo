@@ -142,7 +142,7 @@ fun RecordingScreen(
             defaultName = "Track ${formatKm(ui.distanceM)} km",
             canSave = ui.points.size > 1,
             onSave = { name -> viewModel.save(name) { onStop() } },
-            onDiscard = onStop,
+            onDiscard = { viewModel.discard { onStop() } },
             onDismiss = { showSave = false },
         )
     }
