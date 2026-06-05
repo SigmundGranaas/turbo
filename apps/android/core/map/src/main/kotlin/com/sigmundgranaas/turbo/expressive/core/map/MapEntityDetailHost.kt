@@ -19,9 +19,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 /**
@@ -49,9 +51,19 @@ fun MapEntityDetailHost(
         containerColor = cs.surfaceContainerLow,
     ) {
         Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp)) {
-            Text(selection.title, style = MaterialTheme.typography.headlineSmall, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (selection.subtitle != null) {
-                Text(selection.subtitle, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (selection.icon != null) {
+                    Cookie(size = 64.dp, fill = cs.primaryContainer) {
+                        Icon(selection.icon, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(30.dp))
+                    }
+                    Spacer(Modifier.size(16.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(selection.title, style = MaterialTheme.typography.headlineSmall, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (selection.subtitle != null) {
+                        Text(selection.subtitle, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                    }
+                }
             }
 
             selection.body?.let { body ->

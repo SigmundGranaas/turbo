@@ -4,16 +4,34 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.sigmundgranaas.turbo.expressive.core.designsystem.R
 
 /**
- * Material 3 type ramp (Roboto), with the Expressive twist from the design:
+ * Material 3 type ramp (Roboto Flex), with the Expressive twist from the design:
  * emphasized weights do the work — hero/display & headlines lean bold, section
- * eyebrows are 700 uppercase, buttons are 600 Title Case. Roboto ships as the
- * Android system font (a variable face on recent OSes), so no font download.
+ * eyebrows are 700 uppercase, buttons are 600 Title Case. Roboto Flex is pulled
+ * as a downloadable Google Font (variable face); if the provider is unavailable
+ * Compose falls back to the bundled system sans, so text always renders.
  */
-private val Sans = FontFamily.Default
+private val provider = GoogleFont.Provider(
+    providerAuthority = "com.google.android.gms.fonts",
+    providerPackage = "com.google.android.gms",
+    certificates = R.array.com_google_android_gms_fonts_certs,
+)
+
+private val RobotoFlex = GoogleFont("Roboto Flex")
+
+private val Sans = FontFamily(
+    Font(googleFont = RobotoFlex, fontProvider = provider, weight = FontWeight.W400),
+    Font(googleFont = RobotoFlex, fontProvider = provider, weight = FontWeight.W500),
+    Font(googleFont = RobotoFlex, fontProvider = provider, weight = FontWeight.W600),
+    Font(googleFont = RobotoFlex, fontProvider = provider, weight = FontWeight.W700),
+    Font(googleFont = RobotoFlex, fontProvider = provider, weight = FontWeight.W800),
+)
 
 val TurboTypography = Typography(
     displayLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.W800, fontSize = 57.sp, lineHeight = 60.sp, letterSpacing = (-0.25).sp),

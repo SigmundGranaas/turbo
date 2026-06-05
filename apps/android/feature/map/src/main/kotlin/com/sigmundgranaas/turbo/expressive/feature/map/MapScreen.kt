@@ -18,11 +18,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AcUnit
 import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.MyLocation
-import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Straighten
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +49,8 @@ import com.sigmundgranaas.turbo.expressive.core.map.MapSelection
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
 import com.sigmundgranaas.turbo.expressive.core.map.defaultMapEntityActionRegistry
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
+import com.sigmundgranaas.turbo.expressive.feature.conditions.AvalancheSheet
+import com.sigmundgranaas.turbo.expressive.feature.conditions.WeatherSheet
 import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
 import com.sigmundgranaas.turbo.expressive.feature.markers.NewMarkerSheet
 import com.sigmundgranaas.turbo.expressive.feature.nav.DrawerDestination
@@ -60,6 +63,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
+import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import kotlinx.coroutines.launch
 
 @Composable
@@ -67,7 +71,9 @@ fun MapScreen(
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenRecording: () -> Unit,
-    onOpenActivityDetail: () -> Unit,
+    onOpenPaths: () -> Unit,
+    onOpenActivities: () -> Unit,
+    onOpenOffline: () -> Unit,
     viewModel: MapViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
@@ -79,6 +85,8 @@ fun MapScreen(
     var fabExpanded by remember { mutableStateOf(false) }
     var showLayers by remember { mutableStateOf(false) }
     var showNewMarker by remember { mutableStateOf(false) }
+    var showWeather by remember { mutableStateOf(false) }
+    var showAvalanche by remember { mutableStateOf(false) }
 
     // One selection model + detail host — the map shell no longer depends on the
     // markers feature for the info sheet; it routes through the :core:map seam.
@@ -92,7 +100,9 @@ fun MapScreen(
                 scope.launch { drawerState.close() }
                 when (dest) {
                     DrawerDestination.Settings -> onOpenSettings()
-                    DrawerDestination.Activities -> onOpenActivityDetail()
+                    DrawerDestination.Activities -> onOpenActivities()
+                    DrawerDestination.Paths -> onOpenPaths()
+                    DrawerDestination.Offline -> onOpenOffline()
                     else -> {}
                 }
             }
@@ -111,6 +121,7 @@ fun MapScreen(
                             id = marker.id,
                             title = marker.name,
                             subtitle = "${marker.kind.label} · ${formatCoords(marker.position)}",
+                            icon = marker.kind.icon,
                             point = marker.position,
                             onNavigate = {},
                             onShare = {},
@@ -180,8 +191,9 @@ fun MapScreen(
                 actions = listOf(
                     FabAction("New Marker", Icons.Rounded.AddLocationAlt) { showNewMarker = true },
                     FabAction("Record Path", Icons.Rounded.FiberManualRecord) { onOpenRecording() },
+                    FabAction("Weather", Icons.Rounded.WbSunny) { showWeather = true },
+                    FabAction("Avalanche", Icons.Rounded.AcUnit) { showAvalanche = true },
                     FabAction("Measure Distance", Icons.Rounded.Straighten) {},
-                    FabAction("Navigate Here", Icons.Rounded.Navigation) {},
                 ),
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.navigationBars)
@@ -205,6 +217,12 @@ fun MapScreen(
     }
     if (showNewMarker) {
         NewMarkerSheet(position = SampleData.initialCamera, onDismiss = { showNewMarker = false }, onSave = { _, _ -> showNewMarker = false })
+    }
+    if (showWeather) {
+        WeatherSheet(placeName = "Tromsø · Troms", onDismiss = { showWeather = false })
+    }
+    if (showAvalanche) {
+        AvalancheSheet(region = "Lyngen · Varsom", level = 3, onDismiss = { showAvalanche = false })
     }
 }
 

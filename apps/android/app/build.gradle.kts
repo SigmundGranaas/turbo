@@ -45,6 +45,7 @@ android {
 
 dependencies {
     // App is the composition root: design system + feature modules + nav.
+    implementation(project(":core:model"))
     implementation(project(":core:designsystem"))
     implementation(project(":feature:map"))
     implementation(project(":feature:settings"))

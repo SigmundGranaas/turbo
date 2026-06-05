@@ -1,5 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.feature.layers
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +35,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
@@ -95,7 +101,6 @@ private fun LayerCard(layer: BaseLayer, icon: ImageVector, selected: Boolean, mo
         modifier
             .height(116.dp)
             .clip(RoundedCornerShape(TurboRadius.xl))
-            .background(cs.surfaceContainerHigh)
             .border(
                 width = if (selected) 3.dp else 1.dp,
                 color = if (selected) cs.primary else cs.outlineVariant,
@@ -103,9 +108,20 @@ private fun LayerCard(layer: BaseLayer, icon: ImageVector, selected: Boolean, mo
             )
             .clickable(onClick = onClick),
     ) {
+        // Map-like thumbnail crop — palette + contour strokes evoke each base map.
+        LayerThumbnail(layer, Modifier.matchParentSize())
+        // Bottom scrim so the label stays legible over the thumbnail.
+        Box(
+            Modifier.matchParentSize().background(
+                Brush.verticalGradient(
+                    0.45f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = 0.55f),
+                ),
+            ),
+        )
         Column(Modifier.padding(10.dp).align(Alignment.BottomStart), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Icon(icon, null, tint = if (selected) cs.primary else cs.onSurfaceVariant, modifier = Modifier.size(20.dp))
-            Text(layer.title, style = MaterialTheme.typography.labelLarge, color = if (selected) cs.primary else cs.onSurface)
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Text(layer.title, style = MaterialTheme.typography.labelLarge, color = Color.White)
         }
         if (selected) {
             Box(
@@ -115,3 +131,49 @@ private fun LayerCard(layer: BaseLayer, icon: ImageVector, selected: Boolean, mo
         }
     }
 }
+
+/** A tiny faux-map crop per base layer: a palette gradient + a few contour/feature
+ *  strokes, so each card previews the map's look without bundling raster tiles. */
+@Composable
+private fun LayerThumbnail(layer: BaseLayer, modifier: Modifier = Modifier) {
+    val palette = when (layer) {
+        // Topographic cream → tan with brown contour lines.
+        BaseLayer.Norgeskart -> LayerPalette(Color(0xFFF3ECDD), Color(0xFFD9C7A0), Color(0xFF9C7B45), contours = true)
+        // OSM neutral paper with grey roads + a green patch.
+        BaseLayer.Osm -> LayerPalette(Color(0xFFEDEAE3), Color(0xFFDDE6CF), Color(0xFFB0B0B0), roads = true)
+        // Satellite dark olive/forest mottling.
+        BaseLayer.Satellite -> LayerPalette(Color(0xFF2E3B26), Color(0xFF44572F), Color(0xFF6E8048), satellite = true)
+    }
+    Canvas(modifier) {
+        drawRect(Brush.linearGradient(listOf(palette.base, palette.mid)))
+        val w = size.width
+        val h = size.height
+        if (palette.contours) {
+            for (i in 1..4) {
+                val y = h * (i / 5f)
+                val path = Path().apply {
+                    moveTo(0f, y)
+                    cubicTo(w * 0.3f, y - h * 0.06f, w * 0.7f, y + h * 0.06f, w, y - h * 0.02f)
+                }
+                drawPath(path, palette.accent.copy(alpha = 0.55f), style = Stroke(width = 1.5f))
+            }
+        }
+        if (palette.roads) {
+            drawLine(palette.accent, Offset(0f, h * 0.7f), Offset(w, h * 0.35f), strokeWidth = 3f)
+            drawLine(palette.accent, Offset(w * 0.4f, h), Offset(w * 0.6f, 0f), strokeWidth = 2f)
+        }
+        if (palette.satellite) {
+            drawCircle(palette.accent.copy(alpha = 0.5f), radius = w * 0.25f, center = Offset(w * 0.3f, h * 0.35f))
+            drawCircle(palette.accent.copy(alpha = 0.4f), radius = w * 0.18f, center = Offset(w * 0.75f, h * 0.7f))
+        }
+    }
+}
+
+private data class LayerPalette(
+    val base: Color,
+    val mid: Color,
+    val accent: Color,
+    val contours: Boolean = false,
+    val roads: Boolean = false,
+    val satellite: Boolean = false,
+)

@@ -30,13 +30,32 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
+
+/**
+ * Bold only the leading [query] when [name] actually starts with it (case-insensitive);
+ * otherwise render the name plain. Avoids the "StorSjurfjellet" artifact where a
+ * non-matching name had the query blindly prepended in bold.
+ */
+private fun highlightPrefix(name: String, query: String): AnnotatedString = buildAnnotatedString {
+    val q = query.trim()
+    if (q.isNotEmpty() && name.startsWith(q, ignoreCase = true)) {
+        withStyle(SpanStyle(fontWeight = FontWeight.W800)) { append(name.substring(0, q.length)) }
+        append(name.substring(q.length))
+    } else {
+        append(name)
+    }
+}
 
 @Composable
 fun SearchScreen(
@@ -70,10 +89,11 @@ fun SearchScreen(
                     Cookie(size = 44.dp, fill = cs.surfaceContainerHigh) { Icon(r.kind.icon, null, tint = cs.primary, modifier = Modifier.size(22.dp)) }
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Row {
-                            Text(ui.query, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W800), color = cs.onSurface)
-                            Text(r.name.removePrefix(ui.query), style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-                        }
+                        Text(
+                            highlightPrefix(r.name, ui.query),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = cs.onSurface,
+                        )
                         Text(r.sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                     }
                     Icon(Icons.Rounded.NorthWest, null, tint = cs.onSurfaceVariant)

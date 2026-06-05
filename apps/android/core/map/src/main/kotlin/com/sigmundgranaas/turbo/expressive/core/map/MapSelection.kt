@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 
@@ -16,6 +17,8 @@ import com.sigmundgranaas.turbo.expressive.domain.LatLng
 data class MapSelection(
     val title: String,
     val subtitle: String? = null,
+    /** Optional hero glyph shown in a cookie next to the title. */
+    val icon: ImageVector? = null,
     /** Entity id (e.g. marker id) so the map can highlight the selected pin. */
     val id: String? = null,
     val point: LatLng? = null,

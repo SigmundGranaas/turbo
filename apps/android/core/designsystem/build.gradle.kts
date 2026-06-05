@@ -34,5 +34,6 @@ dependencies {
     api(libs.androidx.material.icons.extended)
     api(libs.androidx.graphics.shapes)
     api(libs.androidx.ui.tooling.preview)
+    api(libs.androidx.ui.text.google.fonts)
     debugImplementation(libs.androidx.ui.tooling)
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,21 +20,31 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AcUnit
+import androidx.compose.material.icons.rounded.Air
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.DownhillSkiing
+import androidx.compose.material.icons.rounded.Gavel
+import androidx.compose.material.icons.rounded.Hiking
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.Phishing
+import androidx.compose.material.icons.rounded.ScubaDiving
+import androidx.compose.material.icons.rounded.SetMeal
 import androidx.compose.material.icons.rounded.Thermostat
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.Waves
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,16 +58,41 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
 import com.sigmundgranaas.turbo.expressive.ui.components.ListRowItem
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
+import com.sigmundgranaas.turbo.expressive.ui.components.SpecRow
+import com.sigmundgranaas.turbo.expressive.ui.components.StatRow
+import com.sigmundgranaas.turbo.expressive.ui.components.StatTile
+import com.sigmundgranaas.turbo.expressive.ui.components.TurboCard
 import com.sigmundgranaas.turbo.expressive.ui.theme.DangerColors
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
+import com.sigmundgranaas.turbo.expressive.ui.theme.icon
+
+/**
+ * Activity detail, dispatched by [kind]: backcountry-ski (snow/avalanche),
+ * fishing (species/season/regulations), and freediving (depth/visibility/tides)
+ * each get a tailored layout; everything else falls back to a generic detail.
+ */
+@Composable
+fun ActivityDetailScreen(
+    onBack: () -> Unit,
+    kind: ActivityKindId = ActivityKindId.Skiing,
+) {
+    when (kind) {
+        ActivityKindId.Skiing -> SkiTouringDetail(onBack)
+        ActivityKindId.Fishing -> FishingDetail(onBack)
+        ActivityKindId.Diving -> FreedivingDetail(onBack)
+        else -> GenericActivityDetail(kind, onBack)
+    }
+}
 
 @Composable
-fun ActivityDetailScreen(onBack: () -> Unit) {
+private fun SkiTouringDetail(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     var tab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Snow", "Terrain", "Weather")
@@ -96,15 +132,7 @@ fun ActivityDetailScreen(onBack: () -> Unit) {
         }
 
         Spacer(Modifier.height(14.dp))
-        SingleChoiceSegmentedButtonRow(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
-            tabs.forEachIndexed { i, label ->
-                SegmentedButton(
-                    selected = tab == i,
-                    onClick = { tab = i },
-                    shape = SegmentedButtonDefaults.itemShape(i, tabs.size),
-                ) { Text(label) }
-            }
-        }
+        ActivityTabGroup(tabs, tab) { tab = it }
 
         Spacer(Modifier.height(14.dp))
         when (tab) {
@@ -130,6 +158,33 @@ fun ActivityDetailScreen(onBack: () -> Unit) {
                 onClick = {}, modifier = Modifier.size(54.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer),
             ) { Icon(Icons.Rounded.Bookmark, "Save") }
+        }
+    }
+}
+
+/**
+ * Expressive connected toggle group for the detail tabs — replaces the plain
+ * segmented row with M3-Expressive [ToggleButton]s whose shapes connect into one
+ * pill (leading/middle/trailing) and squish on press.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ActivityTabGroup(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        tabs.forEachIndexed { i, label ->
+            ToggleButton(
+                checked = selected == i,
+                onCheckedChange = { onSelect(i) },
+                modifier = Modifier.weight(1f),
+                shapes = when (i) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    tabs.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+            ) { Text(label) }
         }
     }
 }
@@ -218,6 +273,168 @@ private fun AspectRose(modifier: Modifier = Modifier) {
             drawCircle(color = ring, radius = hole / 2f, center = center)
         }
         Text("2200 m", style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
+    }
+}
+
+/**
+ * Shared detail chrome: back/eyebrow/share app bar, a cookie-hero title block,
+ * the kind-specific [content], then a navigate + save action bar. Keeps the
+ * fishing/freediving/generic layouts consistent with the ski layout.
+ */
+@Composable
+private fun DetailScaffold(
+    eyebrow: String,
+    title: String,
+    subtitle: String,
+    heroIcon: ImageVector,
+    onBack: () -> Unit,
+    heroFill: Color,
+    heroTint: Color,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxSize().background(cs.surface).verticalScroll(rememberScrollState())) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp)) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = cs.onSurface) }
+            SectionLabel(eyebrow, color = cs.primary, modifier = Modifier.weight(1f).padding(start = 6.dp))
+            IconButton(onClick = {}) { Icon(Icons.Rounded.IosShare, "Share", tint = cs.onSurfaceVariant) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 14.dp)) {
+            Cookie(size = 56.dp, fill = heroFill) { Icon(heroIcon, null, tint = heroTint, modifier = Modifier.size(28.dp)) }
+            Spacer(Modifier.size(14.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+            }
+        }
+        content()
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(horizontal = 18.dp).padding(top = 6.dp, bottom = 24.dp)) {
+            Button(onClick = {}, modifier = Modifier.weight(1f).height(54.dp)) {
+                Icon(Icons.Rounded.Navigation, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.size(8.dp)); Text("Navigate", style = MaterialTheme.typography.titleMedium)
+            }
+            FilledIconButton(
+                onClick = {}, modifier = Modifier.size(54.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer),
+            ) { Icon(Icons.Rounded.Bookmark, "Save") }
+        }
+    }
+}
+
+@Composable
+private fun FishingDetail(onBack: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    DetailScaffold(
+        eyebrow = "Fishing Spot",
+        title = "Skogsfjordvatnet",
+        subtitle = "Ringvassøya · Troms",
+        heroIcon = Icons.Rounded.Phishing,
+        heroFill = cs.primaryContainer,
+        heroTint = cs.onPrimaryContainer,
+        onBack = onBack,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            StatRow {
+                StatTile("4.2 km", "Shore walk", Modifier.weight(1f), Icons.Rounded.Hiking)
+                StatTile("8°C", "Water temp", Modifier.weight(1f), Icons.Rounded.Thermostat)
+                StatTile("Rising", "Tide", Modifier.weight(1f), Icons.Rounded.Waves)
+            }
+            Spacer(Modifier.height(12.dp))
+            TurboCard {
+                SectionLabel("Species & season")
+                Spacer(Modifier.height(6.dp))
+                ListRowItem(Icons.Rounded.SetMeal, "Brown trout", subtitle = "Best Jun–Sep, evening rise", trailing = { Text("Open", style = MaterialTheme.typography.titleSmall, color = cs.primary) })
+                ListRowItem(Icons.Rounded.SetMeal, "Arctic char", subtitle = "Deep water, slow troll", trailing = { Text("Open", style = MaterialTheme.typography.titleSmall, color = cs.primary) })
+            }
+            Spacer(Modifier.height(12.dp))
+            TurboCard {
+                SectionLabel("Regulations")
+                Spacer(Modifier.height(6.dp))
+                ListRowItem(Icons.Rounded.Gavel, "Licence required", subtitle = "Inatur · Ringvassøya kort")
+                ListRowItem(Icons.Rounded.CalendarMonth, "Bag limit", subtitle = "3 fish / day, min 25 cm")
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "Shallow weedy bays at the inlet hold trout through summer; the drop-off on the north shore fishes well for char in low light. Barbless hooks recommended.",
+                style = MaterialTheme.typography.bodyMedium, color = cs.onSurface,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FreedivingDetail(onBack: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    DetailScaffold(
+        eyebrow = "Freediving",
+        title = "Tønsvika Wall",
+        subtitle = "Tromsøya · Troms",
+        heroIcon = Icons.Rounded.ScubaDiving,
+        heroFill = cs.tertiaryContainer,
+        heroTint = cs.onTertiaryContainer,
+        onBack = onBack,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            StatRow {
+                StatTile("−24 m", "Max depth", Modifier.weight(1f), Icons.Rounded.Waves)
+                StatTile("12 m", "Visibility", Modifier.weight(1f), Icons.Rounded.Visibility)
+                StatTile("6°C", "Water temp", Modifier.weight(1f), Icons.Rounded.Thermostat)
+            }
+            Spacer(Modifier.height(12.dp))
+            TurboCard {
+                SectionLabel("Site profile")
+                Spacer(Modifier.height(6.dp))
+                SpecRow("Entry", "Shore, gentle ramp")
+                SpecRow("Bottom", "Vertical wall, kelp shelf at −8 m")
+                SpecRow("Current", "Slack at high tide")
+                SpecRow("Slack window", "12:40 – 13:25 today")
+            }
+            Spacer(Modifier.height(12.dp))
+            TurboCard {
+                SectionLabel("Conditions")
+                Spacer(Modifier.height(6.dp))
+                ListRowItem(Icons.Rounded.Waves, "Swell", subtitle = "0.3 m, NW", trailing = { Text("Calm", style = MaterialTheme.typography.titleSmall, color = cs.primary) })
+                ListRowItem(Icons.Rounded.Air, "Wind", subtitle = "3 m/s offshore", trailing = { Text("Good", style = MaterialTheme.typography.titleSmall, color = cs.primary) })
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "Drop in off the point and follow the wall north. Kelp forest thins below −15 m; cod and wolffish on the shelf. Dive the slack window — the channel pushes hard on the ebb.",
+                style = MaterialTheme.typography.bodyMedium, color = cs.onSurface,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun GenericActivityDetail(kind: ActivityKindId, onBack: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    DetailScaffold(
+        eyebrow = kind.label,
+        title = kind.label,
+        subtitle = "Troms · Northern Norway",
+        heroIcon = kind.icon,
+        heroFill = cs.secondaryContainer,
+        heroTint = cs.onSecondaryContainer,
+        onBack = onBack,
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            StatRow {
+                StatTile("2.1 km", "Distance", Modifier.weight(1f), Icons.Rounded.Hiking)
+                StatTile("120 m", "Ascent", Modifier.weight(1f), Icons.Rounded.WbSunny)
+                StatTile("45 min", "Est. time", Modifier.weight(1f), Icons.Rounded.CalendarMonth)
+            }
+            Spacer(Modifier.height(12.dp))
+            TurboCard {
+                SectionLabel("About")
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "A saved ${kind.label.lowercase()} spot. Detailed conditions for this activity type will appear here.",
+                    style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 
