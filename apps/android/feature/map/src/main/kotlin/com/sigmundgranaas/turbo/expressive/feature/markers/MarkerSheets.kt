@@ -8,15 +8,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -132,14 +130,15 @@ internal fun MarkerEditorContent(
             Spacer(Modifier.height(22.dp))
             SectionLabel("Icon")
             Spacer(Modifier.height(12.dp))
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(6),
+            // FlowRow wraps all kinds and grows to fit — the sheet itself scrolls,
+            // so no nested-scroll clipping (a fixed-height grid hid most icons).
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.height(120.dp),
-                userScrollEnabled = false,
+                maxItemsInEachRow = 6,
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                items(ActivityKindId.entries) { kind ->
+                ActivityKindId.entries.forEach { kind ->
                     val sel = kind == selectedKind
                     Box(
                         Modifier

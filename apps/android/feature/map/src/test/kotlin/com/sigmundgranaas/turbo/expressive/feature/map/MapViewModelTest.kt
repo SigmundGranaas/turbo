@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
+import com.sigmundgranaas.turbo.expressive.core.data.LocationSample
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -9,6 +10,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -27,7 +29,7 @@ private class FakeMarkerRepository : MarkerRepository {
 private class FakeLocationRepository(var permitted: Boolean = true) : LocationRepository {
     val fixes = MutableSharedFlow<LatLng>(extraBufferCapacity = 8)
     override fun hasPermission(): Boolean = permitted
-    override fun locationUpdates(): Flow<LatLng> = fixes
+    override fun samples(): Flow<LocationSample> = fixes.map { LocationSample(it, null) }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
