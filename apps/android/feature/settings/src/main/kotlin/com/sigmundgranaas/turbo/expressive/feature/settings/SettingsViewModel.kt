@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
+import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,4 +27,5 @@ class SettingsViewModel @Inject constructor(
     fun setCompass(enabled: Boolean) = viewModelScope.launch { repository.setCompassOrientation(enabled) }
     fun setFollow(enabled: Boolean) = viewModelScope.launch { repository.setFollowLocation(enabled) }
     fun setMetric(metric: Boolean) = viewModelScope.launch { repository.setMetricUnits(metric) }
+    fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { repository.setThemeMode(mode) }
 }

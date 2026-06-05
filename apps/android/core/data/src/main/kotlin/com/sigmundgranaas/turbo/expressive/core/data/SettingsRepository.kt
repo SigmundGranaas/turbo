@@ -5,7 +5,9 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +21,7 @@ interface SettingsRepository {
     suspend fun setCompassOrientation(enabled: Boolean)
     suspend fun setFollowLocation(enabled: Boolean)
     suspend fun setMetricUnits(metric: Boolean)
+    suspend fun setThemeMode(mode: ThemeMode)
 }
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_settings")
@@ -32,6 +35,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val COMPASS = booleanPreferencesKey("compass_orientation")
         val FOLLOW = booleanPreferencesKey("follow_location")
         val METRIC = booleanPreferencesKey("metric_units")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -39,6 +43,9 @@ class DataStoreSettingsRepository @Inject constructor(
             compassOrientation = prefs[Keys.COMPASS] ?: true,
             followLocation = prefs[Keys.FOLLOW] ?: false,
             metricUnits = prefs[Keys.METRIC] ?: true,
+            themeMode = prefs[Keys.THEME_MODE]
+                ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
+                ?: ThemeMode.System,
         )
     }
 
@@ -52,5 +59,9 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setMetricUnits(metric: Boolean) {
         context.settingsDataStore.edit { it[Keys.METRIC] = metric }
+    }
+
+    override suspend fun setThemeMode(mode: ThemeMode) {
+        context.settingsDataStore.edit { it[Keys.THEME_MODE] = mode.name }
     }
 }

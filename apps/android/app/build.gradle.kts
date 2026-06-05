@@ -46,6 +46,7 @@ android {
 dependencies {
     // App is the composition root: design system + feature modules + nav.
     implementation(project(":core:model"))
+    implementation(project(":core:data"))
     implementation(project(":core:designsystem"))
     implementation(project(":feature:map"))
     implementation(project(":feature:settings"))
@@ -54,6 +55,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
 
     implementation(libs.androidx.ui)

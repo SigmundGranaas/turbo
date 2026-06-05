@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.feature.settings
 
 import app.cash.turbine.test
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
+import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,7 @@ private class MutableSettingsRepository : SettingsRepository {
     override suspend fun setCompassOrientation(enabled: Boolean) = state.update { it.copy(compassOrientation = enabled) }
     override suspend fun setFollowLocation(enabled: Boolean) = state.update { it.copy(followLocation = enabled) }
     override suspend fun setMetricUnits(metric: Boolean) = state.update { it.copy(metricUnits = metric) }
+    override suspend fun setThemeMode(mode: ThemeMode) = state.update { it.copy(themeMode = mode) }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

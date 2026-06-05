@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,12 +16,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.DownloadForOffline
-import androidx.compose.material.icons.rounded.Draw
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Straighten
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
 import com.sigmundgranaas.turbo.expressive.ui.components.ListRowItem
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -79,9 +80,27 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(14.dp))
             SettingsGroup {
-                ListRowItem(Icons.Rounded.Palette, "Appearance", subtitle = "Dark · warm rust", trailing = { Icon(Icons.Rounded.ChevronRight, null, tint = cs.onSurfaceVariant) })
-                HorizontalDivider(color = cs.outlineVariant)
-                ListRowItem(Icons.Rounded.Draw, "Drawing", subtitle = "Path color & width", trailing = { Icon(Icons.Rounded.ChevronRight, null, tint = cs.onSurfaceVariant) })
+                ListRowItem(
+                    Icons.Rounded.Palette, "Appearance",
+                    subtitle = when (settings.themeMode) {
+                        ThemeMode.System -> "Follow system"
+                        ThemeMode.Light -> "Light theme"
+                        ThemeMode.Dark -> "Dark theme"
+                    },
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 12.dp),
+                ) {
+                    ThemeMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = settings.themeMode == mode,
+                            onClick = { viewModel.setThemeMode(mode) },
+                            label = { Text(themeModeLabel(mode)) },
+                            modifier = Modifier.testTag("theme_${mode.name}"),
+                        )
+                    }
+                }
             }
             SettingsGroup {
                 ListRowItem(
@@ -99,12 +118,15 @@ fun SettingsScreen(
                     trailing = { Switch(settings.metricUnits, viewModel::setMetric, modifier = Modifier.testTag("unitsSwitch")) },
                 )
             }
-            SettingsGroup {
-                ListRowItem(Icons.Rounded.DownloadForOffline, "Offline maps", subtitle = "3 regions · 1.2 GB")
-            }
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+private fun themeModeLabel(mode: ThemeMode): String = when (mode) {
+    ThemeMode.System -> "System"
+    ThemeMode.Light -> "Light"
+    ThemeMode.Dark -> "Dark"
 }
 
 @Composable

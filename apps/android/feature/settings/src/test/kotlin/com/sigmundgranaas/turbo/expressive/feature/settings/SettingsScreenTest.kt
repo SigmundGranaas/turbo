@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
+import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +25,7 @@ private class FakeSettingsRepository : SettingsRepository {
     override suspend fun setCompassOrientation(enabled: Boolean) = state.update { it.copy(compassOrientation = enabled) }
     override suspend fun setFollowLocation(enabled: Boolean) = state.update { it.copy(followLocation = enabled) }
     override suspend fun setMetricUnits(metric: Boolean) = state.update { it.copy(metricUnits = metric) }
+    override suspend fun setThemeMode(mode: ThemeMode) = state.update { it.copy(themeMode = mode) }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -48,5 +50,20 @@ class SettingsScreenTest {
             composeRule.onAllNodesWithText("Imperial · mi, ft").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("Imperial · mi, ft").assertExists()
+    }
+
+    @Test
+    fun `selecting the Dark theme chip updates the appearance subtitle`() {
+        composeRule.setContent {
+            SettingsScreen(onBack = {}, viewModel = SettingsViewModel(FakeSettingsRepository()))
+        }
+        composeRule.onNodeWithText("Follow system").assertExists() // System default
+
+        composeRule.onNodeWithTag("theme_Dark").performScrollTo().performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Dark theme").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Dark theme").assertExists()
     }
 }
