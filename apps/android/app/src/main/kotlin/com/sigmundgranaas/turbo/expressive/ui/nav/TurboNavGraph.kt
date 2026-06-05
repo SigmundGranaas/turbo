@@ -1,12 +1,15 @@
 package com.sigmundgranaas.turbo.expressive.ui.nav
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
+import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.feature.activity.ActivitiesHubScreen
 import com.sigmundgranaas.turbo.expressive.feature.activity.ActivityDetailScreen
 import com.sigmundgranaas.turbo.expressive.feature.activity.PathDetailScreen
@@ -36,7 +39,8 @@ private object Routes {
 fun TurboNavGraph() {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = Routes.MAP) {
-        composable(Routes.MAP) {
+        composable(Routes.MAP) { entry ->
+            val focus by entry.savedStateHandle.getStateFlow<DoubleArray?>("focus", null).collectAsState()
             MapScreen(
                 onOpenSearch = { nav.navigate(Routes.SEARCH) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
@@ -44,9 +48,19 @@ fun TurboNavGraph() {
                 onOpenPaths = { nav.navigate(Routes.PATHS) },
                 onOpenActivities = { nav.navigate(Routes.ACTIVITIES) },
                 onOpenOffline = { nav.navigate(Routes.OFFLINE) },
+                focusRequest = focus?.let { LatLng(it[0], it[1]) },
+                onFocusConsumed = { entry.savedStateHandle["focus"] = null },
             )
         }
-        composable(Routes.SEARCH) { SearchScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.SEARCH) {
+            SearchScreen(
+                onBack = { nav.popBackStack() },
+                onPick = { lat, lng, _ ->
+                    nav.getBackStackEntry(Routes.MAP).savedStateHandle["focus"] = doubleArrayOf(lat, lng)
+                    nav.popBackStack()
+                },
+            )
+        }
         composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.RECORDING) { RecordingScreen(onStop = { nav.popBackStack() }) }
         composable(Routes.OFFLINE) { OfflineMapsScreen(onBack = { nav.popBackStack() }) }

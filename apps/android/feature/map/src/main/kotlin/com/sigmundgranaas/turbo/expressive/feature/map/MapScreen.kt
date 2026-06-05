@@ -18,12 +18,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AcUnit
-import androidx.compose.material.icons.rounded.AddLocationAlt
-import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.MyLocation
-import androidx.compose.material.icons.rounded.Straighten
-import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,16 +44,15 @@ import com.sigmundgranaas.turbo.expressive.core.map.MapEntityDetailHost
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelection
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
 import com.sigmundgranaas.turbo.expressive.core.map.defaultMapEntityActionRegistry
+import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
-import com.sigmundgranaas.turbo.expressive.feature.conditions.AvalancheSheet
-import com.sigmundgranaas.turbo.expressive.feature.conditions.WeatherSheet
 import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
 import com.sigmundgranaas.turbo.expressive.feature.markers.NewMarkerSheet
 import com.sigmundgranaas.turbo.expressive.feature.nav.DrawerDestination
 import com.sigmundgranaas.turbo.expressive.feature.nav.NavDrawerContent
-import com.sigmundgranaas.turbo.expressive.ui.components.FabAction
+import com.sigmundgranaas.turbo.expressive.ui.components.DeleteMarkerDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.MapControlRail
-import com.sigmundgranaas.turbo.expressive.ui.components.MapFabMenu
 import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
@@ -74,6 +69,8 @@ fun MapScreen(
     onOpenPaths: () -> Unit,
     onOpenActivities: () -> Unit,
     onOpenOffline: () -> Unit,
+    focusRequest: LatLng? = null,
+    onFocusConsumed: () -> Unit = {},
     viewModel: MapViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
@@ -82,11 +79,21 @@ fun MapScreen(
     val scope = rememberCoroutineScope()
 
     var controller by remember { mutableStateOf<MapController?>(null) }
-    var fabExpanded by remember { mutableStateOf(false) }
+
+    // A search pick (or other external request) flies the camera to a coordinate
+    // once the map controller is ready, then clears the one-shot request.
+    LaunchedEffect(focusRequest, controller) {
+        val target = focusRequest ?: return@LaunchedEffect
+        controller?.let {
+            it.flyTo(target, 14.0)
+            onFocusConsumed()
+        }
+    }
     var showLayers by remember { mutableStateOf(false) }
-    var showNewMarker by remember { mutableStateOf(false) }
-    var showWeather by remember { mutableStateOf(false) }
-    var showAvalanche by remember { mutableStateOf(false) }
+    // Position long-pressed on the map → drives the "new marker" sheet (null = closed).
+    var newMarkerAt by remember { mutableStateOf<LatLng?>(null) }
+    // Marker pending delete-confirmation (null = no dialog).
+    var pendingDelete by remember { mutableStateOf<Marker?>(null) }
 
     // One selection model + detail host — the map shell no longer depends on the
     // markers feature for the info sheet; it routes through the :core:map seam.
@@ -95,6 +102,9 @@ fun MapScreen(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        // Only intercept swipes while open (swipe-to-close); otherwise the map owns
+        // all pan gestures so a left-edge drag pans instead of opening the drawer.
+        gesturesEnabled = drawerState.isOpen,
         drawerContent = {
             NavDrawerContent(selected = DrawerDestination.Map) { dest ->
                 scope.launch { drawerState.close() }
@@ -103,6 +113,7 @@ fun MapScreen(
                     DrawerDestination.Activities -> onOpenActivities()
                     DrawerDestination.Paths -> onOpenPaths()
                     DrawerDestination.Offline -> onOpenOffline()
+                    DrawerDestination.Record -> onOpenRecording()
                     else -> {}
                 }
             }
@@ -123,13 +134,13 @@ fun MapScreen(
                             subtitle = "${marker.kind.label} · ${formatCoords(marker.position)}",
                             icon = marker.kind.icon,
                             point = marker.position,
-                            onNavigate = {},
-                            onShare = {},
-                            onEdit = {},
+                            onNavigate = { controller?.flyTo(marker.position, 14.0) },
+                            onDelete = { pendingDelete = marker },
                             body = { MarkerConditionsBody() },
                         ),
                     )
                 },
+                onMapLongClick = { newMarkerAt = it },
                 onMapReady = { controller = it },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -185,20 +196,6 @@ fun MapScreen(
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             )
 
-            MapFabMenu(
-                expanded = fabExpanded,
-                onExpandedChange = { fabExpanded = it },
-                actions = listOf(
-                    FabAction("New Marker", Icons.Rounded.AddLocationAlt) { showNewMarker = true },
-                    FabAction("Record Path", Icons.Rounded.FiberManualRecord) { onOpenRecording() },
-                    FabAction("Weather", Icons.Rounded.WbSunny) { showWeather = true },
-                    FabAction("Avalanche", Icons.Rounded.AcUnit) { showAvalanche = true },
-                    FabAction("Measure Distance", Icons.Rounded.Straighten) {},
-                ),
-                modifier = Modifier.align(Alignment.BottomEnd)
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(16.dp),
-            )
         }
     }
 
@@ -215,14 +212,28 @@ fun MapScreen(
             onDismiss = { showLayers = false },
         )
     }
-    if (showNewMarker) {
-        NewMarkerSheet(position = SampleData.initialCamera, onDismiss = { showNewMarker = false }, onSave = { _, _ -> showNewMarker = false })
+    // New marker: opened by a long-press on the map, anchored at that coordinate.
+    newMarkerAt?.let { pos ->
+        NewMarkerSheet(
+            position = pos,
+            onDismiss = { newMarkerAt = null },
+            onSave = { name, kind ->
+                viewModel.addMarker(name, kind, pos)
+                newMarkerAt = null
+            },
+        )
     }
-    if (showWeather) {
-        WeatherSheet(placeName = "Tromsø · Troms", onDismiss = { showWeather = false })
-    }
-    if (showAvalanche) {
-        AvalancheSheet(region = "Lyngen · Varsom", level = 3, onDismiss = { showAvalanche = false })
+    // Delete confirmation for the selected marker.
+    pendingDelete?.let { marker ->
+        DeleteMarkerDialog(
+            markerName = marker.name,
+            onConfirm = {
+                viewModel.deleteMarker(marker.id)
+                selectionState.clear()
+                pendingDelete = null
+            },
+            onDismiss = { pendingDelete = null },
+        )
     }
 }
 

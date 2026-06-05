@@ -6,6 +6,8 @@ import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,26 +15,25 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class SearchResult(val name: String, val sub: String, val kind: ActivityKindId)
+data class SearchResult(
+    val name: String,
+    val sub: String,
+    val kind: ActivityKindId,
+    val lat: Double? = null,
+    val lng: Double? = null,
+)
 
 data class SearchUiState(
-    val query: String = "Stor",
+    val query: String = "",
     val filter: Int = 0,
-    val results: List<SearchResult> = DemoResults,
-) {
-    companion object {
-        val DemoResults = listOf(
-            SearchResult("Storsteinen", "Tromsø · Mountain · 421 m", ActivityKindId.Mountain),
-            SearchResult("Sjurfjellet Hytte", "DNT cabin · Lyngen", ActivityKindId.Cabin),
-            SearchResult("Storesandvika", "Beach · Senja", ActivityKindId.Beach),
-            SearchResult("Stor-Bjørnen", "Viewpoint · Senja", ActivityKindId.Viewpoint),
-        )
-    }
-}
+    val loading: Boolean = false,
+    val results: List<SearchResult> = emptyList(),
+)
 
 /**
- * Search state holder, backed by the live Kartverket [SearchRepository]. Falls
- * back to the demo results if the network call fails, so the UI is never empty.
+ * Search state holder backed by the live Kartverket [SearchRepository]. The query
+ * is fully editable; each keystroke schedules a debounced lookup. Results carry
+ * coordinates so the caller can fly the map to the chosen place.
  */
 @HiltViewModel
 class SearchViewModel @Inject constructor(
@@ -41,25 +42,35 @@ class SearchViewModel @Inject constructor(
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
 
-    init {
-        search(_state.value.query)
-    }
+    private var searchJob: Job? = null
 
     fun setFilter(index: Int) = _state.update { it.copy(filter = index) }
 
-    fun search(query: String) {
-        viewModelScope.launch {
+    fun setQuery(query: String) {
+        _state.update { it.copy(query = query) }
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            _state.update { it.copy(results = emptyList(), loading = false) }
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(DEBOUNCE_MS)
+            _state.update { it.copy(loading = true) }
             when (val outcome = repository.search(query)) {
-                is Outcome.Success -> {
-                    val hits = outcome.value
-                    if (hits.isNotEmpty()) {
-                        _state.update { s ->
-                            s.copy(results = hits.map { SearchResult(it.name, it.description, ActivityKindId.Mountain) })
-                        }
-                    }
+                is Outcome.Success -> _state.update { s ->
+                    s.copy(
+                        loading = false,
+                        results = outcome.value.map {
+                            SearchResult(it.name, it.description, ActivityKindId.Mountain, it.position.lat, it.position.lng)
+                        },
+                    )
                 }
-                is Outcome.Failure -> Unit // keep the demo fallback
+                is Outcome.Failure -> _state.update { it.copy(loading = false, results = emptyList()) }
             }
         }
+    }
+
+    private companion object {
+        const val DEBOUNCE_MS = 280L
     }
 }

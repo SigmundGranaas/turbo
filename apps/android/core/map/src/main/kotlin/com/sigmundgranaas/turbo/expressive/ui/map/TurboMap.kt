@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,8 +62,10 @@ fun TurboMap(
     routeColor: Color = Color(0xFF8F4C38),
     selectedMarkerId: String? = null,
     onMarkerClick: (Marker) -> Unit = {},
+    onMapLongClick: (LatLng) -> Unit = {},
     onMapReady: (MapController) -> Unit = {},
 ) {
+    val longClick by rememberUpdatedState(onMapLongClick)
     val context = LocalContext.current
     val density = LocalDensity.current
     val mapView = rememberMapViewWithLifecycle()
@@ -85,6 +88,10 @@ fun TurboMap(
                         .build()
                     ml.addOnCameraMoveListener { cameraTick.intValue++ }
                     ml.addOnCameraIdleListener { cameraTick.intValue++ }
+                    ml.addOnMapLongClickListener { point ->
+                        longClick(LatLng(point.latitude, point.longitude))
+                        true
+                    }
                     onMapReady(MapController(ml))
                 }
             }

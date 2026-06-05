@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -97,7 +99,7 @@ private fun SkiTouringDetail(onBack: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Snow", "Terrain", "Weather")
 
-    Column(Modifier.fillMaxSize().background(cs.surface).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().background(cs.surface).statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState())) {
         // App bar
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp)) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = cs.onSurface) }
@@ -293,7 +295,7 @@ private fun DetailScaffold(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().background(cs.surface).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().background(cs.surface).statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState())) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp)) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = cs.onSurface) }
             SectionLabel(eyebrow, color = cs.primary, modifier = Modifier.weight(1f).padding(start = 6.dp))

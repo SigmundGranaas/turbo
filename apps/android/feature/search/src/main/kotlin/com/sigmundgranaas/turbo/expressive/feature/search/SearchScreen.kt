@@ -1,24 +1,33 @@
 package com.sigmundgranaas.turbo.expressive.feature.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,15 +36,22 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
@@ -60,20 +76,38 @@ private fun highlightPrefix(name: String, query: String): AnnotatedString = buil
 @Composable
 fun SearchScreen(
     onBack: () -> Unit,
+    onPick: (lat: Double, lng: Double, name: String) -> Unit,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
     val ui by viewModel.state.collectAsStateWithLifecycle()
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
 
-    Column(Modifier.fillMaxSize().background(cs.surface)) {
+    Column(Modifier.fillMaxSize().background(cs.surface).statusBarsPadding().imePadding()) {
         Surface(
             shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 1.dp,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp).fillMaxWidth().height(56.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = cs.onSurface) }
-                Text(ui.query, style = MaterialTheme.typography.bodyLarge, color = cs.onSurface, modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
-                IconButton(onClick = onBack) { Icon(Icons.Rounded.Close, "Clear", tint = cs.onSurfaceVariant) }
+                Box(Modifier.weight(1f).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
+                    if (ui.query.isEmpty()) {
+                        Text("Search places, coordinates…", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+                    }
+                    BasicTextField(
+                        value = ui.query,
+                        onValueChange = viewModel::setQuery,
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
+                        cursorBrush = SolidColor(cs.primary),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                    )
+                }
+                if (ui.query.isNotEmpty()) {
+                    IconButton(onClick = { viewModel.setQuery("") }) { Icon(Icons.Rounded.Close, "Clear", tint = cs.onSurfaceVariant) }
+                }
             }
         }
 
@@ -83,22 +117,47 @@ fun SearchScreen(
             FilterChip(selected = ui.filter == 2, onClick = { viewModel.setFilter(2) }, label = { Text("Places") }, leadingIcon = { Icon(Icons.Rounded.Public, null, Modifier.size(18.dp)) })
         }
 
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-            ui.results.forEach { r ->
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.l)).padding(horizontal = 8.dp, vertical = 12.dp)) {
-                    Cookie(size = 44.dp, fill = cs.surfaceContainerHigh) { Icon(r.kind.icon, null, tint = cs.primary, modifier = Modifier.size(22.dp)) }
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            highlightPrefix(r.name, ui.query),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = cs.onSurface,
-                        )
-                        Text(r.sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                    }
-                    Icon(Icons.Rounded.NorthWest, null, tint = cs.onSurfaceVariant)
+        when {
+            ui.loading -> Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            ui.query.isBlank() -> EmptyHint("Search Kartverket place names", "Type a place, or long-press the map to drop a marker.")
+            ui.results.isEmpty() -> EmptyHint("No matches", "Nothing found for “${ui.query}”.")
+            else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                items(ui.results.size) { i ->
+                    val r = ui.results[i]
+                    ResultRow(r, ui.query) { if (r.lat != null && r.lng != null) onPick(r.lat, r.lng, r.name) }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ResultRow(r: SearchResult, query: String, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.l)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 12.dp),
+    ) {
+        Cookie(size = 44.dp, fill = cs.surfaceContainerHigh) { Icon(r.kind.icon, null, tint = cs.primary, modifier = Modifier.size(22.dp)) }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(highlightPrefix(r.name, query), style = MaterialTheme.typography.titleMedium, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(r.sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Rounded.NorthWest, null, tint = cs.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun EmptyHint(title: String, body: String) {
+    val cs = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Spacer(Modifier.height(64.dp))
+        Icon(Icons.Rounded.Search, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(40.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+        Text(body, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
     }
 }
