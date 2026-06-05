@@ -52,6 +52,7 @@ class RouteViewModel @Inject constructor(
     private var job: Job? = null
     private var from: LatLng? = null
     private var to: LatLng? = null
+    private var resumeFollowing = false
 
     fun planRoute(from: LatLng, to: LatLng, preset: RoutePreset = _preset.value) {
         this.from = from
@@ -65,7 +66,9 @@ class RouteViewModel @Inject constructor(
                 routes.planStream(listOf(from, to), preset).collect { event ->
                     _state.value = when (event) {
                         is RouteStreamEvent.Progress -> RouteUiState.Solving(event.coordinates)
-                        is RouteStreamEvent.Result -> RouteUiState.Done(event.plan)
+                        is RouteStreamEvent.Result ->
+                            if (resumeFollowing) { resumeFollowing = false; RouteUiState.Following(event.plan) }
+                            else RouteUiState.Done(event.plan)
                         is RouteStreamEvent.Failure -> RouteUiState.Error(event.message)
                     }
                 }
@@ -73,6 +76,14 @@ class RouteViewModel @Inject constructor(
                 _state.value = RouteUiState.Error("Couldn't reach the router.")
             }
         }
+    }
+
+    /** Re-solve from the current position to the same destination, staying in Follow mode. */
+    fun reroute(from: LatLng) {
+        val dest = to ?: return
+        if (_state.value !is RouteUiState.Following) return
+        resumeFollowing = true
+        planRoute(from, dest, _preset.value)
     }
 
     /** Re-plan the current trip with a different style. */

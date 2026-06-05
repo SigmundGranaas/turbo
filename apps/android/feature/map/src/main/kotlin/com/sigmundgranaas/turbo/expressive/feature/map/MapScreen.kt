@@ -4,8 +4,6 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,22 +19,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.MyLocation
-import androidx.compose.material.icons.rounded.Navigation
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,7 +43,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
-import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
 import com.sigmundgranaas.turbo.expressive.core.map.MapEntityDetailHost
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelection
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
@@ -75,8 +63,10 @@ import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
-import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+
+/** How far off the planned line (metres) before we re-solve while following. */
+private const val OFF_ROUTE_THRESHOLD_M = 50.0
 
 @Composable
 fun MapScreen(
@@ -113,6 +103,15 @@ fun MapScreen(
     // While following, keep the camera centred on the latest fix.
     LaunchedEffect(state.userLocation, state.following) {
         if (state.following) state.userLocation?.let { controller?.flyTo(it, 15.0) }
+    }
+
+    // Off-route detection: re-solve from the current fix if the user strays from the route.
+    LaunchedEffect(routeState, state.userLocation) {
+        val following = routeState as? RouteUiState.Following ?: return@LaunchedEffect
+        val here = state.userLocation ?: return@LaunchedEffect
+        if (GeoMetrics.distanceToPath(following.plan.geometry, here) > OFF_ROUTE_THRESHOLD_M) {
+            routeViewModel.reroute(here)
+        }
     }
 
     // A search pick (or other external request) flies the camera to a coordinate
@@ -297,117 +296,3 @@ fun MapScreen(
     }
 }
 
-/** Bottom card reflecting the route solve: presets, solving spinner, result stats, follow, or error. */
-@Composable
-private fun RouteCard(
-    state: RouteUiState,
-    preset: RoutePreset,
-    userLocation: LatLng?,
-    onSelectPreset: (RoutePreset) -> Unit,
-    onFollow: () -> Unit,
-    onSave: () -> Unit,
-    onClear: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (state is RouteUiState.Idle) return
-    val cs = MaterialTheme.colorScheme
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(TurboRadius.xl),
-        color = cs.surfaceContainerHigh,
-        shadowElevation = 4.dp,
-    ) {
-        Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-            when (state) {
-                is RouteUiState.Solving -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
-                        Spacer(Modifier.width(14.dp))
-                        Text("Finding the best route…", style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
-                        TextButton(onClick = onClear) { Text("Cancel") }
-                    }
-                    PresetRow(preset, onSelectPreset)
-                }
-                is RouteUiState.Error -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(state.message, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onClear) { Text("Dismiss") }
-                }
-                is RouteUiState.Done -> {
-                    val p = state.plan
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        RouteStat("%.1f km".format(p.distanceM / 1000.0), "Distance")
-                        RouteStat(formatDuration(p.durationS), "Time")
-                        RouteStat("${p.ascentM.roundToInt()} m", "Ascent")
-                        RouteStat("${p.onTrailPct.roundToInt()}%", "On trail")
-                    }
-                    PresetRow(preset, onSelectPreset)
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = onFollow, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Rounded.Navigation, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Follow")
-                        }
-                        FilledTonalButton(onClick = onSave) {
-                            Icon(Icons.Rounded.Bookmark, null, modifier = Modifier.size(18.dp))
-                        }
-                        TextButton(onClick = onClear) { Text("Clear") }
-                    }
-                }
-                is RouteUiState.Following -> {
-                    val progress = userLocation?.let { GeoMetrics.progress(state.plan.geometry, it, state.plan.ascentM) }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Navigation, null, tint = cs.primary, modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Following route", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-                            Text(
-                                text = progress?.let {
-                                    "%.1f km left".format(it.distanceRemainingM / 1000.0) +
-                                        (it.etaSeconds?.let { s -> " · ${formatDuration(s.toDouble())}" } ?: "")
-                                } ?: "Waiting for GPS…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = cs.onSurfaceVariant,
-                            )
-                        }
-                        TextButton(onClick = onClear) { Text("Stop") }
-                    }
-                }
-                RouteUiState.Idle -> Unit
-            }
-        }
-    }
-}
-
-@Composable
-private fun PresetRow(selected: RoutePreset, onSelect: (RoutePreset) -> Unit) {
-    Spacer(Modifier.height(10.dp))
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        RoutePreset.entries.forEach { p ->
-            FilterChip(
-                selected = p == selected,
-                onClick = { onSelect(p) },
-                label = { Text(p.label) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun RouteStat(value: String, label: String) {
-    val cs = MaterialTheme.colorScheme
-    Column {
-        Text(value, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
-    }
-}
-
-private fun formatDuration(seconds: Double): String {
-    val total = seconds.roundToInt()
-    val h = total / 3600
-    val m = (total % 3600) / 60
-    return if (h > 0) "${h}h ${m}m" else "$m min"
-}

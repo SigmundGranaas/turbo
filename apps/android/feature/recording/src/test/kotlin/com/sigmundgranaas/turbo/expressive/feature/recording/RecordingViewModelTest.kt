@@ -3,6 +3,8 @@ package com.sigmundgranaas.turbo.expressive.feature.recording
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
+import com.sigmundgranaas.turbo.expressive.core.data.RecordingDraft
+import com.sigmundgranaas.turbo.expressive.core.data.RecordingDraftStore
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
@@ -41,6 +43,12 @@ private class FakePathRepository : PathRepository {
     override suspend fun delete(id: String) { saved.removeAll { it.id == id } }
 }
 
+private class NoopDraftStore : RecordingDraftStore {
+    override suspend fun load(): RecordingDraft? = null
+    override suspend fun save(points: List<com.sigmundgranaas.turbo.expressive.domain.LatLng>, elapsedSec: Int) = Unit
+    override suspend fun clear() = Unit
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingViewModelTest {
 
@@ -53,7 +61,7 @@ class RecordingViewModelTest {
         launcher: FakeRecordingLauncher = FakeRecordingLauncher(),
         paths: FakePathRepository = FakePathRepository(),
     ): Triple<RecordingViewModel, RecordingController, FakeRecordingLauncher> {
-        val controller = RecordingController(location, scope)
+        val controller = RecordingController(location, NoopDraftStore(), scope)
         val vm = RecordingViewModel(launcher, controller, location, paths)
         return Triple(vm, controller, launcher)
     }

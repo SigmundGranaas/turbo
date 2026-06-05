@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.recording
 
 import android.Manifest
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -67,9 +68,16 @@ fun RecordingScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> viewModel.onPermissionResult(granted) }
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* best-effort: the foreground notification only shows if granted */ }
 
-    // On entry: start if permitted, else request the permission.
+    // On entry: ensure the ongoing notification can show (Android 13+), then start
+    // if permitted, else request the location permission.
     LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         if (ui.hasPermission) viewModel.start() else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
     // Keep the camera on the latest fix.

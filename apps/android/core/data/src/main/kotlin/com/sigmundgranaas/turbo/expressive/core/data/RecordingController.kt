@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,6 +35,7 @@ data class RecordingSession(
 @Singleton
 class RecordingController @Inject constructor(
     private val location: LocationRepository,
+    private val draftStore: RecordingDraftStore,
     private val scope: CoroutineScope,
 ) {
     private val _session = MutableStateFlow(RecordingSession())
@@ -46,14 +48,26 @@ class RecordingController @Inject constructor(
         if (_session.value.active || !location.hasPermission()) return
         _session.value = RecordingSession(active = true)
         locationJob = scope.launch {
+            // Resume any persisted draft (e.g. after a process kill) before collecting.
+            draftStore.load()?.let { draft ->
+                _session.update {
+                    it.copy(
+                        points = draft.points,
+                        distanceM = GeoMetrics.pathLengthMeters(draft.points),
+                        elapsedSec = draft.elapsedSec,
+                    )
+                }
+            }
             location.locationUpdates().collect { fix ->
-                _session.update { s ->
-                    if (!s.active || s.paused) return@update s
-                    if (s.points.isEmpty()) return@update s.copy(points = listOf(fix))
+                val updated = _session.updateAndGet { s ->
+                    if (!s.active || s.paused) return@updateAndGet s
+                    if (s.points.isEmpty()) return@updateAndGet s.copy(points = listOf(fix))
                     val step = GeoMetrics.haversineMeters(s.points.last(), fix)
-                    if (step < MIN_STEP_M) return@update s
+                    if (step < MIN_STEP_M) return@updateAndGet s
                     s.copy(points = s.points + fix, distanceM = s.distanceM + step)
                 }
+                // Persist the growing track so it survives process death.
+                draftStore.save(updated.points, updated.elapsedSec)
             }
         }
         timerJob = scope.launch {
@@ -77,6 +91,7 @@ class RecordingController @Inject constructor(
     fun reset() {
         stop()
         _session.value = RecordingSession()
+        scope.launch { draftStore.clear() }
     }
 
     private companion object {

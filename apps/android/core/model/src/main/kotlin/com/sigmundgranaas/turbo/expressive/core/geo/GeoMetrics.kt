@@ -95,6 +95,19 @@ object GeoMetrics {
         )
     }
 
+    /** Shortest distance (metres) from [position] to the polyline [points]; ∞ if degenerate. */
+    fun distanceToPath(points: List<LatLng>, position: LatLng): Double {
+        if (points.isEmpty()) return Double.MAX_VALUE
+        if (points.size == 1) return haversineMeters(points[0], position)
+        var best = Double.MAX_VALUE
+        for (i in 1 until points.size) {
+            val (proj, _) = projectFraction(points[i - 1], points[i], position)
+            val d = haversineMeters(position, proj)
+            if (d < best) best = d
+        }
+        return best
+    }
+
     // Planar approximation of the closest point on segment a→b to p (fine at trail scale).
     private fun projectFraction(a: LatLng, b: LatLng, p: LatLng): Pair<LatLng, Double> {
         val ax = a.lng; val ay = a.lat

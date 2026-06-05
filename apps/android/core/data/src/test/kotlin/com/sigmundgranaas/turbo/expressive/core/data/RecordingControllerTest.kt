@@ -18,13 +18,20 @@ private class FakeLocationRepository(var permitted: Boolean = true) : LocationRe
     override fun locationUpdates(): Flow<LatLng> = fixes
 }
 
+private class FakeDraftStore(var draft: RecordingDraft? = null) : RecordingDraftStore {
+    var cleared = false
+    override suspend fun load(): RecordingDraft? = draft
+    override suspend fun save(points: List<LatLng>, elapsedSec: Int) { draft = RecordingDraft(points, elapsedSec) }
+    override suspend fun clear() { draft = null; cleared = true }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingControllerTest {
 
     @Test
     fun `accumulates distance across fixes beyond the min step`() = runTest {
         val loc = FakeLocationRepository()
-        val controller = RecordingController(loc, backgroundScope)
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         runCurrent()
 
@@ -39,7 +46,7 @@ class RecordingControllerTest {
     @Test
     fun `ignores jitter below the min step`() = runTest {
         val loc = FakeLocationRepository()
-        val controller = RecordingController(loc, backgroundScope)
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         runCurrent()
 
@@ -54,7 +61,7 @@ class RecordingControllerTest {
     @Test
     fun `paused recording drops new fixes`() = runTest {
         val loc = FakeLocationRepository()
-        val controller = RecordingController(loc, backgroundScope)
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         runCurrent()
         loc.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
@@ -68,7 +75,7 @@ class RecordingControllerTest {
     @Test
     fun `timer advances elapsed seconds while active`() = runTest {
         val loc = FakeLocationRepository()
-        val controller = RecordingController(loc, backgroundScope)
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         advanceTimeBy(3_100)
         runCurrent()
@@ -78,7 +85,7 @@ class RecordingControllerTest {
     @Test
     fun `reset clears the session`() = runTest {
         val loc = FakeLocationRepository()
-        val controller = RecordingController(loc, backgroundScope)
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         runCurrent()
         loc.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
@@ -90,9 +97,40 @@ class RecordingControllerTest {
     @Test
     fun `start is a no-op without permission`() = runTest {
         val loc = FakeLocationRepository(permitted = false)
-        val controller = RecordingController(loc, backgroundScope)
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         runCurrent()
         assertFalse(controller.session.value.active)
+    }
+
+    @Test
+    fun `start resumes a persisted draft (process-death recovery)`() = runTest {
+        val loc = FakeLocationRepository()
+        val draft = FakeDraftStore(RecordingDraft(listOf(LatLng(69.0, 18.0), LatLng(69.001, 18.0)), elapsedSec = 42))
+        val controller = RecordingController(loc, draft, backgroundScope)
+        controller.start()
+        runCurrent()
+
+        val s = controller.session.value
+        assertEquals(2, s.points.size)
+        assertEquals(42, s.elapsedSec)
+        assertTrue(s.distanceM > 90.0)
+    }
+
+    @Test
+    fun `persists the track as points accumulate and clears on reset`() = runTest {
+        val loc = FakeLocationRepository()
+        val draft = FakeDraftStore()
+        val controller = RecordingController(loc, draft, backgroundScope)
+        controller.start()
+        runCurrent()
+        loc.fixes.emit(LatLng(69.0, 18.0)); runCurrent()
+        loc.fixes.emit(LatLng(69.001, 18.0)); runCurrent()
+
+        assertEquals(2, draft.draft?.points?.size)
+
+        controller.reset()
+        runCurrent()
+        assertTrue(draft.cleared)
     }
 }

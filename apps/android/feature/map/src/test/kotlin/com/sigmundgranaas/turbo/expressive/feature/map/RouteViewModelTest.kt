@@ -141,4 +141,30 @@ class RouteViewModelTest {
         assertEquals(plan, following.plan)
         assertEquals(plan.geometry, vm.state.value.polyline)
     }
+
+    @Test
+    fun `reroute re-solves from the new origin and stays in Following`() = runTest(mainRule.dispatcher) {
+        val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
+        val vm = RouteViewModel(repo, FakePathRepository())
+        vm.planRoute(a, b)
+        advanceUntilIdle()
+        vm.follow()
+
+        vm.reroute(LatLng(69.5, 18.5))
+        advanceUntilIdle()
+
+        assertEquals(2, repo.calls)
+        assertTrue(vm.state.value is RouteUiState.Following)
+    }
+
+    @Test
+    fun `reroute is ignored when not following`() = runTest(mainRule.dispatcher) {
+        val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
+        val vm = RouteViewModel(repo, FakePathRepository())
+        vm.planRoute(a, b)
+        advanceUntilIdle() // Done, not Following
+        vm.reroute(LatLng(69.5, 18.5))
+        advanceUntilIdle()
+        assertEquals(1, repo.calls)
+    }
 }

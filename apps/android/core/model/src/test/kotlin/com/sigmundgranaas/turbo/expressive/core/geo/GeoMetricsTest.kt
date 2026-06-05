@@ -49,4 +49,14 @@ class GeoMetricsTest {
         assertEquals(0.0, atStart.fraction, 1e-3)
         assertTrue(nearEnd.fraction > 0.9)
     }
+
+    @Test
+    fun `distanceToPath is ~0 on the line and large when off it`() {
+        val route = listOf(LatLng(69.0, 18.0), LatLng(69.0, 18.01))
+        // A point on the segment.
+        assertTrue(GeoMetrics.distanceToPath(route, LatLng(69.0, 18.005)) < 1.0)
+        // ~111 m north of the line (0.001° latitude).
+        val off = GeoMetrics.distanceToPath(route, LatLng(69.001, 18.005))
+        assertTrue("expected ~111 m, was $off", off in 90.0..130.0)
+    }
 }
