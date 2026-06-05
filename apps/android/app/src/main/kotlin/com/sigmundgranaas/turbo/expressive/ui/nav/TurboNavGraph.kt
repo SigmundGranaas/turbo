@@ -10,6 +10,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.feature.map.MapScreen
+import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineMapsScreen
 import com.sigmundgranaas.turbo.expressive.feature.recording.PathDetailScreen
 import com.sigmundgranaas.turbo.expressive.feature.recording.PathsListScreen
 import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingScreen
@@ -22,6 +23,7 @@ private object Routes {
     const val SETTINGS = "settings"
     const val RECORDING = "recording"
     const val PATHS = "paths"
+    const val OFFLINE = "offline"
     const val PATH_DETAIL = "path/{pathId}"
 
     fun pathDetail(id: String) = "path/$id"
@@ -38,6 +40,7 @@ fun TurboNavGraph() {
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenRecording = { nav.navigate(Routes.RECORDING) },
                 onOpenPaths = { nav.navigate(Routes.PATHS) },
+                onOpenOffline = { nav.navigate(Routes.OFFLINE) },
                 focusRequest = focus?.let { LatLng(it[0], it[1]) },
                 onFocusConsumed = { entry.savedStateHandle["focus"] = null },
             )
@@ -52,6 +55,7 @@ fun TurboNavGraph() {
             )
         }
         composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.OFFLINE) { OfflineMapsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.RECORDING) { RecordingScreen(onStop = { nav.popBackStack() }) }
         composable(Routes.PATHS) {
             PathsListScreen(

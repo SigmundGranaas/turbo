@@ -17,10 +17,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Satellite
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -46,6 +48,7 @@ import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 fun MapLayersSheet(
     selected: BaseLayer,
     onSelectBase: (BaseLayer) -> Unit,
+    onDownloadArea: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -64,6 +67,18 @@ fun MapLayersSheet(
                 LayerCard(BaseLayer.Norgeskart, Icons.Rounded.Terrain, selected == BaseLayer.Norgeskart, Modifier.weight(1f)) { onSelectBase(BaseLayer.Norgeskart) }
                 LayerCard(BaseLayer.Osm, Icons.Rounded.Map, selected == BaseLayer.Osm, Modifier.weight(1f)) { onSelectBase(BaseLayer.Osm) }
                 LayerCard(BaseLayer.Satellite, Icons.Rounded.Satellite, selected == BaseLayer.Satellite, Modifier.weight(1f)) { onSelectBase(BaseLayer.Satellite) }
+            }
+
+            Spacer(Modifier.height(22.dp))
+            SectionLabel("Offline")
+            Spacer(Modifier.height(12.dp))
+            FilledTonalButton(
+                onClick = onDownloadArea,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.Download, null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.size(8.dp))
+                Text("Download this area")
             }
         }
     }

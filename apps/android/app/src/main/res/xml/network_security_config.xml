@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  All real traffic stays HTTPS. The single exception is the in-process loopback
+  style server (see LocalStyleServer) that MapLibre's offline downloader reads
+  the generated raster style from — cleartext is required there and is harmless
+  since 127.0.0.1 never leaves the device.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Route
@@ -33,6 +34,7 @@ enum class DrawerDestination(val label: String, val icon: androidx.compose.ui.gr
     Map("Map", Icons.Rounded.Map),
     Paths("Saved Tracks", Icons.Rounded.Route),
     Record("Record Track", Icons.Rounded.FiberManualRecord),
+    Offline("Offline Maps", Icons.Rounded.CloudDownload),
     Settings("Settings", Icons.Rounded.Settings),
 }
 

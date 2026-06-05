@@ -55,6 +55,7 @@ import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
 import com.sigmundgranaas.turbo.expressive.feature.markers.NewMarkerSheet
 import com.sigmundgranaas.turbo.expressive.feature.nav.DrawerDestination
 import com.sigmundgranaas.turbo.expressive.feature.nav.NavDrawerContent
+import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
 import com.sigmundgranaas.turbo.expressive.ui.components.DeleteMarkerDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.MapControlRail
 import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
@@ -74,10 +75,12 @@ fun MapScreen(
     onOpenSettings: () -> Unit,
     onOpenRecording: () -> Unit,
     onOpenPaths: () -> Unit,
+    onOpenOffline: () -> Unit,
     focusRequest: LatLng? = null,
     onFocusConsumed: () -> Unit = {},
     viewModel: MapViewModel = hiltViewModel(),
     routeViewModel: RouteViewModel = hiltViewModel(),
+    offlineViewModel: OfflineViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -146,6 +149,7 @@ fun MapScreen(
                     DrawerDestination.Settings -> onOpenSettings()
                     DrawerDestination.Paths -> onOpenPaths()
                     DrawerDestination.Record -> onOpenRecording()
+                    DrawerDestination.Offline -> onOpenOffline()
                     DrawerDestination.Map -> Unit
                 }
             }
@@ -268,6 +272,15 @@ fun MapScreen(
         MapLayersSheet(
             selected = state.baseLayer,
             onSelectBase = viewModel::setBaseLayer,
+            onDownloadArea = {
+                controller?.let { ctrl ->
+                    val bounds = ctrl.visibleBounds()
+                    val centre = LatLng((bounds.north + bounds.south) / 2, (bounds.east + bounds.west) / 2)
+                    offlineViewModel.download(formatCoords(centre), state.baseLayer, bounds, ctrl.zoom())
+                }
+                showLayers = false
+                onOpenOffline()
+            },
             onDismiss = { showLayers = false },
         )
     }

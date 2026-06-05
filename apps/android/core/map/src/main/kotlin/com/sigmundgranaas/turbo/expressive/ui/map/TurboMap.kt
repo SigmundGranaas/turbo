@@ -30,6 +30,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.ui.components.MarkerPin
@@ -51,6 +52,15 @@ class MapController(internal val map: MapLibreMap) {
 
     /** The current camera centre — a sensible route origin when there's no GPS fix. */
     fun center(): LatLng = map.cameraPosition.target.let { LatLng(it!!.latitude, it.longitude) }
+
+    /** The currently visible lat/lng box — the area to download for offline use. */
+    fun visibleBounds(): GeoBounds {
+        val b = map.projection.visibleRegion.latLngBounds
+        return GeoBounds(south = b.latitudeSouth, west = b.longitudeWest, north = b.latitudeNorth, east = b.longitudeEast)
+    }
+
+    /** Current camera zoom level. */
+    fun zoom(): Double = map.cameraPosition.zoom
 }
 
 /**
