@@ -42,6 +42,8 @@ data class Marker(
     val position: LatLng,
     /** Optional override tint (ARGB). Null → the kind's terracotta default. */
     val colorArgb: Long? = null,
+    /** Free-text note the user attached to the pin. */
+    val notes: String? = null,
 )
 
 /** Base-map tile sources (matches the layer-selector in the design). */

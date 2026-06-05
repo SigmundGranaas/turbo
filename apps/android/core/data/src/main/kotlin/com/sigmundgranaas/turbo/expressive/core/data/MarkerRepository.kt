@@ -36,6 +36,7 @@ internal fun MarkerEntity.toDomain(): Marker = Marker(
     kind = ActivityKindId.fromKey(kind) ?: ActivityKindId.Mountain,
     position = LatLng(lat, lng),
     colorArgb = colorArgb,
+    notes = notes,
 )
 
 internal fun Marker.toEntity(): MarkerEntity = MarkerEntity(
@@ -45,4 +46,5 @@ internal fun Marker.toEntity(): MarkerEntity = MarkerEntity(
     lat = position.lat,
     lng = position.lng,
     colorArgb = colorArgb,
+    notes = notes,
 )

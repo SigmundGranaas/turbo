@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -52,7 +53,7 @@ import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
 import com.sigmundgranaas.turbo.expressive.feature.conditions.ConditionsBody
 import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
-import com.sigmundgranaas.turbo.expressive.feature.markers.NewMarkerSheet
+import com.sigmundgranaas.turbo.expressive.feature.markers.MarkerEditorSheet
 import com.sigmundgranaas.turbo.expressive.feature.nav.DrawerDestination
 import com.sigmundgranaas.turbo.expressive.feature.nav.NavDrawerContent
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
@@ -129,6 +130,8 @@ fun MapScreen(
     var showLayers by remember { mutableStateOf(false) }
     // Position long-pressed on the map → drives the "new marker" sheet (null = closed).
     var newMarkerAt by remember { mutableStateOf<LatLng?>(null) }
+    // Marker being edited (null = no editor open).
+    var editingMarker by remember { mutableStateOf<Marker?>(null) }
     // Marker pending delete-confirmation (null = no dialog).
     var pendingDelete by remember { mutableStateOf<Marker?>(null) }
 
@@ -176,8 +179,21 @@ fun MapScreen(
                                 val from = state.userLocation ?: controller?.center() ?: SampleData.initialCamera
                                 routeViewModel.planRoute(from, marker.position)
                             },
+                            onEdit = { editingMarker = marker },
                             onDelete = { pendingDelete = marker },
-                            body = { ConditionsBody(marker.position) },
+                            body = {
+                                Column {
+                                    if (!marker.notes.isNullOrBlank()) {
+                                        Text(
+                                            marker.notes!!,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = cs.onSurface,
+                                        )
+                                        Spacer(Modifier.height(14.dp))
+                                    }
+                                    ConditionsBody(marker.position)
+                                }
+                            },
                         ),
                     )
                 },
@@ -286,12 +302,27 @@ fun MapScreen(
     }
     // New marker: opened by a long-press on the map, anchored at that coordinate.
     newMarkerAt?.let { pos ->
-        NewMarkerSheet(
+        MarkerEditorSheet(
             position = pos,
             onDismiss = { newMarkerAt = null },
-            onSave = { name, kind ->
-                viewModel.addMarker(name, kind, pos)
+            onSave = { name, kind, color, notes ->
+                viewModel.addMarker(name, kind, pos, color, notes)
                 newMarkerAt = null
+            },
+        )
+    }
+    // Edit marker: opened from the detail sheet's Edit action.
+    editingMarker?.let { marker ->
+        MarkerEditorSheet(
+            position = marker.position,
+            existing = marker,
+            onDismiss = { editingMarker = null },
+            onSave = { name, kind, color, notes ->
+                viewModel.updateMarker(
+                    marker.copy(name = name.ifBlank { marker.name }, kind = kind, colorArgb = color, notes = notes),
+                )
+                selectionState.clear()
+                editingMarker = null
             },
         )
     }

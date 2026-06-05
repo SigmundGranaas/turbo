@@ -49,6 +49,37 @@ class MapViewModelTest {
     }
 
     @Test
+    fun `addMarker keeps the chosen colour and notes`() = runTest(mainRule.dispatcher) {
+        val markers = FakeMarkerRepository()
+        val vm = MapViewModel(markers, FakeLocationRepository())
+        vm.addMarker("Hut", ActivityKindId.Cabin, LatLng(69.0, 18.0), colorArgb = 0xFF1A73E8, notes = "spring water nearby")
+        advanceUntilIdle()
+
+        val m = vm.state.value.markers.single()
+        assertEquals(0xFF1A73E8, m.colorArgb)
+        assertEquals("spring water nearby", m.notes)
+    }
+
+    @Test
+    fun `updateMarker replaces the row in place`() = runTest(mainRule.dispatcher) {
+        val markers = FakeMarkerRepository()
+        markers.markers.value = listOf(Marker("m1", "Old", ActivityKindId.Cabin, LatLng(69.0, 18.0)))
+        val vm = MapViewModel(markers, FakeLocationRepository())
+        advanceUntilIdle()
+
+        vm.updateMarker(
+            Marker("m1", "New", ActivityKindId.Fishing, LatLng(69.0, 18.0), colorArgb = 0xFFE0432B, notes = "good perch"),
+        )
+        advanceUntilIdle()
+
+        val m = vm.state.value.markers.single()
+        assertEquals("m1", m.id)
+        assertEquals("New", m.name)
+        assertEquals(ActivityKindId.Fishing, m.kind)
+        assertEquals("good perch", m.notes)
+    }
+
+    @Test
     fun `blank name falls back to the kind label`() = runTest(mainRule.dispatcher) {
         val markers = FakeMarkerRepository()
         val vm = MapViewModel(markers, FakeLocationRepository())

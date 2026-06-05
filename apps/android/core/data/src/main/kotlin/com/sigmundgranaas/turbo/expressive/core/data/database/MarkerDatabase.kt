@@ -18,6 +18,7 @@ data class MarkerEntity(
     val lat: Double,
     val lng: Double,
     val colorArgb: Long?,
+    val notes: String? = null,
 )
 
 @Dao
@@ -64,7 +65,7 @@ interface PathDao {
     suspend fun delete(id: String)
 }
 
-@Database(entities = [MarkerEntity::class, PathEntity::class], version = 2, exportSchema = false)
+@Database(entities = [MarkerEntity::class, PathEntity::class], version = 3, exportSchema = false)
 abstract class TurboDatabase : RoomDatabase() {
     abstract fun markerDao(): MarkerDao
     abstract fun pathDao(): PathDao

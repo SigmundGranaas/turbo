@@ -60,13 +60,31 @@ class MapViewModel @Inject constructor(
     fun setFollowing(value: Boolean) = _state.update { it.copy(following = value) }
 
     /** Persist a new user marker (offline-first; the map updates via [observeAll]). */
-    fun addMarker(name: String, kind: ActivityKindId, position: LatLng) {
+    fun addMarker(
+        name: String,
+        kind: ActivityKindId,
+        position: LatLng,
+        colorArgb: Long? = null,
+        notes: String? = null,
+    ) {
         val safeName = name.ifBlank { kind.label }
         viewModelScope.launch {
             markerRepository.upsert(
-                Marker(id = "m-${UUID.randomUUID()}", name = safeName, kind = kind, position = position),
+                Marker(
+                    id = "m-${UUID.randomUUID()}",
+                    name = safeName,
+                    kind = kind,
+                    position = position,
+                    colorArgb = colorArgb,
+                    notes = notes,
+                ),
             )
         }
+    }
+
+    /** Persist edits to an existing marker (same id → Room replaces the row). */
+    fun updateMarker(marker: Marker) {
+        viewModelScope.launch { markerRepository.upsert(marker) }
     }
 
     fun deleteMarker(id: String) {
