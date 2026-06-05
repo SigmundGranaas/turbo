@@ -9,9 +9,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
+import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.SearchHit
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -22,6 +26,12 @@ import org.robolectric.annotation.GraphicsMode
 
 private class StubSearchRepository(private val hits: List<SearchHit>) : SearchRepository {
     override suspend fun search(query: String): Outcome<List<SearchHit>> = Outcome.Success(hits)
+}
+
+private class StubMarkerRepository : MarkerRepository {
+    override fun observeAll(): Flow<List<Marker>> = flowOf(emptyList())
+    override suspend fun upsert(marker: Marker) = Unit
+    override suspend fun delete(id: String) = Unit
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -41,7 +51,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { lat, lng, name -> picked = Triple(lat, lng, name) },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit))),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository()),
             )
         }
 
@@ -62,7 +72,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { _, _, _ -> },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit))),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository()),
             )
         }
         composeRule.onNode(hasSetTextAction()).performTextInput("Lyn")
