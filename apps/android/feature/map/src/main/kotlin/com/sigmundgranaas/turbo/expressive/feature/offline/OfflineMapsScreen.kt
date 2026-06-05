@@ -1,7 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.feature.offline
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,7 +64,12 @@ fun OfflineMapsScreen(
         },
     ) { padding ->
         if (regions.isEmpty()) {
-            EmptyState(Modifier.fillMaxSize().padding(padding))
+            EmptyState(
+                icon = Icons.Rounded.CloudOff,
+                title = "No offline maps yet",
+                body = "Open the layers sheet on the map and tap “Download this area” to save it for offline use.",
+                modifier = Modifier.fillMaxSize().padding(padding),
+            )
         } else {
             LazyColumn(
                 contentPadding = padding,
@@ -133,27 +138,6 @@ private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit) {
             IconButton(onClick = onDelete) {
                 Icon(Icons.Rounded.Delete, "Delete ${region.name}", tint = cs.error)
             }
-        }
-    }
-}
-
-@Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
-    val cs = MaterialTheme.colorScheme
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(32.dp),
-        ) {
-            Icon(Icons.Rounded.CloudOff, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(56.dp))
-            Spacer(Modifier.height(16.dp))
-            Text("No offline maps yet", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "Open the layers sheet on the map and tap “Download this area” to save it for offline use.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = cs.onSurfaceVariant,
-            )
         }
     }
 }

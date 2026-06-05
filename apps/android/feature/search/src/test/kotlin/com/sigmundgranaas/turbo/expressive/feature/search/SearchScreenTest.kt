@@ -81,6 +81,6 @@ class SearchScreenTest {
         }
         composeRule.onNodeWithContentDescription("Clear").performClick()
 
-        composeRule.onNodeWithText("Search Kartverket place names").assertIsDisplayed()
+        composeRule.onNodeWithText("Search places, trails, coordinates").assertIsDisplayed()
     }
 }

@@ -90,13 +90,20 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `failure yields empty results and clears loading`() = runTest(mainRule.dispatcher) {
+    fun `failure flags error, clears loading, and retry recovers`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Failure(RuntimeException("offline")))
         val vm = SearchViewModel(repo, FakeMarkerRepository())
         vm.setQuery("zzz"); advanceTimeBy(300); runCurrent()
 
         assertTrue(vm.state.value.results.isEmpty())
         assertTrue(!vm.state.value.loading)
+        assertTrue(vm.state.value.error)
+
+        repo.outcome = Outcome.Success(listOf(hit))
+        vm.retry(); advanceTimeBy(300); runCurrent()
+
+        assertTrue(!vm.state.value.error)
+        assertEquals(1, vm.state.value.results.size)
     }
 
     @Test

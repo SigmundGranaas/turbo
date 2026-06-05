@@ -57,6 +57,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
+import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.components.StatRow
 import com.sigmundgranaas.turbo.expressive.ui.components.StatTile
@@ -98,13 +99,12 @@ fun PathsListScreen(
         },
     ) { pad ->
         if (paths.isEmpty()) {
-            Column(Modifier.fillMaxSize().padding(pad).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(72.dp))
-                Icon(Icons.Rounded.Route, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(40.dp))
-                Spacer(Modifier.height(12.dp))
-                Text("No saved tracks yet", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-                Text("Record a track from the drawer → Record Track.", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
-            }
+            EmptyState(
+                icon = Icons.Rounded.Route,
+                title = "No saved tracks yet",
+                body = "Record a track from the drawer → Record Track.",
+                modifier = Modifier.fillMaxSize().padding(pad),
+            )
         } else {
             LazyColumn(
                 Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp),

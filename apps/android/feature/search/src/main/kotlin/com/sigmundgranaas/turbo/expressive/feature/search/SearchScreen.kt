@@ -55,6 +55,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
+import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
+import com.sigmundgranaas.turbo.expressive.ui.components.ErrorState
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 
@@ -121,8 +123,23 @@ fun SearchScreen(
             ui.loading -> Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            ui.query.isBlank() -> EmptyHint("Search Kartverket place names", "Type a place, or long-press the map to drop a marker.")
-            ui.results.isEmpty() -> EmptyHint("No matches", "Nothing found for “${ui.query}”.")
+            ui.query.isBlank() -> EmptyState(
+                icon = Icons.Rounded.Search,
+                title = "Search places, trails, coordinates",
+                body = "Type a place, or long-press the map to drop a marker.",
+                modifier = Modifier.fillMaxSize(),
+            )
+            ui.error && ui.results.isEmpty() -> ErrorState(
+                message = "Couldn't reach search — check your connection.",
+                onRetry = viewModel::retry,
+                modifier = Modifier.fillMaxSize(),
+            )
+            ui.results.isEmpty() -> EmptyState(
+                icon = Icons.Rounded.Search,
+                title = "No matches",
+                body = "Nothing found for “${ui.query}”.",
+                modifier = Modifier.fillMaxSize(),
+            )
             else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
                 items(ui.results.size) { i ->
                     val r = ui.results[i]
@@ -150,14 +167,3 @@ private fun ResultRow(r: SearchResult, query: String, onClick: () -> Unit) {
     }
 }
 
-@Composable
-private fun EmptyHint(title: String, body: String) {
-    val cs = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(64.dp))
-        Icon(Icons.Rounded.Search, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(40.dp))
-        Spacer(Modifier.height(12.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-        Text(body, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
-    }
-}

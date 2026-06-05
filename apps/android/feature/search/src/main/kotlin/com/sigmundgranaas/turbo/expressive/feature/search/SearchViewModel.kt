@@ -33,6 +33,7 @@ data class SearchUiState(
     val query: String = "",
     val filter: Int = 0,
     val loading: Boolean = false,
+    val error: Boolean = false,
     val results: List<SearchResult> = emptyList(),
 )
 
@@ -68,7 +69,7 @@ class SearchViewModel @Inject constructor(
         searchJob?.cancel()
         if (query.isBlank()) {
             allResults = emptyList()
-            _state.update { it.copy(results = emptyList(), loading = false) }
+            _state.update { it.copy(results = emptyList(), loading = false, error = false) }
             return
         }
 
@@ -79,15 +80,24 @@ class SearchViewModel @Inject constructor(
 
         searchJob = viewModelScope.launch {
             kotlinx.coroutines.delay(DEBOUNCE_MS)
-            val places = when (val outcome = repository.search(query)) {
-                is Outcome.Success -> outcome.value.map {
-                    SearchResult(it.name, it.description, ActivityKindId.Mountain, SearchResultType.Place, it.position.lat, it.position.lng)
+            when (val outcome = repository.search(query)) {
+                is Outcome.Success -> {
+                    val places = outcome.value.map {
+                        SearchResult(it.name, it.description, ActivityKindId.Mountain, SearchResultType.Place, it.position.lat, it.position.lng)
+                    }
+                    publish(instant + places, loading = false)
                 }
-                is Outcome.Failure -> emptyList()
+                is Outcome.Failure -> {
+                    // Keep any instant (coordinate/marker) hits, but flag the place lookup as failed.
+                    allResults = instant
+                    _state.update { it.copy(loading = false, error = true, results = applyFilter(instant, it.filter)) }
+                }
             }
-            publish(instant + places, loading = false)
         }
     }
+
+    /** Re-run the current query (used by the error-state Retry button). */
+    fun retry() = setQuery(_state.value.query)
 
     private fun instantResults(query: String): List<SearchResult> {
         val coordinate = parseCoordinate(query)?.let {
@@ -101,7 +111,7 @@ class SearchViewModel @Inject constructor(
 
     private fun publish(results: List<SearchResult>, loading: Boolean) {
         allResults = results
-        _state.update { it.copy(loading = loading, results = applyFilter(results, it.filter)) }
+        _state.update { it.copy(loading = loading, error = false, results = applyFilter(results, it.filter)) }
     }
 
     private fun applyFilter(results: List<SearchResult>, filter: Int): List<SearchResult> = results.filter {
