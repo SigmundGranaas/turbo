@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
@@ -63,9 +65,9 @@ fun MapLayersSheet(
         containerColor = cs.surfaceContainerLow,
     ) {
         Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp)) {
-            Text("Map Layers", style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
+            Text(stringResource(R.string.layers_title), style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
             Spacer(Modifier.height(18.dp))
-            SectionLabel("Base map")
+            SectionLabel(stringResource(R.string.layers_base))
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 LayerCard(BaseLayer.Norgeskart, Icons.Rounded.Terrain, selected == BaseLayer.Norgeskart, Modifier.weight(1f)) { onSelectBase(BaseLayer.Norgeskart) }
@@ -74,20 +76,20 @@ fun MapLayersSheet(
             }
 
             Spacer(Modifier.height(22.dp))
-            SectionLabel("Overlays")
+            SectionLabel(stringResource(R.string.layers_overlays))
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Rounded.Hiking, null, tint = cs.primary, modifier = Modifier.size(22.dp))
                 Spacer(Modifier.size(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Hiking trails", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
-                    Text("Marked routes · Waymarked Trails", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    Text(stringResource(R.string.layers_trails), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                    Text(stringResource(R.string.layers_trails_sub), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                 }
                 Switch(checked = trailsOverlay, onCheckedChange = onToggleTrailsOverlay)
             }
 
             Spacer(Modifier.height(22.dp))
-            SectionLabel("Offline")
+            SectionLabel(stringResource(R.string.layers_offline))
             Spacer(Modifier.height(12.dp))
             FilledTonalButton(
                 onClick = onDownloadArea,

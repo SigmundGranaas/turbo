@@ -38,6 +38,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import com.sigmundgranaas.turbo.expressive.feature.map.R
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -125,7 +127,7 @@ internal fun MarkerEditorContent(
             .padding(horizontal = 24.dp)
             .padding(bottom = 24.dp),
     ) {
-            Text(if (existing == null) "New Marker" else "Edit Marker", style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
+            Text(stringResource(if (existing == null) R.string.marker_new else R.string.marker_edit), style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
             Text(formatCoords(position), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
             if (existing == null && !suggestedSubtitle.isNullOrBlank()) {
                 Text(suggestedSubtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
@@ -135,7 +137,7 @@ internal fun MarkerEditorContent(
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it; nameEdited = true },
-                label = { Text("Name") },
+                label = { Text(stringResource(R.string.marker_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("markerName"),
             )
@@ -144,14 +146,14 @@ internal fun MarkerEditorContent(
             OutlinedTextField(
                 value = notes,
                 onValueChange = { notes = it },
-                label = { Text("Notes (optional)") },
+                label = { Text(stringResource(R.string.marker_notes)) },
                 minLines = 2,
                 maxLines = 4,
                 modifier = Modifier.fillMaxWidth().testTag("markerNotes"),
             )
 
             Spacer(Modifier.height(22.dp))
-            SectionLabel("Icon")
+            SectionLabel(stringResource(R.string.marker_icon))
             Spacer(Modifier.height(12.dp))
             // FlowRow wraps all kinds and grows to fit — the sheet itself scrolls,
             // so no nested-scroll clipping (a fixed-height grid hid most icons).
@@ -177,7 +179,7 @@ internal fun MarkerEditorContent(
             }
 
             Spacer(Modifier.height(22.dp))
-            SectionLabel("Colour")
+            SectionLabel(stringResource(R.string.marker_colour))
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MarkerColors.forEach { swatch ->
@@ -211,7 +213,7 @@ internal fun MarkerEditorContent(
                 modifier = Modifier.fillMaxWidth().height(56.dp).testTag("markerSave"),
             ) {
                 Text(
-                    if (existing == null) "Save Marker" else "Update Marker",
+                    stringResource(if (existing == null) R.string.marker_save else R.string.marker_update),
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W700),
                 )
             }

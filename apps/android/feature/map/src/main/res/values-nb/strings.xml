@@ -31,4 +31,23 @@
     <string name="measure_undo">Angre</string>
     <string name="measure_clear">Tøm</string>
     <string name="measure_done">Ferdig</string>
+
+    <!-- Marker editor -->
+    <string name="marker_new">Ny markør</string>
+    <string name="marker_edit">Rediger markør</string>
+    <string name="marker_name">Navn</string>
+    <string name="marker_notes">Notater (valgfritt)</string>
+    <string name="marker_icon">Ikon</string>
+    <string name="marker_colour">Farge</string>
+    <string name="marker_save">Lagre markør</string>
+    <string name="marker_update">Oppdater markør</string>
+
+    <!-- Layers sheet -->
+    <string name="layers_title">Kartlag</string>
+    <string name="layers_base">Grunnkart</string>
+    <string name="layers_overlays">Overlegg</string>
+    <string name="layers_trails">Turstier</string>
+    <string name="layers_trails_sub">Merkede ruter · Waymarked Trails</string>
+    <string name="layers_offline">Frakoblet</string>
+    <string name="layers_download_area">Last ned dette området</string>
 </resources>
