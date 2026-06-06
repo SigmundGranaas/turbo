@@ -147,17 +147,25 @@ private fun Tile(value: String, label: String, modifier: Modifier = Modifier) {
 private fun AvalancheRow(avalanche: AvalancheNow) {
     val cs = MaterialTheme.colorScheme
     val danger = DangerColors.all[(avalanche.dangerLevel - 1).coerceIn(0, 4)]
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.m)).background(danger.copy(alpha = 0.14f)).padding(12.dp),
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.m)).background(danger.copy(alpha = 0.14f)).padding(12.dp),
     ) {
-        Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(danger), contentAlignment = Alignment.Center) {
-            Text("${avalanche.dangerLevel}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W800), color = androidx.compose.ui.graphics.Color.White)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(danger), contentAlignment = Alignment.Center) {
+                Text("${avalanche.dangerLevel}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W800), color = androidx.compose.ui.graphics.Color.White)
+            }
+            Spacer(Modifier.size(12.dp))
+            Column {
+                Text("Avalanche · Level ${avalanche.dangerLevel}", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                Text(avalanche.region.ifBlank { "Varsom" }, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            }
         }
-        Spacer(Modifier.size(12.dp))
-        Column {
-            Text("Avalanche · Level ${avalanche.dangerLevel}", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
-            Text(avalanche.region.ifBlank { "Varsom" }, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+        avalanche.problems.forEach { p ->
+            val parts = listOfNotNull(p.type, p.trigger, p.size)
+            if (parts.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("• ${parts.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall, color = cs.onSurface)
+            }
         }
     }
 }

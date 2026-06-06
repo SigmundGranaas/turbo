@@ -3,7 +3,9 @@ package com.sigmundgranaas.turbo.expressive.core.data
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.domain.AtmosphericPoint
 import com.sigmundgranaas.turbo.expressive.domain.AvalancheNow
+import com.sigmundgranaas.turbo.expressive.domain.AvalancheProblem
 import com.sigmundgranaas.turbo.expressive.domain.Conditions
+import com.sigmundgranaas.turbo.expressive.domain.shouldShowAvalanche
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.WeatherForecast
 import com.sigmundgranaas.turbo.expressive.domain.WeatherNow
@@ -36,7 +38,9 @@ class HttpConditionsRepository @Inject constructor(
 
     override suspend fun forPoint(point: LatLng): Outcome<Conditions> {
         val weather = runCatching { fetchWeather(point) }.getOrNull()
-        val avalanche = runCatching { fetchAvalanche(point) }.getOrNull()
+        val raw = runCatching { fetchAvalanche(point) }.getOrNull()
+        // Suppress low-confidence danger (L1, or L2 when warm) per the Flutter heuristic.
+        val avalanche = raw?.takeIf { shouldShowAvalanche(it.dangerLevel, weather?.temperatureC) }
         return if (weather == null && avalanche == null) {
             Outcome.Failure(IllegalStateException("No conditions available"))
         } else {
@@ -103,7 +107,7 @@ class HttpConditionsRepository @Inject constructor(
         val warnings: List<VarsomWarning> = client
             .get(
                 "https://api01.nve.no/hydrology/forecast/avalanche/v6.2.1/api/" +
-                    "AvalancheWarningByCoordinates/Simple/${point.lat}/${point.lng}/1/$today/$today",
+                    "AvalancheWarningByCoordinates/Detail/${point.lat}/${point.lng}/1/$today/$today",
             )
             .body()
         val w = warnings.firstOrNull { (it.dangerLevel?.toIntOrNull() ?: 0) > 0 } ?: return null
@@ -112,6 +116,14 @@ class HttpConditionsRepository @Inject constructor(
             dangerLevel = level,
             mainText = w.mainText.orEmpty(),
             region = w.regionName.orEmpty(),
+            problems = w.avalancheProblems.orEmpty().map {
+                AvalancheProblem(
+                    type = it.problemTypeName?.takeIf(String::isNotBlank),
+                    trigger = it.triggerName?.takeIf(String::isNotBlank),
+                    distribution = it.distributionName?.takeIf(String::isNotBlank),
+                    size = it.destructiveSizeName?.takeIf(String::isNotBlank),
+                )
+            },
         )
     }
 
@@ -167,4 +179,13 @@ private data class VarsomWarning(
     @SerialName("DangerLevel") val dangerLevel: String? = null,
     @SerialName("MainText") val mainText: String? = null,
     @SerialName("RegionName") val regionName: String? = null,
+    @SerialName("AvalancheProblems") val avalancheProblems: List<VarsomProblem> = emptyList(),
+)
+
+@Serializable
+private data class VarsomProblem(
+    @SerialName("AvalancheProblemTypeName") val problemTypeName: String? = null,
+    @SerialName("AvalTriggerSimpleName") val triggerName: String? = null,
+    @SerialName("AvalPropagationName") val distributionName: String? = null,
+    @SerialName("DestructiveSizeExtName") val destructiveSizeName: String? = null,
 )

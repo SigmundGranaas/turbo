@@ -51,12 +51,33 @@ data class WeatherForecast(
     val days: List<DailySummary>,
 )
 
+/** One avalanche problem from a Varsom forecast (type + qualifiers, any may be null). */
+data class AvalancheProblem(
+    val type: String?,
+    val trigger: String?,
+    val distribution: String?,
+    val size: String?,
+)
+
 /** Today's avalanche danger at a point, from NVE Varsom. */
 data class AvalancheNow(
     val dangerLevel: Int,
     val mainText: String,
     val region: String,
+    val problems: List<AvalancheProblem> = emptyList(),
 )
+
+/**
+ * Whether an avalanche card is worth showing. Level 1 ("generally safe") is
+ * suppressed; level 2 is suppressed when it's warm (>5°C ⇒ likely below the snow
+ * line, where the bulletin is rarely actionable); level 3+ always shows. Mirrors
+ * the Flutter app's heuristic.
+ */
+fun shouldShowAvalanche(dangerLevel: Int, airTempC: Double?): Boolean = when {
+    dangerLevel >= 3 -> true
+    dangerLevel == 2 -> (airTempC ?: Double.NEGATIVE_INFINITY) <= 5.0
+    else -> false
+}
 
 /** Combined conditions for a point; either field may be null if unavailable. */
 data class Conditions(
