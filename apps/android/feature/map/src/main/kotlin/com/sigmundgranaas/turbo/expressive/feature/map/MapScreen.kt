@@ -209,7 +209,9 @@ fun MapScreen(
                 },
                 measurePoints = measurePoints,
                 onMapLongClick = { newMarkerAt = it },
-                onMapTap = if (measuring) { p -> measurePoints.add(p) } else null,
+                onMapTap = { p ->
+                    if (measuring) measurePoints.add(p) else selectionState.clear()
+                },
                 onMapReady = { controller = it },
                 modifier = Modifier.fillMaxSize(),
             )

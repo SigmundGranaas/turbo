@@ -182,6 +182,40 @@ fun TurboMap(
                         .background(Color(0xFF1A73E8)),
                 )
             }
+            // Scale bar (bottom-left), recomputed on camera change from centre lat + zoom.
+            run {
+                @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
+                val cam = ml.cameraPosition
+                val lat = cam.target?.latitude ?: initialCamera.lat
+                val maxPx = with(density) { 96.dp.toPx() }
+                val spec = ScaleBar.compute(lat, cam.zoom, maxPx)
+                val widthDp = with(density) { spec.widthPx.toDp() }
+                Box(
+                    Modifier
+                        .align(androidx.compose.ui.Alignment.BottomStart)
+                        .padding(start = 12.dp, bottom = 64.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .background(Color.White.copy(alpha = 0.75f), shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                    ) {
+                        androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.Start) {
+                            androidx.compose.material3.Text(
+                                spec.label,
+                                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF1A1A1A),
+                            )
+                            Box(
+                                Modifier
+                                    .padding(top = 2.dp)
+                                    .size(width = widthDp.coerceAtLeast(8.dp), height = 3.dp)
+                                    .background(Color(0xFF1A1A1A)),
+                            )
+                        }
+                    }
+                }
+            }
             markers.forEach { m ->
                 val selected = m.id == selectedMarkerId
                 val boxPx = with(density) { (if (selected) 42.dp else 33.dp).toPx() }
