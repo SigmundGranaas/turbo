@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,21 +66,21 @@ fun CollectionsScreen(
         containerColor = cs.surface,
         topBar = {
             TopAppBar(
-                title = { Text("Collections", style = MaterialTheme.typography.headlineSmall) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
+                title = { Text(stringResource(R.string.collections_title), style = MaterialTheme.typography.headlineSmall) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.collections_back)) } },
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { editing = null; showEditor = true }) {
-                Icon(Icons.Rounded.Add, "New collection")
+                Icon(Icons.Rounded.Add, stringResource(R.string.collections_new))
             }
         },
     ) { pad ->
         if (collections.isEmpty()) {
             EmptyState(
                 icon = Icons.Rounded.Folder,
-                title = "No collections yet",
-                body = "Group markers and tracks into folders. Tap + to start one.",
+                title = stringResource(R.string.collections_empty_title),
+                body = stringResource(R.string.collections_empty_body),
                 modifier = Modifier.fillMaxSize().padding(pad),
             )
         } else {
@@ -126,12 +127,18 @@ private fun CollectionRow(collection: MapCollection, onEdit: () -> Unit, onDelet
         Column(Modifier.weight(1f)) {
             Text(collection.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
             Text(
-                if (collection.itemCount == 1) "1 item" else "${collection.itemCount} items",
+                if (collection.itemCount == 1) {
+                    stringResource(R.string.collections_item_count_one)
+                } else {
+                    stringResource(R.string.collections_item_count_other, collection.itemCount)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = cs.onSurfaceVariant,
             )
         }
-        IconButton(onClick = onDelete) { Icon(Icons.Rounded.DeleteOutline, "Delete", tint = cs.onSurfaceVariant) }
+        IconButton(onClick = onDelete) {
+            Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.collections_delete), tint = cs.onSurfaceVariant)
+        }
     }
 }
 
@@ -146,13 +153,13 @@ private fun CollectionEditorDialog(
     var color by remember { mutableStateOf(existing?.colorArgb) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "New collection" else "Edit collection") },
+        title = { Text(stringResource(if (existing == null) R.string.collections_new else R.string.collections_edit)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { Text(stringResource(R.string.collections_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -169,7 +176,7 @@ private fun CollectionEditorDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(name, color) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onSave(name, color) }) { Text(stringResource(R.string.collections_save)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.collections_cancel)) } },
     )
 }

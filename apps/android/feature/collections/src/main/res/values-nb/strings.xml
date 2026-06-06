@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="collections_title">Samlinger</string>
+    <string name="collections_new">Ny samling</string>
+    <string name="collections_edit">Rediger samling</string>
+    <string name="collections_empty_title">Ingen samlinger ennå</string>
+    <string name="collections_empty_body">Grupper markører og spor i mapper. Trykk + for å lage en.</string>
+    <string name="collections_name">Navn</string>
+    <string name="collections_save">Lagre</string>
+    <string name="collections_cancel">Avbryt</string>
+    <string name="collections_delete">Slett</string>
+    <string name="collections_back">Tilbake</string>
+    <string name="collections_item_count_one">1 element</string>
+    <string name="collections_item_count_other">%1$d elementer</string>
+</resources>

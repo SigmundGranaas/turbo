@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="collections_title">Collections</string>
+    <string name="collections_new">New collection</string>
+    <string name="collections_edit">Edit collection</string>
+    <string name="collections_empty_title">No collections yet</string>
+    <string name="collections_empty_body">Group markers and tracks into folders. Tap + to start one.</string>
+    <string name="collections_name">Name</string>
+    <string name="collections_save">Save</string>
+    <string name="collections_cancel">Cancel</string>
+    <string name="collections_delete">Delete</string>
+    <string name="collections_back">Back</string>
+    <string name="collections_item_count_one">1 item</string>
+    <string name="collections_item_count_other">%1$d items</string>
+</resources>
