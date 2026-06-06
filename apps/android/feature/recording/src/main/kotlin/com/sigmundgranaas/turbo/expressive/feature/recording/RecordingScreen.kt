@@ -57,6 +57,7 @@ import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
+import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 
 @Composable
@@ -214,7 +215,7 @@ private fun SaveTrackDialog(
                             androidx.compose.material3.FilterChip(
                                 selected = k == kind,
                                 onClick = { kind = k },
-                                label = { Text(k.label) },
+                                label = { Text(stringResource(k.labelRes)) },
                             )
                         }
                     }

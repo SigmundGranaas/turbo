@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
+import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
@@ -11,6 +12,7 @@ import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.LocationDescription
 import com.sigmundgranaas.turbo.expressive.domain.Marker
+import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +36,7 @@ class MapViewModel @Inject constructor(
     private val markerRepository: MarkerRepository,
     private val location: LocationRepository,
     private val reverseGeocode: ReverseGeocodeRepository,
+    private val strings: StringProvider,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MapUiState())
     val state: StateFlow<MapUiState> = _state.asStateFlow()
@@ -91,7 +94,7 @@ class MapViewModel @Inject constructor(
         colorArgb: Long? = null,
         notes: String? = null,
     ) {
-        val safeName = name.ifBlank { kind.label }
+        val safeName = name.ifBlank { strings.get(kind.labelRes) }
         viewModelScope.launch {
             markerRepository.upsert(
                 Marker(

@@ -5,29 +5,29 @@ data class LatLng(val lat: Double, val lng: Double)
 
 /**
  * The 18 outdoor-activity types — the soul of the product. The Norwegian [key]
- * is the stable identifier; only [label] is translated. This is a PURE type
- * (no Compose): icon/tint visuals live in `:core:designsystem`
- * (`ActivityKindId.icon` / `.tint`).
+ * is the stable identifier. This is a PURE type (no Compose): the localized
+ * display label and icon/tint visuals live in `:core:designsystem`
+ * (`ActivityKindId.labelRes` / `.icon` / `.tint`).
  */
-enum class ActivityKindId(val key: String, val label: String) {
-    Mountain("Fjell", "Mountain"),
-    Park("Park", "Park"),
-    Beach("Strand", "Beach"),
-    Forest("Skog", "Forest"),
-    Hiking("Vandring", "Hiking"),
-    Kayaking("Kajakk", "Kayaking"),
-    Biking("Sykkel", "Biking"),
-    Cabin("Hytte", "Cabin"),
-    Parking("Parkering", "Parking"),
-    Camping("Camping", "Camping Spot"),
-    Swimming("Badeplass", "Swimming Spot"),
-    Diving("Dykking", "Diving"),
-    Viewpoint("Utkikkspunkt", "Viewpoint"),
-    Restaurant("Restaurant", "Restaurant"),
-    Cafe("Kafé", "Café"),
-    Accommodation("Overnatting", "Accommodation"),
-    Fishing("Fiskeplass", "Fishing Spot"),
-    Skiing("Ski", "Skiing");
+enum class ActivityKindId(val key: String) {
+    Mountain("Fjell"),
+    Park("Park"),
+    Beach("Strand"),
+    Forest("Skog"),
+    Hiking("Vandring"),
+    Kayaking("Kajakk"),
+    Biking("Sykkel"),
+    Cabin("Hytte"),
+    Parking("Parkering"),
+    Camping("Camping"),
+    Swimming("Badeplass"),
+    Diving("Dykking"),
+    Viewpoint("Utkikkspunkt"),
+    Restaurant("Restaurant"),
+    Cafe("Kafé"),
+    Accommodation("Overnatting"),
+    Fishing("Fiskeplass"),
+    Skiing("Ski");
 
     companion object {
         fun fromKey(key: String): ActivityKindId? = entries.firstOrNull { it.key == key }
