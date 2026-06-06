@@ -17,6 +17,8 @@ interface CollectionRepository {
     suspend fun addItem(collectionId: String, itemId: String, type: CollectionItemType)
     suspend fun removeItem(collectionId: String, itemId: String, type: CollectionItemType)
     fun observeItemIds(collectionId: String, type: CollectionItemType): Flow<List<String>>
+    /** The ids of collections that currently contain the given item. */
+    fun observeCollectionsForItem(itemId: String, type: CollectionItemType): Flow<List<String>>
 }
 
 class RoomCollectionRepository @Inject constructor(
@@ -54,4 +56,7 @@ class RoomCollectionRepository @Inject constructor(
 
     override fun observeItemIds(collectionId: String, type: CollectionItemType): Flow<List<String>> =
         dao.observeItemIds(collectionId, type.name)
+
+    override fun observeCollectionsForItem(itemId: String, type: CollectionItemType): Flow<List<String>> =
+        dao.observeCollectionsForItem(itemId, type.name)
 }

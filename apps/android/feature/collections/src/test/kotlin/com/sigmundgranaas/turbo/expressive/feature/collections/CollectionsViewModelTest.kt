@@ -28,6 +28,7 @@ private class FakeCollectionRepository : CollectionRepository {
     override suspend fun addItem(collectionId: String, itemId: String, type: CollectionItemType) = Unit
     override suspend fun removeItem(collectionId: String, itemId: String, type: CollectionItemType) = Unit
     override fun observeItemIds(collectionId: String, type: CollectionItemType): Flow<List<String>> = flowOf(emptyList())
+    override fun observeCollectionsForItem(itemId: String, type: CollectionItemType): Flow<List<String>> = flowOf(emptyList())
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

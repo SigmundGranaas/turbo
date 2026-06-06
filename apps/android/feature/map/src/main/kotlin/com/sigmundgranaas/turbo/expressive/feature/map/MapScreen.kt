@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -142,6 +143,8 @@ fun MapScreen(
     var editingMarker by remember { mutableStateOf<Marker?>(null) }
     // Marker pending delete-confirmation (null = no dialog).
     var pendingDelete by remember { mutableStateOf<Marker?>(null) }
+    // Marker whose "add to collection" picker is open (null = closed).
+    var addToCollection by remember { mutableStateOf<Marker?>(null) }
 
     // One selection model + detail host — the map shell no longer depends on the
     // markers feature for the info sheet; it routes through the :core:map seam.
@@ -198,6 +201,14 @@ fun MapScreen(
                             onShare = { shareMarkerGeoJson(context, marker) },
                             onEdit = { editingMarker = marker },
                             onDelete = { pendingDelete = marker },
+                            extraActions = listOf(
+                                com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
+                                    id = "add_to_collection",
+                                    label = "Add to collection",
+                                    icon = androidx.compose.material.icons.Icons.Rounded.Folder,
+                                    onInvoke = { addToCollection = marker },
+                                ),
+                            ),
                             body = {
                                 Column {
                                     if (!marker.notes.isNullOrBlank()) {
@@ -349,6 +360,14 @@ fun MapScreen(
                 activeOverlay = if (on) com.sigmundgranaas.turbo.expressive.domain.OverlayId.Trails else null
             },
             onDismiss = { showLayers = false },
+        )
+    }
+    // Add-to-collection picker for the selected marker.
+    addToCollection?.let { marker ->
+        com.sigmundgranaas.turbo.expressive.feature.collectionpicker.CollectionPickerSheet(
+            itemId = marker.id,
+            type = com.sigmundgranaas.turbo.expressive.domain.CollectionItemType.Marker,
+            onDismiss = { addToCollection = null },
         )
     }
     // New marker: opened by a long-press on the map, anchored at that coordinate.

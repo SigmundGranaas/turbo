@@ -121,6 +121,9 @@ interface CollectionDao {
 
     @Query("SELECT itemId FROM collection_item WHERE collectionId = :collectionId AND itemType = :itemType")
     fun observeItemIds(collectionId: String, itemType: String): Flow<List<String>>
+
+    @Query("SELECT collectionId FROM collection_item WHERE itemId = :itemId AND itemType = :itemType")
+    fun observeCollectionsForItem(itemId: String, itemType: String): Flow<List<String>>
 }
 
 @Entity(tableName = "photo")
