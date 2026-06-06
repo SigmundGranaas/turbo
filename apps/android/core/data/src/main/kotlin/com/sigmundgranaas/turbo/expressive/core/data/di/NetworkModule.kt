@@ -13,6 +13,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.cache.HttpCache
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -38,6 +39,9 @@ abstract class NetworkModule {
             install(ContentNegotiation) {
                 json(Json { ignoreUnknownKeys = true })
             }
+            // Honour MET/Varsom Expires + ETag so weather/forecast/avalanche reads
+            // serve from cache within their validity window (and 304-revalidate after).
+            install(HttpCache)
         }
     }
 }
