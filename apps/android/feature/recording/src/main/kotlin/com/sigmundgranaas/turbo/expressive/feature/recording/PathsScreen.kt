@@ -25,6 +25,8 @@ import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -36,6 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -190,12 +195,23 @@ fun PathDetailScreen(
             }
 
             Spacer(Modifier.height(16.dp))
+            var showExportMenu by remember { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilledIconButton(
-                    onClick = { shareGpx(context, path) },
-                    modifier = Modifier.size(54.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer),
-                ) { Icon(Icons.Rounded.IosShare, "Export GPX") }
+                Box {
+                    FilledIconButton(
+                        onClick = { showExportMenu = true },
+                        modifier = Modifier.size(54.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer),
+                    ) { Icon(Icons.Rounded.IosShare, "Export track") }
+                    DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                        ExportFormat.entries.forEach { format ->
+                            DropdownMenuItem(
+                                text = { Text("Export ${format.label}") },
+                                onClick = { showExportMenu = false; shareTrack(context, path, format) },
+                            )
+                        }
+                    }
+                }
                 FilledIconButton(
                     onClick = { viewModel.delete(path.id); onBack() },
                     modifier = Modifier.size(54.dp),
@@ -259,20 +275,20 @@ private fun ElevationProfile(elevations: List<Double?>, line: Color, fill: Color
     }
 }
 
-/** Write the track to a cache .gpx and fire a share chooser via FileProvider. */
-private fun shareGpx(context: Context, path: SavedPath) {
-    val dir = File(context.cacheDir, "gpx").apply { mkdirs() }
-    val file = File(dir, gpxFileName(path.name))
-    file.writeText(pathToGpx(path))
+/** Write the track to a cache file in the chosen [format] and fire a share chooser. */
+private fun shareTrack(context: Context, path: SavedPath, format: ExportFormat) {
+    val dir = File(context.cacheDir, "tracks").apply { mkdirs() }
+    val file = File(dir, exportFileName(path.name, format))
+    file.writeText(serialize(path, format))
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     val send = Intent(Intent.ACTION_SEND).apply {
-        type = "application/gpx+xml"
+        type = format.mimeType
         putExtra(Intent.EXTRA_STREAM, uri)
         // ClipData grants the read permission to the chooser preview + target alike.
         clipData = ClipData.newRawUri(path.name, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(send, "Share GPX").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    context.startActivity(Intent.createChooser(send, "Share ${format.label}").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 /** Normalised polyline sketch of a path's points into the given box. */

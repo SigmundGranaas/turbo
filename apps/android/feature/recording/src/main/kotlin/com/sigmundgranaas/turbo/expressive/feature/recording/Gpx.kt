@@ -28,14 +28,73 @@ internal fun pathToGpx(path: SavedPath): String {
     return sb.toString()
 }
 
-/** A safe filename stem derived from the track name (for the shared .gpx file). */
-internal fun gpxFileName(name: String): String {
-    val stem = name.trim().ifBlank { "track" }.replace(Regex("[^A-Za-z0-9-_]+"), "_").take(40)
-    return "$stem.gpx"
+/**
+ * Serialises a [SavedPath] to a GeoJSON Feature (LineString). Coordinates are
+ * GeoJSON order [lng, lat(, ele)]; track metadata rides along in `properties`.
+ */
+internal fun pathToGeoJson(path: SavedPath): String {
+    val points = path.path.points
+    val elevations = path.path.elevations
+    val coords = points.mapIndexed { i, p ->
+        val ele = elevations?.getOrNull(i)
+        if (ele != null) "[${p.lng},${p.lat},$ele]" else "[${p.lng},${p.lat}]"
+    }.joinToString(",")
+    return buildString {
+        append("{\"type\":\"Feature\",")
+        append("\"properties\":{\"name\":").append(jsonString(path.name)).append("},")
+        append("\"geometry\":{\"type\":\"LineString\",\"coordinates\":[").append(coords).append("]}}")
+    }
 }
+
+/**
+ * Serialises a [SavedPath] to a KML 2.2 Placemark (LineString) — the format
+ * Google Earth and many GIS tools expect. Coordinates are `lng,lat,ele` tuples.
+ */
+internal fun pathToKml(path: SavedPath): String {
+    val points = path.path.points
+    val elevations = path.path.elevations
+    val coords = points.mapIndexed { i, p ->
+        val ele = elevations?.getOrNull(i) ?: 0.0
+        "${p.lng},${p.lat},$ele"
+    }.joinToString(" ")
+    return buildString {
+        append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        append("<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n  <Document>\n    <Placemark>\n")
+        append("      <name>").append(escapeXml(path.name)).append("</name>\n")
+        append("      <LineString><coordinates>").append(coords).append("</coordinates></LineString>\n")
+        append("    </Placemark>\n  </Document>\n</kml>\n")
+    }
+}
+
+/** Track-exchange formats the app can export a [SavedPath] to. */
+internal enum class ExportFormat(val label: String, val extension: String, val mimeType: String) {
+    Gpx("GPX", "gpx", "application/gpx+xml"),
+    GeoJson("GeoJSON", "geojson", "application/geo+json"),
+    Kml("KML", "kml", "application/vnd.google-earth.kml+xml"),
+}
+
+internal fun serialize(path: SavedPath, format: ExportFormat): String = when (format) {
+    ExportFormat.Gpx -> pathToGpx(path)
+    ExportFormat.GeoJson -> pathToGeoJson(path)
+    ExportFormat.Kml -> pathToKml(path)
+}
+
+/** A safe filename derived from the track name for the given [format]. */
+internal fun exportFileName(name: String, format: ExportFormat): String {
+    val stem = name.trim().ifBlank { "track" }.replace(Regex("[^A-Za-z0-9-_]+"), "_").take(40)
+    return "$stem.${format.extension}"
+}
+
+/** A safe filename stem derived from the track name (for the shared .gpx file). */
+internal fun gpxFileName(name: String): String = exportFileName(name, ExportFormat.Gpx)
 
 private fun escapeXml(s: String): String = s
     .replace("&", "&amp;")
     .replace("<", "&lt;")
     .replace(">", "&gt;")
     .replace("\"", "&quot;")
+
+private fun jsonString(s: String): String = "\"" + s
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\n", "\\n") + "\""
