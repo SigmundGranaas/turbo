@@ -8,6 +8,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -15,6 +16,7 @@ import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import com.sigmundgranaas.turbo.expressive.ui.nav.TurboNavGraph
+import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -35,8 +37,10 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.Dark -> true
             }
             TurboTheme(darkTheme = dark) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-                    TurboNavGraph()
+                CompositionLocalProvider(LocalMetricUnits provides settings.metricUnits) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                        TurboNavGraph()
+                    }
                 }
             }
         }

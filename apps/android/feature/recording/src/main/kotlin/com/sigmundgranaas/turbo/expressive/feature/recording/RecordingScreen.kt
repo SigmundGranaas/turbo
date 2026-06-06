@@ -50,9 +50,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sigmundgranaas.turbo.expressive.core.geo.Units
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
+import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 
 @Composable
@@ -62,6 +64,7 @@ fun RecordingScreen(
 ) {
     val cs = MaterialTheme.colorScheme
     val ui by viewModel.state.collectAsStateWithLifecycle()
+    val metric = LocalMetricUnits.current
     var controller by remember { mutableStateOf<MapController?>(null) }
     var showSave by remember { mutableStateOf(false) }
 
@@ -112,9 +115,9 @@ fun RecordingScreen(
                 modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
             ) {
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-                    Stat(formatKm(ui.distanceM), "km", "Distance", Modifier.weight(1f))
+                    Stat(Units.distance(ui.distanceM, metric), "", "Distance", Modifier.weight(1f))
                     Stat(formatElapsed(ui.elapsedSec), "", "Time", Modifier.weight(1f))
-                    Stat(formatPace(ui.distanceM, ui.elapsedSec), "/km", "Pace", Modifier.weight(1f))
+                    Stat(Units.pace(ui.distanceM, ui.elapsedSec, metric), "", "Pace", Modifier.weight(1f))
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -147,7 +150,7 @@ fun RecordingScreen(
 
     if (showSave) {
         SaveTrackDialog(
-            defaultName = "Track ${formatKm(ui.distanceM)} km",
+            defaultName = "Track ${Units.distance(ui.distanceM, metric)}",
             canSave = ui.points.size > 1,
             onSave = { name -> viewModel.save(name) { onStop() } },
             onDiscard = { viewModel.discard { onStop() } },
@@ -224,19 +227,9 @@ private fun Stat(value: String, unit: String, label: String, modifier: Modifier 
     }
 }
 
-private fun formatKm(distanceM: Double): String = "%.2f".format(distanceM / 1000.0)
-
 private fun formatElapsed(seconds: Int): String {
     val h = seconds / 3600
     val m = (seconds % 3600) / 60
     val s = seconds % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
-}
-
-private fun formatPace(distanceM: Double, seconds: Int): String {
-    if (distanceM < 1.0 || seconds <= 0) return "—"
-    val secPerKm = seconds / (distanceM / 1000.0)
-    val m = (secPerKm / 60).toInt()
-    val s = (secPerKm % 60).toInt()
-    return "%d:%02d".format(m, s)
 }

@@ -62,14 +62,15 @@ import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.components.StatRow
 import com.sigmundgranaas.turbo.expressive.ui.components.StatTile
 import com.sigmundgranaas.turbo.expressive.ui.components.TurboCard
+import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
-import kotlin.math.roundToInt
+import com.sigmundgranaas.turbo.expressive.core.geo.Units
 
-private fun SavedPath.distanceKm(): String = "%.1f km".format(path.distanceM / 1000.0)
+private fun SavedPath.distanceText(metric: Boolean): String = Units.distance(path.distanceM, metric)
 
-private fun SavedPath.ascentText(): String = "${(path.ascentM ?: 0.0).roundToInt()} m"
+private fun SavedPath.ascentText(metric: Boolean): String = Units.elevation(path.ascentM ?: 0.0, metric)
 
-private fun SavedPath.descentText(): String = "${(path.descentM ?: 0.0).roundToInt()} m"
+private fun SavedPath.descentText(metric: Boolean): String = Units.elevation(path.descentM ?: 0.0, metric)
 
 private fun SavedPath.hasElevation(): Boolean = (path.elevations?.count { it != null } ?: 0) >= 2
 
@@ -124,6 +125,7 @@ fun PathsListScreen(
 @Composable
 private fun PathCard(path: SavedPath, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val metric = LocalMetricUnits.current
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.xl)).background(cs.surfaceContainerHigh)
             .clickable(onClick = onClick).padding(16.dp),
@@ -135,7 +137,7 @@ private fun PathCard(path: SavedPath, onClick: () -> Unit) {
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(path.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${path.distanceKm()} · ${path.durationText()}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Text("${path.distanceText(metric)} · ${path.durationText()}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
             }
         }
         if (path.path.points.size > 1) {
@@ -172,18 +174,19 @@ fun PathDetailScreen(
             return@Column
         }
         val context = LocalContext.current
+        val metric = LocalMetricUnits.current
         Column(Modifier.padding(16.dp)) {
             Text(path.name, style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
             Spacer(Modifier.height(14.dp))
             StatRow {
-                StatTile(path.distanceKm(), "Distance", Modifier.weight(1f), Icons.Rounded.Route)
-                StatTile(path.ascentText(), "Ascent", Modifier.weight(1f), Icons.Rounded.Terrain)
+                StatTile(path.distanceText(metric), "Distance", Modifier.weight(1f), Icons.Rounded.Route)
+                StatTile(path.ascentText(metric), "Ascent", Modifier.weight(1f), Icons.Rounded.Terrain)
                 StatTile(path.durationText(), "Time", Modifier.weight(1f), Icons.Rounded.Timer)
             }
 
             if (path.hasElevation()) {
                 Spacer(Modifier.height(16.dp))
-                ElevationCard(path)
+                ElevationCard(path, metric)
             }
 
             Spacer(Modifier.height(16.dp))
@@ -205,17 +208,17 @@ fun PathDetailScreen(
 
 /** Elevation profile card: ascent/descent summary + a filled distance-vs-height chart. */
 @Composable
-private fun ElevationCard(path: SavedPath) {
+private fun ElevationCard(path: SavedPath, metric: Boolean) {
     val cs = MaterialTheme.colorScheme
     TurboCard(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("Elevation")
             Spacer(Modifier.weight(1f))
             Icon(Icons.Rounded.Terrain, null, tint = cs.primary, modifier = Modifier.size(16.dp))
-            Text(" ${path.ascentText()}", style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
+            Text(" ${path.ascentText(metric)}", style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
             Spacer(Modifier.size(10.dp))
             Icon(Icons.AutoMirrored.Rounded.TrendingDown, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
-            Text(" ${path.descentText()}", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant)
+            Text(" ${path.descentText(metric)}", style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant)
         }
         Spacer(Modifier.height(12.dp))
         ElevationProfile(

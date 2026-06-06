@@ -29,8 +29,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
+import com.sigmundgranaas.turbo.expressive.core.geo.Units
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
+import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import kotlin.math.roundToInt
 
@@ -48,6 +50,7 @@ internal fun RouteCard(
 ) {
     if (state is RouteUiState.Idle) return
     val cs = MaterialTheme.colorScheme
+    val metric = LocalMetricUnits.current
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(TurboRadius.xl),
@@ -72,9 +75,9 @@ internal fun RouteCard(
                 is RouteUiState.Done -> {
                     val p = state.plan
                     Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        RouteStat("%.1f km".format(p.distanceM / 1000.0), "Distance")
+                        RouteStat(Units.distance(p.distanceM, metric), "Distance")
                         RouteStat(formatDuration(p.durationS), "Time")
-                        RouteStat("${p.ascentM.roundToInt()} m", "Ascent")
+                        RouteStat(Units.elevation(p.ascentM, metric), "Ascent")
                         RouteStat("${p.onTrailPct.roundToInt()}%", "On trail")
                     }
                     PresetRow(preset, onSelectPreset)
@@ -100,7 +103,7 @@ internal fun RouteCard(
                             Text("Following route", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
                             Text(
                                 text = progress?.let {
-                                    "%.1f km left".format(it.distanceRemainingM / 1000.0) +
+                                    "${Units.distance(it.distanceRemainingM, metric)} left" +
                                         (it.etaSeconds?.let { s -> " · ${formatDuration(s.toDouble())}" } ?: "")
                                 } ?: "Waiting for GPS…",
                                 style = MaterialTheme.typography.bodyMedium,
