@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.stringResource
+import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.domain.AvalancheNow
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MarineNow
@@ -57,14 +59,14 @@ fun ConditionsBody(point: LatLng, viewModel: ConditionsViewModel = hiltViewModel
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.xl)).background(cs.surfaceContainerHigh).padding(18.dp),
     ) {
-        SectionLabel("Conditions now · yr.no")
+        SectionLabel(stringResource(R.string.cond_header))
         Spacer(Modifier.height(14.dp))
         when (val s = state) {
             is ConditionsUiState.Loading -> Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(modifier = Modifier.size(28.dp))
             }
             is ConditionsUiState.Error -> Text(
-                "Conditions unavailable offline.",
+                stringResource(R.string.cond_unavailable),
                 style = MaterialTheme.typography.bodyMedium,
                 color = cs.onSurfaceVariant,
             )
@@ -79,7 +81,7 @@ fun ConditionsBody(point: LatLng, viewModel: ConditionsViewModel = hiltViewModel
                     MarineRow(it)
                 }
                 if (s.conditions.weather == null && s.conditions.avalanche == null) {
-                    Text("No data for this location.", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                    Text(stringResource(R.string.cond_no_data), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
                 } else if (s.conditions.weather != null) {
                     Spacer(Modifier.height(14.dp))
                     Row(
@@ -87,7 +89,7 @@ fun ConditionsBody(point: LatLng, viewModel: ConditionsViewModel = hiltViewModel
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.m))
                             .clickable { showForecast = true }.padding(vertical = 8.dp),
                     ) {
-                        Text("Full forecast", style = MaterialTheme.typography.titleSmall, color = cs.primary, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.cond_full_forecast), style = MaterialTheme.typography.titleSmall, color = cs.primary, modifier = Modifier.weight(1f))
                         Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, tint = cs.primary, modifier = Modifier.size(18.dp))
                     }
                 }
@@ -127,9 +129,9 @@ private fun WeatherTiles(weather: WeatherNow) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Tile(weather.precipitationMm?.let { "%.1f".format(it) } ?: "0.0", "mm/h", Modifier.weight(1f))
-            Tile(weather.humidityPct?.let { "${it.roundToInt()}%" } ?: "—", "Humidity", Modifier.weight(1f))
-            Tile(weather.cloudCoverPct?.let { "${it.roundToInt()}%" } ?: "—", "Cloud", Modifier.weight(1f))
-            Tile(weather.uvIndex?.let { "${it.roundToInt()}" } ?: "—", "UV", Modifier.weight(1f))
+            Tile(weather.humidityPct?.let { "${it.roundToInt()}%" } ?: "—", stringResource(R.string.cond_humidity), Modifier.weight(1f))
+            Tile(weather.cloudCoverPct?.let { "${it.roundToInt()}%" } ?: "—", stringResource(R.string.cond_cloud), Modifier.weight(1f))
+            Tile(weather.uvIndex?.let { "${it.roundToInt()}" } ?: "—", stringResource(R.string.cond_uv), Modifier.weight(1f))
         }
     }
 }
@@ -161,7 +163,7 @@ private fun AvalancheRow(avalanche: AvalancheNow) {
             }
             Spacer(Modifier.size(12.dp))
             Column {
-                Text("Avalanche · Level ${avalanche.dangerLevel}", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                Text(stringResource(R.string.cond_avalanche_level, avalanche.dangerLevel), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
                 Text(avalanche.region.ifBlank { "Varsom" }, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
             }
         }

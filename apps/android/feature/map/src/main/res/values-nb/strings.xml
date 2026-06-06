@@ -41,6 +41,7 @@
     <string name="marker_colour">Farge</string>
     <string name="marker_save">Lagre markør</string>
     <string name="marker_update">Oppdater markør</string>
+    <string name="marker_add_to_collection">Legg til i samling</string>
 
     <!-- Layers sheet -->
     <string name="layers_title">Kartlag</string>
@@ -50,4 +51,18 @@
     <string name="layers_trails_sub">Merkede ruter · Waymarked Trails</string>
     <string name="layers_offline">Frakoblet</string>
     <string name="layers_download_area">Last ned dette området</string>
+
+    <!-- Conditions -->
+    <string name="cond_header">Forhold nå · yr.no</string>
+    <string name="cond_unavailable">Forhold utilgjengelig uten nett.</string>
+    <string name="cond_no_data">Ingen data for dette stedet.</string>
+    <string name="cond_full_forecast">Fullt værvarsel</string>
+    <string name="cond_humidity">Fuktighet</string>
+    <string name="cond_cloud">Skyer</string>
+    <string name="cond_uv">UV</string>
+    <string name="cond_sea">Hav</string>
+    <string name="cond_avalanche_level">Snøskred · Nivå %1$d</string>
+    <string name="cond_forecast_title">Værvarsel · yr.no</string>
+    <string name="cond_forecast_unavailable">Værvarsel utilgjengelig</string>
+    <string name="cond_forecast_error_body">Kunne ikke nå yr.no — prøv igjen med tilkobling.</string>
 </resources>

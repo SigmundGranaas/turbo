@@ -31,8 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.sigmundgranaas.turbo.expressive.feature.map.R
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.AtmosphericPoint
@@ -66,7 +68,7 @@ fun WeatherForecastSheet(
         containerColor = cs.surfaceContainerLow,
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
-            Text("Forecast · yr.no", style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
+            Text(stringResource(R.string.cond_forecast_title), style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
             Spacer(Modifier.height(14.dp))
             when (val s = state) {
                 is ForecastUiState.Loading -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -74,8 +76,8 @@ fun WeatherForecastSheet(
                 }
                 is ForecastUiState.Error -> EmptyState(
                     icon = Icons.Rounded.CloudOff,
-                    title = "Forecast unavailable",
-                    body = "Couldn't reach yr.no — try again with a connection.",
+                    title = stringResource(R.string.cond_forecast_unavailable),
+                    body = stringResource(R.string.cond_forecast_error_body),
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                 )
                 is ForecastUiState.Content -> WeatherForecastContent(s.forecast)

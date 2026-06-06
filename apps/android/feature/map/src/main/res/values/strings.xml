@@ -41,6 +41,7 @@
     <string name="marker_colour">Colour</string>
     <string name="marker_save">Save Marker</string>
     <string name="marker_update">Update Marker</string>
+    <string name="marker_add_to_collection">Add to collection</string>
 
     <!-- Layers sheet -->
     <string name="layers_title">Map Layers</string>
@@ -50,4 +51,18 @@
     <string name="layers_trails_sub">Marked routes · Waymarked Trails</string>
     <string name="layers_offline">Offline</string>
     <string name="layers_download_area">Download this area</string>
+
+    <!-- Conditions -->
+    <string name="cond_header">Conditions now · yr.no</string>
+    <string name="cond_unavailable">Conditions unavailable offline.</string>
+    <string name="cond_no_data">No data for this location.</string>
+    <string name="cond_full_forecast">Full forecast</string>
+    <string name="cond_humidity">Humidity</string>
+    <string name="cond_cloud">Cloud</string>
+    <string name="cond_uv">UV</string>
+    <string name="cond_sea">Sea</string>
+    <string name="cond_avalanche_level">Avalanche · Level %1$d</string>
+    <string name="cond_forecast_title">Forecast · yr.no</string>
+    <string name="cond_forecast_unavailable">Forecast unavailable</string>
+    <string name="cond_forecast_error_body">Couldn\'t reach yr.no — try again with a connection.</string>
 </resources>

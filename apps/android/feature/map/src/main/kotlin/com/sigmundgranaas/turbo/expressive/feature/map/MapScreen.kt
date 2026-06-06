@@ -204,7 +204,7 @@ fun MapScreen(
                             extraActions = listOf(
                                 com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
                                     id = "add_to_collection",
-                                    label = "Add to collection",
+                                    label = context.getString(R.string.marker_add_to_collection),
                                     icon = androidx.compose.material.icons.Icons.Rounded.Folder,
                                     onInvoke = { addToCollection = marker },
                                 ),
