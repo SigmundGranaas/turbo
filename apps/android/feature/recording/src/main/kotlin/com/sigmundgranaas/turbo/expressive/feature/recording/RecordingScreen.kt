@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -116,9 +117,9 @@ fun RecordingScreen(
                 modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
             ) {
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-                    Stat(Units.distance(ui.distanceM, metric), "", "Distance", Modifier.weight(1f))
-                    Stat(formatElapsed(ui.elapsedSec), "", "Time", Modifier.weight(1f))
-                    Stat(Units.pace(ui.distanceM, ui.elapsedSec, metric), "", "Pace", Modifier.weight(1f))
+                    Stat(Units.distance(ui.distanceM, metric), "", stringResource(R.string.rec_distance), Modifier.weight(1f))
+                    Stat(formatElapsed(ui.elapsedSec), "", stringResource(R.string.rec_time), Modifier.weight(1f))
+                    Stat(Units.pace(ui.distanceM, ui.elapsedSec, metric), "", stringResource(R.string.rec_pace), Modifier.weight(1f))
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -136,14 +137,14 @@ fun RecordingScreen(
                         containerColor = cs.secondaryContainer,
                         contentColor = cs.onSecondaryContainer,
                         modifier = Modifier.size(56.dp),
-                    ) { Icon(if (ui.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, if (ui.paused) "Resume" else "Pause") }
+                    ) { Icon(if (ui.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, stringResource(if (ui.paused) R.string.rec_resume else R.string.rec_pause)) }
                     Spacer(Modifier.width(12.dp))
                     FloatingActionButton(
                         onClick = { viewModel.stop(); showSave = true },
                         containerColor = cs.primary,
                         contentColor = cs.onPrimary,
                         modifier = Modifier.size(56.dp),
-                    ) { Icon(Icons.Rounded.Stop, "Stop") }
+                    ) { Icon(Icons.Rounded.Stop, stringResource(R.string.rec_stop)) }
                 }
             }
         }
@@ -169,7 +170,7 @@ private fun StatusChip(recording: Boolean, paused: Boolean, elapsed: String, mod
             Box(Modifier.size(11.dp).clip(CircleShape).background(if (live) Color(0xFFE0432B) else cs.onSurfaceVariant))
             Spacer(Modifier.width(10.dp))
             Text(
-                text = (if (live) "Recording" else "Paused") + " · " + elapsed,
+                text = stringResource(if (live) R.string.rec_recording else R.string.rec_paused) + " · " + elapsed,
                 style = MaterialTheme.typography.titleSmall,
                 color = cs.onSurface,
             )
@@ -190,7 +191,7 @@ private fun SaveTrackDialog(
     var kind by remember { mutableStateOf(com.sigmundgranaas.turbo.expressive.domain.ActivityKindId.Hiking) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (canSave) "Save track?" else "Nothing recorded") },
+        title = { Text(stringResource(if (canSave) R.string.rec_save_title else R.string.rec_nothing_title)) },
         text = {
             if (canSave) {
                 androidx.compose.foundation.layout.Column {
@@ -219,13 +220,13 @@ private fun SaveTrackDialog(
                     }
                 }
             } else {
-                Text("No track points were captured.", color = cs.onSurfaceVariant)
+                Text(stringResource(R.string.rec_no_points), color = cs.onSurfaceVariant)
             }
         },
         confirmButton = {
-            if (canSave) Button(onClick = { onSave(name, kind) }) { Text("Save") } else Button(onClick = onDiscard) { Text("Done") }
+            if (canSave) Button(onClick = { onSave(name, kind) }) { Text(stringResource(R.string.rec_save)) } else Button(onClick = onDiscard) { Text(stringResource(R.string.rec_done)) }
         },
-        dismissButton = { if (canSave) TextButton(onClick = onDiscard) { Text("Discard") } },
+        dismissButton = { if (canSave) TextButton(onClick = onDiscard) { Text(stringResource(R.string.rec_discard)) } },
     )
 }
 

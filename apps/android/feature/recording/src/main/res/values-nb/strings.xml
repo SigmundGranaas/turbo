@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Paths list + detail -->
+    <string name="paths_title">Spor</string>
+    <string name="paths_back">Tilbake</string>
+    <string name="paths_import">Importer spor</string>
+    <string name="paths_imported">Spor importert</string>
+    <string name="paths_import_failed">Kunne ikke lese filen</string>
+    <string name="paths_imported_default">Importert spor</string>
+    <string name="paths_empty_title">Ingen lagrede spor ennå</string>
+    <string name="paths_empty_body">Ta opp et spor fra menyen → Ta opp spor, eller importer en GPX.</string>
+    <string name="paths_search">Søk i spor</string>
+    <string name="paths_sort_newest">Nyeste</string>
+    <string name="paths_sort_name">Navn</string>
+    <string name="paths_sort_longest">Lengst</string>
+    <string name="paths_no_matches">Ingen treff</string>
+    <string name="paths_no_matches_body">Ingen treff for «%1$s».</string>
+    <string name="paths_saved_count">Lagret · %1$d</string>
+    <string name="paths_not_found">Fant ikke sporet</string>
+    <string name="paths_distance">Distanse</string>
+    <string name="paths_ascent">Stigning</string>
+    <string name="paths_time">Tid</string>
+    <string name="paths_elevation">Høyde</string>
+    <string name="paths_export">Eksporter spor</string>
+    <string name="paths_export_format">Eksporter %1$s</string>
+    <string name="paths_share_format">Del %1$s</string>
+    <string name="paths_delete">Slett</string>
+
+    <!-- Recording -->
+    <string name="rec_recording">Tar opp</string>
+    <string name="rec_paused">Pauset</string>
+    <string name="rec_pause">Pause</string>
+    <string name="rec_resume">Fortsett</string>
+    <string name="rec_stop">Stopp</string>
+    <string name="rec_distance">Distanse</string>
+    <string name="rec_time">Tid</string>
+    <string name="rec_pace">Tempo</string>
+    <string name="rec_save_title">Lagre spor?</string>
+    <string name="rec_nothing_title">Ingenting tatt opp</string>
+    <string name="rec_no_points">Ingen sporpunkter ble registrert.</string>
+    <string name="rec_save">Lagre</string>
+    <string name="rec_done">Ferdig</string>
+    <string name="rec_discard">Forkast</string>
+</resources>

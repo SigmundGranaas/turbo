@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Paths list + detail -->
+    <string name="paths_title">Paths</string>
+    <string name="paths_back">Back</string>
+    <string name="paths_import">Import track</string>
+    <string name="paths_imported">Track imported</string>
+    <string name="paths_import_failed">Couldn\'t read that file</string>
+    <string name="paths_imported_default">Imported track</string>
+    <string name="paths_empty_title">No saved tracks yet</string>
+    <string name="paths_empty_body">Record a track from the drawer → Record Track, or import a GPX.</string>
+    <string name="paths_search">Search tracks</string>
+    <string name="paths_sort_newest">Newest</string>
+    <string name="paths_sort_name">Name</string>
+    <string name="paths_sort_longest">Longest</string>
+    <string name="paths_no_matches">No matches</string>
+    <string name="paths_no_matches_body">Nothing found for “%1$s”.</string>
+    <string name="paths_saved_count">Saved · %1$d</string>
+    <string name="paths_not_found">Track not found</string>
+    <string name="paths_distance">Distance</string>
+    <string name="paths_ascent">Ascent</string>
+    <string name="paths_time">Time</string>
+    <string name="paths_elevation">Elevation</string>
+    <string name="paths_export">Export track</string>
+    <string name="paths_export_format">Export %1$s</string>
+    <string name="paths_share_format">Share %1$s</string>
+    <string name="paths_delete">Delete</string>
+
+    <!-- Recording -->
+    <string name="rec_recording">Recording</string>
+    <string name="rec_paused">Paused</string>
+    <string name="rec_pause">Pause</string>
+    <string name="rec_resume">Resume</string>
+    <string name="rec_stop">Stop</string>
+    <string name="rec_distance">Distance</string>
+    <string name="rec_time">Time</string>
+    <string name="rec_pace">Pace</string>
+    <string name="rec_save_title">Save track?</string>
+    <string name="rec_nothing_title">Nothing recorded</string>
+    <string name="rec_no_points">No track points were captured.</string>
+    <string name="rec_save">Save</string>
+    <string name="rec_done">Done</string>
+    <string name="rec_discard">Discard</string>
+</resources>

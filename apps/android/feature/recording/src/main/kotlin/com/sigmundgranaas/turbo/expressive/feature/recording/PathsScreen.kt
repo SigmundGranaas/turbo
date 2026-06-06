@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.ClipData
@@ -129,22 +130,22 @@ fun PathsListScreen(
         }.getOrNull()
         val parsed = body?.let { TrackImport.parse(it) }
         if (parsed != null) {
-            viewModel.importTrack(parsed, fallbackName = displayName(context, uri) ?: "Imported track")
-            Toast.makeText(context, "Track imported", Toast.LENGTH_SHORT).show()
+            viewModel.importTrack(parsed, fallbackName = displayName(context, uri) ?: context.getString(R.string.paths_imported_default))
+            Toast.makeText(context, context.getString(R.string.paths_imported), Toast.LENGTH_SHORT).show()
         } else {
-            Toast.makeText(context, "Couldn't read that file", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.paths_import_failed), Toast.LENGTH_SHORT).show()
         }
     }
     Scaffold(
         containerColor = cs.surface,
         topBar = {
             TopAppBar(
-                title = { Text("Paths", style = MaterialTheme.typography.headlineSmall) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
+                title = { Text(stringResource(R.string.paths_title), style = MaterialTheme.typography.headlineSmall) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.paths_back)) } },
                 actions = {
                     IconButton(onClick = {
                         importLauncher.launch(arrayOf("application/gpx+xml", "application/vnd.google-earth.kml+xml", "application/geo+json", "application/xml", "text/xml", "application/json", "*/*"))
-                    }) { Icon(Icons.Rounded.FileUpload, "Import track") }
+                    }) { Icon(Icons.Rounded.FileUpload, stringResource(R.string.paths_import)) }
                 },
             )
         },
@@ -154,8 +155,8 @@ fun PathsListScreen(
         if (paths.isEmpty()) {
             EmptyState(
                 icon = Icons.Rounded.Route,
-                title = "No saved tracks yet",
-                body = "Record a track from the drawer → Record Track, or import a GPX.",
+                title = stringResource(R.string.paths_empty_title),
+                body = stringResource(R.string.paths_empty_body),
                 modifier = Modifier.fillMaxSize().padding(pad),
             )
         } else {
@@ -164,7 +165,7 @@ fun PathsListScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("Search tracks") },
+                    placeholder = { Text(stringResource(R.string.paths_search)) },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -174,18 +175,23 @@ fun PathsListScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     PathSort.entries.forEach { mode ->
+                        val labelRes = when (mode) {
+                            PathSort.Newest -> R.string.paths_sort_newest
+                            PathSort.Name -> R.string.paths_sort_name
+                            PathSort.Longest -> R.string.paths_sort_longest
+                        }
                         FilterChip(
                             selected = mode == sort,
                             onClick = { sort = mode },
-                            label = { Text(mode.label) },
+                            label = { Text(stringResource(labelRes)) },
                         )
                     }
                 }
                 if (visible.isEmpty()) {
                     EmptyState(
                         icon = Icons.Rounded.Search,
-                        title = "No matches",
-                        body = "Nothing found for “$query”.",
+                        title = stringResource(R.string.paths_no_matches),
+                        body = stringResource(R.string.paths_no_matches_body, query),
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -193,7 +199,7 @@ fun PathsListScreen(
                         Modifier.fillMaxSize().padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        item { SectionLabel("Saved · ${visible.size}") }
+                        item { SectionLabel(stringResource(R.string.paths_saved_count, visible.size)) }
                         items(visible.size) { i ->
                             val p = visible[i]
                             PathCard(p) { onOpen(p.id) }
@@ -253,12 +259,12 @@ fun PathDetailScreen(
                 RouteSketch(path.path.points, cs.primary, Modifier.fillMaxSize().padding(24.dp))
             }
             IconButton(onClick = onBack, modifier = Modifier.padding(6.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = cs.onSurface)
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.paths_back), tint = cs.onSurface)
             }
         }
         if (path == null) {
             Column(Modifier.padding(24.dp)) {
-                Text("Track not found", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+                Text(stringResource(R.string.paths_not_found), style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
             }
             return@Column
         }
@@ -268,9 +274,9 @@ fun PathDetailScreen(
             Text(path.name, style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
             Spacer(Modifier.height(14.dp))
             StatRow {
-                StatTile(path.distanceText(metric), "Distance", Modifier.weight(1f), Icons.Rounded.Route)
-                StatTile(path.ascentText(metric), "Ascent", Modifier.weight(1f), Icons.Rounded.Terrain)
-                StatTile(path.durationText(), "Time", Modifier.weight(1f), Icons.Rounded.Timer)
+                StatTile(path.distanceText(metric), stringResource(R.string.paths_distance), Modifier.weight(1f), Icons.Rounded.Route)
+                StatTile(path.ascentText(metric), stringResource(R.string.paths_ascent), Modifier.weight(1f), Icons.Rounded.Terrain)
+                StatTile(path.durationText(), stringResource(R.string.paths_time), Modifier.weight(1f), Icons.Rounded.Timer)
             }
 
             if (path.hasElevation()) {
@@ -286,11 +292,11 @@ fun PathDetailScreen(
                         onClick = { showExportMenu = true },
                         modifier = Modifier.size(54.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer),
-                    ) { Icon(Icons.Rounded.IosShare, "Export track") }
+                    ) { Icon(Icons.Rounded.IosShare, stringResource(R.string.paths_export)) }
                     DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
                         ExportFormat.entries.forEach { format ->
                             DropdownMenuItem(
-                                text = { Text("Export ${format.label}") },
+                                text = { Text(stringResource(R.string.paths_export_format, format.label)) },
                                 onClick = { showExportMenu = false; shareTrack(context, path, format) },
                             )
                         }
@@ -300,7 +306,7 @@ fun PathDetailScreen(
                     onClick = { viewModel.delete(path.id); onBack() },
                     modifier = Modifier.size(54.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.errorContainer, contentColor = cs.onErrorContainer),
-                ) { Icon(Icons.Rounded.DeleteOutline, "Delete") }
+                ) { Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.paths_delete)) }
             }
         }
     }
@@ -312,7 +318,7 @@ private fun ElevationCard(path: SavedPath, metric: Boolean) {
     val cs = MaterialTheme.colorScheme
     TurboCard(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("Elevation")
+            SectionLabel(stringResource(R.string.paths_elevation))
             Spacer(Modifier.weight(1f))
             Icon(Icons.Rounded.Terrain, null, tint = cs.primary, modifier = Modifier.size(16.dp))
             Text(" ${path.ascentText(metric)}", style = MaterialTheme.typography.labelLarge, color = cs.onSurface)
@@ -381,7 +387,7 @@ private fun shareTrack(context: Context, path: SavedPath, format: ExportFormat) 
         clipData = ClipData.newRawUri(path.name, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(send, "Share ${format.label}").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    context.startActivity(Intent.createChooser(send, context.getString(R.string.paths_share_format, format.label)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 }
 
 /** Normalised polyline sketch of a path's points into the given box. */
