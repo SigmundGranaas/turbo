@@ -38,9 +38,8 @@ class ConditionsBodyTest {
             ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Success(conditions))))
         }
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("Temp").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText("-2°").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("Temp").assertExists()
         composeRule.onNodeWithText("-2°").assertExists()
     }
 
@@ -57,7 +56,7 @@ class ConditionsBodyTest {
             composeRule.onAllNodesWithText("Humidity").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("42%").assertExists()
-        composeRule.onNodeWithText("UV index").assertExists()
+        composeRule.onNodeWithText("UV").assertExists()
     }
 
     @Test

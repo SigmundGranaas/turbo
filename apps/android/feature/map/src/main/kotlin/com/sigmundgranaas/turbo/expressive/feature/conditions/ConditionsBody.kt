@@ -28,6 +28,9 @@ import com.sigmundgranaas.turbo.expressive.domain.AvalancheNow
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.WeatherNow
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
+import com.sigmundgranaas.turbo.expressive.ui.components.WindArrow
+import com.sigmundgranaas.turbo.expressive.ui.components.weatherIcon
+import androidx.compose.material3.Icon
 import com.sigmundgranaas.turbo.expressive.ui.theme.DangerColors
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import kotlin.math.roundToInt
@@ -73,23 +76,34 @@ fun ConditionsBody(point: LatLng, viewModel: ConditionsViewModel = hiltViewModel
 
 @Composable
 private fun WeatherTiles(weather: WeatherNow) {
+    val cs = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Tile(weather.temperatureC?.let { "${it.roundToInt()}°" } ?: "—", "Temp", Modifier.weight(1f))
-            Tile(
-                value = weather.windSpeedMs?.let { "${it.roundToInt()} m/s" } ?: "—",
-                label = "Wind ${compass(weather.windFromDeg)}".trim(),
-                modifier = Modifier.weight(1f),
+        // Hero: condition symbol + temperature, with wind direction on the right.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(weatherIcon(weather.symbolCode), null, tint = cs.primary, modifier = Modifier.size(38.dp))
+            Spacer(Modifier.size(12.dp))
+            Text(
+                weather.temperatureC?.let { "${it.roundToInt()}°" } ?: "—",
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.W700),
+                color = cs.onSurface,
             )
-            Tile(weather.precipitationMm?.let { "%.1f".format(it) } ?: "0.0", "mm/h", Modifier.weight(1f))
+            Spacer(Modifier.weight(1f))
+            WindArrow(weather.windFromDeg, Modifier.size(20.dp))
+            Spacer(Modifier.size(6.dp))
+            Text(
+                buildString {
+                    append(weather.windSpeedMs?.let { "${it.roundToInt()} m/s" } ?: "—")
+                    compass(weather.windFromDeg).takeIf { it.isNotEmpty() }?.let { append(" $it") }
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = cs.onSurfaceVariant,
+            )
         }
-        // Second row appears only when MET supplied the richer instant fields.
-        if (weather.humidityPct != null || weather.cloudCoverPct != null || weather.uvIndex != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Tile(weather.humidityPct?.let { "${it.roundToInt()}%" } ?: "—", "Humidity", Modifier.weight(1f))
-                Tile(weather.cloudCoverPct?.let { "${it.roundToInt()}%" } ?: "—", "Cloud", Modifier.weight(1f))
-                Tile(weather.uvIndex?.let { "${it.roundToInt()}" } ?: "—", "UV index", Modifier.weight(1f))
-            }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Tile(weather.precipitationMm?.let { "%.1f".format(it) } ?: "0.0", "mm/h", Modifier.weight(1f))
+            Tile(weather.humidityPct?.let { "${it.roundToInt()}%" } ?: "—", "Humidity", Modifier.weight(1f))
+            Tile(weather.cloudCoverPct?.let { "${it.roundToInt()}%" } ?: "—", "Cloud", Modifier.weight(1f))
+            Tile(weather.uvIndex?.let { "${it.roundToInt()}" } ?: "—", "UV", Modifier.weight(1f))
         }
     }
 }
