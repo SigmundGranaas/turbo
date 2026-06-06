@@ -16,8 +16,11 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
-/** A single GPS fix with optional altitude (metres above the WGS84 ellipsoid). */
-data class LocationSample(val position: LatLng, val altitude: Double?)
+/**
+ * A single GPS fix with optional altitude (metres above the WGS84 ellipsoid)
+ * and horizontal [accuracyM] (68 % radius in metres; null when unknown).
+ */
+data class LocationSample(val position: LatLng, val altitude: Double?, val accuracyM: Double? = null)
 
 /**
  * Device location, sourced from the framework [LocationManager] (no Google Play
@@ -49,7 +52,11 @@ class AndroidLocationRepository @Inject constructor(
             close()
             return@callbackFlow
         }
-        fun Location.toSample() = LocationSample(LatLng(latitude, longitude), if (hasAltitude()) altitude else null)
+        fun Location.toSample() = LocationSample(
+            LatLng(latitude, longitude),
+            if (hasAltitude()) altitude else null,
+            if (hasAccuracy()) accuracy.toDouble() else null,
+        )
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 trySend(location.toSample())

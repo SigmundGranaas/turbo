@@ -62,6 +62,8 @@ class RecordingController @Inject constructor(
                 }
             }
             location.samples().collect { sample ->
+                // Drop wildly inaccurate fixes (e.g. cold-start / indoor) before they pollute the track.
+                if (!RecordingFilter.acceptAccuracy(sample.accuracyM)) return@collect
                 val fix = sample.position
                 val updated = _session.updateAndGet { s ->
                     if (!s.active || s.paused) return@updateAndGet s
@@ -101,4 +103,13 @@ class RecordingController @Inject constructor(
     private companion object {
         const val MIN_STEP_M = 3.0
     }
+}
+
+/** Pure sample-quality gating for recording, isolated for testability. */
+internal object RecordingFilter {
+    /** Horizontal-accuracy ceiling (m); fixes worse than this are dropped. */
+    const val MAX_ACCURACY_M = 50.0
+
+    /** Accept a fix unless its accuracy is known and worse than [MAX_ACCURACY_M]. */
+    fun acceptAccuracy(accuracyM: Double?): Boolean = accuracyM == null || accuracyM <= MAX_ACCURACY_M
 }
