@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_back">Back</string>
+    <string name="search_clear">Clear</string>
+    <string name="search_hint">Search places, coordinates…</string>
+    <string name="search_filter_all">All</string>
+    <string name="search_filter_markers">Markers</string>
+    <string name="search_filter_places">Places</string>
+    <string name="search_recent">Recent</string>
+    <string name="search_empty_title">Search places, trails, coordinates</string>
+    <string name="search_empty_body">Type a place, or long-press the map to drop a marker.</string>
+    <string name="search_error">Couldn\'t reach search — check your connection.</string>
+    <string name="search_no_matches">No matches</string>
+    <string name="search_no_matches_body">Nothing found for “%1$s”.</string>
+</resources>

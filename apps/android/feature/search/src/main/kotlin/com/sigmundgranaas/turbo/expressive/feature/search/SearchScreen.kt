@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -100,10 +101,10 @@ fun SearchScreen(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp).fillMaxWidth().height(56.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = cs.onSurface) }
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.search_back), tint = cs.onSurface) }
                 Box(Modifier.weight(1f).padding(horizontal = 4.dp), contentAlignment = Alignment.CenterStart) {
                     if (ui.query.isEmpty()) {
-                        Text("Search places, coordinates…", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
+                        Text(stringResource(R.string.search_hint), style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
                     }
                     BasicTextField(
                         value = ui.query,
@@ -116,15 +117,15 @@ fun SearchScreen(
                     )
                 }
                 if (ui.query.isNotEmpty()) {
-                    IconButton(onClick = { viewModel.setQuery("") }) { Icon(Icons.Rounded.Close, "Clear", tint = cs.onSurfaceVariant) }
+                    IconButton(onClick = { viewModel.setQuery("") }) { Icon(Icons.Rounded.Close, stringResource(R.string.search_clear), tint = cs.onSurfaceVariant) }
                 }
             }
         }
 
         Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = ui.filter == 0, onClick = { viewModel.setFilter(0) }, label = { Text("All") })
-            FilterChip(selected = ui.filter == 1, onClick = { viewModel.setFilter(1) }, label = { Text("Markers") }, leadingIcon = { Icon(Icons.Rounded.Place, null, Modifier.size(18.dp)) })
-            FilterChip(selected = ui.filter == 2, onClick = { viewModel.setFilter(2) }, label = { Text("Places") }, leadingIcon = { Icon(Icons.Rounded.Public, null, Modifier.size(18.dp)) })
+            FilterChip(selected = ui.filter == 0, onClick = { viewModel.setFilter(0) }, label = { Text(stringResource(R.string.search_filter_all)) })
+            FilterChip(selected = ui.filter == 1, onClick = { viewModel.setFilter(1) }, label = { Text(stringResource(R.string.search_filter_markers)) }, leadingIcon = { Icon(Icons.Rounded.Place, null, Modifier.size(18.dp)) })
+            FilterChip(selected = ui.filter == 2, onClick = { viewModel.setFilter(2) }, label = { Text(stringResource(R.string.search_filter_places)) }, leadingIcon = { Icon(Icons.Rounded.Public, null, Modifier.size(18.dp)) })
         }
 
         when {
@@ -137,9 +138,9 @@ fun SearchScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
                     ) {
-                        Text("Recent", style = MaterialTheme.typography.titleSmall, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.search_recent), style = MaterialTheme.typography.titleSmall, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
                         Text(
-                            "Clear",
+                            stringResource(R.string.search_clear),
                             style = MaterialTheme.typography.labelLarge,
                             color = cs.primary,
                             modifier = Modifier.clip(RoundedCornerShape(TurboRadius.m)).clickable { viewModel.clearRecents() }.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -153,19 +154,19 @@ fun SearchScreen(
             }
             ui.query.isBlank() -> EmptyState(
                 icon = Icons.Rounded.Search,
-                title = "Search places, trails, coordinates",
-                body = "Type a place, or long-press the map to drop a marker.",
+                title = stringResource(R.string.search_empty_title),
+                body = stringResource(R.string.search_empty_body),
                 modifier = Modifier.fillMaxSize(),
             )
             ui.error && ui.results.isEmpty() -> ErrorState(
-                message = "Couldn't reach search — check your connection.",
+                message = stringResource(R.string.search_error),
                 onRetry = viewModel::retry,
                 modifier = Modifier.fillMaxSize(),
             )
             ui.results.isEmpty() -> EmptyState(
                 icon = Icons.Rounded.Search,
-                title = "No matches",
-                body = "Nothing found for “${ui.query}”.",
+                title = stringResource(R.string.search_no_matches),
+                body = stringResource(R.string.search_no_matches_body, ui.query),
                 modifier = Modifier.fillMaxSize(),
             )
             else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {

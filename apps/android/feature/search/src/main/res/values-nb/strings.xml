@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_back">Tilbake</string>
+    <string name="search_clear">Tøm</string>
+    <string name="search_hint">Søk etter steder, koordinater…</string>
+    <string name="search_filter_all">Alle</string>
+    <string name="search_filter_markers">Markører</string>
+    <string name="search_filter_places">Steder</string>
+    <string name="search_recent">Nylige</string>
+    <string name="search_empty_title">Søk etter steder, stier, koordinater</string>
+    <string name="search_empty_body">Skriv inn et sted, eller hold inne på kartet for å sette en markør.</string>
+    <string name="search_error">Kunne ikke nå søket — sjekk tilkoblingen.</string>
+    <string name="search_no_matches">Ingen treff</string>
+    <string name="search_no_matches_body">Ingen treff for «%1$s».</string>
+</resources>
