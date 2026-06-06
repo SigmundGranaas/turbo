@@ -1,5 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
@@ -80,6 +82,7 @@ internal fun RouteCard(
                         RouteStat(Units.elevation(p.ascentM, metric), "Ascent")
                         RouteStat("${p.onTrailPct.roundToInt()}%", "On trail")
                     }
+                    SurfaceBreakdown(p.surfaces)
                     PresetRow(preset, onSelectPreset)
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -121,6 +124,7 @@ internal fun RouteCard(
 
 @Composable
 private fun PresetRow(selected: RoutePreset, onSelect: (RoutePreset) -> Unit) {
+    val cs = MaterialTheme.colorScheme
     Spacer(Modifier.height(10.dp))
     Row(
         Modifier.horizontalScroll(rememberScrollState()),
@@ -131,9 +135,54 @@ private fun PresetRow(selected: RoutePreset, onSelect: (RoutePreset) -> Unit) {
                 selected = p == selected,
                 onClick = { onSelect(p) },
                 label = { Text(p.label) },
+                leadingIcon = { Icon(p.icon, null, Modifier.size(18.dp)) },
             )
         }
     }
+    Spacer(Modifier.height(6.dp))
+    Text(selected.description, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+}
+
+/** Proportional trail/road/other surface bar derived from the plan's per-surface metres. */
+@Composable
+private fun SurfaceBreakdown(surfaces: Map<String, Double>) {
+    val cs = MaterialTheme.colorScheme
+    val total = surfaces.values.sum()
+    if (total <= 0.0) return
+    Spacer(Modifier.height(12.dp))
+    Row(
+        Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+    ) {
+        surfaces.entries.sortedByDescending { it.value }.forEach { (surface, meters) ->
+            val fraction = (meters / total).toFloat()
+            if (fraction <= 0f) return@forEach
+            Spacer(
+                Modifier.weight(fraction).fillMaxWidth().height(8.dp).background(surfaceColor(surface, cs)),
+            )
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        surfaces.entries.sortedByDescending { it.value }.take(4).forEach { (surface, meters) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(surfaceColor(surface, cs)))
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    "${surface.replaceFirstChar(Char::uppercase)} ${((meters / total) * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun surfaceColor(surface: String, cs: androidx.compose.material3.ColorScheme) = when (surface.lowercase()) {
+    "trail" -> cs.primary
+    "road" -> cs.tertiary
+    "ski" -> cs.secondary
+    else -> cs.outline
 }
 
 @Composable

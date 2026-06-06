@@ -11,12 +11,12 @@ data class RoutePlan(
 )
 
 /** Trip-style presets the pathfinder accepts (`preset` field). */
-enum class RoutePreset(val key: String, val label: String) {
-    Balanced("balanced", "Balanced"),
-    AvoidRoads("avoid_roads", "Avoid roads"),
-    Direct("direct", "Direct"),
-    EasyGrade("easy_grade", "Easy grade"),
-    TrailPurist("trail_purist", "Trail purist"),
+enum class RoutePreset(val key: String, val label: String, val description: String) {
+    Balanced("balanced", "Balanced", "A sensible mix of trails, terrain and directness."),
+    AvoidRoads("avoid_roads", "Avoid roads", "Stay off roads where a trail or terrain route exists."),
+    Direct("direct", "Direct", "The shortest line, ignoring comfort and surface."),
+    EasyGrade("easy_grade", "Easy grade", "Favours gentle slopes and switchbacks over steep climbs."),
+    TrailPurist("trail_purist", "Trail purist", "Sticks to marked trails as much as possible."),
 }
 
 /** Streamed solver events: live best-path snapshots, then a terminal result/failure. */
