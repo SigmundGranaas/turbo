@@ -27,11 +27,14 @@ import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,6 +93,22 @@ private fun SavedPath.durationText(): String {
     return if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "$mins min"
 }
 
+/** Ordering options for the saved-tracks list. */
+internal enum class PathSort(val label: String) {
+    Newest("Newest"), Name("Name"), Longest("Longest")
+}
+
+/** Filter by case-insensitive name substring, then order by [sort]. Pure for testing. */
+internal fun sortAndFilterPaths(paths: List<SavedPath>, query: String, sort: PathSort): List<SavedPath> {
+    val q = query.trim()
+    val filtered = if (q.isEmpty()) paths else paths.filter { it.name.contains(q, ignoreCase = true) }
+    return when (sort) {
+        PathSort.Newest -> filtered.sortedByDescending { it.path.recordedAtEpochMs ?: 0L }
+        PathSort.Name -> filtered.sortedBy { it.name.lowercase() }
+        PathSort.Longest -> filtered.sortedByDescending { it.path.distanceM }
+    }
+}
+
 /** Saved tracks list, backed by the path repository (recorded tracks). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,24 +148,58 @@ fun PathsListScreen(
             )
         },
     ) { pad ->
+        var query by rememberSaveable { mutableStateOf("") }
+        var sort by rememberSaveable { mutableStateOf(PathSort.Newest) }
         if (paths.isEmpty()) {
             EmptyState(
                 icon = Icons.Rounded.Route,
                 title = "No saved tracks yet",
-                body = "Record a track from the drawer → Record Track.",
+                body = "Record a track from the drawer → Record Track, or import a GPX.",
                 modifier = Modifier.fillMaxSize().padding(pad),
             )
         } else {
-            LazyColumn(
-                Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                item { Spacer(Modifier.height(4.dp)); SectionLabel("Saved · ${paths.size}") }
-                items(paths.size) { i ->
-                    val p = paths[i]
-                    PathCard(p) { onOpen(p.id) }
+            val visible = remember(paths, query, sort) { sortAndFilterPaths(paths, query, sort) }
+            Column(Modifier.fillMaxSize().padding(pad)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search tracks") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                )
+                Row(
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PathSort.entries.forEach { mode ->
+                        FilterChip(
+                            selected = mode == sort,
+                            onClick = { sort = mode },
+                            label = { Text(mode.label) },
+                        )
+                    }
                 }
-                item { Spacer(Modifier.height(24.dp)) }
+                if (visible.isEmpty()) {
+                    EmptyState(
+                        icon = Icons.Rounded.Search,
+                        title = "No matches",
+                        body = "Nothing found for “$query”.",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    LazyColumn(
+                        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        item { SectionLabel("Saved · ${visible.size}") }
+                        items(visible.size) { i ->
+                            val p = visible[i]
+                            PathCard(p) { onOpen(p.id) }
+                        }
+                        item { Spacer(Modifier.height(24.dp)) }
+                    }
+                }
             }
         }
     }
