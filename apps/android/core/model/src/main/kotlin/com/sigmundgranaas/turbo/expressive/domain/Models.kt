@@ -55,6 +55,7 @@ enum class BaseLayer(val id: String, val title: String) {
 
 /** Toggleable data overlays painted over the map. */
 enum class OverlayId(val title: String, val subtitle: String) {
+    Trails("Hiking trails", "Marked routes · Waymarked Trails"),
     Waves("Wave height", "Marine swell heatmap"),
     Wind("Wind", "Animated flow field"),
     Avalanche("Avalanche danger", "Varsom / NVE slopes");

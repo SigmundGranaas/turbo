@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Hiking
 import androidx.compose.material.icons.rounded.Satellite
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +27,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -50,6 +52,8 @@ fun MapLayersSheet(
     onSelectBase: (BaseLayer) -> Unit,
     onDownloadArea: () -> Unit,
     onDismiss: () -> Unit,
+    trailsOverlay: Boolean = false,
+    onToggleTrailsOverlay: (Boolean) -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     ModalBottomSheet(
@@ -67,6 +71,19 @@ fun MapLayersSheet(
                 LayerCard(BaseLayer.Norgeskart, Icons.Rounded.Terrain, selected == BaseLayer.Norgeskart, Modifier.weight(1f)) { onSelectBase(BaseLayer.Norgeskart) }
                 LayerCard(BaseLayer.Osm, Icons.Rounded.Map, selected == BaseLayer.Osm, Modifier.weight(1f)) { onSelectBase(BaseLayer.Osm) }
                 LayerCard(BaseLayer.Satellite, Icons.Rounded.Satellite, selected == BaseLayer.Satellite, Modifier.weight(1f)) { onSelectBase(BaseLayer.Satellite) }
+            }
+
+            Spacer(Modifier.height(22.dp))
+            SectionLabel("Overlays")
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Hiking, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Hiking trails", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                    Text("Marked routes · Waymarked Trails", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                }
+                Switch(checked = trailsOverlay, onCheckedChange = onToggleTrailsOverlay)
             }
 
             Spacer(Modifier.height(22.dp))
