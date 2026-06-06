@@ -55,6 +55,7 @@ private fun decodeElevations(encoded: String?, pointCount: Int): List<Double?>? 
 internal fun PathEntity.toDomain(): SavedPath = SavedPath(
     id = id,
     name = name,
+    activityKind = activityKind?.let { k -> runCatching { com.sigmundgranaas.turbo.expressive.domain.ActivityKindId.valueOf(k) }.getOrNull() },
     path = decodePoints(points).let { pts ->
         GeoPath(
             points = pts,
@@ -80,4 +81,5 @@ internal fun SavedPath.toEntity(): PathEntity = PathEntity(
     durationSec = path.movingTimeSeconds,
     createdAtEpochMs = path.recordedAtEpochMs ?: 0L,
     elevations = path.elevations?.joinToString(";") { it?.toString().orEmpty() },
+    activityKind = activityKind?.name,
 )

@@ -7,6 +7,7 @@ import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
+import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -74,7 +75,7 @@ class RecordingViewModel @Inject constructor(
         launcher.stop()
     }
 
-    fun save(name: String, onSaved: () -> Unit) {
+    fun save(name: String, kind: ActivityKindId? = null, onSaved: () -> Unit) {
         val session = controller.session.value
         if (session.points.size < 2) { controller.reset(); onSaved(); return }
         // Only attach elevations when at least one fix actually carried altitude.
@@ -85,7 +86,7 @@ class RecordingViewModel @Inject constructor(
         )
         val safeName = name.ifBlank { "Track ${session.distanceM.toInt()} m" }
         viewModelScope.launch {
-            paths.save(SavedPath(id = "p-${UUID.randomUUID()}", name = safeName, path = geo))
+            paths.save(SavedPath(id = "p-${UUID.randomUUID()}", name = safeName, path = geo, activityKind = kind))
             controller.reset()
             onSaved()
         }

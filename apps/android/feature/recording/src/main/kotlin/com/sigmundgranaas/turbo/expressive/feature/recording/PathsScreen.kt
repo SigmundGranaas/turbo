@@ -76,6 +76,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.StatRow
 import com.sigmundgranaas.turbo.expressive.ui.components.StatTile
 import com.sigmundgranaas.turbo.expressive.ui.components.TurboCard
 import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
+import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
 
@@ -215,7 +216,12 @@ private fun PathCard(path: SavedPath, onClick: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).clip(RoundedCornerShape(TurboRadius.m)).background(cs.primaryContainer), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.Route, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(24.dp))
+                Icon(
+                    path.activityKind?.icon ?: Icons.Rounded.Route,
+                    null,
+                    tint = cs.onPrimaryContainer,
+                    modifier = Modifier.size(24.dp),
+                )
             }
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
@@ -152,7 +153,7 @@ fun RecordingScreen(
         SaveTrackDialog(
             defaultName = "Track ${Units.distance(ui.distanceM, metric)}",
             canSave = ui.points.size > 1,
-            onSave = { name -> viewModel.save(name) { onStop() } },
+            onSave = { name, kind -> viewModel.save(name, kind) { onStop() } },
             onDiscard = { viewModel.discard { onStop() } },
             onDismiss = { showSave = false },
         )
@@ -180,33 +181,49 @@ private fun StatusChip(recording: Boolean, paused: Boolean, elapsed: String, mod
 private fun SaveTrackDialog(
     defaultName: String,
     canSave: Boolean,
-    onSave: (String) -> Unit,
+    onSave: (String, com.sigmundgranaas.turbo.expressive.domain.ActivityKindId) -> Unit,
     onDiscard: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     var name by remember { mutableStateOf(defaultName) }
+    var kind by remember { mutableStateOf(com.sigmundgranaas.turbo.expressive.domain.ActivityKindId.Hiking) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (canSave) "Save track?" else "Nothing recorded") },
         text = {
             if (canSave) {
-                Surface(shape = RoundedCornerShape(12.dp), color = cs.surfaceContainerHigh) {
-                    BasicTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
-                        cursorBrush = SolidColor(cs.primary),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
-                    )
+                androidx.compose.foundation.layout.Column {
+                    Surface(shape = RoundedCornerShape(12.dp), color = cs.surfaceContainerHigh) {
+                        BasicTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = cs.onSurface),
+                            cursorBrush = SolidColor(cs.primary),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+                        )
+                    }
+                    androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 8.dp))
+                    androidx.compose.foundation.layout.Row(
+                        Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                    ) {
+                        com.sigmundgranaas.turbo.expressive.domain.ActivityKindId.entries.forEach { k ->
+                            androidx.compose.material3.FilterChip(
+                                selected = k == kind,
+                                onClick = { kind = k },
+                                label = { Text(k.label) },
+                            )
+                        }
+                    }
                 }
             } else {
                 Text("No track points were captured.", color = cs.onSurfaceVariant)
             }
         },
         confirmButton = {
-            if (canSave) Button(onClick = { onSave(name) }) { Text("Save") } else Button(onClick = onDiscard) { Text("Done") }
+            if (canSave) Button(onClick = { onSave(name, kind) }) { Text("Save") } else Button(onClick = onDiscard) { Text("Done") }
         },
         dismissButton = { if (canSave) TextButton(onClick = onDiscard) { Text("Discard") } },
     )

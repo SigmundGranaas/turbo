@@ -50,6 +50,8 @@ data class PathEntity(
     val createdAtEpochMs: Long,
     /** Per-point altitude (m), parallel to [points], encoded as ";"-joined; empty = none. */
     val elevations: String? = null,
+    /** Activity kind tag (ActivityKindId.name), null when untagged. */
+    val activityKind: String? = null,
 )
 
 @Dao
@@ -123,7 +125,7 @@ interface CollectionDao {
 
 @Database(
     entities = [MarkerEntity::class, PathEntity::class, CollectionEntity::class, CollectionItemEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class TurboDatabase : RoomDatabase() {
