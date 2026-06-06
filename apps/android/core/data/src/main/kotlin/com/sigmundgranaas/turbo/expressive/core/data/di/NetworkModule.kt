@@ -2,10 +2,12 @@ package com.sigmundgranaas.turbo.expressive.core.data.di
 
 import com.sigmundgranaas.turbo.expressive.core.data.ConditionsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.HttpConditionsRepository
+import com.sigmundgranaas.turbo.expressive.core.data.GeonorgeTrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.HttpRouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.KartverketSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -31,6 +33,9 @@ abstract class NetworkModule {
 
     @Binds
     abstract fun bindRouteRepository(impl: HttpRouteRepository): RouteRepository
+
+    @Binds
+    abstract fun bindTrailSearchRepository(impl: GeonorgeTrailSearchRepository): TrailSearchRepository
 
     companion object {
         @Provides

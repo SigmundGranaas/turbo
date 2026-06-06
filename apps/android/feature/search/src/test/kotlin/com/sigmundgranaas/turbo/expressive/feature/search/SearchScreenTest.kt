@@ -12,6 +12,7 @@ import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.RecentSearch
@@ -42,6 +43,10 @@ private class StubRecentSearchRepository : RecentSearchRepository {
     override suspend fun clear() = Unit
 }
 
+private class StubTrailSearchRepository : TrailSearchRepository {
+    override suspend fun search(query: String): Outcome<List<SearchHit>> = Outcome.Success(emptyList())
+}
+
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
@@ -59,7 +64,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { lat, lng, name -> picked = Triple(lat, lng, name) },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository()),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository()),
             )
         }
 
@@ -80,7 +85,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { _, _, _ -> },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository()),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository()),
             )
         }
         composeRule.onNode(hasSetTextAction()).performTextInput("Lyn")

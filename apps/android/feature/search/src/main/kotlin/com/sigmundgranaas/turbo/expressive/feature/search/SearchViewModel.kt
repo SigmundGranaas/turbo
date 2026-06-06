@@ -6,6 +6,7 @@ import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -13,6 +14,7 @@ import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.RecentSearch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-enum class SearchResultType { Coordinate, Marker, Place }
+enum class SearchResultType { Coordinate, Marker, Place, Trail }
 
 data class SearchResult(
     val name: String,
@@ -53,6 +55,7 @@ class SearchViewModel @Inject constructor(
     private val repository: SearchRepository,
     private val markerRepository: MarkerRepository,
     private val recentSearchRepository: RecentSearchRepository,
+    private val trailRepository: TrailSearchRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
@@ -101,18 +104,26 @@ class SearchViewModel @Inject constructor(
 
         searchJob = viewModelScope.launch {
             kotlinx.coroutines.delay(DEBOUNCE_MS)
-            when (val outcome = repository.search(query)) {
-                is Outcome.Success -> {
-                    val places = outcome.value.map {
-                        SearchResult(it.name, it.description, ActivityKindId.Mountain, SearchResultType.Place, it.position.lat, it.position.lng)
-                    }
-                    publish(instant + places, loading = false)
-                }
-                is Outcome.Failure -> {
-                    // Keep any instant (coordinate/marker) hits, but flag the place lookup as failed.
-                    allResults = instant
-                    _state.update { it.copy(loading = false, error = true, results = applyFilter(instant, it.filter)) }
-                }
+            // Places (Kartverket stedsnavn) and named trails (Nasjonalturbase) are
+            // independent network sources — fan out concurrently and fuse.
+            val placesDeferred = async { repository.search(query) }
+            val trailsDeferred = async { trailRepository.search(query) }
+            val placesOutcome = placesDeferred.await()
+            val trailsOutcome = trailsDeferred.await()
+
+            val places = (placesOutcome as? Outcome.Success)?.value.orEmpty().map {
+                SearchResult(it.name, it.description, ActivityKindId.Mountain, SearchResultType.Place, it.position.lat, it.position.lng)
+            }
+            val trails = (trailsOutcome as? Outcome.Success)?.value.orEmpty().map {
+                SearchResult(it.name, it.description, ActivityKindId.Hiking, SearchResultType.Trail, it.position.lat, it.position.lng)
+            }
+
+            // Error only when BOTH network sources fail; a single failure still surfaces the other.
+            if (placesOutcome is Outcome.Failure && trailsOutcome is Outcome.Failure) {
+                allResults = instant
+                _state.update { it.copy(loading = false, error = true, results = applyFilter(instant, it.filter)) }
+            } else {
+                publish(instant + places + trails, loading = false)
             }
         }
     }
@@ -138,7 +149,7 @@ class SearchViewModel @Inject constructor(
     private fun applyFilter(results: List<SearchResult>, filter: Int): List<SearchResult> = results.filter {
         when (filter) {
             FILTER_MARKERS -> it.type == SearchResultType.Marker || it.type == SearchResultType.Coordinate
-            FILTER_PLACES -> it.type == SearchResultType.Place || it.type == SearchResultType.Coordinate
+            FILTER_PLACES -> it.type == SearchResultType.Place || it.type == SearchResultType.Trail || it.type == SearchResultType.Coordinate
             else -> true
         }
     }
