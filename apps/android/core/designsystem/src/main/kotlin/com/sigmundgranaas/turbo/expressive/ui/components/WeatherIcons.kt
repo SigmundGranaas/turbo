@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
+import com.sigmundgranaas.turbo.expressive.core.designsystem.R
 import com.sigmundgranaas.turbo.expressive.domain.WeatherKind
 import com.sigmundgranaas.turbo.expressive.domain.classifyWeatherSymbol
 
@@ -48,13 +50,13 @@ fun WindArrow(
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
     if (fromDegrees == null) {
-        Icon(Icons.Rounded.Air, contentDescription = "Wind", tint = tint, modifier = modifier)
+        Icon(Icons.Rounded.Air, contentDescription = stringResource(R.string.ds_wind), tint = tint, modifier = modifier)
         return
     }
     // Navigation arrow points up (north / towards) by default; rotate to the "to" heading.
     Icon(
         Icons.Rounded.Navigation,
-        contentDescription = "Wind direction",
+        contentDescription = stringResource(R.string.ds_wind_direction),
         tint = tint,
         modifier = modifier.graphicsLayer { rotationZ = ((fromDegrees + 180.0) % 360.0).toFloat() },
     )

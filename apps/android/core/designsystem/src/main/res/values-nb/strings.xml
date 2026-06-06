@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared dialogs -->
+    <string name="ds_cancel">Avbryt</string>
+    <string name="ds_delete">Slett</string>
+    <string name="ds_delete_marker_title">Slette markør?</string>
+    <string name="ds_delete_marker_body">«%1$s» blir fjernet fra kartet. Dette kan ikke angres.</string>
+    <string name="ds_loc_title">Vis posisjonen din</string>
+    <string name="ds_loc_body">Turbo bruker posisjonen din til å sentrere kartet, følge deg under navigering og ta opp spor. Posisjonen din forlater aldri enheten med mindre du deler et spor.</string>
+    <string name="ds_loc_allow">Tillat posisjon</string>
+    <string name="ds_loc_not_now">Ikke nå</string>
+
+    <!-- Shared states -->
+    <string name="ds_retry">Prøv igjen</string>
+
+    <!-- Weather glyphs -->
+    <string name="ds_wind">Vind</string>
+    <string name="ds_wind_direction">Vindretning</string>
+</resources>

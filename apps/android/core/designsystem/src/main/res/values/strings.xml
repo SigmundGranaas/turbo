@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared dialogs -->
+    <string name="ds_cancel">Cancel</string>
+    <string name="ds_delete">Delete</string>
+    <string name="ds_delete_marker_title">Delete marker?</string>
+    <string name="ds_delete_marker_body">“%1$s” will be removed from your map. This can\'t be undone.</string>
+    <string name="ds_loc_title">Show your location</string>
+    <string name="ds_loc_body">Turbo uses your location to center the map, follow you while navigating, and record tracks. Your position never leaves the device unless you share a track.</string>
+    <string name="ds_loc_allow">Allow location</string>
+    <string name="ds_loc_not_now">Not now</string>
+
+    <!-- Shared states -->
+    <string name="ds_retry">Retry</string>
+
+    <!-- Weather glyphs -->
+    <string name="ds_wind">Wind</string>
+    <string name="ds_wind_direction">Wind direction</string>
+</resources>

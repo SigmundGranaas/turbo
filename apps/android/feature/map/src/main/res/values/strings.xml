@@ -65,4 +65,18 @@
     <string name="cond_forecast_title">Forecast · yr.no</string>
     <string name="cond_forecast_unavailable">Forecast unavailable</string>
     <string name="cond_forecast_error_body">Couldn\'t reach yr.no — try again with a connection.</string>
+
+    <!-- Offline maps -->
+    <string name="offline_title">Offline maps</string>
+    <string name="offline_back">Back</string>
+    <string name="offline_empty_title">No offline maps yet</string>
+    <string name="offline_empty_body">Open the layers sheet on the map and tap “Download this area” to save it for offline use.</string>
+    <string name="offline_region_desc">offline region %1$s</string>
+    <string name="offline_downloaded">Downloaded · %1$s</string>
+    <string name="offline_downloading">Downloading… %1$d%%</string>
+    <string name="offline_delete">Delete %1$s</string>
+    <plurals name="offline_summary">
+        <item quantity="one">%1$d area · %2$s</item>
+        <item quantity="other">%1$d areas · %2$s</item>
+    </plurals>
 </resources>

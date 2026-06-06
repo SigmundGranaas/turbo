@@ -41,4 +41,11 @@
     <string name="rec_save">Save</string>
     <string name="rec_done">Done</string>
     <string name="rec_discard">Discard</string>
+
+    <!-- Foreground-service notification -->
+    <string name="rec_notif_recording">Recording track</string>
+    <string name="rec_notif_paused">Recording paused</string>
+    <string name="rec_notif_content">%1$s km · %2$s</string>
+    <string name="rec_notif_channel">Track recording</string>
+    <string name="rec_notif_channel_desc">Shows an ongoing notification while a track is being recorded.</string>
 </resources>

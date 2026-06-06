@@ -82,8 +82,8 @@ class RecordingService : Service() {
         )
         val km = "%.2f".format(session.distanceM / 1000.0)
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(if (session.paused) "Recording paused" else "Recording track")
-            .setContentText("$km km · ${formatElapsed(session.elapsedSec)}")
+            .setContentTitle(getString(if (session.paused) R.string.rec_notif_paused else R.string.rec_notif_recording))
+            .setContentText(getString(R.string.rec_notif_content, km, formatElapsed(session.elapsedSec)))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentIntent(content)
             .setOngoing(true)
@@ -92,8 +92,8 @@ class RecordingService : Service() {
     }
 
     private fun createChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "Track recording", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Shows an ongoing notification while a track is being recorded."
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.rec_notif_channel), NotificationManager.IMPORTANCE_LOW).apply {
+            description = getString(R.string.rec_notif_channel_desc)
             setShowBadge(false)
         }
         manager().createNotificationChannel(channel)

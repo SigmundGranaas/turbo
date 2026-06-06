@@ -65,4 +65,18 @@
     <string name="cond_forecast_title">Værvarsel · yr.no</string>
     <string name="cond_forecast_unavailable">Værvarsel utilgjengelig</string>
     <string name="cond_forecast_error_body">Kunne ikke nå yr.no — prøv igjen med tilkobling.</string>
+
+    <!-- Offline maps -->
+    <string name="offline_title">Frakoblede kart</string>
+    <string name="offline_back">Tilbake</string>
+    <string name="offline_empty_title">Ingen frakoblede kart ennå</string>
+    <string name="offline_empty_body">Åpne kartlag-arket og trykk «Last ned dette området» for å lagre det for frakoblet bruk.</string>
+    <string name="offline_region_desc">frakoblet område %1$s</string>
+    <string name="offline_downloaded">Lastet ned · %1$s</string>
+    <string name="offline_downloading">Laster ned … %1$d %%</string>
+    <string name="offline_delete">Slett %1$s</string>
+    <plurals name="offline_summary">
+        <item quantity="one">%1$d område · %2$s</item>
+        <item quantity="other">%1$d områder · %2$s</item>
+    </plurals>
 </resources>

@@ -16,7 +16,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.sigmundgranaas.turbo.expressive.core.designsystem.R
 
 /**
  * Expressive confirmation dialog. A hero icon, title + body, and a confirm/dismiss
@@ -31,7 +33,7 @@ fun TurboConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    dismissLabel: String = "Cancel",
+    dismissLabel: String = stringResource(R.string.ds_cancel),
     destructive: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -59,9 +61,9 @@ fun TurboConfirmDialog(
 @Composable
 fun DeleteMarkerDialog(markerName: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     TurboConfirmDialog(
-        title = "Delete marker?",
-        body = "“$markerName” will be removed from your map. This can't be undone.",
-        confirmLabel = "Delete",
+        title = stringResource(R.string.ds_delete_marker_title),
+        body = stringResource(R.string.ds_delete_marker_body, markerName),
+        confirmLabel = stringResource(R.string.ds_delete),
         icon = Icons.Rounded.DeleteOutline,
         destructive = true,
         onConfirm = onConfirm,
@@ -85,16 +87,15 @@ fun LocationPermissionDialog(onAllow: () -> Unit, onDismiss: () -> Unit) {
                 }
             }
         },
-        title = { Text("Show your location", style = MaterialTheme.typography.headlineSmall) },
+        title = { Text(stringResource(R.string.ds_loc_title), style = MaterialTheme.typography.headlineSmall) },
         text = {
             Text(
-                "Turbo uses your location to center the map, follow you while navigating, and record tracks. " +
-                    "Your position never leaves the device unless you share a track.",
+                stringResource(R.string.ds_loc_body),
                 style = MaterialTheme.typography.bodyMedium,
                 color = cs.onSurfaceVariant,
             )
         },
-        confirmButton = { Button(onClick = onAllow) { Text("Allow location") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+        confirmButton = { Button(onClick = onAllow) { Text(stringResource(R.string.ds_loc_allow)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ds_loc_not_now)) } },
     )
 }

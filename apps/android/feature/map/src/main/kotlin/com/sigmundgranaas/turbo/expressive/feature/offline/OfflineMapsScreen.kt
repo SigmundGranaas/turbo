@@ -31,6 +31,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
@@ -54,10 +57,10 @@ fun OfflineMapsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Offline maps") },
+                title = { Text(stringResource(R.string.offline_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.offline_back))
                     }
                 },
             )
@@ -66,8 +69,8 @@ fun OfflineMapsScreen(
         if (regions.isEmpty()) {
             EmptyState(
                 icon = Icons.Rounded.CloudOff,
-                title = "No offline maps yet",
-                body = "Open the layers sheet on the map and tap “Download this area” to save it for offline use.",
+                title = stringResource(R.string.offline_empty_title),
+                body = stringResource(R.string.offline_empty_body),
                 modifier = Modifier.fillMaxSize().padding(padding),
             )
         } else {
@@ -78,7 +81,7 @@ fun OfflineMapsScreen(
             ) {
                 item {
                     Text(
-                        "${regions.size} area${if (regions.size == 1) "" else "s"} · ${formatSize(totalBytes)}",
+                        pluralStringResource(R.plurals.offline_summary, regions.size, regions.size, formatSize(totalBytes)),
                         style = MaterialTheme.typography.titleSmall,
                         color = cs.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
@@ -97,10 +100,11 @@ fun OfflineMapsScreen(
 @Composable
 private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val regionDesc = stringResource(R.string.offline_region_desc, region.name)
     Surface(
         shape = RoundedCornerShape(TurboRadius.l),
         color = cs.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "offline region ${region.name}" },
+        modifier = Modifier.fillMaxWidth().semantics { contentDescription = regionDesc },
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -119,7 +123,7 @@ private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.DownloadDone, null, tint = cs.primary, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.size(6.dp))
-                        Text("Downloaded · ${formatSize(region.sizeBytes)}", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                        Text(stringResource(R.string.offline_downloaded, formatSize(region.sizeBytes)), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
                     }
                 } else {
                     LinearWavyProgressIndicator(
@@ -128,7 +132,7 @@ private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit) {
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Downloading… ${(region.progress * 100).toInt()}%",
+                        stringResource(R.string.offline_downloading, (region.progress * 100).toInt()),
                         style = MaterialTheme.typography.bodySmall,
                         color = cs.onSurfaceVariant,
                     )
@@ -136,7 +140,7 @@ private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit) {
             }
             Spacer(Modifier.size(8.dp))
             IconButton(onClick = onDelete) {
-                Icon(Icons.Rounded.Delete, "Delete ${region.name}", tint = cs.error)
+                Icon(Icons.Rounded.Delete, stringResource(R.string.offline_delete, region.name), tint = cs.error)
             }
         }
     }

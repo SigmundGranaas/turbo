@@ -18,7 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import com.sigmundgranaas.turbo.expressive.core.designsystem.R
 import androidx.compose.ui.unit.dp
 
 /**
@@ -76,7 +78,7 @@ fun ErrorState(
             Spacer(Modifier.height(14.dp))
             Text(message, style = MaterialTheme.typography.bodyLarge, color = cs.onSurface, textAlign = TextAlign.Center)
             Spacer(Modifier.height(18.dp))
-            Button(onClick = onRetry) { Text("Retry") }
+            Button(onClick = onRetry) { Text(stringResource(R.string.ds_retry)) }
         }
     }
 }
