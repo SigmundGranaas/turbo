@@ -29,6 +29,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -41,6 +44,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import com.sigmundgranaas.turbo.expressive.feature.map.R
+import com.sigmundgranaas.turbo.expressive.ui.components.ConfirmDeleteDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
@@ -53,6 +57,7 @@ fun OfflineMapsScreen(
     val cs = MaterialTheme.colorScheme
     val regions by viewModel.regions.collectAsStateWithLifecycle()
     val totalBytes = regions.sumOf { it.sizeBytes }
+    var pendingDelete by remember { mutableStateOf<OfflineRegionInfo?>(null) }
 
     Scaffold(
         topBar = {
@@ -88,11 +93,19 @@ fun OfflineMapsScreen(
                     )
                 }
                 items(regions, key = { it.id }) { region ->
-                    RegionCard(region = region, onDelete = { viewModel.delete(region.id) })
+                    RegionCard(region = region, onDelete = { pendingDelete = region })
                 }
                 item { Spacer(Modifier.height(16.dp)) }
             }
         }
+    }
+
+    pendingDelete?.let { target ->
+        ConfirmDeleteDialog(
+            itemName = target.name,
+            onConfirm = { viewModel.delete(target.id); pendingDelete = null },
+            onDismiss = { pendingDelete = null },
+        )
     }
 }
 

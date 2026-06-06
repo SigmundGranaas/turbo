@@ -66,6 +66,10 @@ class OfflineMapsScreenTest {
         }
         composeRule.onNodeWithContentDescription("Delete Lofoten").performClick()
         composeRule.waitForIdle()
+        // Tapping delete only opens the confirmation — nothing removed yet.
+        assertTrue(manager.deleted.isEmpty())
+        composeRule.onNodeWithText("Delete").performClick()
+        composeRule.waitForIdle()
         assertTrue(manager.deleted.contains(9L))
         composeRule.onNodeWithText("No offline maps yet").assertIsDisplayed()
     }

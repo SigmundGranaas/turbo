@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.MapCollection
+import com.sigmundgranaas.turbo.expressive.ui.components.ConfirmDeleteDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
 import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -63,6 +64,7 @@ fun CollectionsScreen(
     val collections by viewModel.collections.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<MapCollection?>(null) }
     var showEditor by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<MapCollection?>(null) }
 
     Scaffold(
         containerColor = cs.surface,
@@ -96,7 +98,7 @@ fun CollectionsScreen(
                     CollectionRow(
                         collection = c,
                         onEdit = { editing = c; showEditor = true },
-                        onDelete = { viewModel.delete(c.id) },
+                        onDelete = { pendingDelete = c },
                     )
                 }
                 item { Spacer(Modifier.size(24.dp)) }
@@ -109,6 +111,14 @@ fun CollectionsScreen(
             existing = editing,
             onDismiss = { showEditor = false },
             onSave = { name, color -> viewModel.upsert(editing?.id, name, color); showEditor = false },
+        )
+    }
+
+    pendingDelete?.let { target ->
+        ConfirmDeleteDialog(
+            itemName = target.name,
+            onConfirm = { viewModel.delete(target.id); pendingDelete = null },
+            onDismiss = { pendingDelete = null },
         )
     }
 }

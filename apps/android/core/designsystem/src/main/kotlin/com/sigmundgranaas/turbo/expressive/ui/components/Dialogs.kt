@@ -72,6 +72,24 @@ fun DeleteMarkerDialog(markerName: String, onConfirm: () -> Unit, onDismiss: () 
 }
 
 /**
+ * Generic "delete [named thing]?" confirmation, so every destructive delete
+ * across the app (collections, tracks, offline regions, …) gets the same
+ * guard + wording as [DeleteMarkerDialog].
+ */
+@Composable
+fun ConfirmDeleteDialog(itemName: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    TurboConfirmDialog(
+        title = stringResource(R.string.ds_delete_title),
+        body = stringResource(R.string.ds_delete_body, itemName),
+        confirmLabel = stringResource(R.string.ds_delete),
+        icon = Icons.Rounded.DeleteOutline,
+        destructive = true,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
+}
+
+/**
  * Rationale dialog shown before requesting the location permission. [onAllow]
  * should trigger the actual system permission request; [onDismiss] dismisses.
  */

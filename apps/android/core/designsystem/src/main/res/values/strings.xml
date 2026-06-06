@@ -5,6 +5,8 @@
     <string name="ds_delete">Delete</string>
     <string name="ds_delete_marker_title">Delete marker?</string>
     <string name="ds_delete_marker_body">“%1$s” will be removed from your map. This can\'t be undone.</string>
+    <string name="ds_delete_title">Delete?</string>
+    <string name="ds_delete_body">“%1$s” will be removed. This can\'t be undone.</string>
     <string name="ds_loc_title">Show your location</string>
     <string name="ds_loc_body">Turbo uses your location to center the map, follow you while navigating, and record tracks. Your position never leaves the device unless you share a track.</string>
     <string name="ds_loc_allow">Allow location</string>

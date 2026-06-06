@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Paths list + detail -->
-    <string name="paths_title">Spor</string>
+    <string name="paths_title">Lagrede spor</string>
     <string name="paths_back">Tilbake</string>
     <string name="paths_import">Importer spor</string>
     <string name="paths_imported">Spor importert</string>

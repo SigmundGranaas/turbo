@@ -158,7 +158,7 @@ private fun AvalancheRow(avalanche: AvalancheNow) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.m)).background(danger.copy(alpha = 0.14f)).padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(danger), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(36.dp).clip(RoundedCornerShape(TurboRadius.s)).background(danger), contentAlignment = Alignment.Center) {
                 Text("${avalanche.dangerLevel}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W800), color = androidx.compose.ui.graphics.Color.White)
             }
             Spacer(Modifier.size(12.dp))

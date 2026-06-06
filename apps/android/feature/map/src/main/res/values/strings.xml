@@ -33,18 +33,18 @@
     <string name="measure_done">Done</string>
 
     <!-- Marker editor -->
-    <string name="marker_new">New Marker</string>
-    <string name="marker_edit">Edit Marker</string>
+    <string name="marker_new">New marker</string>
+    <string name="marker_edit">Edit marker</string>
     <string name="marker_name">Name</string>
     <string name="marker_notes">Notes (optional)</string>
     <string name="marker_icon">Icon</string>
     <string name="marker_colour">Colour</string>
-    <string name="marker_save">Save Marker</string>
-    <string name="marker_update">Update Marker</string>
+    <string name="marker_save">Save marker</string>
+    <string name="marker_update">Update marker</string>
     <string name="marker_add_to_collection">Add to collection</string>
 
     <!-- Layers sheet -->
-    <string name="layers_title">Map Layers</string>
+    <string name="layers_title">Map layers</string>
     <string name="layers_base">Base map</string>
     <string name="layers_overlays">Overlays</string>
     <string name="layers_trails">Hiking trails</string>

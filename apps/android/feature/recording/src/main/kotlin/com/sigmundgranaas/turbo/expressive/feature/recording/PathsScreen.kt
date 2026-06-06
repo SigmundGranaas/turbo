@@ -72,6 +72,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
+import com.sigmundgranaas.turbo.expressive.ui.components.ConfirmDeleteDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.components.StatRow
@@ -254,6 +255,7 @@ fun PathDetailScreen(
     val cs = MaterialTheme.colorScheme
     val paths by viewModel.paths.collectAsStateWithLifecycle()
     val path = paths.firstOrNull { it.id == pathId }
+    var showDelete by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(cs.surface).statusBarsPadding().navigationBarsPadding()) {
         Box(Modifier.fillMaxWidth().height(240.dp).background(Brush.verticalGradient(listOf(cs.surfaceVariant, cs.surfaceContainerHigh)))) {
@@ -305,12 +307,20 @@ fun PathDetailScreen(
                     }
                 }
                 FilledIconButton(
-                    onClick = { viewModel.delete(path.id); onBack() },
+                    onClick = { showDelete = true },
                     modifier = Modifier.size(54.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.errorContainer, contentColor = cs.onErrorContainer),
                 ) { Icon(Icons.Rounded.DeleteOutline, stringResource(R.string.paths_delete)) }
             }
         }
+    }
+
+    if (showDelete && path != null) {
+        ConfirmDeleteDialog(
+            itemName = path.name,
+            onConfirm = { showDelete = false; viewModel.delete(path.id); onBack() },
+            onDismiss = { showDelete = false },
+        )
     }
 }
 

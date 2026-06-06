@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Paths list + detail -->
-    <string name="paths_title">Paths</string>
+    <string name="paths_title">Saved tracks</string>
     <string name="paths_back">Back</string>
     <string name="paths_import">Import track</string>
     <string name="paths_imported">Track imported</string>

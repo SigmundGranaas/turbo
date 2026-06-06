@@ -57,6 +57,7 @@ import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
+import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 
@@ -112,7 +113,7 @@ fun RecordingScreen(
 
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
             Surface(
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(TurboRadius.xl),
                 color = cs.surfaceContainerHigh,
                 shadowElevation = 3.dp,
                 modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
@@ -196,7 +197,7 @@ private fun SaveTrackDialog(
         text = {
             if (canSave) {
                 androidx.compose.foundation.layout.Column {
-                    Surface(shape = RoundedCornerShape(12.dp), color = cs.surfaceContainerHigh) {
+                    Surface(shape = RoundedCornerShape(TurboRadius.s), color = cs.surfaceContainerHigh) {
                         BasicTextField(
                             value = name,
                             onValueChange = { name = it },

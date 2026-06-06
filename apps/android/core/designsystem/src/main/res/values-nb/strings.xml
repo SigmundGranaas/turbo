@@ -5,6 +5,8 @@
     <string name="ds_delete">Slett</string>
     <string name="ds_delete_marker_title">Slette markør?</string>
     <string name="ds_delete_marker_body">«%1$s» blir fjernet fra kartet. Dette kan ikke angres.</string>
+    <string name="ds_delete_title">Slette?</string>
+    <string name="ds_delete_body">«%1$s» blir fjernet. Dette kan ikke angres.</string>
     <string name="ds_loc_title">Vis posisjonen din</string>
     <string name="ds_loc_body">Turbo bruker posisjonen din til å sentrere kartet, følge deg under navigering og ta opp spor. Posisjonen din forlater aldri enheten med mindre du deler et spor.</string>
     <string name="ds_loc_allow">Tillat posisjon</string>
