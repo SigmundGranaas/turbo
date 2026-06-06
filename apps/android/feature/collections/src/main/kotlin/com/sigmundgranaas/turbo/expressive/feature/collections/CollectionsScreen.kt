@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -46,6 +47,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.MapCollection
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
+import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 private val CollectionColors = listOf(0xFF8F4C38L, 0xFF1A73E8L, 0xFF2E7D32L, 0xFFE0432BL, 0xFF6A4FB3L, null)
@@ -85,7 +87,7 @@ fun CollectionsScreen(
             )
         } else {
             LazyColumn(
-                Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp),
+                Modifier.fillMaxHeight().padding(pad).responsiveContentWidth().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item { Spacer(Modifier.size(4.dp)) }

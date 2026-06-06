@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,6 +58,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
+import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
 import com.sigmundgranaas.turbo.expressive.ui.components.ErrorState
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -132,7 +134,7 @@ fun SearchScreen(
             ui.loading -> Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            ui.query.isBlank() && recents.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            ui.query.isBlank() && recents.isNotEmpty() -> LazyColumn(Modifier.fillMaxHeight().responsiveContentWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                 item {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -169,7 +171,7 @@ fun SearchScreen(
                 body = stringResource(R.string.search_no_matches_body, ui.query),
                 modifier = Modifier.fillMaxSize(),
             )
-            else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            else -> LazyColumn(Modifier.fillMaxHeight().responsiveContentWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                 items(ui.results.size) { i ->
                     val r = ui.results[i]
                     ResultRow(r, ui.query) { pick(r) }

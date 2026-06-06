@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -76,6 +77,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.components.StatRow
 import com.sigmundgranaas.turbo.expressive.ui.components.StatTile
 import com.sigmundgranaas.turbo.expressive.ui.components.TurboCard
+import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -196,7 +198,7 @@ fun PathsListScreen(
                     )
                 } else {
                     LazyColumn(
-                        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        Modifier.fillMaxHeight().responsiveContentWidth().padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         item { SectionLabel(stringResource(R.string.paths_saved_count, visible.size)) }
