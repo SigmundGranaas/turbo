@@ -33,8 +33,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.sigmundgranaas.turbo.expressive.core.designsystem.R
 
 /** Section eyebrow: uppercase, tracked, primary/onSurfaceVariant. */
 @Composable
@@ -43,7 +47,7 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, color: Color = Mat
         text = text.uppercase(),
         style = MaterialTheme.typography.labelSmall,
         color = color,
-        modifier = modifier,
+        modifier = modifier.semantics { heading() },
     )
 }
 
@@ -65,7 +69,7 @@ fun SearchPill(
         onClick = onClick,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, end = 8.dp)) {
-            IconBtn(Icons.Rounded.Menu, "Menu", onClick = onMenuClick, tint = MaterialTheme.colorScheme.onSurface)
+            IconBtn(Icons.Rounded.Menu, stringResource(R.string.ds_menu), onClick = onMenuClick, tint = MaterialTheme.colorScheme.onSurface)
             Text(
                 text = value ?: placeholder,
                 style = MaterialTheme.typography.bodyLarge,
@@ -97,13 +101,13 @@ fun MapControlRail(
     onZoomOut: () -> Unit = {},
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        RailButton(Icons.Rounded.Layers, "Map layers", onClick = onLayers)
+        RailButton(Icons.Rounded.Layers, stringResource(R.string.ds_map_layers), onClick = onLayers)
         if (onMeasure != null) {
-            RailButton(Icons.Rounded.Straighten, "Measure distance", active = measuring, onClick = onMeasure)
+            RailButton(Icons.Rounded.Straighten, stringResource(R.string.ds_measure_distance), active = measuring, onClick = onMeasure)
         }
         RailButton(
             icon = if (following) Icons.Rounded.MyLocation else Icons.Rounded.NearMe,
-            desc = "My location",
+            desc = stringResource(R.string.ds_my_location),
             active = following,
             onClick = onLocate,
         )
@@ -113,9 +117,9 @@ fun MapControlRail(
             shadowElevation = 3.dp,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 4.dp)) {
-                IconBtn(Icons.Rounded.Add, "Zoom in", size = 42.dp, onClick = onZoomIn)
+                IconBtn(Icons.Rounded.Add, stringResource(R.string.ds_zoom_in), size = 42.dp, onClick = onZoomIn)
                 HorizontalDivider(modifier = Modifier.width(28.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                IconBtn(Icons.Rounded.Remove, "Zoom out", size = 42.dp, onClick = onZoomOut)
+                IconBtn(Icons.Rounded.Remove, stringResource(R.string.ds_zoom_out), size = 42.dp, onClick = onZoomOut)
             }
         }
     }
@@ -188,7 +192,7 @@ fun ListRowItem(
             Icon(icon, null, tint = fg, modifier = Modifier.size(22.dp))
         }
         Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle != null) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

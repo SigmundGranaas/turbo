@@ -17,6 +17,14 @@
     <string name="ds_wind">Wind</string>
     <string name="ds_wind_direction">Wind direction</string>
 
+    <!-- Map controls + chrome (TalkBack labels) -->
+    <string name="ds_menu">Menu</string>
+    <string name="ds_map_layers">Map layers</string>
+    <string name="ds_measure_distance">Measure distance</string>
+    <string name="ds_my_location">My location</string>
+    <string name="ds_zoom_in">Zoom in</string>
+    <string name="ds_zoom_out">Zoom out</string>
+
     <!-- Activity / marker kinds -->
     <string name="kind_mountain">Mountain</string>
     <string name="kind_park">Park</string>

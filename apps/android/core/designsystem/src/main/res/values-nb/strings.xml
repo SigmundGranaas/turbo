@@ -17,6 +17,14 @@
     <string name="ds_wind">Vind</string>
     <string name="ds_wind_direction">Vindretning</string>
 
+    <!-- Map controls + chrome (TalkBack labels) -->
+    <string name="ds_menu">Meny</string>
+    <string name="ds_map_layers">Kartlag</string>
+    <string name="ds_measure_distance">Mål avstand</string>
+    <string name="ds_my_location">Min posisjon</string>
+    <string name="ds_zoom_in">Zoom inn</string>
+    <string name="ds_zoom_out">Zoom ut</string>
+
     <!-- Activity / marker kinds -->
     <string name="kind_mountain">Fjell</string>
     <string name="kind_park">Park</string>

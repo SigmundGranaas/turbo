@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
@@ -64,7 +66,8 @@ fun StatTile(
         modifier = modifier
             .clip(RoundedCornerShape(TurboRadius.l))
             .background(cs.surfaceContainerHigh)
-            .padding(vertical = 14.dp, horizontal = 14.dp),
+            .padding(vertical = 14.dp, horizontal = 14.dp)
+            .clearAndSetSemantics { contentDescription = "$label: $value" },
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (icon != null) {
@@ -87,7 +90,7 @@ fun StatRow(modifier: Modifier = Modifier, content: @Composable RowScope.() -> U
 fun SpecRow(label: String, value: String, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
     Row(
-        modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier.fillMaxWidth().padding(vertical = 8.dp).clearAndSetSemantics { contentDescription = "$label, $value" },
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {

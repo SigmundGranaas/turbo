@@ -22,6 +22,7 @@ android {
         }
     }
     buildFeatures { compose = true }
+    testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
 dependencies {
@@ -36,4 +37,9 @@ dependencies {
     api(libs.androidx.ui.tooling.preview)
     api(libs.androidx.ui.text.google.fonts)
     debugImplementation(libs.androidx.ui.tooling)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.ui.test.junit4)
+    debugImplementation(libs.androidx.ui.test.manifest)
 }
