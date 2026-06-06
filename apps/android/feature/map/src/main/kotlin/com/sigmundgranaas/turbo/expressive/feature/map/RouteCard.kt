@@ -15,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,6 +51,8 @@ internal fun RouteCard(
     onSave: () -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
+    waypointCount: Int = 2,
+    onRemoveStop: (Int) -> Unit = {},
 ) {
     if (state is RouteUiState.Idle) return
     val cs = MaterialTheme.colorScheme
@@ -83,6 +87,7 @@ internal fun RouteCard(
                         RouteStat("${p.onTrailPct.roundToInt()}%", "On trail")
                     }
                     SurfaceBreakdown(p.surfaces)
+                    StopsRow(waypointCount, onRemoveStop)
                     PresetRow(preset, onSelectPreset)
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -141,6 +146,29 @@ private fun PresetRow(selected: RoutePreset, onSelect: (RoutePreset) -> Unit) {
     }
     Spacer(Modifier.height(6.dp))
     Text(selected.description, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+}
+
+/** Intermediate stops between origin and destination, each removable. */
+@Composable
+private fun StopsRow(waypointCount: Int, onRemoveStop: (Int) -> Unit) {
+    val stops = waypointCount - 2 // exclude origin + destination
+    if (stops <= 0) return
+    Spacer(Modifier.height(10.dp))
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.MoreVert, null, modifier = Modifier.size(16.dp))
+        for (i in 1..stops) {
+            FilterChip(
+                selected = false,
+                onClick = { onRemoveStop(i) },
+                label = { Text("Stop $i") },
+                trailingIcon = { Icon(Icons.Rounded.Close, "Remove stop $i", Modifier.size(16.dp)) },
+            )
+        }
+    }
 }
 
 /** Proportional trail/road/other surface bar derived from the plan's per-surface metres. */

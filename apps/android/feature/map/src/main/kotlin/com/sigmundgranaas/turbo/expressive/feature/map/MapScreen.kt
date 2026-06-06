@@ -176,8 +176,14 @@ fun MapScreen(
                             icon = marker.kind.icon,
                             point = marker.position,
                             onNavigate = {
-                                val from = state.userLocation ?: controller?.center() ?: SampleData.initialCamera
-                                routeViewModel.planRoute(from, marker.position)
+                                // If a route is already up, drop this marker in as a stop;
+                                // otherwise start a fresh route from here to the marker.
+                                if (routeState is RouteUiState.Done || routeState is RouteUiState.Following) {
+                                    routeViewModel.addStop(marker.position)
+                                } else {
+                                    val from = state.userLocation ?: controller?.center() ?: SampleData.initialCamera
+                                    routeViewModel.planRoute(from, marker.position)
+                                }
                             },
                             onEdit = { editingMarker = marker },
                             onDelete = { pendingDelete = marker },
@@ -257,10 +263,13 @@ fun MapScreen(
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             )
 
+            val routeWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
             RouteCard(
                 state = routeState,
                 preset = routePreset,
                 userLocation = state.userLocation,
+                waypointCount = routeWaypoints.size,
+                onRemoveStop = { index -> routeViewModel.removeWaypoint(index) },
                 onSelectPreset = { routeViewModel.selectPreset(it) },
                 onFollow = {
                     if (viewModel.hasLocationPermission()) {

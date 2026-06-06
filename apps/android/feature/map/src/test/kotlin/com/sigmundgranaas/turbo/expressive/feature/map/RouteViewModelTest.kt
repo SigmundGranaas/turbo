@@ -167,4 +167,57 @@ class RouteViewModelTest {
         advanceUntilIdle()
         assertEquals(1, repo.calls)
     }
+
+    @Test
+    fun `addStop inserts a least-detour waypoint and re-solves`() = runTest(mainRule.dispatcher) {
+        val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
+        val vm = RouteViewModel(repo, FakePathRepository())
+        vm.planRoute(a, b)
+        advanceUntilIdle()
+        assertEquals(2, vm.waypoints.value.size)
+
+        val stop = LatLng(69.005, 18.005)
+        vm.addStop(stop)
+        advanceUntilIdle()
+
+        assertEquals(listOf(a, stop, b), vm.waypoints.value)
+        assertEquals(2, repo.calls)
+    }
+
+    @Test
+    fun `removeWaypoint drops a stop and undo restores it`() = runTest(mainRule.dispatcher) {
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository())
+        vm.planRoute(a, b); advanceUntilIdle()
+        val stop = LatLng(69.005, 18.005)
+        vm.addStop(stop); advanceUntilIdle()
+        assertEquals(3, vm.waypoints.value.size)
+
+        vm.removeWaypoint(1); advanceUntilIdle()
+        assertEquals(listOf(a, b), vm.waypoints.value)
+
+        vm.undo(); advanceUntilIdle()
+        assertEquals(listOf(a, stop, b), vm.waypoints.value)
+    }
+
+    @Test
+    fun `addStop is a no-op before a route exists`() = runTest(mainRule.dispatcher) {
+        val repo = FakeRouteRepository(listOf(RouteStreamEvent.Result(plan)))
+        val vm = RouteViewModel(repo, FakePathRepository())
+        vm.addStop(LatLng(69.005, 18.005))
+        advanceUntilIdle()
+        assertEquals(0, repo.calls)
+        assertTrue(vm.waypoints.value.isEmpty())
+    }
+
+    @Test
+    fun `insertLeastDetour places a point on the cheapest segment`() {
+        val w0 = LatLng(0.0, 0.0)
+        val w1 = LatLng(0.0, 1.0)
+        val w2 = LatLng(0.0, 2.0)
+        // A point near the second segment should land between w1 and w2 (index 2).
+        val near = LatLng(0.001, 1.5)
+        val result = Waypoints.insertLeastDetour(listOf(w0, w1, w2), near)
+        assertEquals(near, result[2])
+        assertEquals(4, result.size)
+    }
 }
