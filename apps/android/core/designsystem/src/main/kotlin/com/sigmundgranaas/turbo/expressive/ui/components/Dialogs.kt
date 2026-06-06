@@ -11,9 +11,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -86,6 +91,38 @@ fun ConfirmDeleteDialog(itemName: String, onConfirm: () -> Unit, onDismiss: () -
         destructive = true,
         onConfirm = onConfirm,
         onDismiss = onDismiss,
+    )
+}
+
+/**
+ * Single-field "name this thing" dialog, shared by save-route and rename-track so
+ * every name-entry flow looks and behaves the same. Confirm is disabled while the
+ * field is blank; [onConfirm] receives the trimmed text.
+ */
+@Composable
+fun NameInputDialog(
+    title: String,
+    confirmLabel: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+    initial: String = "",
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text(stringResource(R.string.ds_name)) },
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(text.trim()) }, enabled = text.isNotBlank()) { Text(confirmLabel) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ds_cancel)) } },
     )
 }
 

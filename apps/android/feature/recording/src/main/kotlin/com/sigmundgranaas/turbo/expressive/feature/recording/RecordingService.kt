@@ -12,6 +12,8 @@ import android.os.Build
 import android.os.IBinder
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingSession
+import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
+import com.sigmundgranaas.turbo.expressive.core.geo.Units
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,9 +33,14 @@ import javax.inject.Inject
 class RecordingService : Service() {
 
     @Inject lateinit var controller: RecordingController
+    @Inject lateinit var settings: SettingsRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var notifyJob: Job? = null
+    private var settingsJob: Job? = null
+
+    /** Live metric/imperial preference so the notification matches the in-app stats. */
+    private var metric = true
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -48,6 +55,8 @@ class RecordingService : Service() {
                 createChannel()
                 startInForeground(controller.session.value)
                 controller.start()
+                settingsJob?.cancel()
+                settingsJob = scope.launch { settings.settings.collect { metric = it.metricUnits } }
                 notifyJob?.cancel()
                 notifyJob = scope.launch {
                     controller.session.collectLatest { session ->
@@ -63,6 +72,7 @@ class RecordingService : Service() {
 
     override fun onDestroy() {
         notifyJob?.cancel()
+        settingsJob?.cancel()
         super.onDestroy()
     }
 
@@ -80,10 +90,10 @@ class RecordingService : Service() {
         val content = PendingIntent.getActivity(
             this, 0, openApp, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val km = "%.2f".format(session.distanceM / 1000.0)
+        val distance = Units.distance(session.distanceM, metric)
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(if (session.paused) R.string.rec_notif_paused else R.string.rec_notif_recording))
-            .setContentText(getString(R.string.rec_notif_content, km, formatElapsed(session.elapsedSec)))
+            .setContentText(getString(R.string.rec_notif_content, distance, formatElapsed(session.elapsedSec)))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentIntent(content)
             .setOngoing(true)

@@ -25,6 +25,8 @@
     <string name="paths_export_format">Eksporter %1$s</string>
     <string name="paths_share_format">Del %1$s</string>
     <string name="paths_delete">Slett</string>
+    <string name="paths_rename">Gi nytt navn</string>
+    <string name="paths_rename_title">Gi sporet nytt navn</string>
 
     <!-- Recording -->
     <string name="rec_recording">Tar opp</string>
@@ -45,7 +47,7 @@
     <!-- Foreground-service notification -->
     <string name="rec_notif_recording">Tar opp spor</string>
     <string name="rec_notif_paused">Opptak pauset</string>
-    <string name="rec_notif_content">%1$s km · %2$s</string>
+    <string name="rec_notif_content">%1$s · %2$s</string>
     <string name="rec_notif_channel">Sporopptak</string>
     <string name="rec_notif_channel_desc">Viser et pågående varsel mens et spor tas opp.</string>
 </resources>

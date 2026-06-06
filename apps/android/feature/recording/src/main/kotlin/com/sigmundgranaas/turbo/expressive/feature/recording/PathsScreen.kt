@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Navigation
@@ -74,6 +75,7 @@ import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
 import com.sigmundgranaas.turbo.expressive.ui.components.ConfirmDeleteDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
+import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.components.StatRow
 import com.sigmundgranaas.turbo.expressive.ui.components.StatTile
@@ -256,6 +258,7 @@ fun PathDetailScreen(
     val paths by viewModel.paths.collectAsStateWithLifecycle()
     val path = paths.firstOrNull { it.id == pathId }
     var showDelete by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(cs.surface).statusBarsPadding().navigationBarsPadding()) {
         Box(Modifier.fillMaxWidth().height(240.dp).background(Brush.verticalGradient(listOf(cs.surfaceVariant, cs.surfaceContainerHigh)))) {
@@ -307,6 +310,11 @@ fun PathDetailScreen(
                     }
                 }
                 FilledIconButton(
+                    onClick = { showRename = true },
+                    modifier = Modifier.size(54.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer),
+                ) { Icon(Icons.Rounded.Edit, stringResource(R.string.paths_rename)) }
+                FilledIconButton(
                     onClick = { showDelete = true },
                     modifier = Modifier.size(54.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.errorContainer, contentColor = cs.onErrorContainer),
@@ -320,6 +328,15 @@ fun PathDetailScreen(
             itemName = path.name,
             onConfirm = { showDelete = false; viewModel.delete(path.id); onBack() },
             onDismiss = { showDelete = false },
+        )
+    }
+    if (showRename && path != null) {
+        NameInputDialog(
+            title = stringResource(R.string.paths_rename_title),
+            confirmLabel = stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_save),
+            initial = path.name,
+            onConfirm = { newName -> viewModel.rename(path.id, newName); showRename = false },
+            onDismiss = { showRename = false },
         )
     }
 }

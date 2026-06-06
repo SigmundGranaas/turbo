@@ -15,6 +15,8 @@
     <string name="route_on_trail">On trail</string>
     <string name="route_follow">Follow</string>
     <string name="route_clear">Clear</string>
+    <string name="route_save_title">Save route as track</string>
+    <string name="route_saved">Route saved to tracks</string>
     <string name="route_following">Following route</string>
     <string name="route_left">%1$s left</string>
     <string name="route_waiting_gps">Waiting for GPS…</string>

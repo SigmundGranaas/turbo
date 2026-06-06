@@ -41,7 +41,7 @@ import com.sigmundgranaas.turbo.expressive.domain.AtmosphericPoint
 import com.sigmundgranaas.turbo.expressive.domain.DailySummary
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.WeatherForecast
-import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
+import com.sigmundgranaas.turbo.expressive.ui.components.ErrorState
 import com.sigmundgranaas.turbo.expressive.ui.components.weatherIcon
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import androidx.compose.material.icons.Icons
@@ -74,10 +74,10 @@ fun WeatherForecastSheet(
                 is ForecastUiState.Loading -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-                is ForecastUiState.Error -> EmptyState(
+                is ForecastUiState.Error -> ErrorState(
+                    message = stringResource(R.string.cond_forecast_error_body),
+                    onRetry = { viewModel.loadForecast(point) },
                     icon = Icons.Rounded.CloudOff,
-                    title = stringResource(R.string.cond_forecast_unavailable),
-                    body = stringResource(R.string.cond_forecast_error_body),
                     modifier = Modifier.fillMaxWidth().height(200.dp),
                 )
                 is ForecastUiState.Content -> WeatherForecastContent(s.forecast)

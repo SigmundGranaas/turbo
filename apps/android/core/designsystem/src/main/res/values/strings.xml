@@ -14,6 +14,9 @@
 
     <!-- Shared states -->
     <string name="ds_retry">Retry</string>
+    <string name="ds_name">Name</string>
+    <string name="ds_save">Save</string>
+    <string name="ds_rename">Rename</string>
 
     <!-- Weather glyphs -->
     <string name="ds_wind">Wind</string>

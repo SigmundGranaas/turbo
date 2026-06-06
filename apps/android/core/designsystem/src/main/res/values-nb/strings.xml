@@ -14,6 +14,9 @@
 
     <!-- Shared states -->
     <string name="ds_retry">Prøv igjen</string>
+    <string name="ds_name">Navn</string>
+    <string name="ds_save">Lagre</string>
+    <string name="ds_rename">Endre navn</string>
 
     <!-- Weather glyphs -->
     <string name="ds_wind">Vind</string>

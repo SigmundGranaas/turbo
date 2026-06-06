@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Straighten
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -30,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -45,6 +47,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
 import com.sigmundgranaas.turbo.expressive.ui.components.ListRowItem
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
@@ -54,20 +57,23 @@ fun SettingsScreen(
     val cs = MaterialTheme.colorScheme
     val settings by viewModel.state.collectAsStateWithLifecycle()
 
-    Scaffold(containerColor = cs.surface) { inner ->
+    Scaffold(
+        containerColor = cs.surface,
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.settings_title), style = MaterialTheme.typography.headlineSmall) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back))
+                    }
+                },
+            )
+        },
+    ) { inner ->
         Column(
             Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState()),
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back), tint = cs.onSurface)
-            }
-            Text(
-                stringResource(R.string.settings_title),
-                style = MaterialTheme.typography.headlineLarge,
-                color = cs.onSurface,
-                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 16.dp),
-            )
-
+            Spacer(Modifier.height(4.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()

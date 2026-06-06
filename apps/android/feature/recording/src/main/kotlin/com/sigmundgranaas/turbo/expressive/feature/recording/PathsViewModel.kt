@@ -25,6 +25,14 @@ class PathsViewModel @Inject constructor(
 
     fun delete(id: String) = viewModelScope.launch { repository.delete(id) }
 
+    /** Rename a track in place (save upserts by id), keeping its geometry + stats. */
+    fun rename(id: String, name: String) = viewModelScope.launch {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return@launch
+        val existing = repository.byId(id) ?: return@launch
+        repository.save(existing.copy(name = trimmed))
+    }
+
     /** Persist an imported track, naming it from the file when the track itself is unnamed. */
     fun importTrack(parsed: ParsedTrack, fallbackName: String) = viewModelScope.launch {
         repository.save(

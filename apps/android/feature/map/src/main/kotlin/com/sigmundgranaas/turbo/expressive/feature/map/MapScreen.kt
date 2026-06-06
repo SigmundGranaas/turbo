@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
 import android.Manifest
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,6 +63,7 @@ import com.sigmundgranaas.turbo.expressive.feature.nav.NavDrawerContent
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
 import com.sigmundgranaas.turbo.expressive.ui.components.DeleteMarkerDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.MapControlRail
+import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
@@ -135,6 +138,7 @@ fun MapScreen(
     var showLayers by remember { mutableStateOf(false) }
     // Data overlay composited over the base map (null = none).
     var activeOverlays by remember { mutableStateOf<Set<com.sigmundgranaas.turbo.expressive.domain.OverlayId>>(emptySet()) }
+    var showRouteSave by remember { mutableStateOf(false) }
     // Measuring tool: when active, taps drop measure vertices instead of selecting.
     var measuring by remember { mutableStateOf(false) }
     val measurePoints = remember { mutableStateListOf<LatLng>() }
@@ -329,7 +333,7 @@ fun MapScreen(
                         locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                     }
                 },
-                onSave = { routeViewModel.saveAsTrack("Route") },
+                onSave = { showRouteSave = true },
                 onDownloadOffline = { routeViewModel.downloadAlongRoute(state.baseLayer) },
                 onClear = { routeViewModel.clear(); viewModel.setFollowing(false) },
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -413,6 +417,20 @@ fun MapScreen(
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null },
+        )
+    }
+    // Name + save the planned route as a track (mirrors the recording save dialog).
+    if (showRouteSave) {
+        NameInputDialog(
+            title = stringResource(R.string.route_save_title),
+            confirmLabel = stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_save),
+            initial = "Route",
+            onConfirm = { name ->
+                routeViewModel.saveAsTrack(name)
+                Toast.makeText(context, R.string.route_saved, Toast.LENGTH_SHORT).show()
+                showRouteSave = false
+            },
+            onDismiss = { showRouteSave = false },
         )
     }
 }

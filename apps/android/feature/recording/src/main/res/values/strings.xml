@@ -25,6 +25,8 @@
     <string name="paths_export_format">Export %1$s</string>
     <string name="paths_share_format">Share %1$s</string>
     <string name="paths_delete">Delete</string>
+    <string name="paths_rename">Rename track</string>
+    <string name="paths_rename_title">Rename track</string>
 
     <!-- Recording -->
     <string name="rec_recording">Recording</string>
@@ -45,7 +47,7 @@
     <!-- Foreground-service notification -->
     <string name="rec_notif_recording">Recording track</string>
     <string name="rec_notif_paused">Recording paused</string>
-    <string name="rec_notif_content">%1$s km · %2$s</string>
+    <string name="rec_notif_content">%1$s · %2$s</string>
     <string name="rec_notif_channel">Track recording</string>
     <string name="rec_notif_channel_desc">Shows an ongoing notification while a track is being recorded.</string>
 </resources>
