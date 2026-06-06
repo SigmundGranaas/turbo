@@ -6,6 +6,7 @@ import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.ConditionsRepository
 import com.sigmundgranaas.turbo.expressive.domain.Conditions
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.WeatherForecast
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,12 @@ sealed interface ConditionsUiState {
     data object Error : ConditionsUiState
 }
 
+sealed interface ForecastUiState {
+    data object Loading : ForecastUiState
+    data class Content(val forecast: WeatherForecast) : ForecastUiState
+    data object Error : ForecastUiState
+}
+
 /** Loads live conditions (MET weather + Varsom danger) for a point on demand. */
 @HiltViewModel
 class ConditionsViewModel @Inject constructor(
@@ -27,7 +34,11 @@ class ConditionsViewModel @Inject constructor(
     private val _state = MutableStateFlow<ConditionsUiState>(ConditionsUiState.Loading)
     val state: StateFlow<ConditionsUiState> = _state.asStateFlow()
 
+    private val _forecast = MutableStateFlow<ForecastUiState>(ForecastUiState.Loading)
+    val forecast: StateFlow<ForecastUiState> = _forecast.asStateFlow()
+
     private var loadedFor: LatLng? = null
+    private var forecastFor: LatLng? = null
 
     fun load(point: LatLng) {
         if (loadedFor == point) return
@@ -37,6 +48,19 @@ class ConditionsViewModel @Inject constructor(
             _state.value = when (val outcome = repository.forPoint(point)) {
                 is Outcome.Success -> ConditionsUiState.Content(outcome.value)
                 is Outcome.Failure -> ConditionsUiState.Error
+            }
+        }
+    }
+
+    /** Loads the full hourly+daily forecast for the detail sheet (memoised per point). */
+    fun loadForecast(point: LatLng) {
+        if (forecastFor == point && _forecast.value !is ForecastUiState.Error) return
+        forecastFor = point
+        _forecast.value = ForecastUiState.Loading
+        viewModelScope.launch {
+            _forecast.value = when (val outcome = repository.forecast(point)) {
+                is Outcome.Success -> ForecastUiState.Content(outcome.value)
+                is Outcome.Failure -> ForecastUiState.Error
             }
         }
     }

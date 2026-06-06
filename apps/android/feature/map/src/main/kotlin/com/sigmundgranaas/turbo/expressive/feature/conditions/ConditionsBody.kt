@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.conditions
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,9 +15,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +50,7 @@ import kotlin.math.roundToInt
 fun ConditionsBody(point: LatLng, viewModel: ConditionsViewModel = hiltViewModel()) {
     val cs = MaterialTheme.colorScheme
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var showForecast by remember { mutableStateOf(false) }
     LaunchedEffect(point) { viewModel.load(point) }
 
     Column(
@@ -68,9 +75,23 @@ fun ConditionsBody(point: LatLng, viewModel: ConditionsViewModel = hiltViewModel
                 }
                 if (s.conditions.weather == null && s.conditions.avalanche == null) {
                     Text("No data for this location.", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                } else if (s.conditions.weather != null) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.m))
+                            .clickable { showForecast = true }.padding(vertical = 8.dp),
+                    ) {
+                        Text("Full forecast", style = MaterialTheme.typography.titleSmall, color = cs.primary, modifier = Modifier.weight(1f))
+                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         }
+    }
+
+    if (showForecast) {
+        WeatherForecastSheet(point = point, onDismiss = { showForecast = false }, viewModel = viewModel)
     }
 }
 
