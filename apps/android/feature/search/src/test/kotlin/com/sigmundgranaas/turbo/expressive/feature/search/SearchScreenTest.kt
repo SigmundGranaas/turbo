@@ -10,9 +10,11 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
+import com.sigmundgranaas.turbo.expressive.domain.RecentSearch
 import com.sigmundgranaas.turbo.expressive.domain.SearchHit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -34,6 +36,12 @@ private class StubMarkerRepository : MarkerRepository {
     override suspend fun delete(id: String) = Unit
 }
 
+private class StubRecentSearchRepository : RecentSearchRepository {
+    override val recents: Flow<List<RecentSearch>> = flowOf(emptyList())
+    override suspend fun record(item: RecentSearch) = Unit
+    override suspend fun clear() = Unit
+}
+
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
@@ -51,7 +59,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { lat, lng, name -> picked = Triple(lat, lng, name) },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository()),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository()),
             )
         }
 
@@ -72,7 +80,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { _, _, _ -> },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository()),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository()),
             )
         }
         composeRule.onNode(hasSetTextAction()).performTextInput("Lyn")

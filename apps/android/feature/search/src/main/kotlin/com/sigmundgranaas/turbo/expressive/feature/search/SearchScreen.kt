@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Public
@@ -83,8 +84,15 @@ fun SearchScreen(
 ) {
     val cs = MaterialTheme.colorScheme
     val ui by viewModel.state.collectAsStateWithLifecycle()
+    val recents by viewModel.recents.collectAsStateWithLifecycle()
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
+    val pick: (SearchResult) -> Unit = { r ->
+        if (r.lat != null && r.lng != null) {
+            viewModel.recordPick(r)
+            onPick(r.lat, r.lng, r.name)
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(cs.surface).statusBarsPadding().imePadding()) {
         Surface(
@@ -123,6 +131,26 @@ fun SearchScreen(
             ui.loading -> Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+            ui.query.isBlank() && recents.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
+                    ) {
+                        Text("Recent", style = MaterialTheme.typography.titleSmall, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text(
+                            "Clear",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = cs.primary,
+                            modifier = Modifier.clip(RoundedCornerShape(TurboRadius.m)).clickable { viewModel.clearRecents() }.padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                items(recents.size) { i ->
+                    val rs = recents[i]
+                    RecentRow(rs) { pick(SearchResult(rs.name, rs.sub, com.sigmundgranaas.turbo.expressive.domain.ActivityKindId.Mountain, SearchResultType.Place, rs.lat, rs.lng)) }
+                }
+            }
             ui.query.isBlank() -> EmptyState(
                 icon = Icons.Rounded.Search,
                 title = "Search places, trails, coordinates",
@@ -143,10 +171,29 @@ fun SearchScreen(
             else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
                 items(ui.results.size) { i ->
                     val r = ui.results[i]
-                    ResultRow(r, ui.query) { if (r.lat != null && r.lng != null) onPick(r.lat, r.lng, r.name) }
+                    ResultRow(r, ui.query) { pick(r) }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RecentRow(rs: com.sigmundgranaas.turbo.expressive.domain.RecentSearch, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.l)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 12.dp),
+    ) {
+        Cookie(size = 44.dp, fill = cs.surfaceContainerHigh) { Icon(Icons.Rounded.History, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(22.dp)) }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(rs.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (rs.sub.isNotBlank()) {
+                Text(rs.sub, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Icon(Icons.Rounded.NorthWest, null, tint = cs.onSurfaceVariant)
     }
 }
 

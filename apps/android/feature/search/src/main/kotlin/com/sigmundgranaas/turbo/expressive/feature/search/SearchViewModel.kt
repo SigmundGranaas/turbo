@@ -4,16 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
+import com.sigmundgranaas.turbo.expressive.domain.RecentSearch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -48,9 +52,14 @@ data class SearchUiState(
 class SearchViewModel @Inject constructor(
     private val repository: SearchRepository,
     private val markerRepository: MarkerRepository,
+    private val recentSearchRepository: RecentSearchRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
+
+    /** Most-recent-first picks, surfaced when the query is empty. */
+    val recents: StateFlow<List<RecentSearch>> = recentSearchRepository.recents
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val markers = MutableStateFlow<List<Marker>>(emptyList())
     private var allResults: List<SearchResult> = emptyList()
@@ -58,6 +67,18 @@ class SearchViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { markerRepository.observeAll().collect { markers.value = it } }
+    }
+
+    /** Record a chosen result so it surfaces in the recents list next time. */
+    fun recordPick(result: SearchResult) {
+        if (result.lat == null || result.lng == null) return
+        viewModelScope.launch {
+            recentSearchRepository.record(RecentSearch(result.name, result.sub, result.lat, result.lng))
+        }
+    }
+
+    fun clearRecents() {
+        viewModelScope.launch { recentSearchRepository.clear() }
     }
 
     fun setFilter(index: Int) {

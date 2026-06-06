@@ -8,8 +8,10 @@ import com.sigmundgranaas.turbo.expressive.core.data.AndroidLocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.DataStoreSettingsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.DataStoreRecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.DataStoreRecordingDraftStore
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
+import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingDraftStore
 import com.sigmundgranaas.turbo.expressive.core.data.RoomMarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RoomPathRepository
@@ -44,6 +46,9 @@ abstract class DataModule {
 
     @Binds
     abstract fun bindRecordingDraftStore(impl: DataStoreRecordingDraftStore): RecordingDraftStore
+
+    @Binds
+    abstract fun bindRecentSearchRepository(impl: DataStoreRecentSearchRepository): RecentSearchRepository
 
     companion object {
         @Provides

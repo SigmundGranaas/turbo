@@ -2,10 +2,12 @@ package com.sigmundgranaas.turbo.expressive.feature.search
 
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
+import com.sigmundgranaas.turbo.expressive.domain.RecentSearch
 import com.sigmundgranaas.turbo.expressive.domain.SearchHit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -37,6 +39,15 @@ private class FakeMarkerRepository(initial: List<Marker> = emptyList()) : Marker
     override suspend fun delete(id: String) { markers.value = markers.value.filterNot { it.id == id } }
 }
 
+private class FakeRecentSearchRepository : RecentSearchRepository {
+    val items = MutableStateFlow<List<RecentSearch>>(emptyList())
+    override val recents: Flow<List<RecentSearch>> = items
+    override suspend fun record(item: RecentSearch) {
+        items.value = listOf(item) + items.value.filterNot { it.name == item.name }
+    }
+    override suspend fun clear() { items.value = emptyList() }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
 
@@ -48,7 +59,7 @@ class SearchViewModelTest {
     @Test
     fun `query is debounced then mapped to results with coordinates`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Success(listOf(hit)))
-        val vm = SearchViewModel(repo, FakeMarkerRepository())
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository())
 
         vm.setQuery("Lyn")
         assertEquals("Lyn", vm.state.value.query)
@@ -66,7 +77,7 @@ class SearchViewModelTest {
     @Test
     fun `rapid keystrokes only fire one search for the latest query`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Success(listOf(hit)))
-        val vm = SearchViewModel(repo, FakeMarkerRepository())
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository())
 
         vm.setQuery("L")
         vm.setQuery("Ly")
@@ -81,7 +92,7 @@ class SearchViewModelTest {
     @Test
     fun `blank query clears results without searching`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Success(listOf(hit)))
-        val vm = SearchViewModel(repo, FakeMarkerRepository())
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository())
         vm.setQuery("Lyn"); advanceTimeBy(300); runCurrent()
         assertEquals(1, vm.state.value.results.size)
 
@@ -92,7 +103,7 @@ class SearchViewModelTest {
     @Test
     fun `failure flags error, clears loading, and retry recovers`() = runTest(mainRule.dispatcher) {
         val repo = FakeSearchRepository(Outcome.Failure(RuntimeException("offline")))
-        val vm = SearchViewModel(repo, FakeMarkerRepository())
+        val vm = SearchViewModel(repo, FakeMarkerRepository(), FakeRecentSearchRepository())
         vm.setQuery("zzz"); advanceTimeBy(300); runCurrent()
 
         assertTrue(vm.state.value.results.isEmpty())
@@ -111,7 +122,7 @@ class SearchViewModelTest {
         val markers = FakeMarkerRepository(
             listOf(Marker("m1", "Camp Lyngen", ActivityKindId.Camping, LatLng(69.6, 20.0))),
         )
-        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), markers)
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), markers, FakeRecentSearchRepository())
         runCurrent() // let the marker flow collect
 
         vm.setQuery("lyng")
@@ -123,7 +134,7 @@ class SearchViewModelTest {
 
     @Test
     fun `a coordinate query yields a go-to-coordinate result`() = runTest(mainRule.dispatcher) {
-        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository())
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), FakeRecentSearchRepository())
         vm.setQuery("69.65, 18.95")
         runCurrent()
 
@@ -137,7 +148,7 @@ class SearchViewModelTest {
         val markers = FakeMarkerRepository(
             listOf(Marker("m1", "Lyngen hut", ActivityKindId.Cabin, LatLng(69.6, 20.0))),
         )
-        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(listOf(hit))), markers)
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(listOf(hit))), markers, FakeRecentSearchRepository())
         runCurrent()
 
         vm.setQuery("Lyngen"); advanceTimeBy(300); runCurrent()
@@ -146,6 +157,30 @@ class SearchViewModelTest {
         vm.setFilter(2) // Places
         assertTrue(vm.state.value.results.none { it.type == SearchResultType.Marker })
         assertTrue(vm.state.value.results.any { it.type == SearchResultType.Place })
+    }
+
+    @Test
+    fun `recordPick persists a recent and clearRecents empties it`() = runTest(mainRule.dispatcher) {
+        val recents = FakeRecentSearchRepository()
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), recents)
+
+        vm.recordPick(SearchResult("Lyngen", "Troms", ActivityKindId.Mountain, SearchResultType.Place, 69.6, 20.0))
+        runCurrent()
+        assertEquals(listOf("Lyngen"), recents.items.value.map { it.name })
+
+        vm.clearRecents()
+        runCurrent()
+        assertTrue(recents.items.value.isEmpty())
+    }
+
+    @Test
+    fun `recordPick ignores results without coordinates`() = runTest(mainRule.dispatcher) {
+        val recents = FakeRecentSearchRepository()
+        val vm = SearchViewModel(FakeSearchRepository(Outcome.Success(emptyList())), FakeMarkerRepository(), recents)
+
+        vm.recordPick(SearchResult("nowhere", "", ActivityKindId.Mountain, SearchResultType.Place, null, null))
+        runCurrent()
+        assertTrue(recents.items.value.isEmpty())
     }
 
     @Test
