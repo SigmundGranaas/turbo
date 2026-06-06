@@ -20,6 +20,8 @@ private class FakeConditionsRepository(var outcome: Outcome<Conditions>) : Condi
         calls++
         return outcome
     }
+    override suspend fun forecast(point: LatLng): Outcome<com.sigmundgranaas.turbo.expressive.domain.WeatherForecast> =
+        Outcome.Failure(UnsupportedOperationException())
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

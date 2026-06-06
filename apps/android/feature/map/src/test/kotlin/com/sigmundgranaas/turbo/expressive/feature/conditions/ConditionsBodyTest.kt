@@ -17,6 +17,8 @@ import org.robolectric.annotation.GraphicsMode
 
 private class StubConditionsRepository(private val outcome: Outcome<Conditions>) : ConditionsRepository {
     override suspend fun forPoint(point: LatLng): Outcome<Conditions> = outcome
+    override suspend fun forecast(point: LatLng): Outcome<com.sigmundgranaas.turbo.expressive.domain.WeatherForecast> =
+        Outcome.Failure(UnsupportedOperationException())
 }
 
 @RunWith(RobolectricTestRunner::class)
