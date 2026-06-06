@@ -7,6 +7,9 @@ import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
+import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
+import com.sigmundgranaas.turbo.expressive.core.map.RouteCorridor
+import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
 import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
@@ -43,6 +46,7 @@ sealed interface RouteUiState {
 class RouteViewModel @Inject constructor(
     private val routes: RouteRepository,
     private val paths: PathRepository,
+    private val offline: OfflineTileManager,
 ) : ViewModel() {
     private val _state = MutableStateFlow<RouteUiState>(RouteUiState.Idle)
     val state: StateFlow<RouteUiState> = _state.asStateFlow()
@@ -161,6 +165,17 @@ class RouteViewModel @Inject constructor(
         _waypoints.value = emptyList()
         undoStack.clear()
         _state.value = RouteUiState.Idle
+    }
+
+    /** Queue an offline download of the padded corridor around the solved route. */
+    fun downloadAlongRoute(base: BaseLayer, name: String = "Route area") {
+        val geometry = when (val s = _state.value) {
+            is RouteUiState.Done -> s.plan.geometry
+            is RouteUiState.Following -> s.plan.geometry
+            else -> return
+        }
+        val bounds = RouteCorridor.bounds(geometry) ?: return
+        offline.download(name, base, bounds, minZoom = 8.0, maxZoom = 15.0)
     }
 
     fun saveAsTrack(name: String) {

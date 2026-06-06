@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material3.Button
@@ -54,6 +55,7 @@ internal fun RouteCard(
     modifier: Modifier = Modifier,
     waypointCount: Int = 2,
     onRemoveStop: (Int) -> Unit = {},
+    onDownloadOffline: (() -> Unit)? = null,
 ) {
     if (state is RouteUiState.Idle) return
     val cs = MaterialTheme.colorScheme
@@ -99,6 +101,11 @@ internal fun RouteCard(
                         }
                         FilledTonalButton(onClick = onSave) {
                             Icon(Icons.Rounded.Bookmark, null, modifier = Modifier.size(18.dp))
+                        }
+                        if (onDownloadOffline != null) {
+                            FilledTonalButton(onClick = onDownloadOffline) {
+                                Icon(Icons.Rounded.Download, null, modifier = Modifier.size(18.dp))
+                            }
                         }
                         TextButton(onClick = onClear) { Text("Clear") }
                     }

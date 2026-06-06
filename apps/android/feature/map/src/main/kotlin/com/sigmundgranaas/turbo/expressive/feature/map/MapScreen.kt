@@ -306,6 +306,7 @@ fun MapScreen(
                     }
                 },
                 onSave = { routeViewModel.saveAsTrack("Route") },
+                onDownloadOffline = { routeViewModel.downloadAlongRoute(state.baseLayer) },
                 onClear = { routeViewModel.clear(); viewModel.setFollowing(false) },
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
