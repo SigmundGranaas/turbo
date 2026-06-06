@@ -79,8 +79,18 @@ fun shouldShowAvalanche(dangerLevel: Int, airTempC: Double?): Boolean = when {
     else -> false
 }
 
-/** Combined conditions for a point; either field may be null if unavailable. */
+/** Marine conditions at a coastal point, from MET's oceanforecast. */
+data class MarineNow(
+    val waveHeightM: Double?,
+    val waveFromDeg: Double?,
+    val seaTemperatureC: Double?,
+) {
+    val hasData: Boolean get() = waveHeightM != null || seaTemperatureC != null
+}
+
+/** Combined conditions for a point; any field may be null if unavailable. */
 data class Conditions(
     val weather: WeatherNow?,
     val avalanche: AvalancheNow?,
+    val marine: MarineNow? = null,
 )

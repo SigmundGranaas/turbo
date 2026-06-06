@@ -32,6 +32,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.AvalancheNow
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.MarineNow
 import com.sigmundgranaas.turbo.expressive.domain.WeatherNow
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.components.WindArrow
@@ -72,6 +73,10 @@ fun ConditionsBody(point: LatLng, viewModel: ConditionsViewModel = hiltViewModel
                 s.conditions.avalanche?.let {
                     Spacer(Modifier.height(12.dp))
                     AvalancheRow(it)
+                }
+                s.conditions.marine?.let {
+                    Spacer(Modifier.height(12.dp))
+                    MarineRow(it)
                 }
                 if (s.conditions.weather == null && s.conditions.avalanche == null) {
                     Text("No data for this location.", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
@@ -166,6 +171,33 @@ private fun AvalancheRow(avalanche: AvalancheNow) {
                 Spacer(Modifier.height(8.dp))
                 Text("• ${parts.joinToString(" · ")}", style = MaterialTheme.typography.bodySmall, color = cs.onSurface)
             }
+        }
+    }
+}
+
+@Composable
+private fun MarineRow(marine: MarineNow) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.m)).background(cs.surfaceContainerLowest).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Sea", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+            Text(
+                buildString {
+                    marine.seaTemperatureC?.let { append("${it.roundToInt()}° water") }
+                    if (marine.seaTemperatureC != null && marine.waveHeightM != null) append(" · ")
+                    marine.waveHeightM?.let { append("%.1f m waves".format(it)) }
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = cs.onSurfaceVariant,
+            )
+        }
+        if (marine.waveFromDeg != null) {
+            WindArrow(marine.waveFromDeg, Modifier.size(20.dp))
+            Spacer(Modifier.size(6.dp))
+            Text(compass(marine.waveFromDeg), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
         }
     }
 }

@@ -5,6 +5,7 @@ import com.sigmundgranaas.turbo.expressive.domain.AtmosphericPoint
 import com.sigmundgranaas.turbo.expressive.domain.AvalancheNow
 import com.sigmundgranaas.turbo.expressive.domain.AvalancheProblem
 import com.sigmundgranaas.turbo.expressive.domain.Conditions
+import com.sigmundgranaas.turbo.expressive.domain.MarineNow
 import com.sigmundgranaas.turbo.expressive.domain.shouldShowAvalanche
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.WeatherForecast
@@ -41,10 +42,12 @@ class HttpConditionsRepository @Inject constructor(
         val raw = runCatching { fetchAvalanche(point) }.getOrNull()
         // Suppress low-confidence danger (L1, or L2 when warm) per the Flutter heuristic.
         val avalanche = raw?.takeIf { shouldShowAvalanche(it.dangerLevel, weather?.temperatureC) }
-        return if (weather == null && avalanche == null) {
+        // Marine is best-effort and null inland (oceanforecast 422s away from the coast).
+        val marine = runCatching { fetchMarine(point) }.getOrNull()?.takeIf { it.hasData }
+        return if (weather == null && avalanche == null && marine == null) {
             Outcome.Failure(IllegalStateException("No conditions available"))
         } else {
-            Outcome.Success(Conditions(weather, avalanche))
+            Outcome.Success(Conditions(weather, avalanche, marine))
         }
     }
 
@@ -99,6 +102,22 @@ class HttpConditionsRepository @Inject constructor(
             humidityPct = instant?.relativeHumidity,
             cloudCoverPct = instant?.cloudAreaFraction,
             uvIndex = instant?.uvIndexClearSky,
+        )
+    }
+
+    private suspend fun fetchMarine(point: LatLng): MarineNow? {
+        val res: MetResponse = client
+            .get("https://api.met.no/weatherapi/oceanforecast/2.0/complete") {
+                parameter("lat", "%.4f".format(point.lat))
+                parameter("lon", "%.4f".format(point.lng))
+                header("User-Agent", USER_AGENT)
+            }
+            .body()
+        val d = res.properties?.timeseries?.firstOrNull()?.data?.instant?.details ?: return null
+        return MarineNow(
+            waveHeightM = d.seaWaveHeight,
+            waveFromDeg = d.seaWaveFromDirection,
+            seaTemperatureC = d.seaWaterTemperature,
         )
     }
 
@@ -158,6 +177,9 @@ private data class MetInstantDetails(
     @SerialName("relative_humidity") val relativeHumidity: Double? = null,
     @SerialName("cloud_area_fraction") val cloudAreaFraction: Double? = null,
     @SerialName("ultraviolet_index_clear_sky") val uvIndexClearSky: Double? = null,
+    @SerialName("sea_surface_wave_height") val seaWaveHeight: Double? = null,
+    @SerialName("sea_surface_wave_from_direction") val seaWaveFromDirection: Double? = null,
+    @SerialName("sea_water_temperature") val seaWaterTemperature: Double? = null,
 )
 
 @Serializable
