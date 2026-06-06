@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
@@ -72,22 +73,22 @@ internal fun RouteCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
                         Spacer(Modifier.width(14.dp))
-                        Text("Finding the best route…", style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
-                        TextButton(onClick = onClear) { Text("Cancel") }
+                        Text(stringResource(R.string.route_solving), style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
+                        TextButton(onClick = onClear) { Text(stringResource(R.string.route_cancel)) }
                     }
                     PresetRow(preset, onSelectPreset)
                 }
                 is RouteUiState.Error -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(state.message, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onClear) { Text("Dismiss") }
+                    TextButton(onClick = onClear) { Text(stringResource(R.string.route_dismiss)) }
                 }
                 is RouteUiState.Done -> {
                     val p = state.plan
                     Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        RouteStat(Units.distance(p.distanceM, metric), "Distance")
-                        RouteStat(formatDuration(p.durationS), "Time")
-                        RouteStat(Units.elevation(p.ascentM, metric), "Ascent")
-                        RouteStat("${p.onTrailPct.roundToInt()}%", "On trail")
+                        RouteStat(Units.distance(p.distanceM, metric), stringResource(R.string.route_distance))
+                        RouteStat(formatDuration(p.durationS), stringResource(R.string.route_time))
+                        RouteStat(Units.elevation(p.ascentM, metric), stringResource(R.string.route_ascent))
+                        RouteStat("${p.onTrailPct.roundToInt()}%", stringResource(R.string.route_on_trail))
                     }
                     SurfaceBreakdown(p.surfaces)
                     StopsRow(waypointCount, onRemoveStop)
@@ -97,7 +98,7 @@ internal fun RouteCard(
                         Button(onClick = onFollow, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Rounded.Navigation, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Follow")
+                            Text(stringResource(R.string.route_follow))
                         }
                         FilledTonalButton(onClick = onSave) {
                             Icon(Icons.Rounded.Bookmark, null, modifier = Modifier.size(18.dp))
@@ -107,7 +108,7 @@ internal fun RouteCard(
                                 Icon(Icons.Rounded.Download, null, modifier = Modifier.size(18.dp))
                             }
                         }
-                        TextButton(onClick = onClear) { Text("Clear") }
+                        TextButton(onClick = onClear) { Text(stringResource(R.string.route_clear)) }
                     }
                 }
                 is RouteUiState.Following -> {
@@ -123,22 +124,22 @@ internal fun RouteCard(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                if (arrived) "You've arrived" else "Following route",
+                                if (arrived) stringResource(R.string.route_arrived) else stringResource(R.string.route_following),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = cs.onSurface,
                             )
                             if (!arrived) {
                                 Text(
                                     text = progress?.let {
-                                        "${Units.distance(it.distanceRemainingM, metric)} left" +
+                                        stringResource(R.string.route_left, Units.distance(it.distanceRemainingM, metric)) +
                                             (it.etaSeconds?.let { s -> " · ${formatDuration(s.toDouble())}" } ?: "")
-                                    } ?: "Waiting for GPS…",
+                                    } ?: stringResource(R.string.route_waiting_gps),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = cs.onSurfaceVariant,
                                 )
                             }
                         }
-                        TextButton(onClick = onClear) { Text(if (arrived) "Done" else "Stop") }
+                        TextButton(onClick = onClear) { Text(stringResource(if (arrived) R.string.route_done else R.string.route_stop)) }
                     }
                 }
                 RouteUiState.Idle -> Unit
@@ -184,8 +185,8 @@ private fun StopsRow(waypointCount: Int, onRemoveStop: (Int) -> Unit) {
             FilterChip(
                 selected = false,
                 onClick = { onRemoveStop(i) },
-                label = { Text("Stop $i") },
-                trailingIcon = { Icon(Icons.Rounded.Close, "Remove stop $i", Modifier.size(16.dp)) },
+                label = { Text(stringResource(R.string.route_stop_n, i)) },
+                trailingIcon = { Icon(Icons.Rounded.Close, stringResource(R.string.route_remove_stop, i), Modifier.size(16.dp)) },
             )
         }
     }

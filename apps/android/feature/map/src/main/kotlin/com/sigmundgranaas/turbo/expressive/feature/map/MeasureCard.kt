@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
@@ -42,21 +43,21 @@ internal fun MeasureCard(
         shadowElevation = 4.dp,
     ) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-            Text("Measure", style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+            Text(stringResource(R.string.measure_title), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
             Text(
-                if (points.size < 2) "Tap the map to add points" else Units.distance(total, metric),
+                if (points.size < 2) stringResource(R.string.measure_hint) else Units.distance(total, metric),
                 style = MaterialTheme.typography.headlineSmall,
                 color = cs.onSurface,
             )
             if (points.size >= 2) {
-                Text("${points.size} points", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Text(stringResource(R.string.measure_points, points.size), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
             }
             Spacer(Modifier.width(0.dp))
             Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TextButton(onClick = onUndo, enabled = points.isNotEmpty()) { Text("Undo") }
-                TextButton(onClick = onClear, enabled = points.isNotEmpty()) { Text("Clear") }
+                TextButton(onClick = onUndo, enabled = points.isNotEmpty()) { Text(stringResource(R.string.measure_undo)) }
+                TextButton(onClick = onClear, enabled = points.isNotEmpty()) { Text(stringResource(R.string.measure_clear)) }
                 Spacer(Modifier.width(1.dp))
-                Button(onClick = onDone) { Text("Done") }
+                Button(onClick = onDone) { Text(stringResource(R.string.measure_done)) }
             }
         }
     }

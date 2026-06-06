@@ -4,4 +4,31 @@
     <string name="collections_member">In this collection</string>
     <string name="collections_new_hint">New collection…</string>
     <string name="collections_create">Create collection</string>
+
+    <!-- Route card -->
+    <string name="route_solving">Finding the best route…</string>
+    <string name="route_cancel">Cancel</string>
+    <string name="route_dismiss">Dismiss</string>
+    <string name="route_distance">Distance</string>
+    <string name="route_time">Time</string>
+    <string name="route_ascent">Ascent</string>
+    <string name="route_on_trail">On trail</string>
+    <string name="route_follow">Follow</string>
+    <string name="route_clear">Clear</string>
+    <string name="route_following">Following route</string>
+    <string name="route_left">%1$s left</string>
+    <string name="route_waiting_gps">Waiting for GPS…</string>
+    <string name="route_arrived">You\'ve arrived</string>
+    <string name="route_done">Done</string>
+    <string name="route_stop">Stop</string>
+    <string name="route_stop_n">Stop %1$d</string>
+    <string name="route_remove_stop">Remove stop %1$d</string>
+
+    <!-- Measure tool -->
+    <string name="measure_title">Measure</string>
+    <string name="measure_hint">Tap the map to add points</string>
+    <string name="measure_points">%1$d points</string>
+    <string name="measure_undo">Undo</string>
+    <string name="measure_clear">Clear</string>
+    <string name="measure_done">Done</string>
 </resources>

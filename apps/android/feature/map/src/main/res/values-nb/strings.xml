@@ -4,4 +4,31 @@
     <string name="collections_member">I denne samlingen</string>
     <string name="collections_new_hint">Ny samling…</string>
     <string name="collections_create">Opprett samling</string>
+
+    <!-- Route card -->
+    <string name="route_solving">Finner beste rute…</string>
+    <string name="route_cancel">Avbryt</string>
+    <string name="route_dismiss">Lukk</string>
+    <string name="route_distance">Distanse</string>
+    <string name="route_time">Tid</string>
+    <string name="route_ascent">Stigning</string>
+    <string name="route_on_trail">På sti</string>
+    <string name="route_follow">Følg</string>
+    <string name="route_clear">Fjern</string>
+    <string name="route_following">Følger rute</string>
+    <string name="route_left">%1$s igjen</string>
+    <string name="route_waiting_gps">Venter på GPS…</string>
+    <string name="route_arrived">Du er framme</string>
+    <string name="route_done">Ferdig</string>
+    <string name="route_stop">Stopp</string>
+    <string name="route_stop_n">Stopp %1$d</string>
+    <string name="route_remove_stop">Fjern stopp %1$d</string>
+
+    <!-- Measure tool -->
+    <string name="measure_title">Mål</string>
+    <string name="measure_hint">Trykk på kartet for å legge til punkter</string>
+    <string name="measure_points">%1$d punkter</string>
+    <string name="measure_undo">Angre</string>
+    <string name="measure_clear">Tøm</string>
+    <string name="measure_done">Ferdig</string>
 </resources>
