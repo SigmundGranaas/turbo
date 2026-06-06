@@ -193,33 +193,45 @@ internal object ReverseGeocode {
         z.takeIf { it.isFinite() && it > MIN_ELEV && it < MAX_ELEV }
     }.getOrNull()
 
-    /** Cascade: a named place wins; then a nearby address; then the kommune. */
+    /**
+     * Cascade: a named place wins; then a *human-readable* nearby address; then
+     * the kommune. A bare gårds-/bruksnummer ("155/1/73") is not a useful name,
+     * so it's skipped in favour of the kommune when one is known.
+     */
     fun compose(
         name: NearbyName?,
         address: String?,
         kommune: Kommune?,
         elevationM: Double?,
-    ): LocationDescription? = when {
-        name != null -> LocationDescription(
-            title = name.name,
-            qualifier = qualifierFor(name),
-            secondary = name.type.takeIf(String::isNotBlank) ?: kommune?.name,
-            elevationM = elevationM,
-        )
-        address != null -> LocationDescription(
-            title = address,
-            qualifier = PlaceQualifier.Near,
-            secondary = kommune?.name,
-            elevationM = elevationM,
-        )
-        kommune != null -> LocationDescription(
-            title = kommune.name,
-            qualifier = PlaceQualifier.In,
-            secondary = kommune.fylke,
-            elevationM = elevationM,
-        )
-        else -> null
+    ): LocationDescription? {
+        val usableAddress = address?.takeUnless { looksLikeParcelCode(it) }
+        return when {
+            name != null -> LocationDescription(
+                title = name.name,
+                qualifier = qualifierFor(name),
+                secondary = name.type.takeIf(String::isNotBlank) ?: kommune?.name,
+                elevationM = elevationM,
+            )
+            usableAddress != null -> LocationDescription(
+                title = usableAddress,
+                qualifier = PlaceQualifier.Near,
+                secondary = kommune?.name,
+                elevationM = elevationM,
+            )
+            kommune != null -> LocationDescription(
+                title = kommune.name,
+                qualifier = PlaceQualifier.In,
+                secondary = kommune.fylke,
+                elevationM = elevationM,
+            )
+            // Last resort: a parcel-code address with no kommune is still better than nothing.
+            address != null -> LocationDescription(address, PlaceQualifier.Near, null, elevationM)
+            else -> null
+        }
     }
+
+    /** True for digits-and-separators-only strings like "155/1/73" (a gnr/bnr parcel code). */
+    fun looksLikeParcelCode(s: String): Boolean = Regex("""^[0-9]+([/ -][0-9]+)+$""").matches(s.trim())
 
     private enum class Category(val radiusM: Double) {
         Peak(600.0), Water(150.0), Settlement(2500.0), Other(400.0)

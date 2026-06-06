@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.data
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.PlaceQualifier
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -75,6 +76,24 @@ class ReverseGeocodeTest {
         assertEquals("In Lom", byKommune.label)
 
         assertNull(ReverseGeocode.compose(null, null, null, null))
+    }
+
+    @Test
+    fun `a bare parcel-code address is skipped in favour of the kommune`() {
+        // "155/1/73" is a gnr/bnr code — prefer "In Lom" over "Near 155/1/73".
+        val byKommune = ReverseGeocode.compose(null, "155/1/73", ReverseGeocode.Kommune("Lom", "Innlandet"), 2268.0)!!
+        assertEquals("In Lom", byKommune.label)
+        // A real street address is kept.
+        val byAddress = ReverseGeocode.compose(null, "Storgata 4", ReverseGeocode.Kommune("Lom", null), null)!!
+        assertEquals("Near Storgata 4", byAddress.label)
+    }
+
+    @Test
+    fun `parcel-code detection`() {
+        assertTrue(ReverseGeocode.looksLikeParcelCode("155/1/73"))
+        assertTrue(ReverseGeocode.looksLikeParcelCode("12-3"))
+        assertFalse(ReverseGeocode.looksLikeParcelCode("Storgata 4"))
+        assertFalse(ReverseGeocode.looksLikeParcelCode("Lom"))
     }
 
     @Test
