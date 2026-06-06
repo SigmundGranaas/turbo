@@ -4,7 +4,9 @@ import com.sigmundgranaas.turbo.expressive.core.data.ConditionsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.HttpConditionsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.GeonorgeTrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.HttpRouteRepository
+import com.sigmundgranaas.turbo.expressive.core.data.KartverketReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.KartverketSearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
@@ -36,6 +38,9 @@ abstract class NetworkModule {
 
     @Binds
     abstract fun bindTrailSearchRepository(impl: GeonorgeTrailSearchRepository): TrailSearchRepository
+
+    @Binds
+    abstract fun bindReverseGeocodeRepository(impl: KartverketReverseGeocodeRepository): ReverseGeocodeRepository
 
     companion object {
         @Provides
