@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +73,8 @@ fun MarkerEditorSheet(
     position: LatLng,
     onDismiss: () -> Unit,
     existing: Marker? = null,
+    suggestedName: String? = null,
+    suggestedSubtitle: String? = null,
     onSave: (name: String, kind: ActivityKindId, colorArgb: Long?, notes: String?) -> Unit = { _, _, _, _ -> },
 ) {
     val cs = MaterialTheme.colorScheme
@@ -81,7 +84,13 @@ fun MarkerEditorSheet(
         shape = SheetShape,
         containerColor = cs.surfaceContainerLow,
     ) {
-        MarkerEditorContent(position = position, existing = existing, onSave = onSave)
+        MarkerEditorContent(
+            position = position,
+            existing = existing,
+            suggestedName = suggestedName,
+            suggestedSubtitle = suggestedSubtitle,
+            onSave = onSave,
+        )
     }
 }
 
@@ -90,14 +99,25 @@ fun MarkerEditorSheet(
 internal fun MarkerEditorContent(
     position: LatLng,
     existing: Marker?,
+    suggestedName: String? = null,
+    suggestedSubtitle: String? = null,
     onSave: (name: String, kind: ActivityKindId, colorArgb: Long?, notes: String?) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
+    var nameEdited by rememberSaveable { mutableStateOf(false) }
     var notes by rememberSaveable { mutableStateOf(existing?.notes.orEmpty()) }
     var selectedKind by remember { mutableStateOf(existing?.kind ?: ActivityKindId.Cabin) }
     var color by remember { mutableStateOf(existing?.colorArgb) }
     val accent = color?.let { Color(it) } ?: cs.primary
+
+    // A reverse-geocoded name resolves asynchronously after the sheet opens; adopt
+    // it only for a brand-new marker the user hasn't started naming themselves.
+    LaunchedEffect(suggestedName) {
+        if (existing == null && !nameEdited && !suggestedName.isNullOrBlank() && name.isEmpty()) {
+            name = suggestedName
+        }
+    }
 
     Column(
         Modifier
@@ -107,11 +127,14 @@ internal fun MarkerEditorContent(
     ) {
             Text(if (existing == null) "New Marker" else "Edit Marker", style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
             Text(formatCoords(position), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+            if (existing == null && !suggestedSubtitle.isNullOrBlank()) {
+                Text(suggestedSubtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            }
 
             Spacer(Modifier.height(18.dp))
             OutlinedTextField(
                 value = name,
-                onValueChange = { name = it },
+                onValueChange = { name = it; nameEdited = true },
                 label = { Text("Name") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("markerName"),

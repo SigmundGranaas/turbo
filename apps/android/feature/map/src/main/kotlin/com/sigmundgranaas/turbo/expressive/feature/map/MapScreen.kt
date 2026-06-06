@@ -301,13 +301,19 @@ fun MapScreen(
         )
     }
     // New marker: opened by a long-press on the map, anchored at that coordinate.
+    // The coordinate is reverse-geocoded to pre-fill a sensible name ("Galdhøpiggen").
     newMarkerAt?.let { pos ->
+        val description by viewModel.pointDescription.collectAsStateWithLifecycle()
+        LaunchedEffect(pos) { viewModel.describePoint(pos) }
         MarkerEditorSheet(
             position = pos,
-            onDismiss = { newMarkerAt = null },
+            suggestedName = description?.title,
+            suggestedSubtitle = description?.let { listOfNotNull(it.label.takeIf { l -> l != it.title }, it.subtitle.takeIf(String::isNotBlank)).joinToString(" · ") },
+            onDismiss = { newMarkerAt = null; viewModel.clearPointDescription() },
             onSave = { name, kind, color, notes ->
                 viewModel.addMarker(name, kind, pos, color, notes)
                 newMarkerAt = null
+                viewModel.clearPointDescription()
             },
         )
     }

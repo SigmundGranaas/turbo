@@ -2,11 +2,14 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.LocationDescription
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -30,11 +33,17 @@ data class MapUiState(
 class MapViewModel @Inject constructor(
     private val markerRepository: MarkerRepository,
     private val location: LocationRepository,
+    private val reverseGeocode: ReverseGeocodeRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MapUiState())
     val state: StateFlow<MapUiState> = _state.asStateFlow()
 
+    /** Reverse-geocoded description of the point a new marker is being dropped at. */
+    private val _pointDescription = MutableStateFlow<LocationDescription?>(null)
+    val pointDescription: StateFlow<LocationDescription?> = _pointDescription.asStateFlow()
+
     private var locationJob: Job? = null
+    private var describeJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -58,6 +67,21 @@ class MapViewModel @Inject constructor(
 
     fun setBaseLayer(layer: BaseLayer) = _state.update { it.copy(baseLayer = layer) }
     fun setFollowing(value: Boolean) = _state.update { it.copy(following = value) }
+
+    /** Resolve a human label for [point] (used to pre-fill a new marker's name). */
+    fun describePoint(point: LatLng) {
+        _pointDescription.value = null
+        describeJob?.cancel()
+        describeJob = viewModelScope.launch {
+            _pointDescription.value = (reverseGeocode.describe(point) as? Outcome.Success)?.value
+        }
+    }
+
+    /** Clear the pending point description (on sheet dismiss). */
+    fun clearPointDescription() {
+        describeJob?.cancel()
+        _pointDescription.value = null
+    }
 
     /** Persist a new user marker (offline-first; the map updates via [observeAll]). */
     fun addMarker(
