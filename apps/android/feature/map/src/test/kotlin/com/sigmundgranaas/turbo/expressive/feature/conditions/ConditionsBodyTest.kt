@@ -45,6 +45,22 @@ class ConditionsBodyTest {
     }
 
     @Test
+    fun `richer instant fields render the humidity-cloud-UV row`() {
+        val conditions = Conditions(
+            WeatherNow(5.0, 3.0, 200.0, 0.0, "cloudy", humidityPct = 42.0, cloudCoverPct = 80.0, uvIndex = 3.0),
+            null,
+        )
+        composeRule.setContent {
+            ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Success(conditions))))
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Humidity").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("42%").assertExists()
+        composeRule.onNodeWithText("UV index").assertExists()
+    }
+
+    @Test
     fun `failure renders the offline message`() {
         composeRule.setContent {
             ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Failure(RuntimeException()))))

@@ -73,14 +73,24 @@ fun ConditionsBody(point: LatLng, viewModel: ConditionsViewModel = hiltViewModel
 
 @Composable
 private fun WeatherTiles(weather: WeatherNow) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Tile(weather.temperatureC?.let { "${it.roundToInt()}°" } ?: "—", "Temp", Modifier.weight(1f))
-        Tile(
-            value = weather.windSpeedMs?.let { "${it.roundToInt()} m/s" } ?: "—",
-            label = "Wind ${compass(weather.windFromDeg)}",
-            modifier = Modifier.weight(1f),
-        )
-        Tile(weather.precipitationMm?.let { "%.1f".format(it) } ?: "0.0", "mm/h", Modifier.weight(1f))
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Tile(weather.temperatureC?.let { "${it.roundToInt()}°" } ?: "—", "Temp", Modifier.weight(1f))
+            Tile(
+                value = weather.windSpeedMs?.let { "${it.roundToInt()} m/s" } ?: "—",
+                label = "Wind ${compass(weather.windFromDeg)}".trim(),
+                modifier = Modifier.weight(1f),
+            )
+            Tile(weather.precipitationMm?.let { "%.1f".format(it) } ?: "0.0", "mm/h", Modifier.weight(1f))
+        }
+        // Second row appears only when MET supplied the richer instant fields.
+        if (weather.humidityPct != null || weather.cloudCoverPct != null || weather.uvIndex != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Tile(weather.humidityPct?.let { "${it.roundToInt()}%" } ?: "—", "Humidity", Modifier.weight(1f))
+                Tile(weather.cloudCoverPct?.let { "${it.roundToInt()}%" } ?: "—", "Cloud", Modifier.weight(1f))
+                Tile(weather.uvIndex?.let { "${it.roundToInt()}" } ?: "—", "UV index", Modifier.weight(1f))
+            }
+        }
     }
 }
 
