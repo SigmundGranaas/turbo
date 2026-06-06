@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
@@ -88,13 +89,18 @@ fun SearchPill(
 fun MapControlRail(
     modifier: Modifier = Modifier,
     following: Boolean = false,
+    measuring: Boolean = false,
     onLayers: () -> Unit = {},
     onLocate: () -> Unit = {},
+    onMeasure: (() -> Unit)? = null,
     onZoomIn: () -> Unit = {},
     onZoomOut: () -> Unit = {},
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         RailButton(Icons.Rounded.Layers, "Map layers", onClick = onLayers)
+        if (onMeasure != null) {
+            RailButton(Icons.Rounded.Straighten, "Measure distance", active = measuring, onClick = onMeasure)
+        }
         RailButton(
             icon = if (following) Icons.Rounded.MyLocation else Icons.Rounded.NearMe,
             desc = "My location",

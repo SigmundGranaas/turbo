@@ -78,13 +78,17 @@ fun TurboMap(
     markers: List<Marker> = emptyList(),
     route: List<LatLng>? = null,
     routeColor: Color = Color(0xFF8F4C38),
+    measurePoints: List<LatLng> = emptyList(),
+    measureColor: Color = Color(0xFF00696D),
     selectedMarkerId: String? = null,
     userLocation: LatLng? = null,
     onMarkerClick: (Marker) -> Unit = {},
     onMapLongClick: (LatLng) -> Unit = {},
+    onMapTap: ((LatLng) -> Unit)? = null,
     onMapReady: (MapController) -> Unit = {},
 ) {
     val longClick by rememberUpdatedState(onMapLongClick)
+    val tap by rememberUpdatedState(onMapTap)
     val context = LocalContext.current
     val density = LocalDensity.current
     val mapView = rememberMapViewWithLifecycle()
@@ -111,6 +115,10 @@ fun TurboMap(
                         longClick(LatLng(point.latitude, point.longitude))
                         true
                     }
+                    ml.addOnMapClickListener { point ->
+                        val onTap = tap
+                        if (onTap != null) { onTap(LatLng(point.latitude, point.longitude)); true } else false
+                    }
                     onMapReady(MapController(ml))
                 }
             }
@@ -134,6 +142,26 @@ fun TurboMap(
                         if (i == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
                     }
                     drawPath(path, color = routeColor, style = Stroke(width = 5.dp.toPx()))
+                }
+            }
+            // Measuring tool: dashed-feel polyline + a dot at each tapped vertex.
+            if (measurePoints.isNotEmpty()) {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
+                    val proj = ml.projection
+                    if (measurePoints.size > 1) {
+                        val path = Path()
+                        measurePoints.forEachIndexed { i, p ->
+                            val pt = proj.toScreenLocation(MlLatLng(p.lat, p.lng))
+                            if (i == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                        }
+                        drawPath(path, color = measureColor, style = Stroke(width = 4.dp.toPx()))
+                    }
+                    measurePoints.forEach { p ->
+                        val pt = proj.toScreenLocation(MlLatLng(p.lat, p.lng))
+                        drawCircle(Color.White, radius = 6.dp.toPx(), center = androidx.compose.ui.geometry.Offset(pt.x, pt.y))
+                        drawCircle(measureColor, radius = 4.dp.toPx(), center = androidx.compose.ui.geometry.Offset(pt.x, pt.y))
+                    }
                 }
             }
             // User location: a blue dot with a white ring, projected like markers.

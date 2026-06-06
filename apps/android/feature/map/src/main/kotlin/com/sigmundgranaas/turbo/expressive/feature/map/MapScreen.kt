@@ -32,6 +32,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -128,6 +129,9 @@ fun MapScreen(
         }
     }
     var showLayers by remember { mutableStateOf(false) }
+    // Measuring tool: when active, taps drop measure vertices instead of selecting.
+    var measuring by remember { mutableStateOf(false) }
+    val measurePoints = remember { mutableStateListOf<LatLng>() }
     // Position long-pressed on the map → drives the "new marker" sheet (null = closed).
     var newMarkerAt by remember { mutableStateOf<LatLng?>(null) }
     // Marker being edited (null = no editor open).
@@ -203,7 +207,9 @@ fun MapScreen(
                         ),
                     )
                 },
+                measurePoints = measurePoints,
                 onMapLongClick = { newMarkerAt = it },
+                onMapTap = if (measuring) { p -> measurePoints.add(p) } else null,
                 onMapReady = { controller = it },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -220,6 +226,11 @@ fun MapScreen(
 
             MapControlRail(
                 following = state.following,
+                measuring = measuring,
+                onMeasure = {
+                    measuring = !measuring
+                    if (!measuring) measurePoints.clear()
+                },
                 onLayers = { showLayers = true },
                 onLocate = {
                     if (viewModel.hasLocationPermission()) {
@@ -262,6 +273,18 @@ fun MapScreen(
                     .background(cs.surface.copy(alpha = 0.7f))
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             )
+
+            if (measuring) {
+                MeasureCard(
+                    points = measurePoints,
+                    onUndo = { if (measurePoints.isNotEmpty()) measurePoints.removeAt(measurePoints.lastIndex) },
+                    onClear = { measurePoints.clear() },
+                    onDone = { measuring = false; measurePoints.clear() },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(16.dp),
+                )
+            }
 
             val routeWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
             RouteCard(
