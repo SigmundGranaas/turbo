@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Straighten
@@ -45,6 +47,7 @@ import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenAbout: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
@@ -116,6 +119,14 @@ fun SettingsScreen(
                 ListRowItem(
                     Icons.Rounded.Straighten, "Units", subtitle = if (settings.metricUnits) "Metric · km, m" else "Imperial · mi, ft",
                     trailing = { Switch(settings.metricUnits, viewModel::setMetric, modifier = Modifier.testTag("unitsSwitch")) },
+                )
+            }
+            SettingsGroup {
+                ListRowItem(
+                    Icons.Rounded.Info, "About",
+                    subtitle = "Version, data sources, licenses",
+                    trailing = { Icon(Icons.Rounded.ChevronRight, null, tint = cs.onSurfaceVariant) },
+                    modifier = Modifier.clickable(onClick = onOpenAbout),
                 )
             }
             Spacer(Modifier.height(24.dp))

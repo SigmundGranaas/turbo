@@ -15,6 +15,7 @@ import com.sigmundgranaas.turbo.expressive.feature.recording.PathDetailScreen
 import com.sigmundgranaas.turbo.expressive.feature.recording.PathsListScreen
 import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingScreen
 import com.sigmundgranaas.turbo.expressive.feature.search.SearchScreen
+import com.sigmundgranaas.turbo.expressive.feature.settings.AboutScreen
 import com.sigmundgranaas.turbo.expressive.feature.settings.SettingsScreen
 
 private object Routes {
@@ -24,6 +25,7 @@ private object Routes {
     const val RECORDING = "recording"
     const val PATHS = "paths"
     const val OFFLINE = "offline"
+    const val ABOUT = "about"
     const val PATH_DETAIL = "path/{pathId}"
 
     fun pathDetail(id: String) = "path/$id"
@@ -54,7 +56,13 @@ fun TurboNavGraph() {
                 },
             )
         }
-        composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                onBack = { nav.popBackStack() },
+                onOpenAbout = { nav.navigate(Routes.ABOUT) },
+            )
+        }
+        composable(Routes.ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.OFFLINE) { OfflineMapsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.RECORDING) { RecordingScreen(onStop = { nav.popBackStack() }) }
         composable(Routes.PATHS) {
