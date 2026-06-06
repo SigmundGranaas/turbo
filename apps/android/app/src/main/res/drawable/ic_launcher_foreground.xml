@@ -4,12 +4,19 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Peach squircle on the inner safe zone -->
+    <!-- Sun, warm peach, sitting above the ridge -->
     <path
-        android:fillColor="#FFDBD1"
-        android:pathData="M44,32 H64 A12,12 0 0 1 76,44 V64 A12,12 0 0 1 64,76 H44 A12,12 0 0 1 32,64 V44 A12,12 0 0 1 44,32 Z" />
-    <!-- Bold T wordmark -->
+        android:fillColor="#FFC89E"
+        android:pathData="M75,33 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0 Z" />
+    <!-- Two-peak mountain ridge (cream) -->
     <path
-        android:fillColor="#8F4C38"
-        android:pathData="M42,44 H66 V49 H57 V66 H51 V49 H42 Z" />
+        android:fillColor="#FBE7DB"
+        android:pathData="M24,84 L44,50 L56,62 L70,44 L86,84 Z" />
+    <!-- Snow caps (white) on each apex -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,50 L39,58 L49,58 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M70,44 L64,53 L76,53 Z" />
 </vector>
