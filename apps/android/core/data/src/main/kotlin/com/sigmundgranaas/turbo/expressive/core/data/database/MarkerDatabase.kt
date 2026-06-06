@@ -123,13 +123,42 @@ interface CollectionDao {
     fun observeItemIds(collectionId: String, itemType: String): Flow<List<String>>
 }
 
+@Entity(tableName = "photo")
+data class PhotoEntity(
+    @PrimaryKey val id: String,
+    val markerId: String?,
+    val lat: Double,
+    val lng: Double,
+    val uri: String,
+    val capturedAtEpochMs: Long,
+)
+
+@Dao
+interface PhotoDao {
+    @Query("SELECT * FROM photo ORDER BY capturedAtEpochMs DESC")
+    fun observeAll(): Flow<List<PhotoEntity>>
+
+    @Query("SELECT * FROM photo WHERE markerId = :markerId ORDER BY capturedAtEpochMs DESC")
+    fun observeForMarker(markerId: String): Flow<List<PhotoEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: PhotoEntity)
+
+    @Query("DELETE FROM photo WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
 @Database(
-    entities = [MarkerEntity::class, PathEntity::class, CollectionEntity::class, CollectionItemEntity::class],
-    version = 6,
+    entities = [
+        MarkerEntity::class, PathEntity::class,
+        CollectionEntity::class, CollectionItemEntity::class, PhotoEntity::class,
+    ],
+    version = 7,
     exportSchema = false,
 )
 abstract class TurboDatabase : RoomDatabase() {
     abstract fun markerDao(): MarkerDao
     abstract fun pathDao(): PathDao
     abstract fun collectionDao(): CollectionDao
+    abstract fun photoDao(): PhotoDao
 }

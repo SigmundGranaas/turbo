@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Exported GPX tracks live in cacheDir/gpx and are shared via FileProvider. -->
+    <!-- Exported tracks (GPX/GeoJSON/KML) shared via FileProvider. -->
     <cache-path name="gpx" path="gpx/" />
+    <cache-path name="tracks" path="tracks/" />
+    <!-- Exported markers (GeoJSON). -->
+    <cache-path name="markers" path="markers/" />
+    <!-- Captured photos live in files/photos and are shared / camera-written via FileProvider. -->
+    <files-path name="photos" path="photos/" />
+    <cache-path name="photos_cache" path="photos/" />
 </paths>

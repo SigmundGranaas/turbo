@@ -205,6 +205,11 @@ fun MapScreen(
                                         )
                                         Spacer(Modifier.height(14.dp))
                                     }
+                                    com.sigmundgranaas.turbo.expressive.feature.photos.MarkerPhotos(
+                                        markerId = marker.id,
+                                        position = marker.position,
+                                    )
+                                    Spacer(Modifier.height(14.dp))
                                     ConditionsBody(marker.position)
                                 }
                             },
