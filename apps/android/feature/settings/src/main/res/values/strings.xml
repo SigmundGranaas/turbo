@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Settings</string>
+    <string name="action_back">Back</string>
+
+    <string name="settings_appearance">Appearance</string>
+    <string name="appearance_system">Follow system</string>
+    <string name="appearance_light">Light theme</string>
+    <string name="appearance_dark">Dark theme</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+
+    <string name="settings_compass">Compass orientation</string>
+    <string name="settings_compass_sub">Rotate map to heading</string>
+    <string name="settings_follow">Follow My Location</string>
+    <string name="settings_units">Units</string>
+    <string name="units_metric">Metric · km, m</string>
+    <string name="units_imperial">Imperial · mi, ft</string>
+
+    <string name="settings_about">About</string>
+    <string name="settings_about_sub">Version, data sources, licenses</string>
+
+    <string name="about_version">Version %1$s</string>
+    <string name="about_tagline">Turkart for Norway</string>
+    <string name="about_section_map">Map data</string>
+    <string name="about_section_conditions">Conditions</string>
+    <string name="about_section_open_source">Open source</string>
+    <string name="about_section_legal">Legal</string>
+    <string name="about_privacy">Privacy policy</string>
+    <string name="about_terms">Terms of use</string>
+</resources>

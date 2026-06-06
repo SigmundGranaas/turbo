@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Innstillinger</string>
+    <string name="action_back">Tilbake</string>
+
+    <string name="settings_appearance">Utseende</string>
+    <string name="appearance_system">Følg systemet</string>
+    <string name="appearance_light">Lyst tema</string>
+    <string name="appearance_dark">Mørkt tema</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Lyst</string>
+    <string name="theme_dark">Mørkt</string>
+
+    <string name="settings_compass">Kompassretning</string>
+    <string name="settings_compass_sub">Roter kartet etter retning</string>
+    <string name="settings_follow">Følg min posisjon</string>
+    <string name="settings_units">Enheter</string>
+    <string name="units_metric">Metrisk · km, m</string>
+    <string name="units_imperial">Imperisk · mi, ft</string>
+
+    <string name="settings_about">Om</string>
+    <string name="settings_about_sub">Versjon, datakilder, lisenser</string>
+
+    <string name="about_version">Versjon %1$s</string>
+    <string name="about_tagline">Turkart for Norge</string>
+    <string name="about_section_map">Kartdata</string>
+    <string name="about_section_conditions">Forhold</string>
+    <string name="about_section_open_source">Åpen kildekode</string>
+    <string name="about_section_legal">Juridisk</string>
+    <string name="about_privacy">Personvern</string>
+    <string name="about_terms">Vilkår for bruk</string>
+</resources>

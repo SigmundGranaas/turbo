@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.components.SpecRow
@@ -51,9 +52,9 @@ fun AboutScreen(onBack: () -> Unit) {
         containerColor = cs.surface,
         topBar = {
             TopAppBar(
-                title = { Text("About") },
+                title = { Text(stringResource(R.string.settings_about)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back)) }
                 },
             )
         },
@@ -64,12 +65,12 @@ fun AboutScreen(onBack: () -> Unit) {
         ) {
             Spacer(Modifier.height(8.dp))
             Text("Turbo", style = MaterialTheme.typography.headlineMedium, color = cs.onSurface)
-            Text("Turkart for Norway", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+            Text(stringResource(R.string.about_tagline), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
             Spacer(Modifier.height(4.dp))
-            Text("Version $version", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            Text(stringResource(R.string.about_version, version), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
 
             Spacer(Modifier.height(20.dp))
-            SectionLabel("Map data")
+            SectionLabel(stringResource(R.string.about_section_map))
             Spacer(Modifier.height(8.dp))
             TurboCard(Modifier.fillMaxWidth()) {
                 SpecRow("Topographic", "© Kartverket")
@@ -80,7 +81,7 @@ fun AboutScreen(onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(16.dp))
-            SectionLabel("Conditions")
+            SectionLabel(stringResource(R.string.about_section_conditions))
             Spacer(Modifier.height(8.dp))
             TurboCard(Modifier.fillMaxWidth()) {
                 SpecRow("Weather", "© MET Norway (Yr / api.met.no)")
@@ -89,7 +90,7 @@ fun AboutScreen(onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(16.dp))
-            SectionLabel("Open source")
+            SectionLabel(stringResource(R.string.about_section_open_source))
             Spacer(Modifier.height(8.dp))
             TurboCard(Modifier.fillMaxWidth()) {
                 SpecRow("UI", "Jetpack Compose · Material 3 (Apache-2.0)")
@@ -100,11 +101,11 @@ fun AboutScreen(onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(16.dp))
-            SectionLabel("Legal")
+            SectionLabel(stringResource(R.string.about_section_legal))
             Spacer(Modifier.height(8.dp))
             TurboCard(Modifier.fillMaxWidth()) {
-                LinkRow("Privacy policy") { context.openUrl(PRIVACY_URL) }
-                LinkRow("Terms of use") { context.openUrl(TERMS_URL) }
+                LinkRow(stringResource(R.string.about_privacy)) { context.openUrl(PRIVACY_URL) }
+                LinkRow(stringResource(R.string.about_terms)) { context.openUrl(TERMS_URL) }
             }
             Spacer(Modifier.height(28.dp))
         }

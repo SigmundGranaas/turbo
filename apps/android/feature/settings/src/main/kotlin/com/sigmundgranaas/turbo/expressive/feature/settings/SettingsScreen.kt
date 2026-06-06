@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -58,10 +59,10 @@ fun SettingsScreen(
             Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState()),
         ) {
             IconButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = cs.onSurface)
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.action_back), tint = cs.onSurface)
             }
             Text(
-                "Settings",
+                stringResource(R.string.settings_title),
                 style = MaterialTheme.typography.headlineLarge,
                 color = cs.onSurface,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 16.dp),
@@ -84,22 +85,31 @@ fun SettingsScreen(
             Spacer(Modifier.height(14.dp))
             SettingsGroup {
                 ListRowItem(
-                    Icons.Rounded.Palette, "Appearance",
-                    subtitle = when (settings.themeMode) {
-                        ThemeMode.System -> "Follow system"
-                        ThemeMode.Light -> "Light theme"
-                        ThemeMode.Dark -> "Dark theme"
-                    },
+                    Icons.Rounded.Palette, stringResource(R.string.settings_appearance),
+                    subtitle = stringResource(
+                        when (settings.themeMode) {
+                            ThemeMode.System -> R.string.appearance_system
+                            ThemeMode.Light -> R.string.appearance_light
+                            ThemeMode.Dark -> R.string.appearance_dark
+                        },
+                    ),
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(bottom = 12.dp),
                 ) {
                     ThemeMode.entries.forEach { mode ->
+                        val label = stringResource(
+                            when (mode) {
+                                ThemeMode.System -> R.string.theme_system
+                                ThemeMode.Light -> R.string.theme_light
+                                ThemeMode.Dark -> R.string.theme_dark
+                            },
+                        )
                         FilterChip(
                             selected = settings.themeMode == mode,
                             onClick = { viewModel.setThemeMode(mode) },
-                            label = { Text(themeModeLabel(mode)) },
+                            label = { Text(label) },
                             modifier = Modifier.testTag("theme_${mode.name}"),
                         )
                     }
@@ -107,24 +117,25 @@ fun SettingsScreen(
             }
             SettingsGroup {
                 ListRowItem(
-                    Icons.Rounded.Explore, "Compass orientation", subtitle = "Rotate map to heading",
+                    Icons.Rounded.Explore, stringResource(R.string.settings_compass), subtitle = stringResource(R.string.settings_compass_sub),
                     trailing = { Switch(settings.compassOrientation, viewModel::setCompass) },
                 )
                 HorizontalDivider(color = cs.outlineVariant)
                 ListRowItem(
-                    Icons.Rounded.MyLocation, "Follow My Location",
+                    Icons.Rounded.MyLocation, stringResource(R.string.settings_follow),
                     trailing = { Switch(settings.followLocation, viewModel::setFollow) },
                 )
                 HorizontalDivider(color = cs.outlineVariant)
                 ListRowItem(
-                    Icons.Rounded.Straighten, "Units", subtitle = if (settings.metricUnits) "Metric · km, m" else "Imperial · mi, ft",
+                    Icons.Rounded.Straighten, stringResource(R.string.settings_units),
+                    subtitle = stringResource(if (settings.metricUnits) R.string.units_metric else R.string.units_imperial),
                     trailing = { Switch(settings.metricUnits, viewModel::setMetric, modifier = Modifier.testTag("unitsSwitch")) },
                 )
             }
             SettingsGroup {
                 ListRowItem(
-                    Icons.Rounded.Info, "About",
-                    subtitle = "Version, data sources, licenses",
+                    Icons.Rounded.Info, stringResource(R.string.settings_about),
+                    subtitle = stringResource(R.string.settings_about_sub),
                     trailing = { Icon(Icons.Rounded.ChevronRight, null, tint = cs.onSurfaceVariant) },
                     modifier = Modifier.clickable(onClick = onOpenAbout),
                 )
@@ -132,12 +143,6 @@ fun SettingsScreen(
             Spacer(Modifier.height(24.dp))
         }
     }
-}
-
-private fun themeModeLabel(mode: ThemeMode): String = when (mode) {
-    ThemeMode.System -> "System"
-    ThemeMode.Light -> "Light"
-    ThemeMode.Dark -> "Dark"
 }
 
 @Composable
