@@ -75,7 +75,7 @@ fun TurboMap(
     initialCamera: LatLng,
     initialZoom: Double,
     modifier: Modifier = Modifier,
-    overlay: com.sigmundgranaas.turbo.expressive.domain.OverlayId? = null,
+    overlays: Set<com.sigmundgranaas.turbo.expressive.domain.OverlayId> = emptySet(),
     markers: List<Marker> = emptyList(),
     route: List<LatLng>? = null,
     routeColor: Color = Color(0xFF8F4C38),
@@ -96,7 +96,7 @@ fun TurboMap(
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     val cameraTick = remember { mutableIntStateOf(0) }
     var styledBase by remember { mutableStateOf<BaseLayer?>(null) }
-    var styledOverlay by remember { mutableStateOf<com.sigmundgranaas.turbo.expressive.domain.OverlayId?>(null) }
+    var styledOverlays by remember { mutableStateOf<Set<com.sigmundgranaas.turbo.expressive.domain.OverlayId>>(emptySet()) }
 
     Box(modifier = modifier) {
         AndroidView(factory = {
@@ -104,9 +104,9 @@ fun TurboMap(
             mapView.apply {
                 getMapAsync { ml ->
                     map = ml
-                    ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlay))) {
+                    ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) {
                         styledBase = base
-                        styledOverlay = overlay
+                        styledOverlays = overlays
                     }
                     ml.cameraPosition = org.maplibre.android.camera.CameraPosition.Builder()
                         .target(MlLatLng(initialCamera.lat, initialCamera.lng))
@@ -129,10 +129,10 @@ fun TurboMap(
 
         // Re-style when the base layer or the data overlay changes.
         val ml = map
-        if (ml != null && (styledBase != base || styledOverlay != overlay)) {
-            ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlay))) {
+        if (ml != null && (styledBase != base || styledOverlays != overlays)) {
+            ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) {
                 styledBase = base
-                styledOverlay = overlay
+                styledOverlays = overlays
             }
         }
 

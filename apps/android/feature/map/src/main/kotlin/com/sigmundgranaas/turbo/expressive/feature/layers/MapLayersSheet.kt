@@ -43,8 +43,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
+import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,8 +56,8 @@ fun MapLayersSheet(
     onSelectBase: (BaseLayer) -> Unit,
     onDownloadArea: () -> Unit,
     onDismiss: () -> Unit,
-    trailsOverlay: Boolean = false,
-    onToggleTrailsOverlay: (Boolean) -> Unit = {},
+    activeOverlays: Set<OverlayId> = emptySet(),
+    onToggleOverlay: (OverlayId, Boolean) -> Unit = { _, _ -> },
 ) {
     val cs = MaterialTheme.colorScheme
     ModalBottomSheet(
@@ -78,14 +80,20 @@ fun MapLayersSheet(
             Spacer(Modifier.height(22.dp))
             SectionLabel(stringResource(R.string.layers_overlays))
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Rounded.Hiking, null, tint = cs.primary, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.size(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.layers_trails), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
-                    Text(stringResource(R.string.layers_trails_sub), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+            MapStyles.renderableOverlays.forEach { overlay ->
+                val (icon, titleRes, subRes) = overlayRow(overlay)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Icon(icon, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.size(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(titleRes), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                        Text(stringResource(subRes), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = overlay in activeOverlays,
+                        onCheckedChange = { on -> onToggleOverlay(overlay, on) },
+                    )
                 }
-                Switch(checked = trailsOverlay, onCheckedChange = onToggleTrailsOverlay)
             }
 
             Spacer(Modifier.height(22.dp))
@@ -97,10 +105,17 @@ fun MapLayersSheet(
             ) {
                 Icon(Icons.Rounded.Download, null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
-                Text("Download this area")
+                Text(stringResource(R.string.layers_download_area))
             }
         }
     }
+}
+
+/** Icon + localized title/subtitle string-ids for an overlay row. */
+private fun overlayRow(overlay: OverlayId): Triple<ImageVector, Int, Int> = when (overlay) {
+    OverlayId.Trails -> Triple(Icons.Rounded.Hiking, R.string.layers_trails, R.string.layers_trails_sub)
+    OverlayId.Avalanche -> Triple(Icons.Rounded.Terrain, R.string.layers_avalanche, R.string.layers_avalanche_sub)
+    OverlayId.Waves, OverlayId.Wind -> Triple(Icons.Rounded.Map, R.string.layers_trails, R.string.layers_trails_sub)
 }
 
 @Composable

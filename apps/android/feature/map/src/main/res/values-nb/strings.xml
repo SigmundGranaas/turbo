@@ -49,6 +49,8 @@
     <string name="layers_overlays">Overlegg</string>
     <string name="layers_trails">Turstier</string>
     <string name="layers_trails_sub">Merkede ruter · Waymarked Trails</string>
+    <string name="layers_avalanche">Skredterreng</string>
+    <string name="layers_avalanche_sub">Brattheit ≥27° · NVE</string>
     <string name="layers_offline">Frakoblet</string>
     <string name="layers_download_area">Last ned dette området</string>
 

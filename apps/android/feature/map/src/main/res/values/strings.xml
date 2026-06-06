@@ -49,6 +49,8 @@
     <string name="layers_overlays">Overlays</string>
     <string name="layers_trails">Hiking trails</string>
     <string name="layers_trails_sub">Marked routes · Waymarked Trails</string>
+    <string name="layers_avalanche">Avalanche terrain</string>
+    <string name="layers_avalanche_sub">Slope steepness ≥27° · NVE</string>
     <string name="layers_offline">Offline</string>
     <string name="layers_download_area">Download this area</string>
 

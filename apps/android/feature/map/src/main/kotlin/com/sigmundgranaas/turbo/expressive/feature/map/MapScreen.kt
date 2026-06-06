@@ -134,7 +134,7 @@ fun MapScreen(
     }
     var showLayers by remember { mutableStateOf(false) }
     // Data overlay composited over the base map (null = none).
-    var activeOverlay by remember { mutableStateOf<com.sigmundgranaas.turbo.expressive.domain.OverlayId?>(null) }
+    var activeOverlays by remember { mutableStateOf<Set<com.sigmundgranaas.turbo.expressive.domain.OverlayId>>(emptySet()) }
     // Measuring tool: when active, taps drop measure vertices instead of selecting.
     var measuring by remember { mutableStateOf(false) }
     val measurePoints = remember { mutableStateListOf<LatLng>() }
@@ -174,7 +174,7 @@ fun MapScreen(
         Box(Modifier.fillMaxSize()) {
             TurboMap(
                 base = state.baseLayer,
-                overlay = activeOverlay,
+                overlays = activeOverlays,
                 initialCamera = SampleData.initialCamera,
                 initialZoom = SampleData.initialZoom,
                 markers = state.markers,
@@ -356,9 +356,9 @@ fun MapScreen(
                 showLayers = false
                 onOpenOffline()
             },
-            trailsOverlay = activeOverlay == com.sigmundgranaas.turbo.expressive.domain.OverlayId.Trails,
-            onToggleTrailsOverlay = { on ->
-                activeOverlay = if (on) com.sigmundgranaas.turbo.expressive.domain.OverlayId.Trails else null
+            activeOverlays = activeOverlays,
+            onToggleOverlay = { id, on ->
+                activeOverlays = if (on) activeOverlays + id else activeOverlays - id
             },
             onDismiss = { showLayers = false },
         )
