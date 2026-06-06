@@ -85,6 +85,7 @@ fun MapScreen(
     offlineViewModel: OfflineViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val routeState by routeViewModel.state.collectAsStateWithLifecycle()
     val routePreset by routeViewModel.preset.collectAsStateWithLifecycle()
@@ -189,6 +190,7 @@ fun MapScreen(
                                     routeViewModel.planRoute(from, marker.position)
                                 }
                             },
+                            onShare = { shareMarkerGeoJson(context, marker) },
                             onEdit = { editingMarker = marker },
                             onDelete = { pendingDelete = marker },
                             body = {
@@ -381,3 +383,18 @@ fun MapScreen(
     }
 }
 
+
+/** Export a single marker as a .geojson file and fire a share chooser. */
+private fun shareMarkerGeoJson(context: android.content.Context, marker: Marker) {
+    val dir = java.io.File(context.cacheDir, "markers").apply { mkdirs() }
+    val file = java.io.File(dir, com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGeoJson.fileName(marker.name))
+    file.writeText(com.sigmundgranaas.turbo.expressive.feature.markers.MarkerGeoJson.encode(listOf(marker)))
+    val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "application/geo+json"
+        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+        clipData = android.content.ClipData.newRawUri(marker.name, uri)
+        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(android.content.Intent.createChooser(send, "Share marker").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+}
