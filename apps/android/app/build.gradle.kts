@@ -52,6 +52,7 @@ dependencies {
     implementation(project(":feature:settings"))
     implementation(project(":feature:search"))
     implementation(project(":feature:recording"))
+    implementation(project(":feature:collections"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

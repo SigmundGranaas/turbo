@@ -67,8 +67,67 @@ interface PathDao {
     suspend fun delete(id: String)
 }
 
-@Database(entities = [MarkerEntity::class, PathEntity::class], version = 4, exportSchema = false)
+@Entity(tableName = "collection")
+data class CollectionEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val colorArgb: Long?,
+    val icon: String?,
+    val createdAtEpochMs: Long,
+)
+
+/** Membership row linking an entity (marker/path) to a collection. */
+@Entity(tableName = "collection_item", primaryKeys = ["collectionId", "itemId", "itemType"])
+data class CollectionItemEntity(
+    val collectionId: String,
+    val itemId: String,
+    val itemType: String,
+)
+
+/** Projection of a collection plus its current membership count. */
+data class CollectionWithCount(
+    val id: String,
+    val name: String,
+    val colorArgb: Long?,
+    val icon: String?,
+    val itemCount: Int,
+)
+
+@Dao
+interface CollectionDao {
+    @Query(
+        "SELECT c.id, c.name, c.colorArgb, c.icon, " +
+            "(SELECT COUNT(*) FROM collection_item ci WHERE ci.collectionId = c.id) AS itemCount " +
+            "FROM collection c ORDER BY c.name",
+    )
+    fun observeAll(): Flow<List<CollectionWithCount>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: CollectionEntity)
+
+    @Query("DELETE FROM collection WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM collection_item WHERE collectionId = :id")
+    suspend fun clearItems(id: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun addItem(item: CollectionItemEntity)
+
+    @Query("DELETE FROM collection_item WHERE collectionId = :collectionId AND itemId = :itemId AND itemType = :itemType")
+    suspend fun removeItem(collectionId: String, itemId: String, itemType: String)
+
+    @Query("SELECT itemId FROM collection_item WHERE collectionId = :collectionId AND itemType = :itemType")
+    fun observeItemIds(collectionId: String, itemType: String): Flow<List<String>>
+}
+
+@Database(
+    entities = [MarkerEntity::class, PathEntity::class, CollectionEntity::class, CollectionItemEntity::class],
+    version = 5,
+    exportSchema = false,
+)
 abstract class TurboDatabase : RoomDatabase() {
     abstract fun markerDao(): MarkerDao
     abstract fun pathDao(): PathDao
+    abstract fun collectionDao(): CollectionDao
 }

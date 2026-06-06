@@ -78,6 +78,7 @@ fun MapScreen(
     onOpenRecording: () -> Unit,
     onOpenPaths: () -> Unit,
     onOpenOffline: () -> Unit,
+    onOpenCollections: () -> Unit = {},
     focusRequest: LatLng? = null,
     onFocusConsumed: () -> Unit = {},
     viewModel: MapViewModel = hiltViewModel(),
@@ -156,6 +157,7 @@ fun MapScreen(
                 when (dest) {
                     DrawerDestination.Settings -> onOpenSettings()
                     DrawerDestination.Paths -> onOpenPaths()
+                    DrawerDestination.Collections -> onOpenCollections()
                     DrawerDestination.Record -> onOpenRecording()
                     DrawerDestination.Offline -> onOpenOffline()
                     DrawerDestination.Map -> Unit

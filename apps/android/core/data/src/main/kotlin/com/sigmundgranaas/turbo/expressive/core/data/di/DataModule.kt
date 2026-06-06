@@ -5,7 +5,10 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sigmundgranaas.turbo.expressive.core.data.AndroidLocationRepository
+import com.sigmundgranaas.turbo.expressive.core.data.CollectionRepository
 import com.sigmundgranaas.turbo.expressive.core.data.DataStoreSettingsRepository
+import com.sigmundgranaas.turbo.expressive.core.data.RoomCollectionRepository
+import com.sigmundgranaas.turbo.expressive.core.data.database.CollectionDao
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.DataStoreRecentSearchRepository
@@ -50,6 +53,9 @@ abstract class DataModule {
     @Binds
     abstract fun bindRecentSearchRepository(impl: DataStoreRecentSearchRepository): RecentSearchRepository
 
+    @Binds
+    abstract fun bindCollectionRepository(impl: RoomCollectionRepository): CollectionRepository
+
     companion object {
         @Provides
         @Singleton
@@ -80,5 +86,8 @@ abstract class DataModule {
 
         @Provides
         fun providePathDao(db: TurboDatabase): PathDao = db.pathDao()
+
+        @Provides
+        fun provideCollectionDao(db: TurboDatabase): CollectionDao = db.collectionDao()
     }
 }
