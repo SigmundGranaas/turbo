@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Navigation
@@ -104,21 +105,33 @@ internal fun RouteCard(
                 }
                 is RouteUiState.Following -> {
                     val progress = userLocation?.let { GeoMetrics.progress(state.plan.geometry, it, state.plan.ascentM) }
+                    val arrived = progress != null && progress.distanceRemainingM <= ARRIVAL_M
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Navigation, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                        Icon(
+                            if (arrived) Icons.Rounded.CheckCircle else Icons.Rounded.Navigation,
+                            null,
+                            tint = cs.primary,
+                            modifier = Modifier.size(22.dp),
+                        )
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Following route", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
                             Text(
-                                text = progress?.let {
-                                    "${Units.distance(it.distanceRemainingM, metric)} left" +
-                                        (it.etaSeconds?.let { s -> " · ${formatDuration(s.toDouble())}" } ?: "")
-                                } ?: "Waiting for GPS…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = cs.onSurfaceVariant,
+                                if (arrived) "You've arrived" else "Following route",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = cs.onSurface,
                             )
+                            if (!arrived) {
+                                Text(
+                                    text = progress?.let {
+                                        "${Units.distance(it.distanceRemainingM, metric)} left" +
+                                            (it.etaSeconds?.let { s -> " · ${formatDuration(s.toDouble())}" } ?: "")
+                                    } ?: "Waiting for GPS…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = cs.onSurfaceVariant,
+                                )
+                            }
                         }
-                        TextButton(onClick = onClear) { Text("Stop") }
+                        TextButton(onClick = onClear) { Text(if (arrived) "Done" else "Stop") }
                     }
                 }
                 RouteUiState.Idle -> Unit
@@ -221,6 +234,9 @@ private fun RouteStat(value: String, label: String) {
         Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
     }
 }
+
+/** Distance (m) within which the destination is considered reached. */
+private const val ARRIVAL_M = 30.0
 
 private fun formatDuration(seconds: Double): String {
     val total = seconds.roundToInt()
