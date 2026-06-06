@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 /** Lists persisted tracks/routes and supports deleting them. */
@@ -23,4 +24,15 @@ class PathsViewModel @Inject constructor(
     )
 
     fun delete(id: String) = viewModelScope.launch { repository.delete(id) }
+
+    /** Persist an imported track, naming it from the file when the track itself is unnamed. */
+    fun importTrack(parsed: ParsedTrack, fallbackName: String) = viewModelScope.launch {
+        repository.save(
+            SavedPath(
+                id = "p-${UUID.randomUUID()}",
+                name = parsed.name?.takeIf { it.isNotBlank() } ?: fallbackName,
+                path = parsed.geo,
+            ),
+        )
+    }
 }

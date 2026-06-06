@@ -1,5 +1,8 @@
 package com.sigmundgranaas.turbo.expressive.feature.recording
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
@@ -95,12 +99,32 @@ fun PathsListScreen(
 ) {
     val cs = MaterialTheme.colorScheme
     val paths by viewModel.paths.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    // Open any GPX/KML/GeoJSON document, parse it, and persist the track.
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val body = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+        }.getOrNull()
+        val parsed = body?.let { TrackImport.parse(it) }
+        if (parsed != null) {
+            viewModel.importTrack(parsed, fallbackName = displayName(context, uri) ?: "Imported track")
+            Toast.makeText(context, "Track imported", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Couldn't read that file", Toast.LENGTH_SHORT).show()
+        }
+    }
     Scaffold(
         containerColor = cs.surface,
         topBar = {
             TopAppBar(
                 title = { Text("Paths", style = MaterialTheme.typography.headlineSmall) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
+                actions = {
+                    IconButton(onClick = {
+                        importLauncher.launch(arrayOf("application/gpx+xml", "application/vnd.google-earth.kml+xml", "application/geo+json", "application/xml", "text/xml", "application/json", "*/*"))
+                    }) { Icon(Icons.Rounded.FileUpload, "Import track") }
+                },
             )
         },
     ) { pad ->
@@ -273,6 +297,15 @@ private fun ElevationProfile(elevations: List<Double?>, line: Color, fill: Color
         drawPath(area, fill)
         drawPath(stroke, line, style = Stroke(width = 4f))
     }
+}
+
+/** Best-effort human filename for a content [uri], minus its extension. */
+private fun displayName(context: Context, uri: android.net.Uri): String? {
+    val name = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+        if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+    }
+    return name?.substringBeforeLast('.')?.takeIf { it.isNotBlank() }
 }
 
 /** Write the track to a cache file in the chosen [format] and fire a share chooser. */
