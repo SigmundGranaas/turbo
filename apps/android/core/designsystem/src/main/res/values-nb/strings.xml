@@ -16,4 +16,24 @@
     <!-- Weather glyphs -->
     <string name="ds_wind">Vind</string>
     <string name="ds_wind_direction">Vindretning</string>
+
+    <!-- Activity / marker kinds -->
+    <string name="kind_mountain">Fjell</string>
+    <string name="kind_park">Park</string>
+    <string name="kind_beach">Strand</string>
+    <string name="kind_forest">Skog</string>
+    <string name="kind_hiking">Vandring</string>
+    <string name="kind_kayaking">Kajakk</string>
+    <string name="kind_biking">Sykkel</string>
+    <string name="kind_cabin">Hytte</string>
+    <string name="kind_parking">Parkering</string>
+    <string name="kind_camping">Teltplass</string>
+    <string name="kind_swimming">Badeplass</string>
+    <string name="kind_diving">Dykking</string>
+    <string name="kind_viewpoint">Utkikkspunkt</string>
+    <string name="kind_restaurant">Restaurant</string>
+    <string name="kind_cafe">Kafé</string>
+    <string name="kind_accommodation">Overnatting</string>
+    <string name="kind_fishing">Fiskeplass</string>
+    <string name="kind_skiing">Ski</string>
 </resources>

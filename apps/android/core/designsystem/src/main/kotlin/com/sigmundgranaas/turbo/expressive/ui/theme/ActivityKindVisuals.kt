@@ -19,7 +19,9 @@ import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Pool
 import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.ScubaDiving
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.sigmundgranaas.turbo.expressive.core.designsystem.R
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 
 /**
@@ -46,4 +48,33 @@ val ActivityKindId.icon: ImageVector
         ActivityKindId.Accommodation -> Icons.Rounded.Hotel
         ActivityKindId.Fishing -> Icons.Rounded.Phishing
         ActivityKindId.Skiing -> Icons.Rounded.DownhillSkiing
+    }
+
+/**
+ * The localized display label for each activity kind. Kept here (not on the pure
+ * [ActivityKindId]) so the model stays Compose/resource-free; resolve it with
+ * `stringResource(kind.labelRes)` in composables, or `context.getString(kind.labelRes)`
+ * off the UI thread.
+ */
+@get:StringRes
+val ActivityKindId.labelRes: Int
+    get() = when (this) {
+        ActivityKindId.Mountain -> R.string.kind_mountain
+        ActivityKindId.Park -> R.string.kind_park
+        ActivityKindId.Beach -> R.string.kind_beach
+        ActivityKindId.Forest -> R.string.kind_forest
+        ActivityKindId.Hiking -> R.string.kind_hiking
+        ActivityKindId.Kayaking -> R.string.kind_kayaking
+        ActivityKindId.Biking -> R.string.kind_biking
+        ActivityKindId.Cabin -> R.string.kind_cabin
+        ActivityKindId.Parking -> R.string.kind_parking
+        ActivityKindId.Camping -> R.string.kind_camping
+        ActivityKindId.Swimming -> R.string.kind_swimming
+        ActivityKindId.Diving -> R.string.kind_diving
+        ActivityKindId.Viewpoint -> R.string.kind_viewpoint
+        ActivityKindId.Restaurant -> R.string.kind_restaurant
+        ActivityKindId.Cafe -> R.string.kind_cafe
+        ActivityKindId.Accommodation -> R.string.kind_accommodation
+        ActivityKindId.Fishing -> R.string.kind_fishing
+        ActivityKindId.Skiing -> R.string.kind_skiing
     }

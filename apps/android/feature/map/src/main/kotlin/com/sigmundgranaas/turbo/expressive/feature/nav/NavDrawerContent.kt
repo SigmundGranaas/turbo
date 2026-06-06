@@ -23,21 +23,24 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Text
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
-enum class DrawerDestination(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Map("Map", Icons.Rounded.Map),
-    Paths("Saved Tracks", Icons.Rounded.Route),
-    Collections("Collections", Icons.Rounded.Folder),
-    Record("Record Track", Icons.Rounded.FiberManualRecord),
-    Offline("Offline Maps", Icons.Rounded.CloudDownload),
-    Settings("Settings", Icons.Rounded.Settings),
+enum class DrawerDestination(@StringRes val labelRes: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Map(R.string.drawer_map, Icons.Rounded.Map),
+    Paths(R.string.drawer_paths, Icons.Rounded.Route),
+    Collections(R.string.drawer_collections, Icons.Rounded.Folder),
+    Record(R.string.drawer_record, Icons.Rounded.FiberManualRecord),
+    Offline(R.string.drawer_offline, Icons.Rounded.CloudDownload),
+    Settings(R.string.drawer_settings, Icons.Rounded.Settings),
 }
 
 @Composable
@@ -52,7 +55,7 @@ fun NavDrawerContent(
     ) {
         Spacer(Modifier.height(28.dp))
         Text("Turbo", style = MaterialTheme.typography.headlineMedium, color = cs.onSurface, modifier = Modifier.padding(horizontal = 28.dp))
-        Text("Turkart for Norway", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.padding(horizontal = 28.dp))
+        Text(stringResource(R.string.drawer_tagline), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.padding(horizontal = 28.dp))
 
         Spacer(Modifier.height(18.dp))
         Row(
@@ -74,7 +77,7 @@ fun NavDrawerContent(
         DrawerDestination.entries.forEach { dest ->
             NavigationDrawerItem(
                 icon = { Icon(dest.icon, null) },
-                label = { Text(dest.label) },
+                label = { Text(stringResource(dest.labelRes)) },
                 selected = dest == selected,
                 onClick = { onSelect(dest) },
                 colors = NavigationDrawerItemDefaults.colors(

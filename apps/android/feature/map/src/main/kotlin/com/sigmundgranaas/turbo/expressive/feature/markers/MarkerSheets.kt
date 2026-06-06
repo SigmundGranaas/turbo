@@ -50,6 +50,7 @@ import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
+import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 
 private val SheetShape = RoundedCornerShape(topStart = TurboRadius.xxl, topEnd = TurboRadius.xxl)
 
@@ -173,7 +174,7 @@ internal fun MarkerEditorContent(
                             .clickable { selectedKind = kind },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(kind.icon, kind.label, tint = if (sel) cs.onPrimary else accent, modifier = Modifier.size(22.dp))
+                        Icon(kind.icon, stringResource(kind.labelRes), tint = if (sel) cs.onPrimary else accent, modifier = Modifier.size(22.dp))
                     }
                 }
             }

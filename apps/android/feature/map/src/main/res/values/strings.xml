@@ -79,4 +79,13 @@
         <item quantity="one">%1$d area · %2$s</item>
         <item quantity="other">%1$d areas · %2$s</item>
     </plurals>
+
+    <!-- Navigation drawer -->
+    <string name="drawer_tagline">Turkart for Norway</string>
+    <string name="drawer_map">Map</string>
+    <string name="drawer_paths">Saved Tracks</string>
+    <string name="drawer_collections">Collections</string>
+    <string name="drawer_record">Record Track</string>
+    <string name="drawer_offline">Offline Maps</string>
+    <string name="drawer_settings">Settings</string>
 </resources>

@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.AndroidLocationRepository
+import com.sigmundgranaas.turbo.expressive.core.data.AndroidStringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.CollectionRepository
 import com.sigmundgranaas.turbo.expressive.core.data.DataStoreSettingsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.PhotoRepository
@@ -37,6 +39,9 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class DataModule {
+
+    @Binds
+    abstract fun bindStringProvider(impl: AndroidStringProvider): StringProvider
 
     @Binds
     abstract fun bindMarkerRepository(impl: RoomMarkerRepository): MarkerRepository

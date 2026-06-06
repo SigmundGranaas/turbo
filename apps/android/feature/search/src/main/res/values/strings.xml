@@ -12,4 +12,6 @@
     <string name="search_error">Couldn\'t reach search — check your connection.</string>
     <string name="search_no_matches">No matches</string>
     <string name="search_no_matches_body">Nothing found for “%1$s”.</string>
+    <string name="search_go_to_coordinate">Go to coordinate</string>
+    <string name="search_saved_marker">Saved marker · %1$s</string>
 </resources>

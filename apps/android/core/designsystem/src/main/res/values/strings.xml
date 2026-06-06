@@ -16,4 +16,24 @@
     <!-- Weather glyphs -->
     <string name="ds_wind">Wind</string>
     <string name="ds_wind_direction">Wind direction</string>
+
+    <!-- Activity / marker kinds -->
+    <string name="kind_mountain">Mountain</string>
+    <string name="kind_park">Park</string>
+    <string name="kind_beach">Beach</string>
+    <string name="kind_forest">Forest</string>
+    <string name="kind_hiking">Hiking</string>
+    <string name="kind_kayaking">Kayaking</string>
+    <string name="kind_biking">Biking</string>
+    <string name="kind_cabin">Cabin</string>
+    <string name="kind_parking">Parking</string>
+    <string name="kind_camping">Camping Spot</string>
+    <string name="kind_swimming">Swimming Spot</string>
+    <string name="kind_diving">Diving</string>
+    <string name="kind_viewpoint">Viewpoint</string>
+    <string name="kind_restaurant">Restaurant</string>
+    <string name="kind_cafe">Café</string>
+    <string name="kind_accommodation">Accommodation</string>
+    <string name="kind_fishing">Fishing Spot</string>
+    <string name="kind_skiing">Skiing</string>
 </resources>

@@ -67,6 +67,7 @@ import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
+import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 import kotlinx.coroutines.launch
 
 /** How far off the planned line (metres) before we re-solve while following. */
@@ -185,7 +186,7 @@ fun MapScreen(
                         MapSelection(
                             id = marker.id,
                             title = marker.name,
-                            subtitle = "${marker.kind.label} · ${formatCoords(marker.position)}",
+                            subtitle = "${context.getString(marker.kind.labelRes)} · ${formatCoords(marker.position)}",
                             icon = marker.kind.icon,
                             point = marker.position,
                             onNavigate = {

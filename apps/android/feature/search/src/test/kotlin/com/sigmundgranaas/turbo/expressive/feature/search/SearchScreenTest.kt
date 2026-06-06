@@ -47,6 +47,11 @@ private class StubTrailSearchRepository : TrailSearchRepository {
     override suspend fun search(query: String): Outcome<List<SearchHit>> = Outcome.Success(emptyList())
 }
 
+private class StubStringProvider : com.sigmundgranaas.turbo.expressive.core.common.StringProvider {
+    override fun get(id: Int): String = "s$id"
+    override fun get(id: Int, vararg formatArgs: Any): String = "s$id:" + formatArgs.joinToString()
+}
+
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
@@ -64,7 +69,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { lat, lng, name -> picked = Triple(lat, lng, name) },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository()),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository(), StubStringProvider()),
             )
         }
 
@@ -85,7 +90,7 @@ class SearchScreenTest {
             SearchScreen(
                 onBack = {},
                 onPick = { _, _, _ -> },
-                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository()),
+                viewModel = SearchViewModel(StubSearchRepository(listOf(hit)), StubMarkerRepository(), StubRecentSearchRepository(), StubTrailSearchRepository(), StubStringProvider()),
             )
         }
         composeRule.onNode(hasSetTextAction()).performTextInput("Lyn")

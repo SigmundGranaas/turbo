@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.feature.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
+import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecentSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
@@ -12,6 +13,7 @@ import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.RecentSearch
+import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -56,6 +58,7 @@ class SearchViewModel @Inject constructor(
     private val markerRepository: MarkerRepository,
     private val recentSearchRepository: RecentSearchRepository,
     private val trailRepository: TrailSearchRepository,
+    private val strings: StringProvider,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SearchUiState())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
@@ -133,11 +136,11 @@ class SearchViewModel @Inject constructor(
 
     private fun instantResults(query: String): List<SearchResult> {
         val coordinate = parseCoordinate(query)?.let {
-            listOf(SearchResult("Go to coordinate", formatCoords(it), ActivityKindId.Viewpoint, SearchResultType.Coordinate, it.lat, it.lng))
+            listOf(SearchResult(strings.get(R.string.search_go_to_coordinate), formatCoords(it), ActivityKindId.Viewpoint, SearchResultType.Coordinate, it.lat, it.lng))
         }.orEmpty()
         val markerHits = markers.value
             .filter { it.name.contains(query.trim(), ignoreCase = true) }
-            .map { SearchResult(it.name, "Saved marker · ${it.kind.label}", it.kind, SearchResultType.Marker, it.position.lat, it.position.lng) }
+            .map { SearchResult(it.name, strings.get(R.string.search_saved_marker, strings.get(it.kind.labelRes)), it.kind, SearchResultType.Marker, it.position.lat, it.position.lng) }
         return coordinate + markerHits
     }
 
