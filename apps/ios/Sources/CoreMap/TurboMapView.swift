@@ -12,9 +12,11 @@ import UIKit
 /// All chrome (search, control rail, FAB) floats *over* this in `FeatureMap`.
 public struct TurboMapView: UIViewRepresentable {
     private let baseLayer: BaseLayer
+    private let overlays: Set<OverlayId>
     private let pins: [MapPin]
     private let following: Bool
     private let focus: LatLng?
+    private let resetBearingToken: Int
     private let onLongPress: ((LatLng) -> Void)?
     private let onRegionChange: ((LatLng) -> Void)?
     private let onSelectPin: ((String) -> Void)?
@@ -24,17 +26,21 @@ public struct TurboMapView: UIViewRepresentable {
 
     public init(
         baseLayer: BaseLayer,
+        overlays: Set<OverlayId> = [],
         pins: [MapPin],
         following: Bool = false,
         focus: LatLng? = nil,
+        resetBearingToken: Int = 0,
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil
     ) {
         self.baseLayer = baseLayer
+        self.overlays = overlays
         self.pins = pins
         self.following = following
         self.focus = focus
+        self.resetBearingToken = resetBearingToken
         self.onLongPress = onLongPress
         self.onRegionChange = onRegionChange
         self.onSelectPin = onSelectPin
@@ -67,7 +73,9 @@ public struct TurboMapView: UIViewRepresentable {
         context.coordinator.onRegionChange = onRegionChange
         context.coordinator.onSelectPin = onSelectPin
         context.coordinator.syncOverlay(on: map, base: baseLayer)
+        context.coordinator.syncDataOverlays(on: map, overlays: overlays)
         context.coordinator.syncAnnotations(on: map, pins: pins)
+        context.coordinator.applyBearingReset(on: map, token: resetBearingToken)
         map.showsUserLocation = following
         let desiredMode: MKUserTrackingMode = following ? .follow : .none
         if map.userTrackingMode != desiredMode {
@@ -84,7 +92,33 @@ public struct TurboMapView: UIViewRepresentable {
         var onSelectPin: ((String) -> Void)?
         private var currentBase: BaseLayer?
         private var tileOverlay: MKTileOverlay?
+        private var dataOverlays: [OverlayId: MKTileOverlay] = [:]
         private var lastFocus: LatLng?
+        private var lastBearingToken = 0
+
+        /// Add/remove transparent data-overlay tile layers above the base map.
+        func syncDataOverlays(on map: MKMapView, overlays: Set<OverlayId>) {
+            for (id, overlay) in dataOverlays where !overlays.contains(id) {
+                map.removeOverlay(overlay)
+                dataOverlays[id] = nil
+            }
+            for id in overlays where dataOverlays[id] == nil {
+                guard let template = MapTileStyles.overlayTemplate(for: id) else { continue }
+                let overlay = MKTileOverlay(urlTemplate: template)
+                overlay.canReplaceMapContent = false
+                map.addOverlay(overlay, level: .aboveLabels)
+                dataOverlays[id] = overlay
+            }
+        }
+
+        /// Reset the camera bearing to north when the compass is tapped.
+        func applyBearingReset(on map: MKMapView, token: Int) {
+            guard token != lastBearingToken else { return }
+            lastBearingToken = token
+            let camera = map.camera
+            camera.heading = 0
+            map.setCamera(camera, animated: true)
+        }
 
         init(onLongPress: ((LatLng) -> Void)?) { self.onLongPress = onLongPress }
 
@@ -182,9 +216,11 @@ public struct TurboMapView: UIViewRepresentable {
 public struct TurboMapView: View {
     public init(
         baseLayer: BaseLayer,
+        overlays: Set<OverlayId> = [],
         pins: [MapPin],
         following: Bool = false,
         focus: LatLng? = nil,
+        resetBearingToken: Int = 0,
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil

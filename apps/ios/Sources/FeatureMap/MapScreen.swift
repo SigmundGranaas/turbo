@@ -2,6 +2,9 @@ import SwiftUI
 import CoreModel
 import CoreMap
 import CoreDesignSystem
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The map home — a full-bleed Norgeskart map with floating Liquid Glass chrome:
 /// weather chip, account avatar, the control rail (layers · follow · compass),
@@ -20,6 +23,8 @@ public struct MapScreen: View {
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
     @State private var selectedMarker: Marker?
+    @State private var compassResetToken = 0
+    @State private var longPressCoord: LatLng?
 
     /// What the marker-editor sheet is editing — a new drop point (optionally
     /// prefilled from a searched place) or an existing marker.
@@ -55,10 +60,12 @@ public struct MapScreen: View {
     public var body: some View {
         TurboMapView(
             baseLayer: viewModel.baseLayer,
+            overlays: viewModel.overlays,
             pins: pins,
             following: viewModel.following,
             focus: viewModel.focusedPlace?.position,
-            onLongPress: { editorTarget = .new($0, name: "") },
+            resetBearingToken: compassResetToken,
+            onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0 },
             onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } }
         )
@@ -94,6 +101,29 @@ public struct MapScreen: View {
                 )
             }
         }
+        .confirmationDialog(
+            "Drop a point here?",
+            isPresented: Binding(get: { longPressCoord != nil }, set: { if !$0 { longPressCoord = nil } }),
+            presenting: longPressCoord
+        ) { coord in
+            Button("New Marker") { editorTarget = .new(coord, name: ""); longPressCoord = nil }
+            openInMapsButton(coord)
+            Button("Cancel", role: .cancel) { longPressCoord = nil }
+        }
+    }
+
+    @ViewBuilder
+    private func openInMapsButton(_ coord: LatLng) -> some View {
+        #if os(iOS)
+        Button("Open in Maps") {
+            if let url = URL(string: "maps://?ll=\(coord.lat),\(coord.lng)") {
+                UIApplication.shared.open(url)
+            }
+            longPressCoord = nil
+        }
+        #else
+        EmptyView()
+        #endif
     }
 
     private var pins: [MapPin] {
@@ -162,8 +192,8 @@ public struct MapScreen: View {
                 action: viewModel.toggleFollowing
             )
             MapRailDivider()
-            // Compass — reflects the live device heading.
-            Button(action: {}) {
+            // Compass — reflects the live device heading; tap resets bearing north.
+            Button(action: { compassResetToken += 1 }) {
                 CompassDial(heading: viewModel.heading ?? 0)
                     .frame(width: 48, height: 48)
                     .contentShape(Rectangle())

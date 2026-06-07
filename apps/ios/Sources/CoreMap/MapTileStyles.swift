@@ -28,4 +28,22 @@ public enum MapTileStyles {
         case .satellite: "© Esri"
         }
     }
+
+    /// Transparent XYZ overlay tiles for an ``OverlayId``, or `nil` when it has no
+    /// shippable raster source (no dead toggles). Ported from `ui.map.MapStyles`.
+    public static func overlayTemplate(for overlay: OverlayId) -> String? {
+        switch overlay {
+        case .trails:
+            "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png"
+        case .avalanche:
+            "https://gis3.nve.no/arcgis/rest/services/wmts/Bratthet_2024/MapServer/tile/{z}/{y}/{x}"
+        case .waves, .wind:
+            nil
+        }
+    }
+
+    /// The overlays that actually have a tile source today (drives the layer sheet).
+    public static var renderableOverlays: [OverlayId] {
+        OverlayId.allCases.filter { overlayTemplate(for: $0) != nil }
+    }
 }

@@ -25,4 +25,14 @@ struct MapTileStylesTests {
             #expect(!MapTileStyles.attribution(for: layer).isEmpty)
         }
     }
+
+    @Test("renderable overlays have tile templates; others don't")
+    func overlayTemplates() {
+        #expect(MapTileStyles.overlayTemplate(for: .trails)?.contains("waymarkedtrails") == true)
+        #expect(MapTileStyles.overlayTemplate(for: .avalanche)?.contains("nve.no") == true)
+        // Wave/wind need keyed sources we don't ship — no dead toggles.
+        #expect(MapTileStyles.overlayTemplate(for: .waves) == nil)
+        #expect(MapTileStyles.overlayTemplate(for: .wind) == nil)
+        #expect(MapTileStyles.renderableOverlays == [.trails, .avalanche])
+    }
 }
