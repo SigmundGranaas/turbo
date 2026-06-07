@@ -87,3 +87,81 @@ data class TrackConflictDto(
     val currentVersion: Long? = null,
     val current: TrackResponseDto? = null,
 )
+
+// ─────────────────────────── Geo / markers ───────────────────────────
+
+@Serializable
+data class LocationGeometryDto(val longitude: Double = 0.0, val latitude: Double = 0.0)
+
+@Serializable
+data class LocationDisplayDto(
+    val name: String? = null,
+    val description: String? = null,
+    val icon: String? = null,
+)
+
+@Serializable
+data class LocationResponseDto(
+    val id: String,
+    val geometry: LocationGeometryDto = LocationGeometryDto(),
+    val display: LocationDisplayDto = LocationDisplayDto(),
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val deletedAt: String? = null,
+    val version: Long = 0,
+)
+
+@Serializable
+data class LocationsDeltaDto(
+    val items: List<LocationResponseDto> = emptyList(),
+    val deleted: List<TombstoneDto> = emptyList(),
+    val serverTime: String? = null,
+    val nextCursor: String? = null,
+)
+
+@Serializable
+data class LocationWriteRequest(val geometry: LocationGeometryDto, val display: LocationDisplayDto)
+
+@Serializable
+data class LocationConflictDto(val currentVersion: Long? = null, val current: LocationResponseDto? = null)
+
+// ─────────────────────────── Collections ───────────────────────────
+
+@Serializable
+data class CollectionItemRefDto(val type: String, val uuid: String)
+
+@Serializable
+data class CollectionResponseDto(
+    val id: String,
+    val name: String? = null,
+    val description: String? = null,
+    val colorHex: String? = null,
+    val iconKey: String? = null,
+    val sortOrder: Int? = null,
+    val savedFilter: String? = null,
+    val items: List<CollectionItemRefDto> = emptyList(),
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val version: Long = 0,
+)
+
+@Serializable
+data class CollectionsDeltaDto(
+    val items: List<CollectionResponseDto> = emptyList(),
+    val deleted: List<TombstoneDto> = emptyList(),
+    val serverTime: String? = null,
+    val nextCursor: String? = null,
+)
+
+@Serializable
+data class CollectionWriteRequest(
+    val name: String? = null,
+    val description: String? = null,
+    val colorHex: String? = null,
+    val iconKey: String? = null,
+    val sortOrder: Int? = null,
+    val savedFilter: String? = null,
+)
+
+@Serializable
+data class CollectionConflictDto(val currentVersion: Long? = null, val current: CollectionResponseDto? = null)

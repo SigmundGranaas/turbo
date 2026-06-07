@@ -45,12 +45,19 @@ interface MarkerDao {
     @Query("SELECT * FROM marker WHERE id = :id")
     suspend fun byId(id: String): MarkerEntity?
 
+    @Query("SELECT * FROM marker WHERE remoteId = :remoteId")
+    suspend fun byRemoteId(remoteId: String): MarkerEntity?
+
     /** Rows with local changes to push (creates/updates and pending deletes). */
     @Query("SELECT * FROM marker WHERE dirty = 1")
     suspend fun pendingSync(): List<MarkerEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: MarkerEntity)
+
+    /** Mark a pushed row as synced: record the server id/version and clear the dirty flag. */
+    @Query("UPDATE marker SET remoteId = :remoteId, version = :version, updatedAtEpochMs = :updatedAt, dirty = 0 WHERE id = :id")
+    suspend fun markSynced(id: String, remoteId: String, version: Long, updatedAt: Long)
 
     /** Tombstone a synced row so the engine can push the delete. */
     @Query("UPDATE marker SET deletedAtEpochMs = :ts, dirty = 1 WHERE id = :id")
@@ -156,11 +163,18 @@ interface CollectionDao {
     @Query("SELECT * FROM collection WHERE id = :id")
     suspend fun byId(id: String): CollectionEntity?
 
+    @Query("SELECT * FROM collection WHERE remoteId = :remoteId")
+    suspend fun byRemoteId(remoteId: String): CollectionEntity?
+
     @Query("SELECT * FROM collection WHERE dirty = 1")
     suspend fun pendingSync(): List<CollectionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: CollectionEntity)
+
+    /** Mark a pushed row as synced: record the server id/version and clear the dirty flag. */
+    @Query("UPDATE collection SET remoteId = :remoteId, version = :version, updatedAtEpochMs = :updatedAt, dirty = 0 WHERE id = :id")
+    suspend fun markSynced(id: String, remoteId: String, version: Long, updatedAt: Long)
 
     @Query("UPDATE collection SET deletedAtEpochMs = :ts, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: String, ts: Long)
