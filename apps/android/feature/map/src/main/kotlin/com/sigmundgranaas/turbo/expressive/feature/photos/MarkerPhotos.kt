@@ -1,6 +1,5 @@
 package com.sigmundgranaas.turbo.expressive.feature.photos
 
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,15 +28,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -48,8 +44,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Photo
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
 
 /** Horizontal strip of a marker's photos + an add control (camera / gallery). */
@@ -136,20 +130,4 @@ fun MarkerPhotos(
     }
 }
 
-/** Decodes [path] off the main thread, downsampled so neither thumbnail nor viewer OOMs. */
-@Composable
-private fun rememberPhotoBitmap(path: String, maxPx: Int): ImageBitmap? {
-    val state by produceState<ImageBitmap?>(initialValue = null, path, maxPx) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(path, bounds)
-                var sample = 1
-                while (bounds.outWidth / sample > maxPx || bounds.outHeight / sample > maxPx) sample *= 2
-                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-                BitmapFactory.decodeFile(path, opts)?.asImageBitmap()
-            }.getOrNull()
-        }
-    }
-    return state
-}
+// rememberPhotoBitmap moved to PhotoImage.kt (shared with the on-map photo layer).

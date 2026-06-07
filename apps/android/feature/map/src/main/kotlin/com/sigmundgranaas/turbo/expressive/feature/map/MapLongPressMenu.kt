@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Place
@@ -62,6 +63,7 @@ internal fun MapLongPressMenu(
     onNewMarker: () -> Unit,
     onRouteHere: () -> Unit,
     onCreateTrack: () -> Unit,
+    onAddPhoto: () -> Unit,
     onDismiss: () -> Unit,
     conditionsViewModel: ConditionsViewModel = hiltViewModel(),
 ) {
@@ -95,7 +97,7 @@ internal fun MapLongPressMenu(
         val margin = 12.dp
         val cardWidthPx = with(density) { cardWidth.toPx() }
         val marginPx = with(density) { margin.toPx() }
-        val estCardHeightPx = with(density) { 232.dp.toPx() }
+        val estCardHeightPx = with(density) { 292.dp.toPx() }
         val maxW = constraints.maxWidth.toFloat()
         val maxH = constraints.maxHeight.toFloat()
         val left = (anchor.x - cardWidthPx / 2f).coerceIn(marginPx, (maxW - cardWidthPx - marginPx).coerceAtLeast(marginPx))
@@ -120,6 +122,8 @@ internal fun MapLongPressMenu(
                 MenuAction(Icons.Rounded.Navigation, stringResource(R.string.lp_route_here), onClick = onRouteHere, tag = "lpRouteHere")
                 Spacer(Modifier.height(8.dp))
                 MenuAction(Icons.Rounded.Route, stringResource(R.string.track_title), onClick = onCreateTrack, tag = "lpCreateTrack")
+                Spacer(Modifier.height(8.dp))
+                MenuAction(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onClick = onAddPhoto, tag = "lpAddPhoto")
             }
         }
     }

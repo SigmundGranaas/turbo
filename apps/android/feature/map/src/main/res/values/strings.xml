@@ -70,6 +70,7 @@
     <!-- Long-press contextual menu -->
     <string name="lp_new_marker">New marker</string>
     <string name="lp_route_here">Route here</string>
+    <string name="lp_add_photo">Add photo here</string>
 
     <!-- Marker editor -->
     <string name="marker_new">New marker</string>

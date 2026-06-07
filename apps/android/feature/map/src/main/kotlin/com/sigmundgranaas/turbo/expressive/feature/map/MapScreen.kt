@@ -288,6 +288,20 @@ fun MapScreen(
     // Marker whose "add to collection" picker is open (null = closed).
     var addToCollection by remember { mutableStateOf<Marker?>(null) }
 
+    // Geotagged photos → clustered thumbnail pins on the map; tap a cluster → grid → viewer.
+    val photosViewModel: com.sigmundgranaas.turbo.expressive.feature.photos.PhotosViewModel = hiltViewModel()
+    val mapPhotos by photosViewModel.onMapPhotos.collectAsStateWithLifecycle()
+    val photoClusters = remember(mapPhotos) { com.sigmundgranaas.turbo.expressive.feature.photos.clusterPhotos(mapPhotos) }
+    var openCluster by remember { mutableStateOf<com.sigmundgranaas.turbo.expressive.feature.photos.PhotoCluster?>(null) }
+    var viewerStart by remember { mutableStateOf(-1) }
+    var pendingPhotoAt by remember { mutableStateOf<LatLng?>(null) }
+    val addPhotoLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        pendingPhotoAt?.let { at -> if (uri != null) photosViewModel.addFromContent(null, at, uri) }
+        pendingPhotoAt = null
+    }
+
     // One selection model + detail host — the map shell no longer depends on the
     // markers feature for the info sheet; it routes through the :core:map seam.
     val actionRegistry = remember { defaultMapEntityActionRegistry() }
@@ -335,6 +349,10 @@ fun MapScreen(
                 },
                 selectedMarkerId = selectionState.selection?.id,
                 userLocation = state.userLocation,
+                photoPins = photoClusters.map {
+                    com.sigmundgranaas.turbo.expressive.ui.map.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
+                },
+                onPhotoPinClick = { pin -> openCluster = photoClusters.firstOrNull { it.id == pin.id } },
                 onMarkerClick = { marker ->
                     selectionState.select(
                         MapSelection(
@@ -748,7 +766,33 @@ fun MapScreen(
                             routeViewModel.planRoute(from, p)
                         },
                         onCreateTrack = { longPressAt = null; openTrackTool(TrackMode.Route) },
+                        onAddPhoto = {
+                            longPressAt = null
+                            pendingPhotoAt = p
+                            addPhotoLauncher.launch(
+                                androidx.activity.result.PickVisualMediaRequest(
+                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                ),
+                            )
+                        },
                         onDismiss = { longPressAt = null },
+                    )
+                }
+            }
+
+            // Photo cluster → grid sheet → immersive viewer.
+            openCluster?.let { cluster ->
+                com.sigmundgranaas.turbo.expressive.feature.photos.PhotoClusterSheet(
+                    cluster = cluster,
+                    onOpen = { index -> viewerStart = index },
+                    onDismiss = { openCluster = null },
+                )
+                if (viewerStart >= 0) {
+                    com.sigmundgranaas.turbo.expressive.feature.photos.PhotoViewer(
+                        photos = cluster.ordered,
+                        startIndex = viewerStart,
+                        onClose = { viewerStart = -1 },
+                        onDelete = { photo -> photosViewModel.delete(photo); viewerStart = -1; openCluster = null },
                     )
                 }
             }

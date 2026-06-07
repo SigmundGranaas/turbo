@@ -11,6 +11,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -25,6 +28,13 @@ class PhotosViewModel @Inject constructor(
 ) : ViewModel() {
 
     fun photosFor(markerId: String): Flow<List<Photo>> = repository.observeForMarker(markerId)
+
+    /** Every geotagged photo, for clustering onto the map. */
+    val onMapPhotos: StateFlow<List<Photo>> = repository.observeAll().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
 
     /** A fresh app-private file under files/photos for a camera capture target. */
     fun newPhotoFile(): File = File(photoDir(), "${UUID.randomUUID()}.jpg")
