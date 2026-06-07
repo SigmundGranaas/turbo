@@ -13,7 +13,10 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
+import com.sigmundgranaas.turbo.expressive.core.sync.SyncController
+import kotlinx.coroutines.launch
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import com.sigmundgranaas.turbo.expressive.ui.nav.TurboNavGraph
@@ -26,6 +29,14 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settingsRepository: SettingsRepository
+
+    @Inject lateinit var syncController: SyncController
+
+    override fun onResume() {
+        super.onResume()
+        // Pull/push any changes whenever the app comes to the foreground (no-op when signed out).
+        lifecycleScope.launch { syncController.syncNow() }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Branded splash before content; must be installed before super.onCreate().

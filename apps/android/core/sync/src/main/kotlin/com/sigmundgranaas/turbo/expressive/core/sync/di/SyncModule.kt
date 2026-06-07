@@ -8,6 +8,8 @@ import com.sigmundgranaas.turbo.expressive.core.sync.LocationRemote
 import com.sigmundgranaas.turbo.expressive.core.sync.LocationSyncApi
 import com.sigmundgranaas.turbo.expressive.core.sync.MarkerSyncer
 import com.sigmundgranaas.turbo.expressive.core.sync.SyncClient
+import com.sigmundgranaas.turbo.expressive.core.sync.SyncController
+import com.sigmundgranaas.turbo.expressive.core.sync.SyncEngine
 import com.sigmundgranaas.turbo.expressive.core.sync.TrackRemote
 import com.sigmundgranaas.turbo.expressive.core.sync.TrackSyncApi
 import com.sigmundgranaas.turbo.expressive.core.sync.TrackSyncer
@@ -27,6 +29,9 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class SyncModule {
+
+    @Binds
+    abstract fun bindSyncController(impl: SyncEngine): SyncController
 
     @Binds
     abstract fun bindTrackRemote(impl: TrackSyncApi): TrackRemote

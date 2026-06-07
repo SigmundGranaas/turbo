@@ -21,4 +21,11 @@
     <string name="auth_drawer_signed_out_sub">Sync across devices</string>
     <string name="auth_drawer_account_sub">Tap to manage account</string>
     <string name="auth_sign_out">Sign out</string>
+
+    <!-- Cloud sync -->
+    <string name="auth_sync_title">Cloud sync</string>
+    <string name="auth_sync_idle">Up to date</string>
+    <string name="auth_sync_syncing">Syncing…</string>
+    <string name="auth_sync_failed">Couldn\'t sync — tap to retry</string>
+    <string name="auth_sync_now">Sync now</string>
 </resources>

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.core.auth.AuthState
+import com.sigmundgranaas.turbo.expressive.core.sync.SyncStatus
 import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -192,9 +193,40 @@ private fun AccountView(email: String, onSignOut: () -> Unit, modifier: Modifier
     ) {
         Text(stringResource(R.string.auth_signed_in_as), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
         Text(email, style = MaterialTheme.typography.headlineSmall, color = cs.onSurface, modifier = Modifier.testTag("accountEmail"))
+
+        Spacer(Modifier.height(16.dp))
+        SyncSection()
+
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("signOut")) {
             Text(stringResource(R.string.auth_sign_out))
+        }
+    }
+}
+
+@Composable
+private fun SyncSection(viewModel: SyncViewModel = hiltViewModel()) {
+    val cs = MaterialTheme.colorScheme
+    val status by viewModel.status.collectAsStateWithLifecycle()
+    val syncing = status is SyncStatus.Syncing
+    val statusLabel = when (status) {
+        SyncStatus.Syncing -> stringResource(R.string.auth_sync_syncing)
+        is SyncStatus.Failed -> stringResource(R.string.auth_sync_failed)
+        SyncStatus.Idle -> stringResource(R.string.auth_sync_idle)
+    }
+    val statusColor = if (status is SyncStatus.Failed) cs.error else cs.onSurfaceVariant
+
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.auth_sync_title), style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+            Text(statusLabel, style = MaterialTheme.typography.bodyMedium, color = statusColor, modifier = Modifier.testTag("syncStatus"))
+        }
+        if (syncing) {
+            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
+        } else {
+            TextButton(onClick = viewModel::syncNow, modifier = Modifier.testTag("syncNow")) {
+                Text(stringResource(R.string.auth_sync_now))
+            }
         }
     }
 }

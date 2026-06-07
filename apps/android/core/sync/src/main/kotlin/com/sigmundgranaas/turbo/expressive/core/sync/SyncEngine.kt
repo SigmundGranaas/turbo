@@ -36,6 +36,12 @@ sealed interface SyncOutcome {
     data class PartialFailure(val errors: List<String>) : SyncOutcome
 }
 
+/** The UI-facing slice of the engine: observe status, request a sync. */
+interface SyncController {
+    val status: StateFlow<SyncStatus>
+    suspend fun syncNow(): SyncOutcome
+}
+
 /**
  * Coordinates a full sync across every [DomainSyncer]: per-domain it reads the
  * persisted cursor, runs pull→merge→push, and stores the returned serverTime.
@@ -48,9 +54,9 @@ class SyncEngine @Inject constructor(
     private val cursors: SyncCursorStore,
     private val auth: AuthRepository,
     private val scope: CoroutineScope,
-) {
+) : SyncController {
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
-    val status: StateFlow<SyncStatus> = _status.asStateFlow()
+    override val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
     private val mutex = Mutex()
 
@@ -69,7 +75,7 @@ class SyncEngine @Inject constructor(
     }
 
     /** Run a full sync now. No-op (returns [SyncOutcome.NotSignedIn]) when signed out. */
-    suspend fun syncNow(): SyncOutcome = mutex.withLock {
+    override suspend fun syncNow(): SyncOutcome = mutex.withLock {
         if (auth.state.value !is AuthState.SignedIn) return SyncOutcome.NotSignedIn
         _status.value = SyncStatus.Syncing
         val errors = mutableListOf<String>()

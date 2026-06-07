@@ -21,4 +21,11 @@
     <string name="auth_drawer_signed_out_sub">Synk på tvers av enheter</string>
     <string name="auth_drawer_account_sub">Trykk for å administrere konto</string>
     <string name="auth_sign_out">Logg ut</string>
+
+    <!-- Skysynk -->
+    <string name="auth_sync_title">Skysynk</string>
+    <string name="auth_sync_idle">Oppdatert</string>
+    <string name="auth_sync_syncing">Synkroniserer…</string>
+    <string name="auth_sync_failed">Kunne ikke synke — trykk for å prøve igjen</string>
+    <string name="auth_sync_now">Synk nå</string>
 </resources>
