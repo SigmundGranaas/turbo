@@ -328,6 +328,21 @@ fun PathDetailScreen(
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer),
                     ) { Icon(Icons.Rounded.IosShare, stringResource(R.string.paths_export)) }
                     DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.paths_share_link)) },
+                            onClick = {
+                                showExportMenu = false
+                                viewModel.createShareLink(path.id) { result ->
+                                    when (result) {
+                                        is PathsViewModel.ShareLinkResult.Ready -> shareLinkUrl(context, result.url, path.name)
+                                        PathsViewModel.ShareLinkResult.NotSynced ->
+                                            Toast.makeText(context, context.getString(R.string.paths_share_link_not_synced), Toast.LENGTH_LONG).show()
+                                        PathsViewModel.ShareLinkResult.Failed ->
+                                            Toast.makeText(context, context.getString(R.string.paths_share_link_failed), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                        )
                         ExportFormat.entries.forEach { format ->
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.paths_export_format, format.label)) },
@@ -444,6 +459,19 @@ private fun shareTrack(context: Context, path: SavedPath, format: ExportFormat) 
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(send, context.getString(R.string.paths_share_format, format.label)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+/** Fire a plain-text share chooser for a cloud share-link URL. */
+private fun shareLinkUrl(context: Context, url: String, name: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, name)
+        putExtra(Intent.EXTRA_TEXT, url)
+    }
+    context.startActivity(
+        Intent.createChooser(send, context.getString(R.string.paths_share_link))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+    )
 }
 
 /** Normalised polyline sketch of a path's points into the given box. */

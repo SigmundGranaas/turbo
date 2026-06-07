@@ -16,6 +16,8 @@ interface PathRepository {
     suspend fun byId(id: String): SavedPath?
     suspend fun save(path: SavedPath)
     suspend fun delete(id: String)
+    /** The server-assigned id once this track has synced, or null if it hasn't been uploaded yet. */
+    suspend fun remoteId(id: String): String?
 }
 
 class RoomPathRepository @Inject constructor(
@@ -47,6 +49,8 @@ class RoomPathRepository @Inject constructor(
             dao.delete(id)
         }
     }
+
+    override suspend fun remoteId(id: String): String? = dao.byId(id)?.remoteId
 }
 
 private fun encodePoints(points: List<LatLng>): String =

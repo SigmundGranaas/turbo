@@ -2,7 +2,9 @@ package com.sigmundgranaas.turbo.expressive.feature.recording
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
+import com.sigmundgranaas.turbo.expressive.core.sync.SharingRepository
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,6 +18,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PathsViewModel @Inject constructor(
     private val repository: PathRepository,
+    private val sharing: SharingRepository,
 ) : ViewModel() {
     val paths: StateFlow<List<SavedPath>> = repository.observeAll().stateIn(
         scope = viewModelScope,
@@ -24,6 +27,29 @@ class PathsViewModel @Inject constructor(
     )
 
     fun delete(id: String) = viewModelScope.launch { repository.delete(id) }
+
+    /** Outcome of requesting a cloud share link for a track. */
+    sealed interface ShareLinkResult {
+        data class Ready(val url: String) : ShareLinkResult
+        /** The track hasn't been uploaded yet — sign in / sync first, then share. */
+        data object NotSynced : ShareLinkResult
+        data object Failed : ShareLinkResult
+    }
+
+    /** Create a cloud share link for a synced track and hand the shareable URL back to the UI. */
+    fun createShareLink(pathId: String, onResult: (ShareLinkResult) -> Unit) = viewModelScope.launch {
+        val remoteId = repository.remoteId(pathId)
+        if (remoteId == null) {
+            onResult(ShareLinkResult.NotSynced)
+            return@launch
+        }
+        onResult(
+            when (val out = sharing.createLink(remoteId)) {
+                is Outcome.Success -> ShareLinkResult.Ready(out.value)
+                is Outcome.Failure -> ShareLinkResult.Failed
+            },
+        )
+    }
 
     /** Rename a track in place (save upserts by id), keeping its geometry + stats. */
     fun rename(id: String, name: String) = viewModelScope.launch {

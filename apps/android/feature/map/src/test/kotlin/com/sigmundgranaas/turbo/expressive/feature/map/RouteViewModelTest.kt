@@ -51,6 +51,7 @@ private class FakePathRepository : PathRepository {
     override suspend fun byId(id: String): SavedPath? = saved.firstOrNull { it.id == id }
     override suspend fun save(path: SavedPath) { saved += path }
     override suspend fun delete(id: String) { saved.removeAll { it.id == id } }
+    override suspend fun remoteId(id: String): String? = null
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

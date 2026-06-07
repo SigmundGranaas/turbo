@@ -31,6 +31,9 @@
     <string name="paths_export">Export track</string>
     <string name="paths_export_format">Export %1$s</string>
     <string name="paths_share_format">Share %1$s</string>
+    <string name="paths_share_link">Share link</string>
+    <string name="paths_share_link_not_synced">Sign in and sync this track first, then share a link.</string>
+    <string name="paths_share_link_failed">Couldn\'t create a share link.</string>
     <string name="paths_delete">Delete</string>
     <string name="paths_rename">Rename track</string>
     <string name="paths_rename_title">Rename track</string>

@@ -31,6 +31,9 @@
     <string name="paths_export">Eksporter spor</string>
     <string name="paths_export_format">Eksporter %1$s</string>
     <string name="paths_share_format">Del %1$s</string>
+    <string name="paths_share_link">Del lenke</string>
+    <string name="paths_share_link_not_synced">Logg inn og synk dette sporet først, så kan du dele en lenke.</string>
+    <string name="paths_share_link_failed">Kunne ikke lage en delingslenke.</string>
     <string name="paths_delete">Slett</string>
     <string name="paths_rename">Gi nytt navn</string>
     <string name="paths_rename_title">Gi sporet nytt navn</string>

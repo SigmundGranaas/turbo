@@ -4,7 +4,10 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
+import com.sigmundgranaas.turbo.expressive.core.sync.LinkRedemption
+import com.sigmundgranaas.turbo.expressive.core.sync.SharingRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -25,7 +28,16 @@ private class StubPathRepository(paths: List<SavedPath>) : PathRepository {
     override suspend fun byId(id: String): SavedPath? = state.value.firstOrNull { it.id == id }
     override suspend fun save(path: SavedPath) {}
     override suspend fun delete(id: String) {}
+    override suspend fun remoteId(id: String): String? = null
 }
+
+private object NoopSharingRepository : SharingRepository {
+    override suspend fun friendCode() = Outcome.Failure(RuntimeException())
+    override suspend fun createLink(resourceId: String, role: String) = Outcome.Success("https://x/link/t")
+    override suspend fun redeemLink(token: String) = Outcome.Success(LinkRedemption("r", "path", "viewer"))
+}
+
+private fun pathsViewModel(repo: PathRepository) = PathsViewModel(repo, NoopSharingRepository)
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -49,7 +61,7 @@ class PathsListScreenTest {
     @Test
     fun `empty repository shows the empty hint`() {
         composeRule.setContent {
-            PathsListScreen(onBack = {}, onOpen = {}, viewModel = PathsViewModel(StubPathRepository(emptyList())))
+            PathsListScreen(onBack = {}, onOpen = {}, viewModel = pathsViewModel(StubPathRepository(emptyList())))
         }
         composeRule.onNodeWithText("No saved tracks yet").assertIsDisplayed()
     }
@@ -58,7 +70,7 @@ class PathsListScreenTest {
     fun `saved track is listed and tapping it opens by id`() {
         var opened: String? = null
         composeRule.setContent {
-            PathsListScreen(onBack = {}, onOpen = { opened = it }, viewModel = PathsViewModel(StubPathRepository(listOf(track))))
+            PathsListScreen(onBack = {}, onOpen = { opened = it }, viewModel = pathsViewModel(StubPathRepository(listOf(track))))
         }
         composeRule.onNodeWithText("Storsteinen Loop").assertIsDisplayed()
         composeRule.onNodeWithText("Storsteinen Loop").performClick()
