@@ -49,6 +49,9 @@
     <string name="track_meta_empty">Place points to build a track</string>
     <string name="track_save_title">Save track</string>
     <string name="track_close">Close create track</string>
+    <string name="track_discard_title">Discard track?</string>
+    <string name="track_discard_body">Your unsaved track will be lost.</string>
+    <string name="track_discard">Discard</string>
 
     <!-- Marker editor -->
     <string name="marker_new">New marker</string>

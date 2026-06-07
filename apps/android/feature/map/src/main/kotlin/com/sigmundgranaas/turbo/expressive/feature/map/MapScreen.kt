@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Navigation
@@ -235,6 +236,7 @@ fun MapScreen(
     var routeOrigin by remember { mutableStateOf<LatLng?>(null) }
     var showRouteStyle by remember { mutableStateOf(false) }
     var showTrackSave by remember { mutableStateOf(false) }
+    var showTrackDiscard by remember { mutableStateOf(false) }
     // Open the tool fresh in [mode], wiping any half-built geometry.
     val openTrackTool: (TrackMode) -> Unit = { mode ->
         routeViewModel.clear(); linePoints.clear(); drawPoints.clear(); routeOrigin = null
@@ -350,8 +352,13 @@ fun MapScreen(
                         ),
                     )
                 },
-                // Line mode reuses the measure-dot overlay to mark each tapped point.
-                measurePoints = if (trackMode == TrackMode.Line) linePoints else emptyList(),
+                // Dot overlay marks Line vertices, and the pending Route start (the first
+                // tap before a destination exists) so it doesn't look like nothing happened.
+                measurePoints = when (trackMode) {
+                    TrackMode.Line -> linePoints
+                    TrackMode.Route -> listOfNotNull(routeOrigin)
+                    else -> emptyList()
+                },
                 onMapLongClick = { if (trackMode == null) { haptics.longPress(); newMarkerAt = it } },
                 onMapTap = { p ->
                     when (trackMode) {
@@ -540,15 +547,37 @@ fun MapScreen(
                     TrackMode.Line -> linePoints.isNotEmpty()
                     TrackMode.Draw -> drawPoints.isNotEmpty()
                 }
+                // Anything the user has placed that a close would throw away.
+                val hasUnsaved = when (mode) {
+                    TrackMode.Route -> routeViewModel.waypoints.value.isNotEmpty() || routeOrigin != null
+                    TrackMode.Line -> linePoints.isNotEmpty()
+                    TrackMode.Draw -> drawPoints.isNotEmpty()
+                }
 
                 CreateTrackCloseButton(
-                    onClose = { haptics.reject(); closeTrackTool(false) },
+                    onClose = { if (hasUnsaved) showTrackDiscard = true else closeTrackTool(false) },
                     modifier = Modifier.align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.statusBars).padding(16.dp),
                 )
                 CreateTrackTitleChip(
                     modifier = Modifier.align(Alignment.TopCenter)
                         .windowInsetsPadding(WindowInsets.statusBars).padding(top = 18.dp),
+                )
+                // Keep zoom + recenter reachable — the full rail is hidden in the tool.
+                CreateTrackMapControls(
+                    following = state.following,
+                    onLocate = {
+                        if (viewModel.hasLocationPermission()) {
+                            viewModel.enableLocation()
+                            state.userLocation?.let { controller?.flyTo(it, 15.0) }
+                        } else {
+                            locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        }
+                    },
+                    onZoomIn = { controller?.zoomIn() },
+                    onZoomOut = { controller?.zoomOut() },
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                        .windowInsetsPadding(WindowInsets.statusBars).padding(end = 14.dp),
                 )
                 Column(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -582,7 +611,7 @@ fun MapScreen(
                                 TrackMode.Draw -> drawPoints.clear()
                             }
                         },
-                        onSave = { showTrackSave = true },
+                        onSave = { haptics.toggle(true); showTrackSave = true },
                         onFollow = {
                             haptics.confirm()
                             if (mode == TrackMode.Route) routeViewModel.follow()
@@ -617,6 +646,17 @@ fun MapScreen(
                             closeTrackTool(false)
                         },
                         onDismiss = { showTrackSave = false },
+                    )
+                }
+                if (showTrackDiscard) {
+                    com.sigmundgranaas.turbo.expressive.ui.components.TurboConfirmDialog(
+                        title = stringResource(R.string.track_discard_title),
+                        body = stringResource(R.string.track_discard_body),
+                        confirmLabel = stringResource(R.string.track_discard),
+                        icon = androidx.compose.material.icons.Icons.Rounded.DeleteSweep,
+                        destructive = true,
+                        onConfirm = { showTrackDiscard = false; closeTrackTool(false) },
+                        onDismiss = { showTrackDiscard = false },
                     )
                 }
             }

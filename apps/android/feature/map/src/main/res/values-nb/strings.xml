@@ -49,6 +49,9 @@
     <string name="track_meta_empty">Plasser punkter for å lage et spor</string>
     <string name="track_save_title">Lagre spor</string>
     <string name="track_close">Lukk lag spor</string>
+    <string name="track_discard_title">Forkaste sporet?</string>
+    <string name="track_discard_body">Det ulagrede sporet går tapt.</string>
+    <string name="track_discard">Forkast</string>
 
     <!-- Marker editor -->
     <string name="marker_new">Ny markør</string>

@@ -18,9 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.NearMe
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.EditRoad
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Gesture
@@ -328,6 +332,63 @@ internal fun CreateTrackTitleChip(modifier: Modifier = Modifier) {
             Icon(Icons.Rounded.EditRoad, null, tint = cs.primary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.track_title), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W700), color = cs.onSurface)
+        }
+    }
+}
+
+/**
+ * A trimmed map control kept available while the tool owns the screen — zoom and
+ * recenter, so building a route doesn't trap the camera (the full rail is hidden).
+ */
+@Composable
+internal fun CreateTrackMapControls(
+    following: Boolean,
+    onLocate: () -> Unit,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Surface(
+            onClick = onLocate,
+            shape = RoundedCornerShape(18.dp),
+            color = if (following) cs.tertiaryContainer else cs.surfaceContainerHigh,
+            shadowElevation = 3.dp,
+            modifier = Modifier.size(52.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    if (following) androidx.compose.material.icons.Icons.Rounded.MyLocation else androidx.compose.material.icons.Icons.Rounded.NearMe,
+                    stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_my_location),
+                    tint = if (following) cs.onTertiaryContainer else cs.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+        Surface(shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 3.dp) {
+            androidx.compose.foundation.layout.Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(vertical = 4.dp),
+            ) {
+                com.sigmundgranaas.turbo.expressive.ui.components.IconBtn(
+                    androidx.compose.material.icons.Icons.Rounded.Add,
+                    stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_in),
+                    size = 42.dp,
+                    onClick = onZoomIn,
+                )
+                androidx.compose.material3.HorizontalDivider(modifier = Modifier.width(28.dp), color = cs.outlineVariant)
+                com.sigmundgranaas.turbo.expressive.ui.components.IconBtn(
+                    androidx.compose.material.icons.Icons.Rounded.Remove,
+                    stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_out),
+                    size = 42.dp,
+                    onClick = onZoomOut,
+                )
+            }
         }
     }
 }
