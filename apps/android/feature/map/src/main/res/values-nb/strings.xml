@@ -34,6 +34,22 @@
     <string name="measure_clear">Tøm</string>
     <string name="measure_done">Ferdig</string>
 
+    <!-- Create track — unified route generator + track drawing -->
+    <string name="track_title">Lag spor</string>
+    <string name="track_mode_route">Rute</string>
+    <string name="track_mode_line">Linje</string>
+    <string name="track_mode_draw">Tegn</string>
+    <string name="track_hint_route">Trykk på kartet for å legge til stopp</string>
+    <string name="track_hint_line">Trykk for å plassere punkter</string>
+    <string name="track_hint_draw">Dra på kartet for å tegne</string>
+    <string name="track_route_style">Rutestil</string>
+    <string name="track_route_style_subtitle">Hvordan ruta veier av stier, veier og stigning.</string>
+    <string name="track_meta_line">%1$d punkter plassert</string>
+    <string name="track_meta_draw">Frihåndsstrek</string>
+    <string name="track_meta_empty">Plasser punkter for å lage et spor</string>
+    <string name="track_save_title">Lagre spor</string>
+    <string name="track_close">Lukk lag spor</string>
+
     <!-- Marker editor -->
     <string name="marker_new">Ny markør</string>
     <string name="marker_edit">Rediger markør</string>

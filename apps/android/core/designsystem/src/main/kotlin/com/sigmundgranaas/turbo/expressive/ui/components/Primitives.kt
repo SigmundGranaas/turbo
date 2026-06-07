@@ -18,7 +18,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Layers
-import androidx.compose.material.icons.rounded.Straighten
+import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
@@ -95,13 +95,13 @@ fun SearchPill(
 fun MapControlRail(
     modifier: Modifier = Modifier,
     following: Boolean = false,
-    measuring: Boolean = false,
+    creatingTrack: Boolean = false,
     bearing: Float = 0f,
     onCompass: (() -> Unit)? = null,
     onAdd: (() -> Unit)? = null,
     onLayers: () -> Unit = {},
     onLocate: () -> Unit = {},
-    onMeasure: (() -> Unit)? = null,
+    onCreateTrack: (() -> Unit)? = null,
     onZoomIn: () -> Unit = {},
     onZoomOut: () -> Unit = {},
 ) {
@@ -117,8 +117,8 @@ fun MapControlRail(
             RailButton(Icons.Rounded.Explore, stringResource(R.string.ds_compass), rotation = -bearing, onClick = onCompass)
         }
         RailButton(Icons.Rounded.Layers, stringResource(R.string.ds_map_layers), onClick = onLayers)
-        if (onMeasure != null) {
-            RailButton(Icons.Rounded.Straighten, stringResource(R.string.ds_measure_distance), active = measuring, onClick = onMeasure)
+        if (onCreateTrack != null) {
+            RailButton(Icons.Rounded.Route, stringResource(R.string.ds_create_track), active = creatingTrack, onClick = onCreateTrack)
         }
         RailButton(
             icon = if (following) Icons.Rounded.MyLocation else Icons.Rounded.NearMe,

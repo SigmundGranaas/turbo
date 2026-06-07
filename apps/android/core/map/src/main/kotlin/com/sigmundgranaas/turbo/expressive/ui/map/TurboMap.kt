@@ -55,6 +55,10 @@ class MapController(internal val map: MapLibreMap) {
     /** The current camera centre — a sensible route origin when there's no GPS fix. */
     fun center(): LatLng = map.cameraPosition.target.let { LatLng(it!!.latitude, it.longitude) }
 
+    /** Geographic position under a screen pixel — used to capture freehand drawing. */
+    fun fromScreen(xPx: Float, yPx: Float): LatLng =
+        map.projection.fromScreenLocation(android.graphics.PointF(xPx, yPx)).let { LatLng(it.latitude, it.longitude) }
+
     /** The currently visible lat/lng box — the area to download for offline use. */
     fun visibleBounds(): GeoBounds {
         val b = map.projection.visibleRegion.latLngBounds

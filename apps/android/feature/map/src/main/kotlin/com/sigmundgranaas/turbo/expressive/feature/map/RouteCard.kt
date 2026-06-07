@@ -250,7 +250,7 @@ private fun RouteStat(value: String, label: String) {
 /** Distance (m) within which the destination is considered reached. */
 private const val ARRIVAL_M = 30.0
 
-private fun formatDuration(seconds: Double): String {
+internal fun formatDuration(seconds: Double): String {
     val total = seconds.roundToInt()
     val h = total / 3600
     val m = (total % 3600) / 60

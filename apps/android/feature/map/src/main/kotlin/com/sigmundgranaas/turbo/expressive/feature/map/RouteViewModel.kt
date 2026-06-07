@@ -221,6 +221,19 @@ class RouteViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Save a hand-built line (Create-track Line/Draw modes) as a track. Distance
+     * is derived from the geometry; no solve, no surfaces.
+     */
+    fun saveLine(name: String, geometry: List<LatLng>) {
+        if (geometry.size < 2) return
+        val geo = GeoPath.fromPoints(geometry, GeoPathSource.Measure)
+            .copy(recordedAtEpochMs = System.currentTimeMillis())
+        viewModelScope.launch {
+            paths.save(SavedPath(id = "p-${UUID.randomUUID()}", name = name.ifBlank { "Track" }, path = geo))
+        }
+    }
+
     private companion object {
         const val DEBOUNCE_MS = 300L
         const val UNDO_LIMIT = 20

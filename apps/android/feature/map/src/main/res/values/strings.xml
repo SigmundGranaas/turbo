@@ -34,6 +34,22 @@
     <string name="measure_clear">Clear</string>
     <string name="measure_done">Done</string>
 
+    <!-- Create track — unified route generator + track drawing -->
+    <string name="track_title">Create track</string>
+    <string name="track_mode_route">Route</string>
+    <string name="track_mode_line">Line</string>
+    <string name="track_mode_draw">Draw</string>
+    <string name="track_hint_route">Tap the map to add stops</string>
+    <string name="track_hint_line">Tap to drop points</string>
+    <string name="track_hint_draw">Drag on the map to draw</string>
+    <string name="track_route_style">Route style</string>
+    <string name="track_route_style_subtitle">How the route trades off trails, roads and climbing.</string>
+    <string name="track_meta_line">%1$d points placed</string>
+    <string name="track_meta_draw">Freehand stroke</string>
+    <string name="track_meta_empty">Place points to build a track</string>
+    <string name="track_save_title">Save track</string>
+    <string name="track_close">Close create track</string>
+
     <!-- Marker editor -->
     <string name="marker_new">New marker</string>
     <string name="marker_edit">Edit marker</string>
