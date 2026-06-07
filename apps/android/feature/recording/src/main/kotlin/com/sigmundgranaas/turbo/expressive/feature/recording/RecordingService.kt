@@ -11,9 +11,9 @@ import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
+import com.sigmundgranaas.turbo.expressive.core.data.FollowController
+import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
-import com.sigmundgranaas.turbo.expressive.core.data.RecordingSession
-import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -22,23 +22,33 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import javax.inject.Inject
 
 /**
- * Foreground service that keeps a GPS [RecordingController] session alive while
- * the app is backgrounded or the screen is locked. The service owns only the
- * foreground notification + process lifetime; the recording data lives in the
- * (singleton) controller, which both this and the ViewModel read.
+ * Foreground service that keeps a GPS journey alive while the app is backgrounded
+ * or the screen is locked, and surfaces it as an Android Live Update. It runs in
+ * one of two modes — **recording** a track or **following** a route — and posts a
+ * glanceable notification for each, built from the same [LiveStats] read-model the
+ * in-app sheet renders, so the lock screen and the sheet can't disagree. The
+ * service owns only the notification + process lifetime; the data lives in the
+ * (singleton) controllers.
  */
 @AndroidEntryPoint
 class RecordingService : Service() {
 
     @Inject lateinit var controller: RecordingController
+    @Inject lateinit var follow: FollowController
     @Inject lateinit var settings: SettingsRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var notifyJob: Job? = null
     private var settingsJob: Job? = null
+
+    /** Recording and following share one service + notification, so a stop for one
+     *  mode must not tear down the other. */
+    private enum class Mode { None, Recording, Following }
+    private var mode = Mode.None
 
     /** Live metric/imperial preference so the notification matches the in-app stats. */
     private var metric = true
@@ -49,27 +59,17 @@ class RecordingService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 controller.stop()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                if (mode == Mode.Recording) teardown()
+            }
+            ACTION_STOP_FOLLOW -> {
+                follow.stop()
+                if (mode == Mode.Following) teardown()
             }
             // Pause/resume straight from the notification (shade / lock screen) — like a
             // music app. The session collector below re-posts with the flipped state.
             ACTION_PAUSE -> controller.togglePause()
-            else -> {
-                createChannel()
-                startInForeground(controller.session.value)
-                controller.start()
-                settingsJob?.cancel()
-                settingsJob = scope.launch { settings.settings.collect { metric = it.metricUnits } }
-                notifyJob?.cancel()
-                notifyJob = scope.launch {
-                    controller.session.collectLatest { session ->
-                        if (session.active) {
-                            manager().notify(NOTIF_ID, buildNotification(session))
-                        }
-                    }
-                }
-            }
+            ACTION_FOLLOW -> startFollowing()
+            else -> startRecording()
         }
         return START_STICKY
     }
@@ -80,8 +80,51 @@ class RecordingService : Service() {
         super.onDestroy()
     }
 
-    private fun startInForeground(session: RecordingSession) {
-        val notification = buildNotification(session)
+    private fun startRecording() {
+        mode = Mode.Recording
+        createChannel()
+        startForegroundCompat(buildRecordingNotification(LiveStats.of(controller.session.value), controller.session.value.paused))
+        controller.start()
+        trackSettings()
+        notifyJob?.cancel()
+        notifyJob = scope.launch {
+            controller.session.collectLatest { session ->
+                if (session.active) manager().notify(NOTIF_ID, buildRecordingNotification(LiveStats.of(session), session.paused))
+            }
+        }
+    }
+
+    private fun startFollowing() {
+        // Never hijack an in-progress recording; recording owns the surface.
+        if (mode == Mode.Recording) return
+        mode = Mode.Following
+        createChannel()
+        startForegroundCompat(buildFollowingNotification(LiveStats.of(follow.session.value), follow.session.value.name))
+        trackSettings()
+        notifyJob?.cancel()
+        notifyJob = scope.launch {
+            follow.session.collectLatest { session ->
+                if (session.active) {
+                    manager().notify(NOTIF_ID, buildFollowingNotification(LiveStats.of(session), session.name))
+                } else if (mode == Mode.Following) {
+                    teardown()
+                }
+            }
+        }
+    }
+
+    private fun teardown() {
+        mode = Mode.None
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun trackSettings() {
+        settingsJob?.cancel()
+        settingsJob = scope.launch { settings.settings.collect { metric = it.metricUnits } }
+    }
+
+    private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
@@ -89,50 +132,79 @@ class RecordingService : Service() {
         }
     }
 
-    private fun buildNotification(session: RecordingSession): Notification {
-        val openApp = packageManager.getLaunchIntentForPackage(packageName)
-        val content = PendingIntent.getActivity(
-            this, 0, openApp, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    private fun buildRecordingNotification(stats: LiveStats, paused: Boolean): Notification {
+        val distance = Units.distance(stats.distanceM, metric)
+        val elapsed = formatElapsed(stats.elapsedSec ?: 0)
+        val rich = getString(
+            R.string.rec_notif_big, distance,
+            Units.elevation(stats.ascentM ?: 0.0, metric),
+            "${Units.speedValue(stats.speedMps ?: 0.0, metric)} ${Units.speedUnit(metric)}",
         )
-        val distance = Units.distance(session.distanceM, metric)
-        // Music-app-style transport controls, usable without opening the app.
-        val pauseResume = Notification.Action.Builder(
-            Icon.createWithResource(this, if (session.paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause),
-            getString(if (session.paused) R.string.rec_notif_resume else R.string.rec_notif_pause),
-            servicePendingIntent(ACTION_PAUSE, reqCode = 1),
-        ).build()
-        val stop = Notification.Action.Builder(
-            Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-            getString(R.string.rec_notif_stop),
-            servicePendingIntent(ACTION_STOP, reqCode = 2),
-        ).build()
-        val builder = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(if (session.paused) R.string.rec_notif_paused else R.string.rec_notif_recording))
-            .setContentText(getString(R.string.rec_notif_content, distance, formatElapsed(session.elapsedSec)))
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentIntent(content)
-            .setCategory(Notification.CATEGORY_WORKOUT)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
+        val pauseResume = action(
+            if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+            getString(if (paused) R.string.rec_notif_resume else R.string.rec_notif_pause),
+            ACTION_PAUSE, reqCode = 1,
+        )
+        val stop = action(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.rec_notif_stop), ACTION_STOP, reqCode = 2)
+        val builder = baseBuilder()
+            .setContentTitle(getString(if (paused) R.string.rec_notif_paused else R.string.rec_notif_recording))
+            .setContentText(getString(R.string.rec_notif_content, distance, elapsed))
+            .setStyle(Notification.BigTextStyle().bigText(rich))
             .addAction(pauseResume)
             .addAction(stop)
-        // "Live Updates": promote the ongoing tracking notification to a glanceable
-        // status-bar chip showing the live distance. These APIs shifted across platform
-        // previews (the compileSdk stub has them, but an older runtime may not), so call
-        // them reflectively — a no-op where unavailable, never a NoSuchMethodError.
+        promote(builder, distance)
+        return builder.build()
+    }
+
+    private fun buildFollowingNotification(stats: LiveStats, name: String?): Notification {
+        val left = Units.distance(stats.distanceRemainingM ?: 0.0, metric)
+        val eta = formatElapsed(stats.etaSeconds ?: 0)
+        val title = if (name != null) getString(R.string.rec_notif_following_named, name) else getString(R.string.rec_notif_following)
+        val stop = action(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.rec_notif_stop_following), ACTION_STOP_FOLLOW, reqCode = 3)
+        val builder = baseBuilder()
+            .setContentTitle(title)
+            .setContentText(getString(R.string.rec_notif_follow_content, left, eta))
+            .addAction(stop)
+        // A determinate progress bar mirrors the in-app route-progress hero.
+        val pct = ((stats.fraction ?: 0.0) * 100).toInt().coerceIn(0, 100)
+        builder.setProgress(100, pct, false)
+        promote(builder, left)
+        return builder.build()
+    }
+
+    private fun baseBuilder() = Notification.Builder(this, CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+        .setContentIntent(openAppIntent())
+        .setCategory(Notification.CATEGORY_WORKOUT)
+        .setVisibility(Notification.VISIBILITY_PUBLIC)
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+
+    private fun openAppIntent(): PendingIntent = PendingIntent.getActivity(
+        this, 0, packageManager.getLaunchIntentForPackage(packageName),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    /**
+     * "Live Updates": promote the ongoing notification to a glanceable status-bar
+     * chip showing [chipText]. These APIs shifted across platform previews (the
+     * compileSdk stub has them, an older runtime may not), so call them reflectively
+     * — a no-op where unavailable, never a NoSuchMethodError.
+     */
+    private fun promote(builder: Notification.Builder, chipText: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
             runCatching {
-                Notification.Builder::class.java
-                    .getMethod("setShortCriticalText", String::class.java).invoke(builder, distance)
+                Notification.Builder::class.java.getMethod("setShortCriticalText", String::class.java).invoke(builder, chipText)
             }
             runCatching {
                 Notification.Builder::class.java
                     .getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType).invoke(builder, true)
             }
         }
-        return builder.build()
     }
+
+    private fun action(icon: Int, label: String, action: String, reqCode: Int): Notification.Action =
+        Notification.Action.Builder(Icon.createWithResource(this, icon), label, servicePendingIntent(action, reqCode)).build()
 
     /** A PendingIntent that re-enters this service with [action] (notification buttons). */
     private fun servicePendingIntent(action: String, reqCode: Int): PendingIntent = PendingIntent.getService(
@@ -162,6 +234,8 @@ class RecordingService : Service() {
         private const val NOTIF_ID = 42
         private const val ACTION_STOP = "com.sigmundgranaas.turbo.expressive.RECORDING_STOP"
         private const val ACTION_PAUSE = "com.sigmundgranaas.turbo.expressive.RECORDING_PAUSE"
+        private const val ACTION_FOLLOW = "com.sigmundgranaas.turbo.expressive.FOLLOW_START"
+        private const val ACTION_STOP_FOLLOW = "com.sigmundgranaas.turbo.expressive.FOLLOW_STOP"
 
         /**
          * Launch-intent extra the Quick Settings tile sets to ask the app to begin
@@ -179,6 +253,16 @@ class RecordingService : Service() {
         /** Stop recording and dismiss the foreground notification. */
         fun stop(context: Context) {
             context.startService(Intent(context, RecordingService::class.java).setAction(ACTION_STOP))
+        }
+
+        /** Bring the route-following Live Update to the foreground (fed by FollowController). */
+        fun startFollowing(context: Context) {
+            context.startForegroundService(Intent(context, RecordingService::class.java).setAction(ACTION_FOLLOW))
+        }
+
+        /** Dismiss the following Live Update. */
+        fun stopFollowing(context: Context) {
+            context.startService(Intent(context, RecordingService::class.java).setAction(ACTION_STOP_FOLLOW))
         }
     }
 }

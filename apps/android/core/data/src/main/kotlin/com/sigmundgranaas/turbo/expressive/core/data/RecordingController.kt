@@ -23,6 +23,10 @@ data class RecordingSession(
     val elevations: List<Double?> = emptyList(),
     val distanceM: Double = 0.0,
     val elapsedSec: Int = 0,
+    /** Latest instantaneous ground speed (m/s); null until a fix carries speed. */
+    val speedMps: Double? = null,
+    /** Fastest instantaneous speed seen this session (m/s). */
+    val maxSpeedMps: Double = 0.0,
 ) {
     val userLocation: LatLng? get() = points.lastOrNull()
 }
@@ -67,10 +71,22 @@ class RecordingController @Inject constructor(
                 val fix = sample.position
                 val updated = _session.updateAndGet { s ->
                     if (!s.active || s.paused) return@updateAndGet s
-                    if (s.points.isEmpty()) return@updateAndGet s.copy(points = listOf(fix), elevations = listOf(sample.altitude))
+                    // Track speed on every accepted fix (even when the point itself is
+                    // dropped for being too close), so the live tiles stay responsive.
+                    val speed = sample.speedMps
+                    val maxSpeed = if (speed != null) maxOf(s.maxSpeedMps, speed) else s.maxSpeedMps
+                    if (s.points.isEmpty()) {
+                        return@updateAndGet s.copy(
+                            points = listOf(fix), elevations = listOf(sample.altitude),
+                            speedMps = speed, maxSpeedMps = maxSpeed,
+                        )
+                    }
                     val step = GeoMetrics.haversineMeters(s.points.last(), fix)
-                    if (step < MIN_STEP_M) return@updateAndGet s
-                    s.copy(points = s.points + fix, elevations = s.elevations + sample.altitude, distanceM = s.distanceM + step)
+                    if (step < MIN_STEP_M) return@updateAndGet s.copy(speedMps = speed, maxSpeedMps = maxSpeed)
+                    s.copy(
+                        points = s.points + fix, elevations = s.elevations + sample.altitude,
+                        distanceM = s.distanceM + step, speedMps = speed, maxSpeedMps = maxSpeed,
+                    )
                 }
                 // Persist the growing track so it survives process death.
                 draftStore.save(updated.points, updated.elevations, updated.elapsedSec)

@@ -24,6 +24,15 @@ object Units {
     fun elevation(meters: Double, metric: Boolean): String =
         if (metric) "${meters.roundToInt()} m" else "${(meters * FEET_PER_METER).roundToInt()} ft"
 
+    /** Ground speed from m/s: "9.1" km/h (metric) or mph (imperial). Unit-less number. */
+    fun speedValue(metersPerSecond: Double, metric: Boolean): String {
+        val v = if (metric) metersPerSecond * 3.6 else metersPerSecond * 3.6 / 1.609344
+        return "%.1f".format(v)
+    }
+
+    /** The speed unit label that pairs with [speedValue]: "km/h" / "mph". */
+    fun speedUnit(metric: Boolean): String = if (metric) "km/h" else "mph"
+
     /** Pace as time-per-unit: "5:30 /km" / "8:51 /mi". Returns "—" when undefined. */
     fun pace(distanceMeters: Double, seconds: Int, metric: Boolean): String {
         if (distanceMeters < 1.0 || seconds <= 0) return "—"

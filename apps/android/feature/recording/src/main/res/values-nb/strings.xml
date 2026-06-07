@@ -64,6 +64,11 @@
     <string name="rec_notif_pause">Pause</string>
     <string name="rec_notif_resume">Fortsett</string>
     <string name="rec_notif_stop">Stopp</string>
+    <string name="rec_notif_big">%1$s · ↑%2$s · %3$s</string>
+    <string name="rec_notif_following">Følger rute</string>
+    <string name="rec_notif_following_named">Følger %1$s</string>
+    <string name="rec_notif_follow_content">%1$s igjen · %2$s</string>
+    <string name="rec_notif_stop_following">Stopp</string>
 
     <!-- Hurtiginnstilling-flis -->
     <string name="qs_tile_label">Ta opp spor</string>

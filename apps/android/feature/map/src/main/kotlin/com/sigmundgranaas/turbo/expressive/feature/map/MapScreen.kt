@@ -127,6 +127,10 @@ fun MapScreen(
     // Which on-map route stop is selected (so dragging it moves it). Reset with the tool.
     var selectedWaypoint by remember { mutableStateOf<Int?>(null) }
     val recState by recordingViewModel.state.collectAsStateWithLifecycle()
+    val recSession by recordingViewModel.session.collectAsStateWithLifecycle()
+    val followSession by routeViewModel.followSession.collectAsStateWithLifecycle()
+    var recDetent by remember { mutableStateOf(com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half) }
+    var followDetent by remember { mutableStateOf(com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -254,6 +258,20 @@ fun MapScreen(
     // While following, keep the camera centred on the latest fix.
     LaunchedEffect(state.userLocation, state.following) {
         if (state.following) state.userLocation?.let { controller?.flyTo(it, 15.0) }
+    }
+
+    // Mirror the follow session onto a foreground Live Update (lock-screen widget):
+    // start it when following begins, dismiss it only after we actually started one
+    // (so the initial inactive state doesn't tear down an unrelated recording service).
+    var followServiceStarted by remember { mutableStateOf(false) }
+    LaunchedEffect(followSession.active) {
+        if (followSession.active) {
+            com.sigmundgranaas.turbo.expressive.feature.recording.RecordingService.startFollowing(context)
+            followServiceStarted = true
+        } else if (followServiceStarted) {
+            com.sigmundgranaas.turbo.expressive.feature.recording.RecordingService.stopFollowing(context)
+            followServiceStarted = false
+        }
     }
 
     // Off-route detection: re-solve from the current fix if the user strays from the route.
@@ -626,20 +644,39 @@ fun MapScreen(
             // is closed — the route card shows live following. Route *planning* now
             // lives inside the tool, so RouteCard here is the Following/Error surface.
             if (recState.recording) {
-                RecordingControls(
-                    journey = ActiveJourney(
-                        mode = JourneyMode.Recording,
-                        geometry = recState.points,
-                        distanceM = recState.distanceM,
-                        elapsedSec = recState.elapsedSec,
-                        paused = recState.paused,
-                    ),
+                // The music-app-style live sheet (peek → half → full) owns the bottom
+                // slot while recording, reading the same LiveStats the lock-screen widget shows.
+                com.sigmundgranaas.turbo.expressive.feature.map.live.LiveSheet(
+                    stats = com.sigmundgranaas.turbo.expressive.core.data.LiveStats.of(recSession),
                     metric = metric,
-                    onPause = { haptics.toggle(recState.paused); recordingViewModel.togglePause() },
+                    title = com.sigmundgranaas.turbo.expressive.feature.map.live.formatLiveClock(recSession.elapsedSec),
+                    detent = recDetent,
+                    onDetentChange = { recDetent = it },
+                    onTogglePause = { haptics.toggle(recState.paused); recordingViewModel.togglePause() },
                     onStop = { haptics.confirm(); recordingViewModel.stop(); showRecSave = true },
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                        .padding(16.dp),
+                    elevations = recSession.elevations.filterNotNull(),
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            } else if (routeState is RouteUiState.Following && trackMode == null) {
+                // Following a route → the same live sheet, in follow mode.
+                val followName = followSession.name
+                com.sigmundgranaas.turbo.expressive.feature.map.live.LiveSheet(
+                    stats = com.sigmundgranaas.turbo.expressive.core.data.LiveStats.of(followSession),
+                    metric = metric,
+                    title = followName ?: stringResource(R.string.route_following),
+                    detent = followDetent,
+                    onDetentChange = { followDetent = it },
+                    onTogglePause = {},
+                    onStop = { showFollowStopSave = true },
+                    nextWaypoint = followName?.let {
+                        stringResource(
+                            R.string.live_next_waypoint,
+                            com.sigmundgranaas.turbo.expressive.core.geo.Units.distance(
+                                followSession.progress?.distanceRemainingM ?: (followSession.plan?.distanceM ?: 0.0), metric,
+                            ),
+                        ) to it
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
                 )
             } else if (trackMode == null) {
                 val routeWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()

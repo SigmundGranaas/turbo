@@ -18,10 +18,17 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 /**
- * A single GPS fix with optional altitude (metres above the WGS84 ellipsoid)
- * and horizontal [accuracyM] (68 % radius in metres; null when unknown).
+ * A single GPS fix with optional altitude (metres above the WGS84 ellipsoid),
+ * horizontal [accuracyM] (68 % radius in metres; null when unknown), and the
+ * instantaneous ground [speedMps] reported by the provider (metres/second; null
+ * when the fix carries no speed — e.g. a coarse network fix).
  */
-data class LocationSample(val position: LatLng, val altitude: Double?, val accuracyM: Double? = null)
+data class LocationSample(
+    val position: LatLng,
+    val altitude: Double?,
+    val accuracyM: Double? = null,
+    val speedMps: Double? = null,
+)
 
 /**
  * Device location, sourced from the framework [LocationManager] (no Google Play
@@ -73,6 +80,7 @@ class AndroidLocationRepository @Inject constructor(
             LatLng(latitude, longitude),
             if (hasAltitude()) altitude else null,
             if (hasAccuracy()) accuracy.toDouble() else null,
+            if (hasSpeed()) speed.toDouble() else null,
         )
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {

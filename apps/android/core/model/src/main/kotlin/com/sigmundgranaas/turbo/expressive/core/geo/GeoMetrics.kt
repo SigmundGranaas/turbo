@@ -57,6 +57,20 @@ object GeoMetrics {
     }
 
     /**
+     * Rough energy estimate (kcal) for a hike of [distanceM] with [ascentM] of
+     * climb, for a ~70 kg hiker. Flat walking burns ≈ 0.5 kcal/kg/km; climbing
+     * adds the potential energy of lifting that mass (mgh, ~25 % muscular
+     * efficiency → ≈ 1.6 kcal per kg per 100 m of ascent). Deliberately simple
+     * and surfaced as an estimate, not a measurement.
+     */
+    fun estimateKcal(distanceM: Double, ascentM: Double?, weightKg: Double = 70.0): Int {
+        if (distanceM <= 0.0 && (ascentM ?: 0.0) <= 0.0) return 0
+        val flat = 0.5 * weightKg * (distanceM / 1000.0)
+        val climb = 0.016 * weightKg * (ascentM ?: 0.0)
+        return (flat + climb).toInt()
+    }
+
+    /**
      * Naismith with Langmuir-style correction: 1 h / 5 km on the flat, +1 h per
      * 600 m ascent. Returns seconds.
      */

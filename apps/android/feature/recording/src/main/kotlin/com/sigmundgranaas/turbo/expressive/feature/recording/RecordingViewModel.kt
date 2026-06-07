@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RecordingController
+import com.sigmundgranaas.turbo.expressive.core.data.RecordingSession
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
@@ -57,6 +58,9 @@ class RecordingViewModel @Inject constructor(
             elapsedSec = session.elapsedSec,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), local.value)
+
+    /** The full recording session (elevations, speed) the live sheet renders from. */
+    val session: StateFlow<RecordingSession> = controller.session
 
     fun onPermissionResult(granted: Boolean) {
         local.update { it.copy(hasPermission = granted) }

@@ -59,4 +59,13 @@ class GeoMetricsTest {
         val off = GeoMetrics.distanceToPath(route, LatLng(69.001, 18.005))
         assertTrue("expected ~111 m, was $off", off in 90.0..130.0)
     }
+
+    @Test
+    fun `estimateKcal grows with distance and ascent and is zero when idle`() {
+        assertEquals(0, GeoMetrics.estimateKcal(0.0, 0.0))
+        // 5 km flat for a 70 kg hiker ≈ 0.5 * 70 * 5 = 175 kcal.
+        assertEquals(175, GeoMetrics.estimateKcal(5_000.0, 0.0))
+        // Adding 400 m of climb burns strictly more.
+        assertTrue(GeoMetrics.estimateKcal(5_000.0, 400.0) > GeoMetrics.estimateKcal(5_000.0, 0.0))
+    }
 }

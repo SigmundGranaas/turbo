@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sigmundgranaas.turbo.expressive.core.data.FollowController
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
@@ -47,6 +48,7 @@ class RouteViewModel @Inject constructor(
     private val routes: RouteRepository,
     private val paths: PathRepository,
     private val offline: OfflineTileManager,
+    private val follow: FollowController,
 ) : ViewModel() {
     private val _state = MutableStateFlow<RouteUiState>(RouteUiState.Idle)
     val state: StateFlow<RouteUiState> = _state.asStateFlow()
@@ -61,6 +63,17 @@ class RouteViewModel @Inject constructor(
     private var job: Job? = null
     private var resumeFollowing = false
     private val undoStack = ArrayDeque<List<LatLng>>()
+
+    init {
+        // Keep the route state in step with the follow session: if following ends from
+        // outside (e.g. the lock-screen Stop button → FollowController.stop()), drop back
+        // to Idle so the in-app surface and the widget can't disagree.
+        viewModelScope.launch {
+            follow.session.collect { s ->
+                if (!s.active && _state.value is RouteUiState.Following) _state.value = RouteUiState.Idle
+            }
+        }
+    }
 
     /** Start a fresh two-point route (origin → destination). */
     fun planRoute(from: LatLng, to: LatLng, preset: RoutePreset = _preset.value) {
@@ -177,31 +190,38 @@ class RouteViewModel @Inject constructor(
     suspend fun pathById(id: String): com.sigmundgranaas.turbo.expressive.domain.SavedPath? = paths.byId(id)
 
     fun follow() {
-        (_state.value as? RouteUiState.Done)?.let { _state.value = RouteUiState.Following(it.plan) }
+        (_state.value as? RouteUiState.Done)?.let {
+            _state.value = RouteUiState.Following(it.plan)
+            follow.start(it.plan)
+        }
     }
+
+    /** The live follow session backing the lock-screen widget; same source the sheet reads. */
+    val followSession get() = follow.session
 
     /**
      * Follow an already-saved track's geometry (no solve) — used by "Follow" on a
      * saved track opened on the map, so following works for recorded/imported lines
      * the same as for planned routes.
      */
-    fun followTrack(geometry: List<LatLng>, distanceM: Double, ascentM: Double, durationS: Double) {
+    fun followTrack(geometry: List<LatLng>, distanceM: Double, ascentM: Double, durationS: Double, name: String? = null) {
         if (geometry.size < 2) return
         job?.cancel()
-        _state.value = RouteUiState.Following(
-            RoutePlan(
-                distanceM = distanceM,
-                durationS = durationS,
-                ascentM = ascentM,
-                onTrailPct = 0.0,
-                surfaces = emptyMap(),
-                geometry = geometry,
-            ),
+        val plan = RoutePlan(
+            distanceM = distanceM,
+            durationS = durationS,
+            ascentM = ascentM,
+            onTrailPct = 0.0,
+            surfaces = emptyMap(),
+            geometry = geometry,
         )
+        _state.value = RouteUiState.Following(plan)
+        follow.start(plan, name = name)
     }
 
     fun clear() {
         job?.cancel()
+        follow.stop()
         _waypoints.value = emptyList()
         undoStack.clear()
         _state.value = RouteUiState.Idle

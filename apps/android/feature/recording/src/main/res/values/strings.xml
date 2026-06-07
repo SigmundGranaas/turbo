@@ -64,6 +64,13 @@
     <string name="rec_notif_pause">Pause</string>
     <string name="rec_notif_resume">Resume</string>
     <string name="rec_notif_stop">Stop</string>
+    <!-- Recording rich line: distance · ascent · speed -->
+    <string name="rec_notif_big">%1$s · ↑%2$s · %3$s</string>
+    <!-- Following Live Update -->
+    <string name="rec_notif_following">Following route</string>
+    <string name="rec_notif_following_named">Following %1$s</string>
+    <string name="rec_notif_follow_content">%1$s left · %2$s</string>
+    <string name="rec_notif_stop_following">Stop</string>
 
     <!-- Quick Settings tile -->
     <string name="qs_tile_label">Record track</string>

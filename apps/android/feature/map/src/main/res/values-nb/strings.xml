@@ -1,5 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Live-panel (opptak / følging over kartet) -->
+    <string name="live_rec">OPPTAK</string>
+    <string name="live_on_route">På rute</string>
+    <string name="live_moving">i bevegelse</string>
+    <string name="live_route_length">%1$s rute</string>
+    <string name="live_km">km</string>
+    <string name="live_km_left">igjen</string>
+    <string name="live_ascent_up">stigning ↑</string>
+    <string name="live_arrival">ankomst · %1$s</string>
+    <string name="live_arrival_label">ankomst</string>
+    <string name="live_progress">%1$s av %2$s fullført</string>
+    <string name="live_swipe_stats">⌃ Dra opp for full statistikk</string>
+    <string name="live_swipe_more">⌃ Dra opp for høyde og kontroller</string>
+    <string name="live_pause">Pause</string>
+    <string name="live_resume">Fortsett</string>
+    <string name="live_finish">Avslutt</string>
+    <string name="live_stop_following">Stopp følging</string>
+    <string name="live_mute">Demp stemme</string>
+    <string name="live_speed">Fart</string>
+    <string name="live_avg_pace">Snittfart</string>
+    <string name="live_max">Maks</string>
+    <string name="live_ascent">Stigning</string>
+    <string name="live_descent">Nedstigning</string>
+    <string name="live_energy">Energi</string>
+    <string name="live_to_climb">Igjen å klatre</string>
+    <string name="live_ahead">Igjen</string>
+    <string name="live_altitude">Høyde</string>
+    <string name="live_elevation">Høyde</string>
+    <string name="live_elevation_now">%1$s nå</string>
+    <string name="live_elevation_to_go">%1$s · ↑%2$s igjen</string>
+    <string name="live_next_waypoint">Neste veipunkt · %1$s</string>
+    <string name="live_expand">Utvid live-panel</string>
+    <string name="live_kcal">kcal</string>
+    <string name="live_min">min</string>
+
     <string name="collections_add_title">Legg til i samling</string>
     <string name="collections_member">I denne samlingen</string>
     <string name="collections_new_hint">Ny samling…</string>

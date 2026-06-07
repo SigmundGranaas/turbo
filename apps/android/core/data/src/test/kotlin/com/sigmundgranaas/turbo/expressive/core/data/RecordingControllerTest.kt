@@ -16,7 +16,8 @@ private class FakeLocationRepository(var permitted: Boolean = true) : LocationRe
     val feed = MutableSharedFlow<LocationSample>(extraBufferCapacity = 32)
     override fun hasPermission(): Boolean = permitted
     override fun samples(): Flow<LocationSample> = feed
-    suspend fun emit(lat: Double, lng: Double, alt: Double? = null) = feed.emit(LocationSample(LatLng(lat, lng), alt))
+    suspend fun emit(lat: Double, lng: Double, alt: Double? = null, speed: Double? = null) =
+        feed.emit(LocationSample(LatLng(lat, lng), alt, speedMps = speed))
 }
 
 private class FakeDraftStore(var draft: RecordingDraft? = null) : RecordingDraftStore {
@@ -97,6 +98,23 @@ class RecordingControllerTest {
         advanceTimeBy(3_100)
         runCurrent()
         assertEquals(3, controller.session.value.elapsedSec)
+    }
+
+    @Test
+    fun `tracks latest and peak speed across fixes, even sub-min-step ones`() = runTest {
+        val loc = FakeLocationRepository()
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
+        controller.start()
+        runCurrent()
+
+        loc.emit(69.0, 18.0, speed = 1.2); runCurrent()
+        loc.emit(69.001, 18.0, speed = 3.9); runCurrent() // moved, faster
+        loc.emit(69.001002, 18.0, speed = 2.0); runCurrent() // jitter (< min step) but updates speed
+
+        val s = controller.session.value
+        assertEquals(2.0, s.speedMps!!, 1e-6)
+        assertEquals(3.9, s.maxSpeedMps, 1e-6)
+        assertEquals(2, s.points.size) // jitter point dropped from the track
     }
 
     @Test

@@ -1,5 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Live sheet (recording / following over the map) -->
+    <string name="live_rec">REC</string>
+    <string name="live_on_route">On route</string>
+    <string name="live_moving">moving</string>
+    <string name="live_route_length">%1$s route</string>
+    <string name="live_km">km</string>
+    <string name="live_km_left">left</string>
+    <string name="live_ascent_up">ascent ↑</string>
+    <string name="live_arrival">arrival · %1$s</string>
+    <string name="live_arrival_label">arrival</string>
+    <string name="live_progress">%1$s of %2$s done</string>
+    <string name="live_swipe_stats">⌃ Swipe up for full stats</string>
+    <string name="live_swipe_more">⌃ Swipe up for elevation &amp; controls</string>
+    <string name="live_pause">Pause</string>
+    <string name="live_resume">Resume</string>
+    <string name="live_finish">Finish</string>
+    <string name="live_stop_following">Stop following</string>
+    <string name="live_mute">Mute voice</string>
+    <string name="live_speed">Speed</string>
+    <string name="live_avg_pace">Avg pace</string>
+    <string name="live_max">Max</string>
+    <string name="live_ascent">Ascent</string>
+    <string name="live_descent">Descent</string>
+    <string name="live_energy">Energy</string>
+    <string name="live_to_climb">To climb</string>
+    <string name="live_ahead">Ahead</string>
+    <string name="live_altitude">Altitude</string>
+    <string name="live_elevation">Elevation</string>
+    <string name="live_elevation_now">%1$s now</string>
+    <string name="live_elevation_to_go">%1$s · ↑%2$s to go</string>
+    <string name="live_next_waypoint">Next waypoint · %1$s</string>
+    <string name="live_expand">Expand live panel</string>
+    <string name="live_kcal">kcal</string>
+    <string name="live_min">min</string>
+
     <string name="collections_add_title">Add to collection</string>
     <string name="collections_member">In this collection</string>
     <string name="collections_new_hint">New collection…</string>
