@@ -80,7 +80,15 @@ class SharingGraphViewModel @Inject constructor(
 
     fun createGroup(name: String) {
         if (name.isBlank()) return
-        act { sharing.createGroup(name.trim()) }
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = null) }
+            val msg = when (sharing.createGroup(name.trim())) {
+                is Outcome.Success -> "Group created"
+                is Outcome.Failure -> "Couldn't create group"
+            }
+            _state.update { it.copy(busy = false, message = msg) }
+            refresh()
+        }
     }
 
     fun addGroupMember(groupId: String, code: String) {

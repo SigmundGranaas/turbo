@@ -93,4 +93,10 @@ class SharingContentTest {
         content(SharingGraphViewModel.UiState(loading = false))
         composeRule.onNodeWithText("No friends yet").assertIsDisplayed()
     }
+
+    @Test
+    fun `a state message is surfaced as a snackbar`() {
+        content(SharingGraphViewModel.UiState(loading = false, message = "No user found for that code"))
+        composeRule.onNodeWithText("No user found for that code").assertIsDisplayed()
+    }
 }

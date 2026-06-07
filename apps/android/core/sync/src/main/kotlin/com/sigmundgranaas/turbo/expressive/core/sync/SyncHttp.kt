@@ -30,17 +30,24 @@ class AuthorizedHttp @Inject constructor(
      * [urlString] must be the absolute URL (passed positionally so Ktor parses scheme+host,
      * exactly like the auth client's `get("$base/…")`); setting it inside the builder block
      * leaves the host as the default localhost.
+     *
+     * NOTE: the config lambda is named [configure], NOT `build` — `HttpRequestBuilder`
+     * already declares a member `build()` (it produces the `HttpRequestData`), so a
+     * parameter called `build` is shadowed by that member inside the receiver block.
+     * Calling `build()` would then invoke the member (build-and-discard) instead of the
+     * caller's lambda, silently dropping `method`/`setBody` — every POST/PUT/DELETE
+     * degraded to a bodyless GET. Keep this name distinct.
      */
-    suspend fun request(urlString: String, build: HttpRequestBuilder.() -> Unit): HttpResponse {
+    suspend fun request(urlString: String, configure: HttpRequestBuilder.() -> Unit): HttpResponse {
         val first = client.request(urlString) {
-            build()
+            configure()
             bearer(auth.accessToken())
         }
         if (first.status != HttpStatusCode.Unauthorized) return first
 
         auth.refresh()
         return client.request(urlString) {
-            build()
+            configure()
             bearer(auth.accessToken())
         }
     }
