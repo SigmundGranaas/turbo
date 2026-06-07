@@ -779,8 +779,10 @@ fun MapScreen(
                 if (showStops) {
                     WaypointsSheet(
                         waypoints = toolWaypoints,
+                        statText = meta,
                         onMove = { from, to -> routeViewModel.moveWaypoint(from, to) },
                         onRemove = { routeViewModel.removeWaypoint(it) },
+                        onAddStop = { showStops = false },
                         onDismiss = { showStops = false },
                     )
                 }

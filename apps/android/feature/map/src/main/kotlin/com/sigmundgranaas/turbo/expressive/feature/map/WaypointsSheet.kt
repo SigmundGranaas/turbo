@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,8 +16,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.TripOrigin
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +40,7 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -50,126 +53,197 @@ import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import kotlin.math.roundToInt
 
-private val RowHeight = 64.dp
+private val RowHeight = 56.dp
+
+/** Stop-kind colours from the design (start green, end red, vias use the scheme primary). */
+internal val StopStart = Color(0xFF2E7D32)
+internal val StopEnd = Color(0xFFC0392B)
+
+/** Per-stop colour: start green, end red, otherwise the route primary. */
+@Composable
+internal fun stopColor(index: Int, last: Int): Color = when (index) {
+    0 -> StopStart
+    last -> StopEnd
+    else -> MaterialTheme.colorScheme.primary
+}
 
 /**
- * Manage the route's ordered waypoints: see every stop (start → vias → destination),
- * drag a stop by its handle to reorder, or remove it. Reordering commits once on
- * drop (one re-solve), not per pixel.
+ * Manage the route's ordered stops (the design's "Define route" editor): every stop
+ * (start → vias → destination) as a row with a drag handle, an A/B/C… letter badge
+ * (flag for the destination), a role label + coordinates, and a remove button for
+ * intermediate stops. Drag a row by its handle to reorder (one re-solve on drop),
+ * or tap "Add stop" to drop the next one on the map.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun WaypointsSheet(
     waypoints: List<LatLng>,
+    statText: String,
     onMove: (from: Int, to: Int) -> Unit,
     onRemove: (Int) -> Unit,
+    onAddStop: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val density = LocalDensity.current
-    val rowPx = with(density) { RowHeight.toPx() }
-
-    // Local mirror so the list reorders live under the finger; re-keyed when the
-    // upstream route changes (after a commit or a remove).
-    val items: SnapshotStateList<LatLng> = remember(waypoints) { waypoints.toMutableStateList() }
-    var dragIndex by remember { mutableStateOf<Int?>(null) }
-    var dragStart by remember { mutableStateOf<Int?>(null) }
-    var dragOffset by remember { mutableFloatStateOf(0f) }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = cs.surfaceContainerLow,
     ) {
-        Column(Modifier.padding(start = 22.dp, end = 22.dp, bottom = 28.dp)) {
+        WaypointsList(waypoints, statText, onMove, onRemove, onAddStop)
+    }
+}
+
+/** Host-free stop list — the body of [WaypointsSheet], exercised directly in tests. */
+@Composable
+internal fun WaypointsList(
+    waypoints: List<LatLng>,
+    statText: String,
+    onMove: (from: Int, to: Int) -> Unit,
+    onRemove: (Int) -> Unit,
+    onAddStop: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    val rowPx = with(density) { RowHeight.toPx() }
+    val items: SnapshotStateList<LatLng> = remember(waypoints) { waypoints.toMutableStateList() }
+    var dragIndex by remember { mutableStateOf<Int?>(null) }
+    var dragStart by remember { mutableStateOf<Int?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+
+    Column(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 28.dp).testTag("waypointsSheet")) {
             Text(
                 stringResource(R.string.track_stops_title),
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.W700),
                 color = cs.onSurface,
             )
-            Text(
-                stringResource(R.string.track_stops_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = cs.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 14.dp),
-            )
+            // Stat line: distance · ascent · time — mirrors the builder's readout.
+            if (statText.isNotBlank()) {
+                Text(
+                    statText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp).testTag("stopsStat"),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
 
             Column {
                 items.forEachIndexed { index, point ->
                     val dragging = dragIndex == index
-                    Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = if (dragging) cs.secondaryContainer else cs.surfaceContainerHigh,
-                        shadowElevation = if (dragging) 6.dp else 0.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(RowHeight)
-                            .padding(vertical = 4.dp)
-                            .zIndex(if (dragging) 1f else 0f)
-                            .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
-                            .testTag("wpRow_$index"),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp)) {
-                            StopBadge(index = index, last = index == items.lastIndex)
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(stopLabel(index, items.lastIndex), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
-                                Text(formatCoords(point), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1)
-                            }
-                            // Remove (endpoints stay — a route needs a start + destination).
-                            if (index != 0 && index != items.lastIndex) {
-                                IconButton(onClick = { onRemove(index) }, modifier = Modifier.testTag("wpRemove_$index")) {
-                                    Icon(Icons.Rounded.Close, stringResource(R.string.wp_remove), tint = cs.onSurfaceVariant)
-                                }
-                            }
-                            // Drag handle — long-press then drag to reorder.
-                            Icon(
-                                Icons.Rounded.DragHandle,
-                                stringResource(R.string.wp_reorder),
-                                tint = cs.onSurfaceVariant,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .pointerInput(items.size) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                dragStart = index; dragIndex = index; dragOffset = 0f
-                                            },
-                                            onDragEnd = {
-                                                val from = dragStart; val to = dragIndex
-                                                if (from != null && to != null && from != to) onMove(from, to)
-                                                dragIndex = null; dragStart = null; dragOffset = 0f
-                                            },
-                                            onDragCancel = { dragIndex = null; dragStart = null; dragOffset = 0f },
-                                            onDrag = { change, amount ->
-                                                change.consume()
-                                                val cur = dragIndex ?: return@detectDragGesturesAfterLongPress
-                                                dragOffset += amount.y
-                                                val target = (cur + (dragOffset / rowPx).roundToInt()).coerceIn(0, items.lastIndex)
-                                                if (target != cur) {
-                                                    items.add(target, items.removeAt(cur))
-                                                    dragOffset -= (target - cur) * rowPx
-                                                    dragIndex = target
-                                                }
-                                            },
-                                        )
-                                    },
+                    StopRow(
+                        index = index,
+                        last = items.lastIndex,
+                        coords = formatCoords(point),
+                        dragging = dragging,
+                        dragOffset = dragOffset,
+                        onRemove = { onRemove(index) },
+                        reorderHandle = Modifier.pointerInput(items.size) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { dragStart = index; dragIndex = index; dragOffset = 0f },
+                                onDragEnd = {
+                                    val from = dragStart; val to = dragIndex
+                                    if (from != null && to != null && from != to) onMove(from, to)
+                                    dragIndex = null; dragStart = null; dragOffset = 0f
+                                },
+                                onDragCancel = { dragIndex = null; dragStart = null; dragOffset = 0f },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    val cur = dragIndex ?: return@detectDragGesturesAfterLongPress
+                                    dragOffset += amount.y
+                                    val target = (cur + (dragOffset / rowPx).roundToInt()).coerceIn(0, items.lastIndex)
+                                    if (target != cur) {
+                                        items.add(target, items.removeAt(cur))
+                                        dragOffset -= (target - cur) * rowPx
+                                        dragIndex = target
+                                    }
+                                },
                             )
-                        }
-                    }
+                        },
+                    )
+                }
+
+                // "Add stop" — drops the sheet so the next map tap places a stop.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable(onClick = onAddStop)
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                        .testTag("addStop"),
+                ) {
+                    Spacer(Modifier.width(22.dp)) // align under the drag handles
+                    Box(
+                        Modifier.size(28.dp).clip(CircleShape).background(cs.surfaceContainerHighest),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Rounded.Add, null, tint = cs.primary, modifier = Modifier.size(18.dp)) }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        stringResource(R.string.wp_add_stop),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W700),
+                        color = cs.primary,
+                    )
                 }
             }
         }
     }
-}
 
 @Composable
-private fun StopBadge(index: Int, last: Boolean) {
+private fun StopRow(
+    index: Int,
+    last: Int,
+    coords: String,
+    dragging: Boolean,
+    dragOffset: Float,
+    onRemove: () -> Unit,
+    reorderHandle: Modifier,
+) {
     val cs = MaterialTheme.colorScheme
-    Box(Modifier.size(34.dp).clip(CircleShape).background(cs.primary), contentAlignment = Alignment.Center) {
-        when {
-            index == 0 -> Icon(Icons.Rounded.TripOrigin, null, tint = cs.onPrimary, modifier = Modifier.size(18.dp))
-            last -> Icon(Icons.Rounded.Flag, null, tint = cs.onPrimary, modifier = Modifier.size(18.dp))
-            else -> Text("$index", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.W700), color = cs.onPrimary)
+    val badge = stopColor(index, last)
+    val isEndpoint = index == 0 || index == last
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = if (dragging) cs.secondaryContainer else cs.surfaceContainerHigh,
+        shadowElevation = if (dragging) 6.dp else 0.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(RowHeight)
+            .padding(vertical = 3.dp)
+            .zIndex(if (dragging) 1f else 0f)
+            .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
+            .testTag("wpRow_$index"),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp, end = 6.dp)) {
+            Icon(
+                Icons.Rounded.DragIndicator,
+                stringResource(R.string.wp_reorder),
+                tint = cs.onSurfaceVariant,
+                modifier = Modifier.size(22.dp).then(reorderHandle),
+            )
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.size(28.dp).clip(CircleShape).background(badge), contentAlignment = Alignment.Center) {
+                when {
+                    index == 0 -> Icon(Icons.Rounded.TripOrigin, null, tint = Color.White, modifier = Modifier.size(15.dp))
+                    index == last -> Icon(Icons.Rounded.Flag, null, tint = Color.White, modifier = Modifier.size(15.dp))
+                    else -> Text(
+                        ('A' + index).toString(),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.W800),
+                        color = Color.White,
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(stopLabel(index, last), style = MaterialTheme.typography.titleSmall, color = cs.onSurface, maxLines = 1)
+                Text(coords, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1)
+            }
+            // Remove — vias only; a route keeps its start and destination.
+            if (!isEndpoint) {
+                IconButton(onClick = onRemove, modifier = Modifier.testTag("wpRemove_$index")) {
+                    Icon(Icons.Rounded.Close, stringResource(R.string.wp_remove), tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                }
+            }
         }
     }
 }
