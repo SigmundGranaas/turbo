@@ -1,14 +1,11 @@
 package com.sigmundgranaas.turbo.expressive.ui.map
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -21,8 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -42,6 +38,15 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
 import kotlin.math.roundToInt
 import org.maplibre.android.geometry.LatLng as MlLatLng
 
@@ -131,6 +136,10 @@ fun TurboMap(
     val moving = remember { mutableStateOf(false) }
     var styledBase by remember { mutableStateOf<BaseLayer?>(null) }
     var styledOverlays by remember { mutableStateOf<Set<com.sigmundgranaas.turbo.expressive.domain.OverlayId>>(emptySet()) }
+    // The loaded style — on-map geometry (track/route/measure/user) is rendered as native
+    // MapLibre layers on it, so it moves in the same GL frame as the base map (no drift).
+    var style by remember { mutableStateOf<Style?>(null) }
+    val px = density.density
 
     Box(modifier = modifier) {
         AndroidView(factory = {
@@ -142,7 +151,9 @@ fun TurboMap(
                     // rail, so suppress MapLibre's default top-right widget that otherwise
                     // lands under the status bar / search pill.
                     ml.uiSettings.isCompassEnabled = false
-                    ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) {
+                    ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) { loaded ->
+                        loaded.installTurboLayers(trackColor, routeColor, measureColor, px)
+                        style = loaded
                         styledBase = base
                         styledOverlays = overlays
                     }
@@ -189,77 +200,28 @@ fun TurboMap(
         // Re-style when the base layer or the data overlay changes.
         val ml = map
         if (ml != null && (styledBase != base || styledOverlays != overlays)) {
-            ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) {
+            style = null // the old Style is torn down; re-installed in the callback below
+            ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) { loaded ->
+                loaded.installTurboLayers(trackColor, routeColor, measureColor, px)
+                style = loaded
                 styledBase = base
                 styledOverlays = overlays
             }
         }
 
-        // ---- Compose overlay: route + pins, reprojected on every camera change ----
+        // Push current geometry into the native sources whenever the data (or style) changes.
+        LaunchedEffect(style, track, route, measurePoints, userLocation) {
+            val s = style ?: return@LaunchedEffect
+            s.getSourceAs<GeoJsonSource>(SRC_TRACK)?.setGeoJson(lineFc(track))
+            s.getSourceAs<GeoJsonSource>(SRC_ROUTE)?.setGeoJson(lineFc(route))
+            s.getSourceAs<GeoJsonSource>(SRC_MEASURE_LINE)?.setGeoJson(lineFc(measurePoints))
+            s.getSourceAs<GeoJsonSource>(SRC_MEASURE_PTS)?.setGeoJson(pointsFc(measurePoints))
+            s.getSourceAs<GeoJsonSource>(SRC_USER)?.setGeoJson(pointsFc(listOfNotNull(userLocation)))
+        }
+
+        // ---- Native MapLibre layers render track/route/measure/user (see LaunchedEffect
+        // above). Markers + scale bar stay Compose, reprojected on every camera change. ----
         if (ml != null) {
-            // A saved track opened on the map (drawn under the active route).
-            if (track != null && track.size > 1) {
-                Canvas(modifier = Modifier.matchParentSize()) {
-                    @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
-                    val proj = ml.projection
-                    val path = Path()
-                    track.forEachIndexed { i, p ->
-                        val pt = proj.toScreenLocation(MlLatLng(p.lat, p.lng))
-                        if (i == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
-                    }
-                    drawPath(path, color = trackColor, style = Stroke(width = 5.dp.toPx()))
-                }
-            }
-            if (route != null && route.size > 1) {
-                Canvas(modifier = Modifier.matchParentSize()) {
-                    @Suppress("UNUSED_EXPRESSION") cameraTick.intValue // invalidate on camera move
-                    val proj = ml.projection
-                    val path = Path()
-                    route.forEachIndexed { i, p ->
-                        val pt = proj.toScreenLocation(MlLatLng(p.lat, p.lng))
-                        if (i == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
-                    }
-                    drawPath(path, color = routeColor, style = Stroke(width = 5.dp.toPx()))
-                }
-            }
-            // Measuring tool: dashed-feel polyline + a dot at each tapped vertex.
-            if (measurePoints.isNotEmpty()) {
-                Canvas(modifier = Modifier.matchParentSize()) {
-                    @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
-                    val proj = ml.projection
-                    if (measurePoints.size > 1) {
-                        val path = Path()
-                        measurePoints.forEachIndexed { i, p ->
-                            val pt = proj.toScreenLocation(MlLatLng(p.lat, p.lng))
-                            if (i == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
-                        }
-                        drawPath(path, color = measureColor, style = Stroke(width = 4.dp.toPx()))
-                    }
-                    measurePoints.forEach { p ->
-                        val pt = proj.toScreenLocation(MlLatLng(p.lat, p.lng))
-                        drawCircle(Color.White, radius = 6.dp.toPx(), center = androidx.compose.ui.geometry.Offset(pt.x, pt.y))
-                        drawCircle(measureColor, radius = 4.dp.toPx(), center = androidx.compose.ui.geometry.Offset(pt.x, pt.y))
-                    }
-                }
-            }
-            // User location: a blue dot with a white ring, projected like markers.
-            if (userLocation != null) {
-                val dotPx = with(density) { 18.dp.toPx() }
-                Box(
-                    Modifier
-                        .offset {
-                            @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
-                            val pt = ml.projection.toScreenLocation(MlLatLng(userLocation.lat, userLocation.lng))
-                            IntOffset((pt.x - dotPx / 2f).roundToInt(), (pt.y - dotPx / 2f).roundToInt())
-                        }
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .padding(3.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF1A73E8)),
-                )
-            }
             // Scale bar (bottom-left), recomputed on camera change from centre lat + zoom.
             run {
                 @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
@@ -313,6 +275,66 @@ fun TurboMap(
         }
     }
 }
+
+private const val SRC_TRACK = "turbo-track-src"
+private const val SRC_ROUTE = "turbo-route-src"
+private const val SRC_MEASURE_LINE = "turbo-measure-line-src"
+private const val SRC_MEASURE_PTS = "turbo-measure-pts-src"
+private const val SRC_USER = "turbo-user-src"
+private const val USER_BLUE = 0xFF1A73E8.toInt()
+private const val WHITE = 0xFFFFFFFF.toInt()
+
+/**
+ * Install the empty GeoJSON sources + line/circle layers for the on-map geometry, once
+ * per loaded [Style]. Idempotent (no-op if already present). Data is pushed in later.
+ */
+private fun Style.installTurboLayers(
+    trackColor: Color,
+    routeColor: Color,
+    measureColor: Color,
+    density: Float,
+) {
+    if (getSource(SRC_TRACK) != null) return
+    listOf(SRC_TRACK, SRC_ROUTE, SRC_MEASURE_LINE, SRC_MEASURE_PTS, SRC_USER).forEach { addSource(GeoJsonSource(it)) }
+
+    fun line(id: String, src: String, color: Color, widthDp: Float) = LineLayer(id, src).withProperties(
+        PropertyFactory.lineColor(color.toArgb()),
+        PropertyFactory.lineWidth(widthDp * density),
+        PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+    )
+    addLayer(line("turbo-track-layer", SRC_TRACK, trackColor, 5f))
+    addLayer(line("turbo-route-layer", SRC_ROUTE, routeColor, 5f))
+    addLayer(line("turbo-measure-line-layer", SRC_MEASURE_LINE, measureColor, 4f))
+    addLayer(
+        CircleLayer("turbo-measure-pts-layer", SRC_MEASURE_PTS).withProperties(
+            PropertyFactory.circleRadius(4f * density),
+            PropertyFactory.circleColor(measureColor.toArgb()),
+            PropertyFactory.circleStrokeColor(WHITE),
+            PropertyFactory.circleStrokeWidth(2f * density),
+        ),
+    )
+    addLayer(
+        CircleLayer("turbo-user-layer", SRC_USER).withProperties(
+            PropertyFactory.circleRadius(6f * density),
+            PropertyFactory.circleColor(USER_BLUE),
+            PropertyFactory.circleStrokeColor(WHITE),
+            PropertyFactory.circleStrokeWidth(3f * density),
+        ),
+    )
+}
+
+/** A one-feature collection holding the polyline (empty if fewer than 2 points). */
+private fun lineFc(points: List<LatLng>?): FeatureCollection {
+    val pts = points.orEmpty()
+    if (pts.size < 2) return FeatureCollection.fromFeatures(emptyArray<Feature>())
+    val line = LineString.fromLngLats(pts.map { Point.fromLngLat(it.lng, it.lat) })
+    return FeatureCollection.fromFeature(Feature.fromGeometry(line))
+}
+
+/** A feature collection of point markers. */
+private fun pointsFc(points: List<LatLng>): FeatureCollection =
+    FeatureCollection.fromFeatures(points.map { Feature.fromGeometry(Point.fromLngLat(it.lng, it.lat)) })
 
 /** Creates a [MapView] bound to the current lifecycle (forwards all callbacks). */
 @Composable
