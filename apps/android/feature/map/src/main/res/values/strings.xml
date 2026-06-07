@@ -129,6 +129,9 @@
 
     <!-- Navigation drawer -->
     <string name="drawer_tagline">Turkart for Norway</string>
+    <string name="drawer_sign_in">Sign in</string>
+    <string name="drawer_sign_in_sub">Sync across devices</string>
+    <string name="drawer_account_manage">Tap to manage account</string>
     <string name="drawer_map">Map</string>
     <string name="drawer_paths">Saved Tracks</string>
     <string name="drawer_collections">Collections</string>

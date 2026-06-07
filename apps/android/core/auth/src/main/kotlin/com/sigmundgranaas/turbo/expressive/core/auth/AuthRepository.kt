@@ -21,6 +21,9 @@ interface AuthRepository {
     suspend fun register(email: String, password: String): Outcome<Account>
     suspend fun login(email: String, password: String): Outcome<Account>
 
+    /** The Google OAuth consent URL to open (the flow returns a code to finish with). */
+    suspend fun googleAuthUrl(): Outcome<String>
+
     /** Finish Google sign-in with the authorization code from the OAuth flow. */
     suspend fun loginWithGoogle(code: String): Outcome<Account>
 

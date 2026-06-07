@@ -27,6 +27,10 @@ internal data class AuthResponse(
     val email: String,
 )
 
+/** GET /api/auth/oauth/{provider}/url */
+@Serializable
+internal data class OAuthUrlResponse(val authorizationUrl: String)
+
 /** Error envelope: { errorCode, message }. */
 @Serializable
 internal data class ApiError(val errorCode: String? = null, val message: String? = null)

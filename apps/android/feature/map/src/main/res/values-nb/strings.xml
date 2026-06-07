@@ -129,6 +129,9 @@
 
     <!-- Navigation drawer -->
     <string name="drawer_tagline">Turkart for Norge</string>
+    <string name="drawer_sign_in">Logg inn</string>
+    <string name="drawer_sign_in_sub">Synk på tvers av enheter</string>
+    <string name="drawer_account_manage">Trykk for å administrere konto</string>
     <string name="drawer_map">Kart</string>
     <string name="drawer_paths">Lagrede spor</string>
     <string name="drawer_collections">Samlinger</string>

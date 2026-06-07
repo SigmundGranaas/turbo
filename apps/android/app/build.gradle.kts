@@ -80,6 +80,7 @@ dependencies {
     implementation(project(":core:auth"))
     implementation(project(":core:designsystem"))
     implementation(project(":feature:map"))
+    implementation(project(":feature:auth"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:search"))
     implementation(project(":feature:recording"))

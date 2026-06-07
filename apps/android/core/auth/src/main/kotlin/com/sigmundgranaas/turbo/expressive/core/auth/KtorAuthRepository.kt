@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.auth
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -32,6 +33,15 @@ class KtorAuthRepository @Inject constructor(
 
     override suspend fun login(email: String, password: String): Outcome<Account> =
         authCall("$base/api/auth/auth/login", LoginRequest(email, password))
+
+    override suspend fun googleAuthUrl(): Outcome<String> = runCatching {
+        val response = client.get("$base/api/auth/oauth/google/url")
+        if (!response.status.isSuccess()) throw AuthException("Couldn't start Google sign-in (${response.status.value})")
+        response.body<OAuthUrlResponse>().authorizationUrl
+    }.fold(
+        onSuccess = { Outcome.Success(it) },
+        onFailure = { Outcome.Failure(if (it is AuthException) it else AuthException(it.message ?: "Network error")) },
+    )
 
     override suspend fun loginWithGoogle(code: String): Outcome<Account> =
         authCall("$base/api/auth/oauth/mobile-signin", MobileSignInRequest(provider = "Google", code = code))

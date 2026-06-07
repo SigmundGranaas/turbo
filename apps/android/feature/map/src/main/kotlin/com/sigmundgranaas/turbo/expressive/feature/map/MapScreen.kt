@@ -98,6 +98,8 @@ fun MapScreen(
     onOpenPaths: () -> Unit,
     onOpenOffline: () -> Unit,
     onOpenCollections: () -> Unit = {},
+    onOpenAccount: () -> Unit = {},
+    accountEmail: String? = null,
     focusRequest: LatLng? = null,
     onFocusConsumed: () -> Unit = {},
     showTrackId: String? = null,
@@ -296,7 +298,11 @@ fun MapScreen(
         // all pan gestures so a left-edge drag pans instead of opening the drawer.
         gesturesEnabled = drawerState.isOpen,
         drawerContent = {
-            NavDrawerContent(selected = DrawerDestination.Map) { dest ->
+            NavDrawerContent(
+                selected = DrawerDestination.Map,
+                accountEmail = accountEmail,
+                onAccountClick = { scope.launch { drawerState.close() }; onOpenAccount() },
+                onSelect = { dest ->
                 scope.launch { drawerState.close() }
                 when (dest) {
                     DrawerDestination.Settings -> onOpenSettings()
@@ -305,8 +311,9 @@ fun MapScreen(
                     DrawerDestination.Record -> startRecording()
                     DrawerDestination.Offline -> onOpenOffline()
                     DrawerDestination.Map -> Unit
-                }
-            }
+                    }
+                },
+            )
         },
     ) {
         Box(Modifier.fillMaxSize()) {

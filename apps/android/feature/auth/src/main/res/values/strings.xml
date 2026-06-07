@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="auth_login_title">Log in</string>
+    <string name="auth_register_title">Create account</string>
+    <string name="auth_tagline">Sign in to sync your tracks, markers and collections across devices.</string>
+    <string name="auth_email">Email</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_confirm">Confirm password</string>
+    <string name="auth_submit_login">Log in</string>
+    <string name="auth_submit_register">Create account</string>
+    <string name="auth_toggle_to_register">New here? Create an account</string>
+    <string name="auth_toggle_to_login">Already have an account? Log in</string>
+    <string name="auth_or">or</string>
+    <string name="auth_google">Continue with Google</string>
+    <string name="auth_back">Back</string>
+    <string name="auth_account_title">Account</string>
+    <string name="auth_signed_in_as">Signed in as</string>
+
+    <!-- Drawer account row -->
+    <string name="auth_drawer_signed_out">Sign in</string>
+    <string name="auth_drawer_signed_out_sub">Sync across devices</string>
+    <string name="auth_drawer_account_sub">Tap to manage account</string>
+    <string name="auth_sign_out">Sign out</string>
+</resources>

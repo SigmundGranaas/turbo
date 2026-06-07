@@ -8,7 +8,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.sigmundgranaas.turbo.expressive.core.auth.AuthState
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.feature.auth.AuthScreen
+import com.sigmundgranaas.turbo.expressive.feature.auth.AuthViewModel
 import com.sigmundgranaas.turbo.expressive.feature.collections.CollectionsScreen
 import com.sigmundgranaas.turbo.expressive.feature.map.MapScreen
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineMapsScreen
@@ -26,6 +30,7 @@ private object Routes {
     const val OFFLINE = "offline"
     const val COLLECTIONS = "collections"
     const val ABOUT = "about"
+    const val ACCOUNT = "account"
     const val PATH_DETAIL = "path/{pathId}"
 
     fun pathDetail(id: String) = "path/$id"
@@ -38,12 +43,15 @@ fun TurboNavGraph() {
         composable(Routes.MAP) { entry ->
             val focus by entry.savedStateHandle.getStateFlow<DoubleArray?>("focus", null).collectAsState()
             val showTrack by entry.savedStateHandle.getStateFlow<String?>("showTrack", null).collectAsState()
+            val authState by hiltViewModel<AuthViewModel>().state.collectAsState()
             MapScreen(
                 onOpenSearch = { nav.navigate(Routes.SEARCH) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenPaths = { nav.navigate(Routes.PATHS) },
                 onOpenOffline = { nav.navigate(Routes.OFFLINE) },
                 onOpenCollections = { nav.navigate(Routes.COLLECTIONS) },
+                onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
+                accountEmail = (authState as? AuthState.SignedIn)?.account?.email,
                 focusRequest = focus?.let { LatLng(it[0], it[1]) },
                 onFocusConsumed = { entry.savedStateHandle["focus"] = null },
                 showTrackId = showTrack,
@@ -66,6 +74,7 @@ fun TurboNavGraph() {
             )
         }
         composable(Routes.ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.ACCOUNT) { AuthScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.OFFLINE) { OfflineMapsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.COLLECTIONS) { CollectionsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.PATHS) {

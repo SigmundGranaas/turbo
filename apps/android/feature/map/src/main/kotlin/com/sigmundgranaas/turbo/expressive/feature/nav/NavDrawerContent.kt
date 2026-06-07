@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.nav
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
@@ -47,6 +49,8 @@ enum class DrawerDestination(@StringRes val labelRes: Int, val icon: androidx.co
 fun NavDrawerContent(
     selected: DrawerDestination,
     onSelect: (DrawerDestination) -> Unit,
+    accountEmail: String? = null,
+    onAccountClick: () -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     ModalDrawerSheet(
@@ -58,18 +62,31 @@ fun NavDrawerContent(
         Text(stringResource(R.string.drawer_tagline), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.padding(horizontal = 28.dp))
 
         Spacer(Modifier.height(18.dp))
+        // Account header: shows the signed-in email, or a "Sign in" prompt; tapping
+        // opens the auth screen.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()
-                .background(cs.primaryContainer, RoundedCornerShape(TurboRadius.l)).padding(12.dp),
+                .background(cs.primaryContainer, RoundedCornerShape(TurboRadius.l))
+                .clickable(onClick = onAccountClick).padding(12.dp),
         ) {
             Cookie(size = 42.dp, fill = cs.surface) {
-                Text("S", style = MaterialTheme.typography.titleMedium, color = cs.onPrimaryContainer)
+                Icon(Icons.Rounded.Person, null, tint = cs.onPrimaryContainer, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("Sigmund G.", style = MaterialTheme.typography.titleSmall, color = cs.onPrimaryContainer, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("sigmund@turkart.no", style = MaterialTheme.typography.bodySmall, color = cs.onPrimaryContainer)
+                Text(
+                    accountEmail ?: stringResource(R.string.drawer_sign_in),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = cs.onPrimaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    stringResource(if (accountEmail != null) R.string.drawer_account_manage else R.string.drawer_sign_in_sub),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onPrimaryContainer,
+                )
             }
         }
 
