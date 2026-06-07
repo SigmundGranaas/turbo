@@ -13,8 +13,8 @@ import javax.inject.Singleton
  * Persists the auth tokens + account across launches. An interface so the
  * repository can be unit-tested with an in-memory fake (DataStore needs a Context).
  *
- * NOTE: backed by plain DataStore for now; hardening the refresh token to
- * EncryptedSharedPreferences / Keystore is a deliberate later (P5) step.
+ * The long-lived refresh token is encrypted at rest with an AndroidKeyStore key
+ * ([KeystoreCipher]); the short-lived access token + account live in plain DataStore.
  */
 interface AuthTokenStore {
     suspend fun save(tokens: AuthTokens, account: Account)
@@ -34,7 +34,7 @@ class DataStoreAuthTokenStore @Inject constructor(
     override suspend fun save(tokens: AuthTokens, account: Account) {
         store.edit {
             it[ACCESS] = tokens.accessToken
-            it[REFRESH] = tokens.refreshToken
+            it[REFRESH] = KeystoreCipher.encrypt(tokens.refreshToken)
             it[ACCOUNT_ID] = account.id
             it[EMAIL] = account.email
         }
@@ -43,7 +43,8 @@ class DataStoreAuthTokenStore @Inject constructor(
     override suspend fun tokens(): AuthTokens? {
         val prefs = store.data.first()
         val access = prefs[ACCESS] ?: return null
-        val refresh = prefs[REFRESH] ?: return null
+        // Decrypt the refresh token; legacy plaintext / tamper → null → treated as signed out.
+        val refresh = prefs[REFRESH]?.let { KeystoreCipher.decryptOrNull(it) } ?: return null
         return AuthTokens(access, refresh)
     }
 
