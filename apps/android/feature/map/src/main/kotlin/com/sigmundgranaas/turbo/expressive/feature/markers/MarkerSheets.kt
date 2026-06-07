@@ -92,6 +92,12 @@ fun MarkerEditorSheet(
             existing = existing,
             suggestedName = suggestedName,
             suggestedSubtitle = suggestedSubtitle,
+            conditions = {
+                if (existing == null) {
+                    Spacer(Modifier.height(16.dp))
+                    com.sigmundgranaas.turbo.expressive.feature.conditions.ConditionsBody(position)
+                }
+            },
             onSave = onSave,
         )
     }
@@ -104,6 +110,7 @@ internal fun MarkerEditorContent(
     existing: Marker?,
     suggestedName: String? = null,
     suggestedSubtitle: String? = null,
+    conditions: @Composable () -> Unit = {},
     onSave: (name: String, kind: ActivityKindId, colorArgb: Long?, notes: String?) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -133,6 +140,11 @@ internal fun MarkerEditorContent(
             if (existing == null && !suggestedSubtitle.isNullOrBlank()) {
                 Text(suggestedSubtitle, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
             }
+
+            // Conditions at this point — long-pressing the map answers "what's the
+            // weather here?" without first creating + tapping a marker. Passed as a
+            // slot so this body stays Hilt-free + headlessly testable.
+            conditions()
 
             Spacer(Modifier.height(18.dp))
             OutlinedTextField(
