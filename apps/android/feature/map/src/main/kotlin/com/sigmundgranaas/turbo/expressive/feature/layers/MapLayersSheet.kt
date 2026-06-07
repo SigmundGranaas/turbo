@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -68,7 +71,12 @@ fun MapLayersSheet(
         shape = RoundedCornerShape(topStart = TurboRadius.xxl, topEnd = TurboRadius.xxl),
         containerColor = cs.surfaceContainerLow,
     ) {
-        Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp)) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        ) {
             Text(stringResource(R.string.layers_title), style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
             Spacer(Modifier.height(18.dp))
             SectionLabel(stringResource(R.string.layers_base))

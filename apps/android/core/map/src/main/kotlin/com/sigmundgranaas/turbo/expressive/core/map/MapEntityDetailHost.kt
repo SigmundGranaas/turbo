@@ -6,8 +6,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,7 +53,12 @@ fun MapEntityDetailHost(
         shape = RoundedCornerShape(topStart = TurboRadius.xxl, topEnd = TurboRadius.xxl),
         containerColor = cs.surfaceContainerLow,
     ) {
-        Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 32.dp)) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (selection.icon != null) {
                     Cookie(size = 64.dp, fill = cs.primaryContainer) {
