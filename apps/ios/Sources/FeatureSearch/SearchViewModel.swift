@@ -12,6 +12,7 @@ public final class SearchViewModel {
     public var query: String = ""
     public private(set) var results: [SearchHit] = []
     public private(set) var recents: [RecentSearch] = []
+    public private(set) var isSearching = false
 
     private let repository: SearchRepository
     private var recentsObservation: Task<Void, Never>?
@@ -41,11 +42,16 @@ public final class SearchViewModel {
         let q = query
         guard !q.trimmingCharacters(in: .whitespaces).isEmpty else {
             results = []
+            isSearching = false
             return
         }
+        isSearching = true
         searchTask = Task { [weak self, repository] in
             let hits = await repository.search(q)
-            if !Task.isCancelled { self?.results = hits }
+            if !Task.isCancelled {
+                self?.results = hits
+                self?.isSearching = false
+            }
         }
     }
 

@@ -29,7 +29,9 @@ public struct SearchScreen: View {
                     }
                 } else {
                     Section("Top Results") {
-                        if viewModel.results.isEmpty {
+                        if viewModel.isSearching {
+                            HStack(spacing: 10) { ProgressView(); Text("Searching…").foregroundStyle(t.label2) }
+                        } else if viewModel.results.isEmpty {
                             Text("No results found.").foregroundStyle(t.label2)
                         }
                         ForEach(viewModel.results) { hit in

@@ -88,7 +88,7 @@ Runs with SwiftPM:
 
 ```sh
 cd apps/ios
-swift test            # 82 tests (Swift Testing)
+swift test            # 92 tests (Swift Testing)
 ```
 
 **End-to-end UI** (XCUITest, `TurboUserFlowsUITests`) — launches the real app and
@@ -107,7 +107,12 @@ asserting only on the *outcome*, not widget mechanics:
 - preferences are remembered across navigation
 - signs in to their account
 - records a track and saves it to Paths
+- opens a hike detail / a marker detail
+- checks the weather and avalanche danger
 - **full journey** — search → save that place → see it in My Markers → export it
+
+CI runs the SwiftPM suite + the E2E suite on every PR
+(`.github/workflows/ios_build.yml`).
 
 Runs via xcodebuild:
 
@@ -131,16 +136,20 @@ the default for previews/tests; production wiring lives in `AppContainer`.
 
 What remains, iteratively:
 
-- **Go live** — set `TurboAPIBaseURL` in the app's Info.plist (the config gate is
-  wired: `AppContainer` then uses `GoogleAuthRepository` + `HttpSyncTransport`),
-  add the `turbo` OAuth callback URL scheme (`CFBundleURLTypes`), and supply the
-  Google client id. Wire the bearer token from the auth session into the
-  transports' `token` closure.
-- Detail surfaces — marker info, hike detail, WeatherKit, Varsom avalanche,
-  recording Live Activity / Dynamic Island.
-- Localization (nb-NO).
+- **Go live (config-only).** The plumbing is done — `AppContainer` uses
+  `GoogleAuthRepository` + token-authed `HttpSyncTransport` when `TurboAPIBaseURL`
+  is set, and the `turbo` OAuth scheme is in the Info.plist. Set
+  `TurboAPIBaseURL` + supply a Google client id to flip it on.
+- **Real provider backends** behind the existing seams: WeatherKit
+  (`WeatherProvider`), Varsom/NVE (`AvalancheProvider`), MapKit/MapLibre tiles.
+- **Recording Live Activity / Dynamic Island** (needs a Widget Extension target).
+- **Localization (nb-NO).** Remaining dedicated pass: add `defaultLocalization`
+  to `Package.swift`, a `Localizable.xcstrings` per UI module under a `Resources`
+  folder (`.process` in the target), and route each `Text` through
+  `bundle: .module`. Deferred deliberately — it touches every module and a
+  partial pass would ship a mixed-language UI.
 
-Done: live location + heading; the offline loop (`CachingTileOverlay` serves
-cached tiles before network); **track recording** (`RecordingViewModel` →
-`SavedPath`); **sync for markers + paths + collections** with a persisted cursor
-(`EntitySyncEngine`); and the **go-live config gate** (`TurboConfig`).
+Done: detail surfaces (hike/marker/weather/avalanche); map interactions (pin tap,
+long-press menu, overlays, compass reset); live location + heading; the offline
+loop; track recording; sync (markers + paths + collections) with a persisted
+cursor; the go-live config gate + token wiring; and CI.

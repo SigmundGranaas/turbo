@@ -1,0 +1,35 @@
+name: iOS build and test
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'apps/ios/**'
+      - '.github/workflows/ios_build.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'apps/ios/**'
+      - '.github/workflows/ios_build.yml'
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Unit + integration tests (SwiftPM)
+        run: swift test
+
+      - name: End-to-end UI tests (XCUITest)
+        run: ./scripts/test.sh --e2e-only
