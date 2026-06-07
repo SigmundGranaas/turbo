@@ -10,6 +10,11 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Sync metadata carried by every cloud-syncable row. Local-only until signed in:
+ * [remoteId]/[version]/[updatedAtEpochMs] stay null and [dirty] is harmless. The
+ * sync engine (P3) populates them on push/pull.
+ */
 @Entity(tableName = "marker")
 data class MarkerEntity(
     @PrimaryKey val id: String,
@@ -19,18 +24,37 @@ data class MarkerEntity(
     val lng: Double,
     val colorArgb: Long?,
     val notes: String? = null,
+    // ── sync fields ──
+    /** Server-assigned id once pushed (the local [id] stays stable). */
+    val remoteId: String? = null,
+    /** Server row version for optimistic concurrency (If-Match). */
+    val version: Long? = null,
+    /** Last-modified epoch ms — local edit time, replaced by the server's on sync. */
+    val updatedAtEpochMs: Long? = null,
+    /** Tombstone: set when soft-deleted; null = live. */
+    val deletedAtEpochMs: Long? = null,
+    /** True when there are local changes pending upload. */
+    val dirty: Boolean = true,
 )
 
 @Dao
 interface MarkerDao {
-    @Query("SELECT * FROM marker ORDER BY name")
+    @Query("SELECT * FROM marker WHERE deletedAtEpochMs IS NULL ORDER BY name")
     fun observeAll(): Flow<List<MarkerEntity>>
 
     @Query("SELECT * FROM marker WHERE id = :id")
     suspend fun byId(id: String): MarkerEntity?
 
+    /** Rows with local changes to push (creates/updates and pending deletes). */
+    @Query("SELECT * FROM marker WHERE dirty = 1")
+    suspend fun pendingSync(): List<MarkerEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: MarkerEntity)
+
+    /** Tombstone a synced row so the engine can push the delete. */
+    @Query("UPDATE marker SET deletedAtEpochMs = :ts, dirty = 1 WHERE id = :id")
+    suspend fun softDelete(id: String, ts: Long)
 
     @Query("DELETE FROM marker WHERE id = :id")
     suspend fun delete(id: String)
@@ -52,18 +76,30 @@ data class PathEntity(
     val elevations: String? = null,
     /** Activity kind tag (ActivityKindId.name), null when untagged. */
     val activityKind: String? = null,
+    // ── sync fields (see [MarkerEntity]) ──
+    val remoteId: String? = null,
+    val version: Long? = null,
+    val updatedAtEpochMs: Long? = null,
+    val deletedAtEpochMs: Long? = null,
+    val dirty: Boolean = true,
 )
 
 @Dao
 interface PathDao {
-    @Query("SELECT * FROM path ORDER BY createdAtEpochMs DESC")
+    @Query("SELECT * FROM path WHERE deletedAtEpochMs IS NULL ORDER BY createdAtEpochMs DESC")
     fun observeAll(): Flow<List<PathEntity>>
 
     @Query("SELECT * FROM path WHERE id = :id")
     suspend fun byId(id: String): PathEntity?
 
+    @Query("SELECT * FROM path WHERE dirty = 1")
+    suspend fun pendingSync(): List<PathEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: PathEntity)
+
+    @Query("UPDATE path SET deletedAtEpochMs = :ts, dirty = 1 WHERE id = :id")
+    suspend fun softDelete(id: String, ts: Long)
 
     @Query("DELETE FROM path WHERE id = :id")
     suspend fun delete(id: String)
@@ -76,6 +112,12 @@ data class CollectionEntity(
     val colorArgb: Long?,
     val icon: String?,
     val createdAtEpochMs: Long,
+    // ── sync fields (see [MarkerEntity]) ──
+    val remoteId: String? = null,
+    val version: Long? = null,
+    val updatedAtEpochMs: Long? = null,
+    val deletedAtEpochMs: Long? = null,
+    val dirty: Boolean = true,
 )
 
 /** Membership row linking an entity (marker/path) to a collection. */
@@ -100,12 +142,21 @@ interface CollectionDao {
     @Query(
         "SELECT c.id, c.name, c.colorArgb, c.icon, " +
             "(SELECT COUNT(*) FROM collection_item ci WHERE ci.collectionId = c.id) AS itemCount " +
-            "FROM collection c ORDER BY c.name",
+            "FROM collection c WHERE c.deletedAtEpochMs IS NULL ORDER BY c.name",
     )
     fun observeAll(): Flow<List<CollectionWithCount>>
 
+    @Query("SELECT * FROM collection WHERE id = :id")
+    suspend fun byId(id: String): CollectionEntity?
+
+    @Query("SELECT * FROM collection WHERE dirty = 1")
+    suspend fun pendingSync(): List<CollectionEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: CollectionEntity)
+
+    @Query("UPDATE collection SET deletedAtEpochMs = :ts, dirty = 1 WHERE id = :id")
+    suspend fun softDelete(id: String, ts: Long)
 
     @Query("DELETE FROM collection WHERE id = :id")
     suspend fun delete(id: String)
@@ -156,7 +207,7 @@ interface PhotoDao {
         MarkerEntity::class, PathEntity::class,
         CollectionEntity::class, CollectionItemEntity::class, PhotoEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class TurboDatabase : RoomDatabase() {

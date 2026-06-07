@@ -25,8 +25,28 @@ class RoomPathRepository @Inject constructor(
         dao.observeAll().map { rows -> rows.map(PathEntity::toDomain) }
 
     override suspend fun byId(id: String): SavedPath? = dao.byId(id)?.toDomain()
-    override suspend fun save(path: SavedPath) = dao.upsert(path.toEntity())
-    override suspend fun delete(id: String) = dao.delete(id)
+
+    override suspend fun save(path: SavedPath) {
+        val existing = dao.byId(path.id)
+        dao.upsert(
+            path.toEntity().copy(
+                remoteId = existing?.remoteId,
+                version = existing?.version,
+                updatedAtEpochMs = System.currentTimeMillis(),
+                deletedAtEpochMs = null,
+                dirty = true,
+            ),
+        )
+    }
+
+    override suspend fun delete(id: String) {
+        // Synced rows become tombstones so the engine can push the delete; never-synced rows are purged.
+        if (dao.byId(id)?.remoteId != null) {
+            dao.softDelete(id, System.currentTimeMillis())
+        } else {
+            dao.delete(id)
+        }
+    }
 }
 
 private fun encodePoints(points: List<LatLng>): String =

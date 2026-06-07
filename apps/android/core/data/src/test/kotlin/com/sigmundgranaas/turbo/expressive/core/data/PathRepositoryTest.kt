@@ -16,11 +16,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 private class FakePathDao : PathDao {
-    private val rows = MutableStateFlow<Map<String, PathEntity>>(emptyMap())
+    val rows = MutableStateFlow<Map<String, PathEntity>>(emptyMap())
     override fun observeAll(): Flow<List<PathEntity>> =
-        rows.map { it.values.sortedByDescending { e -> e.createdAtEpochMs } }
+        rows.map { m -> m.values.filter { it.deletedAtEpochMs == null }.sortedByDescending { e -> e.createdAtEpochMs } }
     override suspend fun byId(id: String): PathEntity? = rows.value[id]
+    override suspend fun pendingSync(): List<PathEntity> = rows.value.values.filter { it.dirty }
     override suspend fun upsert(entity: PathEntity) { rows.value = rows.value + (entity.id to entity) }
+    override suspend fun softDelete(id: String, ts: Long) {
+        rows.value[id]?.let { rows.value = rows.value + (id to it.copy(deletedAtEpochMs = ts, dirty = true)) }
+    }
     override suspend fun delete(id: String) { rows.value = rows.value - id }
 }
 
@@ -84,5 +88,46 @@ class PathRepositoryTest {
         repo.delete("p-1")
         assertEquals(0, repo.observeAll().first().size)
         assertNull(repo.byId("p-1"))
+    }
+
+    @Test
+    fun `a local save is marked dirty so the engine will push it`() = runTest {
+        val dao = FakePathDao()
+        RoomPathRepository(dao).save(sample)
+        assertEquals(true, dao.rows.value["p-1"]!!.dirty)
+        assertEquals(listOf("p-1"), dao.pendingSync().map { it.id })
+    }
+
+    @Test
+    fun `editing a synced row preserves its remoteId and version`() = runTest {
+        val dao = FakePathDao()
+        // Simulate a row that has already synced (remoteId + version assigned by the server).
+        dao.upsert(sample.toEntity().copy(remoteId = "srv-9", version = 4L, dirty = false))
+        RoomPathRepository(dao).save(sample.copy(name = "Renamed"))
+        val row = dao.rows.value["p-1"]!!
+        assertEquals("srv-9", row.remoteId)
+        assertEquals(4L, row.version)
+        assertEquals("Renamed", row.name)
+        assertEquals(true, row.dirty)
+    }
+
+    @Test
+    fun `deleting a synced row tombstones it instead of purging`() = runTest {
+        val dao = FakePathDao()
+        dao.upsert(sample.toEntity().copy(remoteId = "srv-1", version = 1L, dirty = false))
+        RoomPathRepository(dao).delete("p-1")
+        val row = dao.rows.value["p-1"]!!
+        assertEquals(true, row.deletedAtEpochMs != null) // still present as a tombstone
+        assertEquals(true, row.dirty) // pending delete-push
+        assertEquals(0, RoomPathRepository(dao).observeAll().first().size) // hidden from the UI
+    }
+
+    @Test
+    fun `deleting a never-synced row purges it immediately`() = runTest {
+        val dao = FakePathDao()
+        val repo = RoomPathRepository(dao)
+        repo.save(sample) // remoteId stays null
+        repo.delete("p-1")
+        assertNull(dao.rows.value["p-1"]) // gone, no tombstone needed
     }
 }

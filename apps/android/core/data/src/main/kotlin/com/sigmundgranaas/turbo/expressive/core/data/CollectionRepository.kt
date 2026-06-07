@@ -30,20 +30,31 @@ class RoomCollectionRepository @Inject constructor(
     }
 
     override suspend fun upsert(collection: MapCollection) {
+        val existing = dao.byId(collection.id)
         dao.upsert(
             CollectionEntity(
                 id = collection.id,
                 name = collection.name,
                 colorArgb = collection.colorArgb,
                 icon = collection.icon,
-                createdAtEpochMs = System.currentTimeMillis(),
+                createdAtEpochMs = existing?.createdAtEpochMs ?: System.currentTimeMillis(),
+                remoteId = existing?.remoteId,
+                version = existing?.version,
+                updatedAtEpochMs = System.currentTimeMillis(),
+                deletedAtEpochMs = null,
+                dirty = true,
             ),
         )
     }
 
     override suspend fun delete(id: String) {
         dao.clearItems(id)
-        dao.delete(id)
+        // Synced rows become tombstones so the engine can push the delete; never-synced rows are purged.
+        if (dao.byId(id)?.remoteId != null) {
+            dao.softDelete(id, System.currentTimeMillis())
+        } else {
+            dao.delete(id)
+        }
     }
 
     override suspend fun addItem(collectionId: String, itemId: String, type: CollectionItemType) {

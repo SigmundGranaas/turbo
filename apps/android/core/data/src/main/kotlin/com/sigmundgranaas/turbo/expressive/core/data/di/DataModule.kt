@@ -24,6 +24,8 @@ import com.sigmundgranaas.turbo.expressive.core.data.RecordingDraftStore
 import com.sigmundgranaas.turbo.expressive.core.data.RoomMarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RoomPathRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SyncCursorStore
+import com.sigmundgranaas.turbo.expressive.core.data.DataStoreSyncCursorStore
 import com.sigmundgranaas.turbo.expressive.core.data.database.MarkerDao
 import com.sigmundgranaas.turbo.expressive.core.data.database.PathDao
 import com.sigmundgranaas.turbo.expressive.core.data.database.TurboDatabase
@@ -67,6 +69,9 @@ abstract class DataModule {
     @Binds
     abstract fun bindPhotoRepository(impl: RoomPhotoRepository): PhotoRepository
 
+    @Binds
+    abstract fun bindSyncCursorStore(impl: DataStoreSyncCursorStore): SyncCursorStore
+
     companion object {
         @Provides
         @Singleton
@@ -77,8 +82,9 @@ abstract class DataModule {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         // Seed the sample markers so the map opens populated.
                         SampleData.markers.forEach { m ->
+                            // dirty = 0: seed data is a clean local baseline, never pushed to the cloud.
                             db.execSQL(
-                                "INSERT INTO marker (id, name, kind, lat, lng, colorArgb) VALUES (?, ?, ?, ?, ?, ?)",
+                                "INSERT INTO marker (id, name, kind, lat, lng, colorArgb, dirty) VALUES (?, ?, ?, ?, ?, ?, 0)",
                                 arrayOf<Any?>(m.id, m.name, m.kind.key, m.position.lat, m.position.lng, m.colorArgb),
                             )
                         }

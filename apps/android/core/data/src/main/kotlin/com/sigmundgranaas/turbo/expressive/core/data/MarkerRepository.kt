@@ -26,8 +26,27 @@ class RoomMarkerRepository @Inject constructor(
     override fun observeAll(): Flow<List<Marker>> =
         dao.observeAll().map { rows -> rows.map(MarkerEntity::toDomain) }
 
-    override suspend fun upsert(marker: Marker) = dao.upsert(marker.toEntity())
-    override suspend fun delete(id: String) = dao.delete(id)
+    override suspend fun upsert(marker: Marker) {
+        val existing = dao.byId(marker.id)
+        dao.upsert(
+            marker.toEntity().copy(
+                remoteId = existing?.remoteId,
+                version = existing?.version,
+                updatedAtEpochMs = System.currentTimeMillis(),
+                deletedAtEpochMs = null,
+                dirty = true,
+            ),
+        )
+    }
+
+    override suspend fun delete(id: String) {
+        // Synced rows become tombstones so the engine can push the delete; never-synced rows are purged.
+        if (dao.byId(id)?.remoteId != null) {
+            dao.softDelete(id, System.currentTimeMillis())
+        } else {
+            dao.delete(id)
+        }
+    }
 }
 
 internal fun MarkerEntity.toDomain(): Marker = Marker(
