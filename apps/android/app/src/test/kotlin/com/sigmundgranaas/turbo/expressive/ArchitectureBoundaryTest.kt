@@ -28,10 +28,11 @@ class ArchitectureBoundaryTest {
     }
 
     @Test
-    fun `repositories are interfaces declared in core data`() {
+    fun `repositories are interfaces declared in a core module`() {
         Konsist.scopeFromProject()
             .interfaces()
             .withNameEndingWith("Repository")
-            .assertTrue { it.resideInPackage("..core.data..") }
+            // Repository interfaces belong in a core module (data, auth, …), never a feature.
+            .assertTrue { it.resideInPackage("..core..") }
     }
 }

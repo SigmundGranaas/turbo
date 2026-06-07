@@ -77,6 +77,7 @@ dependencies {
     // App is the composition root: design system + feature modules + nav.
     implementation(project(":core:model"))
     implementation(project(":core:data"))
+    implementation(project(":core:auth"))
     implementation(project(":core:designsystem"))
     implementation(project(":feature:map"))
     implementation(project(":feature:settings"))
