@@ -65,16 +65,17 @@ public final class AppContainer {
             // Live: Google sign-in + HTTP sync against the API.
             let auth = GoogleAuthRepository(apiBaseURL: base)
             authRepository = auth
+            let bearer: @Sendable () async -> String? = { await auth.token() }
             syncController = SyncController(
                 units: [
                     Syncers.marker(repository: markerRepository,
-                                   transport: HttpSyncTransport<MarkerPayload>(endpoint: base.appendingPathComponent("markers"), token: { nil }),
+                                   transport: HttpSyncTransport<MarkerPayload>(endpoint: base.appendingPathComponent("markers"), token: bearer),
                                    cursor: cursor),
                     Syncers.path(repository: pathRepository,
-                                 transport: HttpSyncTransport<PathPayload>(endpoint: base.appendingPathComponent("paths"), token: { nil }),
+                                 transport: HttpSyncTransport<PathPayload>(endpoint: base.appendingPathComponent("paths"), token: bearer),
                                  cursor: cursor),
                     Syncers.collection(repository: collectionRepository,
-                                       transport: HttpSyncTransport<CollectionPayload>(endpoint: base.appendingPathComponent("collections"), token: { nil }),
+                                       transport: HttpSyncTransport<CollectionPayload>(endpoint: base.appendingPathComponent("collections"), token: bearer),
                                        cursor: cursor),
                 ],
                 auth: authRepository, settings: settingsRepository

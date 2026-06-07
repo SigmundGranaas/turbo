@@ -32,6 +32,9 @@ public protocol AuthRepository: Sendable {
     /// Begin the provider's sign-in flow (Google). Returns the signed-in account.
     func signIn() async -> Outcome<Account>
     func signOut() async
+    /// The current bearer token for authenticated API calls, or `nil` when signed
+    /// out. Fed into the sync transports.
+    func token() async -> String?
 }
 
 public final class InMemoryAuthRepository: AuthRepository {
@@ -52,5 +55,9 @@ public final class InMemoryAuthRepository: AuthRepository {
 
     public func signOut() async {
         await store.set(.signedOut)
+    }
+
+    public func token() async -> String? {
+        await store.current().account == nil ? nil : "local-token"
     }
 }

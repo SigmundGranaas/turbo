@@ -12,12 +12,14 @@ import AuthenticationServices
 /// browser or network.
 public final class GoogleAuthRepository: NSObject, AuthRepository, @unchecked Sendable {
     private let store: ReactiveStore<AuthState>
+    private let tokenStore: ReactiveStore<String?>
     private let apiBaseURL: URL
     private let callbackScheme: String
     private nonisolated(unsafe) let session: URLSession
 
     public init(apiBaseURL: URL, callbackScheme: String = "turbo", session: URLSession = .shared) {
         self.store = ReactiveStore(.signedOut)
+        self.tokenStore = ReactiveStore(nil)
         self.apiBaseURL = apiBaseURL
         self.callbackScheme = callbackScheme
         self.session = session
@@ -25,14 +27,20 @@ public final class GoogleAuthRepository: NSObject, AuthRepository, @unchecked Se
 
     public func state() async -> AsyncStream<AuthState> { await store.stream() }
     public func current() async -> AuthState { await store.current() }
-    public func signOut() async { await store.set(.signedOut) }
+    public func token() async -> String? { await tokenStore.current() }
+
+    public func signOut() async {
+        await store.set(.signedOut)
+        await tokenStore.set(nil)
+    }
 
     public func signIn() async -> Outcome<Account> {
         do {
             let code = try await authorize()
-            let account = try await exchange(code: code)
-            await store.set(.signedIn(account))
-            return .success(account)
+            let session = try await exchange(code: code)
+            await tokenStore.set(session.token)
+            await store.set(.signedIn(session.account))
+            return .success(session.account)
         } catch {
             return .failure(error)
         }
@@ -58,14 +66,14 @@ public final class GoogleAuthRepository: NSObject, AuthRepository, @unchecked Se
         return code
     }
 
-    private func exchange(code: String) async throws -> Account {
+    private func exchange(code: String) async throws -> Session {
         var request = URLRequest(url: apiBaseURL.appendingPathComponent("auth/google/token"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["code": code])
         let (data, _) = try await session.data(for: request)
-        guard let account = Self.decodeAccount(from: data) else { throw AuthError.badResponse }
-        return account
+        guard let session = Self.decodeSession(from: data) else { throw AuthError.badResponse }
+        return session
     }
 
     // MARK: - Pure, testable steps
@@ -77,14 +85,29 @@ public final class GoogleAuthRepository: NSObject, AuthRepository, @unchecked Se
             .flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// Decode the API's auth response (`{ "user": { id, email, name } , … }`) into an ``Account``.
-    public static func decodeAccount(from data: Data) -> Account? {
+    /// A decoded sign-in session — account + bearer token.
+    public struct Session: Equatable, Sendable {
+        public let account: Account
+        public let token: String
+    }
+
+    /// Decode the API's auth response (`{ "token": "…", "user": { id, email, name } }`).
+    public static func decodeSession(from data: Data) -> Session? {
         guard let response = try? JSONDecoder().decode(AuthResponse.self, from: data) else { return nil }
-        return Account(id: response.user.id, email: response.user.email, displayName: response.user.name)
+        return Session(
+            account: Account(id: response.user.id, email: response.user.email, displayName: response.user.name),
+            token: response.token
+        )
+    }
+
+    /// Convenience for tests that only assert the account mapping.
+    public static func decodeAccount(from data: Data) -> Account? {
+        decodeSession(from: data)?.account
     }
 
     private struct AuthResponse: Decodable {
         struct User: Decodable { let id: String; let email: String; let name: String }
+        let token: String
         let user: User
     }
 
