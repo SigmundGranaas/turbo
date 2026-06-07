@@ -40,14 +40,17 @@ jobs:
           V=$(grep -oE 'versionName = "[^"]+"' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
           echo "name=$V" >> "$GITHUB_OUTPUT"
 
-      - name: Build debug APK (installable / sideloadable)
-        run: ./gradlew :app:assembleDebug --no-configuration-cache
+      - name: Build release APKs (per-ABI, sideload-signed)
+        run: ./gradlew :app:assembleRelease --no-configuration-cache
 
-      - name: Stage APK with a versioned name
+      - name: Stage the arm64-v8a APK
+        # Per-ABI split (no universal "mega" APK). 64-bit ARM is what every modern
+        # phone uses; the smaller armeabi-v7a slice is left unpublished. Signed with
+        # the committed sideload key, so it reinstalls over earlier builds cleanly.
         run: |
           mkdir -p "$RUNNER_TEMP/out"
-          cp app/build/outputs/apk/debug/app-debug.apk \
-            "$RUNNER_TEMP/out/turbo-expressive-${{ steps.ver.outputs.name }}-build${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk \
+            "$RUNNER_TEMP/out/turbo-expressive-${{ steps.ver.outputs.name }}-build${{ github.run_number }}-arm64-v8a.apk"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -56,7 +59,8 @@ jobs:
           name: Turbo Expressive ${{ steps.ver.outputs.name }} (build ${{ github.run_number }})
           body: |
             Native Jetpack Compose · Material 3 Expressive build of Turbo.
-            Debug-signed, sideloadable APK — download the `.apk` below and install it
-            (enable "install from unknown sources"). Built from ${{ github.sha }}.
+            **arm64-v8a** release APK (64-bit ARM — every modern phone). Sideload-signed
+            with the dedicated key, so it reinstalls over earlier builds without a
+            signature conflict. Enable "install from unknown sources". Built from ${{ github.sha }}.
           files: ${{ runner.temp }}/out/*.apk
           fail_on_unmatched_files: true

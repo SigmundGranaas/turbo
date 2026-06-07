@@ -20,10 +20,24 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    // A dedicated, committed keystore so every CI release build is signed
+    // identically — sideloaded APKs then reinstall over each other cleanly
+    // (no "signatures do not match"). This is a throwaway distribution key,
+    // NOT a Play upload key; rotate before any store submission.
+    signingConfigs {
+        create("sideload") {
+            storeFile = file("sideload.keystore")
+            storePassword = "turbosideload"
+            keyAlias = "turbo-sideload"
+            keyPassword = "turbosideload"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = signingConfigs.getByName("sideload")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
