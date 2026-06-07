@@ -14,7 +14,6 @@ import com.sigmundgranaas.turbo.expressive.feature.map.MapScreen
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineMapsScreen
 import com.sigmundgranaas.turbo.expressive.feature.recording.PathDetailScreen
 import com.sigmundgranaas.turbo.expressive.feature.recording.PathsListScreen
-import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingScreen
 import com.sigmundgranaas.turbo.expressive.feature.search.SearchScreen
 import com.sigmundgranaas.turbo.expressive.feature.settings.AboutScreen
 import com.sigmundgranaas.turbo.expressive.feature.settings.SettingsScreen
@@ -23,7 +22,6 @@ private object Routes {
     const val MAP = "map"
     const val SEARCH = "search"
     const val SETTINGS = "settings"
-    const val RECORDING = "recording"
     const val PATHS = "paths"
     const val OFFLINE = "offline"
     const val COLLECTIONS = "collections"
@@ -43,7 +41,6 @@ fun TurboNavGraph() {
             MapScreen(
                 onOpenSearch = { nav.navigate(Routes.SEARCH) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
-                onOpenRecording = { nav.navigate(Routes.RECORDING) },
                 onOpenPaths = { nav.navigate(Routes.PATHS) },
                 onOpenOffline = { nav.navigate(Routes.OFFLINE) },
                 onOpenCollections = { nav.navigate(Routes.COLLECTIONS) },
@@ -71,7 +68,6 @@ fun TurboNavGraph() {
         composable(Routes.ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.OFFLINE) { OfflineMapsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.COLLECTIONS) { CollectionsScreen(onBack = { nav.popBackStack() }) }
-        composable(Routes.RECORDING) { RecordingScreen(onStop = { nav.popBackStack() }) }
         composable(Routes.PATHS) {
             PathsListScreen(
                 onBack = { nav.popBackStack() },

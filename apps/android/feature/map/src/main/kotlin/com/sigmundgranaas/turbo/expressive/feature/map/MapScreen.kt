@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
 import android.Manifest
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -64,6 +65,8 @@ import com.sigmundgranaas.turbo.expressive.feature.markers.MarkerEditorSheet
 import com.sigmundgranaas.turbo.expressive.feature.nav.DrawerDestination
 import com.sigmundgranaas.turbo.expressive.feature.nav.NavDrawerContent
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
+import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingViewModel
+import com.sigmundgranaas.turbo.expressive.feature.recording.TrackSaveDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.DeleteMarkerDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.MapControlRail
 import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
@@ -84,7 +87,6 @@ private const val OFF_ROUTE_THRESHOLD_M = 50.0
 fun MapScreen(
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenRecording: () -> Unit,
     onOpenPaths: () -> Unit,
     onOpenOffline: () -> Unit,
     onOpenCollections: () -> Unit = {},
@@ -95,6 +97,7 @@ fun MapScreen(
     viewModel: MapViewModel = hiltViewModel(),
     routeViewModel: RouteViewModel = hiltViewModel(),
     offlineViewModel: OfflineViewModel = hiltViewModel(),
+    recordingViewModel: RecordingViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -102,6 +105,7 @@ fun MapScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val routeState by routeViewModel.state.collectAsStateWithLifecycle()
     val routePreset by routeViewModel.preset.collectAsStateWithLifecycle()
+    val recState by recordingViewModel.state.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -162,8 +166,35 @@ fun MapScreen(
         }
     }
 
+    // ---- Recording (a mode of this map, not a separate screen) ----
+    var showRecSave by remember { mutableStateOf(false) }
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* best-effort: the ongoing notification only shows if granted */ }
+    val recordingLocationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> recordingViewModel.onPermissionResult(granted) }
+    // Start a recording from the map: clear the notification gate (Android 13+),
+    // then start the foreground service if located — else ask and start on grant.
+    fun startRecording() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (viewModel.hasLocationPermission()) {
+            recordingViewModel.start()
+        } else {
+            recordingLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
     // Show the user's location on first load if the permission is already granted.
     LaunchedEffect(Unit) { if (viewModel.hasLocationPermission()) viewModel.enableLocation() }
+
+    // While recording, keep the camera on the latest fix — recording implies movement,
+    // even if the user never toggled "follow".
+    LaunchedEffect(recState.userLocation, recState.recording) {
+        if (recState.recording) recState.userLocation?.let { controller?.flyTo(it, 16.0) }
+    }
 
     // While following, keep the camera centred on the latest fix.
     LaunchedEffect(state.userLocation, state.following) {
@@ -220,7 +251,7 @@ fun MapScreen(
                     DrawerDestination.Settings -> onOpenSettings()
                     DrawerDestination.Paths -> onOpenPaths()
                     DrawerDestination.Collections -> onOpenCollections()
-                    DrawerDestination.Record -> onOpenRecording()
+                    DrawerDestination.Record -> startRecording()
                     DrawerDestination.Offline -> onOpenOffline()
                     DrawerDestination.Map -> Unit
                 }
@@ -235,7 +266,9 @@ fun MapScreen(
                 initialZoom = SampleData.initialZoom,
                 markers = state.markers,
                 route = routeState.polyline.takeIf { it.isNotEmpty() },
-                track = displayedTrack,
+                // While recording, the live trail takes the track overlay; otherwise it's
+                // whatever saved track the user opened ("Show on map").
+                track = if (recState.recording) recState.points.takeIf { it.size > 1 } else displayedTrack,
                 selectedMarkerId = selectionState.selection?.id,
                 userLocation = state.userLocation,
                 onMarkerClick = { marker ->
@@ -373,30 +406,50 @@ fun MapScreen(
                 )
             }
 
-            val routeWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
-            RouteCard(
-                state = routeState,
-                preset = routePreset,
-                userLocation = state.userLocation,
-                waypointCount = routeWaypoints.size,
-                onRemoveStop = { index -> routeViewModel.removeWaypoint(index) },
-                onSelectPreset = { routeViewModel.selectPreset(it) },
-                onFollow = {
-                    if (viewModel.hasLocationPermission()) {
-                        viewModel.enableLocation()
-                        viewModel.setFollowing(true)
-                        routeViewModel.follow()
-                    } else {
-                        locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                    }
-                },
-                onSave = { showRouteSave = true },
-                onDownloadOffline = { routeViewModel.downloadAlongRoute(state.baseLayer) },
-                onClear = { routeViewModel.clear(); viewModel.setFollowing(false) },
-                modifier = Modifier.align(Alignment.BottomCenter)
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(16.dp),
-            )
+            // The bottom slot is the journey panel: recording controls take it over
+            // while a track is being captured; otherwise it's the route card.
+            if (recState.recording) {
+                RecordingControls(
+                    journey = ActiveJourney(
+                        mode = JourneyMode.Recording,
+                        geometry = recState.points,
+                        distanceM = recState.distanceM,
+                        elapsedSec = recState.elapsedSec,
+                        paused = recState.paused,
+                    ),
+                    metric = metric,
+                    onPause = { haptics.toggle(recState.paused); recordingViewModel.togglePause() },
+                    onStop = { haptics.confirm(); recordingViewModel.stop(); showRecSave = true },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(16.dp),
+                )
+            } else {
+                val routeWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
+                RouteCard(
+                    state = routeState,
+                    preset = routePreset,
+                    userLocation = state.userLocation,
+                    waypointCount = routeWaypoints.size,
+                    onRemoveStop = { index -> routeViewModel.removeWaypoint(index) },
+                    onSelectPreset = { routeViewModel.selectPreset(it) },
+                    onFollow = {
+                        if (viewModel.hasLocationPermission()) {
+                            viewModel.enableLocation()
+                            viewModel.setFollowing(true)
+                            routeViewModel.follow()
+                        } else {
+                            locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        }
+                    },
+                    onSave = { showRouteSave = true },
+                    onDownloadOffline = { routeViewModel.downloadAlongRoute(state.baseLayer) },
+                    onClear = { routeViewModel.clear(); viewModel.setFollowing(false) },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(16.dp),
+                )
+            }
         }
     }
 
@@ -488,6 +541,16 @@ fun MapScreen(
                 showRouteSave = false
             },
             onDismiss = { showRouteSave = false },
+        )
+    }
+    // Finish a recording: name + activity-kind picker, then persist (or discard).
+    if (showRecSave) {
+        TrackSaveDialog(
+            defaultName = "Track ${com.sigmundgranaas.turbo.expressive.core.geo.Units.distance(recState.distanceM, metric)}",
+            canSave = recState.points.size > 1,
+            onSave = { name, kind -> recordingViewModel.save(name, kind) {}; showRecSave = false },
+            onDiscard = { recordingViewModel.discard {}; showRecSave = false },
+            onDismiss = { showRecSave = false },
         )
     }
 }
