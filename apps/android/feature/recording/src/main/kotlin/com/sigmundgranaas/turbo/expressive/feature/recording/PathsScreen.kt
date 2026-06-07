@@ -89,6 +89,16 @@ import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
 
+/** Where a saved track came from — surfaced as a small label in the list. */
+private fun com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource.labelRes(): Int = when (this) {
+    com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource.Route -> R.string.paths_src_route
+    com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource.Recording -> R.string.paths_src_recorded
+    com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource.Measure -> R.string.paths_src_drawn
+    com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource.Trail -> R.string.paths_src_trail
+    com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource.Activity -> R.string.paths_src_activity
+    com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource.Saved -> R.string.paths_src_saved
+}
+
 private fun SavedPath.distanceText(metric: Boolean): String = Units.distance(path.distanceM, metric)
 
 private fun SavedPath.ascentText(metric: Boolean): String = Units.elevation(path.ascentM ?: 0.0, metric)
@@ -240,7 +250,11 @@ private fun PathCard(path: SavedPath, onClick: () -> Unit) {
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(path.name, style = MaterialTheme.typography.titleMedium, color = cs.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${path.distanceText(metric)} · ${path.durationText()}", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                Text(
+                    "${stringResource(path.path.source.labelRes())} · ${path.distanceText(metric)} · ${path.durationText()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                )
             }
         }
         if (path.path.points.size > 1) {

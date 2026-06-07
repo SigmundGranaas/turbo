@@ -17,6 +17,12 @@
     <string name="route_clear">Clear</string>
     <string name="route_save_title">Save route as track</string>
     <string name="route_saved">Route saved to tracks</string>
+    <string name="route_save_action">Save route</string>
+    <string name="route_saved_follow">Follow</string>
+    <string name="route_stop_save_title">Save this route?</string>
+    <string name="route_replace_follow_title">Stop following?</string>
+    <string name="route_replace_follow_body">Starting a new track ends the route you\'re following.</string>
+    <string name="route_replace_follow_confirm">Start new</string>
     <string name="route_following">Following route</string>
     <string name="route_left">%1$s left</string>
     <string name="route_waiting_gps">Waiting for GPS…</string>

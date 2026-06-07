@@ -33,6 +33,10 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
@@ -238,6 +242,26 @@ fun MapScreen(
     var showRouteStyle by remember { mutableStateOf(false) }
     var showTrackSave by remember { mutableStateOf(false) }
     var showTrackDiscard by remember { mutableStateOf(false) }
+    // Stop-following save prompt + the snackbar that bridges Save → Follow.
+    var showFollowStopSave by remember { mutableStateOf(false) }
+    var confirmReplaceFollow by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val savedToast = stringResource(R.string.route_saved)
+    val followLabel = stringResource(R.string.route_saved_follow)
+    // After a save, offer to immediately follow the just-saved geometry.
+    val offerFollowAfterSave: (List<LatLng>, Double, Double, Double) -> Unit = { geo, dist, asc, dur ->
+        scope.launch {
+            val res = snackbarHostState.showSnackbar(savedToast, actionLabel = followLabel, duration = SnackbarDuration.Short)
+            if (res == SnackbarResult.ActionPerformed && geo.size > 1) {
+                routeViewModel.followTrack(geo, dist, asc, dur)
+                if (viewModel.hasLocationPermission()) {
+                    viewModel.enableLocation(); viewModel.setFollowing(true)
+                } else {
+                    locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+            }
+        }
+    }
     // Open the tool fresh in [mode], wiping any half-built geometry.
     val openTrackTool: (TrackMode) -> Unit = { mode ->
         routeViewModel.clear(); linePoints.clear(); drawPoints.clear(); routeOrigin = null
@@ -419,7 +443,11 @@ fun MapScreen(
                     bearing = bearing,
                     onCompass = { controller?.resetNorth() },
                     onAdd = { (controller?.center() ?: state.userLocation)?.let { newMarkerAt = it } },
-                    onCreateTrack = { openTrackTool(TrackMode.Route) },
+                    onCreateTrack = {
+                        // Don't silently drop an active follow when launching the build tool.
+                        if (routeState is RouteUiState.Following) confirmReplaceFollow = true
+                        else openTrackTool(TrackMode.Route)
+                    },
                     onLayers = { showLayers = true },
                     onLocate = {
                         if (viewModel.hasLocationPermission()) {
@@ -504,7 +532,15 @@ fun MapScreen(
                     },
                     onSave = { showRouteSave = true },
                     onDownloadOffline = { routeViewModel.downloadAlongRoute(state.baseLayer) },
-                    onClear = { routeViewModel.clear(); viewModel.setFollowing(false) },
+                    onClear = {
+                        // Stopping a follow offers to keep it (→ Saved Tracks history);
+                        // any other state just clears.
+                        if (routeState is RouteUiState.Following) {
+                            showFollowStopSave = true
+                        } else {
+                            routeViewModel.clear(); viewModel.setFollowing(false)
+                        }
+                    },
                     conditions = {
                         val line = routeState.polyline
                         if (line.size > 1) {
@@ -648,11 +684,17 @@ fun MapScreen(
                         confirmLabel = stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_save),
                         initial = if (full.isNotBlank()) "Track $full" else "Track",
                         onConfirm = { name ->
+                            // Capture before closing wipes the working geometry, so the
+                            // "Saved · Follow" snackbar can follow the just-saved line.
+                            val savedGeo = geometry
+                            val savedDist = distM
+                            val savedAsc = donePlan?.ascentM ?: 0.0
+                            val savedDur = donePlan?.durationS ?: 0.0
                             if (mode == TrackMode.Route) routeViewModel.saveAsTrack(name)
-                            else routeViewModel.saveLine(name, geometry)
-                            Toast.makeText(context, R.string.route_saved, Toast.LENGTH_SHORT).show()
+                            else routeViewModel.saveLine(name, savedGeo)
                             showTrackSave = false
                             closeTrackTool(false)
+                            offerFollowAfterSave(savedGeo, savedDist, savedAsc, savedDur)
                         },
                         onDismiss = { showTrackSave = false },
                     )
@@ -669,11 +711,47 @@ fun MapScreen(
                     )
                 }
             }
+
+            // The Save → Follow bridge snackbar floats above the map (bottom).
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
+            )
         }
     }
 
     // ---- Selection detail host (markers, and any future entity) ----
     MapEntityDetailHost(state = selectionState, registry = actionRegistry)
+
+    // Stopping a follow: keep it (→ Saved Tracks) or discard. Mirrors recording's
+    // save-on-stop, so a route you followed can land in your history.
+    if (showFollowStopSave) {
+        val plan = (routeState as? RouteUiState.Following)?.plan
+        TrackSaveDialog(
+            defaultName = "Route ${com.sigmundgranaas.turbo.expressive.core.geo.Units.distance(plan?.distanceM ?: 0.0, metric)}",
+            canSave = (plan?.geometry?.size ?: 0) > 1,
+            onSave = { name, kind ->
+                routeViewModel.saveAsTrack(name, kind)
+                Toast.makeText(context, R.string.route_saved, Toast.LENGTH_SHORT).show()
+                showFollowStopSave = false
+                routeViewModel.clear(); viewModel.setFollowing(false)
+            },
+            onDiscard = { showFollowStopSave = false; routeViewModel.clear(); viewModel.setFollowing(false) },
+            onDismiss = { showFollowStopSave = false }, // keep following
+        )
+    }
+    // Launching the build tool while following would drop the active route — confirm.
+    if (confirmReplaceFollow) {
+        com.sigmundgranaas.turbo.expressive.ui.components.TurboConfirmDialog(
+            title = stringResource(R.string.route_replace_follow_title),
+            body = stringResource(R.string.route_replace_follow_body),
+            confirmLabel = stringResource(R.string.route_replace_follow_confirm),
+            icon = androidx.compose.material.icons.Icons.Rounded.Route,
+            onConfirm = { confirmReplaceFollow = false; openTrackTool(TrackMode.Route) },
+            onDismiss = { confirmReplaceFollow = false },
+        )
+    }
 
     // ---- Tool sheets ----
     if (showLayers) {

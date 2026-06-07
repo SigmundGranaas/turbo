@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -86,6 +87,21 @@ class RouteCardTest {
         composeRule.onNodeWithText("Following route").assertExists()
         composeRule.onNodeWithText("Stop").assertExists()
         composeRule.onNodeWithText("km left", substring = true).assertExists()
+    }
+
+    @Test
+    fun `following state exposes a save action that keeps the follow`() {
+        var saved = false
+        composeRule.setContent {
+            RouteCard(
+                state = RouteUiState.Following(plan),
+                preset = RoutePreset.Balanced,
+                userLocation = LatLng(69.0, 18.0),
+                onSelectPreset = {}, onFollow = {}, onSave = { saved = true }, onClear = {},
+            )
+        }
+        composeRule.onNodeWithContentDescription("Save route").performClick()
+        assert(saved)
     }
 
     @Test

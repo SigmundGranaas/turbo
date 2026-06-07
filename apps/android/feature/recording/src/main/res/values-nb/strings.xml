@@ -16,6 +16,13 @@
     <string name="paths_no_matches">Ingen treff</string>
     <string name="paths_no_matches_body">Ingen treff for «%1$s».</string>
     <string name="paths_saved_count">Lagret · %1$d</string>
+    <!-- Track origin labels (list) -->
+    <string name="paths_src_route">Rute</string>
+    <string name="paths_src_recorded">Opptak</string>
+    <string name="paths_src_drawn">Tegnet</string>
+    <string name="paths_src_trail">Sti</string>
+    <string name="paths_src_activity">Aktivitet</string>
+    <string name="paths_src_saved">Importert</string>
     <string name="paths_not_found">Fant ikke sporet</string>
     <string name="paths_distance">Distanse</string>
     <string name="paths_ascent">Stigning</string>

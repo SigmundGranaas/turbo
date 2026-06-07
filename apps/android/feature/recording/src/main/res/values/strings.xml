@@ -16,6 +16,13 @@
     <string name="paths_no_matches">No matches</string>
     <string name="paths_no_matches_body">Nothing found for “%1$s”.</string>
     <string name="paths_saved_count">Saved · %1$d</string>
+    <!-- Track origin labels (list) -->
+    <string name="paths_src_route">Route</string>
+    <string name="paths_src_recorded">Recorded</string>
+    <string name="paths_src_drawn">Drawn</string>
+    <string name="paths_src_trail">Trail</string>
+    <string name="paths_src_activity">Activity</string>
+    <string name="paths_src_saved">Imported</string>
     <string name="paths_not_found">Track not found</string>
     <string name="paths_distance">Distance</string>
     <string name="paths_ascent">Ascent</string>

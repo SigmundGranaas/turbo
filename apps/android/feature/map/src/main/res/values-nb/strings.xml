@@ -17,6 +17,12 @@
     <string name="route_clear">Fjern</string>
     <string name="route_save_title">Lagre rute som spor</string>
     <string name="route_saved">Rute lagret i spor</string>
+    <string name="route_save_action">Lagre rute</string>
+    <string name="route_saved_follow">Følg</string>
+    <string name="route_stop_save_title">Lagre denne ruta?</string>
+    <string name="route_replace_follow_title">Slutte å følge?</string>
+    <string name="route_replace_follow_body">Å lage et nytt spor avslutter ruta du følger.</string>
+    <string name="route_replace_follow_confirm">Start nytt</string>
     <string name="route_following">Følger rute</string>
     <string name="route_left">%1$s igjen</string>
     <string name="route_waiting_gps">Venter på GPS…</string>

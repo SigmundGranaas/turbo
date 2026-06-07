@@ -201,7 +201,7 @@ class RouteViewModel @Inject constructor(
         offline.download(name, base, bounds, minZoom = 8.0, maxZoom = 15.0)
     }
 
-    fun saveAsTrack(name: String) {
+    fun saveAsTrack(name: String, kind: com.sigmundgranaas.turbo.expressive.domain.ActivityKindId? = null) {
         val plan = when (val s = _state.value) {
             is RouteUiState.Done -> s.plan
             is RouteUiState.Following -> s.plan
@@ -217,7 +217,7 @@ class RouteViewModel @Inject constructor(
             recordedAtEpochMs = System.currentTimeMillis(),
         )
         viewModelScope.launch {
-            paths.save(SavedPath(id = "p-${UUID.randomUUID()}", name = name.ifBlank { "Route" }, path = geo))
+            paths.save(SavedPath(id = "p-${UUID.randomUUID()}", name = name.ifBlank { "Route" }, path = geo, activityKind = kind))
         }
     }
 

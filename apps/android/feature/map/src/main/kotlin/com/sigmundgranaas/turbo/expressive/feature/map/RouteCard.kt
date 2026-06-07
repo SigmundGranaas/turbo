@@ -25,6 +25,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -142,6 +143,10 @@ internal fun RouteCard(
                                     color = cs.onSurfaceVariant,
                                 )
                             }
+                        }
+                        // Keep the route you're following — saving doesn't stop the follow.
+                        IconButton(onClick = onSave) {
+                            Icon(Icons.Rounded.Bookmark, stringResource(R.string.route_save_action), tint = cs.primary)
                         }
                         TextButton(onClick = onClear) { Text(stringResource(if (arrived) R.string.route_done else R.string.route_stop)) }
                     }
