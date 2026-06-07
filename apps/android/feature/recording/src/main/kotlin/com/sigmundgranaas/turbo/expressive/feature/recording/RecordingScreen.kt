@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.SampleData
+import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -69,6 +70,7 @@ fun RecordingScreen(
     val cs = MaterialTheme.colorScheme
     val ui by viewModel.state.collectAsStateWithLifecycle()
     val metric = LocalMetricUnits.current
+    val haptics = rememberTurboHaptics()
     var controller by remember { mutableStateOf<MapController?>(null) }
     var showSave by remember { mutableStateOf(false) }
 
@@ -135,14 +137,14 @@ fun RecordingScreen(
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     FloatingActionButton(
-                        onClick = { viewModel.togglePause() },
+                        onClick = { haptics.toggle(ui.paused); viewModel.togglePause() },
                         containerColor = cs.secondaryContainer,
                         contentColor = cs.onSecondaryContainer,
                         modifier = Modifier.size(56.dp),
                     ) { Icon(if (ui.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, stringResource(if (ui.paused) R.string.rec_resume else R.string.rec_pause)) }
                     Spacer(Modifier.width(12.dp))
                     FloatingActionButton(
-                        onClick = { viewModel.stop(); showSave = true },
+                        onClick = { haptics.confirm(); viewModel.stop(); showSave = true },
                         containerColor = cs.primary,
                         contentColor = cs.onPrimary,
                         modifier = Modifier.size(56.dp),

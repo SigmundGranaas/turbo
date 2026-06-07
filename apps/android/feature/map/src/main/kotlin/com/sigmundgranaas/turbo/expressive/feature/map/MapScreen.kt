@@ -64,6 +64,7 @@ import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
 import com.sigmundgranaas.turbo.expressive.ui.components.DeleteMarkerDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.MapControlRail
 import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
+import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
 import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
@@ -92,6 +93,7 @@ fun MapScreen(
 ) {
     val cs = MaterialTheme.colorScheme
     val context = androidx.compose.ui.platform.LocalContext.current
+    val haptics = rememberTurboHaptics()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val routeState by routeViewModel.state.collectAsStateWithLifecycle()
     val routePreset by routeViewModel.preset.collectAsStateWithLifecycle()
@@ -236,7 +238,7 @@ fun MapScreen(
                     )
                 },
                 measurePoints = measurePoints,
-                onMapLongClick = { newMarkerAt = it },
+                onMapLongClick = { haptics.longPress(); newMarkerAt = it },
                 onMapTap = { p ->
                     if (measuring) measurePoints.add(p) else selectionState.clear()
                 },

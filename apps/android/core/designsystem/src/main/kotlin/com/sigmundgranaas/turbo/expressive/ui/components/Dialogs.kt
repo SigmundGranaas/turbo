@@ -42,6 +42,7 @@ fun TurboConfirmDialog(
     destructive: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
+    val haptics = rememberTurboHaptics()
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = modifier,
@@ -50,7 +51,7 @@ fun TurboConfirmDialog(
         text = { Text(body, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant) },
         confirmButton = {
             Button(
-                onClick = onConfirm,
+                onClick = { if (destructive) haptics.reject() else haptics.confirm(); onConfirm() },
                 colors = if (destructive) {
                     ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = cs.onError)
                 } else {

@@ -45,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
 import com.sigmundgranaas.turbo.expressive.ui.components.ListRowItem
+import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,6 +57,7 @@ fun SettingsScreen(
 ) {
     val cs = MaterialTheme.colorScheme
     val settings by viewModel.state.collectAsStateWithLifecycle()
+    val haptics = rememberTurboHaptics()
 
     Scaffold(
         containerColor = cs.surface,
@@ -124,18 +126,18 @@ fun SettingsScreen(
             SettingsGroup {
                 ListRowItem(
                     Icons.Rounded.Explore, stringResource(R.string.settings_compass), subtitle = stringResource(R.string.settings_compass_sub),
-                    trailing = { Switch(settings.compassOrientation, viewModel::setCompass) },
+                    trailing = { Switch(settings.compassOrientation, { haptics.toggle(it); viewModel.setCompass(it) }) },
                 )
                 HorizontalDivider(color = cs.outlineVariant)
                 ListRowItem(
                     Icons.Rounded.MyLocation, stringResource(R.string.settings_follow),
-                    trailing = { Switch(settings.followLocation, viewModel::setFollow) },
+                    trailing = { Switch(settings.followLocation, { haptics.toggle(it); viewModel.setFollow(it) }) },
                 )
                 HorizontalDivider(color = cs.outlineVariant)
                 ListRowItem(
                     Icons.Rounded.Straighten, stringResource(R.string.settings_units),
                     subtitle = stringResource(if (settings.metricUnits) R.string.units_metric else R.string.units_imperial),
-                    trailing = { Switch(settings.metricUnits, viewModel::setMetric, modifier = Modifier.testTag("unitsSwitch")) },
+                    trailing = { Switch(settings.metricUnits, { haptics.toggle(it); viewModel.setMetric(it) }, modifier = Modifier.testTag("unitsSwitch")) },
                 )
             }
             SettingsGroup {

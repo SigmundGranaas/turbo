@@ -46,6 +46,7 @@ import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
+import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
 import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
@@ -60,6 +61,7 @@ fun MapLayersSheet(
     onToggleOverlay: (OverlayId, Boolean) -> Unit = { _, _ -> },
 ) {
     val cs = MaterialTheme.colorScheme
+    val haptics = rememberTurboHaptics()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -91,7 +93,7 @@ fun MapLayersSheet(
                     }
                     Switch(
                         checked = overlay in activeOverlays,
-                        onCheckedChange = { on -> onToggleOverlay(overlay, on) },
+                        onCheckedChange = { on -> haptics.toggle(on); onToggleOverlay(overlay, on) },
                     )
                 }
             }
