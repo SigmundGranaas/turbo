@@ -11,12 +11,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -102,6 +104,7 @@ fun TurboMap(
     val mapView = rememberMapViewWithLifecycle()
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     val cameraTick = remember { mutableIntStateOf(0) }
+    val moving = remember { mutableStateOf(false) }
     var styledBase by remember { mutableStateOf<BaseLayer?>(null) }
     var styledOverlays by remember { mutableStateOf<Set<com.sigmundgranaas.turbo.expressive.domain.OverlayId>>(emptySet()) }
 
@@ -123,8 +126,18 @@ fun TurboMap(
                         .target(MlLatLng(initialCamera.lat, initialCamera.lng))
                         .zoom(initialZoom)
                         .build()
-                    ml.addOnCameraMoveListener { cameraTick.intValue++; onBearingChange(ml.cameraPosition.bearing) }
-                    ml.addOnCameraIdleListener { cameraTick.intValue++; onBearingChange(ml.cameraPosition.bearing) }
+                    // While the camera is moving we reproject the Compose overlay from the
+                    // frame clock (see the LaunchedEffect below) so pins/route track the GL
+                    // base map in lockstep. The listeners just gate that loop + keep a final
+                    // frame on idle; bumping cameraTick straight from the move listener lands
+                    // a frame late, which is what made the overlay float/drift.
+                    ml.addOnCameraMoveStartedListener { moving.value = true }
+                    ml.addOnCameraMoveListener { onBearingChange(ml.cameraPosition.bearing) }
+                    ml.addOnCameraIdleListener {
+                        moving.value = false
+                        cameraTick.intValue++
+                        onBearingChange(ml.cameraPosition.bearing)
+                    }
                     ml.addOnMapLongClickListener { point ->
                         longClick(LatLng(point.latitude, point.longitude))
                         true
@@ -137,6 +150,17 @@ fun TurboMap(
                 }
             }
         })
+
+        // Drive overlay reprojection from the frame clock while the camera moves, so the
+        // Compose pins/route advance on the same VSYNC as the GL map (no float/drift).
+        LaunchedEffect(moving.value) {
+            if (moving.value) {
+                while (true) {
+                    withFrameNanos { }
+                    cameraTick.intValue++
+                }
+            }
+        }
 
         // Re-style when the base layer or the data overlay changes.
         val ml = map
