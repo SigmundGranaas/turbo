@@ -24,6 +24,10 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // ~89% of the APK is MapLibre's native .so. Real devices are ARM, so
+            // release ships ARM-only and drops the x86/x86_64 emulator slices
+            // (~24 MB). Debug keeps every ABI so the x86_64 emulator still runs.
+            ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
