@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -74,7 +76,15 @@ fun TurboNavGraph() {
                 onShowTrackConsumed = { entry.savedStateHandle["showTrack"] = null },
             )
         }
-        composable(Routes.SEARCH) {
+        composable(
+            Routes.SEARCH,
+            // Search expands/contracts in place (container-transform feel), not a
+            // horizontal page slide — the Google-style "search opens over the map".
+            enterTransition = { fadeIn(tween(200)) + scaleIn(tween(220), initialScale = 0.94f) },
+            exitTransition = { fadeOut(tween(150)) },
+            popEnterTransition = { fadeIn(tween(150)) },
+            popExitTransition = { fadeOut(tween(200)) + scaleOut(tween(220), targetScale = 0.94f) },
+        ) {
             SearchScreen(
                 onBack = { nav.popBackStack() },
                 onPick = { lat, lng, _ ->
