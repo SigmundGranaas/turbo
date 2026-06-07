@@ -78,6 +78,7 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:data"))
     implementation(project(":core:auth"))
+    implementation(project(":core:sync"))
     implementation(project(":core:designsystem"))
     implementation(project(":feature:map"))
     implementation(project(":feature:auth"))

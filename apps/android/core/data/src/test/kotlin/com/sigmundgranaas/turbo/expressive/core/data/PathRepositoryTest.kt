@@ -20,8 +20,14 @@ private class FakePathDao : PathDao {
     override fun observeAll(): Flow<List<PathEntity>> =
         rows.map { m -> m.values.filter { it.deletedAtEpochMs == null }.sortedByDescending { e -> e.createdAtEpochMs } }
     override suspend fun byId(id: String): PathEntity? = rows.value[id]
+    override suspend fun byRemoteId(remoteId: String): PathEntity? = rows.value.values.find { it.remoteId == remoteId }
     override suspend fun pendingSync(): List<PathEntity> = rows.value.values.filter { it.dirty }
     override suspend fun upsert(entity: PathEntity) { rows.value = rows.value + (entity.id to entity) }
+    override suspend fun markSynced(id: String, remoteId: String, version: Long, updatedAt: Long) {
+        rows.value[id]?.let {
+            rows.value = rows.value + (id to it.copy(remoteId = remoteId, version = version, updatedAtEpochMs = updatedAt, dirty = false))
+        }
+    }
     override suspend fun softDelete(id: String, ts: Long) {
         rows.value[id]?.let { rows.value = rows.value + (id to it.copy(deletedAtEpochMs = ts, dirty = true)) }
     }

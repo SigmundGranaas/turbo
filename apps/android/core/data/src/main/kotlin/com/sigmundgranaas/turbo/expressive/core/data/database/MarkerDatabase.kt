@@ -92,11 +92,18 @@ interface PathDao {
     @Query("SELECT * FROM path WHERE id = :id")
     suspend fun byId(id: String): PathEntity?
 
+    @Query("SELECT * FROM path WHERE remoteId = :remoteId")
+    suspend fun byRemoteId(remoteId: String): PathEntity?
+
     @Query("SELECT * FROM path WHERE dirty = 1")
     suspend fun pendingSync(): List<PathEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: PathEntity)
+
+    /** Mark a pushed row as synced: record the server id/version and clear the dirty flag. */
+    @Query("UPDATE path SET remoteId = :remoteId, version = :version, updatedAtEpochMs = :updatedAt, dirty = 0 WHERE id = :id")
+    suspend fun markSynced(id: String, remoteId: String, version: Long, updatedAt: Long)
 
     @Query("UPDATE path SET deletedAtEpochMs = :ts, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: String, ts: Long)
