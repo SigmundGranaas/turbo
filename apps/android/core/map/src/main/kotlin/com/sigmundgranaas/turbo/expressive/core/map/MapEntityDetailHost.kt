@@ -73,26 +73,32 @@ fun MapEntityDetailHost(
 
             if (actions.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    val primary = actions.first()
-                    Button(
-                        onClick = { primary.onInvoke(ctx); state.clear() },
-                        modifier = Modifier.weight(1f).height(52.dp),
-                    ) {
-                        Icon(primary.icon, null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.size(8.dp))
-                        Text(primary.label, style = MaterialTheme.typography.titleMedium)
-                    }
-                    actions.drop(1).forEach { action ->
-                        FilledIconButton(
-                            onClick = { action.onInvoke(ctx); state.clear() },
-                            modifier = Modifier.size(52.dp),
-                            colors = if (action.isDestructive) {
-                                IconButtonDefaults.filledIconButtonColors(containerColor = cs.errorContainer, contentColor = cs.onErrorContainer)
-                            } else {
-                                IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer)
-                            },
-                        ) { Icon(action.icon, action.label) }
+                // Primary action gets a full-width row so its label never wraps/clips;
+                // the rest spread evenly on a second row (fits any phone width).
+                val primary = actions.first()
+                Button(
+                    onClick = { primary.onInvoke(ctx); state.clear() },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                ) {
+                    Icon(primary.icon, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(primary.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                val secondary = actions.drop(1)
+                if (secondary.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        secondary.forEach { action ->
+                            FilledIconButton(
+                                onClick = { action.onInvoke(ctx); state.clear() },
+                                modifier = Modifier.weight(1f).height(52.dp),
+                                colors = if (action.isDestructive) {
+                                    IconButtonDefaults.filledIconButtonColors(containerColor = cs.errorContainer, contentColor = cs.onErrorContainer)
+                                } else {
+                                    IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer)
+                                },
+                            ) { Icon(action.icon, action.label) }
+                        }
                     }
                 }
             }

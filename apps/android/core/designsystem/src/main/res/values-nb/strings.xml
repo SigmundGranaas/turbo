@@ -29,6 +29,7 @@
     <string name="ds_my_location">Min posisjon</string>
     <string name="ds_zoom_in">Zoom inn</string>
     <string name="ds_zoom_out">Zoom ut</string>
+    <string name="ds_compass">Tilbakestill til nord</string>
 
     <!-- Activity / marker kinds -->
     <string name="kind_mountain">Fjell</string>

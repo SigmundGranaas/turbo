@@ -13,7 +13,7 @@
 
     <string name="settings_compass">Compass orientation</string>
     <string name="settings_compass_sub">Rotate map to heading</string>
-    <string name="settings_follow">Follow My Location</string>
+    <string name="settings_follow">Follow my location</string>
     <string name="settings_units">Units</string>
     <string name="units_metric">Metric · km, m</string>
     <string name="units_imperial">Imperial · mi, ft</string>

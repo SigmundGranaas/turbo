@@ -61,6 +61,12 @@ class MapController(internal val map: MapLibreMap) {
 
     /** Current camera zoom level. */
     fun zoom(): Double = map.cameraPosition.zoom
+
+    /** Current map bearing in degrees (0 = north up). */
+    fun bearing(): Double = map.cameraPosition.bearing
+
+    /** Animate the map back to north-up (compass reset). */
+    fun resetNorth() = map.animateCamera(CameraUpdateFactory.bearingTo(0.0))
 }
 
 /**
@@ -87,6 +93,7 @@ fun TurboMap(
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
     onMapReady: (MapController) -> Unit = {},
+    onBearingChange: (Double) -> Unit = {},
 ) {
     val longClick by rememberUpdatedState(onMapLongClick)
     val tap by rememberUpdatedState(onMapTap)
@@ -104,6 +111,10 @@ fun TurboMap(
             mapView.apply {
                 getMapAsync { ml ->
                     map = ml
+                    // We surface a compass in our own (properly-inset, tappable) control
+                    // rail, so suppress MapLibre's default top-right widget that otherwise
+                    // lands under the status bar / search pill.
+                    ml.uiSettings.isCompassEnabled = false
                     ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) {
                         styledBase = base
                         styledOverlays = overlays
@@ -112,8 +123,8 @@ fun TurboMap(
                         .target(MlLatLng(initialCamera.lat, initialCamera.lng))
                         .zoom(initialZoom)
                         .build()
-                    ml.addOnCameraMoveListener { cameraTick.intValue++ }
-                    ml.addOnCameraIdleListener { cameraTick.intValue++ }
+                    ml.addOnCameraMoveListener { cameraTick.intValue++; onBearingChange(ml.cameraPosition.bearing) }
+                    ml.addOnCameraIdleListener { cameraTick.intValue++; onBearingChange(ml.cameraPosition.bearing) }
                     ml.addOnMapLongClickListener { point ->
                         longClick(LatLng(point.latitude, point.longitude))
                         true

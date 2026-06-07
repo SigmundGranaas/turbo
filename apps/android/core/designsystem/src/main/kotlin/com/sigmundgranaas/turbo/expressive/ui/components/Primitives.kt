@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material.icons.rounded.Menu
@@ -94,6 +95,8 @@ fun MapControlRail(
     modifier: Modifier = Modifier,
     following: Boolean = false,
     measuring: Boolean = false,
+    bearing: Float = 0f,
+    onCompass: (() -> Unit)? = null,
     onLayers: () -> Unit = {},
     onLocate: () -> Unit = {},
     onMeasure: (() -> Unit)? = null,
@@ -101,6 +104,11 @@ fun MapControlRail(
     onZoomOut: () -> Unit = {},
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Compass — only while the map is rotated; tap resets to north. Lives here
+        // (in the inset rail) instead of MapLibre's off-screen default widget.
+        if (onCompass != null && kotlin.math.abs(bearing) > 0.5f) {
+            RailButton(Icons.Rounded.Explore, stringResource(R.string.ds_compass), rotation = -bearing, onClick = onCompass)
+        }
         RailButton(Icons.Rounded.Layers, stringResource(R.string.ds_map_layers), onClick = onLayers)
         if (onMeasure != null) {
             RailButton(Icons.Rounded.Straighten, stringResource(R.string.ds_measure_distance), active = measuring, onClick = onMeasure)

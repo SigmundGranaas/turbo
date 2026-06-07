@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -101,6 +102,7 @@ fun MapScreen(
     val scope = rememberCoroutineScope()
 
     var controller by remember { mutableStateOf<MapController?>(null) }
+    var bearing by remember { mutableFloatStateOf(0f) }
 
     val locationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -243,6 +245,7 @@ fun MapScreen(
                     if (measuring) measurePoints.add(p) else selectionState.clear()
                 },
                 onMapReady = { controller = it },
+                onBearingChange = { bearing = it.toFloat() },
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -259,6 +262,8 @@ fun MapScreen(
             MapControlRail(
                 following = state.following,
                 measuring = measuring,
+                bearing = bearing,
+                onCompass = { controller?.resetNorth() },
                 onMeasure = {
                     measuring = !measuring
                     if (!measuring) measurePoints.clear()
