@@ -89,6 +89,14 @@ class RouteViewModel @Inject constructor(
         if (next.size < 2) clear() else setWaypoints(next, debounce = true)
     }
 
+    /** Move the waypoint at [index] to a new position (drag on the map), then re-solve. */
+    fun moveWaypointTo(index: Int, point: LatLng) {
+        val current = _waypoints.value
+        if (index !in current.indices) return
+        pushUndo()
+        setWaypoints(current.toMutableList().also { it[index] = point }, debounce = true)
+    }
+
     /** Reorder a waypoint (drag), then re-solve. */
     fun moveWaypoint(from: Int, to: Int) {
         val current = _waypoints.value
@@ -120,14 +128,23 @@ class RouteViewModel @Inject constructor(
         val points = _waypoints.value
         if (points.size < 2) return
         job?.cancel()
-        // Seed with the straight line through all waypoints so intent shows immediately.
-        _state.value = RouteUiState.Solving(points)
+        // Graceful re-route: if a route is already solved (e.g. the user nudged a stop),
+        // keep its line on screen — and ignore intermediate solve progress — until the new
+        // result lands, so the path doesn't snap to a straight line and back. Only the very
+        // first solve (no prior geometry) shows the live straight-line→refined progress.
+        val previous = when (val s = _state.value) {
+            is RouteUiState.Done -> s.plan.geometry
+            is RouteUiState.Following -> s.plan.geometry
+            else -> null
+        }
+        _state.value = RouteUiState.Solving(previous ?: points)
         job = viewModelScope.launch {
             if (debounce) kotlinx.coroutines.delay(DEBOUNCE_MS)
             try {
                 routes.planStream(points, _preset.value).collect { event ->
                     _state.value = when (event) {
-                        is RouteStreamEvent.Progress -> RouteUiState.Solving(event.coordinates)
+                        is RouteStreamEvent.Progress ->
+                            if (previous != null) RouteUiState.Solving(previous) else RouteUiState.Solving(event.coordinates)
                         is RouteStreamEvent.Result ->
                             if (resumeFollowing) { resumeFollowing = false; RouteUiState.Following(event.plan) }
                             else RouteUiState.Done(event.plan)

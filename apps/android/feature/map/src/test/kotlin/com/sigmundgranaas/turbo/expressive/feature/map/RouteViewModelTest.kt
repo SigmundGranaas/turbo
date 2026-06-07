@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -199,6 +200,30 @@ class RouteViewModelTest {
 
         assertEquals(listOf(a, stop, b), vm.waypoints.value)
         assertEquals(2, repo.calls)
+    }
+
+    @Test
+    fun `moveWaypointTo repositions a stop and re-solves`() = runTest(mainRule.dispatcher) {
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager())
+        vm.planRoute(a, b); advanceUntilIdle()
+        val moved = LatLng(69.02, 18.02)
+        vm.moveWaypointTo(0, moved); advanceUntilIdle()
+        assertEquals(listOf(moved, b), vm.waypoints.value)
+        assertTrue(vm.state.value is RouteUiState.Done)
+    }
+
+    @Test
+    fun `re-solving keeps the previously solved line until the new result lands`() = runTest(mainRule.dispatcher) {
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager())
+        vm.planRoute(a, b); advanceUntilIdle()
+        assertEquals(plan.geometry, vm.state.value.polyline)
+
+        // Edit a stop: before the (debounced) re-solve completes, the old route line stays —
+        // it must NOT snap to the straight line through the new waypoints.
+        vm.moveWaypointTo(0, LatLng(69.02, 18.02))
+        runCurrent()
+        val solving = vm.state.value as RouteUiState.Solving
+        assertEquals(plan.geometry, solving.progress)
     }
 
     @Test
