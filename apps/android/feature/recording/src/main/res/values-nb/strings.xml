@@ -61,4 +61,7 @@
     <string name="rec_notif_content">%1$s · %2$s</string>
     <string name="rec_notif_channel">Sporopptak</string>
     <string name="rec_notif_channel_desc">Viser et pågående varsel mens et spor tas opp.</string>
+    <string name="rec_notif_pause">Pause</string>
+    <string name="rec_notif_resume">Fortsett</string>
+    <string name="rec_notif_stop">Stopp</string>
 </resources>

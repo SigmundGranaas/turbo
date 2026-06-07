@@ -61,4 +61,7 @@
     <string name="rec_notif_content">%1$s · %2$s</string>
     <string name="rec_notif_channel">Track recording</string>
     <string name="rec_notif_channel_desc">Shows an ongoing notification while a track is being recorded.</string>
+    <string name="rec_notif_pause">Pause</string>
+    <string name="rec_notif_resume">Resume</string>
+    <string name="rec_notif_stop">Stop</string>
 </resources>
