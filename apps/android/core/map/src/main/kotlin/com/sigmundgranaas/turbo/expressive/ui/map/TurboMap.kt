@@ -3,7 +3,17 @@ package com.sigmundgranaas.turbo.expressive.ui.map
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -136,6 +146,14 @@ fun TurboMap(
     userLocation: LatLng? = null,
     photoPins: List<PhotoPin> = emptyList(),
     onPhotoPinClick: (PhotoPin) -> Unit = {},
+    // ── Editable route waypoints (the "Manage track" on-map editor) ──
+    // A/B/C… + flag markers along [route]; tap = select, drag the selected one = move,
+    // long-press = remove. Empty unless the route builder is active.
+    waypoints: List<LatLng> = emptyList(),
+    selectedWaypoint: Int? = null,
+    onWaypointTap: (Int) -> Unit = {},
+    onWaypointLongPress: (Int) -> Unit = {},
+    onWaypointMoved: (Int, LatLng) -> Unit = { _, _ -> },
     onMarkerClick: (Marker) -> Unit = {},
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
@@ -302,6 +320,106 @@ fun TurboMap(
                             IntOffset((pt.x - boxPx / 2f).roundToInt(), (pt.y - boxPx).roundToInt())
                         }
                         .clickable { onMarkerClick(m) },
+                )
+            }
+            // Editable route waypoints (A/B/C… + flag), reprojected on every camera tick.
+            // Drawn last so they sit above markers; each handles tap/long-press/drag itself.
+            waypoints.forEachIndexed { index, wp ->
+                WaypointMarkerView(
+                    index = index,
+                    last = waypoints.lastIndex,
+                    selected = index == selectedWaypoint,
+                    cameraTick = cameraTick.intValue,
+                    project = { ml.projection.toScreenLocation(MlLatLng(wp.lat, wp.lng)).let { Offset(it.x, it.y) } },
+                    toLatLng = { o ->
+                        ml.projection.fromScreenLocation(android.graphics.PointF(o.x, o.y))
+                            .let { LatLng(it.latitude, it.longitude) }
+                    },
+                    onTap = { onWaypointTap(index) },
+                    onLongPress = { onWaypointLongPress(index) },
+                    onMoved = { onWaypointMoved(index, it) },
+                )
+            }
+        }
+    }
+}
+
+/** Stop-kind marker colours (match the design's WP_START / WP_END). */
+private val WpStart = Color(0xFF2E7D32)
+private val WpEnd = Color(0xFFC0392B)
+
+/**
+ * An on-map route waypoint: an A/B/C… letter badge (flag for the destination), start green /
+ * end red / via primary, with a selected ring. Tap selects, long-press removes, and dragging
+ * the selected one moves it ([onMoved] fires once on drop with the new position).
+ */
+@Composable
+private fun WaypointMarkerView(
+    index: Int,
+    last: Int,
+    selected: Boolean,
+    cameraTick: Int,
+    project: () -> Offset,
+    toLatLng: (Offset) -> LatLng,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit,
+    onMoved: (LatLng) -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    val sizeDp = if (selected) 40.dp else 32.dp
+    val boxPx = with(density) { sizeDp.toPx() }
+    var drag by remember { mutableStateOf(Offset.Zero) }
+    val color = when (index) {
+        0 -> WpStart
+        last -> WpEnd
+        else -> cs.primary
+    }
+    Box(
+        Modifier
+            .offset {
+                @Suppress("UNUSED_EXPRESSION") cameraTick
+                val p = project()
+                IntOffset((p.x - boxPx / 2f + drag.x).roundToInt(), (p.y - boxPx / 2f + drag.y).roundToInt())
+            }
+            .size(sizeDp)
+            .testTag("waypoint_$index")
+            // Drag the selected stop to move it; commit once on drop.
+            .then(
+                if (selected) {
+                    Modifier.pointerInput(index) {
+                        detectDragGestures(
+                            onDrag = { change, amount -> change.consume(); drag += amount },
+                            onDragEnd = { onMoved(toLatLng(project() + drag)); drag = Offset.Zero },
+                            onDragCancel = { drag = Offset.Zero },
+                        )
+                    }
+                } else {
+                    Modifier
+                }
+            )
+            .pointerInput(index) {
+                detectTapGestures(onTap = { onTap() }, onLongPress = { onLongPress() })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (selected) {
+            Box(
+                Modifier.size(sizeDp + 18.dp).clip(CircleShape).background(color.copy(alpha = 0.20f)),
+            )
+        }
+        Box(
+            Modifier.size(sizeDp).clip(CircleShape).background(color)
+                .border(3.dp, cs.surface, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (index == last) {
+                Icon(Icons.Rounded.Flag, null, tint = Color.White, modifier = Modifier.size(if (selected) 20.dp else 16.dp))
+            } else {
+                Text(
+                    ('A' + index).toString(),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W800),
+                    color = Color.White,
                 )
             }
         }

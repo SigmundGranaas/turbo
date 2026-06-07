@@ -46,6 +46,7 @@
     <string name="track_mode_line">Line</string>
     <string name="track_mode_draw">Draw</string>
     <string name="track_hint_route">Tap the map to add stops</string>
+    <string name="track_updating">Updating route…</string>
     <string name="track_hint_line">Tap to drop points</string>
     <string name="track_hint_draw">Drag on the map to draw</string>
     <string name="track_route_style">Route style</string>

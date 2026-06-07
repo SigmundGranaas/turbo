@@ -120,6 +120,9 @@ fun MapScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val routeState by routeViewModel.state.collectAsStateWithLifecycle()
     val routePreset by routeViewModel.preset.collectAsStateWithLifecycle()
+    val toolWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
+    // Which on-map route stop is selected (so dragging it moves it). Reset with the tool.
+    var selectedWaypoint by remember { mutableStateOf<Int?>(null) }
     val recState by recordingViewModel.state.collectAsStateWithLifecycle()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -326,12 +329,14 @@ fun MapScreen(
         routeViewModel.clear(); linePoints.clear(); drawPoints.clear(); routeOrigin = null
         viewModel.setFollowing(false)
         selectionState.clear()
+        selectedWaypoint = null
         trackMode = mode
     }
     // Close the tool; keep the route only when we're handing off to Follow.
     val closeTrackTool: (Boolean) -> Unit = { keepRoute ->
         if (!keepRoute) routeViewModel.clear()
         linePoints.clear(); drawPoints.clear(); routeOrigin = null; trackMode = null
+        selectedWaypoint = null
     }
     // Position long-pressed on the map → drives the "new marker" sheet (null = closed).
     var newMarkerAt by remember { mutableStateOf<LatLng?>(null) }
@@ -394,6 +399,15 @@ fun MapScreen(
                 initialZoom = MapDefaults.fallbackZoom,
                 markers = state.markers,
                 route = routeState.polyline.takeIf { it.isNotEmpty() },
+                // Editable A/B/C… stops while the Route builder is active: tap selects,
+                // dragging the selected one moves it, long-press removes it.
+                waypoints = if (trackMode == TrackMode.Route) toolWaypoints else emptyList(),
+                selectedWaypoint = selectedWaypoint,
+                onWaypointTap = { selectedWaypoint = if (selectedWaypoint == it) null else it },
+                onWaypointLongPress = {
+                    haptics.reject(); routeViewModel.removeWaypoint(it); selectedWaypoint = null
+                },
+                onWaypointMoved = { i, p -> selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
                 // The track overlay shows, in priority: the live recording trail, the
                 // Line/Draw geometry being built in the Create track tool, else whatever
                 // saved track the user opened ("Show on map").
@@ -472,13 +486,21 @@ fun MapScreen(
                 onMapTap = { p ->
                     when (trackMode) {
                         TrackMode.Route -> {
-                            haptics.toggle(true)
-                            if (routeViewModel.waypoints.value.size >= 2) {
-                                routeViewModel.addStop(p)
-                            } else {
-                                val origin = state.userLocation ?: routeOrigin
-                                if (origin == null) routeOrigin = p
-                                else { routeViewModel.planRoute(origin, p); routeOrigin = null }
+                            when {
+                                // A stop is selected → an empty-map tap just deselects it
+                                // (taps that land on a stop are consumed by its marker).
+                                selectedWaypoint != null -> selectedWaypoint = null
+                                // Route exists → tapping the map (or its line) inserts a stop
+                                // at the least-detour position.
+                                routeViewModel.waypoints.value.size >= 2 -> {
+                                    haptics.toggle(true); routeViewModel.addStop(p)
+                                }
+                                else -> {
+                                    haptics.toggle(true)
+                                    val origin = state.userLocation ?: routeOrigin
+                                    if (origin == null) routeOrigin = p
+                                    else { routeViewModel.planRoute(origin, p); routeOrigin = null }
+                                }
                             }
                         }
                         TrackMode.Line -> { haptics.toggle(true); linePoints.add(p) }
@@ -650,7 +672,6 @@ fun MapScreen(
 
             // ── Create track tool: chrome (close + title) + the unified panel ──
             trackMode?.let { mode ->
-                val toolWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
                 val donePlan = (routeState as? RouteUiState.Done)?.plan
                 val geometry = when (mode) {
                     TrackMode.Route -> routeState.polyline
@@ -725,7 +746,13 @@ fun MapScreen(
                         .windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    CreateTrackHint(mode = mode)
+                    // While a planned route is re-solving after an edit, show "Updating
+                    // route…" instead of the coachmark (the old line stays on the map).
+                    if (mode == TrackMode.Route && routeState is RouteUiState.Solving && toolWaypoints.size >= 2) {
+                        CreateTrackUpdatingChip()
+                    } else {
+                        CreateTrackHint(mode = mode)
+                    }
                     Spacer(Modifier.height(12.dp))
                     CreateTrackPanel(
                         mode = mode,

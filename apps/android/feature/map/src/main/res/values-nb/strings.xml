@@ -46,6 +46,7 @@
     <string name="track_mode_line">Linje</string>
     <string name="track_mode_draw">Tegn</string>
     <string name="track_hint_route">Trykk på kartet for å legge til stopp</string>
+    <string name="track_updating">Oppdaterer rute…</string>
     <string name="track_hint_line">Trykk for å plassere punkter</string>
     <string name="track_hint_draw">Dra på kartet for å tegne</string>
     <string name="track_route_style">Rutestil</string>

@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -440,6 +441,19 @@ internal fun CreateTrackHint(mode: TrackMode, modifier: Modifier = Modifier) {
             )
             Spacer(Modifier.width(8.dp))
             Text(stringResource(hint), style = MaterialTheme.typography.labelMedium, color = cs.inverseOnSurface)
+        }
+    }
+}
+
+/** Coachmark shown while a planned route re-solves after a stop edit (graceful re-route). */
+@Composable
+internal fun CreateTrackUpdatingChip(modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    Surface(shape = CircleShape, color = cs.inverseSurface, shadowElevation = 2.dp, modifier = modifier.testTag("updatingRoute")) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = cs.inverseOnSurface)
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.track_updating), style = MaterialTheme.typography.labelMedium, color = cs.inverseOnSurface)
         }
     }
 }
