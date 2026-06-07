@@ -354,7 +354,7 @@ private val WpEnd = Color(0xFFC0392B)
  * the selected one moves it ([onMoved] fires once on drop with the new position).
  */
 @Composable
-private fun WaypointMarkerView(
+internal fun WaypointMarkerView(
     index: Int,
     last: Int,
     selected: Boolean,
