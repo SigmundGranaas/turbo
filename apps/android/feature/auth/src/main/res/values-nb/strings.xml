@@ -28,4 +28,9 @@
     <string name="auth_sync_syncing">Synkroniserer…</string>
     <string name="auth_sync_failed">Kunne ikke synke — trykk for å prøve igjen</string>
     <string name="auth_sync_now">Synk nå</string>
+
+    <!-- Deling -->
+    <string name="auth_friend_code_title">Vennekode</string>
+    <string name="auth_friend_code_hint">Del denne så venner kan legge deg til.</string>
+    <string name="auth_friend_code_copied">Vennekode kopiert</string>
 </resources>

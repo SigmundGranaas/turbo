@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.feature.auth
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,9 +34,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -197,9 +200,34 @@ private fun AccountView(email: String, onSignOut: () -> Unit, modifier: Modifier
         Spacer(Modifier.height(16.dp))
         SyncSection()
 
+        Spacer(Modifier.height(8.dp))
+        FriendCodeSection()
+
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("signOut")) {
             Text(stringResource(R.string.auth_sign_out))
+        }
+    }
+}
+
+@Composable
+private fun FriendCodeSection(viewModel: SharingViewModel = hiltViewModel()) {
+    val cs = MaterialTheme.colorScheme
+    val code = viewModel.friendCode ?: return
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    Column(Modifier.fillMaxWidth()) {
+        Text(stringResource(R.string.auth_friend_code_title), style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+        Text(stringResource(R.string.auth_friend_code_hint), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = {
+                clipboard.setText(AnnotatedString(code))
+                Toast.makeText(context, context.getString(R.string.auth_friend_code_copied), Toast.LENGTH_SHORT).show()
+            },
+            modifier = Modifier.fillMaxWidth().height(52.dp).testTag("friendCode"),
+        ) {
+            Text(code, style = MaterialTheme.typography.titleMedium)
         }
     }
 }

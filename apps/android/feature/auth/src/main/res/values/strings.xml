@@ -28,4 +28,9 @@
     <string name="auth_sync_syncing">Syncing…</string>
     <string name="auth_sync_failed">Couldn\'t sync — tap to retry</string>
     <string name="auth_sync_now">Sync now</string>
+
+    <!-- Sharing -->
+    <string name="auth_friend_code_title">Friend code</string>
+    <string name="auth_friend_code_hint">Share this so friends can add you.</string>
+    <string name="auth_friend_code_copied">Friend code copied</string>
 </resources>

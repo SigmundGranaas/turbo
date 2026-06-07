@@ -6,7 +6,9 @@ import com.sigmundgranaas.turbo.expressive.core.sync.CollectionSyncer
 import com.sigmundgranaas.turbo.expressive.core.sync.DomainSyncer
 import com.sigmundgranaas.turbo.expressive.core.sync.LocationRemote
 import com.sigmundgranaas.turbo.expressive.core.sync.LocationSyncApi
+import com.sigmundgranaas.turbo.expressive.core.sync.KtorSharingRepository
 import com.sigmundgranaas.turbo.expressive.core.sync.MarkerSyncer
+import com.sigmundgranaas.turbo.expressive.core.sync.SharingRepository
 import com.sigmundgranaas.turbo.expressive.core.sync.SyncClient
 import com.sigmundgranaas.turbo.expressive.core.sync.SyncController
 import com.sigmundgranaas.turbo.expressive.core.sync.SyncEngine
@@ -32,6 +34,9 @@ abstract class SyncModule {
 
     @Binds
     abstract fun bindSyncController(impl: SyncEngine): SyncController
+
+    @Binds
+    abstract fun bindSharingRepository(impl: KtorSharingRepository): SharingRepository
 
     @Binds
     abstract fun bindTrackRemote(impl: TrackSyncApi): TrackRemote
@@ -65,6 +70,7 @@ abstract class SyncModule {
                     Json {
                         ignoreUnknownKeys = true
                         explicitNulls = false
+                        encodeDefaults = true // send explicit values (e.g. share-link role) rather than relying on server defaults
                         isLenient = true
                     },
                 )
