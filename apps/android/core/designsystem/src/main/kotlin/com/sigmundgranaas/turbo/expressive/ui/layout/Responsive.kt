@@ -40,6 +40,14 @@ fun rememberWindowWidthClass(): WindowWidthClass {
 fun isExpandedWidth(): Boolean = rememberWindowWidthClass() == WindowWidthClass.Expanded
 
 /**
+ * True on short viewports (landscape phones), where vertical space is scarce and
+ * stacked overlays start to collide — a cue to drop non-essential chrome.
+ */
+@Composable
+@ReadOnlyComposable
+fun isCompactHeight(): Boolean = LocalConfiguration.current.screenHeightDp < 480
+
+/**
  * Caps a scrolling content column to [max] and centres it. On a phone the column
  * just fills the width; on a tablet/landscape it stops sprawling into
  * unreadably-long lines and sits centred. Apply to the Column/LazyColumn that

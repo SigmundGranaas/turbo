@@ -76,6 +76,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
 import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
+import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -559,10 +560,15 @@ fun MapScreen(
                     modifier = Modifier.align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.statusBars).padding(16.dp),
                 )
-                CreateTrackTitleChip(
-                    modifier = Modifier.align(Alignment.TopCenter)
-                        .windowInsetsPadding(WindowInsets.statusBars).padding(top = 18.dp),
-                )
+                // The title chip is redundant on short (landscape) viewports where the
+                // tall panel pushes the coachmark up into it — the close button + coachmark
+                // already say what's going on, so drop it there.
+                if (!com.sigmundgranaas.turbo.expressive.ui.layout.isCompactHeight()) {
+                    CreateTrackTitleChip(
+                        modifier = Modifier.align(Alignment.TopCenter)
+                            .windowInsetsPadding(WindowInsets.statusBars).padding(top = 18.dp),
+                    )
+                }
                 // Keep zoom + recenter reachable — the full rail is hidden in the tool.
                 CreateTrackMapControls(
                     following = state.following,
@@ -580,7 +586,10 @@ fun MapScreen(
                         .windowInsetsPadding(WindowInsets.statusBars).padding(end = 14.dp),
                 )
                 Column(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    Modifier.align(Alignment.BottomCenter)
+                        // Cap to a phone-comfortable width so the panel doesn't stretch
+                        // edge-to-edge on landscape/tablet (centered there).
+                        .responsiveContentWidth(560.dp)
                         .windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
