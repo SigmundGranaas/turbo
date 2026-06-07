@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -88,6 +90,8 @@ fun MapScreen(
     onOpenCollections: () -> Unit = {},
     focusRequest: LatLng? = null,
     onFocusConsumed: () -> Unit = {},
+    showTrackId: String? = null,
+    onShowTrackConsumed: () -> Unit = {},
     viewModel: MapViewModel = hiltViewModel(),
     routeViewModel: RouteViewModel = hiltViewModel(),
     offlineViewModel: OfflineViewModel = hiltViewModel(),
@@ -103,6 +107,51 @@ fun MapScreen(
 
     var controller by remember { mutableStateOf<MapController?>(null) }
     var bearing by remember { mutableFloatStateOf(0f) }
+    val metric = com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits.current
+    val selectionState = remember { MapSelectionState() }
+    // A saved track opened on the map ("Show on map" from a track) — drawn + selected.
+    var displayedTrack by remember { mutableStateOf<List<LatLng>?>(null) }
+
+    // Open a saved track on the map: draw it, frame the camera, and select it so the
+    // detail sheet (with Follow) appears. This makes saved tracks live on the map
+    // instead of dead-ending in a list/sketch.
+    LaunchedEffect(showTrackId, controller) {
+        val id = showTrackId ?: return@LaunchedEffect
+        val ctrl = controller ?: return@LaunchedEffect
+        val path = routeViewModel.pathById(id) ?: run { onShowTrackConsumed(); return@LaunchedEffect }
+        val pts = path.path.points
+        if (pts.size < 2) { onShowTrackConsumed(); return@LaunchedEffect }
+        displayedTrack = pts
+        ctrl.frameTo(pts)
+        val ascent = path.path.ascentM ?: 0.0
+        selectionState.select(
+            com.sigmundgranaas.turbo.expressive.core.map.MapSelection(
+                id = "track-${path.id}",
+                title = path.name,
+                subtitle = "${com.sigmundgranaas.turbo.expressive.core.geo.Units.distance(path.path.distanceM, metric)} · ↑ ${com.sigmundgranaas.turbo.expressive.core.geo.Units.elevation(ascent, metric)}",
+                icon = androidx.compose.material.icons.Icons.Rounded.Route,
+                includeStandardActions = false,
+                extraActions = listOf(
+                    com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
+                        id = "follow_track",
+                        label = context.getString(R.string.route_follow),
+                        icon = androidx.compose.material.icons.Icons.Rounded.Navigation,
+                        onInvoke = {
+                            routeViewModel.followTrack(pts, path.path.distanceM, ascent, (path.path.movingTimeSeconds ?: 0).toDouble())
+                            viewModel.enableLocation()
+                            viewModel.setFollowing(true)
+                        },
+                    ),
+                ),
+            ),
+        )
+        onShowTrackConsumed()
+    }
+
+    // The opened track stays drawn only while its sheet is up.
+    LaunchedEffect(selectionState.selection?.id) {
+        if (selectionState.selection?.id?.startsWith("track-") != true) displayedTrack = null
+    }
 
     val locationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -157,7 +206,6 @@ fun MapScreen(
 
     // One selection model + detail host — the map shell no longer depends on the
     // markers feature for the info sheet; it routes through the :core:map seam.
-    val selectionState = remember { MapSelectionState() }
     val actionRegistry = remember { defaultMapEntityActionRegistry() }
 
     ModalNavigationDrawer(
@@ -187,6 +235,7 @@ fun MapScreen(
                 initialZoom = SampleData.initialZoom,
                 markers = state.markers,
                 route = routeState.polyline.takeIf { it.isNotEmpty() },
+                track = displayedTrack,
                 selectedMarkerId = selectionState.selection?.id,
                 userLocation = state.userLocation,
                 onMarkerClick = { marker ->

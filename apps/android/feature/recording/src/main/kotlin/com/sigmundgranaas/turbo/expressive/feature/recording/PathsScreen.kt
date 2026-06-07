@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,11 +28,13 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -252,6 +255,7 @@ private fun PathCard(path: SavedPath, onClick: () -> Unit) {
 fun PathDetailScreen(
     pathId: String,
     onBack: () -> Unit,
+    onShowOnMap: (String) -> Unit = {},
     viewModel: PathsViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
@@ -292,6 +296,15 @@ fun PathDetailScreen(
             }
 
             Spacer(Modifier.height(16.dp))
+            Button(
+                onClick = { onShowOnMap(path.id) },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
+                Icon(Icons.Rounded.Map, null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.paths_show_on_map))
+            }
+            Spacer(Modifier.height(10.dp))
             var showExportMenu by remember { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box {

@@ -27,6 +27,7 @@
     <string name="paths_delete">Delete</string>
     <string name="paths_rename">Rename track</string>
     <string name="paths_rename_title">Rename track</string>
+    <string name="paths_show_on_map">Show on map</string>
 
     <!-- Recording -->
     <string name="rec_recording">Recording</string>

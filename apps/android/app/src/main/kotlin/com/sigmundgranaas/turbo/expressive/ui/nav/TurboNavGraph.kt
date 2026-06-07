@@ -39,6 +39,7 @@ fun TurboNavGraph() {
     NavHost(navController = nav, startDestination = Routes.MAP) {
         composable(Routes.MAP) { entry ->
             val focus by entry.savedStateHandle.getStateFlow<DoubleArray?>("focus", null).collectAsState()
+            val showTrack by entry.savedStateHandle.getStateFlow<String?>("showTrack", null).collectAsState()
             MapScreen(
                 onOpenSearch = { nav.navigate(Routes.SEARCH) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
@@ -48,6 +49,8 @@ fun TurboNavGraph() {
                 onOpenCollections = { nav.navigate(Routes.COLLECTIONS) },
                 focusRequest = focus?.let { LatLng(it[0], it[1]) },
                 onFocusConsumed = { entry.savedStateHandle["focus"] = null },
+                showTrackId = showTrack,
+                onShowTrackConsumed = { entry.savedStateHandle["showTrack"] = null },
             )
         }
         composable(Routes.SEARCH) {
@@ -79,7 +82,14 @@ fun TurboNavGraph() {
             Routes.PATH_DETAIL,
             arguments = listOf(navArgument("pathId") { type = NavType.StringType }),
         ) { entry ->
-            PathDetailScreen(pathId = entry.arguments?.getString("pathId").orEmpty(), onBack = { nav.popBackStack() })
+            PathDetailScreen(
+                pathId = entry.arguments?.getString("pathId").orEmpty(),
+                onBack = { nav.popBackStack() },
+                onShowOnMap = { id ->
+                    nav.getBackStackEntry(Routes.MAP).savedStateHandle["showTrack"] = id
+                    nav.popBackStack(Routes.MAP, inclusive = false)
+                },
+            )
         }
     }
 }

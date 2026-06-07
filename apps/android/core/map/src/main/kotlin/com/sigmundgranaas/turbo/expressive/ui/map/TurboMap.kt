@@ -69,6 +69,20 @@ class MapController(internal val map: MapLibreMap) {
 
     /** Animate the map back to north-up (compass reset). */
     fun resetNorth() = map.animateCamera(CameraUpdateFactory.bearingTo(0.0))
+
+    /** Frame the camera to fit [points] (e.g. a saved track being opened on the map). */
+    fun frameTo(points: List<LatLng>, paddingPx: Int = 140) {
+        when {
+            points.isEmpty() -> Unit
+            points.size == 1 -> flyTo(points.first(), 14.0)
+            else -> {
+                val bounds = org.maplibre.android.geometry.LatLngBounds.Builder()
+                    .apply { points.forEach { include(MlLatLng(it.lat, it.lng)) } }
+                    .build()
+                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, paddingPx))
+            }
+        }
+    }
 }
 
 /**
@@ -87,6 +101,8 @@ fun TurboMap(
     markers: List<Marker> = emptyList(),
     route: List<LatLng>? = null,
     routeColor: Color = Color(0xFF8F4C38),
+    track: List<LatLng>? = null,
+    trackColor: Color = Color(0xFF00696D),
     measurePoints: List<LatLng> = emptyList(),
     measureColor: Color = Color(0xFF00696D),
     selectedMarkerId: String? = null,
@@ -173,6 +189,19 @@ fun TurboMap(
 
         // ---- Compose overlay: route + pins, reprojected on every camera change ----
         if (ml != null) {
+            // A saved track opened on the map (drawn under the active route).
+            if (track != null && track.size > 1) {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
+                    val proj = ml.projection
+                    val path = Path()
+                    track.forEachIndexed { i, p ->
+                        val pt = proj.toScreenLocation(MlLatLng(p.lat, p.lng))
+                        if (i == 0) path.moveTo(pt.x, pt.y) else path.lineTo(pt.x, pt.y)
+                    }
+                    drawPath(path, color = trackColor, style = Stroke(width = 5.dp.toPx()))
+                }
+            }
             if (route != null && route.size > 1) {
                 Canvas(modifier = Modifier.matchParentSize()) {
                     @Suppress("UNUSED_EXPRESSION") cameraTick.intValue // invalidate on camera move

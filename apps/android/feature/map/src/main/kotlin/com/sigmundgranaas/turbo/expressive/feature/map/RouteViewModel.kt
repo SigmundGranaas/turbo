@@ -156,8 +156,31 @@ class RouteViewModel @Inject constructor(
     }
 
     /** Enter turn-by-route following for a solved route. */
+    /** Load a saved track by id (for "open on map"). */
+    suspend fun pathById(id: String): com.sigmundgranaas.turbo.expressive.domain.SavedPath? = paths.byId(id)
+
     fun follow() {
         (_state.value as? RouteUiState.Done)?.let { _state.value = RouteUiState.Following(it.plan) }
+    }
+
+    /**
+     * Follow an already-saved track's geometry (no solve) — used by "Follow" on a
+     * saved track opened on the map, so following works for recorded/imported lines
+     * the same as for planned routes.
+     */
+    fun followTrack(geometry: List<LatLng>, distanceM: Double, ascentM: Double, durationS: Double) {
+        if (geometry.size < 2) return
+        job?.cancel()
+        _state.value = RouteUiState.Following(
+            RoutePlan(
+                distanceM = distanceM,
+                durationS = durationS,
+                ascentM = ascentM,
+                onTrailPct = 0.0,
+                surfaces = emptyMap(),
+                geometry = geometry,
+            ),
+        )
     }
 
     fun clear() {

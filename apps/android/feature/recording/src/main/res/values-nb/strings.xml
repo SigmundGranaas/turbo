@@ -27,6 +27,7 @@
     <string name="paths_delete">Slett</string>
     <string name="paths_rename">Gi nytt navn</string>
     <string name="paths_rename_title">Gi sporet nytt navn</string>
+    <string name="paths_show_on_map">Vis på kartet</string>
 
     <!-- Recording -->
     <string name="rec_recording">Tar opp</string>
