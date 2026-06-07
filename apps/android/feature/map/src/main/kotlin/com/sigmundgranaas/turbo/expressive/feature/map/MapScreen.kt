@@ -109,6 +109,9 @@ fun MapScreen(
     onFocusConsumed: () -> Unit = {},
     showTrackId: String? = null,
     onShowTrackConsumed: () -> Unit = {},
+    // Set when launched from the Quick Settings tile — begin recording once foregrounded.
+    autoStartRecording: Boolean = false,
+    onAutoStartConsumed: () -> Unit = {},
     viewModel: MapViewModel = hiltViewModel(),
     routeViewModel: RouteViewModel = hiltViewModel(),
     offlineViewModel: OfflineViewModel = hiltViewModel(),
@@ -208,6 +211,15 @@ fun MapScreen(
             recordingViewModel.start()
         } else {
             recordingLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    // Quick Settings tile → "start recording": once the map is foregrounded (so the
+    // location permission is accessible), begin recording, unless already running.
+    LaunchedEffect(autoStartRecording) {
+        if (autoStartRecording) {
+            if (!recState.recording) startRecording()
+            onAutoStartConsumed()
         }
     }
 

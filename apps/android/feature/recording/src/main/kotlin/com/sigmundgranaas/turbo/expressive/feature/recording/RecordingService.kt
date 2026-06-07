@@ -106,7 +106,7 @@ class RecordingService : Service() {
             getString(R.string.rec_notif_stop),
             servicePendingIntent(ACTION_STOP, reqCode = 2),
         ).build()
-        return Notification.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(if (session.paused) R.string.rec_notif_paused else R.string.rec_notif_recording))
             .setContentText(getString(R.string.rec_notif_content, distance, formatElapsed(session.elapsedSec)))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
@@ -117,7 +117,21 @@ class RecordingService : Service() {
             .setOnlyAlertOnce(true)
             .addAction(pauseResume)
             .addAction(stop)
-            .build()
+        // "Live Updates": promote the ongoing tracking notification to a glanceable
+        // status-bar chip showing the live distance. These APIs shifted across platform
+        // previews (the compileSdk stub has them, but an older runtime may not), so call
+        // them reflectively — a no-op where unavailable, never a NoSuchMethodError.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            runCatching {
+                Notification.Builder::class.java
+                    .getMethod("setShortCriticalText", String::class.java).invoke(builder, distance)
+            }
+            runCatching {
+                Notification.Builder::class.java
+                    .getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType).invoke(builder, true)
+            }
+        }
+        return builder.build()
     }
 
     /** A PendingIntent that re-enters this service with [action] (notification buttons). */
@@ -148,6 +162,14 @@ class RecordingService : Service() {
         private const val NOTIF_ID = 42
         private const val ACTION_STOP = "com.sigmundgranaas.turbo.expressive.RECORDING_STOP"
         private const val ACTION_PAUSE = "com.sigmundgranaas.turbo.expressive.RECORDING_PAUSE"
+
+        /**
+         * Launch-intent extra the Quick Settings tile sets to ask the app to begin
+         * recording. A location foreground service can't be started from a background
+         * tile tap (foreground-only location permission), so the tile opens the app and
+         * the map auto-starts recording once it's in the foreground.
+         */
+        const val EXTRA_START_RECORDING = "com.sigmundgranaas.turbo.expressive.START_RECORDING"
 
         /** Start recording and bring the service to the foreground. */
         fun start(context: Context) {

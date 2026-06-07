@@ -13,6 +13,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingService
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -41,6 +44,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var authRepository: AuthRepository
 
+    /** Set when the Quick Settings tile asked us to begin recording (foreground start). */
+    private var autoStartRecording by mutableStateOf(false)
+
     override fun onResume() {
         super.onResume()
         // Pull/push any changes whenever the app comes to the foreground (no-op when signed out).
@@ -49,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.getBooleanExtra(RecordingService.EXTRA_START_RECORDING, false)) autoStartRecording = true
         handleDeepLink(intent)
     }
 
@@ -81,6 +88,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        autoStartRecording = intent?.getBooleanExtra(RecordingService.EXTRA_START_RECORDING, false) == true
         setContent {
             val settings by settingsRepository.settings.collectAsStateWithLifecycle(UserSettings())
             val dark = when (settings.themeMode) {
@@ -91,7 +99,10 @@ class MainActivity : ComponentActivity() {
             TurboTheme(darkTheme = dark) {
                 CompositionLocalProvider(LocalMetricUnits provides settings.metricUnits) {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-                        TurboNavGraph()
+                        TurboNavGraph(
+                            autoStartRecording = autoStartRecording,
+                            onAutoStartConsumed = { autoStartRecording = false },
+                        )
                     }
                 }
             }

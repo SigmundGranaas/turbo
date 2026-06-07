@@ -47,7 +47,10 @@ private object Routes {
 private const val NAV_MS = 280
 
 @Composable
-fun TurboNavGraph() {
+fun TurboNavGraph(
+    autoStartRecording: Boolean = false,
+    onAutoStartConsumed: () -> Unit = {},
+) {
     val nav = rememberNavController()
     NavHost(
         navController = nav,
@@ -76,6 +79,8 @@ fun TurboNavGraph() {
                 onFocusConsumed = { entry.savedStateHandle["focus"] = null },
                 showTrackId = showTrack,
                 onShowTrackConsumed = { entry.savedStateHandle["showTrack"] = null },
+                autoStartRecording = autoStartRecording,
+                onAutoStartConsumed = onAutoStartConsumed,
             )
         }
         composable(

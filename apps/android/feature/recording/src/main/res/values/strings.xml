@@ -64,4 +64,11 @@
     <string name="rec_notif_pause">Pause</string>
     <string name="rec_notif_resume">Resume</string>
     <string name="rec_notif_stop">Stop</string>
+
+    <!-- Quick Settings tile -->
+    <string name="qs_tile_label">Record track</string>
+    <string name="qs_tracking">Record track</string>
+    <string name="qs_tracking_on">Recording</string>
+    <string name="qs_tracking_sub_off">Tap to start</string>
+    <string name="qs_tracking_sub_on">Tap to stop</string>
 </resources>

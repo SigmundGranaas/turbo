@@ -64,4 +64,11 @@
     <string name="rec_notif_pause">Pause</string>
     <string name="rec_notif_resume">Fortsett</string>
     <string name="rec_notif_stop">Stopp</string>
+
+    <!-- Hurtiginnstilling-flis -->
+    <string name="qs_tile_label">Ta opp spor</string>
+    <string name="qs_tracking">Ta opp spor</string>
+    <string name="qs_tracking_on">Tar opp</string>
+    <string name="qs_tracking_sub_off">Trykk for å starte</string>
+    <string name="qs_tracking_sub_on">Trykk for å stoppe</string>
 </resources>

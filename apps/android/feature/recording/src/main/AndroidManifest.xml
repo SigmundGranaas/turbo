@@ -11,6 +11,18 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
+        <!-- Quick Settings tile: one-tap start/stop track recording. -->
+        <service
+            android:name="com.sigmundgranaas.turbo.expressive.feature.recording.RecordingTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_qs_track"
+            android:label="@string/qs_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
