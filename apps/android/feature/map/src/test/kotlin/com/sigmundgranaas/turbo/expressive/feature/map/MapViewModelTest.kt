@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -31,9 +32,13 @@ private class FakeMarkerRepository : MarkerRepository {
     override suspend fun delete(id: String) { markers.value = markers.value.filterNot { it.id == id } }
 }
 
-private class FakeLocationRepository(var permitted: Boolean = true) : LocationRepository {
+private class FakeLocationRepository(
+    var permitted: Boolean = true,
+    var enabled: Boolean = true,
+) : LocationRepository {
     val fixes = MutableSharedFlow<LatLng>(extraBufferCapacity = 8)
     override fun hasPermission(): Boolean = permitted
+    override fun isLocationEnabled(): Boolean = enabled
     override fun samples(): Flow<LocationSample> = fixes.map { LocationSample(it, null) }
 }
 
@@ -142,6 +147,56 @@ class MapViewModelTest {
         location.fixes.emit(LatLng(1.0, 2.0))
         runCurrent()
         assertEquals(null, vm.state.value.userLocation)
+    }
+
+    @Test
+    fun `enableLocation marks locating until the first fix arrives`() = runTest(mainRule.dispatcher) {
+        val location = FakeLocationRepository(permitted = true)
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        vm.enableLocation()
+        runCurrent()
+        assertTrue(vm.state.value.locating)
+        location.fixes.emit(LatLng(69.65, 18.95))
+        runCurrent()
+        assertTrue(!vm.state.value.locating)
+        assertEquals(null, vm.state.value.locationNotice)
+    }
+
+    @Test
+    fun `beginInitialLocate flags ServicesOff when location is disabled`() = runTest(mainRule.dispatcher) {
+        val location = FakeLocationRepository(permitted = true, enabled = false)
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        vm.beginInitialLocate()
+        runCurrent()
+        assertEquals(LocationNotice.ServicesOff, vm.state.value.locationNotice)
+        assertTrue(!vm.state.value.locating)
+    }
+
+    @Test
+    fun `beginInitialLocate times out to a notice when no fix arrives`() = runTest(mainRule.dispatcher) {
+        val location = FakeLocationRepository(permitted = true, enabled = true)
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        vm.beginInitialLocate()
+        runCurrent()
+        assertTrue(vm.state.value.locating)
+        advanceTimeBy(13_000)
+        runCurrent()
+        assertEquals(LocationNotice.Timeout, vm.state.value.locationNotice)
+        assertTrue(!vm.state.value.locating)
+    }
+
+    @Test
+    fun `a late fix after timeout still recentres and clears the notice`() = runTest(mainRule.dispatcher) {
+        val location = FakeLocationRepository(permitted = true, enabled = true)
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        vm.beginInitialLocate()
+        advanceTimeBy(13_000)
+        runCurrent()
+        assertEquals(LocationNotice.Timeout, vm.state.value.locationNotice)
+        location.fixes.emit(LatLng(60.0, 10.0))
+        runCurrent()
+        assertEquals(LatLng(60.0, 10.0), vm.state.value.userLocation)
+        assertEquals(null, vm.state.value.locationNotice)
     }
 
     @Test

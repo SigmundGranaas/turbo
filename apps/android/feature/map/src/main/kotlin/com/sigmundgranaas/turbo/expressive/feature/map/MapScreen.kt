@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.SnackbarDuration
@@ -184,7 +185,7 @@ fun MapScreen(
     // first real GPS fix once. Distinct from [locationPermission], which also locks follow.
     val startLocationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) viewModel.enableLocation() }
+    ) { granted -> if (granted) viewModel.beginInitialLocate() }
 
     // ---- Recording (a mode of this map, not a separate screen) ----
     var showRecSave by remember { mutableStateOf(false) }
@@ -211,7 +212,7 @@ fun MapScreen(
     // it now — so the map can recentre on the user's real position (below) rather than
     // sitting on the country-level fallback.
     LaunchedEffect(Unit) {
-        if (viewModel.hasLocationPermission()) viewModel.enableLocation()
+        if (viewModel.hasLocationPermission()) viewModel.beginInitialLocate()
         else startLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
@@ -280,6 +281,32 @@ fun MapScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val savedToast = stringResource(R.string.route_saved)
     val followLabel = stringResource(R.string.route_saved_follow)
+
+    // Location couldn't centre us: services off (offer to open settings) or slow GPS
+    // timed out (offer retry). The map stays on the fallback; a late fix still recentres.
+    val locOffMsg = stringResource(R.string.location_off)
+    val locOffAction = stringResource(R.string.location_off_action)
+    val locTimeoutMsg = stringResource(R.string.location_timeout)
+    val locRetryAction = stringResource(R.string.location_retry)
+    LaunchedEffect(state.locationNotice) {
+        when (state.locationNotice) {
+            LocationNotice.ServicesOff -> {
+                val res = snackbarHostState.showSnackbar(locOffMsg, actionLabel = locOffAction, duration = SnackbarDuration.Long)
+                if (res == SnackbarResult.ActionPerformed) {
+                    runCatching {
+                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                    }
+                }
+                viewModel.dismissLocationNotice()
+            }
+            LocationNotice.Timeout -> {
+                val res = snackbarHostState.showSnackbar(locTimeoutMsg, actionLabel = locRetryAction, duration = SnackbarDuration.Long)
+                viewModel.dismissLocationNotice()
+                if (res == SnackbarResult.ActionPerformed) viewModel.beginInitialLocate()
+            }
+            null -> Unit
+        }
+    }
     // After a save, offer to immediately follow the just-saved geometry.
     val offerFollowAfterSave: (List<LatLng>, Double, Double, Double) -> Unit = { geo, dist, asc, dur ->
         scope.launch {
@@ -493,6 +520,17 @@ fun MapScreen(
                         .windowInsetsPadding(WindowInsets.statusBars)
                         .padding(16.dp),
                 )
+
+                // Slow-GPS feedback: a small "locating…" pill under the search bar while
+                // we wait for the first fix, so a slow/cold start doesn't look frozen.
+                if (state.locating) {
+                    LocatingChip(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .padding(top = 84.dp),
+                    )
+                }
 
                 MapControlRail(
                     following = state.following,
@@ -980,4 +1018,29 @@ private fun shareMarkerGeoJson(context: android.content.Context, marker: Marker)
         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(android.content.Intent.createChooser(send, "Share marker").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+/** Small pill shown under the search bar while waiting for the first GPS fix. */
+@Composable
+private fun LocatingChip(modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(50),
+        color = cs.surfaceContainerHigh,
+        shadowElevation = 3.dp,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = cs.primary)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                stringResource(R.string.location_finding),
+                style = MaterialTheme.typography.labelLarge,
+                color = cs.onSurface,
+            )
+        }
+    }
 }

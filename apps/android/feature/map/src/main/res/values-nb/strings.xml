@@ -139,4 +139,11 @@
     <string name="drawer_record">Ta opp spor</string>
     <string name="drawer_offline">Frakoblede kart</string>
     <string name="drawer_settings">Innstillinger</string>
+
+    <!-- Oppstartsposisjon -->
+    <string name="location_finding">Finner posisjonen din…</string>
+    <string name="location_off">Posisjon er slått av</string>
+    <string name="location_off_action">Innstillinger</string>
+    <string name="location_timeout">Fant ikke posisjonen din</string>
+    <string name="location_retry">Prøv igjen</string>
 </resources>

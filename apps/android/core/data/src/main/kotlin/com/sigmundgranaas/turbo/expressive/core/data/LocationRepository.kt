@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -31,6 +32,14 @@ data class LocationSample(val position: LatLng, val altitude: Double?, val accur
  */
 interface LocationRepository {
     fun hasPermission(): Boolean
+
+    /**
+     * Whether device location services (GPS / network providers) are switched on.
+     * Distinct from [hasPermission]: the app may hold the permission while the user
+     * has location turned off system-wide, in which case the flows never emit.
+     */
+    fun isLocationEnabled(): Boolean = true
+
     fun samples(): Flow<LocationSample>
     fun locationUpdates(): Flow<LatLng> = samples().map { it.position }
 }
@@ -45,6 +54,14 @@ class AndroidLocationRepository @Inject constructor(
     override fun hasPermission(): Boolean =
         context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    override fun isLocationEnabled(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            manager.isLocationEnabled
+        } else {
+            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
 
     @SuppressLint("MissingPermission")
     override fun samples(): Flow<LocationSample> = callbackFlow {

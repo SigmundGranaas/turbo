@@ -23,11 +23,17 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
+/** Why an initial GPS centre couldn't happen — surfaced as a one-shot banner. */
+enum class LocationNotice { ServicesOff, Timeout }
+
 data class MapUiState(
     val markers: List<Marker> = emptyList(),
     val baseLayer: BaseLayer = BaseLayer.Norgeskart,
     val following: Boolean = false,
     val userLocation: LatLng? = null,
+    /** True while we've started locating but no fix has arrived yet (drives a "locating…" hint). */
+    val locating: Boolean = false,
+    val locationNotice: LocationNotice? = null,
 )
 
 /** Holds the map home's UI state; markers + live location come from repositories. */
@@ -61,12 +67,36 @@ class MapViewModel @Inject constructor(
     /** Begin streaming the user's location into [MapUiState.userLocation]. Idempotent. */
     fun enableLocation() {
         if (locationJob != null || !location.hasPermission()) return
+        _state.update { it.copy(locating = true, locationNotice = null) }
         locationJob = viewModelScope.launch {
             location.locationUpdates().collect { fix ->
-                _state.update { it.copy(userLocation = fix) }
+                _state.update { it.copy(userLocation = fix, locating = false, locationNotice = null) }
             }
         }
     }
+
+    /**
+     * Startup locate: begin streaming (no follow) so the map can recentre on the first
+     * fix. Surfaces a [LocationNotice] when location services are off (the flow would
+     * otherwise never emit) or when no fix arrives within [LOCATE_TIMEOUT_MS] (slow GPS) —
+     * the map stays on the fallback camera, and a late fix still recentres it.
+     */
+    fun beginInitialLocate() {
+        if (!location.hasPermission()) return
+        if (!location.isLocationEnabled()) {
+            _state.update { it.copy(locating = false, locationNotice = LocationNotice.ServicesOff) }
+            return
+        }
+        enableLocation()
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(LOCATE_TIMEOUT_MS)
+            if (_state.value.userLocation == null) {
+                _state.update { it.copy(locating = false, locationNotice = LocationNotice.Timeout) }
+            }
+        }
+    }
+
+    fun dismissLocationNotice() = _state.update { it.copy(locationNotice = null) }
 
     fun setBaseLayer(layer: BaseLayer) = _state.update { it.copy(baseLayer = layer) }
     fun setFollowing(value: Boolean) = _state.update { it.copy(following = value) }
@@ -116,5 +146,10 @@ class MapViewModel @Inject constructor(
 
     fun deleteMarker(id: String) {
         viewModelScope.launch { markerRepository.delete(id) }
+    }
+
+    private companion object {
+        /** How long to wait for the first fix before showing the slow-GPS notice. */
+        const val LOCATE_TIMEOUT_MS = 12_000L
     }
 }

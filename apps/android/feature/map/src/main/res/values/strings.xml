@@ -139,4 +139,11 @@
     <string name="drawer_record">Record Track</string>
     <string name="drawer_offline">Offline Maps</string>
     <string name="drawer_settings">Settings</string>
+
+    <!-- Startup location -->
+    <string name="location_finding">Finding your location…</string>
+    <string name="location_off">Location is turned off</string>
+    <string name="location_off_action">Settings</string>
+    <string name="location_timeout">Couldn\'t find your location</string>
+    <string name="location_retry">Retry</string>
 </resources>
