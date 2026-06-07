@@ -16,6 +16,7 @@ public struct MapScreen: View {
     private let onOpenLayers: () -> Void
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
+    @State private var selectedMarker: Marker?
 
     /// What the marker-editor sheet is editing — a new drop point (optionally
     /// prefilled from a searched place) or an existing marker.
@@ -49,7 +50,8 @@ public struct MapScreen: View {
             following: viewModel.following,
             focus: viewModel.focusedPlace?.position,
             onLongPress: { editorTarget = .new($0, name: "") },
-            onRegionChange: { mapCenter = $0 }
+            onRegionChange: { mapCenter = $0 },
+            onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } }
         )
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) { mapCenterProbe }
@@ -66,6 +68,14 @@ public struct MapScreen: View {
             case .edit(let marker):
                 MarkerEditorSheet(viewModel: viewModel.makeEditor(for: marker))
             }
+        }
+        .sheet(item: $selectedMarker) { marker in
+            MarkerDetailScreen(
+                marker: marker,
+                onEdit: { editorTarget = .edit(marker) },
+                onDelete: { viewModel.deleteMarker(id: marker.id) }
+            )
+            .presentationDetents([.medium, .large])
         }
     }
 

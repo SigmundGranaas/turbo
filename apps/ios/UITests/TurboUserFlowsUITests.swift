@@ -225,6 +225,32 @@ final class TurboUserFlowsUITests: XCTestCase {
                       "the recorded track was not saved to Paths")
     }
 
+    // MARK: Goal — see the details of a recorded hike
+
+    func test_hiker_can_open_a_hike_detail() {
+        let app = launch()
+        openMenu(app)
+        app.buttons["menu.paths"].tap()
+        let row = app.cells.containing(.staticText, identifier: "Storheia Loop").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Storheia Loop"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Distance"].waitForExistence(timeout: 5), "hike stats not shown")
+    }
+
+    // MARK: Goal — see the details of a saved marker
+
+    func test_hiker_can_open_a_marker_detail() {
+        let app = launch()
+        openMenu(app)
+        app.buttons["menu.markers"].tap()
+        let row = app.cells.containing(.staticText, identifier: "Heggmotinden").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Heggmotinden"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Coordinate"].waitForExistence(timeout: 5), "marker detail not shown")
+    }
+
     // MARK: Goal — browse the spots I've saved
 
     func test_hiker_can_browse_their_saved_markers() {

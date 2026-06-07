@@ -75,7 +75,8 @@ public final class RecordingViewModel {
                 points: points,
                 source: .recording,
                 elevations: elevations.isEmpty ? nil : elevations,
-                recordedAtEpochMs: startedAt.map { Int64($0.timeIntervalSince1970 * 1000) }
+                recordedAtEpochMs: startedAt.map { Int64($0.timeIntervalSince1970 * 1000) },
+                movingTimeSeconds: elapsedSeconds
             ),
             activityKind: .hiking
         )

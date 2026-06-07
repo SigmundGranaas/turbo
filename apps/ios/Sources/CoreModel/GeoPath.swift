@@ -16,6 +16,7 @@ public struct GeoPath: Hashable, Sendable, Codable {
     public let distanceM: Double
     public let ascentM: Double?
     public let recordedAtEpochMs: Int64?
+    public let movingTimeSeconds: Int?
 
     public init(
         points: [LatLng],
@@ -23,7 +24,8 @@ public struct GeoPath: Hashable, Sendable, Codable {
         elevations: [Double]? = nil,
         distanceM: Double? = nil,
         ascentM: Double? = nil,
-        recordedAtEpochMs: Int64? = nil
+        recordedAtEpochMs: Int64? = nil,
+        movingTimeSeconds: Int? = nil
     ) {
         self.points = points
         self.source = source
@@ -31,6 +33,7 @@ public struct GeoPath: Hashable, Sendable, Codable {
         self.distanceM = distanceM ?? GeoMetrics.pathLengthMeters(points)
         self.ascentM = ascentM ?? GeoMetrics.ascentMeters(elevations)
         self.recordedAtEpochMs = recordedAtEpochMs
+        self.movingTimeSeconds = movingTimeSeconds
     }
 
     public var isEmpty: Bool { points.isEmpty }

@@ -22,7 +22,7 @@ public struct MarkersScreen: View {
                 )
             } else {
                 ForEach(viewModel.markers) { marker in
-                    MarkerRow(marker: marker)
+                    NavigationLink(value: marker) { MarkerRow(marker: marker) }
                         .swipeActions {
                             Button(role: .destructive) { viewModel.delete(id: marker.id) } label: {
                                 Label("Delete", systemImage: "trash")
@@ -37,6 +37,9 @@ public struct MarkersScreen: View {
             }
         }
         .navigationTitle("My Markers")
+        .navigationDestination(for: Marker.self) { marker in
+            MarkerDetailScreen(marker: marker, onDelete: { viewModel.delete(id: marker.id) })
+        }
         .task { viewModel.start() }
     }
 }

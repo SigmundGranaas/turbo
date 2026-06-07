@@ -57,12 +57,13 @@ final class PathEntity {
     var distanceM: Double
     var ascentM: Double?
     var recordedAtEpochMs: Int?
+    var movingTimeSeconds: Int?
     /// Encoded `[LatLng]` + `[Double]?` so the geometry rides along.
     var pointsJSON: Data
     var elevationsJSON: Data?
 
     init(id: String, name: String, activityKey: String?, source: String, distanceM: Double,
-         ascentM: Double?, recordedAtEpochMs: Int?, pointsJSON: Data, elevationsJSON: Data?) {
+         ascentM: Double?, recordedAtEpochMs: Int?, movingTimeSeconds: Int?, pointsJSON: Data, elevationsJSON: Data?) {
         self.id = id
         self.name = name
         self.activityKey = activityKey
@@ -70,6 +71,7 @@ final class PathEntity {
         self.distanceM = distanceM
         self.ascentM = ascentM
         self.recordedAtEpochMs = recordedAtEpochMs
+        self.movingTimeSeconds = movingTimeSeconds
         self.pointsJSON = pointsJSON
         self.elevationsJSON = elevationsJSON
     }
@@ -79,6 +81,7 @@ final class PathEntity {
             id: p.id, name: p.name, activityKey: p.activityKind?.key,
             source: p.path.source.rawValue, distanceM: p.path.distanceM, ascentM: p.path.ascentM,
             recordedAtEpochMs: p.path.recordedAtEpochMs.map(Int.init),
+            movingTimeSeconds: p.path.movingTimeSeconds,
             pointsJSON: (try? JSONEncoder().encode(p.path.points)) ?? Data(),
             elevationsJSON: p.path.elevations.flatMap { try? JSONEncoder().encode($0) }
         )
@@ -88,6 +91,7 @@ final class PathEntity {
         name = p.name; activityKey = p.activityKind?.key; source = p.path.source.rawValue
         distanceM = p.path.distanceM; ascentM = p.path.ascentM
         recordedAtEpochMs = p.path.recordedAtEpochMs.map(Int.init)
+        movingTimeSeconds = p.path.movingTimeSeconds
         pointsJSON = (try? JSONEncoder().encode(p.path.points)) ?? Data()
         elevationsJSON = p.path.elevations.flatMap { try? JSONEncoder().encode($0) }
     }
@@ -103,7 +107,8 @@ final class PathEntity {
                 elevations: elevations,
                 distanceM: distanceM,
                 ascentM: ascentM,
-                recordedAtEpochMs: recordedAtEpochMs.map(Int64.init)
+                recordedAtEpochMs: recordedAtEpochMs.map(Int64.init),
+                movingTimeSeconds: movingTimeSeconds
             ),
             activityKind: activityKey.flatMap(ActivityKindId.fromKey)
         )

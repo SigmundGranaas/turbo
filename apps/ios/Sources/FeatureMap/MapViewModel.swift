@@ -112,4 +112,8 @@ public final class MapViewModel {
     public func makeEditor(for marker: Marker) -> MarkerEditorViewModel {
         MarkerEditorViewModel(repository: markerRepository, marker: marker)
     }
+
+    public func deleteMarker(id: String) {
+        Task { await markerRepository.delete(id: id) }
+    }
 }

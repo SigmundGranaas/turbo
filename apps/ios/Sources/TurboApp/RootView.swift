@@ -18,7 +18,7 @@ public struct RootView: View {
     private let container: AppContainer
     @State private var root: RootViewModel
     @State private var mapViewModel: MapViewModel
-    @State private var path: [Route] = []
+    @State private var path = NavigationPath()
     @State private var showMenu = false
     @State private var showSearch = false
     @State private var showLayers = false
@@ -98,7 +98,7 @@ public struct RootView: View {
             SettingsScreen(
                 viewModel: container.makeSettingsViewModel(),
                 accountName: root.account?.displayName ?? "Sigmund Granaas",
-                onOpenOffline: { path.append(.offline) }
+                onOpenOffline: { path.append(Route.offline) }
             )
         case .offline:
             OfflineMapsScreen(viewModel: container.makeOfflineViewModel())

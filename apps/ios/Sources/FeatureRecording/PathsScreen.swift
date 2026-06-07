@@ -19,7 +19,7 @@ public struct PathsScreen: View {
         List {
             Section {
                 ForEach(viewModel.paths) { path in
-                    PathRow(path: path)
+                    NavigationLink(value: path) { PathRow(path: path) }
                         .swipeActions {
                             Button(role: .destructive) { viewModel.delete(id: path.id) } label: {
                                 Label("Delete", systemImage: "trash")
@@ -41,6 +41,7 @@ public struct PathsScreen: View {
             }
         }
         .navigationTitle("Paths")
+        .navigationDestination(for: SavedPath.self) { HikeDetailScreen(path: $0) }
         .task { viewModel.start() }
         .sheet(isPresented: $showRecording) {
             if let makeRecordingViewModel {

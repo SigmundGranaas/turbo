@@ -17,6 +17,7 @@ public struct TurboMapView: UIViewRepresentable {
     private let focus: LatLng?
     private let onLongPress: ((LatLng) -> Void)?
     private let onRegionChange: ((LatLng) -> Void)?
+    private let onSelectPin: ((String) -> Void)?
 
     /// Default camera — the Lyngen/Tromsø region, so topo tiles show on launch.
     private static let defaultCenter = CLLocationCoordinate2D(latitude: 69.58, longitude: 19.95)
@@ -27,7 +28,8 @@ public struct TurboMapView: UIViewRepresentable {
         following: Bool = false,
         focus: LatLng? = nil,
         onLongPress: ((LatLng) -> Void)? = nil,
-        onRegionChange: ((LatLng) -> Void)? = nil
+        onRegionChange: ((LatLng) -> Void)? = nil,
+        onSelectPin: ((String) -> Void)? = nil
     ) {
         self.baseLayer = baseLayer
         self.pins = pins
@@ -35,6 +37,7 @@ public struct TurboMapView: UIViewRepresentable {
         self.focus = focus
         self.onLongPress = onLongPress
         self.onRegionChange = onRegionChange
+        self.onSelectPin = onSelectPin
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(onLongPress: onLongPress) }
@@ -62,6 +65,7 @@ public struct TurboMapView: UIViewRepresentable {
     public func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.onLongPress = onLongPress
         context.coordinator.onRegionChange = onRegionChange
+        context.coordinator.onSelectPin = onSelectPin
         context.coordinator.syncOverlay(on: map, base: baseLayer)
         context.coordinator.syncAnnotations(on: map, pins: pins)
         map.showsUserLocation = following
@@ -77,6 +81,7 @@ public struct TurboMapView: UIViewRepresentable {
     public final class Coordinator: NSObject, MKMapViewDelegate {
         var onLongPress: ((LatLng) -> Void)?
         var onRegionChange: ((LatLng) -> Void)?
+        var onSelectPin: ((String) -> Void)?
         private var currentBase: BaseLayer?
         private var tileOverlay: MKTileOverlay?
         private var lastFocus: LatLng?
@@ -92,6 +97,10 @@ public struct TurboMapView: UIViewRepresentable {
                 span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
             )
             map.setRegion(region, animated: true)
+        }
+
+        public func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            if let pin = view.annotation as? PinAnnotation { onSelectPin?(pin.pin.id) }
         }
 
         public func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
@@ -177,7 +186,8 @@ public struct TurboMapView: View {
         following: Bool = false,
         focus: LatLng? = nil,
         onLongPress: ((LatLng) -> Void)? = nil,
-        onRegionChange: ((LatLng) -> Void)? = nil
+        onRegionChange: ((LatLng) -> Void)? = nil,
+        onSelectPin: ((String) -> Void)? = nil
     ) {}
 
     public var body: some View {
