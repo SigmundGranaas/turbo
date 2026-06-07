@@ -295,6 +295,19 @@ final class TurboUserFlowsUITests: XCTestCase {
                       "the share sheet did not open")
     }
 
+    // MARK: Goal — check the weather and avalanche danger for where I'm headed
+
+    func test_hiker_can_check_weather_and_avalanche_danger() {
+        let app = launch()
+        app.buttons["map.weather"].tap()
+        XCTAssertTrue(app.navigationBars["Weather"].waitForExistence(timeout: 5), "weather forecast not shown")
+
+        let avalanche = app.buttons["weather.avalanche"]
+        XCTAssertTrue(avalanche.waitForExistence(timeout: 5))
+        avalanche.tap()
+        XCTAssertTrue(app.navigationBars["Avalanche Danger"].waitForExistence(timeout: 5), "avalanche detail not shown")
+    }
+
     // MARK: - Helpers
 
     private func search(_ app: XCUIApplication, for query: String, pick result: String) {

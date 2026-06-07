@@ -31,6 +31,8 @@ public final class AppContainer {
     public let authRepository: AuthRepository
     public let offlineManager: OfflineTileManager
     public let locationProvider: LocationProvider
+    public let weatherProvider: WeatherProvider
+    public let avalancheProvider: AvalancheProvider
     public let syncController: SyncController
     /// Whether the live API (auth + cloud sync) is configured for this build.
     public let isOnline: Bool
@@ -54,6 +56,8 @@ public final class AppContainer {
         searchRepository = KartverketSearchRepository()
         offlineManager = DiskOfflineTileManager()
         locationProvider = CoreLocationProvider()
+        weatherProvider = InMemoryWeatherProvider()
+        avalancheProvider = InMemoryAvalancheProvider()
         isOnline = config.isOnline
 
         let cursor = UserDefaultsCursorStore()
@@ -94,7 +98,9 @@ public final class AppContainer {
         collectionRepository: CollectionRepository = InMemoryCollectionRepository(),
         authRepository: AuthRepository = InMemoryAuthRepository(),
         offlineManager: OfflineTileManager = InMemoryOfflineTileManager(),
-        locationProvider: LocationProvider = SimulatedLocationProvider(fixes: [])
+        locationProvider: LocationProvider = SimulatedLocationProvider(fixes: []),
+        weatherProvider: WeatherProvider = InMemoryWeatherProvider(),
+        avalancheProvider: AvalancheProvider = InMemoryAvalancheProvider()
     ) {
         self.markerRepository = markerRepository
         self.settingsRepository = settingsRepository
@@ -104,6 +110,8 @@ public final class AppContainer {
         self.authRepository = authRepository
         self.offlineManager = offlineManager
         self.locationProvider = locationProvider
+        self.weatherProvider = weatherProvider
+        self.avalancheProvider = avalancheProvider
         self.isOnline = false
         self.syncController = AppContainer.makeSyncController(
             markers: markerRepository, paths: pathRepository, collections: collectionRepository,
@@ -175,6 +183,12 @@ public final class AppContainer {
     public func makePathsViewModel() -> PathsViewModel { PathsViewModel(repository: pathRepository) }
     public func makeRecordingViewModel() -> RecordingViewModel {
         RecordingViewModel(location: locationProvider, pathRepository: pathRepository)
+    }
+    public func makeWeatherViewModel(position: LatLng, placeName: String) -> WeatherViewModel {
+        WeatherViewModel(provider: weatherProvider, position: position, placeName: placeName)
+    }
+    public func makeAvalancheViewModel(position: LatLng) -> AvalancheViewModel {
+        AvalancheViewModel(provider: avalancheProvider, position: position)
     }
     public func makeCollectionsViewModel() -> CollectionsViewModel { CollectionsViewModel(repository: collectionRepository) }
     public func makeAuthViewModel() -> AuthViewModel { AuthViewModel(repository: authRepository) }

@@ -45,7 +45,9 @@ public struct RootView: View {
                     viewModel: mapViewModel,
                     onOpenSearch: { showSearch = true },
                     onOpenMenu: { showMenu = true },
-                    onOpenLayers: { showLayers = true }
+                    onOpenLayers: { showLayers = true },
+                    makeWeatherViewModel: { container.makeWeatherViewModel(position: $0, placeName: "Conditions") },
+                    makeAvalancheViewModel: { container.makeAvalancheViewModel(position: $0) }
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }

@@ -1,0 +1,97 @@
+import SwiftUI
+import CoreModel
+import CoreDesignSystem
+
+/// Apple Weather-style forecast for a place — current conditions, hourly strip,
+/// 10-day list, and a link to avalanche danger. Mirrors the WeatherKit design.
+public struct WeatherDetailScreen: View {
+    @Environment(\.turbo) private var t
+    @Environment(\.dismiss) private var dismiss
+    @State private var weather: WeatherViewModel
+    private let avalancheViewModel: AvalancheViewModel
+
+    public init(weather: WeatherViewModel, avalanche: AvalancheViewModel) {
+        _weather = State(initialValue: weather)
+        self.avalancheViewModel = avalanche
+    }
+
+    public var body: some View {
+        NavigationStack {
+            ScrollView {
+                if let s = weather.summary {
+                    VStack(spacing: 20) {
+                        VStack(spacing: 6) {
+                            Text(s.placeName).font(.turboTitle2).foregroundStyle(t.label)
+                            Text(WeatherSummary.formatTemperature(s.temperatureC))
+                                .font(.system(size: 72, weight: .thin)).foregroundStyle(t.label)
+                            Label(s.summary, systemImage: s.symbol.sfSymbol)
+                                .font(.turboSubhead).foregroundStyle(t.label2)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.top, 12)
+
+                        hourlyStrip(s.hourly)
+                        dailyList(s.daily)
+
+                        NavigationLink {
+                            AvalancheDetailScreen(viewModel: avalancheViewModel)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Glyph(symbol: "exclamationmark.triangle.fill", color: t.orange, size: 29, cornerRadius: 7)
+                                Text("Avalanche Danger").foregroundStyle(t.label)
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(t.label3)
+                            }
+                            .padding(14)
+                            .background(t.groupedCard, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                        }
+                        .accessibilityIdentifier("weather.avalanche")
+                    }
+                    .padding(16)
+                } else {
+                    ProgressView().padding(40)
+                }
+            }
+            .background(t.grouped)
+            .navigationTitle("Weather")
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .task { await weather.load() }
+        }
+    }
+
+    private func hourlyStrip(_ hours: [HourForecast]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 18) {
+                ForEach(hours, id: \.label) { h in
+                    VStack(spacing: 8) {
+                        Text(h.label).font(.turboFootnote).foregroundStyle(t.label2)
+                        Image(systemName: h.symbol.sfSymbol).foregroundStyle(t.blue)
+                        Text(WeatherSummary.formatTemperature(h.temperatureC)).font(.turboHeadline).foregroundStyle(t.label)
+                    }
+                }
+            }
+            .padding(14)
+        }
+        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+    }
+
+    private func dailyList(_ days: [DayForecast]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(days) { day in
+                HStack {
+                    Text(day.weekday).font(.turboBody).foregroundStyle(t.label).frame(width: 64, alignment: .leading)
+                    Image(systemName: day.symbol.sfSymbol).foregroundStyle(t.blue)
+                    Spacer()
+                    Text(WeatherSummary.formatTemperature(day.lowC)).foregroundStyle(t.label2)
+                    Text(WeatherSummary.formatTemperature(day.highC)).foregroundStyle(t.label)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                if day.id != days.last?.id {
+                    Rectangle().fill(t.separator).frame(height: 0.5).padding(.leading, 14)
+                }
+            }
+        }
+        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+    }
+}

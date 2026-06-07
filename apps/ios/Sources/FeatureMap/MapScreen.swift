@@ -14,6 +14,9 @@ public struct MapScreen: View {
     private let onOpenSearch: () -> Void
     private let onOpenMenu: () -> Void
     private let onOpenLayers: () -> Void
+    private let makeWeatherViewModel: ((LatLng) -> WeatherViewModel)?
+    private let makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)?
+    @State private var showWeather = false
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
     @State private var selectedMarker: Marker?
@@ -35,13 +38,19 @@ public struct MapScreen: View {
         viewModel: MapViewModel,
         onOpenSearch: @escaping () -> Void = {},
         onOpenMenu: @escaping () -> Void = {},
-        onOpenLayers: @escaping () -> Void = {}
+        onOpenLayers: @escaping () -> Void = {},
+        makeWeatherViewModel: ((LatLng) -> WeatherViewModel)? = nil,
+        makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)? = nil
     ) {
         self.viewModel = viewModel
         self.onOpenSearch = onOpenSearch
         self.onOpenMenu = onOpenMenu
         self.onOpenLayers = onOpenLayers
+        self.makeWeatherViewModel = makeWeatherViewModel
+        self.makeAvalancheViewModel = makeAvalancheViewModel
     }
+
+    private var weatherCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
 
     public var body: some View {
         TurboMapView(
@@ -77,6 +86,14 @@ public struct MapScreen: View {
             )
             .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showWeather) {
+            if let makeWeatherViewModel, let makeAvalancheViewModel {
+                WeatherDetailScreen(
+                    weather: makeWeatherViewModel(weatherCenter),
+                    avalanche: makeAvalancheViewModel(weatherCenter)
+                )
+            }
+        }
     }
 
     private var pins: [MapPin] {
@@ -99,7 +116,9 @@ public struct MapScreen: View {
     private var topChrome: some View {
         VStack(spacing: 10) {
             HStack(alignment: .top) {
-                WeatherChip(temperature: "−3°")
+                Button { showWeather = true } label: { WeatherChip(temperature: "−3°") }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("map.weather")
                 Spacer()
                 MapAvatar(initials: "SG", action: onOpenMenu)
                     .accessibilityIdentifier("map.avatar")
