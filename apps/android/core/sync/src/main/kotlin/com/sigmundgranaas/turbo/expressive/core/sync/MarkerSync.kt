@@ -29,6 +29,7 @@ interface LocationRemote {
     suspend fun create(row: MarkerEntity): RemoteRef
     suspend fun update(row: MarkerEntity): LocationUpdateOutcome
     suspend fun delete(remoteId: String, version: Long)
+    suspend fun fetchById(remoteId: String): LocationResponseDto?
 }
 
 class LocationSyncApi @Inject constructor(
@@ -80,6 +81,11 @@ class LocationSyncApi @Inject constructor(
             method = HttpMethod.Delete
             header(HttpHeaders.IfMatch, "\"$version\"")
         }
+    }
+
+    override suspend fun fetchById(remoteId: String): LocationResponseDto? {
+        val resp = http.request("$base/$remoteId") { method = HttpMethod.Get }
+        return if (resp.status.isSuccess()) resp.body() else null
     }
 
     private companion object {

@@ -45,6 +45,7 @@ private class FakeCollectionRemote(
     override suspend fun create(row: CollectionEntity): RemoteRef { created += row; return RemoteRef("srv-new", 1, "2024-01-01T00:00:00Z") }
     override suspend fun update(row: CollectionEntity) = updateResult
     override suspend fun delete(remoteId: String, version: Long) = Unit
+    override suspend fun fetchById(remoteId: String): CollectionResponseDto? = pullResult.items.find { it.id == remoteId }
 }
 
 class CollectionSyncTest {

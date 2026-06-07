@@ -37,6 +37,7 @@ private class FakeLocationRemote(
     override suspend fun create(row: MarkerEntity): RemoteRef { created += row; return RemoteRef("srv-new", 1, "2024-01-01T00:00:00Z") }
     override suspend fun update(row: MarkerEntity): LocationUpdateOutcome = LocationUpdateOutcome.Updated(RemoteRef("srv", 2, "2024-01-01T00:00:00Z"))
     override suspend fun delete(remoteId: String, version: Long) { deleted += remoteId }
+    override suspend fun fetchById(remoteId: String): LocationResponseDto? = pullResult.items.find { it.id == remoteId }
 }
 
 private fun remoteMarker(id: String, name: String, lat: Double, lng: Double, updatedAt: String, version: Long) = LocationResponseDto(

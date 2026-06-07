@@ -29,6 +29,7 @@ interface CollectionRemote {
     suspend fun create(row: CollectionEntity): RemoteRef
     suspend fun update(row: CollectionEntity): CollectionUpdateOutcome
     suspend fun delete(remoteId: String, version: Long)
+    suspend fun fetchById(remoteId: String): CollectionResponseDto?
 }
 
 class CollectionSyncApi @Inject constructor(
@@ -80,6 +81,11 @@ class CollectionSyncApi @Inject constructor(
             method = HttpMethod.Delete
             header(HttpHeaders.IfMatch, "\"$version\"")
         }
+    }
+
+    override suspend fun fetchById(remoteId: String): CollectionResponseDto? {
+        val resp = http.request("$base/$remoteId") { method = HttpMethod.Get }
+        return if (resp.status.isSuccess()) resp.body() else null
     }
 
     private companion object {

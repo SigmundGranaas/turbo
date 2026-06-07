@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Turbo</string>
+    <string name="share_link_redeemed">Added to your library</string>
+    <string name="share_link_failed">Couldn\'t open that share link</string>
 </resources>

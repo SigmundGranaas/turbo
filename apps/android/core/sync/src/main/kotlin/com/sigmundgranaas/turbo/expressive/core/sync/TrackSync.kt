@@ -34,6 +34,8 @@ interface TrackRemote {
     suspend fun create(row: PathEntity): RemoteRef
     suspend fun update(row: PathEntity): TrackUpdateOutcome
     suspend fun delete(remoteId: String, version: Long)
+    /** Fetch a single track by its server id (e.g. one shared with us), or null. */
+    suspend fun fetchById(remoteId: String): TrackResponseDto?
 }
 
 class TrackSyncApi @Inject constructor(
@@ -87,6 +89,11 @@ class TrackSyncApi @Inject constructor(
             method = HttpMethod.Delete
             header(HttpHeaders.IfMatch, ifMatch(version))
         }
+    }
+
+    override suspend fun fetchById(remoteId: String): TrackResponseDto? {
+        val resp = http.request("$base/$remoteId") { method = HttpMethod.Get }
+        return if (resp.status.isSuccess()) resp.body() else null
     }
 
     private companion object {

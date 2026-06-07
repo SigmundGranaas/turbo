@@ -47,6 +47,7 @@ private class FakeTrackRemote(
     }
     override suspend fun update(row: PathEntity): TrackUpdateOutcome { updated += row; return updateResult }
     override suspend fun delete(remoteId: String, version: Long) { deleted += remoteId }
+    override suspend fun fetchById(remoteId: String): TrackResponseDto? = pullResult.items.find { it.id == remoteId }
 }
 
 private fun remoteTrack(id: String, name: String, updatedAt: String, version: Long) = TrackResponseDto(
