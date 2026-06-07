@@ -43,6 +43,7 @@ class RoomCollectionRepository @Inject constructor(
                 updatedAtEpochMs = System.currentTimeMillis(),
                 deletedAtEpochMs = null,
                 dirty = true,
+                readOnly = existing?.readOnly ?: false,
             ),
         )
     }
@@ -62,7 +63,13 @@ class RoomCollectionRepository @Inject constructor(
     }
 
     override suspend fun removeItem(collectionId: String, itemId: String, type: CollectionItemType) {
-        dao.removeItem(collectionId, itemId, type.name)
+        // In a synced collection, tombstone the membership so the engine can push the DELETE;
+        // otherwise just drop it.
+        if (dao.byId(collectionId)?.remoteId != null) {
+            dao.tombstoneItem(collectionId, itemId, type.name, System.currentTimeMillis())
+        } else {
+            dao.removeItem(collectionId, itemId, type.name)
+        }
     }
 
     override fun observeItemIds(collectionId: String, type: CollectionItemType): Flow<List<String>> =

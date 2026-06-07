@@ -84,7 +84,7 @@ abstract class DataModule {
                         SampleData.markers.forEach { m ->
                             // dirty = 0: seed data is a clean local baseline, never pushed to the cloud.
                             db.execSQL(
-                                "INSERT INTO marker (id, name, kind, lat, lng, colorArgb, dirty) VALUES (?, ?, ?, ?, ?, ?, 0)",
+                                "INSERT INTO marker (id, name, kind, lat, lng, colorArgb, dirty, readOnly) VALUES (?, ?, ?, ?, ?, ?, 0, 0)",
                                 arrayOf<Any?>(m.id, m.name, m.kind.key, m.position.lat, m.position.lng, m.colorArgb),
                             )
                         }

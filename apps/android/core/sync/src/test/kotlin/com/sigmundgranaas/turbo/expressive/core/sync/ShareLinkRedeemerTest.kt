@@ -55,6 +55,8 @@ private object NoCollectionDao : CollectionDao {
     override suspend fun clearItems(id: String) = Unit
     override suspend fun addItem(item: CollectionItemEntity) = Unit
     override suspend fun removeItem(collectionId: String, itemId: String, itemType: String) = Unit
+    override suspend fun tombstoneItem(collectionId: String, itemId: String, itemType: String, ts: Long) = Unit
+    override suspend fun markItemSynced(collectionId: String, itemId: String, itemType: String) = Unit
     override fun observeItemIds(collectionId: String, itemType: String): Flow<List<String>> = flowOf(emptyList())
     override fun observeCollectionsForItem(itemId: String, itemType: String): Flow<List<String>> = flowOf(emptyList())
 }
@@ -90,6 +92,7 @@ private object NoCollectionRemote : CollectionRemote {
     override suspend fun delete(remoteId: String, version: Long) = Unit
     override suspend fun fetchById(remoteId: String): CollectionResponseDto? = null
     override suspend fun addItem(collectionRemoteId: String, type: String, uuid: String) = Unit
+    override suspend fun removeItem(collectionRemoteId: String, type: String, uuid: String) = Unit
 }
 
 class ShareLinkRedeemerTest {

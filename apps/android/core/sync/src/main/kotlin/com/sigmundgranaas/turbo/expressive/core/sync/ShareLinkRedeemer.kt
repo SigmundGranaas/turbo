@@ -34,15 +34,15 @@ class ShareLinkRedeemer @Inject constructor(
         when (resourceType.lowercase()) {
             "path", "track" -> tracks.fetchById(resourceId)?.let { dto ->
                 val localId = pathDao.byRemoteId(dto.id)?.id ?: UUID.randomUUID().toString()
-                pathDao.upsert(dto.toEntity(localId))
+                pathDao.upsert(dto.toEntity(localId, readOnly = true))
             }
             "marker", "location" -> locations.fetchById(resourceId)?.let { dto ->
                 val localId = markerDao.byRemoteId(dto.id)?.id ?: UUID.randomUUID().toString()
-                markerDao.upsert(dto.toEntity(localId))
+                markerDao.upsert(dto.toEntity(localId, readOnly = true))
             }
             "collection" -> collections.fetchById(resourceId)?.let { dto ->
                 val existing = collectionDao.byRemoteId(dto.id)
-                collectionDao.upsert(dto.toEntity(existing?.id ?: UUID.randomUUID().toString(), existing?.createdAtEpochMs))
+                collectionDao.upsert(dto.toEntity(existing?.id ?: UUID.randomUUID().toString(), existing?.createdAtEpochMs, readOnly = true))
             }
         }
     }

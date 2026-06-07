@@ -35,6 +35,8 @@ data class MarkerEntity(
     val deletedAtEpochMs: Long? = null,
     /** True when there are local changes pending upload. */
     val dirty: Boolean = true,
+    /** Shared-with-us resource (read-only by convention): never pushed back to the server. */
+    val readOnly: Boolean = false,
 )
 
 @Dao
@@ -48,8 +50,8 @@ interface MarkerDao {
     @Query("SELECT * FROM marker WHERE remoteId = :remoteId")
     suspend fun byRemoteId(remoteId: String): MarkerEntity?
 
-    /** Rows with local changes to push (creates/updates and pending deletes). */
-    @Query("SELECT * FROM marker WHERE dirty = 1")
+    /** Rows with local changes to push (creates/updates and pending deletes); read-only rows excluded. */
+    @Query("SELECT * FROM marker WHERE dirty = 1 AND readOnly = 0")
     suspend fun pendingSync(): List<MarkerEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -89,6 +91,7 @@ data class PathEntity(
     val updatedAtEpochMs: Long? = null,
     val deletedAtEpochMs: Long? = null,
     val dirty: Boolean = true,
+    val readOnly: Boolean = false,
 )
 
 @Dao
@@ -132,6 +135,7 @@ data class CollectionEntity(
     val updatedAtEpochMs: Long? = null,
     val deletedAtEpochMs: Long? = null,
     val dirty: Boolean = true,
+    val readOnly: Boolean = false,
 )
 
 /** Membership row linking an entity (marker/path) to a collection. */
@@ -140,6 +144,10 @@ data class CollectionItemEntity(
     val collectionId: String,
     val itemId: String,
     val itemType: String,
+    /** True when this membership add/remove still needs pushing to the server. */
+    val dirty: Boolean = true,
+    /** Tombstone: set when removed from a synced collection; null = live. */
+    val deletedAtEpochMs: Long? = null,
 )
 
 /** Projection of a collection plus its current membership count. */
@@ -155,7 +163,7 @@ data class CollectionWithCount(
 interface CollectionDao {
     @Query(
         "SELECT c.id, c.name, c.colorArgb, c.icon, " +
-            "(SELECT COUNT(*) FROM collection_item ci WHERE ci.collectionId = c.id) AS itemCount " +
+            "(SELECT COUNT(*) FROM collection_item ci WHERE ci.collectionId = c.id AND ci.deletedAtEpochMs IS NULL) AS itemCount " +
             "FROM collection c WHERE c.deletedAtEpochMs IS NULL ORDER BY c.name",
     )
     fun observeAll(): Flow<List<CollectionWithCount>>
@@ -174,7 +182,7 @@ interface CollectionDao {
     @Query("SELECT * FROM collection_item WHERE collectionId = :collectionId")
     suspend fun itemsForCollection(collectionId: String): List<CollectionItemEntity>
 
-    @Query("SELECT * FROM collection WHERE dirty = 1")
+    @Query("SELECT * FROM collection WHERE dirty = 1 AND readOnly = 0")
     suspend fun pendingSync(): List<CollectionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -199,10 +207,18 @@ interface CollectionDao {
     @Query("DELETE FROM collection_item WHERE collectionId = :collectionId AND itemId = :itemId AND itemType = :itemType")
     suspend fun removeItem(collectionId: String, itemId: String, itemType: String)
 
-    @Query("SELECT itemId FROM collection_item WHERE collectionId = :collectionId AND itemType = :itemType")
+    /** Tombstone a membership of a synced collection so the engine pushes the DELETE. */
+    @Query("UPDATE collection_item SET deletedAtEpochMs = :ts, dirty = 1 WHERE collectionId = :collectionId AND itemId = :itemId AND itemType = :itemType")
+    suspend fun tombstoneItem(collectionId: String, itemId: String, itemType: String, ts: Long)
+
+    /** Clear the dirty flag after a membership add/remove has been pushed. */
+    @Query("UPDATE collection_item SET dirty = 0 WHERE collectionId = :collectionId AND itemId = :itemId AND itemType = :itemType")
+    suspend fun markItemSynced(collectionId: String, itemId: String, itemType: String)
+
+    @Query("SELECT itemId FROM collection_item WHERE collectionId = :collectionId AND itemType = :itemType AND deletedAtEpochMs IS NULL")
     fun observeItemIds(collectionId: String, itemType: String): Flow<List<String>>
 
-    @Query("SELECT collectionId FROM collection_item WHERE itemId = :itemId AND itemType = :itemType")
+    @Query("SELECT collectionId FROM collection_item WHERE itemId = :itemId AND itemType = :itemType AND deletedAtEpochMs IS NULL")
     fun observeCollectionsForItem(itemId: String, itemType: String): Flow<List<String>>
 }
 
@@ -236,7 +252,7 @@ interface PhotoDao {
         MarkerEntity::class, PathEntity::class,
         CollectionEntity::class, CollectionItemEntity::class, PhotoEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class TurboDatabase : RoomDatabase() {

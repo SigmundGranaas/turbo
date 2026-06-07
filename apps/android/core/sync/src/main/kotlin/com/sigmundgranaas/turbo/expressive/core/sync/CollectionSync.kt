@@ -35,6 +35,8 @@ interface CollectionRemote {
     suspend fun fetchById(remoteId: String): CollectionResponseDto?
     /** Add a resource to a collection (idempotent server-side). */
     suspend fun addItem(collectionRemoteId: String, type: String, uuid: String)
+    /** Remove a resource from a collection. */
+    suspend fun removeItem(collectionRemoteId: String, type: String, uuid: String)
 }
 
 class CollectionSyncApi @Inject constructor(
@@ -101,6 +103,10 @@ class CollectionSyncApi @Inject constructor(
         }
     }
 
+    override suspend fun removeItem(collectionRemoteId: String, type: String, uuid: String) {
+        http.request("$base/$collectionRemoteId/items/$type/$uuid") { method = HttpMethod.Delete }
+    }
+
     private companion object {
         const val PAGE_LIMIT = 500
     }
@@ -140,30 +146,51 @@ class CollectionSyncer @Inject constructor(
         adoptIncomingItems(dto, localId)
     }
 
-    /** Add server memberships locally (never removes — removals are a follow-on). */
+    /**
+     * Reconcile local membership to the server's authoritative set: add server items
+     * (clean), and remove local **clean** memberships the server no longer has. Local
+     * *dirty* rows (pending adds/removes) are preserved for the push pass — so no local
+     * edit is lost.
+     */
     private suspend fun adoptIncomingItems(dto: CollectionResponseDto, localCollectionId: String) {
-        dto.items.forEach { ref ->
-            val resourceLocalId = when (ref.type.lowercase()) {
+        val serverResourceIds = dto.items.mapNotNull { ref ->
+            when (ref.type.lowercase()) {
                 WIRE_TRACK -> pathDao.byRemoteId(ref.uuid)?.id
                 WIRE_LOCATION -> markerDao.byRemoteId(ref.uuid)?.id
                 else -> null
-            } ?: return@forEach
-            dao.addItem(CollectionItemEntity(localCollectionId, resourceLocalId, ref.type.toLocalItemType()))
+            }?.let { it to ref.type.toLocalItemType() }
+        }.toSet()
+
+        serverResourceIds.forEach { (resourceLocalId, localType) ->
+            dao.addItem(CollectionItemEntity(localCollectionId, resourceLocalId, localType, dirty = false))
+        }
+        // Drop clean local memberships the server no longer lists (owner removed them).
+        dao.itemsForCollection(localCollectionId).forEach { item ->
+            if (!item.dirty && item.deletedAtEpochMs == null && (item.itemId to item.itemType) !in serverResourceIds) {
+                dao.removeItem(item.collectionId, item.itemId, item.itemType)
+            }
         }
     }
 
-    /** Push each synced collection's local memberships to the server (idempotent POST /items). */
+    /** Push each synced collection's pending membership changes (adds POST, removals DELETE). */
     private suspend fun pushMembership() {
         dao.syncedCollections().forEach { collection ->
             val remoteId = collection.remoteId ?: return@forEach
             dao.itemsForCollection(collection.id).forEach { item ->
+                if (!item.dirty) return@forEach
                 val wireType = item.itemType.toWireItemType() ?: return@forEach
                 val resourceRemoteId = when (item.itemType) {
                     LOCAL_PATH -> pathDao.byId(item.itemId)?.remoteId
                     LOCAL_MARKER -> markerDao.byId(item.itemId)?.remoteId
                     else -> null
                 } ?: return@forEach // resource not synced yet — retry next sync
-                remote.addItem(remoteId, wireType, resourceRemoteId)
+                if (item.deletedAtEpochMs != null) {
+                    remote.removeItem(remoteId, wireType, resourceRemoteId)
+                    dao.removeItem(item.collectionId, item.itemId, item.itemType) // purge the tombstone
+                } else {
+                    remote.addItem(remoteId, wireType, resourceRemoteId)
+                    dao.markItemSynced(item.collectionId, item.itemId, item.itemType)
+                }
             }
         }
     }
@@ -217,7 +244,7 @@ internal fun CollectionEntity.toWriteRequest() = CollectionWriteRequest(
     iconKey = icon,
 )
 
-internal fun CollectionResponseDto.toEntity(localId: String, existingCreatedAt: Long?) = CollectionEntity(
+internal fun CollectionResponseDto.toEntity(localId: String, existingCreatedAt: Long?, readOnly: Boolean = false) = CollectionEntity(
     id = localId,
     name = name?.takeIf { it.isNotBlank() } ?: "Collection",
     colorArgb = colorHex?.parseColorArgb(),
@@ -228,6 +255,7 @@ internal fun CollectionResponseDto.toEntity(localId: String, existingCreatedAt: 
     updatedAtEpochMs = Iso8601.toEpochMs(updatedAt),
     deletedAtEpochMs = null,
     dirty = false,
+    readOnly = readOnly,
 )
 
 // Membership type mapping: local CollectionItemType.name ⇄ server item type.

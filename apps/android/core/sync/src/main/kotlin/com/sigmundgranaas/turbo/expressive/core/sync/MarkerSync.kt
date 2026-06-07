@@ -165,7 +165,7 @@ internal fun MarkerEntity.toWriteRequest() = LocationWriteRequest(
     display = LocationDisplayDto(name = name, description = notes, icon = kind),
 )
 
-internal fun LocationResponseDto.toEntity(localId: String) = MarkerEntity(
+internal fun LocationResponseDto.toEntity(localId: String, readOnly: Boolean = false) = MarkerEntity(
     id = localId,
     name = display.name?.takeIf { it.isNotBlank() } ?: "Marker",
     kind = display.icon?.takeIf { it.isNotBlank() } ?: "mountain",
@@ -178,4 +178,5 @@ internal fun LocationResponseDto.toEntity(localId: String) = MarkerEntity(
     updatedAtEpochMs = Iso8601.toEpochMs(updatedAt),
     deletedAtEpochMs = null,
     dirty = false,
+    readOnly = readOnly,
 )

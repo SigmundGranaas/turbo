@@ -37,8 +37,21 @@ private class FakeCollectionDao : CollectionDao {
     val items = mutableListOf<CollectionItemEntity>()
     override suspend fun itemsForCollection(collectionId: String): List<CollectionItemEntity> = items.filter { it.collectionId == collectionId }
     override suspend fun clearItems(id: String) { items.removeAll { it.collectionId == id } }
-    override suspend fun addItem(item: CollectionItemEntity) { if (items.none { it.collectionId == item.collectionId && it.itemId == item.itemId && it.itemType == item.itemType }) items += item }
-    override suspend fun removeItem(collectionId: String, itemId: String, itemType: String) = Unit
+    override suspend fun addItem(item: CollectionItemEntity) {
+        items.removeAll { it.collectionId == item.collectionId && it.itemId == item.itemId && it.itemType == item.itemType }
+        items += item
+    }
+    override suspend fun removeItem(collectionId: String, itemId: String, itemType: String) {
+        items.removeAll { it.collectionId == collectionId && it.itemId == itemId && it.itemType == itemType }
+    }
+    override suspend fun tombstoneItem(collectionId: String, itemId: String, itemType: String, ts: Long) {
+        val i = items.indexOfFirst { it.collectionId == collectionId && it.itemId == itemId && it.itemType == itemType }
+        if (i >= 0) items[i] = items[i].copy(deletedAtEpochMs = ts, dirty = true)
+    }
+    override suspend fun markItemSynced(collectionId: String, itemId: String, itemType: String) {
+        val i = items.indexOfFirst { it.collectionId == collectionId && it.itemId == itemId && it.itemType == itemType }
+        if (i >= 0) items[i] = items[i].copy(dirty = false)
+    }
     override fun observeItemIds(collectionId: String, itemType: String): Flow<List<String>> = flowOf(emptyList())
     override fun observeCollectionsForItem(itemId: String, itemType: String): Flow<List<String>> = flowOf(emptyList())
 }
@@ -78,6 +91,8 @@ private class FakeCollectionRemote(
     override suspend fun fetchById(remoteId: String): CollectionResponseDto? = pullResult.items.find { it.id == remoteId }
     val addedItems = mutableListOf<Triple<String, String, String>>()
     override suspend fun addItem(collectionRemoteId: String, type: String, uuid: String) { addedItems += Triple(collectionRemoteId, type, uuid) }
+    val removedItems = mutableListOf<Triple<String, String, String>>()
+    override suspend fun removeItem(collectionRemoteId: String, type: String, uuid: String) { removedItems += Triple(collectionRemoteId, type, uuid) }
 }
 
 class CollectionSyncTest {
@@ -145,7 +160,42 @@ class CollectionSyncTest {
         CollectionSyncer(remote, dao, pathDao, NoItemMarkerDao).sync(null)
 
         val localCollectionId = dao.byRemoteId("srv-c1")!!.id
-        assertEquals(listOf(CollectionItemEntity(localCollectionId, "local-path-1", "Path")), dao.items.toList())
+        assertEquals(listOf(CollectionItemEntity(localCollectionId, "local-path-1", "Path", dirty = false)), dao.items.toList())
+    }
+
+    @Test
+    fun `a removed membership of a synced collection is pushed as a delete and purged`() = runTest {
+        val dao = FakeCollectionDao()
+        dao.upsert(CollectionEntity(id = "c1", name = "Trips", colorArgb = null, icon = null, createdAtEpochMs = 1L, remoteId = "srv-c1", version = 1, dirty = false))
+        // a tombstoned (removed) membership pending push
+        dao.items += CollectionItemEntity("c1", "local-path-1", "Path", dirty = true, deletedAtEpochMs = 999L)
+        val pathDao = FakeItemPathDao(byLocal = mapOf("local-path-1" to "srv-path-9"))
+        val remote = FakeCollectionRemote()
+
+        CollectionSyncer(remote, dao, pathDao, NoItemMarkerDao).sync("x")
+
+        assertEquals(listOf(Triple("srv-c1", "track", "srv-path-9")), remote.removedItems)
+        assertEquals(emptyList<CollectionItemEntity>(), dao.items.toList()) // tombstone purged
+    }
+
+    @Test
+    fun `pull removes a clean local membership the server no longer lists`() = runTest {
+        val dao = FakeCollectionDao()
+        // local clean membership for a resource that resolves to srv-path-9
+        dao.items += CollectionItemEntity("c1", "local-path-1", "Path", dirty = false)
+        val pathDao = FakeItemPathDao(byRemote = mapOf("srv-path-9" to "local-path-1"), byLocal = mapOf("local-path-1" to "srv-path-9"))
+        // server returns the collection with NO items → the clean local membership should be dropped
+        val remote = FakeCollectionRemote(
+            pullResult = CollectionsDeltaDto(
+                items = listOf(CollectionResponseDto(id = "srv-c1", name = "C", updatedAt = "2024-01-01T00:00:00Z", version = 1, items = emptyList())),
+            ),
+        )
+        // pre-link the local collection to srv-c1 so adoptIncomingItems targets it
+        dao.upsert(CollectionEntity(id = "c1", name = "C", colorArgb = null, icon = null, createdAtEpochMs = 1L, remoteId = "srv-c1", version = 1, dirty = false))
+
+        CollectionSyncer(remote, dao, pathDao, NoItemMarkerDao).sync("x")
+
+        assertEquals(emptyList<CollectionItemEntity>(), dao.items.filter { it.collectionId == "c1" })
     }
 
     @Test

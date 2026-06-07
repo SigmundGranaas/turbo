@@ -193,7 +193,7 @@ internal fun PathEntity.toWriteRequest(): TrackWriteRequest {
     )
 }
 
-internal fun TrackResponseDto.toEntity(localId: String): PathEntity {
+internal fun TrackResponseDto.toEntity(localId: String, readOnly: Boolean = false): PathEntity {
     val latLng = geometry.points.map { it.latitude to it.longitude }
     return PathEntity(
         id = localId,
@@ -212,6 +212,7 @@ internal fun TrackResponseDto.toEntity(localId: String): PathEntity {
         updatedAtEpochMs = Iso8601.toEpochMs(updatedAt),
         deletedAtEpochMs = null,
         dirty = false,
+        readOnly = readOnly,
     )
 }
 

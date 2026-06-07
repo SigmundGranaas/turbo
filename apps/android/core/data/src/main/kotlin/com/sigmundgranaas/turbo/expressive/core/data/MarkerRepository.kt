@@ -35,6 +35,7 @@ class RoomMarkerRepository @Inject constructor(
                 updatedAtEpochMs = System.currentTimeMillis(),
                 deletedAtEpochMs = null,
                 dirty = true,
+                readOnly = existing?.readOnly ?: false,
             ),
         )
     }
