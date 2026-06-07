@@ -49,6 +49,15 @@
     <string name="track_hint_line">Trykk for å plassere punkter</string>
     <string name="track_hint_draw">Dra på kartet for å tegne</string>
     <string name="track_route_style">Rutestil</string>
+    <!-- Route stops manager -->
+    <string name="track_stops_row">Stopp</string>
+    <string name="track_stops_title">Stopp</string>
+    <string name="track_stops_hint">Dra for å endre rekkefølge · sveip vekk for å fjerne</string>
+    <string name="wp_start">Start</string>
+    <string name="wp_end">Mål</string>
+    <string name="wp_stop">Stopp %1$d</string>
+    <string name="wp_remove">Fjern stopp</string>
+    <string name="wp_reorder">Endre rekkefølge</string>
     <string name="track_route_style_subtitle">Hvordan ruta veier av stier, veier og stigning.</string>
     <string name="track_meta_line">%1$d punkter plassert</string>
     <string name="track_meta_draw">Frihåndsstrek</string>
@@ -58,6 +67,9 @@
     <string name="track_discard_title">Forkaste sporet?</string>
     <string name="track_discard_body">Det ulagrede sporet går tapt.</string>
     <string name="track_discard">Forkast</string>
+    <!-- Long-press contextual menu -->
+    <string name="lp_new_marker">Ny markør</string>
+    <string name="lp_route_here">Rute hit</string>
 
     <!-- Marker editor -->
     <string name="marker_new">Ny markør</string>

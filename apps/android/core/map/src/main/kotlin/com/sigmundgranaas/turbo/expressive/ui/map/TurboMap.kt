@@ -59,6 +59,10 @@ class MapController(internal val map: MapLibreMap) {
     fun fromScreen(xPx: Float, yPx: Float): LatLng =
         map.projection.fromScreenLocation(android.graphics.PointF(xPx, yPx)).let { LatLng(it.latitude, it.longitude) }
 
+    /** Screen pixel for a geographic position — anchors on-map UI (e.g. the long-press menu). */
+    fun toScreen(point: LatLng): Pair<Float, Float> =
+        map.projection.toScreenLocation(MlLatLng(point.lat, point.lng)).let { it.x to it.y }
+
     /** The currently visible lat/lng box — the area to download for offline use. */
     fun visibleBounds(): GeoBounds {
         val b = map.projection.visibleRegion.latLngBounds

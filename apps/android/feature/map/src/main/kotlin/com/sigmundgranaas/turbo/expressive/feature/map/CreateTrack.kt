@@ -20,8 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Remove
@@ -92,6 +94,8 @@ internal fun CreateTrackPanel(
     surfaces: Map<String, Double>,
     presetLabel: String,
     onRouteStyle: () -> Unit,
+    stopCount: Int = 0,
+    onManageStops: () -> Unit = {},
     canUndo: Boolean,
     canSave: Boolean,
     onUndo: () -> Unit,
@@ -149,7 +153,7 @@ internal fun CreateTrackPanel(
                 SurfaceMix(surfaces, Modifier.padding(start = 22.dp, end = 22.dp, top = 14.dp))
             }
 
-            // Zone 4 — route-style selector (route only) — opens the preset dialog.
+            // Zone 4 — route-style selector + stops manager (route only).
             if (isRoute) {
                 Surface(
                     onClick = onRouteStyle,
@@ -163,6 +167,23 @@ internal fun CreateTrackPanel(
                         Text(stringResource(R.string.track_route_style), style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
                         Text(presetLabel, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W700), color = cs.primary)
                         Icon(Icons.Rounded.ExpandMore, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                    }
+                }
+                // Stops manager — visible once a route exists (start + destination).
+                if (stopCount >= 2) {
+                    Surface(
+                        onClick = onManageStops,
+                        shape = RoundedCornerShape(18.dp),
+                        color = cs.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp).height(56.dp).testTag("stopsRow"),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp, end = 10.dp)) {
+                            Icon(Icons.Rounded.Flag, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Text(stringResource(R.string.track_stops_row), style = MaterialTheme.typography.titleMedium, color = cs.onSurface, modifier = Modifier.weight(1f))
+                            Text("$stopCount", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W700), color = cs.primary)
+                            Icon(Icons.Rounded.ChevronRight, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                        }
                     }
                 }
             }

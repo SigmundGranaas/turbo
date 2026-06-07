@@ -49,6 +49,15 @@
     <string name="track_hint_line">Tap to drop points</string>
     <string name="track_hint_draw">Drag on the map to draw</string>
     <string name="track_route_style">Route style</string>
+    <!-- Route stops manager -->
+    <string name="track_stops_row">Stops</string>
+    <string name="track_stops_title">Stops</string>
+    <string name="track_stops_hint">Drag to reorder · swipe a stop off to remove</string>
+    <string name="wp_start">Start</string>
+    <string name="wp_end">Destination</string>
+    <string name="wp_stop">Stop %1$d</string>
+    <string name="wp_remove">Remove stop</string>
+    <string name="wp_reorder">Reorder stop</string>
     <string name="track_route_style_subtitle">How the route trades off trails, roads and climbing.</string>
     <string name="track_meta_line">%1$d points placed</string>
     <string name="track_meta_draw">Freehand stroke</string>
@@ -58,6 +67,9 @@
     <string name="track_discard_title">Discard track?</string>
     <string name="track_discard_body">Your unsaved track will be lost.</string>
     <string name="track_discard">Discard</string>
+    <!-- Long-press contextual menu -->
+    <string name="lp_new_marker">New marker</string>
+    <string name="lp_route_here">Route here</string>
 
     <!-- Marker editor -->
     <string name="marker_new">New marker</string>

@@ -240,6 +240,7 @@ fun MapScreen(
     // First Route tap with no GPS fix becomes the origin; the second starts the solve.
     var routeOrigin by remember { mutableStateOf<LatLng?>(null) }
     var showRouteStyle by remember { mutableStateOf(false) }
+    var showStops by remember { mutableStateOf(false) }
     var showTrackSave by remember { mutableStateOf(false) }
     var showTrackDiscard by remember { mutableStateOf(false) }
     // Stop-following save prompt + the snackbar that bridges Save → Follow.
@@ -276,6 +277,8 @@ fun MapScreen(
     }
     // Position long-pressed on the map → drives the "new marker" sheet (null = closed).
     var newMarkerAt by remember { mutableStateOf<LatLng?>(null) }
+    // Long-pressed coordinate → the on-map contextual menu (weather + create actions).
+    var longPressAt by remember { mutableStateOf<LatLng?>(null) }
     // Marker being edited (null = no editor open).
     var editingMarker by remember { mutableStateOf<Marker?>(null) }
     // Marker pending delete-confirmation (null = no dialog).
@@ -384,7 +387,7 @@ fun MapScreen(
                     TrackMode.Route -> listOfNotNull(routeOrigin)
                     else -> emptyList()
                 },
-                onMapLongClick = { if (trackMode == null) { haptics.longPress(); newMarkerAt = it } },
+                onMapLongClick = { if (trackMode == null) { haptics.longPress(); longPressAt = it } },
                 onMapTap = { p ->
                     when (trackMode) {
                         TrackMode.Route -> {
@@ -555,6 +558,7 @@ fun MapScreen(
 
             // ── Create track tool: chrome (close + title) + the unified panel ──
             trackMode?.let { mode ->
+                val toolWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
                 val donePlan = (routeState as? RouteUiState.Done)?.plan
                 val geometry = when (mode) {
                     TrackMode.Route -> routeState.polyline
@@ -640,6 +644,8 @@ fun MapScreen(
                         surfaces = donePlan?.surfaces ?: emptyMap(),
                         presetLabel = routePreset.label,
                         onRouteStyle = { showRouteStyle = true },
+                        stopCount = if (mode == TrackMode.Route) toolWaypoints.size else 0,
+                        onManageStops = { showStops = true },
                         canUndo = canUndo,
                         canSave = canSave,
                         onUndo = {
@@ -678,6 +684,14 @@ fun MapScreen(
                         onDismiss = { showRouteStyle = false },
                     )
                 }
+                if (showStops) {
+                    WaypointsSheet(
+                        waypoints = toolWaypoints,
+                        onMove = { from, to -> routeViewModel.moveWaypoint(from, to) },
+                        onRemove = { routeViewModel.removeWaypoint(it) },
+                        onDismiss = { showStops = false },
+                    )
+                }
                 if (showTrackSave) {
                     NameInputDialog(
                         title = stringResource(R.string.track_save_title),
@@ -708,6 +722,26 @@ fun MapScreen(
                         destructive = true,
                         onConfirm = { showTrackDiscard = false; closeTrackTool(false) },
                         onDismiss = { showTrackDiscard = false },
+                    )
+                }
+            }
+
+            // On-map contextual menu blooming at a long-press (weather + create actions).
+            longPressAt?.let { p ->
+                controller?.let { ctrl ->
+                    val (sx, sy) = ctrl.toScreen(p)
+                    MapLongPressMenu(
+                        point = p,
+                        anchor = androidx.compose.ui.geometry.Offset(sx, sy),
+                        onNewMarker = { longPressAt = null; newMarkerAt = p },
+                        onRouteHere = {
+                            longPressAt = null
+                            val from = state.userLocation ?: ctrl.center()
+                            openTrackTool(TrackMode.Route)
+                            routeViewModel.planRoute(from, p)
+                        },
+                        onCreateTrack = { longPressAt = null; openTrackTool(TrackMode.Route) },
+                        onDismiss = { longPressAt = null },
                     )
                 }
             }
