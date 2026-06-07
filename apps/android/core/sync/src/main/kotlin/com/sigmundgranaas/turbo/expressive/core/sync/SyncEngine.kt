@@ -2,11 +2,13 @@ package com.sigmundgranaas.turbo.expressive.core.sync
 
 import com.sigmundgranaas.turbo.expressive.core.auth.AuthRepository
 import com.sigmundgranaas.turbo.expressive.core.auth.AuthState
+import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyncCursorStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,6 +34,7 @@ sealed interface SyncStatus {
 /** Outcome of a single [SyncEngine.syncNow] run. */
 sealed interface SyncOutcome {
     data object NotSignedIn : SyncOutcome
+    data object Disabled : SyncOutcome
     data object Success : SyncOutcome
     data class PartialFailure(val errors: List<String>) : SyncOutcome
 }
@@ -53,6 +56,7 @@ class SyncEngine @Inject constructor(
     private val syncers: Set<@JvmSuppressWildcards DomainSyncer>,
     private val cursors: SyncCursorStore,
     private val auth: AuthRepository,
+    private val settings: SettingsRepository,
     private val scope: CoroutineScope,
 ) : SyncController {
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
@@ -77,6 +81,7 @@ class SyncEngine @Inject constructor(
     /** Run a full sync now. No-op (returns [SyncOutcome.NotSignedIn]) when signed out. */
     override suspend fun syncNow(): SyncOutcome = mutex.withLock {
         if (auth.state.value !is AuthState.SignedIn) return SyncOutcome.NotSignedIn
+        if (!settings.settings.first().cloudSyncEnabled) return SyncOutcome.Disabled
         _status.value = SyncStatus.Syncing
         val errors = mutableListOf<String>()
         for (syncer in syncers) {

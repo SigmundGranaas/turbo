@@ -29,4 +29,6 @@
     <string name="about_section_legal">Legal</string>
     <string name="about_privacy">Privacy policy</string>
     <string name="about_terms">Terms of use</string>
+    <string name="settings_cloud_sync">Cloud sync</string>
+    <string name="settings_cloud_sync_sub">Back up tracks, markers and collections to your account</string>
 </resources>

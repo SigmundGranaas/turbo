@@ -9,4 +9,6 @@ data class UserSettings(
     val followLocation: Boolean = false,
     val metricUnits: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.System,
+    /** When off, the cloud sync engine is paused even while signed in. */
+    val cloudSyncEnabled: Boolean = true,
 )

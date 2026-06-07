@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -138,6 +139,12 @@ fun SettingsScreen(
                     Icons.Rounded.Straighten, stringResource(R.string.settings_units),
                     subtitle = stringResource(if (settings.metricUnits) R.string.units_metric else R.string.units_imperial),
                     trailing = { Switch(settings.metricUnits, { haptics.toggle(it); viewModel.setMetric(it) }, modifier = Modifier.testTag("unitsSwitch")) },
+                )
+                HorizontalDivider(color = cs.outlineVariant)
+                ListRowItem(
+                    Icons.Rounded.CloudSync, stringResource(R.string.settings_cloud_sync),
+                    subtitle = stringResource(R.string.settings_cloud_sync_sub),
+                    trailing = { Switch(settings.cloudSyncEnabled, { haptics.toggle(it); viewModel.setCloudSync(it) }, modifier = Modifier.testTag("cloudSyncSwitch")) },
                 )
             }
             SettingsGroup {

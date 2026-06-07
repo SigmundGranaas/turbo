@@ -28,4 +28,5 @@ class SettingsViewModel @Inject constructor(
     fun setFollow(enabled: Boolean) = viewModelScope.launch { repository.setFollowLocation(enabled) }
     fun setMetric(metric: Boolean) = viewModelScope.launch { repository.setMetricUnits(metric) }
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { repository.setThemeMode(mode) }
+    fun setCloudSync(enabled: Boolean) = viewModelScope.launch { repository.setCloudSyncEnabled(enabled) }
 }

@@ -22,6 +22,7 @@ private class MutableSettingsRepository : SettingsRepository {
     override suspend fun setFollowLocation(enabled: Boolean) = state.update { it.copy(followLocation = enabled) }
     override suspend fun setMetricUnits(metric: Boolean) = state.update { it.copy(metricUnits = metric) }
     override suspend fun setThemeMode(mode: ThemeMode) = state.update { it.copy(themeMode = mode) }
+    override suspend fun setCloudSyncEnabled(enabled: Boolean) = state.update { it.copy(cloudSyncEnabled = enabled) }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

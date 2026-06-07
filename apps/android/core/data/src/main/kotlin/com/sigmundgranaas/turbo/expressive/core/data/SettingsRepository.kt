@@ -22,6 +22,7 @@ interface SettingsRepository {
     suspend fun setFollowLocation(enabled: Boolean)
     suspend fun setMetricUnits(metric: Boolean)
     suspend fun setThemeMode(mode: ThemeMode)
+    suspend fun setCloudSyncEnabled(enabled: Boolean)
 }
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_settings")
@@ -36,6 +37,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val FOLLOW = booleanPreferencesKey("follow_location")
         val METRIC = booleanPreferencesKey("metric_units")
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val CLOUD_SYNC = booleanPreferencesKey("cloud_sync_enabled")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -46,6 +48,7 @@ class DataStoreSettingsRepository @Inject constructor(
             themeMode = prefs[Keys.THEME_MODE]
                 ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.System,
+            cloudSyncEnabled = prefs[Keys.CLOUD_SYNC] ?: true,
         )
     }
 
@@ -63,5 +66,9 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setThemeMode(mode: ThemeMode) {
         context.settingsDataStore.edit { it[Keys.THEME_MODE] = mode.name }
+    }
+
+    override suspend fun setCloudSyncEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.CLOUD_SYNC] = enabled }
     }
 }
