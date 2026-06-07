@@ -55,3 +55,37 @@ data class ResourceSyncPageDto(
     val items: List<ResourceEnvelopeDto> = emptyList(),
     val serverTime: String? = null,
 )
+
+// ─────────────────────────── Friends + groups ───────────────────────────
+
+@Serializable
+data class FriendshipDto(
+    val otherUserId: String = "",
+    val initiatorId: String = "",
+    val status: String = "",
+    val createdAt: String? = null,
+    val acceptedAt: String? = null,
+)
+
+@Serializable
+data class FriendshipActionRequest(val otherUserId: String)
+
+@Serializable
+data class UserLookupResponse(val userId: String = "")
+
+@Serializable
+data class GroupMemberDto(val userId: String = "", val role: String = "", val joinedAt: String? = null)
+
+@Serializable
+data class GroupDto(
+    val id: String = "",
+    val ownerId: String = "",
+    val name: String = "",
+    val members: List<GroupMemberDto> = emptyList(),
+)
+
+@Serializable
+data class CreateGroupRequest(val name: String)
+
+@Serializable
+data class GroupMemberRequest(val userId: String)

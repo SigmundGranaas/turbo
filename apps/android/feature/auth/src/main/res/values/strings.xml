@@ -33,4 +33,37 @@
     <string name="auth_friend_code_title">Friend code</string>
     <string name="auth_friend_code_hint">Share this so friends can add you.</string>
     <string name="auth_friend_code_copied">Friend code copied</string>
+    <string name="auth_friends_groups">Friends &amp; groups</string>
+    <string name="auth_friends_groups_sub">People, groups and shared maps</string>
+
+    <!-- Friends & groups screen -->
+    <string name="sharing_title">Friends &amp; groups</string>
+    <string name="sharing_tab_friends">Friends</string>
+    <string name="sharing_tab_groups">Groups</string>
+    <string name="sharing_tab_shared">Shared</string>
+    <string name="sharing_pending">Pending</string>
+    <string name="sharing_friends">Friends</string>
+    <string name="sharing_friend">Friend</string>
+    <string name="sharing_friend_request">Friend request</string>
+    <string name="sharing_accept">Accept</string>
+    <string name="sharing_decline">Decline</string>
+    <string name="sharing_remove">Remove</string>
+    <string name="sharing_add_friend">Add friend</string>
+    <string name="sharing_friend_code_label">Friend code</string>
+    <string name="sharing_send_request">Send request</string>
+    <string name="sharing_no_friends">No friends yet</string>
+    <string name="sharing_no_friends_hint">Add a friend by their code to share tracks and maps.</string>
+    <string name="sharing_create_group">Create group</string>
+    <string name="sharing_create">Create</string>
+    <string name="sharing_group">Group</string>
+    <string name="sharing_group_name_label">Group name</string>
+    <string name="sharing_member_count">%d members</string>
+    <string name="sharing_no_groups">No groups yet</string>
+    <string name="sharing_no_groups_hint">Create a group to share with several people at once.</string>
+    <string name="sharing_add_member">Add member</string>
+    <string name="sharing_done">Done</string>
+    <string name="sharing_cancel">Cancel</string>
+    <string name="sharing_nothing_shared">Nothing shared with you</string>
+    <string name="sharing_nothing_shared_hint">Tracks and maps friends share will appear here.</string>
+    <string name="sharing_role_fmt">Shared · %s</string>
 </resources>

@@ -33,4 +33,37 @@
     <string name="auth_friend_code_title">Vennekode</string>
     <string name="auth_friend_code_hint">Del denne så venner kan legge deg til.</string>
     <string name="auth_friend_code_copied">Vennekode kopiert</string>
+    <string name="auth_friends_groups">Venner og grupper</string>
+    <string name="auth_friends_groups_sub">Personer, grupper og delte kart</string>
+
+    <!-- Venner og grupper -->
+    <string name="sharing_title">Venner og grupper</string>
+    <string name="sharing_tab_friends">Venner</string>
+    <string name="sharing_tab_groups">Grupper</string>
+    <string name="sharing_tab_shared">Delt</string>
+    <string name="sharing_pending">Venter</string>
+    <string name="sharing_friends">Venner</string>
+    <string name="sharing_friend">Venn</string>
+    <string name="sharing_friend_request">Venneforespørsel</string>
+    <string name="sharing_accept">Godta</string>
+    <string name="sharing_decline">Avslå</string>
+    <string name="sharing_remove">Fjern</string>
+    <string name="sharing_add_friend">Legg til venn</string>
+    <string name="sharing_friend_code_label">Vennekode</string>
+    <string name="sharing_send_request">Send forespørsel</string>
+    <string name="sharing_no_friends">Ingen venner ennå</string>
+    <string name="sharing_no_friends_hint">Legg til en venn med koden deres for å dele spor og kart.</string>
+    <string name="sharing_create_group">Opprett gruppe</string>
+    <string name="sharing_create">Opprett</string>
+    <string name="sharing_group">Gruppe</string>
+    <string name="sharing_group_name_label">Gruppenavn</string>
+    <string name="sharing_member_count">%d medlemmer</string>
+    <string name="sharing_no_groups">Ingen grupper ennå</string>
+    <string name="sharing_no_groups_hint">Opprett en gruppe for å dele med flere samtidig.</string>
+    <string name="sharing_add_member">Legg til medlem</string>
+    <string name="sharing_done">Ferdig</string>
+    <string name="sharing_cancel">Avbryt</string>
+    <string name="sharing_nothing_shared">Ingenting delt med deg</string>
+    <string name="sharing_nothing_shared_hint">Spor og kart venner deler vises her.</string>
+    <string name="sharing_role_fmt">Delt · %s</string>
 </resources>

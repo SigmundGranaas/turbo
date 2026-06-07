@@ -19,6 +19,7 @@ import com.sigmundgranaas.turbo.expressive.core.auth.AuthState
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.feature.auth.AuthScreen
 import com.sigmundgranaas.turbo.expressive.feature.auth.AuthViewModel
+import com.sigmundgranaas.turbo.expressive.feature.auth.SharingScreen
 import com.sigmundgranaas.turbo.expressive.feature.collections.CollectionsScreen
 import com.sigmundgranaas.turbo.expressive.feature.map.MapScreen
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineMapsScreen
@@ -37,6 +38,7 @@ private object Routes {
     const val COLLECTIONS = "collections"
     const val ABOUT = "about"
     const val ACCOUNT = "account"
+    const val SHARING = "sharing"
     const val PATH_DETAIL = "path/{pathId}"
 
     fun pathDetail(id: String) = "path/$id"
@@ -100,7 +102,13 @@ fun TurboNavGraph() {
             )
         }
         composable(Routes.ABOUT) { AboutScreen(onBack = { nav.popBackStack() }) }
-        composable(Routes.ACCOUNT) { AuthScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.ACCOUNT) {
+            AuthScreen(
+                onBack = { nav.popBackStack() },
+                onOpenSharing = { nav.navigate(Routes.SHARING) },
+            )
+        }
+        composable(Routes.SHARING) { SharingScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.OFFLINE) { OfflineMapsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.COLLECTIONS) { CollectionsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.PATHS) {

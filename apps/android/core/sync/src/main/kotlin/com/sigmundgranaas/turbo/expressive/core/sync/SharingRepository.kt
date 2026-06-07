@@ -32,8 +32,21 @@ interface SharingRepository {
     /** Delta of resources shared with the current user (since the last cursor). */
     suspend fun sharedResources(since: String?): Outcome<ResourceSyncPageDto>
 
+    // ── Friends + groups (default to "unsupported" so test fakes need not override) ──
+    suspend fun friendships(): Outcome<List<FriendshipDto>> = unsupported()
+    suspend fun requestFriendship(otherUserId: String): Outcome<Unit> = unsupported()
+    suspend fun acceptFriendship(otherUserId: String): Outcome<Unit> = unsupported()
+    suspend fun removeFriendship(otherUserId: String): Outcome<Unit> = unsupported()
+    /** Resolve a friend code (with or without the "turbo-" prefix) to a user id. */
+    suspend fun lookupUser(code: String): Outcome<String> = unsupported()
+    suspend fun groups(): Outcome<List<GroupDto>> = unsupported()
+    suspend fun createGroup(name: String): Outcome<GroupDto> = unsupported()
+    suspend fun addGroupMember(groupId: String, userId: String): Outcome<Unit> = unsupported()
+    suspend fun removeGroupMember(groupId: String, userId: String): Outcome<Unit> = unsupported()
+
     companion object {
         const val ROLE_VIEWER = "viewer"
+        private fun <T> unsupported(): Outcome<T> = Outcome.Failure(UnsupportedOperationException())
     }
 }
 
@@ -74,6 +87,76 @@ class KtorSharingRepository @Inject constructor(
         }
         check(resp.status.isSuccess()) { "resources/sync ${resp.status}" }
         resp.body<ResourceSyncPageDto>()
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun friendships(): Outcome<List<FriendshipDto>> = runCatching {
+        val resp = http.request("$base/friendships") { method = HttpMethod.Get }
+        check(resp.status.isSuccess()) { "friendships ${resp.status}" }
+        resp.body<List<FriendshipDto>>()
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun requestFriendship(otherUserId: String): Outcome<Unit> =
+        friendshipAction("request", otherUserId)
+
+    override suspend fun acceptFriendship(otherUserId: String): Outcome<Unit> =
+        friendshipAction("accept", otherUserId)
+
+    private suspend fun friendshipAction(action: String, otherUserId: String): Outcome<Unit> = runCatching {
+        val resp = http.request("$base/friendships/$action") {
+            method = HttpMethod.Post
+            contentType(ContentType.Application.Json)
+            setBody(FriendshipActionRequest(otherUserId))
+        }
+        check(resp.status.isSuccess()) { "friendships/$action ${resp.status}" }
+        Unit
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun removeFriendship(otherUserId: String): Outcome<Unit> = runCatching {
+        val resp = http.request("$base/friendships/$otherUserId") { method = HttpMethod.Delete }
+        check(resp.status.isSuccess()) { "friendships delete ${resp.status}" }
+        Unit
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun lookupUser(code: String): Outcome<String> = runCatching {
+        val bare = code.trim().removePrefix(FRIEND_CODE_PREFIX)
+        val resp = http.request("$base/users/lookup") {
+            method = HttpMethod.Get
+            parameter("code", bare)
+        }
+        check(resp.status.isSuccess()) { "users/lookup ${resp.status}" }
+        resp.body<UserLookupResponse>().userId
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun groups(): Outcome<List<GroupDto>> = runCatching {
+        val resp = http.request("$base/groups") { method = HttpMethod.Get }
+        check(resp.status.isSuccess()) { "groups ${resp.status}" }
+        resp.body<List<GroupDto>>()
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun createGroup(name: String): Outcome<GroupDto> = runCatching {
+        val resp = http.request("$base/groups") {
+            method = HttpMethod.Post
+            contentType(ContentType.Application.Json)
+            setBody(CreateGroupRequest(name))
+        }
+        check(resp.status.isSuccess()) { "createGroup ${resp.status}" }
+        resp.body<GroupDto>()
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun addGroupMember(groupId: String, userId: String): Outcome<Unit> = runCatching {
+        val resp = http.request("$base/groups/$groupId/members") {
+            method = HttpMethod.Post
+            contentType(ContentType.Application.Json)
+            setBody(GroupMemberRequest(userId))
+        }
+        check(resp.status.isSuccess()) { "addGroupMember ${resp.status}" }
+        Unit
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun removeGroupMember(groupId: String, userId: String): Outcome<Unit> = runCatching {
+        val resp = http.request("$base/groups/$groupId/members/$userId") { method = HttpMethod.Delete }
+        check(resp.status.isSuccess()) { "removeGroupMember ${resp.status}" }
+        Unit
     }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
 
     private companion object {

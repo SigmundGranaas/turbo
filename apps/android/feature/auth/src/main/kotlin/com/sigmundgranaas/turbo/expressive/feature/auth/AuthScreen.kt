@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,6 +54,7 @@ import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 @Composable
 fun AuthScreen(
     onBack: () -> Unit,
+    onOpenSharing: () -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
@@ -85,7 +87,12 @@ fun AuthScreen(
         },
     ) { padding ->
         if (signedIn != null) {
-            AccountView(email = signedIn.account.email, onSignOut = viewModel::logout, modifier = Modifier.padding(padding))
+            AccountView(
+                email = signedIn.account.email,
+                onSignOut = viewModel::logout,
+                onOpenSharing = onOpenSharing,
+                modifier = Modifier.padding(padding),
+            )
             return@Scaffold
         }
         Column(
@@ -185,7 +192,12 @@ fun AuthScreen(
 }
 
 @Composable
-private fun AccountView(email: String, onSignOut: () -> Unit, modifier: Modifier = Modifier) {
+private fun AccountView(
+    email: String,
+    onSignOut: () -> Unit,
+    onOpenSharing: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val cs = MaterialTheme.colorScheme
     Column(
         modifier
@@ -202,6 +214,13 @@ private fun AccountView(email: String, onSignOut: () -> Unit, modifier: Modifier
 
         Spacer(Modifier.height(8.dp))
         FriendCodeSection()
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onOpenSharing, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("openSharing")) {
+            Icon(Icons.Rounded.Group, null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.size(8.dp))
+            Text(stringResource(R.string.auth_friends_groups))
+        }
 
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("signOut")) {
