@@ -7,9 +7,12 @@ import CoreDesignSystem
 public struct PathsScreen: View {
     @Environment(\.turbo) private var t
     @State private var viewModel: PathsViewModel
+    @State private var showRecording = false
+    private let makeRecordingViewModel: (() -> RecordingViewModel)?
 
-    public init(viewModel: PathsViewModel) {
+    public init(viewModel: PathsViewModel, makeRecordingViewModel: (() -> RecordingViewModel)? = nil) {
         _viewModel = State(initialValue: viewModel)
+        self.makeRecordingViewModel = makeRecordingViewModel
     }
 
     public var body: some View {
@@ -27,14 +30,24 @@ public struct PathsScreen: View {
             }
 
             Section {
-                Label("Record New Path", systemImage: "record.circle")
-                    .foregroundStyle(t.red)
+                Button {
+                    showRecording = true
+                } label: {
+                    Label("Record New Path", systemImage: "record.circle").foregroundStyle(t.red)
+                }
+                .accessibilityIdentifier("paths.record")
                 Label("Draw a Route", systemImage: "pencil.line")
                     .foregroundStyle(t.blue)
             }
         }
         .navigationTitle("Paths")
         .task { viewModel.start() }
+        .sheet(isPresented: $showRecording) {
+            if let makeRecordingViewModel {
+                RecordingScreen(viewModel: makeRecordingViewModel())
+                    .interactiveDismissDisabled()
+            }
+        }
     }
 
     /// Export options — a `ShareLink` per format. The temp file is written lazily

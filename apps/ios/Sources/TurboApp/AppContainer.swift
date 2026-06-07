@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import CoreModel
+import CoreCommon
 import CoreData
 import CoreAuth
 import CoreSync
@@ -31,10 +32,14 @@ public final class AppContainer {
     public let offlineManager: OfflineTileManager
     public let locationProvider: LocationProvider
     public let syncController: SyncController
+    /// Whether the live API (auth + cloud sync) is configured for this build.
+    public let isOnline: Bool
 
-    /// Production wiring — SwiftData persistence + UserDefaults settings. Falls
-    /// back to in-memory if the store can't be opened (e.g. previews).
-    public init() {
+    /// Production wiring — SwiftData persistence + UserDefaults settings. With a
+    /// configured `TurboConfig.apiBaseURL` it uses the live Google auth + HTTP
+    /// sync; otherwise it stays fully local. Falls back to in-memory persistence
+    /// if the store can't be opened (e.g. previews).
+    public init(config: TurboConfig = .fromBundle()) {
         let container = try? TurboPersistence.container()
         if let container {
             markerRepository = SwiftDataMarkerRepository(container: container)
@@ -47,14 +52,37 @@ public final class AppContainer {
         }
         settingsRepository = UserDefaultsSettingsRepository()
         searchRepository = KartverketSearchRepository()
-        authRepository = InMemoryAuthRepository()
         offlineManager = DiskOfflineTileManager()
         locationProvider = CoreLocationProvider()
-        syncController = SyncController(
-            engine: MarkerSyncEngine(repository: markerRepository, transport: InMemoryMarkerSyncTransport()),
-            auth: authRepository,
-            settings: settingsRepository
-        )
+        isOnline = config.isOnline
+
+        let cursor = UserDefaultsCursorStore()
+        if let base = config.apiBaseURL {
+            // Live: Google sign-in + HTTP sync against the API.
+            let auth = GoogleAuthRepository(apiBaseURL: base)
+            authRepository = auth
+            syncController = SyncController(
+                units: [
+                    Syncers.marker(repository: markerRepository,
+                                   transport: HttpSyncTransport<MarkerPayload>(endpoint: base.appendingPathComponent("markers"), token: { nil }),
+                                   cursor: cursor),
+                    Syncers.path(repository: pathRepository,
+                                 transport: HttpSyncTransport<PathPayload>(endpoint: base.appendingPathComponent("paths"), token: { nil }),
+                                 cursor: cursor),
+                    Syncers.collection(repository: collectionRepository,
+                                       transport: HttpSyncTransport<CollectionPayload>(endpoint: base.appendingPathComponent("collections"), token: { nil }),
+                                       cursor: cursor),
+                ],
+                auth: authRepository, settings: settingsRepository
+            )
+        } else {
+            // Local: in-memory auth + sync transports.
+            authRepository = InMemoryAuthRepository()
+            syncController = AppContainer.makeSyncController(
+                markers: markerRepository, paths: pathRepository, collections: collectionRepository,
+                auth: authRepository, settings: settingsRepository, cursor: cursor
+            )
+        }
     }
 
     /// Explicit injection — for previews and tests.
@@ -76,10 +104,26 @@ public final class AppContainer {
         self.authRepository = authRepository
         self.offlineManager = offlineManager
         self.locationProvider = locationProvider
-        self.syncController = SyncController(
-            engine: MarkerSyncEngine(repository: markerRepository, transport: InMemoryMarkerSyncTransport()),
-            auth: authRepository,
-            settings: settingsRepository
+        self.isOnline = false
+        self.syncController = AppContainer.makeSyncController(
+            markers: markerRepository, paths: pathRepository, collections: collectionRepository,
+            auth: authRepository, settings: settingsRepository, cursor: InMemoryCursorStore()
+        )
+    }
+
+    /// Build the sync controller with one engine per entity, all on in-memory
+    /// transports by default (real HTTP transports land once the API is configured).
+    private static func makeSyncController(
+        markers: MarkerRepository, paths: PathRepository, collections: CollectionRepository,
+        auth: AuthRepository, settings: SettingsRepository, cursor: SyncCursorStore
+    ) -> SyncController {
+        SyncController(
+            units: [
+                Syncers.marker(repository: markers, transport: InMemorySyncTransport<MarkerPayload>(), cursor: cursor),
+                Syncers.path(repository: paths, transport: InMemorySyncTransport<PathPayload>(), cursor: cursor),
+                Syncers.collection(repository: collections, transport: InMemorySyncTransport<CollectionPayload>(), cursor: cursor),
+            ],
+            auth: auth, settings: settings
         )
     }
 
@@ -102,13 +146,19 @@ public final class AppContainer {
     /// end-to-end UI suite is hermetic; otherwise it uses the live backends.
     public static func resolve(arguments: [String] = ProcessInfo.processInfo.arguments) -> AppContainer {
         if arguments.contains("-uitest") {
+            // Scripted location so recording captures a track deterministically.
+            let fixes = (0..<6).map { i in
+                LocationFix(position: LatLng(lat: 69.60 + Double(i) * 0.003, lng: 19.90 + Double(i) * 0.004),
+                            headingDegrees: 45, altitude: 10 + Double(i) * 5)
+            }
             return AppContainer(
                 markerRepository: InMemoryMarkerRepository(),
                 searchRepository: InMemorySearchRepository(),
                 pathRepository: InMemoryPathRepository(),
                 collectionRepository: InMemoryCollectionRepository(),
                 authRepository: InMemoryAuthRepository(),
-                offlineManager: InMemoryOfflineTileManager()
+                offlineManager: InMemoryOfflineTileManager(),
+                locationProvider: SimulatedLocationProvider(fixes: fixes, interval: .milliseconds(80))
             )
         }
         return AppContainer()
@@ -123,6 +173,9 @@ public final class AppContainer {
     public func makeSearchViewModel() -> SearchViewModel { SearchViewModel(repository: searchRepository) }
     public func makeSettingsViewModel() -> SettingsViewModel { SettingsViewModel(repository: settingsRepository) }
     public func makePathsViewModel() -> PathsViewModel { PathsViewModel(repository: pathRepository) }
+    public func makeRecordingViewModel() -> RecordingViewModel {
+        RecordingViewModel(location: locationProvider, pathRepository: pathRepository)
+    }
     public func makeCollectionsViewModel() -> CollectionsViewModel { CollectionsViewModel(repository: collectionRepository) }
     public func makeAuthViewModel() -> AuthViewModel { AuthViewModel(repository: authRepository) }
     public func makeOfflineViewModel() -> OfflineViewModel { OfflineViewModel(manager: offlineManager) }

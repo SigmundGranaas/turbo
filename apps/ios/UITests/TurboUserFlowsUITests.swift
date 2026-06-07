@@ -195,6 +195,36 @@ final class TurboUserFlowsUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [moved], timeout: 5), .completed, "the map did not recenter on the place")
     }
 
+    // MARK: Goal — record a hike and save it
+
+    func test_hiker_can_record_a_track_and_save_it() {
+        let app = launch()
+        openMenu(app)
+        app.buttons["menu.paths"].tap()
+        XCTAssertTrue(app.navigationBars["Paths"].waitForExistence(timeout: 5))
+
+        app.buttons["paths.record"].tap()
+        XCTAssertTrue(app.buttons["recording.stop"].waitForExistence(timeout: 5))
+
+        // Wait until the track has actually moved (distance > 0).
+        let distance = app.staticTexts["recording.distance"]
+        let moved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", "0.00 km"), object: distance)
+        XCTAssertEqual(XCTWaiter().wait(for: [moved], timeout: 5), .completed, "recording captured no movement")
+
+        app.buttons["recording.stop"].tap()
+
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        let field = alert.textFields.firstMatch
+        field.tap()
+        field.typeText("Morning hike")
+        alert.buttons["Save"].tap()
+
+        // Back in Paths, the recorded hike is saved and listed.
+        XCTAssertTrue(app.staticTexts["Morning hike"].waitForExistence(timeout: 5),
+                      "the recorded track was not saved to Paths")
+    }
+
     // MARK: Goal — browse the spots I've saved
 
     func test_hiker_can_browse_their_saved_markers() {

@@ -71,12 +71,13 @@ let package = Package(
 
         // ---- tests ----
         .testTarget(name: "CoreModelTests", dependencies: ["CoreModel"]),
+        .testTarget(name: "CoreCommonTests", dependencies: ["CoreCommon"]),
         .testTarget(name: "CoreDataTests", dependencies: ["CoreData"]),
         .testTarget(name: "CoreAuthTests", dependencies: ["CoreAuth"]),
         .testTarget(name: "CoreSyncTests", dependencies: ["CoreSync", "CoreData", "CoreAuth"]),
         .testTarget(name: "CoreMapTests", dependencies: ["CoreMap"]),
         .testTarget(name: "FeatureMapTests", dependencies: ["FeatureMap"]),
-        .testTarget(name: "FeatureRecordingTests", dependencies: ["FeatureRecording"]),
+        .testTarget(name: "FeatureRecordingTests", dependencies: ["FeatureRecording", "CoreModel", "CoreData"]),
         .testTarget(name: "FeatureSettingsTests", dependencies: ["FeatureSettings"]),
         .testTarget(name: "FeatureSearchTests", dependencies: ["FeatureSearch"]),
         .testTarget(name: "FeatureOfflineTests", dependencies: ["FeatureOffline"]),

@@ -90,7 +90,8 @@ public struct RootView: View {
         case .markers:
             MarkersScreen(viewModel: container.makeMarkersViewModel())
         case .paths:
-            PathsScreen(viewModel: container.makePathsViewModel())
+            PathsScreen(viewModel: container.makePathsViewModel(),
+                        makeRecordingViewModel: container.makeRecordingViewModel)
         case .collections:
             CollectionsScreen(viewModel: container.makeCollectionsViewModel())
         case .settings:

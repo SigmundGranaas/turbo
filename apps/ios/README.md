@@ -88,7 +88,7 @@ Runs with SwiftPM:
 
 ```sh
 cd apps/ios
-swift test            # 64 tests (Swift Testing)
+swift test            # 82 tests (Swift Testing)
 ```
 
 **End-to-end UI** (XCUITest, `TurboUserFlowsUITests`) — launches the real app and
@@ -106,6 +106,7 @@ asserting only on the *outcome*, not widget mechanics:
 - downloads a region for offline use
 - preferences are remembered across navigation
 - signs in to their account
+- records a track and saves it to Paths
 - **full journey** — search → save that place → see it in My Markers → export it
 
 Runs via xcodebuild:
@@ -130,14 +131,16 @@ the default for previews/tests; production wiring lives in `AppContainer`.
 
 What remains, iteratively:
 
-- **Runtime config** for the network/auth paths — point `HttpMarkerSyncTransport`
-  and `GoogleAuthRepository` at the real API base URL, add the OAuth callback
-  URL scheme, and switch `AppContainer` from the in-memory auth/transport.
-- Recording a track (start/stop + live stats, Live Activity / Dynamic Island).
-- Extend sync to paths/collections; persist the sync cursor.
-- Detail surfaces — marker info, hike detail, WeatherKit, avalanche.
+- **Go live** — set `TurboAPIBaseURL` in the app's Info.plist (the config gate is
+  wired: `AppContainer` then uses `GoogleAuthRepository` + `HttpSyncTransport`),
+  add the `turbo` OAuth callback URL scheme (`CFBundleURLTypes`), and supply the
+  Google client id. Wire the bearer token from the auth session into the
+  transports' `token` closure.
+- Detail surfaces — marker info, hike detail, WeatherKit, Varsom avalanche,
+  recording Live Activity / Dynamic Island.
 - Localization (nb-NO).
 
-Done: live location + heading (`LocationProvider` → CoreLocation; follow + compass
-driven by real fixes) and the offline loop (`DiskOfflineTileManager` writes a
-shared base-keyed cache; `CachingTileOverlay` serves cached tiles before network).
+Done: live location + heading; the offline loop (`CachingTileOverlay` serves
+cached tiles before network); **track recording** (`RecordingViewModel` →
+`SavedPath`); **sync for markers + paths + collections** with a persisted cursor
+(`EntitySyncEngine`); and the **go-live config gate** (`TurboConfig`).

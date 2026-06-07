@@ -10,10 +10,13 @@ public struct LocationFix: Equatable, Sendable {
     public let position: LatLng
     /// Compass heading in degrees (0 = north), when available.
     public let headingDegrees: Double?
+    /// Altitude in metres, when available (drives recorded elevation profiles).
+    public let altitude: Double?
 
-    public init(position: LatLng, headingDegrees: Double? = nil) {
+    public init(position: LatLng, headingDegrees: Double? = nil, altitude: Double? = nil) {
         self.position = position
         self.headingDegrees = headingDegrees
+        self.altitude = altitude
     }
 }
 
@@ -86,10 +89,12 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
         }
     }
 
+    private var lastAltitude: Double?
+
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
         let position = LatLng(lat: loc.coordinate.latitude, lng: loc.coordinate.longitude)
-        lock.withLock { lastPosition = position }
+        lock.withLock { lastPosition = position; lastAltitude = loc.altitude }
         emit()
     }
 
@@ -104,7 +109,7 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
     private func emit() {
         lock.withLock {
             guard let position = lastPosition else { return }
-            let fix = LocationFix(position: position, headingDegrees: lastHeading)
+            let fix = LocationFix(position: position, headingDegrees: lastHeading, altitude: lastAltitude)
             for continuation in continuations.values { continuation.yield(fix) }
         }
     }
