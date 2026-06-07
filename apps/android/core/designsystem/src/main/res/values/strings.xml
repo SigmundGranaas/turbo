@@ -30,6 +30,7 @@
     <string name="ds_zoom_in">Zoom in</string>
     <string name="ds_zoom_out">Zoom out</string>
     <string name="ds_compass">Reset to north</string>
+    <string name="ds_add_place">Add a place</string>
 
     <!-- Activity / marker kinds -->
     <string name="kind_mountain">Mountain</string>

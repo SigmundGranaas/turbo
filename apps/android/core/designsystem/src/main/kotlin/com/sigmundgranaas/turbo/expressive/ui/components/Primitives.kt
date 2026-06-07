@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Straighten
@@ -97,6 +98,7 @@ fun MapControlRail(
     measuring: Boolean = false,
     bearing: Float = 0f,
     onCompass: (() -> Unit)? = null,
+    onAdd: (() -> Unit)? = null,
     onLayers: () -> Unit = {},
     onLocate: () -> Unit = {},
     onMeasure: (() -> Unit)? = null,
@@ -104,6 +106,11 @@ fun MapControlRail(
     onZoomOut: () -> Unit = {},
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Discoverable "add a place" — drops a new marker at the map centre. Long-press
+        // anywhere is the shortcut; this is the visible door for it.
+        if (onAdd != null) {
+            RailButton(Icons.Rounded.AddLocationAlt, stringResource(R.string.ds_add_place), active = true, onClick = onAdd)
+        }
         // Compass — only while the map is rotated; tap resets to north. Lives here
         // (in the inset rail) instead of MapLibre's off-screen default widget.
         if (onCompass != null && kotlin.math.abs(bearing) > 0.5f) {

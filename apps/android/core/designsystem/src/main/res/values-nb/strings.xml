@@ -30,6 +30,7 @@
     <string name="ds_zoom_in">Zoom inn</string>
     <string name="ds_zoom_out">Zoom ut</string>
     <string name="ds_compass">Tilbakestill til nord</string>
+    <string name="ds_add_place">Legg til et sted</string>
 
     <!-- Activity / marker kinds -->
     <string name="kind_mountain">Fjell</string>

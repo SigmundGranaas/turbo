@@ -313,6 +313,7 @@ fun MapScreen(
                 measuring = measuring,
                 bearing = bearing,
                 onCompass = { controller?.resetNorth() },
+                onAdd = { (controller?.center() ?: state.userLocation)?.let { newMarkerAt = it } },
                 onMeasure = {
                     measuring = !measuring
                     if (!measuring) measurePoints.clear()
