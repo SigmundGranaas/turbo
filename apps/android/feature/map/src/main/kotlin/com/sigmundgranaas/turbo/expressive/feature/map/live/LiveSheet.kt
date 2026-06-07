@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -34,7 +35,6 @@ import androidx.compose.material.icons.rounded.Terrain
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.TrendingUp
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
@@ -95,14 +96,14 @@ fun LiveSheet(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
     elevations: List<Double> = emptyList(),
-    onMute: () -> Unit = {},
     nextWaypoint: Pair<String, String>? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val full = maxHeight * 0.92f
         val half = maxHeight * 0.56f
-        val peek = 252.dp
+        // Peek must clear the hero + pinned actions so the glance state is never clipped.
+        val peek = minOf(312.dp, maxHeight * 0.6f)
         val target = when (detent) {
             LiveDetent.Peek -> peek
             LiveDetent.Half -> half
@@ -113,6 +114,22 @@ fun LiveSheet(
         // Plain holder (not snapshot state): accumulating drag must not recompose per delta.
         val dragAccum = remember { floatArrayOf(0f) }
         val dragState = rememberDraggableState { delta -> dragAccum[0] += delta }
+        // Drag the whole header (handle + hero) — a big target, not just a 4 dp pill —
+        // and fling fast to jump straight to the extremes; a slow drag steps one detent.
+        val headerDrag = Modifier.draggable(
+            state = dragState,
+            orientation = Orientation.Vertical,
+            onDragStopped = { velocity ->
+                when {
+                    velocity < -FLING_PX -> onDetentChange(LiveDetent.Full)
+                    velocity > FLING_PX -> onDetentChange(LiveDetent.Peek)
+                    dragAccum[0] < -DRAG_SNAP_PX -> onDetentChange(detent.up())
+                    dragAccum[0] > DRAG_SNAP_PX -> onDetentChange(detent.down())
+                }
+                dragAccum[0] = 0f
+            },
+        )
+        val expandLabel = stringResource(R.string.live_expand)
 
         Column(
             Modifier
@@ -123,34 +140,32 @@ fun LiveSheet(
                 .background(cs.surfaceContainerLow)
                 .testTag("liveSheet"),
         ) {
-            // Drag handle — swipe to change detent, tap to expand a step.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .draggable(
-                        state = dragState,
-                        orientation = Orientation.Vertical,
-                        onDragStopped = {
-                            if (dragAccum[0] < -DRAG_SNAP_PX) onDetentChange(detent.up())
-                            else if (dragAccum[0] > DRAG_SNAP_PX) onDetentChange(detent.down())
-                            dragAccum[0] = 0f
-                        },
-                    )
-                    .testTag("liveGrab"),
-                contentAlignment = Alignment.Center,
-            ) {
+            // Header: grab handle + hero. The whole block drags to resize; tapping the
+            // handle steps the sheet open (and collapses one step from full).
+            Column(headerDrag) {
                 Box(
-                    Modifier.padding(top = 10.dp, bottom = 8.dp).size(width = 38.dp, height = 4.dp)
-                        .clip(CircleShape).background(cs.onSurfaceVariant.copy(alpha = .5f)),
-                )
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClickLabel = expandLabel) {
+                            onDetentChange(if (detent == LiveDetent.Full) LiveDetent.Half else detent.up())
+                        }
+                        .semantics { contentDescription = expandLabel }
+                        .testTag("liveGrab"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier.padding(top = 10.dp, bottom = 10.dp).size(width = 38.dp, height = 4.dp)
+                            .clip(CircleShape).background(cs.onSurfaceVariant.copy(alpha = .5f)),
+                    )
+                }
+                Box(Modifier.padding(horizontal = 14.dp)) { LiveHero(stats, metric, title) }
             }
 
-            // Scrollable readout (hero + bento + elevation); the action bar is pinned below.
+            // Scrollable readout (bento + elevation); the action bar is pinned below.
             Column(
                 Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
                     .padding(horizontal = 14.dp),
             ) {
-                LiveHero(stats, metric, title)
                 Spacer(Modifier.height(12.dp))
                 if (stats.recording) RecordingBody(stats, metric, detent, elevations)
                 else FollowBody(stats, metric, detent, elevations, nextWaypoint)
@@ -162,8 +177,7 @@ fun LiveSheet(
                     if (detent == LiveDetent.Peek) PrimaryStopRow(stats.paused, onTogglePause, onStop)
                     else FullActions(stats.paused, onTogglePause, onStop)
                 } else {
-                    if (detent == LiveDetent.Peek) StopFollowingButton(onStop)
-                    else FollowActions(onMute, onStop)
+                    StopFollowingButton(onStop)
                 }
             }
         }
@@ -215,7 +229,8 @@ private fun FollowBody(
     TileRow {
         LiveMetricTile(Icons.Rounded.TrendingUp, stringResource(R.string.live_to_climb), Units.elevation(stats.ascentRemainingM ?: 0.0, metric), tone = MetricTone.Green, modifier = Modifier.weight(1f))
         LiveMetricTile(Icons.Rounded.Speed, stringResource(R.string.live_speed), Units.speedValue(stats.speedMps ?: 0.0, metric), unit = Units.speedUnit(metric), tone = MetricTone.Primary, modifier = Modifier.weight(1f))
-        LiveMetricTile(Icons.Rounded.Schedule, stringResource(R.string.live_ahead), "${(stats.etaSeconds ?: 0) / 60}", unit = stringResource(R.string.live_min), tone = MetricTone.Secondary, modifier = Modifier.weight(1f))
+        val (etaValue, etaUnit) = etaValueUnit(stats.etaSeconds ?: 0)
+        LiveMetricTile(Icons.Rounded.Schedule, stringResource(R.string.live_ahead), etaValue, unit = etaUnit, tone = MetricTone.Secondary, modifier = Modifier.weight(1f))
     }
     if (detent == LiveDetent.Full) {
         Spacer(Modifier.height(10.dp))
@@ -295,33 +310,12 @@ private fun FullActions(paused: Boolean, onTogglePause: () -> Unit, onStop: () -
 }
 
 @Composable
-private fun FollowActions(onMute: () -> Unit, onStop: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        FilledTonalButton(
-            onClick = onMute,
-            modifier = Modifier.size(56.dp).testTag("liveMute").clearAndSetSemantics { contentDescription = "Mute" },
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-        ) { Icon(Icons.Rounded.VolumeUp, null, modifier = Modifier.size(22.dp)) }
-        Button(
-            onClick = onStop,
-            colors = ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = Color.White),
-            modifier = Modifier.weight(1f).height(56.dp).testTag("liveStop"),
-        ) {
-            Icon(Icons.Rounded.Close, null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(9.dp))
-            Text(stringResource(R.string.live_stop_following), fontWeight = FontWeight.W700)
-        }
-    }
-}
-
-@Composable
 private fun StopFollowingButton(onStop: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Button(
         onClick = onStop,
         colors = ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = Color.White),
-        modifier = Modifier.fillMaxWidth().height(52.dp).padding(top = 2.dp).testTag("liveStop"),
+        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("liveStop"),
     ) {
         Icon(Icons.Rounded.Close, null, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(9.dp))
@@ -343,4 +337,12 @@ private fun SwipeHint(resId: Int) {
 private fun avgPace(stats: LiveStats, metric: Boolean): String =
     Units.pace(stats.distanceM, stats.elapsedSec ?: 0, metric).substringBefore(' ')
 
+/** ETA as a tile value+unit: "42"/"min" under an hour, "1:20"/"h" beyond — so it
+ *  never reads as an unwieldy "140 min" the way raw minutes would. */
+private fun etaValueUnit(seconds: Int): Pair<String, String> {
+    val totalMin = seconds / 60
+    return if (totalMin >= 60) "%d:%02d".format(totalMin / 60, totalMin % 60) to "h" else "$totalMin" to "min"
+}
+
 private const val DRAG_SNAP_PX = 36f
+private const val FLING_PX = 1200f

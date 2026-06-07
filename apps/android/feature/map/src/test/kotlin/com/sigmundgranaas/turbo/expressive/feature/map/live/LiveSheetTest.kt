@@ -79,6 +79,19 @@ class LiveSheetTest {
     }
 
     @Test
+    fun `tapping the handle expands one detent`() {
+        var detent = LiveDetent.Peek
+        composeRule.setContent {
+            LiveSheet(
+                stats = recStats, metric = true, title = "48:12",
+                detent = detent, onDetentChange = { detent = it }, onTogglePause = {}, onStop = {},
+            )
+        }
+        composeRule.onNodeWithTag("liveGrab").performClick()
+        assertEquals(LiveDetent.Half, detent)
+    }
+
+    @Test
     fun `following full detent shows progress, route tiles and Stop following`() {
         composeRule.setContent {
             LiveSheet(

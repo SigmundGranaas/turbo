@@ -55,6 +55,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -274,6 +276,7 @@ fun MapScreen(
         }
     }
 
+
     // Off-route detection: re-solve from the current fix if the user strays from the route.
     LaunchedEffect(routeState, state.userLocation) {
         val following = routeState as? RouteUiState.Following ?: return@LaunchedEffect
@@ -306,6 +309,26 @@ fun MapScreen(
     var routeOrigin by remember { mutableStateOf<LatLng?>(null) }
     var showRouteStyle by remember { mutableStateOf(false) }
     var showStops by remember { mutableStateOf(false) }
+
+    // Keep the user dot in the visible band above the live sheet: reserve bottom map
+    // padding equal to the sheet's current detent height (capped at half the screen so
+    // a full sheet doesn't shove the target off the top). Reset to 0 when no sheet shows.
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val liveDetent = if (recState.recording) recDetent else followDetent
+    LaunchedEffect(controller, recState.recording, routeState, trackMode, liveDetent) {
+        val c = controller ?: return@LaunchedEffect
+        val followingNow = routeState is RouteUiState.Following && trackMode == null
+        if (!recState.recording && !followingNow) { c.setBottomInset(0); return@LaunchedEffect }
+        val screenPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+        val sheetPx = when (liveDetent) {
+            com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Peek ->
+                with(density) { 312.dp.toPx() }.coerceAtMost(screenPx * 0.6f)
+            com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half -> screenPx * 0.56f
+            com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Full -> screenPx * 0.92f
+        }
+        c.setBottomInset(sheetPx.coerceAtMost(screenPx * 0.5f).toInt())
+    }
     var showTrackSave by remember { mutableStateOf(false) }
     var showTrackDiscard by remember { mutableStateOf(false) }
     // Stop-following save prompt + the snackbar that bridges Save → Follow.

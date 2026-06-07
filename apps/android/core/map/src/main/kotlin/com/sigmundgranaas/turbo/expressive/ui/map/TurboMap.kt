@@ -98,6 +98,13 @@ class MapController(internal val map: MapLibreMap) {
         return GeoBounds(south = b.latitudeSouth, west = b.longitudeWest, north = b.latitudeNorth, east = b.longitudeEast)
     }
 
+    /**
+     * Reserve [bottomPx] at the bottom of the map for an overlay (the live sheet),
+     * so "centre on me" keeps the user dot in the *visible* band above it instead of
+     * hidden behind the sheet. Subsequent camera moves honour this padding.
+     */
+    fun setBottomInset(bottomPx: Int) = map.setPadding(0, 0, 0, bottomPx.coerceAtLeast(0))
+
     /** Current camera zoom level. */
     fun zoom(): Double = map.cameraPosition.zoom
 
