@@ -3,6 +3,9 @@ package com.sigmundgranaas.turbo.expressive.core.sync
 import com.sigmundgranaas.turbo.expressive.core.auth.AuthConfig
 import com.sigmundgranaas.turbo.expressive.core.data.database.CollectionDao
 import com.sigmundgranaas.turbo.expressive.core.data.database.CollectionEntity
+import com.sigmundgranaas.turbo.expressive.core.data.database.CollectionItemEntity
+import com.sigmundgranaas.turbo.expressive.core.data.database.MarkerDao
+import com.sigmundgranaas.turbo.expressive.core.data.database.PathDao
 import io.ktor.client.call.body
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
@@ -30,6 +33,8 @@ interface CollectionRemote {
     suspend fun update(row: CollectionEntity): CollectionUpdateOutcome
     suspend fun delete(remoteId: String, version: Long)
     suspend fun fetchById(remoteId: String): CollectionResponseDto?
+    /** Add a resource to a collection (idempotent server-side). */
+    suspend fun addItem(collectionRemoteId: String, type: String, uuid: String)
 }
 
 class CollectionSyncApi @Inject constructor(
@@ -88,6 +93,14 @@ class CollectionSyncApi @Inject constructor(
         return if (resp.status.isSuccess()) resp.body() else null
     }
 
+    override suspend fun addItem(collectionRemoteId: String, type: String, uuid: String) {
+        http.request("$base/$collectionRemoteId/items") {
+            method = HttpMethod.Post
+            contentType(ContentType.Application.Json)
+            setBody(CollectionItemRefDto(type = type, uuid = uuid))
+        }
+    }
+
     private companion object {
         const val PAGE_LIMIT = 500
     }
@@ -102,6 +115,8 @@ class CollectionSyncApi @Inject constructor(
 class CollectionSyncer @Inject constructor(
     private val remote: CollectionRemote,
     private val dao: CollectionDao,
+    private val pathDao: PathDao,
+    private val markerDao: MarkerDao,
 ) : DomainSyncer {
 
     override val cursorKey = "collections"
@@ -111,14 +126,45 @@ class CollectionSyncer @Inject constructor(
         page.items.forEach { mergeRemote(it) }
         page.deleted.forEach { mergeTombstone(it) }
         pushPending()
+        pushMembership()
         return page.serverTime
     }
 
     private suspend fun mergeRemote(dto: CollectionResponseDto) {
         val local = dao.byRemoteId(dto.id)
         val remoteMs = Iso8601.toEpochMs(dto.updatedAt) ?: 0L
+        val localId = local?.id ?: UUID.randomUUID().toString()
         if (SyncDecisions.pull(local?.toLocalState(), remoteMs) == PullMerge.TakeRemote) {
-            dao.upsert(dto.toEntity(local?.id ?: UUID.randomUUID().toString(), local?.createdAtEpochMs))
+            dao.upsert(dto.toEntity(localId, local?.createdAtEpochMs))
+        }
+        adoptIncomingItems(dto, localId)
+    }
+
+    /** Add server memberships locally (never removes — removals are a follow-on). */
+    private suspend fun adoptIncomingItems(dto: CollectionResponseDto, localCollectionId: String) {
+        dto.items.forEach { ref ->
+            val resourceLocalId = when (ref.type.lowercase()) {
+                WIRE_TRACK -> pathDao.byRemoteId(ref.uuid)?.id
+                WIRE_LOCATION -> markerDao.byRemoteId(ref.uuid)?.id
+                else -> null
+            } ?: return@forEach
+            dao.addItem(CollectionItemEntity(localCollectionId, resourceLocalId, ref.type.toLocalItemType()))
+        }
+    }
+
+    /** Push each synced collection's local memberships to the server (idempotent POST /items). */
+    private suspend fun pushMembership() {
+        dao.syncedCollections().forEach { collection ->
+            val remoteId = collection.remoteId ?: return@forEach
+            dao.itemsForCollection(collection.id).forEach { item ->
+                val wireType = item.itemType.toWireItemType() ?: return@forEach
+                val resourceRemoteId = when (item.itemType) {
+                    LOCAL_PATH -> pathDao.byId(item.itemId)?.remoteId
+                    LOCAL_MARKER -> markerDao.byId(item.itemId)?.remoteId
+                    else -> null
+                } ?: return@forEach // resource not synced yet — retry next sync
+                remote.addItem(remoteId, wireType, resourceRemoteId)
+            }
         }
     }
 
@@ -183,6 +229,23 @@ internal fun CollectionResponseDto.toEntity(localId: String, existingCreatedAt: 
     deletedAtEpochMs = null,
     dirty = false,
 )
+
+// Membership type mapping: local CollectionItemType.name ⇄ server item type.
+private const val LOCAL_PATH = "Path"
+private const val LOCAL_MARKER = "Marker"
+private const val WIRE_TRACK = "track"
+private const val WIRE_LOCATION = "location"
+
+private fun String.toWireItemType(): String? = when (this) {
+    LOCAL_PATH -> WIRE_TRACK
+    LOCAL_MARKER -> WIRE_LOCATION
+    else -> null
+}
+
+private fun String.toLocalItemType(): String = when (lowercase()) {
+    WIRE_TRACK -> LOCAL_PATH
+    else -> LOCAL_MARKER
+}
 
 /** ARGB long → "#RRGGBB" (alpha dropped — the server stores no alpha). */
 internal fun Long.toColorHex(): String = "#%06X".format(this and 0xFFFFFF)

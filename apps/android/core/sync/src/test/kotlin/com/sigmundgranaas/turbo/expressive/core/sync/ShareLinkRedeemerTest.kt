@@ -50,6 +50,8 @@ private object NoCollectionDao : CollectionDao {
     override suspend fun markSynced(id: String, remoteId: String, version: Long, updatedAt: Long) = Unit
     override suspend fun softDelete(id: String, ts: Long) = Unit
     override suspend fun delete(id: String) = Unit
+    override suspend fun syncedCollections(): List<CollectionEntity> = emptyList()
+    override suspend fun itemsForCollection(collectionId: String): List<CollectionItemEntity> = emptyList()
     override suspend fun clearItems(id: String) = Unit
     override suspend fun addItem(item: CollectionItemEntity) = Unit
     override suspend fun removeItem(collectionId: String, itemId: String, itemType: String) = Unit
@@ -86,6 +88,7 @@ private object NoCollectionRemote : CollectionRemote {
     override suspend fun update(row: CollectionEntity) = CollectionUpdateOutcome.Gone
     override suspend fun delete(remoteId: String, version: Long) = Unit
     override suspend fun fetchById(remoteId: String): CollectionResponseDto? = null
+    override suspend fun addItem(collectionRemoteId: String, type: String, uuid: String) = Unit
 }
 
 class ShareLinkRedeemerTest {

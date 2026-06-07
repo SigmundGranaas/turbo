@@ -166,6 +166,14 @@ interface CollectionDao {
     @Query("SELECT * FROM collection WHERE remoteId = :remoteId")
     suspend fun byRemoteId(remoteId: String): CollectionEntity?
 
+    /** Synced, live collections — used to push their membership to the server. */
+    @Query("SELECT * FROM collection WHERE remoteId IS NOT NULL AND deletedAtEpochMs IS NULL")
+    suspend fun syncedCollections(): List<CollectionEntity>
+
+    /** Snapshot of a collection's membership rows (for sync). */
+    @Query("SELECT * FROM collection_item WHERE collectionId = :collectionId")
+    suspend fun itemsForCollection(collectionId: String): List<CollectionItemEntity>
+
     @Query("SELECT * FROM collection WHERE dirty = 1")
     suspend fun pendingSync(): List<CollectionEntity>
 
