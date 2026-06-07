@@ -37,6 +37,7 @@ class PathsShareTest {
         override suspend fun friendCode() = Outcome.Success("turbo-x")
         override suspend fun createLink(resourceId: String, role: String) = link
         override suspend fun redeemLink(token: String) = Outcome.Success(LinkRedemption("r", "path", "viewer"))
+    override suspend fun sharedResources(since: String?) = Outcome.Success(com.sigmundgranaas.turbo.expressive.core.sync.ResourceSyncPageDto())
     }
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)

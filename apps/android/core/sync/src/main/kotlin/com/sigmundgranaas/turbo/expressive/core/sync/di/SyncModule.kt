@@ -8,6 +8,7 @@ import com.sigmundgranaas.turbo.expressive.core.sync.LocationRemote
 import com.sigmundgranaas.turbo.expressive.core.sync.LocationSyncApi
 import com.sigmundgranaas.turbo.expressive.core.sync.KtorSharingRepository
 import com.sigmundgranaas.turbo.expressive.core.sync.MarkerSyncer
+import com.sigmundgranaas.turbo.expressive.core.sync.SharedSyncer
 import com.sigmundgranaas.turbo.expressive.core.sync.SharingRepository
 import com.sigmundgranaas.turbo.expressive.core.sync.SyncClient
 import com.sigmundgranaas.turbo.expressive.core.sync.SyncController
@@ -58,6 +59,10 @@ abstract class SyncModule {
     @Binds
     @IntoSet
     abstract fun bindCollectionSyncer(impl: CollectionSyncer): DomainSyncer
+
+    @Binds
+    @IntoSet
+    abstract fun bindSharedSyncer(impl: SharedSyncer): DomainSyncer
 
     companion object {
         @Provides

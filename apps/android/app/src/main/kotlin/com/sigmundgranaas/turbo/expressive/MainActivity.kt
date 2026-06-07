@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.sigmundgranaas.turbo.expressive.core.auth.AuthRepository
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.core.sync.ShareLinkRedeemer
@@ -38,6 +39,8 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var shareLinkRedeemer: ShareLinkRedeemer
 
+    @Inject lateinit var authRepository: AuthRepository
+
     override fun onResume() {
         super.onResume()
         // Pull/push any changes whenever the app comes to the foreground (no-op when signed out).
@@ -46,19 +49,31 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleShareLink(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data ?: return
+        when {
+            data.scheme == "turbo" && data.host == "oauth" -> handleOAuthRedirect(data.getQueryParameter("code"))
+            data.pathSegments.firstOrNull() == "link" -> handleShareLink(data.pathSegments.getOrNull(1))
+        }
     }
 
     /** A tapped share link (https://kart.sandring.no/link/{token}) → redeem + pull the resource. */
-    private fun handleShareLink(intent: Intent?) {
-        val segments = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.pathSegments ?: return
-        if (segments.firstOrNull() != "link") return
-        val token = segments.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return
+    private fun handleShareLink(token: String?) {
+        val t = token?.takeIf { it.isNotBlank() } ?: return
         lifecycleScope.launch {
-            val redeemed = shareLinkRedeemer.redeem(token)
+            val redeemed = shareLinkRedeemer.redeem(t)
             val msg = if (redeemed is Outcome.Success) R.string.share_link_redeemed else R.string.share_link_failed
             Toast.makeText(this@MainActivity, getString(msg), Toast.LENGTH_LONG).show()
         }
+    }
+
+    /** Google OAuth redirect (turbo://oauth?code=…) → finish sign-in with the auth code. */
+    private fun handleOAuthRedirect(code: String?) {
+        val c = code?.takeIf { it.isNotBlank() } ?: return
+        lifecycleScope.launch { authRepository.loginWithGoogle(c) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,6 +97,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         // Cold-start deep link (the warm path is onNewIntent).
-        handleShareLink(intent)
+        handleDeepLink(intent)
     }
 }

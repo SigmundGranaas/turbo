@@ -37,6 +37,14 @@
                     android:host="kart.sandring.no"
                     android:pathPrefix="/link/" />
             </intent-filter>
+            <!-- Google OAuth redirect. The backend's Google redirect_uri must be
+                 configured to turbo://oauth for the code to come back here. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="turbo" android:host="oauth" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

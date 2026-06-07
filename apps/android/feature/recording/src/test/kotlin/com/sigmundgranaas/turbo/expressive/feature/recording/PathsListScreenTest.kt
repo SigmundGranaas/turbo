@@ -35,6 +35,7 @@ private object NoopSharingRepository : SharingRepository {
     override suspend fun friendCode() = Outcome.Failure(RuntimeException())
     override suspend fun createLink(resourceId: String, role: String) = Outcome.Success("https://x/link/t")
     override suspend fun redeemLink(token: String) = Outcome.Success(LinkRedemption("r", "path", "viewer"))
+    override suspend fun sharedResources(since: String?) = Outcome.Success(com.sigmundgranaas.turbo.expressive.core.sync.ResourceSyncPageDto())
 }
 
 private fun pathsViewModel(repo: PathRepository) = PathsViewModel(repo, NoopSharingRepository)

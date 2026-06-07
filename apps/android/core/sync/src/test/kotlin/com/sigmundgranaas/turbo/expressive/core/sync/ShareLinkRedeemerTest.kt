@@ -64,6 +64,7 @@ private class RedeemSharing(private val redemption: Outcome<LinkRedemption>) : S
     override suspend fun friendCode() = Outcome.Success("turbo-x")
     override suspend fun createLink(resourceId: String, role: String) = Outcome.Success("u")
     override suspend fun redeemLink(token: String): Outcome<LinkRedemption> { redeemed = token; return redemption }
+    override suspend fun sharedResources(since: String?) = Outcome.Success(ResourceSyncPageDto())
 }
 
 private class TrackByIdRemote(private val dto: TrackResponseDto?) : TrackRemote {

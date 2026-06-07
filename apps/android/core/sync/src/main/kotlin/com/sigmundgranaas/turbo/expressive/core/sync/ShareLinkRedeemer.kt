@@ -25,24 +25,34 @@ class ShareLinkRedeemer @Inject constructor(
     /** Redeem [token]; on success the granted resource is fetched + inserted locally. */
     suspend fun redeem(token: String): Outcome<LinkRedemption> {
         val outcome = sharing.redeemLink(token)
-        (outcome as? Outcome.Success)?.value?.let { adopt(it) }
+        (outcome as? Outcome.Success)?.value?.let { adopt(it.resourceId, it.resourceType) }
         return outcome
     }
 
-    private suspend fun adopt(redemption: LinkRedemption) {
-        when (redemption.resourceType.lowercase()) {
-            "path", "track" -> tracks.fetchById(redemption.resourceId)?.let { dto ->
+    /** Fetch a shared resource by server id + type and insert it locally as a clean row. */
+    suspend fun adopt(resourceId: String, resourceType: String) {
+        when (resourceType.lowercase()) {
+            "path", "track" -> tracks.fetchById(resourceId)?.let { dto ->
                 val localId = pathDao.byRemoteId(dto.id)?.id ?: UUID.randomUUID().toString()
                 pathDao.upsert(dto.toEntity(localId))
             }
-            "marker", "location" -> locations.fetchById(redemption.resourceId)?.let { dto ->
+            "marker", "location" -> locations.fetchById(resourceId)?.let { dto ->
                 val localId = markerDao.byRemoteId(dto.id)?.id ?: UUID.randomUUID().toString()
                 markerDao.upsert(dto.toEntity(localId))
             }
-            "collection" -> collections.fetchById(redemption.resourceId)?.let { dto ->
+            "collection" -> collections.fetchById(resourceId)?.let { dto ->
                 val existing = collectionDao.byRemoteId(dto.id)
                 collectionDao.upsert(dto.toEntity(existing?.id ?: UUID.randomUUID().toString(), existing?.createdAtEpochMs))
             }
+        }
+    }
+
+    /** Drop a shared resource locally when its grant was revoked or it was deleted server-side. */
+    suspend fun purge(resourceId: String, resourceType: String) {
+        when (resourceType.lowercase()) {
+            "path", "track" -> pathDao.byRemoteId(resourceId)?.let { pathDao.delete(it.id) }
+            "marker", "location" -> markerDao.byRemoteId(resourceId)?.let { markerDao.delete(it.id) }
+            "collection" -> collectionDao.byRemoteId(resourceId)?.let { collectionDao.delete(it.id) }
         }
     }
 }

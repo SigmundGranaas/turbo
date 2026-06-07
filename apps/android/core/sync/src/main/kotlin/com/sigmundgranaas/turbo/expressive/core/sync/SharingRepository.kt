@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.sync
 import com.sigmundgranaas.turbo.expressive.core.auth.AuthConfig
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import io.ktor.client.call.body
+import io.ktor.client.request.parameter
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
@@ -27,6 +28,9 @@ interface SharingRepository {
 
     /** Redeem a share-link token, granting the current user access to the resource. */
     suspend fun redeemLink(token: String): Outcome<LinkRedemption>
+
+    /** Delta of resources shared with the current user (since the last cursor). */
+    suspend fun sharedResources(since: String?): Outcome<ResourceSyncPageDto>
 
     companion object {
         const val ROLE_VIEWER = "viewer"
@@ -61,6 +65,15 @@ class KtorSharingRepository @Inject constructor(
         check(resp.status.isSuccess()) { "redeem ${resp.status}" }
         val dto: LinkRedemptionDto = resp.body()
         LinkRedemption(dto.resourceId, dto.resourceType, dto.role)
+    }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
+    override suspend fun sharedResources(since: String?): Outcome<ResourceSyncPageDto> = runCatching {
+        val resp = http.request("$base/resources/sync") {
+            method = HttpMethod.Get
+            if (!since.isNullOrBlank()) parameter("since", since)
+        }
+        check(resp.status.isSuccess()) { "resources/sync ${resp.status}" }
+        resp.body<ResourceSyncPageDto>()
     }.fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
 
     private companion object {

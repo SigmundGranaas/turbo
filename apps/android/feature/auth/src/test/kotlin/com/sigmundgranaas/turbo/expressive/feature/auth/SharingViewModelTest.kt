@@ -25,6 +25,7 @@ class SharingViewModelTest {
         override suspend fun friendCode(): Outcome<String> = code
         override suspend fun createLink(resourceId: String, role: String) = Outcome.Success("https://x/link/t")
         override suspend fun redeemLink(token: String) = Outcome.Success(LinkRedemption("r", "path", "viewer"))
+        override suspend fun sharedResources(since: String?) = Outcome.Success(com.sigmundgranaas.turbo.expressive.core.sync.ResourceSyncPageDto())
     }
 
     @Before fun setUp() = Dispatchers.setMain(dispatcher)

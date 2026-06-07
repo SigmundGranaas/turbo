@@ -36,3 +36,22 @@ data class LinkRedemptionDto(
     val resourceType: String = "",
     val role: String = "",
 )
+
+/** One resource shared with the current user (GET /api/sharing/resources/sync). */
+@Serializable
+data class ResourceEnvelopeDto(
+    val id: String = "",
+    val type: String = "",
+    val ownerId: String? = null,
+    val visibility: String? = null,
+    val myRole: String? = null,
+    val version: Long = 0,
+    val updatedAt: String? = null,
+    val deleted: Boolean = false,
+)
+
+@Serializable
+data class ResourceSyncPageDto(
+    val items: List<ResourceEnvelopeDto> = emptyList(),
+    val serverTime: String? = null,
+)
