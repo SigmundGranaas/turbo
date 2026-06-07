@@ -1,0 +1,73 @@
+# XcodeGen project spec for the Turbo iOS app.
+# Regenerate the .xcodeproj with:  xcodegen generate   (run in apps/ios)
+#
+# The app target is intentionally thin — it links the local Swift package
+# (Package.swift) which holds every module. Keeping the project generated from
+# this file (rather than committing the .xcodeproj) keeps the wiring reviewable.
+name: Turbo
+options:
+  bundleIdPrefix: no.sandring.turbo
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+packages:
+  Turbo:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  Turbo:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: Turbo
+        product: TurboApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: no.sandring.turbo
+        PRODUCT_NAME: Turbo
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_CFBundleDisplayName: Turbo
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Turbo uses your location to show where you are on the map and follow you on the trail."
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+
+  TurboUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Turbo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: no.sandring.turbo.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Turbo
+
+schemes:
+  Turbo:
+    build:
+      targets:
+        Turbo: all
+        TurboUITests: [test]
+    test:
+      targets:
+        - TurboUITests
+    run:
+      config: Debug

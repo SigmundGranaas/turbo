@@ -1,0 +1,12 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# XcodeGen output — regenerate with `xcodegen generate`
+Turbo.xcodeproj/
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+DerivedData/
