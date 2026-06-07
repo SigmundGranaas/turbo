@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -108,9 +109,10 @@ internal fun CreateTrackPanel(
     val isRoute = mode == TrackMode.Route
     Surface(
         modifier = modifier.fillMaxWidth().testTag("createTrackPanel"),
-        shape = RoundedCornerShape(TurboRadius.xl),
+        shape = RoundedCornerShape(32.dp),
         color = cs.surfaceContainerLowest,
-        shadowElevation = 6.dp,
+        border = BorderStroke(1.dp, cs.outlineVariant.copy(alpha = 0.6f)),
+        shadowElevation = 8.dp,
     ) {
         Column {
             Box(
@@ -136,7 +138,12 @@ internal fun CreateTrackPanel(
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         distanceText,
-                        style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.W800, letterSpacing = (-1.2).sp),
+                        style = MaterialTheme.typography.displaySmall.copy(
+                            fontSize = 40.sp,
+                            lineHeight = 40.sp,
+                            fontWeight = FontWeight.W800,
+                            letterSpacing = (-1.6).sp,
+                        ),
                         color = cs.onSurface,
                         modifier = Modifier.testTag("trackDistance"),
                     )

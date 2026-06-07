@@ -1,5 +1,9 @@
 package com.sigmundgranaas.turbo.expressive.ui.nav
 
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,10 +40,22 @@ private object Routes {
     fun pathDetail(id: String) = "path/$id"
 }
 
+private const val NAV_MS = 280
+
 @Composable
 fun TurboNavGraph() {
     val nav = rememberNavController()
-    NavHost(navController = nav, startDestination = Routes.MAP) {
+    NavHost(
+        navController = nav,
+        startDestination = Routes.MAP,
+        // Clean horizontal push/pop (forward slides in from the right, back slides
+        // back out) with a short fade — replaces the default crossfade that made
+        // screens look like they were blending into each other.
+        enterTransition = { slideIntoContainer(SlideDirection.Start, tween(NAV_MS)) + fadeIn(tween(NAV_MS)) },
+        exitTransition = { slideOutOfContainer(SlideDirection.Start, tween(NAV_MS)) + fadeOut(tween(NAV_MS)) },
+        popEnterTransition = { slideIntoContainer(SlideDirection.End, tween(NAV_MS)) + fadeIn(tween(NAV_MS)) },
+        popExitTransition = { slideOutOfContainer(SlideDirection.End, tween(NAV_MS)) + fadeOut(tween(NAV_MS)) },
+    ) {
         composable(Routes.MAP) { entry ->
             val focus by entry.savedStateHandle.getStateFlow<DoubleArray?>("focus", null).collectAsState()
             val showTrack by entry.savedStateHandle.getStateFlow<String?>("showTrack", null).collectAsState()
