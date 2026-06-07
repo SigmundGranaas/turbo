@@ -133,9 +133,9 @@ public struct MapScreen: View {
                 action: viewModel.toggleFollowing
             )
             MapRailDivider()
-            // Compass — tap resets bearing (no-op until live heading is wired).
+            // Compass — reflects the live device heading.
             Button(action: {}) {
-                CompassDial(heading: 0)
+                CompassDial(heading: viewModel.heading ?? 0)
                     .frame(width: 48, height: 48)
                     .contentShape(Rectangle())
             }

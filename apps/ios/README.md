@@ -133,6 +133,11 @@ What remains, iteratively:
 - **Runtime config** for the network/auth paths — point `HttpMarkerSyncTransport`
   and `GoogleAuthRepository` at the real API base URL, add the OAuth callback
   URL scheme, and switch `AppContainer` from the in-memory auth/transport.
-- Live location + heading (wiring follow + compass to CoreLocation).
-- Render cached offline tiles in `TurboMapView`; extend sync to paths/collections.
-- Detail surfaces — marker info, hike detail, WeatherKit, avalanche, Live Activity.
+- Recording a track (start/stop + live stats, Live Activity / Dynamic Island).
+- Extend sync to paths/collections; persist the sync cursor.
+- Detail surfaces — marker info, hike detail, WeatherKit, avalanche.
+- Localization (nb-NO).
+
+Done: live location + heading (`LocationProvider` → CoreLocation; follow + compass
+driven by real fixes) and the offline loop (`DiskOfflineTileManager` writes a
+shared base-keyed cache; `CachingTileOverlay` serves cached tiles before network).

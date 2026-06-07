@@ -100,8 +100,8 @@ public struct TurboMapView: UIViewRepresentable {
         }
 
         func installOverlay(on map: MKMapView, base: BaseLayer) {
-            let overlay = MKTileOverlay(urlTemplate: MapTileStyles.tileURLTemplate(for: base))
-            overlay.canReplaceMapContent = true
+            // Cache-first overlay: downloaded regions render offline, else network.
+            let overlay = CachingTileOverlay(base: base)
             map.addOverlay(overlay, level: .aboveLabels)
             tileOverlay = overlay
             currentBase = base

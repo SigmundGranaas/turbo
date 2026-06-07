@@ -29,6 +29,7 @@ public final class AppContainer {
     public let collectionRepository: CollectionRepository
     public let authRepository: AuthRepository
     public let offlineManager: OfflineTileManager
+    public let locationProvider: LocationProvider
     public let syncController: SyncController
 
     /// Production wiring — SwiftData persistence + UserDefaults settings. Falls
@@ -48,6 +49,7 @@ public final class AppContainer {
         searchRepository = KartverketSearchRepository()
         authRepository = InMemoryAuthRepository()
         offlineManager = DiskOfflineTileManager()
+        locationProvider = CoreLocationProvider()
         syncController = SyncController(
             engine: MarkerSyncEngine(repository: markerRepository, transport: InMemoryMarkerSyncTransport()),
             auth: authRepository,
@@ -63,7 +65,8 @@ public final class AppContainer {
         pathRepository: PathRepository = InMemoryPathRepository(),
         collectionRepository: CollectionRepository = InMemoryCollectionRepository(),
         authRepository: AuthRepository = InMemoryAuthRepository(),
-        offlineManager: OfflineTileManager = InMemoryOfflineTileManager()
+        offlineManager: OfflineTileManager = InMemoryOfflineTileManager(),
+        locationProvider: LocationProvider = SimulatedLocationProvider(fixes: [])
     ) {
         self.markerRepository = markerRepository
         self.settingsRepository = settingsRepository
@@ -72,6 +75,7 @@ public final class AppContainer {
         self.collectionRepository = collectionRepository
         self.authRepository = authRepository
         self.offlineManager = offlineManager
+        self.locationProvider = locationProvider
         self.syncController = SyncController(
             engine: MarkerSyncEngine(repository: markerRepository, transport: InMemoryMarkerSyncTransport()),
             auth: authRepository,
@@ -112,7 +116,9 @@ public final class AppContainer {
 
     // MARK: View-model factories
 
-    public func makeMapViewModel() -> MapViewModel { MapViewModel(markerRepository: markerRepository) }
+    public func makeMapViewModel() -> MapViewModel {
+        MapViewModel(markerRepository: markerRepository, location: locationProvider)
+    }
     public func makeMarkersViewModel() -> MarkersViewModel { MarkersViewModel(repository: markerRepository) }
     public func makeSearchViewModel() -> SearchViewModel { SearchViewModel(repository: searchRepository) }
     public func makeSettingsViewModel() -> SettingsViewModel { SettingsViewModel(repository: settingsRepository) }

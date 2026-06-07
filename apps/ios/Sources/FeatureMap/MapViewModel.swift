@@ -14,6 +14,9 @@ public final class MapViewModel {
     public var baseLayer: BaseLayer
     public var overlays: Set<OverlayId> = [.avalanche, .trails]
     public var following: Bool
+    /// The user's live position + heading (from ``LocationProvider``).
+    public private(set) var userLocation: LatLng?
+    public private(set) var heading: Double?
     /// The place the map is centered on after a search pick (drives the camera +
     /// a "save this place" banner). `nil` when no search result is active.
     public private(set) var focusedPlace: FocusedPlace?
@@ -26,14 +29,18 @@ public final class MapViewModel {
     }
 
     private let markerRepository: MarkerRepository
+    private let location: LocationProvider?
     private var observation: Task<Void, Never>?
+    private var locationObservation: Task<Void, Never>?
 
     public init(
         markerRepository: MarkerRepository,
+        location: LocationProvider? = nil,
         baseLayer: BaseLayer = .norgeskart,
         following: Bool = false
     ) {
         self.markerRepository = markerRepository
+        self.location = location
         self.baseLayer = baseLayer
         self.following = following
     }
@@ -51,6 +58,22 @@ public final class MapViewModel {
     public func stop() {
         observation?.cancel()
         observation = nil
+        locationObservation?.cancel()
+        locationObservation = nil
+    }
+
+    /// Begin streaming the user's location + heading into ``userLocation`` /
+    /// ``heading``. Idempotent. Requests permission on first call. Mirrors
+    /// `MapViewModel.enableLocation()` on Android.
+    public func enableLocation() {
+        guard locationObservation == nil, let location else { return }
+        location.requestAuthorization()
+        locationObservation = Task { [weak self, location] in
+            for await fix in location.fixes() {
+                self?.userLocation = fix.position
+                if let heading = fix.headingDegrees { self?.heading = heading }
+            }
+        }
     }
 
     /// Cycle the base map (the rail's layers button) — Norgeskart → OSM →
@@ -61,7 +84,10 @@ public final class MapViewModel {
         baseLayer = all[next]
     }
 
-    public func toggleFollowing() { following.toggle() }
+    public func toggleFollowing() {
+        following.toggle()
+        if following { enableLocation() }
+    }
 
     /// Drop a new marker (long-press the map, or the FAB). Offline-first; the map
     /// updates from the repository stream.

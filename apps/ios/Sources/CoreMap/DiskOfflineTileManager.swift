@@ -14,6 +14,7 @@ public actor DiskOfflineTileManager: OfflineTileManager {
     public typealias Fetch = @Sendable (URL) async -> Data?
 
     private let cacheDirectory: URL
+    private let tileCache: OfflineTileCache
     private let fetch: Fetch
     private let fileManager = FileManager.default
     private var regions: [OfflineRegionInfo] = []
@@ -22,9 +23,11 @@ public actor DiskOfflineTileManager: OfflineTileManager {
     private var loaded = false
 
     public init(cacheDirectory: URL? = nil, fetch: @escaping Fetch = DiskOfflineTileManager.urlSessionFetch) {
-        self.cacheDirectory = cacheDirectory
+        let dir = cacheDirectory
             ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("turbo-offline", isDirectory: true)
+        self.cacheDirectory = dir
+        self.tileCache = OfflineTileCache(root: dir)
         self.fetch = fetch
     }
 
@@ -55,18 +58,16 @@ public actor DiskOfflineTileManager: OfflineTileManager {
         nextId += 1
         let tiles = TileMath.tiles(in: bounds, minZoom: Int(minZoom), maxZoom: Int(maxZoom))
         let template = MapTileStyles.tileURLTemplate(for: base)
-        let regionDir = tilesRoot.appendingPathComponent("\(id)", isDirectory: true)
-        try? fileManager.createDirectory(at: regionDir, withIntermediateDirectories: true)
 
         upsertRegion(OfflineRegionInfo(id: id, name: name, complete: false, progress: 0, sizeBytes: 0, layers: [base]))
 
-        var downloaded = 0
         var bytes: Int64 = 0
         for (index, tile) in tiles.enumerated() {
             guard let url = TileMath.url(template: template, for: tile), let data = await fetch(url) else { continue }
-            let tileURL = regionDir.appendingPathComponent("\(tile.z)_\(tile.x)_\(tile.y)")
+            // Write into the shared, base-keyed cache the live map reads from.
+            let tileURL = tileCache.fileURL(base: base, z: tile.z, x: tile.x, y: tile.y)
+            try? fileManager.createDirectory(at: tileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? data.write(to: tileURL)
-            downloaded += 1
             bytes += Int64(data.count)
             // Emit progress every few tiles so the UI bar advances.
             if index % 8 == 0 || index == tiles.count - 1 {
@@ -81,14 +82,14 @@ public actor DiskOfflineTileManager: OfflineTileManager {
     public func delete(id: Int64) {
         ensureLoaded()
         regions.removeAll { $0.id == id }
-        try? fileManager.removeItem(at: tilesRoot.appendingPathComponent("\(id)", isDirectory: true))
+        // Tiles live in the shared base-keyed cache and may be used by other
+        // regions, so we drop the region's metadata but leave the cached tiles.
         persist()
         emit()
     }
 
     // MARK: - Storage
 
-    private var tilesRoot: URL { cacheDirectory.appendingPathComponent("tiles", isDirectory: true) }
     private var metadataURL: URL { cacheDirectory.appendingPathComponent("regions.json") }
 
     private func ensureLoaded() {
