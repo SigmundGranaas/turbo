@@ -2,8 +2,6 @@ package com.sigmundgranaas.turbo.expressive.core.data.di
 
 import android.content.Context
 import androidx.room.Room
-import androidx.room.RoomDatabase
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.AndroidLocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.AndroidStringProvider
@@ -29,7 +27,6 @@ import com.sigmundgranaas.turbo.expressive.core.data.DataStoreSyncCursorStore
 import com.sigmundgranaas.turbo.expressive.core.data.database.MarkerDao
 import com.sigmundgranaas.turbo.expressive.core.data.database.PathDao
 import com.sigmundgranaas.turbo.expressive.core.data.database.TurboDatabase
-import com.sigmundgranaas.turbo.expressive.domain.SampleData
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -76,20 +73,10 @@ abstract class DataModule {
         @Provides
         @Singleton
         fun provideDatabase(@ApplicationContext context: Context): TurboDatabase =
+            // Starts empty: the map opens on the user's real GPS location, and markers
+            // are created by the user (or arrive via sync) — no seeded sample content.
             Room.databaseBuilder(context, TurboDatabase::class.java, "turbo.db")
                 .fallbackToDestructiveMigration(dropAllTables = true)
-                .addCallback(object : RoomDatabase.Callback() {
-                    override fun onCreate(db: SupportSQLiteDatabase) {
-                        // Seed the sample markers so the map opens populated.
-                        SampleData.markers.forEach { m ->
-                            // dirty = 0: seed data is a clean local baseline, never pushed to the cloud.
-                            db.execSQL(
-                                "INSERT INTO marker (id, name, kind, lat, lng, colorArgb, dirty, readOnly) VALUES (?, ?, ?, ?, ?, ?, 0, 0)",
-                                arrayOf<Any?>(m.id, m.name, m.kind.key, m.position.lat, m.position.lng, m.colorArgb),
-                            )
-                        }
-                    }
-                })
                 .build()
 
         /** Application-lifetime scope for engines that outlive any screen (e.g. recording). */

@@ -10,9 +10,8 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 /**
- * Offline-first source of truth for user markers. Backed by Room; the DB is
- * seeded from [com.sigmundgranaas.turbo.expressive.domain.SampleData] on first
- * create so the map is never empty.
+ * Offline-first source of truth for user markers. Backed by Room; starts empty —
+ * markers are created by the user or arrive via sync (no seeded sample content).
  */
 interface MarkerRepository {
     fun observeAll(): Flow<List<Marker>>

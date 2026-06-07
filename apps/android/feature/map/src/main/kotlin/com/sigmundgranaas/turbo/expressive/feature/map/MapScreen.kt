@@ -47,6 +47,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,7 +66,7 @@ import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
 import com.sigmundgranaas.turbo.expressive.core.map.defaultMapEntityActionRegistry
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
-import com.sigmundgranaas.turbo.expressive.domain.SampleData
+import com.sigmundgranaas.turbo.expressive.domain.MapDefaults
 import com.sigmundgranaas.turbo.expressive.feature.conditions.ConditionsBody
 import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
 import com.sigmundgranaas.turbo.expressive.feature.markers.MarkerEditorSheet
@@ -90,6 +91,9 @@ import kotlinx.coroutines.launch
 
 /** How far off the planned line (metres) before we re-solve while following. */
 private const val OFF_ROUTE_THRESHOLD_M = 50.0
+
+/** Zoom used when first recentring on the user's GPS fix at startup. */
+private const val INITIAL_LOCATION_ZOOM = 13.0
 
 @Composable
 fun MapScreen(
@@ -176,6 +180,12 @@ fun MapScreen(
         }
     }
 
+    // Startup location: just begin streaming (no follow) so the map can centre on the
+    // first real GPS fix once. Distinct from [locationPermission], which also locks follow.
+    val startLocationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) viewModel.enableLocation() }
+
     // ---- Recording (a mode of this map, not a separate screen) ----
     var showRecSave by remember { mutableStateOf(false) }
     val notificationPermission = rememberLauncherForActivityResult(
@@ -197,8 +207,27 @@ fun MapScreen(
         }
     }
 
-    // Show the user's location on first load if the permission is already granted.
-    LaunchedEffect(Unit) { if (viewModel.hasLocationPermission()) viewModel.enableLocation() }
+    // On first load, immediately start locating — if the permission is missing, ask for
+    // it now — so the map can recentre on the user's real position (below) rather than
+    // sitting on the country-level fallback.
+    LaunchedEffect(Unit) {
+        if (viewModel.hasLocationPermission()) viewModel.enableLocation()
+        else startLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    // One-shot: the first time a real fix arrives, fly there (unless the user is already
+    // following/recording, or a search pick is steering the camera). Doesn't fight panning
+    // afterwards — it only fires once.
+    var didInitialCenter by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.userLocation, controller) {
+        if (didInitialCenter || focusRequest != null) return@LaunchedEffect
+        val here = state.userLocation ?: return@LaunchedEffect
+        val c = controller ?: return@LaunchedEffect
+        if (!state.following && !recState.recording) {
+            c.flyTo(here, INITIAL_LOCATION_ZOOM)
+            didInitialCenter = true
+        }
+    }
 
     // While recording, keep the camera on the latest fix — recording implies movement,
     // even if the user never toggled "follow".
@@ -334,8 +363,8 @@ fun MapScreen(
             TurboMap(
                 base = state.baseLayer,
                 overlays = activeOverlays,
-                initialCamera = SampleData.initialCamera,
-                initialZoom = SampleData.initialZoom,
+                initialCamera = MapDefaults.fallbackCamera,
+                initialZoom = MapDefaults.fallbackZoom,
                 markers = state.markers,
                 route = routeState.polyline.takeIf { it.isNotEmpty() },
                 // The track overlay shows, in priority: the live recording trail, the
@@ -368,7 +397,7 @@ fun MapScreen(
                                 if (trackMode == TrackMode.Route && routeViewModel.waypoints.value.size >= 2) {
                                     routeViewModel.addStop(marker.position)
                                 } else {
-                                    val from = state.userLocation ?: controller?.center() ?: SampleData.initialCamera
+                                    val from = state.userLocation ?: controller?.center() ?: MapDefaults.fallbackCamera
                                     openTrackTool(TrackMode.Route)
                                     routeViewModel.planRoute(from, marker.position)
                                 }
