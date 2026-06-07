@@ -24,14 +24,23 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // ~89% of the APK is MapLibre's native .so. Real devices are ARM, so
-            // release ships ARM-only and drops the x86/x86_64 emulator slices
-            // (~24 MB). Debug keeps every ABI so the x86_64 emulator still runs.
-            ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a") }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+    }
+
+    // ~89% of the APK is MapLibre's native .so. Split release into one APK per
+    // ABI so a device downloads only its own ~12 MB slice instead of the ~45 MB
+    // universal. ARM only — x86/x86_64 exist solely for emulators, which run debug
+    // (a single all-ABI APK; splits stay off there so `app-debug.apk` is unchanged).
+    splits {
+        abi {
+            isEnable = gradle.startParameter.taskNames.any { it.contains("Release") }
+            reset()
+            include("armeabi-v7a", "arm64-v8a")
+            isUniversalApk = false
         }
     }
 
@@ -45,6 +54,23 @@ android {
         }
     }
     buildFeatures { compose = true }
+}
+
+// Each per-ABI APK needs a distinct versionCode so Play / side-loading treat them
+// as one app with correct upgrade ordering (higher = preferred 64-bit ABI). The
+// universal/no-split output keeps the base code unchanged.
+androidComponents {
+    val abiVersionOffsets = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2)
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters
+                .find { it.filterType == com.android.build.api.variant.FilterConfiguration.FilterType.ABI }
+                ?.identifier
+            val offset = abiVersionOffsets[abi] ?: return@forEach
+            val base = output.versionCode.orNull ?: 1
+            output.versionCode.set(base * 10 + offset)
+        }
+    }
 }
 
 dependencies {
