@@ -57,6 +57,7 @@ internal fun RouteCard(
     waypointCount: Int = 2,
     onRemoveStop: (Int) -> Unit = {},
     onDownloadOffline: (() -> Unit)? = null,
+    conditions: @Composable () -> Unit = {},
 ) {
     if (state is RouteUiState.Idle) return
     val cs = MaterialTheme.colorScheme
@@ -91,6 +92,9 @@ internal fun RouteCard(
                         RouteStat("${p.onTrailPct.roundToInt()}%", stringResource(R.string.route_on_trail))
                     }
                     SurfaceBreakdown(p.surfaces)
+                    // What the weather + avalanche look like along the whole line.
+                    Spacer(Modifier.height(10.dp))
+                    conditions()
                     StopsRow(waypointCount, onRemoveStop)
                     PresetRow(preset, onSelectPreset)
                     Spacer(Modifier.height(12.dp))

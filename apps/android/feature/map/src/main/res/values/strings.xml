@@ -66,6 +66,12 @@
     <string name="cond_uv">UV</string>
     <string name="cond_sea">Sea</string>
     <string name="cond_avalanche_level">Avalanche · Level %1$d</string>
+    <!-- Along-route conditions strip -->
+    <string name="route_cond_label">Along the route</string>
+    <string name="route_cond_loading">Checking conditions…</string>
+    <string name="route_cond_temp_range">%1$d° to %2$d°</string>
+    <string name="route_cond_temp_single">%1$d°</string>
+    <string name="route_cond_avalanche">Avalanche L%1$d</string>
     <string name="cond_forecast_title">Forecast · yr.no</string>
     <string name="cond_forecast_unavailable">Forecast unavailable</string>
     <string name="cond_forecast_error_body">Couldn\'t reach yr.no — try again with a connection.</string>

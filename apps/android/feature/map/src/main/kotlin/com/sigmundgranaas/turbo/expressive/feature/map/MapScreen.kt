@@ -445,6 +445,12 @@ fun MapScreen(
                     onSave = { showRouteSave = true },
                     onDownloadOffline = { routeViewModel.downloadAlongRoute(state.baseLayer) },
                     onClear = { routeViewModel.clear(); viewModel.setFollowing(false) },
+                    conditions = {
+                        val line = routeState.polyline
+                        if (line.size > 1) {
+                            com.sigmundgranaas.turbo.expressive.feature.conditions.RouteConditionsStrip(line)
+                        }
+                    },
                     modifier = Modifier.align(Alignment.BottomCenter)
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(16.dp),
