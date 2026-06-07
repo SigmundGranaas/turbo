@@ -52,7 +52,7 @@
     <!-- Route stops manager -->
     <string name="track_stops_row">Stops</string>
     <string name="track_stops_title">Stops</string>
-    <string name="track_stops_hint">Drag to reorder · swipe a stop off to remove</string>
+    <string name="track_stops_hint">Drag a handle to reorder · tap ✕ to remove</string>
     <string name="wp_start">Start</string>
     <string name="wp_end">Destination</string>
     <string name="wp_stop">Stop %1$d</string>
