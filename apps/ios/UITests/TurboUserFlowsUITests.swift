@@ -294,6 +294,22 @@ final class TurboUserFlowsUITests: XCTestCase {
                       "the share sheet did not open")
     }
 
+    // MARK: Goal — plan a route on the map
+
+    func test_hiker_can_start_planning_a_route() {
+        let app = launch()
+        let map = app.maps.firstMatch
+        XCTAssertTrue(map.waitForExistence(timeout: 10))
+        map.press(forDuration: 1.1)   // long-press → drop-a-point menu
+
+        let plan = app.buttons["Plan a Route"]
+        XCTAssertTrue(plan.waitForExistence(timeout: 5))
+        plan.tap()
+
+        // The route-building card is now up.
+        XCTAssertTrue(app.buttons["route.close"].waitForExistence(timeout: 5), "route card did not open")
+    }
+
     // MARK: Goal — check the weather and avalanche danger for where I'm headed
 
     func test_hiker_can_check_weather_and_avalanche_danger() {

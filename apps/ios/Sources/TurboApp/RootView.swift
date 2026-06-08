@@ -48,7 +48,8 @@ public struct RootView: View {
                     onOpenLayers: { showLayers = true },
                     makeWeatherViewModel: { container.makeWeatherViewModel(position: $0, placeName: "Conditions") },
                     makeAvalancheViewModel: { container.makeAvalancheViewModel(position: $0) },
-                    accountInitials: root.account.map { AccountMenuSheet.initials($0.displayName) }
+                    accountInitials: root.account.map { AccountMenuSheet.initials($0.displayName) },
+                    makeRouteViewModel: container.makeRouteViewModel
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }

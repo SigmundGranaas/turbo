@@ -20,6 +20,8 @@ public struct MapScreen: View {
     private let makeWeatherViewModel: ((LatLng) -> WeatherViewModel)?
     private let makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)?
     private let accountInitials: String?
+    private let makeRouteViewModel: (() -> RouteViewModel)?
+    @State private var routing: RouteViewModel?
     @State private var showWeather = false
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
@@ -49,7 +51,8 @@ public struct MapScreen: View {
         onOpenLayers: @escaping () -> Void = {},
         makeWeatherViewModel: ((LatLng) -> WeatherViewModel)? = nil,
         makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)? = nil,
-        accountInitials: String? = nil
+        accountInitials: String? = nil,
+        makeRouteViewModel: (() -> RouteViewModel)? = nil
     ) {
         self.viewModel = viewModel
         self.onOpenSearch = onOpenSearch
@@ -58,6 +61,7 @@ public struct MapScreen: View {
         self.makeWeatherViewModel = makeWeatherViewModel
         self.makeAvalancheViewModel = makeAvalancheViewModel
         self.accountInitials = accountInitials
+        self.makeRouteViewModel = makeRouteViewModel
     }
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
@@ -70,9 +74,11 @@ public struct MapScreen: View {
             following: viewModel.following,
             focus: viewModel.focusedPlace?.position,
             resetBearingToken: compassResetToken,
+            routeGeometry: routing?.geometry ?? [],
             onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
-            onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } }
+            onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } },
+            onTap: routing == nil ? nil : { routing?.addWaypoint($0) }
         )
         .ignoresSafeArea()
         .animation(.easeOut(duration: 0.25), value: viewModel.focusedPlace)
@@ -122,6 +128,14 @@ public struct MapScreen: View {
             presenting: longPressCoord
         ) { coord in
             Button("New Marker") { editorTarget = .new(coord, name: ""); longPressCoord = nil }
+            if makeRouteViewModel != nil {
+                Button("Plan a Route") {
+                    let vm = makeRouteViewModel?()
+                    vm?.addWaypoint(coord)
+                    routing = vm
+                    longPressCoord = nil
+                }
+            }
             openInMapsButton(coord)
             Button("Cancel", role: .cancel) { longPressCoord = nil }
         }
@@ -154,6 +168,11 @@ public struct MapScreen: View {
         if let place = viewModel.focusedPlace {
             result.append(MapPin(id: "focus-\(place.id)", coordinate: place.position,
                                  title: place.name, symbolName: "mappin", tint: t.red))
+        }
+        if let routing {
+            for (i, wp) in routing.waypoints.enumerated() {
+                result.append(MapPin(id: "wp-\(i)", coordinate: wp, title: "\(i + 1)", symbolName: "smallcircle.filled.circle", tint: t.blue))
+            }
         }
         return result
     }
@@ -230,18 +249,25 @@ public struct MapScreen: View {
         .padding(.bottom, 86)
     }
 
+    @ViewBuilder
     private var bottomBar: some View {
-        HStack(spacing: 10) {
-            SearchPill(action: onOpenSearch)
-                .accessibilityIdentifier("map.search")
-            MapFAB(symbol: "plus") {
-                editorTarget = .new(currentCenter, name: "")
+        if let routing {
+            RouteCard(viewModel: routing, onClose: { self.routing = nil })
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+        } else {
+            HStack(spacing: 10) {
+                SearchPill(action: onOpenSearch)
+                    .accessibilityIdentifier("map.search")
+                MapFAB(symbol: "plus") {
+                    editorTarget = .new(currentCenter, name: "")
+                }
+                .accessibilityIdentifier("map.fab")
+                .accessibilityLabel("New marker")
             }
-            .accessibilityIdentifier("map.fab")
-            .accessibilityLabel("New marker")
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
         }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 12)
     }
 
     /// An invisible element that publishes the live map center so tests (and

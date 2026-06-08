@@ -17,9 +17,11 @@ public struct TurboMapView: UIViewRepresentable {
     private let following: Bool
     private let focus: LatLng?
     private let resetBearingToken: Int
+    private let routeGeometry: [LatLng]
     private let onLongPress: ((LatLng) -> Void)?
     private let onRegionChange: ((LatLng, Double) -> Void)?
     private let onSelectPin: ((String) -> Void)?
+    private let onTap: ((LatLng) -> Void)?
 
     /// Default camera — the Lyngen/Tromsø region, so topo tiles show on launch.
     private static let defaultCenter = CLLocationCoordinate2D(latitude: 69.58, longitude: 19.95)
@@ -31,9 +33,11 @@ public struct TurboMapView: UIViewRepresentable {
         following: Bool = false,
         focus: LatLng? = nil,
         resetBearingToken: Int = 0,
+        routeGeometry: [LatLng] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
-        onSelectPin: ((String) -> Void)? = nil
+        onSelectPin: ((String) -> Void)? = nil,
+        onTap: ((LatLng) -> Void)? = nil
     ) {
         self.baseLayer = baseLayer
         self.overlays = overlays
@@ -41,9 +45,11 @@ public struct TurboMapView: UIViewRepresentable {
         self.following = following
         self.focus = focus
         self.resetBearingToken = resetBearingToken
+        self.routeGeometry = routeGeometry
         self.onLongPress = onLongPress
         self.onRegionChange = onRegionChange
         self.onSelectPin = onSelectPin
+        self.onTap = onTap
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(onLongPress: onLongPress) }
@@ -64,6 +70,8 @@ public struct TurboMapView: UIViewRepresentable {
             action: #selector(Coordinator.handleLongPress(_:))
         )
         map.addGestureRecognizer(press)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        map.addGestureRecognizer(tap)
         context.coordinator.installOverlay(on: map, base: baseLayer)
         return map
     }
@@ -72,8 +80,10 @@ public struct TurboMapView: UIViewRepresentable {
         context.coordinator.onLongPress = onLongPress
         context.coordinator.onRegionChange = onRegionChange
         context.coordinator.onSelectPin = onSelectPin
+        context.coordinator.onTap = onTap
         context.coordinator.syncOverlay(on: map, base: baseLayer)
         context.coordinator.syncDataOverlays(on: map, overlays: overlays)
+        context.coordinator.syncRoute(on: map, geometry: routeGeometry)
         context.coordinator.syncAnnotations(on: map, pins: pins)
         context.coordinator.applyBearingReset(on: map, token: resetBearingToken)
         map.showsUserLocation = following
@@ -90,11 +100,38 @@ public struct TurboMapView: UIViewRepresentable {
         var onLongPress: ((LatLng) -> Void)?
         var onRegionChange: ((LatLng, Double) -> Void)?
         var onSelectPin: ((String) -> Void)?
+        var onTap: ((LatLng) -> Void)?
         private var currentBase: BaseLayer?
         private var tileOverlay: MKTileOverlay?
         private var dataOverlays: [OverlayId: MKTileOverlay] = [:]
+        private var routeOverlay: MKPolyline?
+        private var lastRouteCount = -1
         private var lastFocus: LatLng?
         private var lastBearingToken = 0
+
+        /// Draw/replace the route polyline.
+        func syncRoute(on map: MKMapView, geometry: [LatLng]) {
+            guard geometry.count != lastRouteCount || (geometry.isEmpty && routeOverlay != nil) else { return }
+            lastRouteCount = geometry.count
+            if let old = routeOverlay { map.removeOverlay(old); routeOverlay = nil }
+            guard geometry.count >= 2 else { return }
+            let coords = geometry.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+            let line = MKPolyline(coordinates: coords, count: coords.count)
+            map.addOverlay(line, level: .aboveLabels)
+            routeOverlay = line
+        }
+
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard onTap != nil, gesture.state == .ended, let map = gesture.view as? MKMapView else { return }
+            let point = gesture.location(in: map)
+            // Ignore taps that hit an annotation (those select the pin).
+            if map.annotations.contains(where: { annotation in
+                guard let view = map.view(for: annotation) else { return false }
+                return view.frame.contains(point)
+            }) { return }
+            let coord = map.convert(point, toCoordinateFrom: map)
+            onTap?(LatLng(lat: coord.latitude, lng: coord.longitude))
+        }
 
         /// Add/remove transparent data-overlay tile layers above the base map.
         func syncDataOverlays(on map: MKMapView, overlays: Set<OverlayId>) {
@@ -183,6 +220,14 @@ public struct TurboMapView: UIViewRepresentable {
             if let tile = overlay as? MKTileOverlay {
                 return MKTileOverlayRenderer(tileOverlay: tile)
             }
+            if let line = overlay as? MKPolyline {
+                let renderer = MKPolylineRenderer(polyline: line)
+                renderer.strokeColor = UIColor(red: 0.04, green: 0.52, blue: 1.0, alpha: 0.9)  // system blue
+                renderer.lineWidth = 5
+                renderer.lineJoin = .round
+                renderer.lineCap = .round
+                return renderer
+            }
             return MKOverlayRenderer(overlay: overlay)
         }
 
@@ -225,9 +270,11 @@ public struct TurboMapView: View {
         following: Bool = false,
         focus: LatLng? = nil,
         resetBearingToken: Int = 0,
+        routeGeometry: [LatLng] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
-        onSelectPin: ((String) -> Void)? = nil
+        onSelectPin: ((String) -> Void)? = nil,
+        onTap: ((LatLng) -> Void)? = nil
     ) {}
 
     public var body: some View {

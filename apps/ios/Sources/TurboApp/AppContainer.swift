@@ -33,6 +33,7 @@ public final class AppContainer {
     public let locationProvider: LocationProvider
     public let weatherProvider: WeatherProvider
     public let avalancheProvider: AvalancheProvider
+    public let routeRepository: RouteRepository
     public let syncController: SyncController
     /// Whether the live API (auth + cloud sync) is configured for this build.
     public let isOnline: Bool
@@ -58,6 +59,7 @@ public final class AppContainer {
         locationProvider = CoreLocationProvider()
         weatherProvider = MetNoWeatherProvider()
         avalancheProvider = VarsomAvalancheProvider()
+        routeRepository = HttpRouteRepository()   // public routing API, no auth
         isOnline = config.isOnline
 
         let cursor = UserDefaultsCursorStore()
@@ -99,6 +101,7 @@ public final class AppContainer {
         locationProvider: LocationProvider = SimulatedLocationProvider(fixes: []),
         weatherProvider: WeatherProvider = InMemoryWeatherProvider(),
         avalancheProvider: AvalancheProvider = InMemoryAvalancheProvider(),
+        routeRepository: RouteRepository = InMemoryRouteRepository(),
         isOnline: Bool = false
     ) {
         self.markerRepository = markerRepository
@@ -111,6 +114,7 @@ public final class AppContainer {
         self.locationProvider = locationProvider
         self.weatherProvider = weatherProvider
         self.avalancheProvider = avalancheProvider
+        self.routeRepository = routeRepository
         self.isOnline = isOnline
         self.syncController = AppContainer.makeSyncController(
             markers: markerRepository, paths: pathRepository, collections: collectionRepository,
@@ -164,6 +168,9 @@ public final class AppContainer {
         MapViewModel(markerRepository: markerRepository, location: locationProvider)
     }
     public func makeMarkersViewModel() -> MarkersViewModel { MarkersViewModel(repository: markerRepository) }
+    public func makeRouteViewModel() -> RouteViewModel {
+        RouteViewModel(routeRepository: routeRepository, pathRepository: pathRepository)
+    }
     public func makeSearchViewModel() -> SearchViewModel { SearchViewModel(repository: searchRepository) }
     public func makeSettingsViewModel() -> SettingsViewModel { SettingsViewModel(repository: settingsRepository) }
     public func makePathsViewModel() -> PathsViewModel { PathsViewModel(repository: pathRepository) }
