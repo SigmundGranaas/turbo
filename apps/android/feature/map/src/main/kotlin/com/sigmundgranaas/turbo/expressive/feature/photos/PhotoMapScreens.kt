@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
@@ -133,10 +135,10 @@ internal fun PhotoViewer(photos: List<Photo>, startIndex: Int, onClose: () -> Un
                 }
             }
 
-            // top bar
+            // top bar — clear of the status bar (full-screen dialog draws edge-to-edge).
             val current = photos[pager.currentPage]
             Row(
-                Modifier.fillMaxWidth().padding(top = 14.dp, start = 8.dp, end = 8.dp),
+                Modifier.fillMaxWidth().statusBarsPadding().padding(top = 14.dp, start = 8.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Close", tint = Color.White) }
@@ -147,9 +149,9 @@ internal fun PhotoViewer(photos: List<Photo>, startIndex: Int, onClose: () -> Un
                 IconButton(onClick = { onDelete(current) }) { Icon(Icons.Rounded.DeleteOutline, "Delete", tint = Color.White) }
             }
 
-            // filmstrip
+            // filmstrip — lifted above the gesture-nav bar.
             LazyRow(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 20.dp),
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp),
             ) {
