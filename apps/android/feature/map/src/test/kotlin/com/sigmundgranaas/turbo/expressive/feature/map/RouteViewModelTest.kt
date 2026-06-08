@@ -1,6 +1,8 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
 import com.sigmundgranaas.turbo.expressive.core.data.FollowController
+import com.sigmundgranaas.turbo.expressive.core.data.LiveMode
+import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.LocationSample
 import com.sigmundgranaas.turbo.expressive.core.data.PathRepository
@@ -17,6 +19,7 @@ import com.sigmundgranaas.turbo.expressive.domain.RouteStreamEvent
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -52,6 +55,15 @@ private class FakeOfflineTileManager : OfflineTileManager {
 private class NoopLocationRepository : LocationRepository {
     override fun hasPermission(): Boolean = false
     override fun samples(): Flow<LocationSample> = flowOf()
+}
+
+/** A scriptable GPS source: [emit] pushes fixes the FollowController projects onto the route. */
+private class EmittingLocation : LocationRepository {
+    val feed = MutableSharedFlow<LocationSample>(extraBufferCapacity = 16)
+    override fun hasPermission(): Boolean = true
+    override fun samples(): Flow<LocationSample> = feed
+    suspend fun emit(lat: Double, lng: Double, speed: Double? = null) =
+        feed.emit(LocationSample(LatLng(lat, lng), altitude = null, speedMps = speed))
 }
 
 private class FakePathRepository : PathRepository {
@@ -293,5 +305,32 @@ class RouteViewModelTest {
         val result = Waypoints.insertLeastDetour(listOf(w0, w1, w2), near)
         assertEquals(near, result[2])
         assertEquals(4, result.size)
+    }
+
+    @Test
+    fun `following a saved track projects live GPS into the read-model the sheet renders`() = runTest(mainRule.dispatcher) {
+        // No router involved: a saved/imported track is just geometry. This is the whole
+        // follow path the emulator couldn't reach — exercised headlessly via a fake GPS walk.
+        val loc = EmittingLocation()
+        val follow = FollowController(loc, kotlinx.coroutines.CoroutineScope(mainRule.dispatcher))
+        val vm = RouteViewModel(FakeRouteRepository(emptyList()), FakePathRepository(), FakeOfflineTileManager(), follow)
+        val track = listOf(LatLng(69.00, 18.0), LatLng(69.05, 18.0)) // ~5.5 km straight north
+
+        vm.followTrack(track, distanceM = 5_500.0, ascentM = 120.0, durationS = 4_200.0, name = "Skåla Loop")
+        runCurrent()
+        assertTrue(vm.state.value is RouteUiState.Following)
+        assertTrue(vm.followSession.value.active)
+
+        // Walk to the midpoint → the LiveStats the sheet AND the lock notification format from.
+        loc.emit(69.025, 18.0, speed = 1.5); runCurrent()
+        val mid = LiveStats.of(vm.followSession.value)
+        assertEquals(LiveMode.Following, mid.mode)
+        assertTrue("fraction ~0.5 but was ${mid.fraction}", (mid.fraction ?: 0.0) in 0.4..0.6)
+        assertTrue("remaining ~2.75 km but was ${mid.distanceRemainingM}", mid.distanceRemainingM!! in 2_000.0..3_500.0)
+        assertEquals(1.5, mid.speedMps!!, 1e-6)
+
+        // Walk to the end → arrival latches.
+        loc.emit(69.0499, 18.0); runCurrent()
+        assertTrue(vm.followSession.value.arrived)
     }
 }
