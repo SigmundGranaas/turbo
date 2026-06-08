@@ -2,7 +2,6 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 
 import android.Manifest
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -63,7 +62,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
-import com.sigmundgranaas.turbo.expressive.core.map.MapEntityDetailHost
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelection
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
 import com.sigmundgranaas.turbo.expressive.core.map.defaultMapEntityActionRegistry
@@ -71,14 +69,10 @@ import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.MapDefaults
 import com.sigmundgranaas.turbo.expressive.feature.conditions.ConditionsBody
-import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
-import com.sigmundgranaas.turbo.expressive.feature.markers.MarkerEditorSheet
 import com.sigmundgranaas.turbo.expressive.feature.nav.DrawerDestination
 import com.sigmundgranaas.turbo.expressive.feature.nav.NavDrawerContent
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
 import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingViewModel
-import com.sigmundgranaas.turbo.expressive.feature.recording.TrackSaveDialog
-import com.sigmundgranaas.turbo.expressive.ui.components.DeleteMarkerDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.MapControlRail
 import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
@@ -990,135 +984,45 @@ fun MapScreen(
         }
     }
 
-    // ---- Selection detail host (markers, and any future entity) ----
-    MapEntityDetailHost(state = selectionState, registry = actionRegistry)
-
-    // Stopping a follow: keep it (→ Saved Tracks) or discard. Mirrors recording's
-    // save-on-stop, so a route you followed can land in your history.
-    if (showFollowStopSave) {
-        val plan = (routeState as? RouteUiState.Following)?.plan
-        TrackSaveDialog(
-            defaultName = "Route ${com.sigmundgranaas.turbo.expressive.core.geo.Units.distance(plan?.distanceM ?: 0.0, metric)}",
-            canSave = (plan?.geometry?.size ?: 0) > 1,
-            onSave = { name, kind ->
-                routeViewModel.saveAsTrack(name, kind)
-                Toast.makeText(context, R.string.route_saved, Toast.LENGTH_SHORT).show()
-                showFollowStopSave = false
-                routeViewModel.clear(); viewModel.setFollowing(false)
-            },
-            onDiscard = { showFollowStopSave = false; routeViewModel.clear(); viewModel.setFollowing(false) },
-            onDismiss = { showFollowStopSave = false }, // keep following
-        )
-    }
-    // Launching the build tool while following would drop the active route — confirm.
-    if (confirmReplaceFollow) {
-        com.sigmundgranaas.turbo.expressive.ui.components.TurboConfirmDialog(
-            title = stringResource(R.string.route_replace_follow_title),
-            body = stringResource(R.string.route_replace_follow_body),
-            confirmLabel = stringResource(R.string.route_replace_follow_confirm),
-            icon = androidx.compose.material.icons.Icons.Rounded.Route,
-            onConfirm = { confirmReplaceFollow = false; openTrackTool(TrackMode.Route) },
-            onDismiss = { confirmReplaceFollow = false },
-        )
-    }
-
-    // ---- Tool sheets ----
-    if (showLayers) {
-        MapLayersSheet(
-            selected = state.baseLayer,
-            onSelectBase = viewModel::setBaseLayer,
-            onDownloadArea = {
-                controller?.let { ctrl ->
-                    val bounds = ctrl.visibleBounds()
-                    val centre = LatLng((bounds.north + bounds.south) / 2, (bounds.east + bounds.west) / 2)
-                    offlineViewModel.download(centre, state.baseLayer, bounds, ctrl.zoom())
-                }
-                showLayers = false
-                onOpenOffline()
-            },
-            activeOverlays = activeOverlays,
-            onToggleOverlay = { id, on ->
-                activeOverlays = if (on) activeOverlays + id else activeOverlays - id
-            },
-            onDismiss = { showLayers = false },
-        )
-    }
-    // Add-to-collection picker for the selected marker.
-    addToCollection?.let { marker ->
-        com.sigmundgranaas.turbo.expressive.feature.collectionpicker.CollectionPickerSheet(
-            itemId = marker.id,
-            type = com.sigmundgranaas.turbo.expressive.domain.CollectionItemType.Marker,
-            onDismiss = { addToCollection = null },
-        )
-    }
-    // New marker: opened by a long-press on the map, anchored at that coordinate.
-    // The coordinate is reverse-geocoded to pre-fill a sensible name ("Galdhøpiggen").
-    newMarkerAt?.let { pos ->
-        val description by viewModel.pointDescription.collectAsStateWithLifecycle()
-        LaunchedEffect(pos) { viewModel.describePoint(pos) }
-        MarkerEditorSheet(
-            position = pos,
-            suggestedName = description?.title,
-            suggestedSubtitle = description?.let { listOfNotNull(it.label.takeIf { l -> l != it.title }, it.subtitle.takeIf(String::isNotBlank)).joinToString(" · ") },
-            onDismiss = { newMarkerAt = null; viewModel.clearPointDescription() },
-            onSave = { name, kind, color, notes ->
-                viewModel.addMarker(name, kind, pos, color, notes)
-                newMarkerAt = null
-                viewModel.clearPointDescription()
-            },
-        )
-    }
-    // Edit marker: opened from the detail sheet's Edit action.
-    editingMarker?.let { marker ->
-        MarkerEditorSheet(
-            position = marker.position,
-            existing = marker,
-            onDismiss = { editingMarker = null },
-            onSave = { name, kind, color, notes ->
-                viewModel.updateMarker(
-                    marker.copy(name = name.ifBlank { marker.name }, kind = kind, colorArgb = color, notes = notes),
-                )
-                selectionState.clear()
-                editingMarker = null
-            },
-        )
-    }
-    // Delete confirmation for the selected marker.
-    pendingDelete?.let { marker ->
-        DeleteMarkerDialog(
-            markerName = marker.name,
-            onConfirm = {
-                viewModel.deleteMarker(marker.id)
-                selectionState.clear()
-                pendingDelete = null
-            },
-            onDismiss = { pendingDelete = null },
-        )
-    }
-    // Name + save the planned route as a track (mirrors the recording save dialog).
-    if (showRouteSave) {
-        NameInputDialog(
-            title = stringResource(R.string.route_save_title),
-            confirmLabel = stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_save),
-            initial = "Route",
-            onConfirm = { name ->
-                routeViewModel.saveAsTrack(name)
-                Toast.makeText(context, R.string.route_saved, Toast.LENGTH_SHORT).show()
-                showRouteSave = false
-            },
-            onDismiss = { showRouteSave = false },
-        )
-    }
-    // Finish a recording: name + activity-kind picker, then persist (or discard).
-    if (showRecSave) {
-        TrackSaveDialog(
-            defaultName = "Track ${com.sigmundgranaas.turbo.expressive.core.geo.Units.distance(recState.distanceM, metric)}",
-            canSave = recState.points.size > 1,
-            onSave = { name, kind -> recordingViewModel.save(name, kind) {}; showRecSave = false },
-            onDiscard = { recordingViewModel.discard {}; showRecSave = false },
-            onDismiss = { showRecSave = false },
-        )
-    }
+    // The map's overlay layer of position-independent popups (detail host + dialogs +
+    // bottom sheets) lives in MapScreenModals — the screen body keeps the camera +
+    // content orchestration; that file owns the modal wiring.
+    MapScreenModals(
+        viewModel = viewModel,
+        routeViewModel = routeViewModel,
+        recordingViewModel = recordingViewModel,
+        offlineViewModel = offlineViewModel,
+        selectionState = selectionState,
+        actionRegistry = actionRegistry,
+        controller = controller,
+        metric = metric,
+        routeState = routeState,
+        recDistanceM = recState.distanceM,
+        recPointCount = recState.points.size,
+        baseLayer = state.baseLayer,
+        activeOverlays = activeOverlays,
+        onToggleOverlay = { id, on -> activeOverlays = if (on) activeOverlays + id else activeOverlays - id },
+        onOpenOffline = onOpenOffline,
+        openTrackTool = openTrackTool,
+        showLayers = showLayers,
+        onShowLayers = { showLayers = it },
+        showFollowStopSave = showFollowStopSave,
+        onShowFollowStopSave = { showFollowStopSave = it },
+        confirmReplaceFollow = confirmReplaceFollow,
+        onConfirmReplaceFollow = { confirmReplaceFollow = it },
+        addToCollection = addToCollection,
+        onAddToCollection = { addToCollection = it },
+        newMarkerAt = newMarkerAt,
+        onNewMarkerAt = { newMarkerAt = it },
+        editingMarker = editingMarker,
+        onEditingMarker = { editingMarker = it },
+        pendingDelete = pendingDelete,
+        onPendingDelete = { pendingDelete = it },
+        showRouteSave = showRouteSave,
+        onShowRouteSave = { showRouteSave = it },
+        showRecSave = showRecSave,
+        onShowRecSave = { showRecSave = it },
+    )
 }
 
 
