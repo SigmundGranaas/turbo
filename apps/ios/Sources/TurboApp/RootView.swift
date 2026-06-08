@@ -55,7 +55,8 @@ public struct RootView: View {
                     makePhotosViewModel: container.makePhotosViewModel,
                     shareResource: shareResource,
                     recording: recordingStatus,
-                    onOpenRecording: { showRecording = true }
+                    onOpenRecording: { showRecording = true },
+                    onStartRecording: { container.recordingController.start(); showRecording = true }
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }

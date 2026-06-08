@@ -27,6 +27,7 @@ public struct RecordingScreen: View {
                         .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("Keep recording and return to the map")
+                .accessibilityIdentifier("recording.minimize")
                 Spacer()
             }
             .padding(.horizontal, 12)

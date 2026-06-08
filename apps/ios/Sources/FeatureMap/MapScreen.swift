@@ -25,6 +25,7 @@ public struct MapScreen: View {
     private let shareResource: ((String) async -> URL?)?
     private let recording: RecordingStatus?
     private let onOpenRecording: (() -> Void)?
+    private let onStartRecording: (() -> Void)?
     @State private var routing: RouteViewModel?
     @State private var measuring: MeasureViewModel?
     @State private var showWeather = false
@@ -61,7 +62,8 @@ public struct MapScreen: View {
         makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil,
         shareResource: ((String) async -> URL?)? = nil,
         recording: RecordingStatus? = nil,
-        onOpenRecording: (() -> Void)? = nil
+        onOpenRecording: (() -> Void)? = nil,
+        onStartRecording: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.onOpenSearch = onOpenSearch
@@ -75,6 +77,7 @@ public struct MapScreen: View {
         self.shareResource = shareResource
         self.recording = recording
         self.onOpenRecording = onOpenRecording
+        self.onStartRecording = onStartRecording
     }
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
@@ -272,6 +275,14 @@ public struct MapScreen: View {
 
     private var controlRail: some View {
         MapControlRail {
+            // Start a track recording. Hidden once a session is active — the
+            // ambient recording pill takes over (tap it to manage / stop).
+            if recording == nil, let onStartRecording {
+                MapRailButton(symbol: "record.circle", action: onStartRecording)
+                    .accessibilityIdentifier("map.record")
+                    .accessibilityLabel("Record a track")
+                MapRailDivider()
+            }
             MapRailButton(symbol: "square.2.stack.3d", action: onOpenLayers)
                 .accessibilityIdentifier("map.layers")
                 .accessibilityLabel("Map layers")

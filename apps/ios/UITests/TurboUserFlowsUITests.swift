@@ -194,6 +194,35 @@ final class TurboUserFlowsUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [moved], timeout: 5), .completed, "the map did not recenter on the place")
     }
 
+    // MARK: Goal — start recording from the map and keep using the map
+
+    func test_hiker_can_start_recording_from_the_map_and_minimize_it() {
+        let app = launch()
+
+        // Start a recording straight from the map's control rail.
+        XCTAssertTrue(app.buttons["map.record"].waitForExistence(timeout: 10))
+        app.buttons["map.record"].tap()
+        XCTAssertTrue(app.buttons["recording.stop"].waitForExistence(timeout: 5))
+
+        // Minimize — the session keeps running and the map shows an ambient pill.
+        app.buttons["recording.minimize"].tap()
+        XCTAssertTrue(app.buttons["map.recording"].waitForExistence(timeout: 5),
+                      "the recording pill should appear on the map after minimizing")
+
+        // The pill reopens the same session; stop and discard to finish.
+        app.buttons["map.recording"].tap()
+        XCTAssertTrue(app.buttons["recording.stop"].waitForExistence(timeout: 5))
+        app.buttons["recording.stop"].tap()
+
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["Discard"].tap()
+
+        // Session ended — the pill is gone and the start control is back.
+        XCTAssertTrue(app.buttons["map.record"].waitForExistence(timeout: 5),
+                      "the record control should return once the session ends")
+    }
+
     // MARK: Goal — record a hike and save it
 
     func test_hiker_can_record_a_track_and_save_it() {
