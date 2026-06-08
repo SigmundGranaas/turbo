@@ -180,7 +180,6 @@ fun TurboMap(
     // The loaded style — on-map geometry (track/route/measure/user) is rendered as native
     // MapLibre layers on it, so it moves in the same GL frame as the base map (no drift).
     var style by remember { mutableStateOf<Style?>(null) }
-    val px = density.density
 
     Box(modifier = modifier) {
         AndroidView(factory = {
@@ -193,7 +192,7 @@ fun TurboMap(
                     // lands under the status bar / search pill.
                     ml.uiSettings.isCompassEnabled = false
                     ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) { loaded ->
-                        loaded.installTurboLayers(trackColor, routeColor, measureColor, px)
+                        loaded.installTurboLayers(trackColor, routeColor, measureColor)
                         style = loaded
                         styledBase = base
                         styledOverlays = overlays
@@ -243,7 +242,7 @@ fun TurboMap(
         if (ml != null && (styledBase != base || styledOverlays != overlays)) {
             style = null // the old Style is torn down; re-installed in the callback below
             ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) { loaded ->
-                loaded.installTurboLayers(trackColor, routeColor, measureColor, px)
+                loaded.installTurboLayers(trackColor, routeColor, measureColor)
                 style = loaded
                 styledBase = base
                 styledOverlays = overlays
@@ -505,34 +504,36 @@ private fun Style.installTurboLayers(
     trackColor: Color,
     routeColor: Color,
     measureColor: Color,
-    density: Float,
 ) {
     if (getSource(SRC_TRACK) != null) return
     listOf(SRC_TRACK, SRC_ROUTE, SRC_MEASURE_LINE, SRC_MEASURE_PTS, SRC_USER).forEach { addSource(GeoJsonSource(it)) }
 
+    // MapLibre line-width / circle-radius are in density-independent (logical) pixels —
+    // the renderer applies the display pixel-ratio itself, so these are dp-equivalent and
+    // must NOT be pre-multiplied by density (that double-scaled the line + user dot huge).
     fun line(id: String, src: String, color: Color, widthDp: Float) = LineLayer(id, src).withProperties(
         PropertyFactory.lineColor(color.toArgb()),
-        PropertyFactory.lineWidth(widthDp * density),
+        PropertyFactory.lineWidth(widthDp),
         PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
         PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
     )
-    addLayer(line("turbo-track-layer", SRC_TRACK, trackColor, 5f))
-    addLayer(line("turbo-route-layer", SRC_ROUTE, routeColor, 5f))
-    addLayer(line("turbo-measure-line-layer", SRC_MEASURE_LINE, measureColor, 4f))
+    addLayer(line("turbo-track-layer", SRC_TRACK, trackColor, 4f))
+    addLayer(line("turbo-route-layer", SRC_ROUTE, routeColor, 4f))
+    addLayer(line("turbo-measure-line-layer", SRC_MEASURE_LINE, measureColor, 3f))
     addLayer(
         CircleLayer("turbo-measure-pts-layer", SRC_MEASURE_PTS).withProperties(
-            PropertyFactory.circleRadius(4f * density),
+            PropertyFactory.circleRadius(4f),
             PropertyFactory.circleColor(measureColor.toArgb()),
             PropertyFactory.circleStrokeColor(WHITE),
-            PropertyFactory.circleStrokeWidth(2f * density),
+            PropertyFactory.circleStrokeWidth(1.5f),
         ),
     )
     addLayer(
         CircleLayer("turbo-user-layer", SRC_USER).withProperties(
-            PropertyFactory.circleRadius(6f * density),
+            PropertyFactory.circleRadius(7f),
             PropertyFactory.circleColor(USER_BLUE),
             PropertyFactory.circleStrokeColor(WHITE),
-            PropertyFactory.circleStrokeWidth(3f * density),
+            PropertyFactory.circleStrokeWidth(3f),
         ),
     )
 }

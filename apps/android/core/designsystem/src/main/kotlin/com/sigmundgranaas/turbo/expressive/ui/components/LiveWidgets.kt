@@ -1,11 +1,5 @@
 package com.sigmundgranaas.turbo.expressive.ui.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -43,49 +37,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
-import kotlin.math.sin
-
-/**
- * The signature animated "live GPS" motif: a wavy line that pans horizontally, a
- * Compose translation of the design's repeating SVG wave. Conveys that fixes are
- * streaming in. Purely decorative (no semantics).
- */
-@Composable
-fun WaveStrip(
-    color: Color,
-    modifier: Modifier = Modifier,
-    height: androidx.compose.ui.unit.Dp = 18.dp,
-    animate: Boolean = true,
-) {
-    val transition = rememberInfiniteTransition(label = "wave")
-    val phase = if (animate) {
-        transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(1_100, easing = LinearEasing), RepeatMode.Restart),
-            label = "wavePhase",
-        ).value
-    } else {
-        0f
-    }
-    Canvas(modifier.fillMaxWidth().height(height).testTag("waveStrip")) {
-        val h = size.height
-        val mid = h / 2f
-        val amp = h / 2.6f
-        val wavelength = with(this) { 44.dp.toPx() }
-        val shift = phase * wavelength
-        val path = Path()
-        var x = -wavelength + shift
-        path.moveTo(x, mid)
-        val stepPx = 4f
-        while (x <= size.width + wavelength) {
-            val y = mid + amp * sin((x - shift) / wavelength * 2f * Math.PI.toFloat())
-            path.lineTo(x, y)
-            x += stepPx
-        }
-        drawPath(path, color, style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round))
-    }
-}
 
 /** The vibrant tonal palettes a [LiveMetricTile] can take, mirroring the design's bento. */
 enum class MetricTone { Neutral, Primary, Secondary, Tertiary, Green, Red }

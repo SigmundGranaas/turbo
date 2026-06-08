@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
@@ -102,8 +103,9 @@ fun LiveSheet(
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val full = maxHeight * 0.92f
         val half = maxHeight * 0.56f
-        // Peek must clear the hero + pinned actions so the glance state is never clipped.
-        val peek = minOf(312.dp, maxHeight * 0.6f)
+        // Peek must clear the hero + pinned actions (incl. the nav-bar inset) so the
+        // glance state is never clipped.
+        val peek = minOf(340.dp, maxHeight * 0.64f)
         val target = when (detent) {
             LiveDetent.Peek -> peek
             LiveDetent.Half -> half
@@ -171,8 +173,11 @@ fun LiveSheet(
                 else FollowBody(stats, metric, detent, elevations, nextWaypoint)
                 Spacer(Modifier.height(8.dp))
             }
-            // Controls stay reachable at every detent — never scrolled away.
-            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            // Controls stay reachable at every detent — never scrolled away, and lifted
+            // clear of the gesture-nav bar so they're not half-behind the system inset.
+            Column(
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
                 if (stats.recording) {
                     if (detent == LiveDetent.Peek) PrimaryStopRow(stats.paused, onTogglePause, onStop)
                     else FullActions(stats.paused, onTogglePause, onStop)

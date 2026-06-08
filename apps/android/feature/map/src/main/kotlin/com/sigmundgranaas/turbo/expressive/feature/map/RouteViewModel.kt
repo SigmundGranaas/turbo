@@ -93,6 +93,18 @@ class RouteViewModel @Inject constructor(
         setWaypoints(Waypoints.insertLeastDetour(current, point), debounce = true)
     }
 
+    /**
+     * Extend the route by appending a waypoint to the END (the new destination; the old
+     * destination becomes a via). This is what sequential map taps do — predictable
+     * order — as opposed to [addStop], which inserts a POI at the least-detour position.
+     */
+    fun appendWaypoint(point: LatLng) {
+        val current = _waypoints.value
+        if (current.size < 2) return
+        pushUndo()
+        setWaypoints(current + point, debounce = true)
+    }
+
     /** Remove the waypoint at [index] (a route needs at least two; otherwise clears). */
     fun removeWaypoint(index: Int) {
         val current = _waypoints.value

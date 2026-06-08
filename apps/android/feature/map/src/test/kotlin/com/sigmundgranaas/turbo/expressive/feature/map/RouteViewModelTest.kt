@@ -308,6 +308,23 @@ class RouteViewModelTest {
     }
 
     @Test
+    fun `appendWaypoint extends the route at the end in tap order`() = runTest(mainRule.dispatcher) {
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow())
+        vm.planRoute(a, b); advanceUntilIdle()
+        val c = LatLng(69.02, 18.02)
+        vm.appendWaypoint(c); advanceUntilIdle()
+        // c lands LAST (new destination), not inserted in the middle.
+        assertEquals(listOf(a, b, c), vm.waypoints.value)
+    }
+
+    @Test
+    fun `appendWaypoint is a no-op before a route exists`() = runTest(mainRule.dispatcher) {
+        val vm = RouteViewModel(FakeRouteRepository(emptyList()), FakePathRepository(), FakeOfflineTileManager(), follow())
+        vm.appendWaypoint(a); advanceUntilIdle()
+        assertEquals(emptyList<LatLng>(), vm.waypoints.value)
+    }
+
+    @Test
     fun `following a saved track projects live GPS into the read-model the sheet renders`() = runTest(mainRule.dispatcher) {
         // No router involved: a saved/imported track is just geometry. This is the whole
         // follow path the emulator couldn't reach — exercised headlessly via a fake GPS walk.

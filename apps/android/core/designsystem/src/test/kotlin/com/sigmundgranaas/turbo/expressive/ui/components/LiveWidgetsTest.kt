@@ -31,12 +31,6 @@ class LiveWidgetsTest {
     }
 
     @Test
-    fun `wave strip renders without animation in tests`() {
-        composeRule.setContent { WaveStrip(color = androidx.compose.ui.graphics.Color.Red, animate = false) }
-        composeRule.onNodeWithTag("waveStrip").assertIsDisplayed()
-    }
-
-    @Test
     fun `elevation spark renders for a real profile`() {
         composeRule.setContent {
             LiveElevationSpark(

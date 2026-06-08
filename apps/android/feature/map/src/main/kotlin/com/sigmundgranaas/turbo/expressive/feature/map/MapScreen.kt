@@ -323,7 +323,7 @@ fun MapScreen(
         val screenPx = with(density) { configuration.screenHeightDp.dp.toPx() }
         val sheetPx = when (liveDetent) {
             com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Peek ->
-                with(density) { 312.dp.toPx() }.coerceAtMost(screenPx * 0.6f)
+                with(density) { 340.dp.toPx() }.coerceAtMost(screenPx * 0.64f)
             com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half -> screenPx * 0.56f
             com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Full -> screenPx * 0.92f
         }
@@ -543,16 +543,17 @@ fun MapScreen(
                                 // A stop is selected → an empty-map tap just deselects it
                                 // (taps that land on a stop are consumed by its marker).
                                 selectedWaypoint != null -> selectedWaypoint = null
-                                // Route exists → tapping the map (or its line) inserts a stop
-                                // at the least-detour position.
+                                // Route exists → each further tap EXTENDS it (appends a new
+                                // destination), so points land in the order you tap them.
                                 routeViewModel.waypoints.value.size >= 2 -> {
-                                    haptics.toggle(true); routeViewModel.addStop(p)
+                                    haptics.toggle(true); routeViewModel.appendWaypoint(p)
                                 }
+                                // First tap = start, second tap = destination. (Routing from
+                                // the current location is the long-press "Route to here".)
+                                routeOrigin == null -> { haptics.toggle(true); routeOrigin = p }
                                 else -> {
                                     haptics.toggle(true)
-                                    val origin = state.userLocation ?: routeOrigin
-                                    if (origin == null) routeOrigin = p
-                                    else { routeViewModel.planRoute(origin, p); routeOrigin = null }
+                                    routeViewModel.planRoute(routeOrigin!!, p); routeOrigin = null
                                 }
                             }
                         }

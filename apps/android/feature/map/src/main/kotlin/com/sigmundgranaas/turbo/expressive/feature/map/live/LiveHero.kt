@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -37,7 +38,6 @@ import androidx.compose.ui.unit.sp
 import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
 import com.sigmundgranaas.turbo.expressive.feature.map.R
-import com.sigmundgranaas.turbo.expressive.ui.components.WaveStrip
 import androidx.compose.ui.res.stringResource
 
 /** Accent palette for a live surface — red while recording, green while following. */
@@ -129,9 +129,13 @@ fun LiveHero(
         }
         Spacer(Modifier.height(14.dp))
 
-        // Row C — wavy live strip + current speed (both modes).
+        // Row C — the official M3 Expressive wavy indicator as the "live GPS" motif + speed.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            WaveStrip(color = cs.primary, modifier = Modifier.weight(1f))
+            LinearWavyProgressIndicator(
+                modifier = Modifier.weight(1f).height(14.dp).testTag("liveWave"),
+                color = cs.primary,
+                trackColor = onContainer.copy(alpha = .14f),
+            )
             Spacer(Modifier.width(12.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
