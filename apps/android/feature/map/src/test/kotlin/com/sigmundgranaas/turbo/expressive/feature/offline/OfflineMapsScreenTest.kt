@@ -5,9 +5,13 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.sigmundgranaas.turbo.expressive.core.common.Outcome
+import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
+import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.LocationDescription
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +35,10 @@ private class StubOfflineTileManager(initial: List<OfflineRegionInfo>) : Offline
     }
 }
 
+private val stubGeo = object : ReverseGeocodeRepository {
+    override suspend fun describe(point: LatLng): Outcome<LocationDescription> = Outcome.Success(LocationDescription("Here"))
+}
+
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
@@ -42,7 +50,7 @@ class OfflineMapsScreenTest {
     @Test
     fun `empty state explains how to download`() {
         composeRule.setContent {
-            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(emptyList())))
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(emptyList()), stubGeo))
         }
         composeRule.onNodeWithText("No offline maps yet").assertIsDisplayed()
     }
@@ -51,7 +59,7 @@ class OfflineMapsScreenTest {
     fun `a downloading region shows its name and progress`() {
         val region = OfflineRegionInfo(id = 1, name = "Tromsø", complete = false, progress = 0.42f, sizeBytes = 5_000_000)
         composeRule.setContent {
-            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(listOf(region))))
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(listOf(region)), stubGeo))
         }
         composeRule.onNodeWithText("Tromsø").assertIsDisplayed()
         composeRule.onNodeWithText("Downloading… 42%").assertIsDisplayed()
@@ -62,7 +70,7 @@ class OfflineMapsScreenTest {
         val region = OfflineRegionInfo(id = 9, name = "Lofoten", complete = true, progress = 1f, sizeBytes = 12_000_000)
         val manager = StubOfflineTileManager(listOf(region))
         composeRule.setContent {
-            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager))
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
         }
         composeRule.onNodeWithContentDescription("Delete Lofoten").performClick()
         composeRule.waitForIdle()

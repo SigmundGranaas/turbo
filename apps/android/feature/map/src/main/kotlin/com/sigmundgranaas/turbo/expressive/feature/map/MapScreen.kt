@@ -1021,7 +1021,7 @@ fun MapScreen(
                 controller?.let { ctrl ->
                     val bounds = ctrl.visibleBounds()
                     val centre = LatLng((bounds.north + bounds.south) / 2, (bounds.east + bounds.west) / 2)
-                    offlineViewModel.download(formatCoords(centre), state.baseLayer, bounds, ctrl.zoom())
+                    offlineViewModel.download(centre, state.baseLayer, bounds, ctrl.zoom())
                 }
                 showLayers = false
                 onOpenOffline()

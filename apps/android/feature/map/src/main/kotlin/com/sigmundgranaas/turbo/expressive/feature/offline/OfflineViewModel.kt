@@ -1,12 +1,18 @@
 package com.sigmundgranaas.turbo.expressive.feature.offline
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.sigmundgranaas.turbo.expressive.core.common.Outcome
+import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
+import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
+import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.floor
 
@@ -18,6 +24,7 @@ import kotlin.math.floor
 @HiltViewModel
 class OfflineViewModel @Inject constructor(
     private val manager: OfflineTileManager,
+    private val reverseGeocode: ReverseGeocodeRepository,
 ) : ViewModel() {
 
     val regions: StateFlow<List<OfflineRegionInfo>> = manager.regions
@@ -29,11 +36,16 @@ class OfflineViewModel @Inject constructor(
     /**
      * Download the currently-visible [bounds] at base map [base], spanning a few zoom
      * levels around the current camera [fromZoom] so the area is usable when offline.
+     * Names the region by the reverse-geocoded place at [centre] ("Storfjellet" /
+     * "Tromsø") rather than raw coordinates, falling back to coordinates off-grid.
      */
-    fun download(name: String, base: BaseLayer, bounds: GeoBounds, fromZoom: Double) {
+    fun download(centre: LatLng, base: BaseLayer, bounds: GeoBounds, fromZoom: Double) {
         val minZoom = floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM)
         val maxZoom = (minZoom + ZOOM_SPAN).coerceAtMost(MAX_ZOOM)
-        manager.download(name, base, bounds, minZoom, maxZoom)
+        viewModelScope.launch {
+            val place = (reverseGeocode.describe(centre) as? Outcome.Success)?.value?.title
+            manager.download(place ?: formatCoords(centre), base, bounds, minZoom, maxZoom)
+        }
     }
 
     fun delete(id: Long) = manager.delete(id)
