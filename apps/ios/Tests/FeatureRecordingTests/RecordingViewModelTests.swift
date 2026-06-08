@@ -81,6 +81,20 @@ struct RecordingViewModelTests {
         #expect(spy.backgroundUpdates == false)
     }
 
+    @Test("keep recording resumes without discarding the captured track")
+    func resumeKeepsTrack() async {
+        let vm = RecordingViewModel(location: provider(), pathRepository: InMemoryPathRepository(seed: []))
+        vm.start()
+        try? await Task.sleep(for: .milliseconds(250))
+        let captured = vm.pointCount
+        #expect(captured == 3)
+        vm.stop()
+        #expect(vm.isRecording == false)
+        vm.resume()
+        #expect(vm.isRecording)
+        #expect(vm.pointCount >= captured)   // track preserved, NOT reset to 0
+    }
+
     @Test("recording begins a Live Activity and ends it on stop")
     func liveActivityLifecycle() async {
         let presenter = ActivitySpy()

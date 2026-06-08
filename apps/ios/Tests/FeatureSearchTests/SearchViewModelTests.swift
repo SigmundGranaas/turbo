@@ -13,7 +13,7 @@ struct SearchViewModelTests {
         vm.query = "storv"
         vm.runSearch()
         #expect(vm.isSearching)              // shows progress immediately
-        try? await Task.sleep(for: .milliseconds(120))
+        try? await Task.sleep(for: .milliseconds(450))   // past the 300ms debounce
         #expect(!vm.results.isEmpty)
         #expect(!vm.isSearching)             // cleared when results arrive
 

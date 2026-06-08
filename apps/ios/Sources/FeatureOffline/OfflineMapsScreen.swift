@@ -21,6 +21,13 @@ public struct OfflineMapsScreen: View {
     public var body: some View {
         List {
             Section {
+                if viewModel.regions.isEmpty {
+                    ContentUnavailableView(
+                        "No Offline Maps",
+                        systemImage: "square.and.arrow.down",
+                        description: Text("Download a region to keep its map tiles available off the grid.")
+                    )
+                }
                 ForEach(viewModel.regions) { region in
                     OfflineRegionRow(region: region) { viewModel.delete(id: region.id) }
                 }

@@ -2,8 +2,9 @@ import SwiftUI
 import CoreAuth
 import CoreDesignSystem
 
-/// Sign in — hero map, wordmark, and the Apple / Email options. Mirrors
-/// `LoginScreen` (design) / `feature.auth.AuthScreen` (Android).
+/// Sign in — hero map, wordmark, and Google sign-in. Google is the only
+/// configured provider, so it's the only option shown (no inert alternatives).
+/// Mirrors `LoginScreen` (design) / `feature.auth.AuthScreen` (Android).
 public struct AuthScreen: View {
     @Environment(\.turbo) private var t
     @Environment(\.dismiss) private var dismiss
@@ -28,9 +29,12 @@ public struct AuthScreen: View {
                     .multilineTextAlignment(.center)
                     .padding(.top, 6)
 
-                VStack(spacing: 12) {
-                    Button(action: viewModel.signIn) {
-                        HStack(spacing: 10) {
+                Button(action: viewModel.signIn) {
+                    HStack(spacing: 10) {
+                        if viewModel.isWorking {
+                            ProgressView().tint(t.background)
+                            Text("Signing in…").font(.turboHeadline)
+                        } else {
                             Text("G")
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(t.blue)
@@ -38,19 +42,12 @@ public struct AuthScreen: View {
                                 .background(.white, in: Circle())
                             Text("Continue with Google").font(.turboHeadline)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .background(t.label, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .foregroundStyle(t.background)
                     }
-                    .accessibilityIdentifier("auth.google")
-                    Button(action: viewModel.signIn) {
-                        Label("Continue with Email", systemImage: "envelope.fill")
-                            .font(.turboHeadline)
-                            .frame(maxWidth: .infinity, minHeight: 52)
-                            .background(t.fill3, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .foregroundStyle(t.label)
-                    }
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(t.label, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .foregroundStyle(t.background)
                 }
+                .accessibilityIdentifier("auth.google")
                 .padding(.top, 28)
                 .disabled(viewModel.isWorking)
 
@@ -68,6 +65,14 @@ public struct AuthScreen: View {
         .task { viewModel.start() }
         .onChange(of: viewModel.state) { _, state in
             if state.account != nil { onSignedIn(); dismiss() }
+        }
+        .alert("Couldn't Sign In", isPresented: Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.dismissError() } }
+        )) {
+            Button("OK", role: .cancel) { viewModel.dismissError() }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
         }
     }
 

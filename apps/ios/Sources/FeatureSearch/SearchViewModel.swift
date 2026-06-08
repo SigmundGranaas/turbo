@@ -47,6 +47,10 @@ public final class SearchViewModel {
         }
         isSearching = true
         searchTask = Task { [weak self, repository] in
+            // Debounce — coalesce keystrokes so we hit the network once the user
+            // pauses, not on every character. A new keystroke cancels this task.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
             let hits = await repository.search(q)
             if !Task.isCancelled {
                 self?.results = hits

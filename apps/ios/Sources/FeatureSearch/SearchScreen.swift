@@ -50,6 +50,10 @@ public struct SearchScreen: View {
             .navigationTitle("Search")
             .toolbarTitleDisplayMode(.inline)
             .searchable(text: $viewModel.query, placement: searchPlacement, prompt: "Search Turbo")
+            .autocorrectionDisabled()                       // Norwegian place names aren't in the dictionary
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            #endif
             .onChange(of: viewModel.query) { viewModel.runSearch() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

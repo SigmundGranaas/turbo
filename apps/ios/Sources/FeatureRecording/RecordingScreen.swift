@@ -58,7 +58,7 @@ public struct RecordingScreen: View {
             TextField("Name", text: $name)
             Button("Save") { viewModel.save(name: name); dismiss() }
             Button("Discard", role: .destructive) { viewModel.discard(); dismiss() }
-            Button("Keep Recording", role: .cancel) { viewModel.start() }
+            Button("Keep Recording", role: .cancel) { viewModel.resume() }
         } message: {
             Text("Name this track to save it to your paths.")
         }

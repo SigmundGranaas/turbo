@@ -68,8 +68,10 @@ struct AccountMenuSheet: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(accountName ?? "Not signed in").font(.turboTitle2).foregroundStyle(t.label)
+                    .lineLimit(1).truncationMode(.tail)
                 if let accountEmail {
                     Text(accountEmail).font(.turboSubhead).foregroundStyle(t.label2)
+                        .lineLimit(1).truncationMode(.middle)
                 } else if canSignIn {
                     Text("Sign in to sync").font(.turboSubhead).foregroundStyle(t.blue)
                 }

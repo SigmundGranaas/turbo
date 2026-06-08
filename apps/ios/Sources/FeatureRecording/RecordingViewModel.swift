@@ -43,10 +43,22 @@ public final class RecordingViewModel {
         points = []; elevations = []
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
         startedAt = now()
-        isRecording = true
-        // Always-auth + background updates keep the track alive when the phone is
-        // pocketed or locked — the iOS analogue of Android's foreground service.
+        // Always-auth keeps the track alive when the phone is pocketed or locked —
+        // the iOS analogue of Android's foreground service. Only needed on a fresh
+        // start; a resume reuses the existing grant.
         location.requestAlwaysAuthorization()
+        beginObserving()
+    }
+
+    /// Resume a stopped-but-unsaved recording (the "Keep Recording" path) WITHOUT
+    /// discarding the captured track — unlike ``start()``, which begins anew.
+    public func resume() {
+        guard !isRecording, startedAt != nil else { return }
+        beginObserving()
+    }
+
+    private func beginObserving() {
+        isRecording = true
         location.setBackgroundUpdates(true)
         activity.begin(title: "Recording")
 

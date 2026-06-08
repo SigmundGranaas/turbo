@@ -19,8 +19,10 @@ struct MeasureCard: View {
             Spacer()
             Button { viewModel.removeLast() } label: { Image(systemName: "arrow.uturn.backward") }
                 .disabled(viewModel.points.isEmpty)
+                .accessibilityLabel("Undo last point")
             Button { onClose() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(t.label3) }
                 .accessibilityIdentifier("measure.close")
+                .accessibilityLabel("Done measuring")
         }
         .padding(14)
         .frame(height: 60)

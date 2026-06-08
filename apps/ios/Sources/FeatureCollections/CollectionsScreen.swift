@@ -20,7 +20,7 @@ public struct CollectionsScreen: View {
                 ContentUnavailableView(
                     "No Collections",
                     systemImage: "folder",
-                    description: Text("Collections you create on your other devices sync here.")
+                    description: Text("Tap + to group markers and tracks into a collection. They sync across your devices.")
                 )
             }
             ForEach(viewModel.collections) { collection in

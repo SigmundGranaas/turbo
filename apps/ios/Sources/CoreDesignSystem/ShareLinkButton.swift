@@ -75,7 +75,11 @@ private struct ShareLinkResultSheet: View {
                     #if canImport(UIKit)
                     UIPasteboard.general.string = url.absoluteString
                     #endif
-                    copied = true
+                    withAnimation { copied = true }
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        withAnimation { copied = false }
+                    }
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                         .frame(maxWidth: .infinity).padding(.vertical, 12)

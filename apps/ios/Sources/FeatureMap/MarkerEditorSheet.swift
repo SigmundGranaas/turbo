@@ -8,6 +8,7 @@ public struct MarkerEditorSheet: View {
     @Environment(\.turbo) private var t
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: MarkerEditorViewModel
+    @State private var confirmingDelete = false
 
     public init(viewModel: MarkerEditorViewModel) {
         _viewModel = State(initialValue: viewModel)
@@ -37,7 +38,7 @@ public struct MarkerEditorSheet: View {
                 if viewModel.isEditing {
                     Section {
                         Button(role: .destructive) {
-                            viewModel.delete(); dismiss()
+                            confirmingDelete = true
                         } label: {
                             Label("Delete Marker", systemImage: "trash")
                         }
@@ -46,6 +47,12 @@ public struct MarkerEditorSheet: View {
             }
             .navigationTitle(viewModel.isEditing ? "Edit Marker" : "New Marker")
             .toolbarTitleDisplayMode(.inline)
+            .confirmationDialog("Delete Marker?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { viewModel.delete(); dismiss() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently removes the marker.")
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

@@ -142,16 +142,14 @@ public struct SearchPill: View {
                     .font(.system(size: 17))
                     .foregroundStyle(t.label2)
                 Spacer(minLength: 0)
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 17))
-                    .foregroundStyle(t.label2)
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .frame(height: 52)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .liquidGlass(Capsule())
+        .accessibilityLabel("Search places and trails")
     }
 }
 
