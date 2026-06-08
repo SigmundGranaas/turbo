@@ -14,25 +14,25 @@ public struct CollectionsScreen: View {
 
     public var body: some View {
         List {
-            Section {
-                ForEach(viewModel.collections) { collection in
-                    HStack(spacing: 13) {
-                        Glyph(symbol: collection.icon ?? "folder.fill", color: color(for: collection), size: 38, cornerRadius: 10)
-                        Text(collection.name).font(.turboBody).foregroundStyle(t.label)
-                        Spacer()
-                        Text("\(collection.itemCount)").font(.turboBody).foregroundStyle(t.label2)
-                    }
-                    .swipeActions {
-                        Button(role: .destructive) { viewModel.delete(id: collection.id) } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
+            if viewModel.collections.isEmpty {
+                ContentUnavailableView(
+                    "No Collections",
+                    systemImage: "folder",
+                    description: Text("Collections you create on your other devices sync here.")
+                )
+            }
+            ForEach(viewModel.collections) { collection in
+                HStack(spacing: 13) {
+                    Glyph(symbol: collection.icon ?? "folder.fill", color: color(for: collection), size: 38, cornerRadius: 10)
+                    Text(collection.name).font(.turboBody).foregroundStyle(t.label)
+                    Spacer()
+                    Text("\(collection.itemCount)").font(.turboBody).foregroundStyle(t.label2)
+                }
+                .swipeActions {
+                    Button(role: .destructive) { viewModel.delete(id: collection.id) } label: {
+                        Label("Delete", systemImage: "trash")
                     }
                 }
-            }
-
-            Section {
-                Label("New Collection", systemImage: "plus")
-                    .foregroundStyle(t.blue)
             }
         }
         .navigationTitle("Collections")

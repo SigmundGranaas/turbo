@@ -43,8 +43,6 @@ public struct PathsScreen: View {
                     Label("Record New Path", systemImage: "record.circle").foregroundStyle(t.red)
                 }
                 .accessibilityIdentifier("paths.record")
-                Label("Draw a Route", systemImage: "pencil.line")
-                    .foregroundStyle(t.blue)
             }
         }
         .navigationTitle("Paths")

@@ -171,9 +171,8 @@ final class TurboUserFlowsUITests: XCTestCase {
 
         // Back on the map, signed in — the account now shows the hiker's identity.
         openMenu(app)
-        let signedIn = app.buttons["menu.account"]
-        XCTAssertTrue(signedIn.waitForExistence(timeout: 5))
-        XCTAssertTrue(signedIn.label.contains("sigmund@granaas.no"), "the hiker was not signed in")
+        XCTAssertTrue(app.staticTexts["sigmund@granaas.no"].waitForExistence(timeout: 5),
+                      "the hiker was not signed in")
     }
 
     // MARK: Goal — searching for a place takes me there on the map

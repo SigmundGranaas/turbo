@@ -56,8 +56,8 @@ public final class AppContainer {
         searchRepository = KartverketSearchRepository()
         offlineManager = DiskOfflineTileManager()
         locationProvider = CoreLocationProvider()
-        weatherProvider = InMemoryWeatherProvider()
-        avalancheProvider = InMemoryAvalancheProvider()
+        weatherProvider = MetNoWeatherProvider()
+        avalancheProvider = VarsomAvalancheProvider()
         isOnline = config.isOnline
 
         let cursor = UserDefaultsCursorStore()
@@ -81,12 +81,9 @@ public final class AppContainer {
                 auth: authRepository, settings: settingsRepository
             )
         } else {
-            // Local: in-memory auth + sync transports.
-            authRepository = InMemoryAuthRepository()
-            syncController = AppContainer.makeSyncController(
-                markers: markerRepository, paths: pathRepository, collections: collectionRepository,
-                auth: authRepository, settings: settingsRepository, cursor: cursor
-            )
+            // Offline: no auth backend (always signed out, no sign-in) and no sync.
+            authRepository = UnauthenticatedAuthRepository()
+            syncController = SyncController(units: [], auth: authRepository, settings: settingsRepository)
         }
     }
 
@@ -101,7 +98,8 @@ public final class AppContainer {
         offlineManager: OfflineTileManager = InMemoryOfflineTileManager(),
         locationProvider: LocationProvider = SimulatedLocationProvider(fixes: []),
         weatherProvider: WeatherProvider = InMemoryWeatherProvider(),
-        avalancheProvider: AvalancheProvider = InMemoryAvalancheProvider()
+        avalancheProvider: AvalancheProvider = InMemoryAvalancheProvider(),
+        isOnline: Bool = false
     ) {
         self.markerRepository = markerRepository
         self.settingsRepository = settingsRepository
@@ -113,7 +111,7 @@ public final class AppContainer {
         self.locationProvider = locationProvider
         self.weatherProvider = weatherProvider
         self.avalancheProvider = avalancheProvider
-        self.isOnline = false
+        self.isOnline = isOnline
         self.syncController = AppContainer.makeSyncController(
             markers: markerRepository, paths: pathRepository, collections: collectionRepository,
             auth: authRepository, settings: settingsRepository, cursor: InMemoryCursorStore()
@@ -136,20 +134,6 @@ public final class AppContainer {
         )
     }
 
-    /// Seed first-run sample content into empty persistent stores so a fresh
-    /// install isn't blank. Idempotent — only fills empty repositories.
-    public func seedIfEmpty() async {
-        if await markerRepository.current().isEmpty {
-            for marker in InMemoryMarkerRepository.sample { await markerRepository.upsert(marker) }
-        }
-        if await pathRepository.current().isEmpty {
-            for path in InMemoryPathRepository.sample { await pathRepository.upsert(path) }
-        }
-        if await collectionRepository.current().isEmpty {
-            for collection in InMemoryCollectionRepository.sample { await collectionRepository.upsert(collection) }
-        }
-    }
-
     /// Choose the container for this launch. With `-uitest` the app runs on
     /// deterministic, seeded **in-memory** backends (no network, no OAuth) so the
     /// end-to-end UI suite is hermetic; otherwise it uses the live backends.
@@ -167,7 +151,8 @@ public final class AppContainer {
                 collectionRepository: InMemoryCollectionRepository(),
                 authRepository: InMemoryAuthRepository(),
                 offlineManager: InMemoryOfflineTileManager(),
-                locationProvider: SimulatedLocationProvider(fixes: fixes, interval: .milliseconds(80))
+                locationProvider: SimulatedLocationProvider(fixes: fixes, interval: .milliseconds(80)),
+                isOnline: true   // exercise the sign-in flow with the in-memory double
             )
         }
         return AppContainer()

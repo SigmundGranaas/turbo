@@ -19,6 +19,7 @@ public struct MapScreen: View {
     private let onOpenLayers: () -> Void
     private let makeWeatherViewModel: ((LatLng) -> WeatherViewModel)?
     private let makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)?
+    private let accountInitials: String?
     @State private var showWeather = false
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
@@ -47,7 +48,8 @@ public struct MapScreen: View {
         onOpenMenu: @escaping () -> Void = {},
         onOpenLayers: @escaping () -> Void = {},
         makeWeatherViewModel: ((LatLng) -> WeatherViewModel)? = nil,
-        makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)? = nil
+        makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)? = nil,
+        accountInitials: String? = nil
     ) {
         self.viewModel = viewModel
         self.onOpenSearch = onOpenSearch
@@ -55,6 +57,7 @@ public struct MapScreen: View {
         self.onOpenLayers = onOpenLayers
         self.makeWeatherViewModel = makeWeatherViewModel
         self.makeAvalancheViewModel = makeAvalancheViewModel
+        self.accountInitials = accountInitials
     }
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
@@ -168,8 +171,9 @@ public struct MapScreen: View {
                 .accessibilityIdentifier("map.weather")
                 .accessibilityLabel("Weather")
                 Spacer()
-                MapAvatar(initials: "SG", action: onOpenMenu)
+                MapAvatar(initials: accountInitials, action: onOpenMenu)
                     .accessibilityIdentifier("map.avatar")
+                    .accessibilityLabel("Account")
             }
             if let place = viewModel.focusedPlace {
                 focusBanner(place)

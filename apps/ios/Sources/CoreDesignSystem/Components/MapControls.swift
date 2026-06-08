@@ -219,20 +219,30 @@ public struct ScaleBar: View {
 
 // MARK: - Account avatar
 
-/// Top-right account button — a glass circle wrapping a gradient monogram.
+/// Top-right account button — a glass circle wrapping a gradient monogram when
+/// signed in, or a generic person glyph when there's no account.
 public struct MapAvatar: View {
     @Environment(\.turbo) private var t
-    let initials: String
+    let initials: String?
     let action: () -> Void
-    public init(initials: String, action: @escaping () -> Void) {
+    public init(initials: String?, action: @escaping () -> Void) {
         self.initials = initials
         self.action = action
     }
     public var body: some View {
         Button(action: action) {
-            Monogram(initials: initials, size: 30)
-                .padding(4)
-                .contentShape(Circle())
+            Group {
+                if let initials {
+                    Monogram(initials: initials, size: 30)
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(t.label2)
+                        .frame(width: 30, height: 30)
+                }
+            }
+            .padding(4)
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .liquidGlass(Circle())

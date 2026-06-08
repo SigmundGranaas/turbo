@@ -8,6 +8,7 @@ import CoreData
 @Observable
 public final class WeatherViewModel {
     public private(set) var summary: WeatherSummary?
+    public private(set) var loaded = false
     private let provider: WeatherProvider
     private let position: LatLng
     private let placeName: String
@@ -20,6 +21,7 @@ public final class WeatherViewModel {
 
     public func load() async {
         summary = await provider.forecast(at: position, placeName: placeName)
+        loaded = true
     }
 }
 
@@ -28,6 +30,7 @@ public final class WeatherViewModel {
 @Observable
 public final class AvalancheViewModel {
     public private(set) var info: AvalancheInfo?
+    public private(set) var loaded = false
     private let provider: AvalancheProvider
     private let position: LatLng
 
@@ -38,5 +41,6 @@ public final class AvalancheViewModel {
 
     public func load() async {
         info = await provider.danger(at: position)
+        loaded = true
     }
 }

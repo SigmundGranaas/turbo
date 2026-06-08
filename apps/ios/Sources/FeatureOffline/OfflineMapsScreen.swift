@@ -11,7 +11,6 @@ import CoreDesignSystem
 public struct OfflineMapsScreen: View {
     @Environment(\.turbo) private var t
     @State private var viewModel: OfflineViewModel
-    @State private var autoUpdate = true
     private let onBack: (() -> Void)?
 
     public init(viewModel: OfflineViewModel, onBack: (() -> Void)? = nil) {
@@ -34,10 +33,6 @@ public struct OfflineMapsScreen: View {
                     Label("Download New Region", systemImage: "plus")
                 }
             }
-
-            Section {
-                Toggle("Auto-update over Wi-Fi", isOn: $autoUpdate)
-            }
         }
         .navigationTitle("Offline Maps")
         .toolbarTitleDisplayMode(.inlineLarge)
@@ -54,7 +49,16 @@ public struct OfflineMapsScreen: View {
 
     private var storageFooter: String {
         let used = viewModel.regions.reduce(Int64(0)) { $0 + $1.sizeBytes }
-        return "Offline regions stay current for trips out of signal. \(Geo.formatBytes(used)) of 64 GB used."
+        let base = "Offline regions stay current for trips out of signal."
+        guard let free = Self.freeDiskBytes() else { return "\(base) \(Geo.formatBytes(used)) downloaded." }
+        return "\(base) \(Geo.formatBytes(used)) downloaded · \(Geo.formatBytes(free)) free."
+    }
+
+    /// Real free space on the device's volume.
+    private static func freeDiskBytes() -> Int64? {
+        let url = URL(fileURLWithPath: NSHomeDirectory())
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
     }
 
     /// Demo download — the real flow downloads the current map camera box.

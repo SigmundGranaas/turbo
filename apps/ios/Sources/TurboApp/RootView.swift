@@ -47,14 +47,16 @@ public struct RootView: View {
                     onOpenMenu: { showMenu = true },
                     onOpenLayers: { showLayers = true },
                     makeWeatherViewModel: { container.makeWeatherViewModel(position: $0, placeName: "Conditions") },
-                    makeAvalancheViewModel: { container.makeAvalancheViewModel(position: $0) }
+                    makeAvalancheViewModel: { container.makeAvalancheViewModel(position: $0) },
+                    accountInitials: root.account.map { AccountMenuSheet.initials($0.displayName) }
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }
             .sheet(isPresented: $showMenu) {
                 AccountMenuSheet(
-                    accountName: root.account?.displayName ?? "Guest",
+                    accountName: root.account?.displayName,
                     accountEmail: root.account?.email,
+                    canSignIn: container.isOnline && root.account == nil,
                     onSelect: { path.append($0) },
                     onAccount: { showAuth = true }
                 )
@@ -75,7 +77,6 @@ public struct RootView: View {
             }
         }
         .task {
-            await container.seedIfEmpty()
             root.start()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -99,7 +100,7 @@ public struct RootView: View {
         case .settings:
             SettingsScreen(
                 viewModel: container.makeSettingsViewModel(),
-                accountName: root.account?.displayName ?? "Sigmund Granaas",
+                accountName: root.account?.displayName,
                 onOpenOffline: { path.append(Route.offline) }
             )
         case .offline:

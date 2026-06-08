@@ -37,6 +37,22 @@ public protocol AuthRepository: Sendable {
     func token() async -> String?
 }
 
+/// Used when no auth backend is configured (offline build): the user is simply
+/// always signed out and sign-in isn't offered. No fabricated identity.
+public struct UnauthenticatedAuthRepository: AuthRepository {
+    public init() {}
+    public func state() async -> AsyncStream<AuthState> {
+        AsyncStream { continuation in continuation.yield(.signedOut); continuation.finish() }
+    }
+    public func current() async -> AuthState { .signedOut }
+    public func token() async -> String? { nil }
+    public func signIn() async -> Outcome<Account> {
+        .failure(NSError(domain: "Turbo.Auth", code: 1,
+                         userInfo: [NSLocalizedDescriptionKey: "Sign-in is not available in this build."]))
+    }
+    public func signOut() async {}
+}
+
 public final class InMemoryAuthRepository: AuthRepository {
     private let store: ReactiveStore<AuthState>
 

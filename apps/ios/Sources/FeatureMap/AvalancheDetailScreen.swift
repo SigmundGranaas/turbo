@@ -35,6 +35,13 @@ public struct AvalancheDetailScreen: View {
                         .font(.turboFootnote).foregroundStyle(t.label2)
                 }
                 .padding(16)
+            } else if viewModel.loaded {
+                ContentUnavailableView(
+                    "No Warning",
+                    systemImage: "checkmark.shield",
+                    description: Text("No avalanche warning is issued for this area.")
+                )
+                .padding(.top, 60)
             } else {
                 ProgressView().padding(40)
             }

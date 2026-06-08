@@ -1,17 +1,17 @@
 import Foundation
 import CoreModel
 
-/// Weather for a coordinate. The real implementation uses WeatherKit (needs the
-/// capability); this in-memory one returns a deterministic sample so the UI works
-/// offline. Mirrors the weather side of Android's `ConditionsRepository`.
+/// Weather for a coordinate. `nil` means "no forecast available" (the UI then
+/// hides weather rather than inventing a value). The real implementation is
+/// ``MetNoWeatherProvider``; this in-memory one is a deterministic test double.
 public protocol WeatherProvider: Sendable {
-    func forecast(at position: LatLng, placeName: String) async -> WeatherSummary
+    func forecast(at position: LatLng, placeName: String) async -> WeatherSummary?
 }
 
 public struct InMemoryWeatherProvider: WeatherProvider {
     public init() {}
 
-    public func forecast(at position: LatLng, placeName: String) async -> WeatherSummary {
+    public func forecast(at position: LatLng, placeName: String) async -> WeatherSummary? {
         let hours = (0..<12).map { i in
             HourForecast(label: i == 0 ? "Now" : "\((14 + i) % 24)",
                          temperatureC: -3 + Double(i) * 0.4,
@@ -28,15 +28,17 @@ public struct InMemoryWeatherProvider: WeatherProvider {
     }
 }
 
-/// Avalanche danger for a coordinate. Real implementation hits the Varsom/NVE API;
-/// in-memory returns a sample. Mirrors the avalanche side of `ConditionsRepository`.
+/// Avalanche danger for a coordinate. `nil` means "no warning for this area"
+/// (outside a forecast region, or none issued) — the UI then hides it rather than
+/// showing a fake level. Real implementation is ``VarsomAvalancheProvider``.
 public protocol AvalancheProvider: Sendable {
-    func danger(at position: LatLng) async -> AvalancheInfo
+    func danger(at position: LatLng) async -> AvalancheInfo?
 }
 
 public struct InMemoryAvalancheProvider: AvalancheProvider {
-    public init() {}
-    public func danger(at position: LatLng) async -> AvalancheInfo {
-        AvalancheInfo(region: "Lyngen", level: 3, headline: "Considerable — wind slabs on N–E aspects above 600 m.")
+    private let stub: AvalancheInfo?
+    public init(stub: AvalancheInfo? = AvalancheInfo(region: "Lyngen", level: 3, headline: "Considerable — wind slabs on N–E aspects above 600 m.")) {
+        self.stub = stub
     }
+    public func danger(at position: LatLng) async -> AvalancheInfo? { stub }
 }

@@ -5,19 +5,19 @@ import CoreModel
 @Suite("Conditions providers")
 struct ConditionsProvidersTests {
 
-    @Test("weather provider returns a populated forecast")
+    @Test("weather test-double returns a populated forecast")
     func weather() async {
         let summary = await InMemoryWeatherProvider().forecast(at: LatLng(lat: 69.6, lng: 20.0), placeName: "Lyngen")
-        #expect(summary.placeName == "Lyngen")
-        #expect(!summary.hourly.isEmpty)
-        #expect(summary.daily.count >= 7)
+        #expect(summary?.placeName == "Lyngen")
+        #expect(summary?.hourly.isEmpty == false)
+        #expect((summary?.daily.count ?? 0) >= 7)
     }
 
-    @Test("avalanche provider returns a level in 1...5")
+    @Test("avalanche test-double returns a level in 1...5")
     func avalanche() async {
         let info = await InMemoryAvalancheProvider().danger(at: LatLng(lat: 69.6, lng: 20.0))
-        #expect((1...5).contains(info.level))
-        #expect(!info.headline.isEmpty)
+        #expect((1...5).contains(info?.level ?? 0))
+        #expect(info?.headline.isEmpty == false)
     }
 
     @Test("temperature formats with a real minus sign")

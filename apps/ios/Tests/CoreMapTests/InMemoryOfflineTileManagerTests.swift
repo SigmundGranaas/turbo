@@ -25,8 +25,13 @@ struct InMemoryOfflineTileManagerTests {
         #expect(regions.count == 1)
         #expect(regions[0].complete == false)
 
-        // It completes after the simulated download.
-        try? await Task.sleep(for: .seconds(5))
+        // It completes after the simulated download. Poll rather than sleep a
+        // fixed interval (robust under parallel test scheduling).
+        var done = false
+        for _ in 0..<100 where !done {
+            try? await Task.sleep(for: .milliseconds(100))
+            done = await manager.currentRegions().first?.complete == true
+        }
         regions = await manager.currentRegions()
         #expect(regions.count == 1)
         #expect(regions[0].complete)

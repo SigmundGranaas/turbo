@@ -7,12 +7,12 @@ import CoreDesignSystem
 public struct SettingsScreen: View {
     @Environment(\.turbo) private var t
     @State private var viewModel: SettingsViewModel
-    private let accountName: String
+    private let accountName: String?
     private let onOpenOffline: () -> Void
 
     public init(
         viewModel: SettingsViewModel,
-        accountName: String = "Sigmund Granaas",
+        accountName: String? = nil,
         onOpenOffline: @escaping () -> Void = {}
     ) {
         _viewModel = State(initialValue: viewModel)
@@ -27,10 +27,12 @@ public struct SettingsScreen: View {
         return List {
             Section {
                 HStack(spacing: 14) {
-                    Monogram(initials: "SG", size: 58)
-                    VStack(alignment: .leading, spacing: 2) {
+                    if let accountName {
+                        Monogram(initials: Self.initials(accountName), size: 58)
                         Text(accountName).font(.turboTitle3).foregroundStyle(t.label)
-                        Text("Apple Account, iCloud, Turbo+").font(.turboSubhead).foregroundStyle(t.label2)
+                    } else {
+                        Image(systemName: "person.crop.circle.fill").font(.system(size: 52)).foregroundStyle(t.label3)
+                        Text("Not signed in").font(.turboTitle3).foregroundStyle(t.label2)
                     }
                 }
                 .padding(.vertical, 4)
@@ -54,34 +56,24 @@ public struct SettingsScreen: View {
                 Toggle(isOn: bind(settings.shareLocation, viewModel.setShareLocation)) {
                     rowLabel("Share My Location", "person.2.fill", t.indigo)
                 }
-                LabeledContent {
-                    Text("Connected").foregroundStyle(t.label2)
-                } label: {
-                    rowLabel("Apple Health", "heart.fill", t.pink)
-                }
             }
 
             Section("Maps & Storage") {
                 Button(action: onOpenOffline) {
-                    LabeledContent {
-                        Text("2 regions · 1.4 GB").foregroundStyle(t.label2)
-                    } label: {
-                        rowLabel("Offline Maps", "arrow.down.circle.fill", t.green)
-                    }
+                    rowLabel("Offline Maps", "arrow.down.circle.fill", t.green)
                 }
                 Toggle(isOn: bind(settings.avalancheAlerts, viewModel.setAvalancheAlerts)) {
                     rowLabel("Avalanche Alerts", "exclamationmark.triangle.fill", t.orange)
                 }
             }
-
-            Section {
-                rowLabel("About", "info.circle.fill", t.gray)
-            } footer: {
-                Text("Turbo 2.0 · Made for Norwegian mountains.")
-            }
         }
         .navigationTitle("Settings")
         .task { viewModel.start() }
+    }
+
+    static func initials(_ name: String) -> String {
+        let letters = name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined()
+        return letters.isEmpty ? "?" : letters.uppercased()
     }
 
     private func rowLabel(_ title: String, _ symbol: String, _ color: Color) -> some View {
