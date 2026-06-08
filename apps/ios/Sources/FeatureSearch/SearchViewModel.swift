@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CoreModel
+import CoreCommon
 import CoreData
 
 /// Drives the search screen — debounced results from ``SearchRepository`` plus
@@ -10,9 +11,10 @@ import CoreData
 @Observable
 public final class SearchViewModel {
     public var query: String = ""
-    public private(set) var results: [SearchHit] = []
+    /// Results for the current query: idle (empty query → show recents), loading,
+    /// empty (no matches) or loaded.
+    public private(set) var state: LoadState<[SearchHit]> = .idle
     public private(set) var recents: [RecentSearch] = []
-    public private(set) var isSearching = false
 
     private let repository: SearchRepository
     private var recentsObservation: Task<Void, Never>?
@@ -41,11 +43,10 @@ public final class SearchViewModel {
         searchTask?.cancel()
         let q = query
         guard !q.trimmingCharacters(in: .whitespaces).isEmpty else {
-            results = []
-            isSearching = false
+            state = .idle
             return
         }
-        isSearching = true
+        state = .loading
         searchTask = Task { [weak self, repository] in
             // Debounce — coalesce keystrokes so we hit the network once the user
             // pauses, not on every character. A new keystroke cancels this task.
@@ -53,8 +54,7 @@ public final class SearchViewModel {
             guard !Task.isCancelled else { return }
             let hits = await repository.search(q)
             if !Task.isCancelled {
-                self?.results = hits
-                self?.isSearching = false
+                self?.state = .resolve(hits)
             }
         }
     }

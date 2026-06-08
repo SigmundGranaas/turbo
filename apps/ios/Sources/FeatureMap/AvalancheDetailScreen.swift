@@ -13,7 +13,12 @@ public struct AvalancheDetailScreen: View {
 
     public var body: some View {
         ScrollView {
-            if let info = viewModel.info {
+            AsyncContent(
+                viewModel.state,
+                emptyTitle: "No Warning",
+                emptySymbol: "checkmark.shield",
+                emptyMessage: "No avalanche warning is issued for this area."
+            ) { info in
                 VStack(alignment: .leading, spacing: 20) {
                     HStack(spacing: 16) {
                         ZStack {
@@ -35,15 +40,6 @@ public struct AvalancheDetailScreen: View {
                         .font(.turboFootnote).foregroundStyle(t.label2)
                 }
                 .padding(16)
-            } else if viewModel.loaded {
-                ContentUnavailableView(
-                    "No Warning",
-                    systemImage: "checkmark.shield",
-                    description: Text("No avalanche warning is issued for this area.")
-                )
-                .padding(.top, 60)
-            } else {
-                ProgressView().padding(40)
             }
         }
         .background(t.grouped)

@@ -29,19 +29,21 @@ public struct SearchScreen: View {
                     }
                 } else {
                     Section("Top Results") {
-                        if viewModel.isSearching {
+                        switch viewModel.state {
+                        case .loading, .idle:
                             HStack(spacing: 10) { ProgressView(); Text("Searching…").foregroundStyle(t.label2) }
-                        } else if viewModel.results.isEmpty {
-                            Text("No results found.").foregroundStyle(t.label2)
-                        }
-                        ForEach(viewModel.results) { hit in
-                            Button { viewModel.remember(hit); pick(hit.name, hit.position) } label: {
-                                ResultRow(
-                                    symbol: hit.kind?.symbolName ?? "mappin",
-                                    tint: hit.kind?.tint(t) ?? t.blue,
-                                    title: hit.name,
-                                    subtitle: hit.description
-                                )
+                        case .empty, .failed:
+                            Text(viewModel.state.errorMessage ?? "No results found.").foregroundStyle(t.label2)
+                        case .loaded(let hits):
+                            ForEach(hits) { hit in
+                                Button { viewModel.remember(hit); pick(hit.name, hit.position) } label: {
+                                    ResultRow(
+                                        symbol: hit.kind?.symbolName ?? "mappin",
+                                        tint: hit.kind?.tint(t) ?? t.blue,
+                                        title: hit.name,
+                                        subtitle: hit.description
+                                    )
+                                }
                             }
                         }
                     }

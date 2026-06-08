@@ -18,7 +18,11 @@ public struct WeatherDetailScreen: View {
     public var body: some View {
         NavigationStack {
             ScrollView {
-                if let s = weather.summary {
+                AsyncContent(
+                    weather.state,
+                    emptyTitle: "Weather Unavailable",
+                    emptySymbol: "cloud.slash"
+                ) { s in
                     VStack(spacing: 20) {
                         VStack(spacing: 6) {
                             Text(s.placeName).font(.turboTitle2).foregroundStyle(t.label)
@@ -50,15 +54,6 @@ public struct WeatherDetailScreen: View {
                         .accessibilityIdentifier("weather.avalanche")
                     }
                     .padding(16)
-                } else if weather.loaded {
-                    ContentUnavailableView(
-                        "Weather Unavailable",
-                        systemImage: "cloud.slash",
-                        description: Text("Couldn't load the forecast for this area.")
-                    )
-                    .padding(.top, 60)
-                } else {
-                    ProgressView().padding(40)
                 }
             }
             .background(t.grouped)

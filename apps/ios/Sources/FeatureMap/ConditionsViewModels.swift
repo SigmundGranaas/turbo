@@ -1,16 +1,16 @@
 import Foundation
 import Observation
 import CoreModel
+import CoreCommon
 import CoreData
 
 /// Loads a weather forecast for a place. Mirrors `feature.conditions.ConditionsViewModel`.
 @MainActor
 @Observable
 public final class WeatherViewModel {
-    public private(set) var summary: WeatherSummary?
+    public private(set) var state: LoadState<WeatherSummary> = .idle
     public private(set) var sun: SunTimes?
     public private(set) var marine: MarineConditions?
-    public private(set) var loaded = false
     private let provider: WeatherProvider
     private let reverseGeocode: ReverseGeocodeRepository?
     private let sunProvider: SunProvider?
@@ -31,23 +31,24 @@ public final class WeatherViewModel {
     }
 
     public func load() async {
+        state = .loading
         // Sun, marine, and place-name lookups are independent — run concurrently.
         async let sunTimes = sunProvider?.sun(at: position, date: Date())
         async let marineConditions = marineProvider?.conditions(at: position)
         let name = await reverseGeocode?.describe(position)?.label ?? fallbackName
-        summary = await provider.forecast(at: position, placeName: name)
+        let summary = await provider.forecast(at: position, placeName: name)
+        state = .resolve(summary, failure: "Couldn't load the forecast for this area.")
         sun = await sunTimes ?? nil
         marine = await marineConditions ?? nil
-        loaded = true
     }
 }
 
-/// Loads avalanche danger for a place.
+/// Loads avalanche danger for a place. `nil` from the provider means no warning
+/// is issued for the area (the common case off-season / outside forecast zones).
 @MainActor
 @Observable
 public final class AvalancheViewModel {
-    public private(set) var info: AvalancheInfo?
-    public private(set) var loaded = false
+    public private(set) var state: LoadState<AvalancheInfo> = .idle
     private let provider: AvalancheProvider
     private let position: LatLng
 
@@ -57,7 +58,8 @@ public final class AvalancheViewModel {
     }
 
     public func load() async {
-        info = await provider.danger(at: position)
-        loaded = true
+        state = .loading
+        let info = await provider.danger(at: position)
+        state = info.map(LoadState.loaded) ?? .empty
     }
 }

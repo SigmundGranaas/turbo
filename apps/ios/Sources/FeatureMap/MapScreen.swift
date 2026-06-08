@@ -115,7 +115,7 @@ public struct MapScreen: View {
             viewModel.start()
             if let vm = makeWeatherViewModel?(currentCenter) {
                 await vm.load()
-                conditions = vm.summary
+                conditions = vm.state.value
             }
         }
         .sheet(item: $editorTarget) { target in

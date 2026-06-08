@@ -12,15 +12,13 @@ struct SearchViewModelTests {
         let vm = SearchViewModel(repository: InMemorySearchRepository())
         vm.query = "storv"
         vm.runSearch()
-        #expect(vm.isSearching)              // shows progress immediately
+        #expect(vm.state.isLoading)          // shows progress immediately
         try? await Task.sleep(for: .milliseconds(450))   // past the 300ms debounce
-        #expect(!vm.results.isEmpty)
-        #expect(!vm.isSearching)             // cleared when results arrive
+        #expect(vm.state.value?.isEmpty == false)        // results arrived
 
         vm.query = ""
         vm.runSearch()
-        #expect(vm.results.isEmpty)
-        #expect(!vm.isSearching)
+        if case .idle = vm.state {} else { Issue.record("empty query should reset to .idle") }
     }
 
     @Test("start() surfaces recents")
