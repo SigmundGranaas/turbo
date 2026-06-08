@@ -9,6 +9,7 @@ import com.sigmundgranaas.turbo.expressive.core.data.KartverketSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SyntheticConditionsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticRouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.BuildConfig
@@ -33,9 +34,6 @@ abstract class NetworkModule {
     abstract fun bindSearchRepository(impl: KartverketSearchRepository): SearchRepository
 
     @Binds
-    abstract fun bindConditionsRepository(impl: HttpConditionsRepository): ConditionsRepository
-
-    @Binds
     abstract fun bindTrailSearchRepository(impl: GeonorgeTrailSearchRepository): TrailSearchRepository
 
     @Binds
@@ -55,6 +53,14 @@ abstract class NetworkModule {
             http: HttpRouteRepository,
             synthetic: SyntheticRouteRepository,
         ): RouteRepository = if (BuildConfig.DEBUG) synthetic else http
+
+        /** Offline conditions stand-in in DEBUG (MET/Varsom unreachable on the emulator). */
+        @Provides
+        @Singleton
+        fun provideConditionsRepository(
+            http: HttpConditionsRepository,
+            synthetic: SyntheticConditionsRepository,
+        ): ConditionsRepository = if (BuildConfig.DEBUG) synthetic else http
 
         @Provides
         @Singleton
