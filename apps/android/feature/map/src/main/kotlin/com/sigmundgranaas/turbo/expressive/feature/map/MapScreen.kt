@@ -43,8 +43,6 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -63,7 +61,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelection
-import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
 import com.sigmundgranaas.turbo.expressive.core.map.defaultMapEntityActionRegistry
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
@@ -79,7 +76,6 @@ import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
 import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
-import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
@@ -116,40 +112,35 @@ fun MapScreen(
     val cs = MaterialTheme.colorScheme
     val context = androidx.compose.ui.platform.LocalContext.current
     val haptics = rememberTurboHaptics()
+    // All transient UI/tool/dialog state lives in one holder (see MapScreenState).
+    val ui = rememberMapScreenState()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val routeState by routeViewModel.state.collectAsStateWithLifecycle()
     val routePreset by routeViewModel.preset.collectAsStateWithLifecycle()
     val toolWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
     // Which on-map route stop is selected (so dragging it moves it). Reset with the tool.
-    var selectedWaypoint by remember { mutableStateOf<Int?>(null) }
     val recState by recordingViewModel.state.collectAsStateWithLifecycle()
     val recSession by recordingViewModel.session.collectAsStateWithLifecycle()
     val followSession by routeViewModel.followSession.collectAsStateWithLifecycle()
-    var recDetent by remember { mutableStateOf(com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half) }
-    var followDetent by remember { mutableStateOf(com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    var controller by remember { mutableStateOf<MapController?>(null) }
-    var bearing by remember { mutableFloatStateOf(0f) }
     val metric = com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits.current
-    val selectionState = remember { MapSelectionState() }
     // A saved track opened on the map ("Show on map" from a track) — drawn + selected.
-    var displayedTrack by remember { mutableStateOf<List<LatLng>?>(null) }
 
     // Open a saved track on the map: draw it, frame the camera, and select it so the
     // detail sheet (with Follow) appears. This makes saved tracks live on the map
     // instead of dead-ending in a list/sketch.
-    LaunchedEffect(showTrackId, controller) {
+    LaunchedEffect(showTrackId, ui.controller) {
         val id = showTrackId ?: return@LaunchedEffect
-        val ctrl = controller ?: return@LaunchedEffect
+        val ctrl = ui.controller ?: return@LaunchedEffect
         val path = routeViewModel.pathById(id) ?: run { onShowTrackConsumed(); return@LaunchedEffect }
         val pts = path.path.points
         if (pts.size < 2) { onShowTrackConsumed(); return@LaunchedEffect }
-        displayedTrack = pts
+        ui.displayedTrack = pts
         ctrl.frameTo(pts)
         val ascent = path.path.ascentM ?: 0.0
-        selectionState.select(
+        ui.selectionState.select(
             com.sigmundgranaas.turbo.expressive.core.map.MapSelection(
                 id = "track-${path.id}",
                 title = path.name,
@@ -174,8 +165,8 @@ fun MapScreen(
     }
 
     // The opened track stays drawn only while its sheet is up.
-    LaunchedEffect(selectionState.selection?.id) {
-        if (selectionState.selection?.id?.startsWith("track-") != true) displayedTrack = null
+    LaunchedEffect(ui.selectionState.selection?.id) {
+        if (ui.selectionState.selection?.id?.startsWith("track-") != true) ui.displayedTrack = null
     }
 
     val locationPermission = rememberLauncherForActivityResult(
@@ -194,7 +185,6 @@ fun MapScreen(
     ) { granted -> if (granted) viewModel.beginInitialLocate() }
 
     // ---- Recording (a mode of this map, not a separate screen) ----
-    var showRecSave by remember { mutableStateOf(false) }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { /* best-effort: the ongoing notification only shows if granted */ }
@@ -235,10 +225,10 @@ fun MapScreen(
     // following/recording, or a search pick is steering the camera). Doesn't fight panning
     // afterwards — it only fires once.
     var didInitialCenter by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.userLocation, controller) {
+    LaunchedEffect(state.userLocation, ui.controller) {
         if (didInitialCenter || focusRequest != null) return@LaunchedEffect
         val here = state.userLocation ?: return@LaunchedEffect
-        val c = controller ?: return@LaunchedEffect
+        val c = ui.controller ?: return@LaunchedEffect
         if (!state.following && !recState.recording) {
             c.flyTo(here, INITIAL_LOCATION_ZOOM)
             didInitialCenter = true
@@ -248,25 +238,24 @@ fun MapScreen(
     // While recording, keep the camera on the latest fix — recording implies movement,
     // even if the user never toggled "follow".
     LaunchedEffect(recState.userLocation, recState.recording) {
-        if (recState.recording) recState.userLocation?.let { controller?.flyTo(it, 16.0) }
+        if (recState.recording) recState.userLocation?.let { ui.controller?.flyTo(it, 16.0) }
     }
 
     // While following, keep the camera centred on the latest fix.
     LaunchedEffect(state.userLocation, state.following) {
-        if (state.following) state.userLocation?.let { controller?.flyTo(it, 15.0) }
+        if (state.following) state.userLocation?.let { ui.controller?.flyTo(it, 15.0) }
     }
 
     // Mirror the follow session onto a foreground Live Update (lock-screen widget):
     // start it when following begins, dismiss it only after we actually started one
     // (so the initial inactive state doesn't tear down an unrelated recording service).
-    var followServiceStarted by remember { mutableStateOf(false) }
     LaunchedEffect(followSession.active) {
         if (followSession.active) {
             com.sigmundgranaas.turbo.expressive.feature.recording.RecordingService.startFollowing(context)
-            followServiceStarted = true
-        } else if (followServiceStarted) {
+            ui.followServiceStarted = true
+        } else if (ui.followServiceStarted) {
             com.sigmundgranaas.turbo.expressive.feature.recording.RecordingService.stopFollowing(context)
-            followServiceStarted = false
+            ui.followServiceStarted = false
         }
     }
 
@@ -281,38 +270,29 @@ fun MapScreen(
     }
 
     // A search pick (or other external request) flies the camera to a coordinate
-    // once the map controller is ready, then clears the one-shot request.
-    LaunchedEffect(focusRequest, controller) {
+    // once the map ui.controller is ready, then clears the one-shot request.
+    LaunchedEffect(focusRequest, ui.controller) {
         val target = focusRequest ?: return@LaunchedEffect
-        controller?.let {
+        ui.controller?.let {
             it.flyTo(target, 14.0)
             onFocusConsumed()
         }
     }
-    var showLayers by remember { mutableStateOf(false) }
     // Data overlay composited over the base map (null = none).
-    var activeOverlays by remember { mutableStateOf<Set<com.sigmundgranaas.turbo.expressive.domain.OverlayId>>(emptySet()) }
-    var showRouteSave by remember { mutableStateOf(false) }
     // ── Create track tool — one tool, three modes (Route/Line/Draw). null = closed.
     // It replaces the old standalone measuring tool and the route-planning card:
     // Route delegates to routeViewModel (snap to trails); Line/Draw build local geometry.
-    var trackMode by remember { mutableStateOf<TrackMode?>(null) }
-    val linePoints = remember { mutableStateListOf<LatLng>() }
-    val drawPoints = remember { mutableStateListOf<LatLng>() }
     // First Route tap with no GPS fix becomes the origin; the second starts the solve.
-    var routeOrigin by remember { mutableStateOf<LatLng?>(null) }
-    var showRouteStyle by remember { mutableStateOf(false) }
-    var showStops by remember { mutableStateOf(false) }
 
     // Keep the user dot in the visible band above the live sheet: reserve bottom map
     // padding equal to the sheet's current detent height (capped at half the screen so
     // a full sheet doesn't shove the target off the top). Reset to 0 when no sheet shows.
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
-    val liveDetent = if (recState.recording) recDetent else followDetent
-    LaunchedEffect(controller, recState.recording, routeState, trackMode, liveDetent) {
-        val c = controller ?: return@LaunchedEffect
-        val followingNow = routeState is RouteUiState.Following && trackMode == null
+    val liveDetent = if (recState.recording) ui.recDetent else ui.followDetent
+    LaunchedEffect(ui.controller, recState.recording, routeState, ui.trackMode, liveDetent) {
+        val c = ui.controller ?: return@LaunchedEffect
+        val followingNow = routeState is RouteUiState.Following && ui.trackMode == null
         if (!recState.recording && !followingNow) { c.setBottomInset(0); return@LaunchedEffect }
         val screenPx = with(density) { configuration.screenHeightDp.dp.toPx() }
         val sheetPx = when (liveDetent) {
@@ -325,11 +305,7 @@ fun MapScreen(
         }
         c.setBottomInset(sheetPx.coerceAtMost(screenPx * 0.5f).toInt())
     }
-    var showTrackSave by remember { mutableStateOf(false) }
-    var showTrackDiscard by remember { mutableStateOf(false) }
     // Stop-following save prompt + the snackbar that bridges Save → Follow.
-    var showFollowStopSave by remember { mutableStateOf(false) }
-    var confirmReplaceFollow by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val savedToast = stringResource(R.string.route_saved)
     val followLabel = stringResource(R.string.route_saved_follow)
@@ -375,41 +351,33 @@ fun MapScreen(
     }
     // Open the tool fresh in [mode], wiping any half-built geometry.
     val openTrackTool: (TrackMode) -> Unit = { mode ->
-        routeViewModel.clear(); linePoints.clear(); drawPoints.clear(); routeOrigin = null
+        routeViewModel.clear(); ui.linePoints.clear(); ui.drawPoints.clear(); ui.routeOrigin = null
         viewModel.setFollowing(false)
-        selectionState.clear()
-        selectedWaypoint = null
-        trackMode = mode
+        ui.selectionState.clear()
+        ui.selectedWaypoint = null
+        ui.trackMode = mode
     }
     // Close the tool; keep the route only when we're handing off to Follow.
     val closeTrackTool: (Boolean) -> Unit = { keepRoute ->
         if (!keepRoute) routeViewModel.clear()
-        linePoints.clear(); drawPoints.clear(); routeOrigin = null; trackMode = null
-        selectedWaypoint = null
+        ui.linePoints.clear(); ui.drawPoints.clear(); ui.routeOrigin = null; ui.trackMode = null
+        ui.selectedWaypoint = null
     }
     // Position long-pressed on the map → drives the "new marker" sheet (null = closed).
-    var newMarkerAt by remember { mutableStateOf<LatLng?>(null) }
     // Long-pressed coordinate → the on-map contextual menu (weather + create actions).
-    var longPressAt by remember { mutableStateOf<LatLng?>(null) }
     // Marker being edited (null = no editor open).
-    var editingMarker by remember { mutableStateOf<Marker?>(null) }
     // Marker pending delete-confirmation (null = no dialog).
-    var pendingDelete by remember { mutableStateOf<Marker?>(null) }
     // Marker whose "add to collection" picker is open (null = closed).
-    var addToCollection by remember { mutableStateOf<Marker?>(null) }
 
     // Geotagged photos → clustered thumbnail pins on the map; tap a cluster → grid → viewer.
     val photosViewModel: com.sigmundgranaas.turbo.expressive.feature.photos.PhotosViewModel = hiltViewModel()
     val mapPhotos by photosViewModel.onMapPhotos.collectAsStateWithLifecycle()
     val photoClusters = remember(mapPhotos) { com.sigmundgranaas.turbo.expressive.feature.photos.clusterPhotos(mapPhotos) }
-    var openCluster by remember { mutableStateOf<com.sigmundgranaas.turbo.expressive.feature.photos.PhotoCluster?>(null) }
-    var viewerStart by remember { mutableStateOf(-1) }
-    var pendingPhotoAt by remember { mutableStateOf<LatLng?>(null) }
     val addPhotoLauncher = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
-        pendingPhotoAt?.let { at -> if (uri != null) photosViewModel.addFromContent(null, at, uri) }
-        pendingPhotoAt = null
+        ui.pendingPhotoAt?.let { at -> if (uri != null) photosViewModel.addFromContent(null, at, uri) }
+        ui.pendingPhotoAt = null
     }
 
     // One selection model + detail host — the map shell no longer depends on the
@@ -443,37 +411,37 @@ fun MapScreen(
         Box(Modifier.fillMaxSize()) {
             TurboMap(
                 base = state.baseLayer,
-                overlays = activeOverlays,
+                overlays = ui.activeOverlays,
                 initialCamera = MapDefaults.fallbackCamera,
                 initialZoom = MapDefaults.fallbackZoom,
                 markers = state.markers,
                 route = routeState.polyline.takeIf { it.isNotEmpty() },
                 // Editable A/B/C… stops while the Route builder is active: tap selects,
                 // dragging the selected one moves it, long-press removes it.
-                waypoints = if (trackMode == TrackMode.Route) toolWaypoints else emptyList(),
-                selectedWaypoint = selectedWaypoint,
-                onWaypointTap = { selectedWaypoint = if (selectedWaypoint == it) null else it },
+                waypoints = if (ui.trackMode == TrackMode.Route) toolWaypoints else emptyList(),
+                selectedWaypoint = ui.selectedWaypoint,
+                onWaypointTap = { ui.selectedWaypoint = if (ui.selectedWaypoint == it) null else it },
                 onWaypointLongPress = {
-                    haptics.reject(); routeViewModel.removeWaypoint(it); selectedWaypoint = null
+                    haptics.reject(); routeViewModel.removeWaypoint(it); ui.selectedWaypoint = null
                 },
-                onWaypointMoved = { i, p -> selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
+                onWaypointMoved = { i, p -> ui.selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
                 // The track overlay shows, in priority: the live recording trail, the
                 // Line/Draw geometry being built in the Create track tool, else whatever
                 // saved track the user opened ("Show on map").
                 track = when {
                     recState.recording -> recState.points.takeIf { it.size > 1 }
-                    trackMode == TrackMode.Line -> linePoints.takeIf { it.size > 1 }?.toList()
-                    trackMode == TrackMode.Draw -> drawPoints.takeIf { it.size > 1 }?.toList()
-                    else -> displayedTrack
+                    ui.trackMode == TrackMode.Line -> ui.linePoints.takeIf { it.size > 1 }?.toList()
+                    ui.trackMode == TrackMode.Draw -> ui.drawPoints.takeIf { it.size > 1 }?.toList()
+                    else -> ui.displayedTrack
                 },
-                selectedMarkerId = selectionState.selection?.id,
+                selectedMarkerId = ui.selectionState.selection?.id,
                 userLocation = state.userLocation,
                 photoPins = photoClusters.map {
                     com.sigmundgranaas.turbo.expressive.ui.map.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
                 },
-                onPhotoPinClick = { pin -> openCluster = photoClusters.firstOrNull { it.id == pin.id } },
+                onPhotoPinClick = { pin -> ui.openCluster = photoClusters.firstOrNull { it.id == pin.id } },
                 onMarkerClick = { marker ->
-                    selectionState.select(
+                    ui.selectionState.select(
                         MapSelection(
                             id = marker.id,
                             title = marker.name,
@@ -484,23 +452,23 @@ fun MapScreen(
                                 // Navigate-to-marker opens the unified Create track tool in
                                 // Route mode. If a route is already being built, drop this
                                 // marker in as a stop instead of starting over.
-                                if (trackMode == TrackMode.Route && routeViewModel.waypoints.value.size >= 2) {
+                                if (ui.trackMode == TrackMode.Route && routeViewModel.waypoints.value.size >= 2) {
                                     routeViewModel.addStop(marker.position)
                                 } else {
-                                    val from = state.userLocation ?: controller?.center() ?: MapDefaults.fallbackCamera
+                                    val from = state.userLocation ?: ui.controller?.center() ?: MapDefaults.fallbackCamera
                                     openTrackTool(TrackMode.Route)
                                     routeViewModel.planRoute(from, marker.position)
                                 }
                             },
                             onShare = { shareMarkerGeoJson(context, marker) },
-                            onEdit = { editingMarker = marker },
-                            onDelete = { pendingDelete = marker },
+                            onEdit = { ui.editingMarker = marker },
+                            onDelete = { ui.pendingDelete = marker },
                             extraActions = listOf(
                                 com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
                                     id = "add_to_collection",
                                     label = context.getString(R.string.marker_add_to_collection),
                                     icon = androidx.compose.material.icons.Icons.Rounded.Folder,
-                                    onInvoke = { addToCollection = marker },
+                                    onInvoke = { ui.addToCollection = marker },
                                 ),
                             ),
                             body = {
@@ -526,19 +494,19 @@ fun MapScreen(
                 },
                 // Dot overlay marks Line vertices, and the pending Route start (the first
                 // tap before a destination exists) so it doesn't look like nothing happened.
-                measurePoints = when (trackMode) {
-                    TrackMode.Line -> linePoints
-                    TrackMode.Route -> listOfNotNull(routeOrigin)
+                measurePoints = when (ui.trackMode) {
+                    TrackMode.Line -> ui.linePoints
+                    TrackMode.Route -> listOfNotNull(ui.routeOrigin)
                     else -> emptyList()
                 },
-                onMapLongClick = { if (trackMode == null) { haptics.longPress(); longPressAt = it } },
+                onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
                 onMapTap = { p ->
-                    when (trackMode) {
+                    when (ui.trackMode) {
                         TrackMode.Route -> {
                             when {
                                 // A stop is selected → an empty-map tap just deselects it
                                 // (taps that land on a stop are consumed by its marker).
-                                selectedWaypoint != null -> selectedWaypoint = null
+                                ui.selectedWaypoint != null -> ui.selectedWaypoint = null
                                 // Route exists → each further tap EXTENDS it (appends a new
                                 // destination), so points land in the order you tap them.
                                 routeViewModel.waypoints.value.size >= 2 -> {
@@ -546,35 +514,35 @@ fun MapScreen(
                                 }
                                 // First tap = start, second tap = destination. (Routing from
                                 // the current location is the long-press "Route to here".)
-                                routeOrigin == null -> { haptics.toggle(true); routeOrigin = p }
+                                ui.routeOrigin == null -> { haptics.toggle(true); ui.routeOrigin = p }
                                 else -> {
                                     haptics.toggle(true)
-                                    routeViewModel.planRoute(routeOrigin!!, p); routeOrigin = null
+                                    routeViewModel.planRoute(ui.routeOrigin!!, p); ui.routeOrigin = null
                                 }
                             }
                         }
-                        TrackMode.Line -> { haptics.toggle(true); linePoints.add(p) }
+                        TrackMode.Line -> { haptics.toggle(true); ui.linePoints.add(p) }
                         TrackMode.Draw -> Unit // handled by the drag overlay
-                        null -> selectionState.clear()
+                        null -> ui.selectionState.clear()
                     }
                 },
-                onMapReady = { controller = it },
-                onBearingChange = { bearing = it.toFloat() },
+                onMapReady = { ui.controller = it },
+                onBearingChange = { ui.bearing = it.toFloat() },
                 modifier = Modifier.fillMaxSize(),
             )
 
             // Freehand Draw capture: a transparent layer that turns finger drags into
             // track points (and consumes the gesture so the map doesn't pan).
-            if (trackMode == TrackMode.Draw) {
+            if (ui.trackMode == TrackMode.Draw) {
                 Box(
                     Modifier.fillMaxSize().pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = { off ->
-                                drawPoints.clear()
-                                controller?.fromScreen(off.x, off.y)?.let { drawPoints.add(it) }
+                                ui.drawPoints.clear()
+                                ui.controller?.fromScreen(off.x, off.y)?.let { ui.drawPoints.add(it) }
                             },
                             onDrag = { change, _ ->
-                                controller?.fromScreen(change.position.x, change.position.y)?.let { drawPoints.add(it) }
+                                ui.controller?.fromScreen(change.position.x, change.position.y)?.let { ui.drawPoints.add(it) }
                             },
                         )
                     },
@@ -582,7 +550,7 @@ fun MapScreen(
             }
 
             // Chrome is hidden while the Create track tool owns the screen.
-            if (trackMode == null) {
+            if (ui.trackMode == null) {
                 SearchPill(
                     placeholder = "Search places, coordinates…",
                     onMenuClick = { scope.launch { drawerState.open() } },
@@ -609,7 +577,7 @@ fun MapScreen(
                 // hiding behind it. Capped so a fully-expanded sheet can't push the rail
                 // off the top.
                 val liveSheetShown = recState.recording ||
-                    (routeState is RouteUiState.Following && trackMode == null)
+                    (routeState is RouteUiState.Following && ui.trackMode == null)
                 val railBottomReserve = if (liveSheetShown) {
                     val maxH = configuration.screenHeightDp.dp
                     val raw = when (liveDetent) {
@@ -625,27 +593,27 @@ fun MapScreen(
                 MapControlRail(
                     following = state.following,
                     creatingTrack = false,
-                    bearing = bearing,
-                    onCompass = { controller?.resetNorth() },
-                    onAdd = { (controller?.center() ?: state.userLocation)?.let { newMarkerAt = it } },
+                    bearing = ui.bearing,
+                    onCompass = { ui.controller?.resetNorth() },
+                    onAdd = { (ui.controller?.center() ?: state.userLocation)?.let { ui.newMarkerAt = it } },
                     onCreateTrack = {
                         // Don't silently drop an active follow when launching the build tool.
-                        if (routeState is RouteUiState.Following) confirmReplaceFollow = true
+                        if (routeState is RouteUiState.Following) ui.confirmReplaceFollow = true
                         else openTrackTool(TrackMode.Route)
                     },
-                    onLayers = { showLayers = true },
+                    onLayers = { ui.showLayers = true },
                     onLocate = {
                         if (viewModel.hasLocationPermission()) {
                             viewModel.enableLocation()
                             val next = !state.following
                             viewModel.setFollowing(next)
-                            if (next) state.userLocation?.let { controller?.flyTo(it, 15.0) }
+                            if (next) state.userLocation?.let { ui.controller?.flyTo(it, 15.0) }
                         } else {
                             locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         }
                     },
-                    onZoomIn = { controller?.zoomIn() },
-                    onZoomOut = { controller?.zoomOut() },
+                    onZoomIn = { ui.controller?.zoomIn() },
+                    onZoomOut = { ui.controller?.zoomOut() },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .windowInsetsPadding(WindowInsets.statusBars)
@@ -688,24 +656,24 @@ fun MapScreen(
                     stats = com.sigmundgranaas.turbo.expressive.core.data.LiveStats.of(recSession),
                     metric = metric,
                     title = com.sigmundgranaas.turbo.expressive.feature.map.live.formatLiveClock(recSession.elapsedSec),
-                    detent = recDetent,
-                    onDetentChange = { recDetent = it },
+                    detent = ui.recDetent,
+                    onDetentChange = { ui.recDetent = it },
                     onTogglePause = { haptics.toggle(recState.paused); recordingViewModel.togglePause() },
-                    onStop = { haptics.confirm(); recordingViewModel.stop(); showRecSave = true },
+                    onStop = { haptics.confirm(); recordingViewModel.stop(); ui.showRecSave = true },
                     elevations = recSession.elevations.filterNotNull(),
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
-            } else if (routeState is RouteUiState.Following && trackMode == null) {
+            } else if (routeState is RouteUiState.Following && ui.trackMode == null) {
                 // Following a route → the same live sheet, in follow mode.
                 val followName = followSession.name
                 com.sigmundgranaas.turbo.expressive.feature.map.live.LiveSheet(
                     stats = com.sigmundgranaas.turbo.expressive.core.data.LiveStats.of(followSession),
                     metric = metric,
                     title = followName ?: stringResource(R.string.route_following),
-                    detent = followDetent,
-                    onDetentChange = { followDetent = it },
+                    detent = ui.followDetent,
+                    onDetentChange = { ui.followDetent = it },
                     onTogglePause = {},
-                    onStop = { showFollowStopSave = true },
+                    onStop = { ui.showFollowStopSave = true },
                     nextWaypoint = followName?.let {
                         stringResource(
                             R.string.live_next_waypoint,
@@ -716,7 +684,7 @@ fun MapScreen(
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
-            } else if (trackMode == null) {
+            } else if (ui.trackMode == null) {
                 val routeWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
                 RouteCard(
                     state = routeState,
@@ -734,13 +702,13 @@ fun MapScreen(
                             locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         }
                     },
-                    onSave = { showRouteSave = true },
+                    onSave = { ui.showRouteSave = true },
                     onDownloadOffline = { routeViewModel.downloadAlongRoute(state.baseLayer) },
                     onClear = {
                         // Stopping a follow offers to keep it (→ Saved Tracks history);
                         // any other state just clears.
                         if (routeState is RouteUiState.Following) {
-                            showFollowStopSave = true
+                            ui.showFollowStopSave = true
                         } else {
                             routeViewModel.clear(); viewModel.setFollowing(false)
                         }
@@ -758,12 +726,12 @@ fun MapScreen(
             }
 
             // ── Create track tool: chrome (close + title) + the unified panel ──
-            trackMode?.let { mode ->
+            ui.trackMode?.let { mode ->
                 val donePlan = (routeState as? RouteUiState.Done)?.plan
                 val geometry = when (mode) {
                     TrackMode.Route -> routeState.polyline
-                    TrackMode.Line -> linePoints.toList()
-                    TrackMode.Draw -> drawPoints.toList()
+                    TrackMode.Line -> ui.linePoints.toList()
+                    TrackMode.Draw -> ui.drawPoints.toList()
                 }
                 val distM = when (mode) {
                     TrackMode.Route -> donePlan?.distanceM ?: 0.0
@@ -779,24 +747,24 @@ fun MapScreen(
                         is RouteUiState.Error -> s.message
                         else -> stringResource(R.string.track_meta_empty)
                     }
-                    TrackMode.Line -> if (linePoints.isNotEmpty()) stringResource(R.string.track_meta_line, linePoints.size) else stringResource(R.string.track_meta_empty)
-                    TrackMode.Draw -> if (drawPoints.size >= 2) stringResource(R.string.track_meta_draw) else stringResource(R.string.track_meta_empty)
+                    TrackMode.Line -> if (ui.linePoints.isNotEmpty()) stringResource(R.string.track_meta_line, ui.linePoints.size) else stringResource(R.string.track_meta_empty)
+                    TrackMode.Draw -> if (ui.drawPoints.size >= 2) stringResource(R.string.track_meta_draw) else stringResource(R.string.track_meta_empty)
                 }
                 val canSave = if (mode == TrackMode.Route) routeState is RouteUiState.Done else geometry.size >= 2
                 val canUndo = when (mode) {
                     TrackMode.Route -> routeViewModel.canUndo
-                    TrackMode.Line -> linePoints.isNotEmpty()
-                    TrackMode.Draw -> drawPoints.isNotEmpty()
+                    TrackMode.Line -> ui.linePoints.isNotEmpty()
+                    TrackMode.Draw -> ui.drawPoints.isNotEmpty()
                 }
                 // Anything the user has placed that a close would throw away.
                 val hasUnsaved = when (mode) {
-                    TrackMode.Route -> routeViewModel.waypoints.value.isNotEmpty() || routeOrigin != null
-                    TrackMode.Line -> linePoints.isNotEmpty()
-                    TrackMode.Draw -> drawPoints.isNotEmpty()
+                    TrackMode.Route -> routeViewModel.waypoints.value.isNotEmpty() || ui.routeOrigin != null
+                    TrackMode.Line -> ui.linePoints.isNotEmpty()
+                    TrackMode.Draw -> ui.drawPoints.isNotEmpty()
                 }
 
                 CreateTrackCloseButton(
-                    onClose = { if (hasUnsaved) showTrackDiscard = true else closeTrackTool(false) },
+                    onClose = { if (hasUnsaved) ui.showTrackDiscard = true else closeTrackTool(false) },
                     modifier = Modifier.align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.statusBars).padding(16.dp),
                 )
@@ -806,13 +774,13 @@ fun MapScreen(
                     onLocate = {
                         if (viewModel.hasLocationPermission()) {
                             viewModel.enableLocation()
-                            state.userLocation?.let { controller?.flyTo(it, 15.0) }
+                            state.userLocation?.let { ui.controller?.flyTo(it, 15.0) }
                         } else {
                             locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         }
                     },
-                    onZoomIn = { controller?.zoomIn() },
-                    onZoomOut = { controller?.zoomOut() },
+                    onZoomIn = { ui.controller?.zoomIn() },
+                    onZoomOut = { ui.controller?.zoomOut() },
                     modifier = Modifier.align(Alignment.CenterEnd)
                         .windowInsetsPadding(WindowInsets.statusBars).padding(end = 14.dp),
                 )
@@ -833,32 +801,32 @@ fun MapScreen(
                     }
                     CreateTrackPanel(
                         mode = mode,
-                        onMode = { next -> haptics.toggle(true); trackMode = next },
+                        onMode = { next -> haptics.toggle(true); ui.trackMode = next },
                         distanceText = distText,
                         unit = unitText,
                         metaText = meta,
                         surfaces = donePlan?.surfaces ?: emptyMap(),
                         presetLabel = routePreset.label,
-                        onRouteStyle = { showRouteStyle = true },
+                        onRouteStyle = { ui.showRouteStyle = true },
                         stopCount = if (mode == TrackMode.Route) toolWaypoints.size else 0,
-                        onManageStops = { showStops = true },
+                        onManageStops = { ui.showStops = true },
                         canUndo = canUndo,
                         canSave = canSave,
                         onUndo = {
                             when (mode) {
                                 TrackMode.Route -> routeViewModel.undo()
-                                TrackMode.Line -> if (linePoints.isNotEmpty()) linePoints.removeAt(linePoints.lastIndex)
-                                TrackMode.Draw -> drawPoints.clear()
+                                TrackMode.Line -> if (ui.linePoints.isNotEmpty()) ui.linePoints.removeAt(ui.linePoints.lastIndex)
+                                TrackMode.Draw -> ui.drawPoints.clear()
                             }
                         },
                         onClear = {
                             when (mode) {
-                                TrackMode.Route -> { routeViewModel.clear(); routeOrigin = null }
-                                TrackMode.Line -> linePoints.clear()
-                                TrackMode.Draw -> drawPoints.clear()
+                                TrackMode.Route -> { routeViewModel.clear(); ui.routeOrigin = null }
+                                TrackMode.Line -> ui.linePoints.clear()
+                                TrackMode.Draw -> ui.drawPoints.clear()
                             }
                         },
-                        onSave = { haptics.toggle(true); showTrackSave = true },
+                        onSave = { haptics.toggle(true); ui.showTrackSave = true },
                         onFollow = {
                             haptics.confirm()
                             if (mode == TrackMode.Route) routeViewModel.follow()
@@ -873,24 +841,24 @@ fun MapScreen(
                     )
                 }
 
-                if (showRouteStyle) {
+                if (ui.showRouteStyle) {
                     RouteStyleSheet(
                         selected = routePreset,
-                        onSelect = { routeViewModel.selectPreset(it); showRouteStyle = false },
-                        onDismiss = { showRouteStyle = false },
+                        onSelect = { routeViewModel.selectPreset(it); ui.showRouteStyle = false },
+                        onDismiss = { ui.showRouteStyle = false },
                     )
                 }
-                if (showStops) {
+                if (ui.showStops) {
                     WaypointsSheet(
                         waypoints = toolWaypoints,
                         statText = meta,
                         onMove = { from, to -> routeViewModel.moveWaypoint(from, to) },
                         onRemove = { routeViewModel.removeWaypoint(it) },
-                        onAddStop = { showStops = false },
-                        onDismiss = { showStops = false },
+                        onAddStop = { ui.showStops = false },
+                        onDismiss = { ui.showStops = false },
                     )
                 }
-                if (showTrackSave) {
+                if (ui.showTrackSave) {
                     NameInputDialog(
                         title = stringResource(R.string.track_save_title),
                         confirmLabel = stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_save),
@@ -904,29 +872,29 @@ fun MapScreen(
                             val savedDur = donePlan?.durationS ?: 0.0
                             if (mode == TrackMode.Route) routeViewModel.saveAsTrack(name)
                             else routeViewModel.saveLine(name, savedGeo)
-                            showTrackSave = false
+                            ui.showTrackSave = false
                             closeTrackTool(false)
                             offerFollowAfterSave(savedGeo, savedDist, savedAsc, savedDur)
                         },
-                        onDismiss = { showTrackSave = false },
+                        onDismiss = { ui.showTrackSave = false },
                     )
                 }
-                if (showTrackDiscard) {
+                if (ui.showTrackDiscard) {
                     com.sigmundgranaas.turbo.expressive.ui.components.TurboConfirmDialog(
                         title = stringResource(R.string.track_discard_title),
                         body = stringResource(R.string.track_discard_body),
                         confirmLabel = stringResource(R.string.track_discard),
                         icon = androidx.compose.material.icons.Icons.Rounded.DeleteSweep,
                         destructive = true,
-                        onConfirm = { showTrackDiscard = false; closeTrackTool(false) },
-                        onDismiss = { showTrackDiscard = false },
+                        onConfirm = { ui.showTrackDiscard = false; closeTrackTool(false) },
+                        onDismiss = { ui.showTrackDiscard = false },
                     )
                 }
             }
 
             // On-map contextual menu blooming at a long-press (weather + create actions).
-            longPressAt?.let { p ->
-                controller?.let { ctrl ->
+            ui.longPressAt?.let { p ->
+                ui.controller?.let { ctrl ->
                     val (sx, sy) = ctrl.toScreen(p)
                     // Reverse-geocode the pressed point so the header reads "On Storfjellet"
                     // rather than raw coordinates (same label the marker editor shows).
@@ -936,41 +904,41 @@ fun MapScreen(
                         point = p,
                         anchor = androidx.compose.ui.geometry.Offset(sx, sy),
                         placeLabel = lpDescription?.label,
-                        onNewMarker = { longPressAt = null; newMarkerAt = p },
+                        onNewMarker = { ui.longPressAt = null; ui.newMarkerAt = p },
                         onRouteHere = {
-                            longPressAt = null
+                            ui.longPressAt = null
                             val from = state.userLocation ?: ctrl.center()
                             openTrackTool(TrackMode.Route)
                             routeViewModel.planRoute(from, p)
                         },
-                        onCreateTrack = { longPressAt = null; openTrackTool(TrackMode.Route) },
+                        onCreateTrack = { ui.longPressAt = null; openTrackTool(TrackMode.Route) },
                         onAddPhoto = {
-                            longPressAt = null
-                            pendingPhotoAt = p
+                            ui.longPressAt = null
+                            ui.pendingPhotoAt = p
                             addPhotoLauncher.launch(
                                 androidx.activity.result.PickVisualMediaRequest(
                                     androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
                                 ),
                             )
                         },
-                        onDismiss = { longPressAt = null },
+                        onDismiss = { ui.longPressAt = null },
                     )
                 }
             }
 
             // Photo cluster → grid sheet → immersive viewer.
-            openCluster?.let { cluster ->
+            ui.openCluster?.let { cluster ->
                 com.sigmundgranaas.turbo.expressive.feature.photos.PhotoClusterSheet(
                     cluster = cluster,
-                    onOpen = { index -> viewerStart = index },
-                    onDismiss = { openCluster = null },
+                    onOpen = { index -> ui.viewerStart = index },
+                    onDismiss = { ui.openCluster = null },
                 )
-                if (viewerStart >= 0) {
+                if (ui.viewerStart >= 0) {
                     com.sigmundgranaas.turbo.expressive.feature.photos.PhotoViewer(
                         photos = cluster.ordered,
-                        startIndex = viewerStart,
-                        onClose = { viewerStart = -1 },
-                        onDelete = { photo -> photosViewModel.delete(photo); viewerStart = -1; openCluster = null },
+                        startIndex = ui.viewerStart,
+                        onClose = { ui.viewerStart = -1 },
+                        onDelete = { photo -> photosViewModel.delete(photo); ui.viewerStart = -1; ui.openCluster = null },
                     )
                 }
             }
@@ -988,40 +956,19 @@ fun MapScreen(
     // bottom sheets) lives in MapScreenModals — the screen body keeps the camera +
     // content orchestration; that file owns the modal wiring.
     MapScreenModals(
+        ui = ui,
         viewModel = viewModel,
         routeViewModel = routeViewModel,
         recordingViewModel = recordingViewModel,
         offlineViewModel = offlineViewModel,
-        selectionState = selectionState,
         actionRegistry = actionRegistry,
-        controller = controller,
         metric = metric,
         routeState = routeState,
         recDistanceM = recState.distanceM,
         recPointCount = recState.points.size,
         baseLayer = state.baseLayer,
-        activeOverlays = activeOverlays,
-        onToggleOverlay = { id, on -> activeOverlays = if (on) activeOverlays + id else activeOverlays - id },
         onOpenOffline = onOpenOffline,
         openTrackTool = openTrackTool,
-        showLayers = showLayers,
-        onShowLayers = { showLayers = it },
-        showFollowStopSave = showFollowStopSave,
-        onShowFollowStopSave = { showFollowStopSave = it },
-        confirmReplaceFollow = confirmReplaceFollow,
-        onConfirmReplaceFollow = { confirmReplaceFollow = it },
-        addToCollection = addToCollection,
-        onAddToCollection = { addToCollection = it },
-        newMarkerAt = newMarkerAt,
-        onNewMarkerAt = { newMarkerAt = it },
-        editingMarker = editingMarker,
-        onEditingMarker = { editingMarker = it },
-        pendingDelete = pendingDelete,
-        onPendingDelete = { pendingDelete = it },
-        showRouteSave = showRouteSave,
-        onShowRouteSave = { showRouteSave = it },
-        showRecSave = showRecSave,
-        onShowRecSave = { showRecSave = it },
     )
 }
 
