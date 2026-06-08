@@ -30,4 +30,12 @@ public final class CollectionsViewModel {
     public func delete(id: String) {
         Task { [repository] in await repository.delete(id: id) }
     }
+
+    /// Create a new (empty) collection. Blank names are ignored.
+    public func create(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let collection = MapCollection(id: "c-\(UUID().uuidString)", name: trimmed, itemCount: 0)
+        Task { [repository] in await repository.upsert(collection) }
+    }
 }

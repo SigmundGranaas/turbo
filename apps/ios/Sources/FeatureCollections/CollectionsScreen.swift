@@ -7,6 +7,8 @@ import CoreDesignSystem
 public struct CollectionsScreen: View {
     @Environment(\.turbo) private var t
     @State private var viewModel: CollectionsViewModel
+    @State private var showNew = false
+    @State private var newName = ""
 
     public init(viewModel: CollectionsViewModel) {
         _viewModel = State(initialValue: viewModel)
@@ -36,6 +38,18 @@ public struct CollectionsScreen: View {
             }
         }
         .navigationTitle("Collections")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { newName = ""; showNew = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("New collection")
+                    .accessibilityIdentifier("collections.new")
+            }
+        }
+        .alert("New Collection", isPresented: $showNew) {
+            TextField("Name", text: $newName)
+            Button("Create") { viewModel.create(name: newName) }
+            Button("Cancel", role: .cancel) {}
+        }
         .task { viewModel.start() }
     }
 

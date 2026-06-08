@@ -23,6 +23,7 @@ public struct MapScreen: View {
     private let makeRouteViewModel: (() -> RouteViewModel)?
     private let makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)?
     @State private var routing: RouteViewModel?
+    @State private var measuring: MeasureViewModel?
     @State private var showWeather = false
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
@@ -69,6 +70,13 @@ public struct MapScreen: View {
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
 
+    /// Single-tap adds a waypoint (routing) or a measure point, else nothing.
+    private var tapHandler: ((LatLng) -> Void)? {
+        if routing != nil { return { routing?.addWaypoint($0) } }
+        if measuring != nil { return { measuring?.addPoint($0) } }
+        return nil
+    }
+
     public var body: some View {
         TurboMapView(
             baseLayer: viewModel.baseLayer,
@@ -77,11 +85,11 @@ public struct MapScreen: View {
             following: viewModel.following,
             focus: viewModel.focusedPlace?.position,
             resetBearingToken: compassResetToken,
-            routeGeometry: routing?.geometry ?? [],
+            routeGeometry: routing?.geometry ?? measuring?.points ?? [],
             onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
             onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } },
-            onTap: routing == nil ? nil : { routing?.addWaypoint($0) }
+            onTap: tapHandler
         )
         .ignoresSafeArea()
         .animation(.easeOut(duration: 0.25), value: viewModel.focusedPlace)
@@ -140,6 +148,12 @@ public struct MapScreen: View {
                     longPressCoord = nil
                 }
             }
+            Button("Measure") {
+                let vm = MeasureViewModel()
+                vm.addPoint(coord)
+                measuring = vm
+                longPressCoord = nil
+            }
             openInMapsButton(coord)
             Button("Cancel", role: .cancel) { longPressCoord = nil }
         }
@@ -173,10 +187,9 @@ public struct MapScreen: View {
             result.append(MapPin(id: "focus-\(place.id)", coordinate: place.position,
                                  title: place.name, symbolName: "mappin", tint: t.red))
         }
-        if let routing {
-            for (i, wp) in routing.waypoints.enumerated() {
-                result.append(MapPin(id: "wp-\(i)", coordinate: wp, title: "\(i + 1)", symbolName: "smallcircle.filled.circle", tint: t.blue))
-            }
+        let toolPoints = routing?.waypoints ?? measuring?.points ?? []
+        for (i, wp) in toolPoints.enumerated() {
+            result.append(MapPin(id: "wp-\(i)", coordinate: wp, title: "\(i + 1)", symbolName: "smallcircle.filled.circle", tint: t.blue))
         }
         return result
     }
@@ -257,6 +270,10 @@ public struct MapScreen: View {
     private var bottomBar: some View {
         if let routing {
             RouteCard(viewModel: routing, onClose: { self.routing = nil })
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+        } else if let measuring {
+            MeasureCard(viewModel: measuring, onClose: { self.measuring = nil })
                 .padding(.horizontal, 14)
                 .padding(.bottom, 12)
         } else {

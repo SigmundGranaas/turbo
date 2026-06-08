@@ -250,6 +250,25 @@ final class TurboUserFlowsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Coordinate"].waitForExistence(timeout: 5), "marker detail not shown")
     }
 
+    // MARK: Goal — create a collection to organise my places
+
+    func test_hiker_can_create_a_collection() {
+        let app = launch()
+        openMenu(app)
+        app.buttons["menu.collections"].tap()
+        XCTAssertTrue(app.navigationBars["Collections"].waitForExistence(timeout: 5))
+
+        app.buttons["collections.new"].tap()
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Autumn trips")
+        app.alerts.buttons["Create"].tap()
+
+        XCTAssertTrue(app.staticTexts["Autumn trips"].waitForExistence(timeout: 5),
+                      "the new collection was not created")
+    }
+
     // MARK: Goal — browse the spots I've saved
 
     func test_hiker_can_browse_their_saved_markers() {

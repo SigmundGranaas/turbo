@@ -79,6 +79,7 @@ let package = Package(
         .testTarget(name: "FeatureMapTests", dependencies: ["FeatureMap"]),
         .testTarget(name: "FeatureRecordingTests", dependencies: ["FeatureRecording", "CoreModel", "CoreData"]),
         .testTarget(name: "FeatureSettingsTests", dependencies: ["FeatureSettings"]),
+        .testTarget(name: "FeatureCollectionsTests", dependencies: ["FeatureCollections", "CoreModel", "CoreData"]),
         .testTarget(name: "FeatureSearchTests", dependencies: ["FeatureSearch"]),
         .testTarget(name: "FeatureOfflineTests", dependencies: ["FeatureOffline"]),
     ]
