@@ -65,6 +65,8 @@ internal fun MapLongPressMenu(
     onCreateTrack: () -> Unit,
     onAddPhoto: () -> Unit,
     onDismiss: () -> Unit,
+    /** Reverse-geocoded place label ("On Storfjellet, 612 m"); falls back to coords. */
+    placeLabel: String? = null,
     conditionsViewModel: ConditionsViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
@@ -115,7 +117,7 @@ internal fun MapLongPressMenu(
                 .testTag("lpMenu"),
         ) {
             Column(Modifier.padding(14.dp)) {
-                MiniWeather(conditions, point)
+                MiniWeather(conditions, point, placeLabel)
                 Spacer(Modifier.height(12.dp))
                 MenuAction(Icons.Rounded.AddLocationAlt, stringResource(R.string.lp_new_marker), filled = true, onClick = onNewMarker, tag = "lpNewMarker")
                 Spacer(Modifier.height(8.dp))
@@ -130,8 +132,9 @@ internal fun MapLongPressMenu(
 }
 
 @Composable
-private fun MiniWeather(state: ConditionsUiState, point: LatLng) {
+private fun MiniWeather(state: ConditionsUiState, point: LatLng, placeLabel: String?) {
     val cs = MaterialTheme.colorScheme
+    val where = placeLabel ?: formatCoords(point)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
@@ -149,7 +152,7 @@ private fun MiniWeather(state: ConditionsUiState, point: LatLng) {
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W700),
                         color = cs.onSurface,
                     )
-                    Text(formatCoords(point), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1)
+                    Text(where, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1)
                 }
                 state.conditions.avalanche?.dangerLevel?.takeIf { it >= 3 }?.let { lvl ->
                     Text("⚠ $lvl", style = MaterialTheme.typography.labelMedium, color = cs.error)

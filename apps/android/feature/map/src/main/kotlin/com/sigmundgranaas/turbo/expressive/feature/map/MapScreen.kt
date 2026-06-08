@@ -924,9 +924,14 @@ fun MapScreen(
             longPressAt?.let { p ->
                 controller?.let { ctrl ->
                     val (sx, sy) = ctrl.toScreen(p)
+                    // Reverse-geocode the pressed point so the header reads "On Storfjellet"
+                    // rather than raw coordinates (same label the marker editor shows).
+                    val lpDescription by viewModel.pointDescription.collectAsStateWithLifecycle()
+                    LaunchedEffect(p) { viewModel.describePoint(p) }
                     MapLongPressMenu(
                         point = p,
                         anchor = androidx.compose.ui.geometry.Offset(sx, sy),
+                        placeLabel = lpDescription?.label,
                         onNewMarker = { longPressAt = null; newMarkerAt = p },
                         onRouteHere = {
                             longPressAt = null
