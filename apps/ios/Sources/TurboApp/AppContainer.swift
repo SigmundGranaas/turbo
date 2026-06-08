@@ -57,7 +57,10 @@ public final class AppContainer {
             collectionRepository = InMemoryCollectionRepository(seed: [])
         }
         settingsRepository = UserDefaultsSettingsRepository()
-        searchRepository = KartverketSearchRepository()
+        searchRepository = CompositeSearchRepository(
+            place: KartverketSearchRepository(),
+            trails: GeonorgeTrailSearchRepository()
+        )
         offlineManager = DiskOfflineTileManager()
         locationProvider = CoreLocationProvider()
         weatherProvider = MetNoWeatherProvider()
