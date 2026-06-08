@@ -1,33 +1,17 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
+    id("turbo.android.library")
+    id("turbo.android.compose")
 }
 
 android {
     namespace = "com.sigmundgranaas.turbo.expressive.core.designsystem"
-    compileSdk = 37
-
-    defaultConfig {
-        minSdk = 26
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
-    }
-    buildFeatures { compose = true }
-    testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
 dependencies {
     api(project(":core:model"))
 
+    // Re-exported as `api`: this module is the Compose foundation every UI module
+    // builds on, so consumers inherit the Compose surface transitively.
     api(libs.androidx.ui)
     api(libs.androidx.ui.graphics)
     api(libs.androidx.foundation)

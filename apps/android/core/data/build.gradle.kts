@@ -1,31 +1,13 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
+    id("turbo.android.library")
+    id("turbo.android.hilt")
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.hilt)
 }
 
 android {
     namespace = "com.sigmundgranaas.turbo.expressive.core.data"
-    compileSdk = 37
-
-    defaultConfig {
-        minSdk = 26
-    }
-
     // BuildConfig.DEBUG selects the offline route simulator (see NetworkModule).
     buildFeatures { buildConfig = true }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
-    }
 }
 
 dependencies {
@@ -44,9 +26,6 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
-
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
