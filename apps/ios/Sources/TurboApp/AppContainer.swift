@@ -40,6 +40,8 @@ public final class AppContainer {
     public let photoRepository: PhotoRepository
     public let sharingRepository: SharingRepository
     public let syncController: SyncController
+    /// Observable cloud-sync status surfaced in the account menu.
+    public let syncStatus: SyncStatus
     /// The app-lifetime recording session — owned here, not by any screen, so a
     /// track survives the recording sheet being dismissed (ambient recording).
     public let recordingController: RecordingController
@@ -80,6 +82,8 @@ public final class AppContainer {
         )
         isOnline = config.isOnline
 
+        let syncStatus = SyncStatus()
+        self.syncStatus = syncStatus
         let cursor = UserDefaultsCursorStore()
         if let base = config.apiBaseURL {
             // Live: Google sign-in + HTTP sync against the API.
@@ -101,14 +105,14 @@ public final class AppContainer {
                                        transport: HttpSyncTransport<CollectionPayload>(endpoint: base.appendingPathComponent("collections"), token: bearer),
                                        cursor: cursor),
                 ],
-                auth: authRepository, settings: settingsRepository
+                auth: authRepository, settings: settingsRepository, status: syncStatus
             )
         } else {
             // Offline: no auth backend (always signed out, no sign-in), no sync,
             // no sharing (never reached — sharing is signed-in only).
             authRepository = UnauthenticatedAuthRepository()
             sharingRepository = InMemorySharingRepository()
-            syncController = SyncController(units: [], auth: authRepository, settings: settingsRepository)
+            syncController = SyncController(units: [], auth: authRepository, settings: settingsRepository, status: syncStatus)
         }
     }
 
@@ -152,9 +156,11 @@ public final class AppContainer {
             location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
         )
         self.isOnline = isOnline
+        let syncStatus = SyncStatus()
+        self.syncStatus = syncStatus
         self.syncController = AppContainer.makeSyncController(
             markers: markerRepository, paths: pathRepository, collections: collectionRepository,
-            auth: authRepository, settings: settingsRepository, cursor: InMemoryCursorStore()
+            auth: authRepository, settings: settingsRepository, cursor: InMemoryCursorStore(), status: syncStatus
         )
     }
 
@@ -162,7 +168,7 @@ public final class AppContainer {
     /// transports by default (real HTTP transports land once the API is configured).
     private static func makeSyncController(
         markers: MarkerRepository, paths: PathRepository, collections: CollectionRepository,
-        auth: AuthRepository, settings: SettingsRepository, cursor: SyncCursorStore
+        auth: AuthRepository, settings: SettingsRepository, cursor: SyncCursorStore, status: SyncStatus
     ) -> SyncController {
         SyncController(
             units: [
@@ -170,7 +176,7 @@ public final class AppContainer {
                 Syncers.path(repository: paths, transport: InMemorySyncTransport<PathPayload>(), cursor: cursor),
                 Syncers.collection(repository: collections, transport: InMemorySyncTransport<CollectionPayload>(), cursor: cursor),
             ],
-            auth: auth, settings: settings
+            auth: auth, settings: settings, status: status
         )
     }
 

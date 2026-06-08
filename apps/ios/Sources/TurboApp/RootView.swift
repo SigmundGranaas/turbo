@@ -65,8 +65,10 @@ public struct RootView: View {
                     accountEmail: root.account?.email,
                     friendCode: root.friendCode,
                     canSignIn: container.isOnline && root.account == nil,
+                    syncStatus: root.account != nil ? container.syncStatus : nil,
                     onSelect: { path.append($0) },
-                    onAccount: { showAuth = true }
+                    onAccount: { showAuth = true },
+                    onSync: { Task { await container.syncController.syncNow() } }
                 )
                 .presentationDetents([.large])
             }

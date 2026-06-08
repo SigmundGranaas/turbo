@@ -124,4 +124,31 @@ struct SyncControllerTests {
         await controller(auth: auth, transport: transport).syncNow()
         #expect(await transport.pull().map(\.id) == ["a"])
     }
+
+    @Test("a clean pass reports synced; a failing unit reports failed")
+    @MainActor
+    func statusReporting() async {
+        let auth = InMemoryAuthRepository()
+        _ = await auth.signIn()
+
+        let okStatus = SyncStatus()
+        let ok = SyncController(units: [StubUnit(fails: false)], auth: auth,
+                                settings: InMemorySettingsRepository(), status: okStatus, now: { Date(timeIntervalSince1970: 100) })
+        await ok.syncNow()
+        #expect(okStatus.phase == .synced)
+        #expect(okStatus.lastSyncedAt == Date(timeIntervalSince1970: 100))
+
+        let badStatus = SyncStatus()
+        let bad = SyncController(units: [StubUnit(fails: true)], auth: auth,
+                                 settings: InMemorySettingsRepository(), status: badStatus)
+        await bad.syncNow()
+        #expect(badStatus.isFailed)
+    }
+}
+
+private struct StubUnit: SyncUnit {
+    let fails: Bool
+    func sync() async throws {
+        if fails { throw NSError(domain: "test", code: 1) }
+    }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreDesignSystem
+import CoreSync
 
 /// The account menu — tapped from the map avatar. Shows the account (or signed-out
 /// state) and the entry points into Markers, Paths, Collections, Offline and
@@ -14,14 +15,18 @@ struct AccountMenuSheet: View {
     var friendCode: String? = nil
     /// True when a sign-in flow is available (online build, signed out).
     let canSignIn: Bool
+    /// Live cloud-sync status (signed in), else nil. Tapping the row syncs now.
+    var syncStatus: SyncStatus? = nil
     let onSelect: (RootView.Route) -> Void
     let onAccount: () -> Void
+    var onSync: (() -> Void)? = nil
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
                     header
+                    if let syncStatus { syncRow(syncStatus) }
                     if let friendCode { friendCodeRow(friendCode) }
                     group {
                         menuRow(.markers, "My Markers", "mappin.circle.fill", t.red)
@@ -84,6 +89,41 @@ struct AccountMenuSheet: View {
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
         .contentShape(Rectangle())
+    }
+
+    /// Live cloud-sync status — "Synced 2m ago" / "Syncing…" / "Sync failed",
+    /// tappable to sync (or retry). Reading `status` here keeps it live.
+    private func syncRow(_ status: SyncStatus) -> some View {
+        let failed = status.isFailed
+        return Button { onSync?() } label: {
+            HStack(spacing: 12) {
+                if status.phase == .syncing {
+                    ProgressView().frame(width: 29, height: 29)
+                } else {
+                    Glyph(symbol: failed ? "exclamationmark.icloud.fill" : "checkmark.icloud.fill",
+                          color: failed ? t.orange : t.green, size: 29, cornerRadius: 7)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Cloud Sync").font(.turboBody).foregroundStyle(t.label)
+                    Text(failed ? (status.failureMessage ?? "Sync failed") : status.summary())
+                        .font(.turboFootnote).foregroundStyle(failed ? t.orange : t.label2)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if status.phase != .syncing {
+                    Text(failed ? "Retry" : "Sync")
+                        .font(.turboSubhead.weight(.semibold)).foregroundStyle(t.blue)
+                }
+            }
+            .padding(14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(status.phase == .syncing)
+        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .accessibilityIdentifier("menu.sync")
     }
 
     /// Real friend code (loaded from the sharing service) with a share action.
