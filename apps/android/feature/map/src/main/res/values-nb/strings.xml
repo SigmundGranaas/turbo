@@ -133,25 +133,10 @@
     <string name="layers_offline">Frakoblet</string>
     <string name="layers_download_area">Last ned dette området</string>
 
-    <!-- Conditions -->
+    <!-- Conditions: most strings moved to :feature:weather. -->
     <string name="cond_header">Forhold nå · yr.no</string>
-    <string name="cond_unavailable">Forhold utilgjengelig uten nett.</string>
-    <string name="cond_no_data">Ingen data for dette stedet.</string>
-    <string name="cond_full_forecast">Fullt værvarsel</string>
-    <string name="cond_humidity">Fuktighet</string>
-    <string name="cond_cloud">Skyer</string>
-    <string name="cond_uv">UV</string>
     <string name="cond_sea">Hav</string>
-    <string name="cond_avalanche_level">Snøskred · Nivå %1$d</string>
-    <!-- Along-route conditions strip -->
-    <string name="route_cond_label">Langs ruta</string>
-    <string name="route_cond_loading">Sjekker forhold…</string>
-    <string name="route_cond_temp_range">%1$d° til %2$d°</string>
-    <string name="route_cond_temp_single">%1$d°</string>
-    <string name="route_cond_avalanche">Snøskred N%1$d</string>
-    <string name="cond_forecast_title">Værvarsel · yr.no</string>
     <string name="cond_forecast_unavailable">Værvarsel utilgjengelig</string>
-    <string name="cond_forecast_error_body">Kunne ikke nå yr.no — prøv igjen med tilkobling.</string>
 
     <!-- Offline maps -->
     <string name="offline_title">Frakoblede kart</string>

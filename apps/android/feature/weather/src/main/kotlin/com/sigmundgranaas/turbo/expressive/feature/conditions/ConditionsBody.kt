@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
-import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.domain.AvalancheNow
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MarineNow

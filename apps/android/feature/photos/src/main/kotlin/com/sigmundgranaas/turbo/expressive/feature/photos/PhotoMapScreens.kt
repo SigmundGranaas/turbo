@@ -73,7 +73,7 @@ internal fun photoDateRange(photos: List<Photo>): String {
 /** A tapped photo stack: place/date header + a thumbnail grid that opens the viewer. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun PhotoClusterSheet(cluster: PhotoCluster, onOpen: (Int) -> Unit, onDismiss: () -> Unit) {
+fun PhotoClusterSheet(cluster: PhotoCluster, onOpen: (Int) -> Unit, onDismiss: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val photos = cluster.ordered
     ModalBottomSheet(
@@ -123,7 +123,7 @@ private fun Modifier.heightInClamp(): Modifier = this.height(460.dp)
 
 /** Immersive full-screen viewer: swipeable pager, date/time bar, filmstrip, delete. */
 @Composable
-internal fun PhotoViewer(photos: List<Photo>, startIndex: Int, onClose: () -> Unit, onDelete: (Photo) -> Unit) {
+fun PhotoViewer(photos: List<Photo>, startIndex: Int, onClose: () -> Unit, onDelete: (Photo) -> Unit) {
     if (photos.isEmpty()) return
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val pager = rememberPagerState(initialPage = startIndex.coerceIn(0, photos.lastIndex)) { photos.size }

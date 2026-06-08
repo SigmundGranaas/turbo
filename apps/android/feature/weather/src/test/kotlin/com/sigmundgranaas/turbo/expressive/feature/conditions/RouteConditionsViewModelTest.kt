@@ -7,7 +7,6 @@ import com.sigmundgranaas.turbo.expressive.domain.Conditions
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.WeatherForecast
 import com.sigmundgranaas.turbo.expressive.domain.WeatherNow
-import com.sigmundgranaas.turbo.expressive.feature.map.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
