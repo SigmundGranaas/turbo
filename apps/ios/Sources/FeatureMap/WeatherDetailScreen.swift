@@ -31,6 +31,7 @@ public struct WeatherDetailScreen: View {
                         .padding(.top, 12)
 
                         hourlyStrip(s.hourly)
+                        if let sun = weather.sun { sunCard(sun) }
                         dailyList(s.daily)
 
                         NavigationLink {
@@ -65,6 +66,34 @@ public struct WeatherDetailScreen: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task { await weather.load() }
         }
+    }
+
+    private func sunCard(_ sun: SunTimes) -> some View {
+        HStack(spacing: 0) {
+            sunCell(symbol: "sunrise.fill", title: "Sunrise", value: sunValue(sun.sunrise, polar: sun.polarNight ? "No sunrise" : nil))
+            Rectangle().fill(t.separator).frame(width: 0.5).padding(.vertical, 8)
+            sunCell(symbol: "sunset.fill", title: "Sunset", value: sunValue(sun.sunset, polar: sun.polarDay ? "No sunset" : nil))
+        }
+        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .accessibilityIdentifier("weather.sun")
+    }
+
+    private func sunCell(symbol: String, title: String, value: String) -> some View {
+        VStack(spacing: 6) {
+            Label(title, systemImage: symbol).font(.turboFootnote).foregroundStyle(t.label2)
+            Text(value).font(.turboTitle3).foregroundStyle(t.label)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+    }
+
+    private func sunValue(_ date: Date?, polar: String?) -> String {
+        if let polar { return polar }
+        guard let date else { return "—" }
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f.string(from: date)
     }
 
     private func hourlyStrip(_ hours: [HourForecast]) -> some View {
