@@ -2,8 +2,6 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,8 +16,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.TripOrigin
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,28 +29,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
-import kotlin.math.roundToInt
 
 private val RowHeight = 56.dp
 
@@ -104,124 +91,91 @@ internal fun WaypointsList(
     onAddStop: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    val density = LocalDensity.current
-    val rowPx = with(density) { RowHeight.toPx() }
-    val items: SnapshotStateList<LatLng> = remember(waypoints) { waypoints.toMutableStateList() }
-    var dragIndex by remember { mutableStateOf<Int?>(null) }
-    var dragStart by remember { mutableStateOf<Int?>(null) }
-    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val last = waypoints.lastIndex
 
     Column(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 28.dp).testTag("waypointsSheet")) {
+        Text(
+            stringResource(R.string.track_stops_title),
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.W700),
+            color = cs.onSurface,
+        )
+        // Stat line: distance · ascent · time — mirrors the builder's readout.
+        if (statText.isNotBlank()) {
             Text(
-                stringResource(R.string.track_stops_title),
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.W700),
-                color = cs.onSurface,
+                statText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp).testTag("stopsStat"),
             )
-            // Stat line: distance · ascent · time — mirrors the builder's readout.
-            if (statText.isNotBlank()) {
-                Text(
-                    statText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = cs.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp).testTag("stopsStat"),
+        }
+        Spacer(Modifier.height(12.dp))
+
+        Column {
+            waypoints.forEachIndexed { index, point ->
+                StopRow(
+                    index = index,
+                    last = last,
+                    coords = formatCoords(point),
+                    // Reorder by explicit ↑/↓ — a drag-to-reorder inside the modal sheet
+                    // loses the vertical gesture to the sheet itself, so it never fired.
+                    onMoveUp = if (index > 0) ({ onMove(index, index - 1) }) else null,
+                    onMoveDown = if (index < last) ({ onMove(index, index + 1) }) else null,
+                    onRemove = { onRemove(index) },
                 )
             }
-            Spacer(Modifier.height(12.dp))
 
-            Column {
-                items.forEachIndexed { index, point ->
-                    val dragging = dragIndex == index
-                    StopRow(
-                        index = index,
-                        last = items.lastIndex,
-                        coords = formatCoords(point),
-                        dragging = dragging,
-                        dragOffset = dragOffset,
-                        onRemove = { onRemove(index) },
-                        reorderHandle = Modifier.pointerInput(items.size) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { dragStart = index; dragIndex = index; dragOffset = 0f },
-                                onDragEnd = {
-                                    val from = dragStart; val to = dragIndex
-                                    if (from != null && to != null && from != to) onMove(from, to)
-                                    dragIndex = null; dragStart = null; dragOffset = 0f
-                                },
-                                onDragCancel = { dragIndex = null; dragStart = null; dragOffset = 0f },
-                                onDrag = { change, amount ->
-                                    change.consume()
-                                    val cur = dragIndex ?: return@detectDragGesturesAfterLongPress
-                                    dragOffset += amount.y
-                                    val target = (cur + (dragOffset / rowPx).roundToInt()).coerceIn(0, items.lastIndex)
-                                    if (target != cur) {
-                                        items.add(target, items.removeAt(cur))
-                                        dragOffset -= (target - cur) * rowPx
-                                        dragIndex = target
-                                    }
-                                },
-                            )
-                        },
-                    )
-                }
-
-                // "Add stop" — drops the sheet so the next map tap places a stop.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable(onClick = onAddStop)
-                        .padding(horizontal = 8.dp, vertical = 8.dp)
-                        .testTag("addStop"),
-                ) {
-                    Spacer(Modifier.width(22.dp)) // align under the drag handles
-                    Box(
-                        Modifier.size(28.dp).clip(CircleShape).background(cs.surfaceContainerHighest),
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Rounded.Add, null, tint = cs.primary, modifier = Modifier.size(18.dp)) }
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        stringResource(R.string.wp_add_stop),
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W700),
-                        color = cs.primary,
-                    )
-                }
+            // "Add stop" — drops the sheet so the next map tap places a stop.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(onClick = onAddStop)
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .testTag("addStop"),
+            ) {
+                Spacer(Modifier.width(44.dp)) // align under the reorder controls
+                Box(
+                    Modifier.size(28.dp).clip(CircleShape).background(cs.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Rounded.Add, null, tint = cs.primary, modifier = Modifier.size(18.dp)) }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    stringResource(R.string.wp_add_stop),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W700),
+                    color = cs.primary,
+                )
             }
         }
     }
+}
 
 @Composable
 private fun StopRow(
     index: Int,
     last: Int,
     coords: String,
-    dragging: Boolean,
-    dragOffset: Float,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?,
     onRemove: () -> Unit,
-    reorderHandle: Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
     val badge = stopColor(index, last)
     val isEndpoint = index == 0 || index == last
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = if (dragging) cs.secondaryContainer else cs.surfaceContainerHigh,
-        shadowElevation = if (dragging) 6.dp else 0.dp,
+        color = cs.surfaceContainerHigh,
         modifier = Modifier
             .fillMaxWidth()
             .height(RowHeight)
             .padding(vertical = 3.dp)
-            .zIndex(if (dragging) 1f else 0f)
-            .graphicsLayer { translationY = if (dragging) dragOffset else 0f }
             .testTag("wpRow_$index"),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp, end = 6.dp)) {
-            Icon(
-                Icons.Rounded.DragIndicator,
-                stringResource(R.string.wp_reorder),
-                tint = cs.onSurfaceVariant,
-                modifier = Modifier.size(22.dp).then(reorderHandle),
-            )
-            Spacer(Modifier.width(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 6.dp)) {
+            // Reorder controls: move this stop earlier / later in the order.
+            ReorderButton(Icons.Rounded.KeyboardArrowUp, R.string.wp_move_up, onMoveUp, "wpUp_$index")
+            ReorderButton(Icons.Rounded.KeyboardArrowDown, R.string.wp_move_down, onMoveDown, "wpDown_$index")
+            Spacer(Modifier.width(4.dp))
             Box(Modifier.size(28.dp).clip(CircleShape).background(badge), contentAlignment = Alignment.Center) {
                 when {
                     index == 0 -> Icon(Icons.Rounded.TripOrigin, null, tint = Color.White, modifier = Modifier.size(15.dp))
@@ -245,6 +199,20 @@ private fun StopRow(
                 }
             }
         }
+    }
+}
+
+/** A compact ↑/↓ reorder control; greyed + inert at the ends ([onClick] null). */
+@Composable
+private fun ReorderButton(icon: androidx.compose.ui.graphics.vector.ImageVector, labelRes: Int, onClick: (() -> Unit)?, tag: String) {
+    val cs = MaterialTheme.colorScheme
+    IconButton(onClick = { onClick?.invoke() }, enabled = onClick != null, modifier = Modifier.size(28.dp).testTag(tag)) {
+        Icon(
+            icon,
+            stringResource(labelRes),
+            tint = if (onClick != null) cs.onSurfaceVariant else cs.onSurfaceVariant.copy(alpha = 0.3f),
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 

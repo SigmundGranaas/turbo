@@ -94,6 +94,8 @@
     <string name="wp_stop">Stopp %1$d</string>
     <string name="wp_remove">Fjern stopp</string>
     <string name="wp_reorder">Endre rekkefølge</string>
+    <string name="wp_move_up">Flytt stopp opp</string>
+    <string name="wp_move_down">Flytt stopp ned</string>
     <string name="wp_add_stop">Legg til stopp</string>
     <string name="track_route_style_subtitle">Hvordan ruta veier av stier, veier og stigning.</string>
     <string name="track_meta_line">%1$d punkter plassert</string>

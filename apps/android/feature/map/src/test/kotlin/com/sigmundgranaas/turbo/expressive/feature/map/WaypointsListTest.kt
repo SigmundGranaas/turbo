@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -66,5 +67,28 @@ class WaypointsListTest {
         list(onAddStop = { added = true })
         composeRule.onNodeWithTag("addStop").performClick()
         assertEquals(true, added)
+    }
+
+    @Test
+    fun `move-down button shifts a stop one place later`() {
+        var move: Pair<Int, Int>? = null
+        list(onMove = { from, to -> move = from to to })
+        composeRule.onNodeWithTag("wpDown_1").performClick()
+        assertEquals(1 to 2, move)
+    }
+
+    @Test
+    fun `move-up button shifts a stop one place earlier`() {
+        var move: Pair<Int, Int>? = null
+        list(onMove = { from, to -> move = from to to })
+        composeRule.onNodeWithTag("wpUp_2").performClick()
+        assertEquals(2 to 1, move)
+    }
+
+    @Test
+    fun `the ends cannot move past the edge`() {
+        list()
+        composeRule.onNodeWithTag("wpUp_0").assertIsNotEnabled()       // start can't go up
+        composeRule.onNodeWithTag("wpDown_3").assertIsNotEnabled()     // destination can't go down
     }
 }

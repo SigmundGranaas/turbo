@@ -16,7 +16,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingService
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.sigmundgranaas.turbo.expressive.core.auth.AuthRepository
@@ -83,6 +86,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { authRepository.loginWithGoogle(c) }
     }
 
+    @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         // Branded splash before content; must be installed before super.onCreate().
         installSplashScreen()
@@ -98,7 +102,15 @@ class MainActivity : ComponentActivity() {
             }
             TurboTheme(darkTheme = dark) {
                 CompositionLocalProvider(LocalMetricUnits provides settings.metricUnits) {
-                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                    // In DEBUG, surface Compose testTags as resource-ids so the app can be
+                    // driven deterministically from uiautomator/adb (e.g. on-map waypoint
+                    // markers, sheet controls) instead of guessing pixel coordinates.
+                    val rootModifier = if (BuildConfig.DEBUG) {
+                        Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
+                    Surface(modifier = rootModifier, color = MaterialTheme.colorScheme.surface) {
                         TurboNavGraph(
                             autoStartRecording = autoStartRecording,
                             onAutoStartConsumed = { autoStartRecording = false },

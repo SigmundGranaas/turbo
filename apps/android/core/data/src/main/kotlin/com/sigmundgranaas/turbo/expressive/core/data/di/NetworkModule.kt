@@ -9,7 +9,9 @@ import com.sigmundgranaas.turbo.expressive.core.data.KartverketSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SyntheticRouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.BuildConfig
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -34,15 +36,26 @@ abstract class NetworkModule {
     abstract fun bindConditionsRepository(impl: HttpConditionsRepository): ConditionsRepository
 
     @Binds
-    abstract fun bindRouteRepository(impl: HttpRouteRepository): RouteRepository
-
-    @Binds
     abstract fun bindTrailSearchRepository(impl: GeonorgeTrailSearchRepository): TrailSearchRepository
 
     @Binds
     abstract fun bindReverseGeocodeRepository(impl: KartverketReverseGeocodeRepository): ReverseGeocodeRepository
 
     companion object {
+        /**
+         * Pick the router: the real trail-bound SSE pathfinder in release, the offline
+         * [SyntheticRouteRepository] in DEBUG so the Route builder + Follow can be driven
+         * anywhere (the real router covers northern Norway only / isn't reachable from the
+         * emulator). Flip [BuildConfig.DEBUG] off here if you need the real router in a
+         * debug build on-coverage.
+         */
+        @Provides
+        @Singleton
+        fun provideRouteRepository(
+            http: HttpRouteRepository,
+            synthetic: SyntheticRouteRepository,
+        ): RouteRepository = if (BuildConfig.DEBUG) synthetic else http
+
         @Provides
         @Singleton
         fun provideHttpClient(): HttpClient = HttpClient(OkHttp) {
