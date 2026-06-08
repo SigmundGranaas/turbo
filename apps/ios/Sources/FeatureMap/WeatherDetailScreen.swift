@@ -32,6 +32,7 @@ public struct WeatherDetailScreen: View {
 
                         hourlyStrip(s.hourly)
                         if let sun = weather.sun { sunCard(sun) }
+                        if let marine = weather.marine { marineCard(marine) }
                         dailyList(s.daily)
 
                         NavigationLink {
@@ -66,6 +67,22 @@ public struct WeatherDetailScreen: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task { await weather.load() }
         }
+    }
+
+    private func marineCard(_ marine: MarineConditions) -> some View {
+        let cells: [(String, String, String)] = [
+            marine.seaTemperatureC.map { ("thermometer.medium", "Sea", "\(Int($0.rounded()))°") },
+            marine.waveHeightM.map { ("water.waves", "Waves", String(format: "%.1f m", $0)) },
+            marine.seaCurrentMs.map { ("arrow.right.to.line", "Current", String(format: "%.1f m/s", $0)) },
+        ].compactMap { $0 }
+        return HStack(spacing: 0) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { idx, cell in
+                if idx > 0 { Rectangle().fill(t.separator).frame(width: 0.5).padding(.vertical, 8) }
+                sunCell(symbol: cell.0, title: cell.1, value: cell.2)
+            }
+        }
+        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .accessibilityIdentifier("weather.marine")
     }
 
     private func sunCard(_ sun: SunTimes) -> some View {
