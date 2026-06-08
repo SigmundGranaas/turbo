@@ -28,7 +28,8 @@ public struct RootView: View {
         self.container = container
         _root = State(initialValue: RootViewModel(
             settingsRepository: container.settingsRepository,
-            authRepository: container.authRepository
+            authRepository: container.authRepository,
+            sharingRepository: container.sharingRepository
         ))
         _mapViewModel = State(initialValue: container.makeMapViewModel())
     }
@@ -58,6 +59,7 @@ public struct RootView: View {
                 AccountMenuSheet(
                     accountName: root.account?.displayName,
                     accountEmail: root.account?.email,
+                    friendCode: root.friendCode,
                     canSignIn: container.isOnline && root.account == nil,
                     onSelect: { path.append($0) },
                     onAccount: { showAuth = true }

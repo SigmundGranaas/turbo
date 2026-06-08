@@ -10,6 +10,8 @@ struct AccountMenuSheet: View {
 
     let accountName: String?
     let accountEmail: String?
+    /// The user's shareable friend code (signed in), else nil.
+    var friendCode: String? = nil
     /// True when a sign-in flow is available (online build, signed out).
     let canSignIn: Bool
     let onSelect: (RootView.Route) -> Void
@@ -20,6 +22,7 @@ struct AccountMenuSheet: View {
             ScrollView {
                 VStack(spacing: 0) {
                     header
+                    if let friendCode { friendCodeRow(friendCode) }
                     group {
                         menuRow(.markers, "My Markers", "mappin.circle.fill", t.red)
                         divider
@@ -79,6 +82,27 @@ struct AccountMenuSheet: View {
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
         .contentShape(Rectangle())
+    }
+
+    /// Real friend code (loaded from the sharing service) with a share action.
+    private func friendCodeRow(_ code: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "qrcode").font(.system(size: 22)).foregroundStyle(t.label)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Friend code").font(.turboFootnote).foregroundStyle(t.label2)
+                Text(code).font(.turboHeadline).foregroundStyle(t.label)
+            }
+            Spacer()
+            ShareLink(item: code) {
+                Text("Share").font(.turboSubhead.weight(.semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 13).padding(.vertical, 6)
+                    .background(t.blue, in: Capsule())
+            }
+        }
+        .padding(14)
+        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
     }
 
     private func group<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

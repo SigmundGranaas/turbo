@@ -35,6 +35,7 @@ public final class AppContainer {
     public let avalancheProvider: AvalancheProvider
     public let routeRepository: RouteRepository
     public let photoRepository: PhotoRepository
+    public let sharingRepository: SharingRepository
     public let syncController: SyncController
     /// Whether the live API (auth + cloud sync) is configured for this build.
     public let isOnline: Bool
@@ -70,6 +71,9 @@ public final class AppContainer {
             let auth = GoogleAuthRepository(apiBaseURL: base)
             authRepository = auth
             let bearer: @Sendable () async -> String? = { await auth.token() }
+            sharingRepository = HttpSharingRepository(
+                apiBaseURL: base, webBaseURL: URL(string: "https://kart.sandring.no")!, token: bearer
+            )
             syncController = SyncController(
                 units: [
                     Syncers.marker(repository: markerRepository,
@@ -85,8 +89,10 @@ public final class AppContainer {
                 auth: authRepository, settings: settingsRepository
             )
         } else {
-            // Offline: no auth backend (always signed out, no sign-in) and no sync.
+            // Offline: no auth backend (always signed out, no sign-in), no sync,
+            // no sharing (never reached — sharing is signed-in only).
             authRepository = UnauthenticatedAuthRepository()
+            sharingRepository = InMemorySharingRepository()
             syncController = SyncController(units: [], auth: authRepository, settings: settingsRepository)
         }
     }
@@ -105,6 +111,7 @@ public final class AppContainer {
         avalancheProvider: AvalancheProvider = InMemoryAvalancheProvider(),
         routeRepository: RouteRepository = InMemoryRouteRepository(),
         photoRepository: PhotoRepository = FilePhotoRepository(),
+        sharingRepository: SharingRepository = InMemorySharingRepository(),
         isOnline: Bool = false
     ) {
         self.markerRepository = markerRepository
@@ -119,6 +126,7 @@ public final class AppContainer {
         self.avalancheProvider = avalancheProvider
         self.routeRepository = routeRepository
         self.photoRepository = photoRepository
+        self.sharingRepository = sharingRepository
         self.isOnline = isOnline
         self.syncController = AppContainer.makeSyncController(
             markers: markerRepository, paths: pathRepository, collections: collectionRepository,
