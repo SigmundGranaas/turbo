@@ -49,7 +49,8 @@ public struct RootView: View {
                     makeWeatherViewModel: { container.makeWeatherViewModel(position: $0, placeName: "Conditions") },
                     makeAvalancheViewModel: { container.makeAvalancheViewModel(position: $0) },
                     accountInitials: root.account.map { AccountMenuSheet.initials($0.displayName) },
-                    makeRouteViewModel: container.makeRouteViewModel
+                    makeRouteViewModel: container.makeRouteViewModel,
+                    makePhotosViewModel: container.makePhotosViewModel
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }
@@ -92,7 +93,8 @@ public struct RootView: View {
     private func destination(_ route: Route) -> some View {
         switch route {
         case .markers:
-            MarkersScreen(viewModel: container.makeMarkersViewModel())
+            MarkersScreen(viewModel: container.makeMarkersViewModel(),
+                          makePhotosViewModel: container.makePhotosViewModel)
         case .paths:
             PathsScreen(viewModel: container.makePathsViewModel(),
                         makeRecordingViewModel: container.makeRecordingViewModel)

@@ -1,6 +1,10 @@
 import SwiftUI
 import CoreModel
 import CoreDesignSystem
+#if canImport(UIKit)
+import PhotosUI
+import UIKit
+#endif
 
 /// An Apple Maps-style place card for a saved marker — identity, coordinate,
 /// notes, and actions (edit, export, delete). Used as a sheet from a tapped pin
@@ -12,11 +16,19 @@ public struct MarkerDetailScreen: View {
     private let onEdit: (() -> Void)?
     private let onDelete: () -> Void
     @State private var confirmingDelete = false
+    @State private var photos: MarkerPhotosViewModel?
+    private let makePhotos: (() -> MarkerPhotosViewModel)?
 
-    public init(marker: Marker, onEdit: (() -> Void)? = nil, onDelete: @escaping () -> Void) {
+    public init(
+        marker: Marker,
+        onEdit: (() -> Void)? = nil,
+        onDelete: @escaping () -> Void,
+        makePhotos: (() -> MarkerPhotosViewModel)? = nil
+    ) {
         self.marker = marker
         self.onEdit = onEdit
         self.onDelete = onDelete
+        self.makePhotos = makePhotos
     }
 
     public var body: some View {
@@ -46,8 +58,13 @@ public struct MarkerDetailScreen: View {
                 if let notes = marker.notes, !notes.isEmpty {
                     infoRow("Notes", notes)
                 }
+                photoSection
             }
             .padding(16)
+        }
+        .task {
+            if photos == nil { photos = makePhotos?() }
+            await photos?.load()
         }
         .background(t.grouped)
         .navigationTitle(marker.name)
@@ -58,6 +75,18 @@ public struct MarkerDetailScreen: View {
         } message: {
             Text("This action is permanent and cannot be undone.")
         }
+    }
+
+    @ViewBuilder
+    private var photoSection: some View {
+        #if canImport(UIKit)
+        if let photos {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Photos").font(.turboFootnote).foregroundStyle(t.label2).textCase(.uppercase)
+                PhotoStrip(viewModel: photos)
+            }
+        }
+        #endif
     }
 
     private func action(_ title: String, _ symbol: String, role: ButtonRole? = nil, _ act: @escaping () -> Void) -> some View {

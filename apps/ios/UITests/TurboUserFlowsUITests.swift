@@ -300,9 +300,15 @@ final class TurboUserFlowsUITests: XCTestCase {
         let app = launch()
         let map = app.maps.firstMatch
         XCTAssertTrue(map.waitForExistence(timeout: 10))
-        map.press(forDuration: 1.1)   // long-press → drop-a-point menu
+        XCTAssertTrue(map.buttons["map.fab"].waitForExistence(timeout: 5))   // chrome settled
 
+        // Long-press the map to open the drop-a-point menu (retry once — the
+        // gesture occasionally needs the map fully idle).
         let plan = app.buttons["Plan a Route"]
+        map.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).press(forDuration: 1.3)
+        if !plan.waitForExistence(timeout: 4) {
+            map.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)).press(forDuration: 1.3)
+        }
         XCTAssertTrue(plan.waitForExistence(timeout: 5))
         plan.tap()
 

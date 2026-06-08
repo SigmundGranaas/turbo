@@ -34,6 +34,7 @@ public final class AppContainer {
     public let weatherProvider: WeatherProvider
     public let avalancheProvider: AvalancheProvider
     public let routeRepository: RouteRepository
+    public let photoRepository: PhotoRepository
     public let syncController: SyncController
     /// Whether the live API (auth + cloud sync) is configured for this build.
     public let isOnline: Bool
@@ -60,6 +61,7 @@ public final class AppContainer {
         weatherProvider = MetNoWeatherProvider()
         avalancheProvider = VarsomAvalancheProvider()
         routeRepository = HttpRouteRepository()   // public routing API, no auth
+        photoRepository = FilePhotoRepository()
         isOnline = config.isOnline
 
         let cursor = UserDefaultsCursorStore()
@@ -102,6 +104,7 @@ public final class AppContainer {
         weatherProvider: WeatherProvider = InMemoryWeatherProvider(),
         avalancheProvider: AvalancheProvider = InMemoryAvalancheProvider(),
         routeRepository: RouteRepository = InMemoryRouteRepository(),
+        photoRepository: PhotoRepository = FilePhotoRepository(),
         isOnline: Bool = false
     ) {
         self.markerRepository = markerRepository
@@ -115,6 +118,7 @@ public final class AppContainer {
         self.weatherProvider = weatherProvider
         self.avalancheProvider = avalancheProvider
         self.routeRepository = routeRepository
+        self.photoRepository = photoRepository
         self.isOnline = isOnline
         self.syncController = AppContainer.makeSyncController(
             markers: markerRepository, paths: pathRepository, collections: collectionRepository,
@@ -170,6 +174,9 @@ public final class AppContainer {
     public func makeMarkersViewModel() -> MarkersViewModel { MarkersViewModel(repository: markerRepository) }
     public func makeRouteViewModel() -> RouteViewModel {
         RouteViewModel(routeRepository: routeRepository, pathRepository: pathRepository)
+    }
+    public func makePhotosViewModel(marker: Marker) -> MarkerPhotosViewModel {
+        MarkerPhotosViewModel(repository: photoRepository, marker: marker)
     }
     public func makeSearchViewModel() -> SearchViewModel { SearchViewModel(repository: searchRepository) }
     public func makeSettingsViewModel() -> SettingsViewModel { SettingsViewModel(repository: settingsRepository) }

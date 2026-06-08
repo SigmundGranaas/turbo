@@ -7,9 +7,11 @@ import CoreDesignSystem
 public struct MarkersScreen: View {
     @Environment(\.turbo) private var t
     @State private var viewModel: MarkersViewModel
+    private let makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)?
 
-    public init(viewModel: MarkersViewModel) {
+    public init(viewModel: MarkersViewModel, makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil) {
         _viewModel = State(initialValue: viewModel)
+        self.makePhotosViewModel = makePhotosViewModel
     }
 
     public var body: some View {
@@ -38,7 +40,11 @@ public struct MarkersScreen: View {
         }
         .navigationTitle("My Markers")
         .navigationDestination(for: Marker.self) { marker in
-            MarkerDetailScreen(marker: marker, onDelete: { viewModel.delete(id: marker.id) })
+            MarkerDetailScreen(
+                marker: marker,
+                onDelete: { viewModel.delete(id: marker.id) },
+                makePhotos: makePhotosViewModel.map { f in { f(marker) } }
+            )
         }
         .task { viewModel.start() }
     }

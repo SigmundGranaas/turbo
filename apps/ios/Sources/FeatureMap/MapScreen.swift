@@ -21,6 +21,7 @@ public struct MapScreen: View {
     private let makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)?
     private let accountInitials: String?
     private let makeRouteViewModel: (() -> RouteViewModel)?
+    private let makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)?
     @State private var routing: RouteViewModel?
     @State private var showWeather = false
     @State private var editorTarget: EditorTarget?
@@ -52,7 +53,8 @@ public struct MapScreen: View {
         makeWeatherViewModel: ((LatLng) -> WeatherViewModel)? = nil,
         makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)? = nil,
         accountInitials: String? = nil,
-        makeRouteViewModel: (() -> RouteViewModel)? = nil
+        makeRouteViewModel: (() -> RouteViewModel)? = nil,
+        makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil
     ) {
         self.viewModel = viewModel
         self.onOpenSearch = onOpenSearch
@@ -62,6 +64,7 @@ public struct MapScreen: View {
         self.makeAvalancheViewModel = makeAvalancheViewModel
         self.accountInitials = accountInitials
         self.makeRouteViewModel = makeRouteViewModel
+        self.makePhotosViewModel = makePhotosViewModel
     }
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
@@ -110,7 +113,8 @@ public struct MapScreen: View {
             MarkerDetailScreen(
                 marker: marker,
                 onEdit: { editorTarget = .edit(marker) },
-                onDelete: { viewModel.deleteMarker(id: marker.id) }
+                onDelete: { viewModel.deleteMarker(id: marker.id) },
+                makePhotos: makePhotosViewModel.map { f in { f(marker) } }
             )
             .presentationDetents([.medium, .large])
         }
