@@ -20,6 +20,7 @@ public final class RecordingViewModel {
 
     private let location: LocationProvider
     private let pathRepository: PathRepository
+    private let activity: RecordingActivityPresenter
     private let now: @Sendable () -> Date
     private var fixObservation: Task<Void, Never>?
     private var ticker: Task<Void, Never>?
@@ -27,10 +28,12 @@ public final class RecordingViewModel {
     public init(
         location: LocationProvider,
         pathRepository: PathRepository,
+        activity: RecordingActivityPresenter = NoRecordingActivityPresenter(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.location = location
         self.pathRepository = pathRepository
+        self.activity = activity
         self.now = now
     }
 
@@ -41,7 +44,11 @@ public final class RecordingViewModel {
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
         startedAt = now()
         isRecording = true
-        location.requestAuthorization()
+        // Always-auth + background updates keep the track alive when the phone is
+        // pocketed or locked — the iOS analogue of Android's foreground service.
+        location.requestAlwaysAuthorization()
+        location.setBackgroundUpdates(true)
+        activity.begin(title: "Recording")
 
         fixObservation = Task { [weak self, location] in
             for await fix in location.fixes() {
@@ -53,6 +60,7 @@ public final class RecordingViewModel {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self, let started = self.startedAt, self.isRecording else { continue }
                 self.elapsedSeconds = Int(self.now().timeIntervalSince(started))
+                self.activity.update(distanceMeters: self.distanceMeters, elapsedSeconds: self.elapsedSeconds)
             }
         }
     }
@@ -60,6 +68,8 @@ public final class RecordingViewModel {
     /// Stop accumulating but keep the captured track (pending save / discard).
     public func stop() {
         isRecording = false
+        location.setBackgroundUpdates(false)
+        activity.end()
         fixObservation?.cancel(); fixObservation = nil
         ticker?.cancel(); ticker = nil
     }
@@ -94,6 +104,7 @@ public final class RecordingViewModel {
         if let altitude = fix.altitude { elevations.append(altitude) }
         pointCount = points.count
         distanceMeters = GeoMetrics.pathLengthMeters(points)
+        activity.update(distanceMeters: distanceMeters, elapsedSeconds: elapsedSeconds)
     }
 
     private func reset() {

@@ -6,6 +6,7 @@ Package.resolved
 # XcodeGen output — regenerate with `xcodegen generate`
 Turbo.xcodeproj/
 App/Info.generated.plist
+RecordingWidget/Info.generated.plist
 
 # Xcode user state
 xcuserdata/

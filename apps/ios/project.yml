@@ -33,6 +33,8 @@ targets:
     dependencies:
       - package: Turbo
         product: TurboApp
+      - target: RecordingWidget
+        embed: true
     info:
       path: App/Info.generated.plist
       properties:
@@ -42,6 +44,11 @@ targets:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSLocationWhenInUseUsageDescription: "Turbo uses your location to show where you are on the map and follow you on the trail."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Turbo keeps recording your track when the app is in the background or your screen is locked."
+        # Keep GPS alive while recording a track with the app backgrounded.
+        UIBackgroundModes: [location]
+        # Live Activity (Dynamic Island / Lock Screen) for the active recording.
+        NSSupportsLiveActivities: true
         # Set to the API base URL (e.g. https://kart.sandring.no/api) to go online.
         TurboAPIBaseURL: ""
         # OAuth callback scheme for Google sign-in (turbo://oauth?code=…).
@@ -55,6 +62,27 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1,2"
+
+  RecordingWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RecordingWidget
+    dependencies:
+      - package: Turbo
+        product: CoreLiveActivity
+    info:
+      path: RecordingWidget/Info.generated.plist
+      properties:
+        CFBundleDisplayName: Turbo Recording
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: no.sandring.turbo.RecordingWidget
+        PRODUCT_NAME: RecordingWidget
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
 
   TurboUITests:
     type: bundle.ui-testing

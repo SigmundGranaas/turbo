@@ -25,8 +25,20 @@ public struct LocationFix: Equatable, Sendable {
 public protocol LocationProvider: Sendable {
     /// Ask the user for "when in use" permission (no-op if already decided).
     func requestAuthorization()
+    /// Ask for "always" permission so a recording survives backgrounding /
+    /// screen-lock (the iOS analogue of Android's location foreground service).
+    func requestAlwaysAuthorization()
+    /// Keep delivering fixes while backgrounded. Enabled for the duration of a
+    /// recording, disabled when it stops so the app isn't a battery drain at rest.
+    func setBackgroundUpdates(_ enabled: Bool)
     /// A stream of location fixes for the lifetime of the subscription.
     func fixes() -> AsyncStream<LocationFix>
+}
+
+public extension LocationProvider {
+    // Simulated / in-memory providers don't manage real CoreLocation state.
+    func requestAlwaysAuthorization() {}
+    func setBackgroundUpdates(_ enabled: Bool) {}
 }
 
 /// A scripted provider for tests + previews — emits a fixed sequence of fixes.
@@ -73,6 +85,24 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
 
     public func requestAuthorization() {
         manager.requestWhenInUseAuthorization()
+    }
+
+    public func requestAlwaysAuthorization() {
+        #if os(iOS)
+        manager.requestAlwaysAuthorization()
+        #else
+        manager.requestWhenInUseAuthorization()
+        #endif
+    }
+
+    public func setBackgroundUpdates(_ enabled: Bool) {
+        #if os(iOS)
+        // Requires the `location` UIBackgroundMode (set in Info.plist) — without
+        // it this property assignment traps at runtime.
+        manager.allowsBackgroundLocationUpdates = enabled
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.showsBackgroundLocationIndicator = enabled
+        #endif
     }
 
     public func fixes() -> AsyncStream<LocationFix> {

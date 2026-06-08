@@ -205,7 +205,19 @@ public final class AppContainer {
     public func makeSettingsViewModel() -> SettingsViewModel { SettingsViewModel(repository: settingsRepository) }
     public func makePathsViewModel() -> PathsViewModel { PathsViewModel(repository: pathRepository) }
     public func makeRecordingViewModel() -> RecordingViewModel {
-        RecordingViewModel(location: locationProvider, pathRepository: pathRepository)
+        RecordingViewModel(location: locationProvider, pathRepository: pathRepository,
+                           activity: Self.makeActivityPresenter())
+    }
+
+    /// The real ActivityKit presenter on device; a no-op elsewhere (host build,
+    /// `-uitest`, or where Live Activities are unsupported).
+    private static func makeActivityPresenter() -> RecordingActivityPresenter {
+        #if canImport(ActivityKit) && os(iOS)
+        if ProcessInfo.processInfo.arguments.contains("-uitest") { return NoRecordingActivityPresenter() }
+        return LiveActivityPresenter()
+        #else
+        return NoRecordingActivityPresenter()
+        #endif
     }
     public func makeWeatherViewModel(position: LatLng, placeName: String) -> WeatherViewModel {
         WeatherViewModel(provider: weatherProvider, position: position, placeName: placeName,

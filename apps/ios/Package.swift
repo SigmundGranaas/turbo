@@ -24,6 +24,7 @@ let package = Package(
     products: [
         .library(name: "CoreModel", targets: ["CoreModel"]),
         .library(name: "CoreCommon", targets: ["CoreCommon"]),
+        .library(name: "CoreLiveActivity", targets: ["CoreLiveActivity"]),
         .library(name: "CoreDesignSystem", targets: ["CoreDesignSystem"]),
         .library(name: "CoreData", targets: ["CoreData"]),
         .library(name: "CoreAuth", targets: ["CoreAuth"]),
@@ -43,6 +44,9 @@ let package = Package(
         // ---- core ----
         .target(name: "CoreModel"),
         .target(name: "CoreCommon"),
+        // Shared Live Activity attributes — linked by both the app (FeatureRecording)
+        // and the widget extension so the ContentState type is identical on both sides.
+        .target(name: "CoreLiveActivity"),
         .target(name: "CoreDesignSystem", dependencies: ["CoreModel", "CoreCommon"]),
         .target(name: "CoreData", dependencies: ["CoreModel", "CoreCommon"]),
         .target(name: "CoreAuth", dependencies: ["CoreCommon"]),
@@ -54,7 +58,7 @@ let package = Package(
         .target(name: "FeatureLayers", dependencies: ["CoreModel", "CoreCommon", "CoreDesignSystem"]),
         .target(name: "FeatureSearch", dependencies: ["CoreModel", "CoreCommon", "CoreDesignSystem", "CoreData"]),
         .target(name: "FeatureSettings", dependencies: ["CoreModel", "CoreCommon", "CoreDesignSystem", "CoreData"]),
-        .target(name: "FeatureRecording", dependencies: ["CoreModel", "CoreCommon", "CoreDesignSystem", "CoreData"]),
+        .target(name: "FeatureRecording", dependencies: ["CoreModel", "CoreCommon", "CoreDesignSystem", "CoreData", "CoreLiveActivity"]),
         .target(name: "FeatureAuth", dependencies: ["CoreCommon", "CoreDesignSystem", "CoreAuth"]),
         .target(name: "FeatureCollections", dependencies: ["CoreModel", "CoreCommon", "CoreDesignSystem", "CoreData"]),
         .target(name: "FeatureOffline", dependencies: ["CoreModel", "CoreCommon", "CoreDesignSystem", "CoreMap"]),

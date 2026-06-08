@@ -69,4 +69,51 @@ struct RecordingViewModelTests {
         try? await Task.sleep(for: .milliseconds(150))
         #expect(await repo.current().first?.name.isEmpty == false)
     }
+
+    @Test("recording asks for background updates; stopping turns them off")
+    func backgroundLifecycle() async {
+        let spy = BackgroundSpyProvider()
+        let vm = RecordingViewModel(location: spy, pathRepository: InMemoryPathRepository(seed: []))
+        vm.start()
+        #expect(spy.alwaysAuthorizationRequested)
+        #expect(spy.backgroundUpdates == true)
+        vm.stop()
+        #expect(spy.backgroundUpdates == false)
+    }
+
+    @Test("recording begins a Live Activity and ends it on stop")
+    func liveActivityLifecycle() async {
+        let presenter = ActivitySpy()
+        let vm = RecordingViewModel(
+            location: provider(),
+            pathRepository: InMemoryPathRepository(seed: []),
+            activity: presenter
+        )
+        vm.start()
+        #expect(presenter.began)
+        try? await Task.sleep(for: .milliseconds(250))
+        #expect(presenter.updateCount > 0)   // pushed live stats as fixes arrived
+        vm.stop()
+        #expect(presenter.ended)
+    }
+}
+
+@MainActor
+private final class ActivitySpy: RecordingActivityPresenter {
+    private(set) var began = false
+    private(set) var ended = false
+    private(set) var updateCount = 0
+    func begin(title: String) { began = true }
+    func update(distanceMeters: Double, elapsedSeconds: Int) { updateCount += 1 }
+    func end() { ended = true }
+}
+
+/// Records the background-location calls a recording makes against the seam.
+private final class BackgroundSpyProvider: LocationProvider, @unchecked Sendable {
+    private(set) var alwaysAuthorizationRequested = false
+    private(set) var backgroundUpdates = false
+    func requestAuthorization() {}
+    func requestAlwaysAuthorization() { alwaysAuthorizationRequested = true }
+    func setBackgroundUpdates(_ enabled: Bool) { backgroundUpdates = enabled }
+    func fixes() -> AsyncStream<LocationFix> { AsyncStream { $0.finish() } }
 }
