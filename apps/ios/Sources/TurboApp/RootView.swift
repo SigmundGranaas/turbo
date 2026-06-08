@@ -108,7 +108,8 @@ public struct RootView: View {
                           shareResource: shareResource)
         case .paths:
             PathsScreen(viewModel: container.makePathsViewModel(),
-                        makeRecordingViewModel: container.makeRecordingViewModel)
+                        makeRecordingViewModel: container.makeRecordingViewModel,
+                        shareResource: shareResource)
         case .collections:
             CollectionsScreen(viewModel: container.makeCollectionsViewModel())
         case .settings:

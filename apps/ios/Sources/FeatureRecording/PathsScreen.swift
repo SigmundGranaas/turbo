@@ -9,10 +9,14 @@ public struct PathsScreen: View {
     @State private var viewModel: PathsViewModel
     @State private var showRecording = false
     private let makeRecordingViewModel: (() -> RecordingViewModel)?
+    private let shareResource: ((String) async -> URL?)?
 
-    public init(viewModel: PathsViewModel, makeRecordingViewModel: (() -> RecordingViewModel)? = nil) {
+    public init(viewModel: PathsViewModel,
+                makeRecordingViewModel: (() -> RecordingViewModel)? = nil,
+                shareResource: ((String) async -> URL?)? = nil) {
         _viewModel = State(initialValue: viewModel)
         self.makeRecordingViewModel = makeRecordingViewModel
+        self.shareResource = shareResource
     }
 
     public var body: some View {
@@ -46,7 +50,7 @@ public struct PathsScreen: View {
             }
         }
         .navigationTitle("Paths")
-        .navigationDestination(for: SavedPath.self) { HikeDetailScreen(path: $0) }
+        .navigationDestination(for: SavedPath.self) { HikeDetailScreen(path: $0, shareResource: shareResource) }
         .task { viewModel.start() }
         .sheet(isPresented: $showRecording) {
             if let makeRecordingViewModel {

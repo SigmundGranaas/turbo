@@ -7,9 +7,13 @@ import CoreDesignSystem
 public struct HikeDetailScreen: View {
     @Environment(\.turbo) private var t
     private let path: SavedPath
+    private let shareResource: ((String) async -> URL?)?
     private var stats: HikeStats { HikeStats(path.path) }
 
-    public init(path: SavedPath) { self.path = path }
+    public init(path: SavedPath, shareResource: ((String) async -> URL?)? = nil) {
+        self.path = path
+        self.shareResource = shareResource
+    }
 
     public var body: some View {
         ScrollView {
@@ -33,12 +37,15 @@ public struct HikeDetailScreen: View {
 
                 if let url = try? TrackExport.writeTemporaryFile(path, as: .gpx) {
                     ShareLink(item: url) {
-                        Label("Export GPX", systemImage: "square.and.arrow.up")
-                            .font(.turboHeadline)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(t.fill3, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .foregroundStyle(t.blue)
+                        actionLabel("Export GPX", "square.and.arrow.up")
                     }
+                }
+
+                if let shareResource {
+                    ShareLinkButton(create: { await shareResource(path.id) }) {
+                        actionLabel("Share Link", "person.2")
+                    }
+                    .accessibilityIdentifier("hike.share")
                 }
             }
             .padding(16)
@@ -48,6 +55,14 @@ public struct HikeDetailScreen: View {
     }
 
     private var tint: Color { path.activityKind?.tint(t) ?? t.blue }
+
+    private func actionLabel(_ title: String, _ symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.turboHeadline)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(t.fill3, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .foregroundStyle(t.blue)
+    }
 
     private func statTile(_ label: String, _ value: String, _ symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
