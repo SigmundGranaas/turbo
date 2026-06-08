@@ -4,8 +4,8 @@ import android.content.Context
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
-import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
@@ -131,7 +131,13 @@ class MapLibreOfflineTileManager @Inject constructor(
 
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class OfflineModule {
-    @Binds
-    abstract fun bindOfflineTileManager(impl: MapLibreOfflineTileManager): OfflineTileManager
+object OfflineModule {
+    /** Real MapLibre downloader in release; in-memory [SyntheticOfflineTileManager]
+     *  in DEBUG so the Offline Maps screen is driveable without the tileserver. */
+    @Provides
+    @Singleton
+    fun provideOfflineTileManager(
+        real: MapLibreOfflineTileManager,
+        synthetic: SyntheticOfflineTileManager,
+    ): OfflineTileManager = if (BuildConfig.DEBUG) synthetic else real
 }
