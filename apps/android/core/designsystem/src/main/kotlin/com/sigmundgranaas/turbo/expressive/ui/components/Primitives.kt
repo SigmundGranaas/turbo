@@ -23,7 +23,6 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -126,17 +125,10 @@ fun MapControlRail(
             active = following,
             onClick = onLocate,
         )
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shadowElevation = 3.dp,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 4.dp)) {
-                IconBtn(Icons.Rounded.Add, stringResource(R.string.ds_zoom_in), size = 42.dp, onClick = onZoomIn)
-                HorizontalDivider(modifier = Modifier.width(28.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                IconBtn(Icons.Rounded.Remove, stringResource(R.string.ds_zoom_out), size = 42.dp, onClick = onZoomOut)
-            }
-        }
+        // Zoom in/out as two standalone cookie buttons, matching the rail above —
+        // not a divided pill, which read as a different control entirely.
+        RailButton(Icons.Rounded.Add, stringResource(R.string.ds_zoom_in), onClick = onZoomIn)
+        RailButton(Icons.Rounded.Remove, stringResource(R.string.ds_zoom_out), onClick = onZoomOut)
     }
 }
 

@@ -357,7 +357,7 @@ private val WpEnd = Color(0xFFC0392B)
 /**
  * An on-map route waypoint: an A/B/C… letter badge (flag for the destination), start green /
  * end red / via primary, with a selected ring. Tap selects, long-press removes, and dragging
- * the selected one moves it ([onMoved] fires once on drop with the new position).
+ * any stop moves it directly ([onMoved] fires once on drop with the new position).
  */
 @Composable
 internal fun WaypointMarkerView(
@@ -390,20 +390,16 @@ internal fun WaypointMarkerView(
             }
             .size(sizeDp)
             .testTag("waypoint_$index")
-            // Drag the selected stop to move it; commit once on drop.
-            .then(
-                if (selected) {
-                    Modifier.pointerInput(index) {
-                        detectDragGestures(
-                            onDrag = { change, amount -> change.consume(); drag += amount },
-                            onDragEnd = { onMoved(toLatLng(project() + drag)); drag = Offset.Zero },
-                            onDragCancel = { drag = Offset.Zero },
-                        )
-                    }
-                } else {
-                    Modifier
-                }
-            )
+            // Any stop is directly draggable — no select-first. Drag commits once on
+            // drop; a quick tap still selects and a long-press still removes (the tap
+            // detector only fires below touch-slop, so it never steals a drag).
+            .pointerInput(index) {
+                detectDragGestures(
+                    onDrag = { change, amount -> change.consume(); drag += amount },
+                    onDragEnd = { onMoved(toLatLng(project() + drag)); drag = Offset.Zero },
+                    onDragCancel = { drag = Offset.Zero },
+                )
+            }
             .pointerInput(index) {
                 detectTapGestures(onTap = { onTap() }, onLongPress = { onLongPress() })
             },

@@ -107,6 +107,34 @@ class LiveSheetTest {
     }
 
     @Test
+    fun `following mini detent collapses to a one-liner with the stop control`() {
+        composeRule.setContent {
+            LiveSheet(
+                stats = followStats, metric = true, title = "Skåla Loop",
+                detent = LiveDetent.Mini, onDetentChange = {}, onTogglePause = {}, onStop = {},
+            )
+        }
+        // The compact bar keeps the title + the stop control, but drops the tall hero
+        // (hero number) and the bento entirely.
+        composeRule.onNodeWithTag("liveTitle").assertIsDisplayed()
+        composeRule.onNodeWithTag("liveStop").assertIsDisplayed()
+        composeRule.onNodeWithTag("liveHeroNumber").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("To climb: 175 m").assertDoesNotExist()
+    }
+
+    @Test
+    fun `recording mini detent shows compact controls and no hero`() {
+        composeRule.setContent {
+            LiveSheet(
+                stats = recStats, metric = true, title = "48:12",
+                detent = LiveDetent.Mini, onDetentChange = {}, onTogglePause = {}, onStop = {},
+            )
+        }
+        composeRule.onNodeWithTag("livePause").assertIsDisplayed()
+        composeRule.onNodeWithTag("liveHeroNumber").assertDoesNotExist()
+    }
+
+    @Test
     fun `following hero shows distance remaining as the hero number`() {
         composeRule.setContent {
             LiveSheet(

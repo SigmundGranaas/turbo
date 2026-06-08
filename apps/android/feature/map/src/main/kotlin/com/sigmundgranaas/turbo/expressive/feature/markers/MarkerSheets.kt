@@ -87,17 +87,13 @@ fun MarkerEditorSheet(
         shape = SheetShape,
         containerColor = cs.surfaceContainerLow,
     ) {
+        // No conditions block here — the long-press menu already shows the spot's
+        // weather, so a forecast card on the new-marker editor was redundant chrome.
         MarkerEditorContent(
             position = position,
             existing = existing,
             suggestedName = suggestedName,
             suggestedSubtitle = suggestedSubtitle,
-            conditions = {
-                if (existing == null) {
-                    Spacer(Modifier.height(16.dp))
-                    com.sigmundgranaas.turbo.expressive.feature.conditions.ConditionsBody(position)
-                }
-            },
             onSave = onSave,
         )
     }

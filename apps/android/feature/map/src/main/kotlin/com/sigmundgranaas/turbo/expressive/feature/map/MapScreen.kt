@@ -322,6 +322,8 @@ fun MapScreen(
         if (!recState.recording && !followingNow) { c.setBottomInset(0); return@LaunchedEffect }
         val screenPx = with(density) { configuration.screenHeightDp.dp.toPx() }
         val sheetPx = when (liveDetent) {
+            com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Mini ->
+                with(density) { 208.dp.toPx() }.coerceAtMost(screenPx * 0.64f)
             com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Peek ->
                 with(density) { 340.dp.toPx() }.coerceAtMost(screenPx * 0.64f)
             com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half -> screenPx * 0.56f
@@ -608,6 +610,24 @@ fun MapScreen(
                     )
                 }
 
+                // The live sheet owns the bottom of the screen; reserve its height so
+                // the centred rail (esp. the zoom cookies) lifts clear of it instead of
+                // hiding behind it. Capped so a fully-expanded sheet can't push the rail
+                // off the top.
+                val liveSheetShown = recState.recording ||
+                    (routeState is RouteUiState.Following && trackMode == null)
+                val railBottomReserve = if (liveSheetShown) {
+                    val maxH = configuration.screenHeightDp.dp
+                    val raw = when (liveDetent) {
+                        com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Mini -> minOf(208.dp, maxH * 0.64f)
+                        com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Peek -> minOf(340.dp, maxH * 0.64f)
+                        com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Half -> maxH * 0.56f
+                        com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent.Full -> maxH * 0.92f
+                    }
+                    raw.coerceAtMost(maxH * 0.5f)
+                } else {
+                    0.dp
+                }
                 MapControlRail(
                     following = state.following,
                     creatingTrack = false,
@@ -635,7 +655,7 @@ fun MapScreen(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .windowInsetsPadding(WindowInsets.statusBars)
-                        .padding(end = 14.dp),
+                        .padding(end = 14.dp, bottom = railBottomReserve),
                 )
             }
 
@@ -786,15 +806,6 @@ fun MapScreen(
                     modifier = Modifier.align(Alignment.TopStart)
                         .windowInsetsPadding(WindowInsets.statusBars).padding(16.dp),
                 )
-                // The title chip is redundant on short (landscape) viewports where the
-                // tall panel pushes the coachmark up into it — the close button + coachmark
-                // already say what's going on, so drop it there.
-                if (!com.sigmundgranaas.turbo.expressive.ui.layout.isCompactHeight()) {
-                    CreateTrackTitleChip(
-                        modifier = Modifier.align(Alignment.TopCenter)
-                            .windowInsetsPadding(WindowInsets.statusBars).padding(top = 18.dp),
-                    )
-                }
                 // Keep zoom + recenter reachable — the full rail is hidden in the tool.
                 CreateTrackMapControls(
                     following = state.following,
@@ -820,13 +831,12 @@ fun MapScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // While a planned route is re-solving after an edit, show "Updating
-                    // route…" instead of the coachmark (the old line stays on the map).
+                    // route…" (the old line stays on the map). No standing coachmark —
+                    // the panel itself is the affordance.
                     if (mode == TrackMode.Route && routeState is RouteUiState.Solving && toolWaypoints.size >= 2) {
                         CreateTrackUpdatingChip()
-                    } else {
-                        CreateTrackHint(mode = mode)
+                        Spacer(Modifier.height(12.dp))
                     }
-                    Spacer(Modifier.height(12.dp))
                     CreateTrackPanel(
                         mode = mode,
                         onMode = { next -> haptics.toggle(true); trackMode = next },

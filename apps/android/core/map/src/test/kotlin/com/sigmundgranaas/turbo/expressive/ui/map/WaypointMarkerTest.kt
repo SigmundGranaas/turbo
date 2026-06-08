@@ -21,7 +21,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * Drives the on-map waypoint marker's gestures headlessly (the projection is faked, so no
- * MapLibre needed): tap = select, long-press = remove, and dragging the selected one = move.
+ * MapLibre needed): tap = select, long-press = remove, and dragging any stop = move.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -86,12 +86,15 @@ class WaypointMarkerTest {
     }
 
     @Test
-    fun `an unselected stop does not move on drag`() {
+    fun `an unselected stop is also directly draggable (no select-first)`() {
         var moved: LatLng? = null
         marker(selected = false, onMoved = { moved = it })
         composeRule.onNodeWithTag("waypoint_1").performTouchInput {
             swipe(start = center, end = center + Offset(120f, 80f), durationMillis = 200)
         }
-        assertEquals(null, moved)
+        val drop = moved
+        assertNotNull("dragging any stop should commit a move without selecting first", drop)
+        assertEquals(320.0, drop!!.lng, 40.0)
+        assertEquals(280.0, drop.lat, 40.0)
     }
 }

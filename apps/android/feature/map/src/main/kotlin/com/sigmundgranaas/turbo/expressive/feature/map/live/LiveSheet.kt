@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
@@ -63,10 +64,15 @@ import com.sigmundgranaas.turbo.expressive.ui.components.LiveElevationSpark
 import com.sigmundgranaas.turbo.expressive.ui.components.LiveMetricTile
 import com.sigmundgranaas.turbo.expressive.ui.components.MetricTone
 
-/** The three rest positions of the live sheet, à la the Google-Maps drawer. */
-enum class LiveDetent { Peek, Half, Full }
+/**
+ * The rest positions of the live sheet, à la the Google-Maps drawer. [Mini] is a
+ * one-line status bar (title + hero number + the stop control) for when you want the
+ * map almost entirely clear; Peek/Half/Full progressively reveal the full readout.
+ */
+enum class LiveDetent { Mini, Peek, Half, Full }
 
 private fun LiveDetent.up() = when (this) {
+    LiveDetent.Mini -> LiveDetent.Peek
     LiveDetent.Peek -> LiveDetent.Half
     LiveDetent.Half -> LiveDetent.Full
     LiveDetent.Full -> LiveDetent.Full
@@ -75,7 +81,8 @@ private fun LiveDetent.up() = when (this) {
 private fun LiveDetent.down() = when (this) {
     LiveDetent.Full -> LiveDetent.Half
     LiveDetent.Half -> LiveDetent.Peek
-    LiveDetent.Peek -> LiveDetent.Peek
+    LiveDetent.Peek -> LiveDetent.Mini
+    LiveDetent.Mini -> LiveDetent.Mini
 }
 
 /**
@@ -106,7 +113,10 @@ fun LiveSheet(
         // Peek must clear the hero + pinned actions (incl. the nav-bar inset) so the
         // glance state is never clipped.
         val peek = minOf(340.dp, maxHeight * 0.64f)
+        // Mini: just the handle + the one-line status bar + the stop control.
+        val mini = minOf(208.dp, peek)
         val target = when (detent) {
+            LiveDetent.Mini -> mini
             LiveDetent.Peek -> peek
             LiveDetent.Half -> half
             LiveDetent.Full -> full
@@ -124,7 +134,7 @@ fun LiveSheet(
             onDragStopped = { velocity ->
                 when {
                     velocity < -FLING_PX -> onDetentChange(LiveDetent.Full)
-                    velocity > FLING_PX -> onDetentChange(LiveDetent.Peek)
+                    velocity > FLING_PX -> onDetentChange(LiveDetent.Mini)
                     dragAccum[0] < -DRAG_SNAP_PX -> onDetentChange(detent.up())
                     dragAccum[0] > DRAG_SNAP_PX -> onDetentChange(detent.down())
                 }
@@ -160,7 +170,11 @@ fun LiveSheet(
                             .clip(CircleShape).background(cs.onSurfaceVariant.copy(alpha = .5f)),
                     )
                 }
-                Box(Modifier.padding(horizontal = 14.dp)) { LiveHero(stats, metric, title) }
+                if (detent == LiveDetent.Mini) {
+                    LiveMiniBar(stats, metric, title)
+                } else {
+                    Box(Modifier.padding(horizontal = 14.dp)) { LiveHero(stats, metric, title) }
+                }
             }
 
             // Scrollable readout (bento + elevation); the action bar is pinned below.
@@ -179,7 +193,7 @@ fun LiveSheet(
                 Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
                 if (stats.recording) {
-                    if (detent == LiveDetent.Peek) PrimaryStopRow(stats.paused, onTogglePause, onStop)
+                    if (detent == LiveDetent.Peek || detent == LiveDetent.Mini) PrimaryStopRow(stats.paused, onTogglePause, onStop)
                     else FullActions(stats.paused, onTogglePause, onStop)
                 } else {
                     StopFollowingButton(onStop)
@@ -196,6 +210,7 @@ private fun RecordingBody(
     detent: LiveDetent,
     elevations: List<Double>,
 ) {
+    if (detent == LiveDetent.Mini) return
     if (detent == LiveDetent.Peek) {
         SwipeHint(R.string.live_swipe_stats)
         return
@@ -227,6 +242,7 @@ private fun FollowBody(
     elevations: List<Double>,
     nextWaypoint: Pair<String, String>?,
 ) {
+    if (detent == LiveDetent.Mini) return
     if (detent == LiveDetent.Peek) {
         SwipeHint(R.string.live_swipe_stats)
         return
@@ -325,6 +341,40 @@ private fun StopFollowingButton(onStop: () -> Unit) {
         Icon(Icons.Rounded.Close, null, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(9.dp))
         Text(stringResource(R.string.live_stop_following), fontWeight = FontWeight.W700)
+    }
+}
+
+/** The collapsed one-liner: accent dot · title · primary number (distance / ETA). */
+@Composable
+private fun LiveMiniBar(stats: LiveStats, metric: Boolean, title: String) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(9.dp).clip(CircleShape).background(if (stats.recording) cs.error else cs.primary))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W700),
+            color = cs.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).testTag("liveTitle"),
+        )
+        Spacer(Modifier.width(10.dp))
+        val readout = if (stats.recording) {
+            Units.distance(stats.distanceM, metric)
+        } else {
+            val (v, u) = etaValueUnit(stats.etaSeconds ?: 0)
+            "$v $u"
+        }
+        Text(
+            readout,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W800),
+            color = cs.primary,
+            maxLines = 1,
+        )
     }
 }
 

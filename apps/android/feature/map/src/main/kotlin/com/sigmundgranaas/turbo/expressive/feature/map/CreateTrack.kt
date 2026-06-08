@@ -28,13 +28,11 @@ import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Remove
-import androidx.compose.material.icons.rounded.EditRoad
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Timeline
-import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.material3.Button
@@ -352,19 +350,6 @@ internal fun CreateTrackCloseButton(onClose: () -> Unit, modifier: Modifier = Mo
     }
 }
 
-/** Centred title chip — "Create track". */
-@Composable
-internal fun CreateTrackTitleChip(modifier: Modifier = Modifier) {
-    val cs = MaterialTheme.colorScheme
-    Surface(shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 4.dp, modifier = modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 18.dp, vertical = 11.dp)) {
-            Icon(Icons.Rounded.EditRoad, null, tint = cs.primary, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.track_title), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W700), color = cs.onSurface)
-        }
-    }
-}
-
 /**
  * A trimmed map control kept available while the tool owns the screen — zoom and
  * recenter, so building a route doesn't trap the camera (the full rail is hidden).
@@ -399,48 +384,25 @@ internal fun CreateTrackMapControls(
                 )
             }
         }
-        Surface(shape = CircleShape, color = cs.surfaceContainerHigh, shadowElevation = 3.dp) {
-            androidx.compose.foundation.layout.Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(vertical = 4.dp),
-            ) {
-                com.sigmundgranaas.turbo.expressive.ui.components.IconBtn(
-                    androidx.compose.material.icons.Icons.Rounded.Add,
-                    stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_in),
-                    size = 42.dp,
-                    onClick = onZoomIn,
-                )
-                androidx.compose.material3.HorizontalDivider(modifier = Modifier.width(28.dp), color = cs.outlineVariant)
-                com.sigmundgranaas.turbo.expressive.ui.components.IconBtn(
-                    androidx.compose.material.icons.Icons.Rounded.Remove,
-                    stringResource(com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_out),
-                    size = 42.dp,
-                    onClick = onZoomOut,
-                )
-            }
-        }
+        // Zoom in/out as two standalone cookie buttons, matching the locate button
+        // above (and the main rail) — not a divided pill.
+        ZoomCookie(androidx.compose.material.icons.Icons.Rounded.Add, com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_in, onZoomIn)
+        ZoomCookie(androidx.compose.material.icons.Icons.Rounded.Remove, com.sigmundgranaas.turbo.expressive.core.designsystem.R.string.ds_zoom_out, onZoomOut)
     }
 }
 
-/** Coachmark teaching the current mode's gesture. */
 @Composable
-internal fun CreateTrackHint(mode: TrackMode, modifier: Modifier = Modifier) {
+private fun ZoomCookie(icon: androidx.compose.ui.graphics.vector.ImageVector, descRes: Int, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
-    val hint = when (mode) {
-        TrackMode.Route -> R.string.track_hint_route
-        TrackMode.Line -> R.string.track_hint_line
-        TrackMode.Draw -> R.string.track_hint_draw
-    }
-    Surface(shape = CircleShape, color = cs.inverseSurface, shadowElevation = 2.dp, modifier = modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-            Icon(
-                if (mode == TrackMode.Draw) Icons.Rounded.Gesture else Icons.Rounded.TouchApp,
-                null,
-                tint = cs.inverseOnSurface,
-                modifier = Modifier.size(16.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(hint), style = MaterialTheme.typography.labelMedium, color = cs.inverseOnSurface)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        color = cs.surfaceContainerHigh,
+        shadowElevation = 3.dp,
+        modifier = Modifier.size(52.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, stringResource(descRes), tint = cs.primary, modifier = Modifier.size(24.dp))
         }
     }
 }
