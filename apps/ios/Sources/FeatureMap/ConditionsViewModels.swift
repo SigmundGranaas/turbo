@@ -10,17 +10,21 @@ public final class WeatherViewModel {
     public private(set) var summary: WeatherSummary?
     public private(set) var loaded = false
     private let provider: WeatherProvider
+    private let reverseGeocode: ReverseGeocodeRepository?
     private let position: LatLng
-    private let placeName: String
+    private let fallbackName: String
 
-    public init(provider: WeatherProvider, position: LatLng, placeName: String) {
+    public init(provider: WeatherProvider, position: LatLng, placeName: String,
+                reverseGeocode: ReverseGeocodeRepository? = nil) {
         self.provider = provider
+        self.reverseGeocode = reverseGeocode
         self.position = position
-        self.placeName = placeName
+        self.fallbackName = placeName
     }
 
     public func load() async {
-        summary = await provider.forecast(at: position, placeName: placeName)
+        let name = await reverseGeocode?.describe(position)?.label ?? fallbackName
+        summary = await provider.forecast(at: position, placeName: name)
         loaded = true
     }
 }

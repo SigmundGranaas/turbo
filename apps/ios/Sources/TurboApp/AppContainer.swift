@@ -33,6 +33,7 @@ public final class AppContainer {
     public let locationProvider: LocationProvider
     public let weatherProvider: WeatherProvider
     public let avalancheProvider: AvalancheProvider
+    public let reverseGeocode: ReverseGeocodeRepository
     public let routeRepository: RouteRepository
     public let photoRepository: PhotoRepository
     public let sharingRepository: SharingRepository
@@ -61,6 +62,7 @@ public final class AppContainer {
         locationProvider = CoreLocationProvider()
         weatherProvider = MetNoWeatherProvider()
         avalancheProvider = VarsomAvalancheProvider()
+        reverseGeocode = KartverketReverseGeocodeRepository()   // public stedsnavn API, no auth
         routeRepository = HttpRouteRepository()   // public routing API, no auth
         photoRepository = FilePhotoRepository()
         isOnline = config.isOnline
@@ -109,6 +111,7 @@ public final class AppContainer {
         locationProvider: LocationProvider = SimulatedLocationProvider(fixes: []),
         weatherProvider: WeatherProvider = InMemoryWeatherProvider(),
         avalancheProvider: AvalancheProvider = InMemoryAvalancheProvider(),
+        reverseGeocode: ReverseGeocodeRepository = InMemoryReverseGeocodeRepository(result: nil),
         routeRepository: RouteRepository = InMemoryRouteRepository(),
         photoRepository: PhotoRepository = FilePhotoRepository(),
         sharingRepository: SharingRepository = InMemorySharingRepository(),
@@ -124,6 +127,7 @@ public final class AppContainer {
         self.locationProvider = locationProvider
         self.weatherProvider = weatherProvider
         self.avalancheProvider = avalancheProvider
+        self.reverseGeocode = reverseGeocode
         self.routeRepository = routeRepository
         self.photoRepository = photoRepository
         self.sharingRepository = sharingRepository
@@ -193,7 +197,7 @@ public final class AppContainer {
         RecordingViewModel(location: locationProvider, pathRepository: pathRepository)
     }
     public func makeWeatherViewModel(position: LatLng, placeName: String) -> WeatherViewModel {
-        WeatherViewModel(provider: weatherProvider, position: position, placeName: placeName)
+        WeatherViewModel(provider: weatherProvider, position: position, placeName: placeName, reverseGeocode: reverseGeocode)
     }
     public func makeAvalancheViewModel(position: LatLng) -> AvalancheViewModel {
         AvalancheViewModel(provider: avalancheProvider, position: position)
