@@ -35,4 +35,40 @@ class ArchitectureBoundaryTest {
             // Repository interfaces belong in a core module (data, auth, …), never a feature.
             .assertTrue { it.resideInPackage("..core..") }
     }
+
+    /**
+     * Feature modules don't depend on each other — except :feature:map, the home
+     * screen that *composes* a fixed set of sub-features. This pins that one
+     * allowed edge so a second feature→feature dependency can't sneak in.
+     */
+    @Test
+    fun `only the map host may depend on other feature modules`() {
+        // The primary code package of each feature *module* (weather's is `conditions`;
+        // map's own sub-packages — layers/markers/nav/offline/collectionpicker — are not
+        // modules, so they're deliberately absent and never flagged).
+        val modulePackages = setOf(
+            "map", "recording", "photos", "conditions",
+            "auth", "search", "settings", "collections",
+        )
+        val mapComposes = setOf("recording", "photos", "conditions")
+        val importedFeature = Regex("""com\.sigmundgranaas\.turbo\.expressive\.feature\.([a-z]+)""")
+        val owningDir = Regex("""/feature/([^/]+)/""")
+
+        Konsist.scopeFromProject()
+            .files
+            .filter { it.path.contains("/feature/") }
+            .assertTrue { file ->
+                val dir = owningDir.find(file.path)?.groupValues?.get(1) ?: return@assertTrue true
+                val ownPackage = if (dir == "weather") "conditions" else dir
+                file.imports.all { import ->
+                    val target = importedFeature.find(import.name)?.groupValues?.get(1)
+                    when {
+                        target == null || target !in modulePackages -> true // not a cross-module edge
+                        target == ownPackage -> true                        // within the same module
+                        dir == "map" -> target in mapComposes               // the host's allowed edges
+                        else -> false                                       // any other edge is banned
+                    }
+                }
+            }
+    }
 }
