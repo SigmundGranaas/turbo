@@ -22,6 +22,8 @@ public struct MapScreen: View {
     @State private var showWeather = false
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
+    @State private var mapMetersPerPoint: Double = 0
+    @State private var conditions: WeatherSummary?
     @State private var selectedMarker: Marker?
     @State private var compassResetToken = 0
     @State private var longPressCoord: LatLng?
@@ -55,7 +57,7 @@ public struct MapScreen: View {
         self.makeAvalancheViewModel = makeAvalancheViewModel
     }
 
-    private var weatherCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
+    private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
 
     public var body: some View {
         TurboMapView(
@@ -66,17 +68,27 @@ public struct MapScreen: View {
             focus: viewModel.focusedPlace?.position,
             resetBearingToken: compassResetToken,
             onLongPress: { longPressCoord = $0 },
-            onRegionChange: { mapCenter = $0 },
+            onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
             onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } }
         )
         .ignoresSafeArea()
+        .animation(.easeOut(duration: 0.25), value: viewModel.focusedPlace)
+        .animation(.easeOut(duration: 0.2), value: viewModel.following)
+        .sensoryFeedback(.impact(weight: .medium), trigger: longPressCoord) { _, new in new != nil }
+        .sensoryFeedback(.selection, trigger: viewModel.following)
         .overlay(alignment: .topLeading) { mapCenterProbe }
-        .overlay(alignment: .top) { topChrome }
-        .overlay(alignment: .bottomTrailing) { controlRail }
+        .overlay(alignment: .top) { topChrome.mapChrome() }
+        .overlay(alignment: .bottomTrailing) { controlRail.mapChrome() }
         .overlay(alignment: .bottomLeading) { scaleBar }
-        .overlay(alignment: .bottom) { bottomBar }
+        .overlay(alignment: .bottom) { bottomBar.mapChrome() }
         .hideNavigationBar()
-        .task { viewModel.start() }
+        .task {
+            viewModel.start()
+            if let vm = makeWeatherViewModel?(currentCenter) {
+                await vm.load()
+                conditions = vm.summary
+            }
+        }
         .sheet(item: $editorTarget) { target in
             switch target {
             case let .new(position, name):
@@ -96,8 +108,8 @@ public struct MapScreen: View {
         .sheet(isPresented: $showWeather) {
             if let makeWeatherViewModel, let makeAvalancheViewModel {
                 WeatherDetailScreen(
-                    weather: makeWeatherViewModel(weatherCenter),
-                    avalanche: makeAvalancheViewModel(weatherCenter)
+                    weather: makeWeatherViewModel(currentCenter),
+                    avalanche: makeAvalancheViewModel(currentCenter)
                 )
             }
         }
@@ -133,7 +145,7 @@ public struct MapScreen: View {
                 coordinate: marker.position,
                 title: marker.name,
                 symbolName: marker.kind.symbolName,
-                tint: marker.kind.tint(t)
+                tint: marker.displayColor(t)
             )
         }
         if let place = viewModel.focusedPlace {
@@ -146,9 +158,15 @@ public struct MapScreen: View {
     private var topChrome: some View {
         VStack(spacing: 10) {
             HStack(alignment: .top) {
-                Button { showWeather = true } label: { WeatherChip(temperature: "−3°") }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("map.weather")
+                Button { showWeather = true } label: {
+                    WeatherChip(
+                        symbol: conditions?.symbol.sfSymbol ?? "cloud.sun.fill",
+                        temperature: conditions.map { WeatherSummary.formatTemperature($0.temperatureC) } ?? "—"
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("map.weather")
+                .accessibilityLabel("Weather")
                 Spacer()
                 MapAvatar(initials: "SG", action: onOpenMenu)
                     .accessibilityIdentifier("map.avatar")
@@ -185,12 +203,15 @@ public struct MapScreen: View {
         MapControlRail {
             MapRailButton(symbol: "square.2.stack.3d", action: onOpenLayers)
                 .accessibilityIdentifier("map.layers")
+                .accessibilityLabel("Map layers")
             MapRailDivider()
             MapRailButton(
                 symbol: "location.north.fill",
                 active: viewModel.following,
                 action: viewModel.toggleFollowing
             )
+            .accessibilityLabel("Follow my location")
+            .accessibilityAddTraits(viewModel.following ? [.isSelected] : [])
             MapRailDivider()
             // Compass — reflects the live device heading; tap resets bearing north.
             Button(action: { compassResetToken += 1 }) {
@@ -199,6 +220,7 @@ public struct MapScreen: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Compass; resets bearing to north")
         }
         .padding(.trailing, 16)
         .padding(.bottom, 86)
@@ -209,9 +231,10 @@ public struct MapScreen: View {
             SearchPill(action: onOpenSearch)
                 .accessibilityIdentifier("map.search")
             MapFAB(symbol: "plus") {
-                editorTarget = .new(LatLng(lat: 69.58, lng: 19.95), name: "")
+                editorTarget = .new(currentCenter, name: "")
             }
             .accessibilityIdentifier("map.fab")
+            .accessibilityLabel("New marker")
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 12)
@@ -226,13 +249,23 @@ public struct MapScreen: View {
     }
 
     private var scaleBar: some View {
-        ScaleBar()
+        let bar = MapScale.bar(metersPerPoint: mapMetersPerPoint, maxWidthPoints: 64)
+        return ScaleBar(label: bar.label, width: bar.widthPoints)
             .padding(.leading, 18)
             .padding(.bottom, 96)
+            .opacity(mapMetersPerPoint > 0 ? 1 : 0)   // hide until the first region settles
     }
 }
 
 private extension View {
+    /// Floating chrome sits over the always-bright map raster, so it should read
+    /// in light styling regardless of the app's light/dark setting — otherwise
+    /// white text/glass becomes illegible over the bright map in dark mode.
+    func mapChrome() -> some View {
+        environment(\.colorScheme, .light)
+            .environment(\.turbo, TurboColors(dark: false))
+    }
+
     /// Hide the navigation bar so the map runs full-bleed. iOS-only API.
     @ViewBuilder func hideNavigationBar() -> some View {
         #if os(iOS)

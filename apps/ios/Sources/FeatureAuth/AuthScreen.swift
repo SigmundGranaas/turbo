@@ -20,7 +20,7 @@ public struct AuthScreen: View {
             hero
             VStack(spacing: 0) {
                 Text("Turbo")
-                    .font(.system(size: 32, weight: .heavy))
+                    .font(.system(.largeTitle, design: .default, weight: .heavy))
                     .foregroundStyle(t.label)
                 Text("The hiking map made for Norwegian mountains.")
                     .font(.turboBody)

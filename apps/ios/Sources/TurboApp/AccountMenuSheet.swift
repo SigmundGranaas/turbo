@@ -54,6 +54,13 @@ struct AccountMenuSheet: View {
                     Text(accountName).font(.turboTitle2).foregroundStyle(t.label)
                     if let accountEmail {
                         Text(accountEmail).font(.turboSubhead).foregroundStyle(t.label2)
+                        HStack(spacing: 5) {
+                            Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
+                            Text("Turbo+").font(.turboCaption.weight(.bold))
+                        }
+                        .foregroundStyle(t.orange)
+                        .padding(.horizontal, 9).padding(.vertical, 3)
+                        .background(t.orange.opacity(0.15), in: Capsule())
                     } else {
                         Text("Not signed in").font(.turboSubhead).foregroundStyle(t.label2)
                     }

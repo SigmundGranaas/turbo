@@ -17,6 +17,13 @@ public struct PathsScreen: View {
 
     public var body: some View {
         List {
+            if viewModel.paths.isEmpty {
+                ContentUnavailableView(
+                    "No Paths Yet",
+                    systemImage: "figure.hiking",
+                    description: Text("Record or draw a path and it'll show up here.")
+                )
+            }
             Section {
                 ForEach(viewModel.paths) { path in
                     NavigationLink(value: path) { PathRow(path: path) }

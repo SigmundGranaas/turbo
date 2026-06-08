@@ -48,6 +48,24 @@ struct MarkerEditorViewModelTests {
         #expect(marker?.notes == "Big trout")
     }
 
+    @Test("a chosen colour is saved as the marker's colorArgb")
+    func savesColor() async {
+        let repo = InMemoryMarkerRepository(seed: [])
+        let vm = MarkerEditorViewModel(repository: repo, position: LatLng(lat: 1, lng: 2))
+        vm.name = "Camp"
+        vm.colorArgb = 0xFFD32F2F
+        vm.save()
+        try? await Task.sleep(for: .milliseconds(120))
+        #expect(await repo.current().first?.colorArgb == 0xFFD32F2F)
+    }
+
+    @Test("editing loads the marker's existing colour")
+    func loadsColor() {
+        let marker = Marker(id: "m1", name: "X", kind: .cabin, position: LatLng(lat: 1, lng: 1), colorArgb: 0xFF1976D2)
+        let vm = MarkerEditorViewModel(repository: InMemoryMarkerRepository(seed: [marker]), marker: marker)
+        #expect(vm.colorArgb == 0xFF1976D2)
+    }
+
     @Test("editing an existing marker updates the same row")
     func editExisting() async {
         let existing = Marker(id: "m1", name: "Old", kind: .mountain, position: LatLng(lat: 5, lng: 6), notes: "n")

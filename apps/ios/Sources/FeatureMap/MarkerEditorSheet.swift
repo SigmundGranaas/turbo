@@ -25,6 +25,10 @@ public struct MarkerEditorSheet: View {
                     kindGrid
                 }
 
+                Section("Colour") {
+                    colorRow
+                }
+
                 Section("Notes") {
                     TextField("Notes", text: $viewModel.notes, axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
@@ -52,6 +56,28 @@ public struct MarkerEditorSheet: View {
                 }
             }
         }
+    }
+
+    private var colorRow: some View {
+        HStack(spacing: 14) {
+            colorSwatch(nil, fill: viewModel.kind.tint(t))   // "default" = kind tint
+            ForEach(PathPalette.swatches, id: \.argb) { swatch in
+                colorSwatch(swatch.argb, fill: Color(argb: swatch.argb))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func colorSwatch(_ argb: Int64?, fill: Color) -> some View {
+        let selected = viewModel.colorArgb == argb
+        return Button { viewModel.colorArgb = argb } label: {
+            Circle()
+                .fill(fill)
+                .frame(width: 30, height: 30)
+                .overlay(Circle().stroke(t.blue, lineWidth: selected ? 3 : 0))
+                .overlay(argb == nil ? Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(.white) : nil)
+        }
+        .buttonStyle(.plain)
     }
 
     private var kindGrid: some View {

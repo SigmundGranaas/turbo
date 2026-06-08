@@ -11,6 +11,7 @@ public struct MarkerDetailScreen: View {
     private let marker: Marker
     private let onEdit: (() -> Void)?
     private let onDelete: () -> Void
+    @State private var confirmingDelete = false
 
     public init(marker: Marker, onEdit: (() -> Void)? = nil, onDelete: @escaping () -> Void) {
         self.marker = marker
@@ -22,7 +23,7 @@ public struct MarkerDetailScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(spacing: 14) {
-                    Glyph(symbol: marker.kind.symbolName, color: marker.kind.tint(t), size: 56, cornerRadius: 14)
+                    Glyph(symbol: marker.kind.symbolName, color: marker.displayColor(t), size: 56, cornerRadius: 14)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(marker.name).font(.turboTitle2).foregroundStyle(t.label)
                         Text(marker.kind.label).font(.turboSubhead).foregroundStyle(t.label2)
@@ -38,7 +39,7 @@ public struct MarkerDetailScreen: View {
                             actionLabel("Export", "square.and.arrow.up")
                         }
                     }
-                    action("Delete", "trash", role: .destructive) { onDelete(); dismiss() }
+                    action("Delete", "trash", role: .destructive) { confirmingDelete = true }
                 }
 
                 infoRow("Coordinate", Geo.formatCoords(marker.position))
@@ -51,6 +52,12 @@ public struct MarkerDetailScreen: View {
         .background(t.grouped)
         .navigationTitle(marker.name)
         .toolbarTitleDisplayMode(.inline)
+        .confirmationDialog("Delete Marker?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { onDelete(); dismiss() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This action is permanent and cannot be undone.")
+        }
     }
 
     private func action(_ title: String, _ symbol: String, role: ButtonRole? = nil, _ act: @escaping () -> Void) -> some View {

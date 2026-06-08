@@ -13,6 +13,8 @@ public final class MarkerEditorViewModel {
     public var name: String
     public var kind: ActivityKindId
     public var notes: String
+    /// Optional colour override (packed ARGB); `nil` uses the kind's default tint.
+    public var colorArgb: Int64?
     public let position: LatLng
 
     /// `nil` for a new marker; the existing id when editing.
@@ -28,6 +30,7 @@ public final class MarkerEditorViewModel {
         self.kind = kind
         self.name = name
         self.notes = ""
+        self.colorArgb = nil
         self.editingId = nil
     }
 
@@ -38,6 +41,7 @@ public final class MarkerEditorViewModel {
         self.kind = marker.kind
         self.name = marker.name
         self.notes = marker.notes ?? ""
+        self.colorArgb = marker.colorArgb
         self.editingId = marker.id
     }
 
@@ -51,6 +55,7 @@ public final class MarkerEditorViewModel {
             name: trimmedName.isEmpty ? kind.label : trimmedName,
             kind: kind,
             position: position,
+            colorArgb: colorArgb,
             notes: trimmedNotes.isEmpty ? nil : trimmedNotes
         )
         Task { [repository] in await repository.upsert(marker) }

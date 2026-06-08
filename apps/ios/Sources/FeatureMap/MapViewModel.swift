@@ -12,7 +12,7 @@ import CoreDesignSystem
 public final class MapViewModel {
     public private(set) var markers: [Marker] = []
     public var baseLayer: BaseLayer
-    public var overlays: Set<OverlayId> = [.avalanche, .trails]
+    public var overlays: Set<OverlayId> = []
     public var following: Bool
     /// The user's live position + heading (from ``LocationProvider``).
     public private(set) var userLocation: LatLng?

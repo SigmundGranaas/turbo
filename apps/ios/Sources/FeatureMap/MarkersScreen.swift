@@ -50,7 +50,7 @@ private struct MarkerRow: View {
 
     var body: some View {
         HStack(spacing: 13) {
-            Glyph(symbol: marker.kind.symbolName, color: marker.kind.tint(t), size: 38, cornerRadius: 10)
+            Glyph(symbol: marker.kind.symbolName, color: marker.displayColor(t), size: 38, cornerRadius: 10)
             VStack(alignment: .leading, spacing: 1) {
                 Text(marker.name).font(.turboHeadline).foregroundStyle(t.label)
                 Text("\(marker.kind.label) · \(Geo.formatCoords(marker.position))")

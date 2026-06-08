@@ -18,7 +18,7 @@ public struct TurboMapView: UIViewRepresentable {
     private let focus: LatLng?
     private let resetBearingToken: Int
     private let onLongPress: ((LatLng) -> Void)?
-    private let onRegionChange: ((LatLng) -> Void)?
+    private let onRegionChange: ((LatLng, Double) -> Void)?
     private let onSelectPin: ((String) -> Void)?
 
     /// Default camera — the Lyngen/Tromsø region, so topo tiles show on launch.
@@ -32,7 +32,7 @@ public struct TurboMapView: UIViewRepresentable {
         focus: LatLng? = nil,
         resetBearingToken: Int = 0,
         onLongPress: ((LatLng) -> Void)? = nil,
-        onRegionChange: ((LatLng) -> Void)? = nil,
+        onRegionChange: ((LatLng, Double) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil
     ) {
         self.baseLayer = baseLayer
@@ -88,7 +88,7 @@ public struct TurboMapView: UIViewRepresentable {
 
     public final class Coordinator: NSObject, MKMapViewDelegate {
         var onLongPress: ((LatLng) -> Void)?
-        var onRegionChange: ((LatLng) -> Void)?
+        var onRegionChange: ((LatLng, Double) -> Void)?
         var onSelectPin: ((String) -> Void)?
         private var currentBase: BaseLayer?
         private var tileOverlay: MKTileOverlay?
@@ -139,7 +139,11 @@ public struct TurboMapView: UIViewRepresentable {
 
         public func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             let c = mapView.centerCoordinate
-            onRegionChange?(LatLng(lat: c.latitude, lng: c.longitude))
+            let width = mapView.bounds.width
+            let metersPerPoint = width > 0
+                ? mapView.visibleMapRect.size.width * MKMetersPerMapPointAtLatitude(c.latitude) / Double(width)
+                : 0
+            onRegionChange?(LatLng(lat: c.latitude, lng: c.longitude), metersPerPoint)
         }
 
         func installOverlay(on map: MKMapView, base: BaseLayer) {
@@ -190,7 +194,7 @@ public struct TurboMapView: UIViewRepresentable {
             view.annotation = pinAnnotation
             view.markerTintColor = UIColor(pinAnnotation.pin.tint)
             view.glyphImage = UIImage(systemName: pinAnnotation.pin.symbolName)
-            view.canShowCallout = true
+            view.canShowCallout = false
             // Make the pin discoverable to UI tests / VoiceOver by its name.
             view.isAccessibilityElement = true
             view.accessibilityLabel = pinAnnotation.pin.title
@@ -222,7 +226,7 @@ public struct TurboMapView: View {
         focus: LatLng? = nil,
         resetBearingToken: Int = 0,
         onLongPress: ((LatLng) -> Void)? = nil,
-        onRegionChange: ((LatLng) -> Void)? = nil,
+        onRegionChange: ((LatLng, Double) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil
     ) {}
 
