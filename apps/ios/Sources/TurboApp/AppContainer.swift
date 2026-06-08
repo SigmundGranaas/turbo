@@ -217,4 +217,11 @@ public final class AppContainer {
     public func makeCollectionsViewModel() -> CollectionsViewModel { CollectionsViewModel(repository: collectionRepository) }
     public func makeAuthViewModel() -> AuthViewModel { AuthViewModel(repository: authRepository) }
     public func makeOfflineViewModel() -> OfflineViewModel { OfflineViewModel(manager: offlineManager) }
+
+    /// Mint a share link for a resource via the sharing service. Returns nil on
+    /// failure (e.g. not authenticated). Callers only surface this when online +
+    /// signed in.
+    public func shareLink(resourceId: String) async -> URL? {
+        await sharingRepository.createLink(resourceId: resourceId).getOrNil()
+    }
 }

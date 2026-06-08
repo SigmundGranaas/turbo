@@ -22,6 +22,7 @@ public struct MapScreen: View {
     private let accountInitials: String?
     private let makeRouteViewModel: (() -> RouteViewModel)?
     private let makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)?
+    private let shareResource: ((String) async -> URL?)?
     @State private var routing: RouteViewModel?
     @State private var measuring: MeasureViewModel?
     @State private var showWeather = false
@@ -55,7 +56,8 @@ public struct MapScreen: View {
         makeAvalancheViewModel: ((LatLng) -> AvalancheViewModel)? = nil,
         accountInitials: String? = nil,
         makeRouteViewModel: (() -> RouteViewModel)? = nil,
-        makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil
+        makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil,
+        shareResource: ((String) async -> URL?)? = nil
     ) {
         self.viewModel = viewModel
         self.onOpenSearch = onOpenSearch
@@ -66,6 +68,7 @@ public struct MapScreen: View {
         self.accountInitials = accountInitials
         self.makeRouteViewModel = makeRouteViewModel
         self.makePhotosViewModel = makePhotosViewModel
+        self.shareResource = shareResource
     }
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
@@ -122,7 +125,8 @@ public struct MapScreen: View {
                 marker: marker,
                 onEdit: { editorTarget = .edit(marker) },
                 onDelete: { viewModel.deleteMarker(id: marker.id) },
-                makePhotos: makePhotosViewModel.map { f in { f(marker) } }
+                makePhotos: makePhotosViewModel.map { f in { f(marker) } },
+                shareResource: shareResource
             )
             .presentationDetents([.medium, .large])
         }

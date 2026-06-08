@@ -51,7 +51,8 @@ public struct RootView: View {
                     makeAvalancheViewModel: { container.makeAvalancheViewModel(position: $0) },
                     accountInitials: root.account.map { AccountMenuSheet.initials($0.displayName) },
                     makeRouteViewModel: container.makeRouteViewModel,
-                    makePhotosViewModel: container.makePhotosViewModel
+                    makePhotosViewModel: container.makePhotosViewModel,
+                    shareResource: shareResource
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }
@@ -91,12 +92,20 @@ public struct RootView: View {
         }
     }
 
+    /// A per-resource share-link minter, offered only when signed in (the
+    /// sharing service is token-authed). Nil otherwise, so the UI hides sharing.
+    private var shareResource: ((String) async -> URL?)? {
+        guard root.account != nil else { return nil }
+        return { await container.shareLink(resourceId: $0) }
+    }
+
     @ViewBuilder
     private func destination(_ route: Route) -> some View {
         switch route {
         case .markers:
             MarkersScreen(viewModel: container.makeMarkersViewModel(),
-                          makePhotosViewModel: container.makePhotosViewModel)
+                          makePhotosViewModel: container.makePhotosViewModel,
+                          shareResource: shareResource)
         case .paths:
             PathsScreen(viewModel: container.makePathsViewModel(),
                         makeRecordingViewModel: container.makeRecordingViewModel)

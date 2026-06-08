@@ -8,10 +8,14 @@ public struct MarkersScreen: View {
     @Environment(\.turbo) private var t
     @State private var viewModel: MarkersViewModel
     private let makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)?
+    private let shareResource: ((String) async -> URL?)?
 
-    public init(viewModel: MarkersViewModel, makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil) {
+    public init(viewModel: MarkersViewModel,
+                makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil,
+                shareResource: ((String) async -> URL?)? = nil) {
         _viewModel = State(initialValue: viewModel)
         self.makePhotosViewModel = makePhotosViewModel
+        self.shareResource = shareResource
     }
 
     public var body: some View {
@@ -43,7 +47,8 @@ public struct MarkersScreen: View {
             MarkerDetailScreen(
                 marker: marker,
                 onDelete: { viewModel.delete(id: marker.id) },
-                makePhotos: makePhotosViewModel.map { f in { f(marker) } }
+                makePhotos: makePhotosViewModel.map { f in { f(marker) } },
+                shareResource: shareResource
             )
         }
         .task { viewModel.start() }

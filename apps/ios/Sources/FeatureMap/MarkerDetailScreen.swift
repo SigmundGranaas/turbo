@@ -18,17 +18,20 @@ public struct MarkerDetailScreen: View {
     @State private var confirmingDelete = false
     @State private var photos: MarkerPhotosViewModel?
     private let makePhotos: (() -> MarkerPhotosViewModel)?
+    private let shareResource: ((String) async -> URL?)?
 
     public init(
         marker: Marker,
         onEdit: (() -> Void)? = nil,
         onDelete: @escaping () -> Void,
-        makePhotos: (() -> MarkerPhotosViewModel)? = nil
+        makePhotos: (() -> MarkerPhotosViewModel)? = nil,
+        shareResource: ((String) async -> URL?)? = nil
     ) {
         self.marker = marker
         self.onEdit = onEdit
         self.onDelete = onDelete
         self.makePhotos = makePhotos
+        self.shareResource = shareResource
     }
 
     public var body: some View {
@@ -50,6 +53,12 @@ public struct MarkerDetailScreen: View {
                         ShareLink(item: url) {
                             actionLabel("Export", "square.and.arrow.up")
                         }
+                    }
+                    if let shareResource {
+                        ShareLinkButton(create: { await shareResource(marker.id) }) {
+                            actionLabel("Share", "person.2")
+                        }
+                        .accessibilityIdentifier("marker.share")
                     }
                     action("Delete", "trash", role: .destructive) { confirmingDelete = true }
                 }
