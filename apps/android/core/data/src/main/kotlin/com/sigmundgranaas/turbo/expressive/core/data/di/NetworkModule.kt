@@ -10,10 +10,12 @@ import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticConditionsRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SyntheticReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticRouteRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SyntheticSearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SyntheticTrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.BuildConfig
-import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,18 +30,33 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
-abstract class NetworkModule {
+object NetworkModule {
+    // ── DEBUG offline stand-ins ────────────────────────────────────────────────
+    // Every networked, Norway-only backend gets a synthetic in DEBUG so the whole
+    // app is driveable on the emulator / a dev box with no network; release wires
+    // the real HTTP clients. Flip BuildConfig.DEBUG off here to hit the real ones.
 
-    @Binds
-    abstract fun bindSearchRepository(impl: KartverketSearchRepository): SearchRepository
+        @Provides
+        @Singleton
+        fun provideSearchRepository(
+            http: KartverketSearchRepository,
+            synthetic: SyntheticSearchRepository,
+        ): SearchRepository = if (BuildConfig.DEBUG) synthetic else http
 
-    @Binds
-    abstract fun bindTrailSearchRepository(impl: GeonorgeTrailSearchRepository): TrailSearchRepository
+        @Provides
+        @Singleton
+        fun provideTrailSearchRepository(
+            http: GeonorgeTrailSearchRepository,
+            synthetic: SyntheticTrailSearchRepository,
+        ): TrailSearchRepository = if (BuildConfig.DEBUG) synthetic else http
 
-    @Binds
-    abstract fun bindReverseGeocodeRepository(impl: KartverketReverseGeocodeRepository): ReverseGeocodeRepository
+        @Provides
+        @Singleton
+        fun provideReverseGeocodeRepository(
+            http: KartverketReverseGeocodeRepository,
+            synthetic: SyntheticReverseGeocodeRepository,
+        ): ReverseGeocodeRepository = if (BuildConfig.DEBUG) synthetic else http
 
-    companion object {
         /**
          * Pick the router: the real trail-bound SSE pathfinder in release, the offline
          * [SyntheticRouteRepository] in DEBUG so the Route builder + Follow can be driven
@@ -72,5 +89,4 @@ abstract class NetworkModule {
             // serve from cache within their validity window (and 304-revalidate after).
             install(HttpCache)
         }
-    }
 }
