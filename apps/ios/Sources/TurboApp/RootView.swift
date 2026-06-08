@@ -23,6 +23,7 @@ public struct RootView: View {
     @State private var showSearch = false
     @State private var showLayers = false
     @State private var showAuth = false
+    @State private var showRecording = false
 
     public init(container: AppContainer) {
         self.container = container
@@ -52,7 +53,9 @@ public struct RootView: View {
                     accountInitials: root.account.map { AccountMenuSheet.initials($0.displayName) },
                     makeRouteViewModel: container.makeRouteViewModel,
                     makePhotosViewModel: container.makePhotosViewModel,
-                    shareResource: shareResource
+                    shareResource: shareResource,
+                    recording: recordingStatus,
+                    onOpenRecording: { showRecording = true }
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }
@@ -69,6 +72,9 @@ public struct RootView: View {
             }
             .sheet(isPresented: $showAuth) {
                 AuthScreen(viewModel: container.makeAuthViewModel())
+            }
+            .sheet(isPresented: $showRecording) {
+                RecordingScreen(controller: container.recordingController)
             }
             .sheet(isPresented: $showSearch) {
                 SearchScreen(viewModel: container.makeSearchViewModel()) { name, position in
@@ -99,6 +105,15 @@ public struct RootView: View {
         return { await container.shareLink(resourceId: $0) }
     }
 
+    /// A snapshot of the active recording session for the map's ambient pill;
+    /// nil when no session is running. Reading the controller here registers the
+    /// observation so the map updates live.
+    private var recordingStatus: RecordingStatus? {
+        let c = container.recordingController
+        guard c.isSessionActive else { return nil }
+        return RecordingStatus(isRecording: c.isRecording, distanceMeters: c.distanceMeters, elapsedSeconds: c.elapsedSeconds)
+    }
+
     @ViewBuilder
     private func destination(_ route: Route) -> some View {
         switch route {
@@ -108,7 +123,7 @@ public struct RootView: View {
                           shareResource: shareResource)
         case .paths:
             PathsScreen(viewModel: container.makePathsViewModel(),
-                        makeRecordingViewModel: container.makeRecordingViewModel,
+                        onStartRecording: { container.recordingController.start(); showRecording = true },
                         shareResource: shareResource)
         case .collections:
             CollectionsScreen(viewModel: container.makeCollectionsViewModel())

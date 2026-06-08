@@ -40,6 +40,9 @@ public final class AppContainer {
     public let photoRepository: PhotoRepository
     public let sharingRepository: SharingRepository
     public let syncController: SyncController
+    /// The app-lifetime recording session — owned here, not by any screen, so a
+    /// track survives the recording sheet being dismissed (ambient recording).
+    public let recordingController: RecordingController
     /// Whether the live API (auth + cloud sync) is configured for this build.
     public let isOnline: Bool
 
@@ -72,6 +75,9 @@ public final class AppContainer {
         marineProvider = MetNoMarineProvider()   // met.no oceanforecast 2.0, no auth
         routeRepository = HttpRouteRepository()   // public routing API, no auth
         photoRepository = FilePhotoRepository()
+        recordingController = RecordingController(
+            location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
+        )
         isOnline = config.isOnline
 
         let cursor = UserDefaultsCursorStore()
@@ -142,6 +148,9 @@ public final class AppContainer {
         self.routeRepository = routeRepository
         self.photoRepository = photoRepository
         self.sharingRepository = sharingRepository
+        self.recordingController = RecordingController(
+            location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
+        )
         self.isOnline = isOnline
         self.syncController = AppContainer.makeSyncController(
             markers: markerRepository, paths: pathRepository, collections: collectionRepository,
@@ -204,11 +213,6 @@ public final class AppContainer {
     public func makeSearchViewModel() -> SearchViewModel { SearchViewModel(repository: searchRepository) }
     public func makeSettingsViewModel() -> SettingsViewModel { SettingsViewModel(repository: settingsRepository) }
     public func makePathsViewModel() -> PathsViewModel { PathsViewModel(repository: pathRepository) }
-    public func makeRecordingViewModel() -> RecordingViewModel {
-        RecordingViewModel(location: locationProvider, pathRepository: pathRepository,
-                           activity: Self.makeActivityPresenter())
-    }
-
     /// The real ActivityKit presenter on device; a no-op elsewhere (host build,
     /// `-uitest`, or where Live Activities are unsupported).
     private static func makeActivityPresenter() -> RecordingActivityPresenter {

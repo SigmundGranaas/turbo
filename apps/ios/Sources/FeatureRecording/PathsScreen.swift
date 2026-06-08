@@ -7,15 +7,14 @@ import CoreDesignSystem
 public struct PathsScreen: View {
     @Environment(\.turbo) private var t
     @State private var viewModel: PathsViewModel
-    @State private var showRecording = false
-    private let makeRecordingViewModel: (() -> RecordingViewModel)?
+    private let onStartRecording: (() -> Void)?
     private let shareResource: ((String) async -> URL?)?
 
     public init(viewModel: PathsViewModel,
-                makeRecordingViewModel: (() -> RecordingViewModel)? = nil,
+                onStartRecording: (() -> Void)? = nil,
                 shareResource: ((String) async -> URL?)? = nil) {
         _viewModel = State(initialValue: viewModel)
-        self.makeRecordingViewModel = makeRecordingViewModel
+        self.onStartRecording = onStartRecording
         self.shareResource = shareResource
     }
 
@@ -40,24 +39,18 @@ public struct PathsScreen: View {
                 }
             }
 
-            Section {
-                Button {
-                    showRecording = true
-                } label: {
-                    Label("Record New Path", systemImage: "record.circle").foregroundStyle(t.red)
+            if let onStartRecording {
+                Section {
+                    Button(action: onStartRecording) {
+                        Label("Record New Path", systemImage: "record.circle").foregroundStyle(t.red)
+                    }
+                    .accessibilityIdentifier("paths.record")
                 }
-                .accessibilityIdentifier("paths.record")
             }
         }
         .navigationTitle("Paths")
         .navigationDestination(for: SavedPath.self) { HikeDetailScreen(path: $0, shareResource: shareResource) }
         .task { viewModel.start() }
-        .sheet(isPresented: $showRecording) {
-            if let makeRecordingViewModel {
-                RecordingScreen(viewModel: makeRecordingViewModel())
-                    .interactiveDismissDisabled()
-            }
-        }
     }
 
     /// Export options — a `ShareLink` per format. The temp file is written lazily

@@ -23,6 +23,8 @@ public struct MapScreen: View {
     private let makeRouteViewModel: (() -> RouteViewModel)?
     private let makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)?
     private let shareResource: ((String) async -> URL?)?
+    private let recording: RecordingStatus?
+    private let onOpenRecording: (() -> Void)?
     @State private var routing: RouteViewModel?
     @State private var measuring: MeasureViewModel?
     @State private var showWeather = false
@@ -57,7 +59,9 @@ public struct MapScreen: View {
         accountInitials: String? = nil,
         makeRouteViewModel: (() -> RouteViewModel)? = nil,
         makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil,
-        shareResource: ((String) async -> URL?)? = nil
+        shareResource: ((String) async -> URL?)? = nil,
+        recording: RecordingStatus? = nil,
+        onOpenRecording: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.onOpenSearch = onOpenSearch
@@ -69,6 +73,8 @@ public struct MapScreen: View {
         self.makeRouteViewModel = makeRouteViewModel
         self.makePhotosViewModel = makePhotosViewModel
         self.shareResource = shareResource
+        self.recording = recording
+        self.onOpenRecording = onOpenRecording
     }
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
@@ -218,9 +224,30 @@ public struct MapScreen: View {
             if let place = viewModel.focusedPlace {
                 focusBanner(place)
             }
+            if let recording { recordingPill(recording) }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    /// Ambient "recording in progress" pill — visible whenever a session is
+    /// active even with the recording sheet closed, so the map stays usable.
+    private func recordingPill(_ status: RecordingStatus) -> some View {
+        Button { onOpenRecording?() } label: {
+            HStack(spacing: 9) {
+                Circle().fill(status.isRecording ? t.red : t.orange).frame(width: 10, height: 10)
+                Text(status.isRecording ? "Recording" : "Paused").font(.turboHeadline).foregroundStyle(t.label)
+                Text(status.label).font(.turboSubhead).monospacedDigit().foregroundStyle(t.label2)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.up").font(.system(size: 13, weight: .semibold)).foregroundStyle(t.label3)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 48)
+            .liquidGlass(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("map.recording")
+        .accessibilityLabel("\(status.isRecording ? "Recording" : "Recording paused"); \(status.label). Open recording.")
     }
 
     /// Shown after a search pick: names the centered place and offers to save it.

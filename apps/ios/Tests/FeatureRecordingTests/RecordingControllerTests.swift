@@ -3,9 +3,9 @@ import CoreModel
 import CoreData
 @testable import FeatureRecording
 
-@Suite("RecordingViewModel")
+@Suite("RecordingController")
 @MainActor
-struct RecordingViewModelTests {
+struct RecordingControllerTests {
 
     private func provider() -> SimulatedLocationProvider {
         SimulatedLocationProvider(fixes: [
@@ -17,7 +17,7 @@ struct RecordingViewModelTests {
 
     @Test("recording accumulates points + distance from location fixes")
     func accumulates() async {
-        let vm = RecordingViewModel(location: provider(), pathRepository: InMemoryPathRepository(seed: []))
+        let vm = RecordingController(location: provider(), pathRepository: InMemoryPathRepository(seed: []))
         vm.start()
         #expect(vm.isRecording)
         try? await Task.sleep(for: .milliseconds(250))
@@ -28,7 +28,7 @@ struct RecordingViewModelTests {
     @Test("stop keeps the captured track; save persists it as a SavedPath")
     func saveTrack() async {
         let repo = InMemoryPathRepository(seed: [])
-        let vm = RecordingViewModel(location: provider(), pathRepository: repo)
+        let vm = RecordingController(location: provider(), pathRepository: repo)
         vm.start()
         try? await Task.sleep(for: .milliseconds(250))
         vm.stop()
@@ -48,7 +48,7 @@ struct RecordingViewModelTests {
     @Test("discard throws the track away without saving")
     func discard() async {
         let repo = InMemoryPathRepository(seed: [])
-        let vm = RecordingViewModel(location: provider(), pathRepository: repo)
+        let vm = RecordingController(location: provider(), pathRepository: repo)
         vm.start()
         try? await Task.sleep(for: .milliseconds(250))
         vm.discard()
@@ -61,7 +61,7 @@ struct RecordingViewModelTests {
     @Test("a blank name falls back to a default")
     func blankName() async {
         let repo = InMemoryPathRepository(seed: [])
-        let vm = RecordingViewModel(location: provider(), pathRepository: repo)
+        let vm = RecordingController(location: provider(), pathRepository: repo)
         vm.start()
         try? await Task.sleep(for: .milliseconds(250))
         vm.stop()
@@ -73,7 +73,7 @@ struct RecordingViewModelTests {
     @Test("recording asks for background updates; stopping turns them off")
     func backgroundLifecycle() async {
         let spy = BackgroundSpyProvider()
-        let vm = RecordingViewModel(location: spy, pathRepository: InMemoryPathRepository(seed: []))
+        let vm = RecordingController(location: spy, pathRepository: InMemoryPathRepository(seed: []))
         vm.start()
         #expect(spy.alwaysAuthorizationRequested)
         #expect(spy.backgroundUpdates == true)
@@ -83,7 +83,7 @@ struct RecordingViewModelTests {
 
     @Test("keep recording resumes without discarding the captured track")
     func resumeKeepsTrack() async {
-        let vm = RecordingViewModel(location: provider(), pathRepository: InMemoryPathRepository(seed: []))
+        let vm = RecordingController(location: provider(), pathRepository: InMemoryPathRepository(seed: []))
         vm.start()
         try? await Task.sleep(for: .milliseconds(250))
         let captured = vm.pointCount
@@ -95,10 +95,24 @@ struct RecordingViewModelTests {
         #expect(vm.pointCount >= captured)   // track preserved, NOT reset to 0
     }
 
+    @Test("session stays active across stop, clears on save/discard")
+    func sessionLifetime() async {
+        let vm = RecordingController(location: provider(), pathRepository: InMemoryPathRepository(seed: []))
+        #expect(vm.isSessionActive == false)
+        vm.start()
+        #expect(vm.isSessionActive)              // recording
+        try? await Task.sleep(for: .milliseconds(250))
+        vm.stop()
+        #expect(vm.isSessionActive)              // paused-but-unsaved → still active (drives the map pill)
+        #expect(vm.isPaused)
+        vm.save(name: "Hike")
+        #expect(vm.isSessionActive == false)     // cleared once saved
+    }
+
     @Test("recording begins a Live Activity and ends it on stop")
     func liveActivityLifecycle() async {
         let presenter = ActivitySpy()
-        let vm = RecordingViewModel(
+        let vm = RecordingController(
             location: provider(),
             pathRepository: InMemoryPathRepository(seed: []),
             activity: presenter

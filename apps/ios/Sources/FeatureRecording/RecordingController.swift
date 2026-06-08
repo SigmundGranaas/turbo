@@ -3,12 +3,17 @@ import Observation
 import CoreModel
 import CoreData
 
-/// Records a live track from ``LocationProvider`` fixes — accumulating points,
-/// distance and elapsed time — then saves it as a ``SavedPath``. Mirrors
-/// `feature.recording.RecordingViewModel` (Android).
+/// Owns the live track-recording **session** for the app's lifetime — accumulating
+/// points, distance and elapsed time from ``LocationProvider`` fixes, driving the
+/// background-location grant + Live Activity, and saving the result as a
+/// ``SavedPath``. Mirrors Android's singleton `RecordingController` + foreground
+/// service: the session must outlive any single screen, so the recording survives
+/// the sheet being dismissed (the user can keep using the map while recording).
+///
+/// One instance lives in `AppContainer`; screens observe it, they don't own it.
 @MainActor
 @Observable
-public final class RecordingViewModel {
+public final class RecordingController {
     public private(set) var isRecording = false
     public private(set) var pointCount = 0
     public private(set) var distanceMeters: Double = 0
@@ -36,6 +41,12 @@ public final class RecordingViewModel {
         self.activity = activity
         self.now = now
     }
+
+    /// True while a track exists — recording OR stopped-but-unsaved. Drives the
+    /// map's "recording" pill so the session is visible while the sheet is closed.
+    public var isSessionActive: Bool { startedAt != nil }
+    /// A session exists but isn't currently capturing (the "paused" state).
+    public var isPaused: Bool { isSessionActive && !isRecording }
 
     /// Begin a new recording.
     public func start() {
