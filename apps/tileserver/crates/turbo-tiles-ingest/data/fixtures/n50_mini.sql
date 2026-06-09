@@ -178,6 +178,32 @@ CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.typeveg (
     identifier text, description text
 );
 
+-- BygningerOgAnlegg theme: building footprints. The bygning upsert routes
+-- these to terrain.building_polygon. Two footprints near Sognsvann; one
+-- carries a name (a cabin), one does not.
+CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.bygning_omrade (
+    objid integer NOT NULL,
+    objtype text,
+    datafangstdato date,
+    oppdateringsdato date,
+    malemetode text,
+    noyaktighet text,
+    omrade public.geometry(Geometry, 25833),
+    bygningstype text,
+    betjeningsgrad text,
+    hytteeier text,
+    tilgjengelighet text,
+    navn text
+);
+INSERT INTO n50kartdata_aabbccddeeff11223344556677889900.bygning_omrade
+  (objid, objtype, omrade, bygningstype, navn) VALUES
+  (9001, 'Bygning',
+   ST_GeomFromText('POLYGON((595400 6650400, 595420 6650400, 595420 6650420, 595400 6650420, 595400 6650400))', 25833),
+   '161', 'Kobberhaughytta'),
+  (9002, 'Bygning',
+   ST_GeomFromText('POLYGON((596100 6651100, 596115 6651100, 596115 6651112, 596100 6651112, 596100 6651100))', 25833),
+   '111', NULL);
+
 -- Høyde theme: contour lines. Three object types share one shape; the
 -- upsert routes them to terrain.contour as main/auxiliary/depression and
 -- flags is_index on the 100 m lines. Geometry near Sognsvann to match the

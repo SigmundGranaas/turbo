@@ -64,6 +64,22 @@ pub async fn upsert_hoydekurve(pool: &DbPool) -> Result<JobOutcome, JobError> {
     })
 }
 
+pub async fn upsert_bygning(pool: &DbPool) -> Result<JobOutcome, JobError> {
+    pgdump_load::require_staging(pool, CONFIG).await?;
+    sqlx::raw_sql(include_str!("../sql/upsert_n50_bygning.sql"))
+        .execute(pool)
+        .await?;
+    let (count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.building_polygon WHERE source = 'n50'",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(JobOutcome {
+        rows_in: count,
+        rows_upserted: count,
+    })
+}
+
 pub async fn upsert_isogbre(pool: &DbPool) -> Result<JobOutcome, JobError> {
     pgdump_load::require_staging(pool, CONFIG).await?;
     sqlx::raw_sql(include_str!("../sql/upsert_n50_isogbre.sql"))

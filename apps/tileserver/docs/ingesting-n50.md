@@ -93,6 +93,7 @@ tileserver ingest --job n50-restore --file /tmp/n50oslo/n50.zip
 # Canonical upserts (order independent):
 tileserver ingest --job n50-vann-upsert         # → terrain.water_polygon
 tileserver ingest --job n50-hoydekurve-upsert   # → terrain.contour
+tileserver ingest --job n50-bygning-upsert      # → terrain.building_polygon
 tileserver ingest --job n50-isogbre-upsert      # → terrain.glacier_polygon
 tileserver ingest --job n50-landcover-upsert    # → terrain.landcover_patch
 tileserver ingest --job n50-stedsnavn-upsert    # → anchors.anchor
@@ -138,6 +139,12 @@ psql "$DATABASE_URL" -At -c "
 Contour heights are all multiples of 20 → N50's 20 m equidistance; `is_index`
 flags the 100 m lines.
 
+Oslo has no glaciers and few mapped building *areas*. To exercise those, pull a
+mountainous/coastal county — e.g. Møre og Romsdal (`15`, ~272 MB zip): observed
+`terrain.building_polygon` 2 691, `terrain.glacier_polygon` 297 (61.7 km²),
+`terrain.contour` 98 474, `terrain.water_polygon` 25 923, `paths.edge`
+(vegnett) 63 994.
+
 ---
 
 ## 4. Automated tests
@@ -172,6 +179,7 @@ with `relation … does not exist`).
 | --- | --- | --- | --- |
 | Water (lakes/rivers/sea) | `innsjo`, `innsjoregulert`, `elv`, `ferskvanntorrfall`, `havflate` | `terrain.water_polygon` | ✅ |
 | Contours | `hoydekurve`, `hjelpekurve`, `forsenkningskurve` | `terrain.contour` | ✅ |
+| Buildings | `bygning_omrade` | `terrain.building_polygon` | ✅ |
 | Glaciers/snow | `snoisbre` | `terrain.glacier_polygon` | ✅ |
 | Landcover | `skog`, `myr`, `apentomrade`, `dyrketmark` | `terrain.landcover_patch` | ✅ |
 | Place names + spot heights | `stedsnavntekst`, `terrengpunkt` | `anchors.anchor` | ✅ |
@@ -186,20 +194,18 @@ Prioritised by basemap impact. Each is a small, config/SQL-shaped addition:
 new `terrain.*`/canonical table + `upsert_n50_*.sql` + fixture rows + e2e
 assertion, then smoke against the Oslo (or a richer) county.
 
-1. **Buildings** — `bygning_omrade` (+ `bygning_posisjon`, and urban areas
-   `tettbebyggelse` / `bymessigbebyggelse`). The defining z14+ basemap layer;
-   already referenced in `tools/vector-layers.toml` but has no canonical
-   upsert/test yet.
-2. **Coastline** — `kystkontur` (shoreline line) paired with the existing
-   `havflate` sea polygon, for a crisp land/sea edge.
-3. **Streams / waterways (lines)** — `elvbekk`. Used by routing already; should
+1. **Coastline** — `kystkontur` (shoreline line) paired with the existing
+   `havflate` sea polygon, for a crisp land/sea edge. *(Next up.)*
+2. **Streams / waterways (lines)** — `elvbekk`. Used by routing already; should
    become a served basemap line layer with width, and be tested.
-4. **Railways** — `bane` (+ `jernbanetype`, `stasjon`). Standard topo content.
-5. **Power lines** — `ledning` / `luftledninglh`. Shown on topo maps.
-6. **Protected areas** — `naturvernomrade` (national parks/reserves). High-value
+3. **Railways** — `bane` (+ `jernbanetype`, `stasjon`). Standard topo content.
+4. **Power lines** — `ledning` / `luftledninglh`. Shown on topo maps.
+5. **Protected areas** — `naturvernomrade` (national parks/reserves). High-value
    outdoor overlay.
-7. **Ski & recreation** — `alpinbakke`, `skitrekk`, `lysloype`, `hoppbakke`,
+6. **Ski & recreation** — `alpinbakke`, `skitrekk`, `lysloype`, `hoppbakke`,
    `sportidrettplass` — feeds the winter style.
+7. **Urban areas** — `tettbebyggelse` / `bymessigbebyggelse` for built-up fill
+   at low zoom (complements the per-footprint `building` layer).
 8. **DTM10 elevation** — bulk-load a small GeoTIFF via `dtm-bulk-load` to
    exercise hillshade + Terrain-RGB and cross-check the vector contours.
    (Separate product from N50 — høydedata.no.)
@@ -209,12 +215,22 @@ county** (e.g. Vestland `46` or Møre og Romsdal `15`) so glaciers, fjords,
 dense contours, and ski features are actually present — Oslo has none of the
 first two.
 
-### Known issue to reconcile (not introduced here)
+### fkb_type vocabulary (reconciled)
 
-The `n50-vegnett-upsert` SQL and the graph encoder emit `fkb_type` values
-`traktorvei` / `skogsvei` / `sti` / `vei`, but the curated-resource MVT views
-(`migrations/20260601000005_views_resources.sql`) filter on `traktorveg` /
-`skogsbilveg` / `sykkelvei`. As a result, N50 vegnett edges do **not** surface
-in the `forest-roads` / `cycling-routes` served layers. Pick one vocabulary
-(align the views to the encoder, or vice-versa) before relying on N50 roads in
-those resources.
+There used to be two `fkb_type` spellings: the N50 vegnett upsert and the
+graph encoder (`encode_fkb_type`) used the "vei" forms (`traktorvei`,
+`skogsvei`), while the FKB WFS ingest and the resource views used the "veg"
+forms (`traktorveg`, `skogsbilveg`). N50 roads therefore never surfaced in the
+served `forest-roads`/`hiking`/`cycling` layers, and FKB roads encoded as 0
+(unknown) in the routing graph.
+
+Resolved by standardising on the **canonical "vei" vocabulary** —
+`{sti, vei, traktorvei, skogsvei, sykkelvei, skiloype}`:
+- FKB ingest normalises spellings at load (`fkb_wfs::normalize_fkb_type`).
+- The resource views filter on the canonical forms
+  (`migrations/20260603000002_resource_view_vocab.sql`).
+- The graph encoder keeps the old "veg" forms as defensive aliases.
+
+Verified on real data (Møre og Romsdal): after `n50-vegnett-upsert`,
+`v_forest_roads` exposes 7 435 edges and `v_hiking_trails` 15 803 (both were 0
+before), with `paths.edge.fkb_type ∈ {sti, traktorvei, vei}`.

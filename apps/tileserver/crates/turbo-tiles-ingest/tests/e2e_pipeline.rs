@@ -65,6 +65,7 @@ async fn ensure_clean(pool: &DbPool) {
         "DELETE FROM terrain.water_polygon",
         "DELETE FROM terrain.glacier_polygon",
         "DELETE FROM terrain.landcover_patch",
+        "DELETE FROM terrain.building_polygon",
         "DELETE FROM terrain.contour",
         "DELETE FROM paths.edge",
         "DELETE FROM paths.node",
@@ -260,13 +261,9 @@ async fn n50_upsert_vegnett_creates_road_edges() {
     .unwrap();
     assert_eq!(n, 2, "fixture has 2 veglenke rows");
 
-    // Verify fkb_type classification. The vegnett upsert deliberately emits
-    // the vocabulary the graph encoder (`encode_fkb_type`) understands —
-    // `traktorvei` / `skogsvei` — NOT the `traktorveg` / `skogsbilveg`
-    // spellings. (NB: the curated-resource MVT views in migration 0005 still
-    // filter on `traktorveg`/`skogsbilveg`/`sykkelvei`, so N50 vegnett edges
-    // do not currently surface in those served layers — a known mismatch to
-    // reconcile, tracked separately from this test.)
+    // Verify fkb_type classification. The vegnett upsert emits the canonical
+    // "vei" vocabulary the graph encoder understands and the resource views
+    // now filter on (migration 20260603000002): `traktorvei` / `skogsvei`.
     let (traktor,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*)::bigint FROM paths.edge \
          WHERE deleted_at IS NULL AND attrs->>'source' = 'n50_vegnett' \
@@ -285,6 +282,20 @@ async fn n50_upsert_vegnett_creates_road_edges() {
     .unwrap();
     assert_eq!(traktor, 1, "Traktorveg → fkb_type 'traktorvei'");
     assert_eq!(skogs, 1, "Skogsbilveg → fkb_type 'skogsvei'");
+
+    // Reconciliation guard: the N50 vegnett edges must now actually surface
+    // in the served forest-roads view (skogsvei + traktorvei both qualify).
+    // This is what the vocabulary mismatch used to break.
+    let (forest_edges,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM paths.v_forest_roads WHERE id LIKE 'edge:%'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        forest_edges, 2,
+        "both N50 vegnett edges (skogsvei + traktorvei) must appear in v_forest_roads"
+    );
 }
 
 #[tokio::test]
@@ -334,6 +345,41 @@ async fn n50_upsert_hoydekurve_creates_contours() {
     .await
     .unwrap();
     assert_eq!(bad_geom, 0, "all contours must be LineString/25833");
+}
+
+#[tokio::test]
+async fn n50_upsert_bygning_creates_buildings() {
+    // N50 BygningerOgAnlegg → terrain.building_polygon. The fixture has 2
+    // footprints, one named (a cabin), one unnamed. Geometry must come out as
+    // MultiPolygon in EPSG:25833.
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
+    ensure_clean(&pool).await;
+    n50::restore(&pool, fixture_path("n50_mini.sql"), true)
+        .await
+        .expect("restore");
+
+    let outcome = n50::upsert_bygning(&pool).await.expect("upsert");
+    assert_eq!(outcome.rows_in, 2, "fixture has 2 building footprints");
+
+    let (named,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.building_polygon \
+         WHERE source = 'n50' AND name = 'Kobberhaughytta'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(named, 1, "named cabin footprint must carry its navn");
+
+    let (bad_geom,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.building_polygon \
+         WHERE source = 'n50' AND (ST_GeometryType(geom) <> 'ST_MultiPolygon' OR ST_SRID(geom) <> 25833)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bad_geom, 0, "all buildings must be MultiPolygon/25833");
 }
 
 #[tokio::test]
@@ -461,6 +507,7 @@ async fn reset_all_clears_every_namespace_to_zero() {
         "DELETE FROM terrain.water_polygon",
         "DELETE FROM terrain.glacier_polygon",
         "DELETE FROM terrain.landcover_patch",
+        "DELETE FROM terrain.building_polygon",
         "DELETE FROM terrain.contour",
         "DELETE FROM paths.edge",
         "DELETE FROM paths.node",
