@@ -65,7 +65,7 @@ class OfflineViewModel @Inject constructor(
         }
     }
 
-    /** Pre-flight estimate for the currently-visible [bounds]; null when nothing to size. */
+    /** Pre-flight tile/byte estimate (+ within-limits guard) for the visible [bounds]. */
     fun estimate(base: BaseLayer, bounds: GeoBounds, fromZoom: Double, overlays: Set<OverlayId> = emptySet()) =
         manager.estimate(
             DownloadSpec(

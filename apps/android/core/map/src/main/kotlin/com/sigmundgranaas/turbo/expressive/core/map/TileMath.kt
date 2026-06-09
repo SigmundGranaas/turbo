@@ -64,7 +64,7 @@ object TileMath {
     fun estimate(spec: DownloadSpec): OfflineEstimate {
         val sources = 1 + spec.overlays.size
         val tiles = tileCount(spec.bounds, spec.minZoom, spec.maxZoom) * sources
-        return OfflineEstimate(tiles = tiles, bytes = tiles * AVG_RASTER_TILE_BYTES)
+        return OfflineEstimate(tiles = tiles, bytes = tiles * AVG_RASTER_TILE_BYTES, withinLimits = isWithinLimits(spec))
     }
 
     /** Cheap guard: too many tiles, or a box that's simply too wide to be sensible. */

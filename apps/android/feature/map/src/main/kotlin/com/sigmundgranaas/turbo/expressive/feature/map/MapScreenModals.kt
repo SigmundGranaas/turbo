@@ -6,6 +6,7 @@ import androidx.compose.material.icons.rounded.Route
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -21,6 +22,7 @@ import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
 import com.sigmundgranaas.turbo.expressive.feature.markers.MarkerEditorSheet
 import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingViewModel
 import com.sigmundgranaas.turbo.expressive.feature.recording.TrackSaveDialog
+import com.sigmundgranaas.turbo.expressive.feature.offline.DownloadAreaDialog
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
 import com.sigmundgranaas.turbo.expressive.ui.components.DeleteMarkerDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
@@ -97,14 +99,30 @@ internal fun MapScreenModals(
                 ui.controller?.let { ctrl ->
                     val bounds = ctrl.visibleBounds()
                     val centre = LatLng((bounds.north + bounds.south) / 2, (bounds.east + bounds.west) / 2)
-                    offlineViewModel.download(centre, baseLayer, bounds, ctrl.zoom())
+                    // Capture the viewport and confirm the size before committing (see below).
+                    ui.pendingDownloadArea = PendingDownloadArea(bounds, centre, ctrl.zoom())
                 }
                 ui.showLayers = false
-                onOpenOffline()
             },
             activeOverlays = ui.activeOverlays,
             onToggleOverlay = { id, on -> ui.activeOverlays = if (on) ui.activeOverlays + id else ui.activeOverlays - id },
             onDismiss = { ui.showLayers = false },
+        )
+    }
+    // Pre-flight size confirm for "Download this area": shows the estimate and blocks
+    // areas too large to download (zoom in instead). Confirm commits + opens Offline.
+    ui.pendingDownloadArea?.let { area ->
+        val estimate = remember(area, baseLayer) {
+            offlineViewModel.estimate(baseLayer, area.bounds, area.zoom)
+        }
+        DownloadAreaDialog(
+            estimate = estimate,
+            onConfirm = {
+                offlineViewModel.download(area.centre, baseLayer, area.bounds, area.zoom)
+                ui.pendingDownloadArea = null
+                onOpenOffline()
+            },
+            onDismiss = { ui.pendingDownloadArea = null },
         )
     }
     // Add-to-collection picker for the selected marker.

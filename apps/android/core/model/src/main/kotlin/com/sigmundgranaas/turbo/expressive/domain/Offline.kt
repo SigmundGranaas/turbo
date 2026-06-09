@@ -68,4 +68,6 @@ data class DownloadSpec(
 data class OfflineEstimate(
     val tiles: Long,
     val bytes: Long,
+    /** False when the area is too large to download (tile limit / span guard). */
+    val withinLimits: Boolean = true,
 )

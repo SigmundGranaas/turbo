@@ -223,7 +223,7 @@ private fun StatusLine(icon: androidx.compose.ui.graphics.vector.ImageVector, ti
     }
 }
 
-private fun formatSize(bytes: Long): String = when {
+internal fun formatSize(bytes: Long): String = when {
     bytes >= 1_000_000_000 -> "%.1f GB".format(bytes / 1_000_000_000.0)
     bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
     bytes >= 1_000 -> "%.0f kB".format(bytes / 1_000.0)

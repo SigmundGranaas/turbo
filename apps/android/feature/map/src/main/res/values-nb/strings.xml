@@ -159,6 +159,11 @@
     <string name="offline_notif_content">%1$d områder · %2$d %%</string>
     <string name="offline_notif_pause">Pause</string>
     <string name="offline_notif_resume">Fortsett</string>
+    <string name="offline_download_title">Last ned dette området?</string>
+    <string name="offline_download_estimate">Omtrent %1$s · %2$d fliser lagres for frakoblet bruk.</string>
+    <string name="offline_download_too_large">Dette området er for stort (omtrent %1$s). Zoom inn og prøv igjen.</string>
+    <string name="offline_download_confirm">Last ned</string>
+    <string name="offline_download_cancel">Avbryt</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d område · %2$s</item>
         <item quantity="other">%1$d områder · %2$s</item>

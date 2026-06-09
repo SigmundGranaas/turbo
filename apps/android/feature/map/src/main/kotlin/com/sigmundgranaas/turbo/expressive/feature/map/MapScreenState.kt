@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
+import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
@@ -42,6 +43,8 @@ class MapScreenState {
     // ── Layers / overlays ──
     var showLayers by mutableStateOf(false)
     var activeOverlays by mutableStateOf<Set<OverlayId>>(emptySet())
+    /** The captured viewport awaiting the "download this area" size-confirm dialog. */
+    var pendingDownloadArea by mutableStateOf<PendingDownloadArea?>(null)
 
     // ── Create-track tool (one tool, three modes); null = closed ──
     var trackMode by mutableStateOf<TrackMode?>(null)
@@ -74,6 +77,10 @@ class MapScreenState {
     var viewerStart by mutableStateOf(-1)
     var pendingPhotoAt by mutableStateOf<LatLng?>(null)
 }
+
+/** The viewport captured when the user taps "Download this area", held until they
+ *  confirm the size in [com.sigmundgranaas.turbo.expressive.feature.offline.DownloadAreaDialog]. */
+data class PendingDownloadArea(val bounds: GeoBounds, val centre: LatLng, val zoom: Double)
 
 @Composable
 internal fun rememberMapScreenState(): MapScreenState = remember { MapScreenState() }

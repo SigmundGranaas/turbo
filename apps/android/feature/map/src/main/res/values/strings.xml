@@ -160,6 +160,11 @@
     <string name="offline_notif_content">%1$d areas · %2$d%%</string>
     <string name="offline_notif_pause">Pause</string>
     <string name="offline_notif_resume">Resume</string>
+    <string name="offline_download_title">Download this area?</string>
+    <string name="offline_download_estimate">About %1$s · %2$d tiles will be saved for offline use.</string>
+    <string name="offline_download_too_large">This area is too large (about %1$s). Zoom in and try again.</string>
+    <string name="offline_download_confirm">Download</string>
+    <string name="offline_download_cancel">Cancel</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d area · %2$s</item>
         <item quantity="other">%1$d areas · %2$s</item>
