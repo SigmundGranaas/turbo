@@ -73,6 +73,28 @@ CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.dyrketmark (
 );
 -- No farmland in Oslomarka in the test fixture; empty is fine.
 
+-- Regulated lakes/reservoirs + intermittent freshwater. The vann upsert
+-- reads both (added when regulated lakes + river-area polygons were folded
+-- into terrain.water_polygon). Kept empty here so the canonical water count
+-- stays at the 2 natural lakes the vann test asserts — the tables just need
+-- to EXIST so the upsert SQL resolves against the staging schema.
+CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.innsjoregulert (
+    objid integer NOT NULL,
+    objtype text,
+    omrade public.geometry(Geometry, 25833),
+    vatnlopenummer integer,
+    lavesteregulertevannstand integer,
+    hoyde integer,
+    oppdateringsdato date
+);
+
+CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.ferskvanntorrfall (
+    objid integer NOT NULL,
+    objtype text,
+    omrade public.geometry(Geometry, 25833),
+    oppdateringsdato date
+);
+
 CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.elv (
     objid integer NOT NULL, objtype text,
     omrade public.geometry(Geometry, 25833), oppdateringsdato date
@@ -155,3 +177,56 @@ INSERT INTO n50kartdata_aabbccddeeff11223344556677889900.veglenke
 CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.typeveg (
     identifier text, description text
 );
+
+-- Høyde theme: contour lines. Three object types share one shape; the
+-- upsert routes them to terrain.contour as main/auxiliary/depression and
+-- flags is_index on the 100 m lines. Geometry near Sognsvann to match the
+-- rest of the fixture. hoyde values chosen to exercise index detection:
+-- 200 + 600 are index (mod 100 = 0); 220 is a plain main line.
+CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.hoydekurve (
+    objid integer NOT NULL,
+    objtype text,
+    senterlinje public.geometry(Geometry, 25833),
+    hoyde integer,
+    datafangstdato date,
+    oppdateringsdato date,
+    medium text,
+    malemetode text,
+    noyaktighet text
+);
+INSERT INTO n50kartdata_aabbccddeeff11223344556677889900.hoydekurve
+  (objid, objtype, senterlinje, hoyde, medium) VALUES
+  (8101, 'Høydekurve', ST_GeomFromText('LINESTRING(595000 6650000, 595300 6650100, 595600 6650050)', 25833), 200, 'T'),
+  (8102, 'Høydekurve', ST_GeomFromText('LINESTRING(595100 6650300, 595400 6650400, 595700 6650350)', 25833), 220, 'T'),
+  (8103, 'Høydekurve', ST_GeomFromText('LINESTRING(597000 6651000, 597300 6651200, 597600 6651100)', 25833), 600, 'T');
+
+CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.hjelpekurve (
+    objid integer NOT NULL,
+    objtype text,
+    senterlinje public.geometry(Geometry, 25833),
+    hoyde integer,
+    datafangstdato date,
+    oppdateringsdato date,
+    medium text,
+    malemetode text,
+    noyaktighet text
+);
+INSERT INTO n50kartdata_aabbccddeeff11223344556677889900.hjelpekurve
+  (objid, objtype, senterlinje, hoyde, medium) VALUES
+  (8201, 'Hjelpekurve', ST_GeomFromText('LINESTRING(595200 6650500, 595500 6650600)', 25833), 210, 'T');
+
+CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.forsenkningskurve (
+    objid integer NOT NULL,
+    objtype text,
+    senterlinje public.geometry(Geometry, 25833),
+    hoyde integer,
+    datafangstdato date,
+    oppdateringsdato date,
+    medium text,
+    malemetode text,
+    noyaktighet text
+);
+INSERT INTO n50kartdata_aabbccddeeff11223344556677889900.forsenkningskurve
+  (objid, objtype, senterlinje, hoyde, medium) VALUES
+  (8301, 'Forsenkningskurve', ST_GeomFromText('LINESTRING(596000 6650800, 596100 6650900, 596000 6650800)', 25833), 180, 'T');
+

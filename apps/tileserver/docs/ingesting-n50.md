@@ -1,0 +1,220 @@
+# Ingesting Norwegian map data (N50 + friends)
+
+How we pull open Kartverket data into the tileserver's PostGIS store and turn
+it into the canonical tables the basemap, routing, and search read. Written
+to be reproducible from a clean machine.
+
+The guiding principle for dev and CI: **use small samples.** The whole-country
+N50 PostGIS dump is ~25 GB; a single county (fylke) is a few MB and exercises
+every ingest code path against real Kartverket data in seconds. The automated
+tests use an even smaller 5 KB synthetic fixture.
+
+---
+
+## 1. Data source — Geonorge Nedlasting API
+
+N50 Kartdata is downloaded from the Geonorge "Nedlasting" (download) API. It
+supports format, projection, and **area** selection, so we can pull one county
+at a time. We always take **PostGIS** in **EUREF89 UTM33 (EPSG:25833)** — the
+SRID every `terrain.*` / `paths.*` table stores geometry in, so no reprojection
+is needed at load.
+
+| | |
+| --- | --- |
+| Metadata UUID | `ea192681-d039-42ec-b1bc-f3ce04c189ac` |
+| Capabilities | `GET https://nedlasting.geonorge.no/api/capabilities/{uuid}` |
+| Formats | FGDB, GML, SOSI, **PostGIS** |
+| Projections | 25832 / **25833** / 25835 |
+| Area units | per **fylke** (county) or whole country |
+
+A single county dump arrives as a `pg_dump` SQL file inside a zip, e.g.
+`Basisdata_03_Oslo_25833_N50Kartdata_PostGIS.zip` (Oslo ≈ 8 MB zipped → 34 MB
+SQL). Every county uses a per-dump **hash-named schema**
+(`n50kartdata_<hex>`); the restore step renames it to `n50_staging`.
+
+### Pull a county
+
+```sh
+# Oslo (03) is the smallest/fastest; Vestland (46) has fjords + glaciers.
+apps/tileserver/scripts/pull-n50-fylke.sh 03 /tmp/n50oslo
+```
+
+That script POSTs an order and downloads + unzips the result. The raw API call
+it makes:
+
+```sh
+curl -fsS -X POST https://nedlasting.geonorge.no/api/order \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"noreply@example.com",
+       "orderLines":[{"metadataUuid":"ea192681-d039-42ec-b1bc-f3ce04c189ac",
+         "areas":[{"code":"03","type":"fylke"}],
+         "formats":[{"name":"PostGIS"}],
+         "projections":[{"code":"25833",
+           "codespace":"http://www.opengis.net/def/crs/EPSG/0/25833"}]}]}'
+# → response has files[].downloadUrl (status "ReadyForDownload"); GET it.
+```
+
+---
+
+## 2. Database
+
+The tiles DB is PostGIS + pgRouting. For local work, build the image and run it:
+
+```sh
+docker build -t turbo-tiles-db infra/compose/postgis-pgrouting
+docker run -d --name tiles-db --network host \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=testpass -e POSTGRES_DB=tiles \
+  turbo-tiles-db
+export DATABASE_URL=postgres://postgres:testpass@localhost:5432/tiles
+```
+
+> **Image pin.** The Dockerfile pins a **stable** `postgis/postgis:17-3.5` tag.
+> Do not move it back to `:17-master` — that rolling dev tag has shipped a
+> PostGIS whose SQL/C library drift out of sync (`CREATE EXTENSION postgis`
+> fails with `could not find function "ST_MMin"`), which breaks every
+> migration at boot.
+
+The migrations create the four extensions they need (`postgis`,
+`postgis_raster`, `pgrouting`, `pg_trgm`).
+
+---
+
+## 3. Migrate → restore → upsert
+
+The ingest pipeline is two-phase: one heavy **restore** (psql-loads the dump
+into `n50_staging`, ~10–20 min for the whole country, seconds for a county),
+then several cheap **upserts** that read `n50_staging` and write the canonical
+tables. Re-running an upsert is cheap because the restore is amortised.
+
+```sh
+tileserver migrate                                          # apply schema
+tileserver ingest --job n50-restore --file /tmp/n50oslo/n50.zip
+
+# Canonical upserts (order independent):
+tileserver ingest --job n50-vann-upsert         # → terrain.water_polygon
+tileserver ingest --job n50-hoydekurve-upsert   # → terrain.contour
+tileserver ingest --job n50-isogbre-upsert      # → terrain.glacier_polygon
+tileserver ingest --job n50-landcover-upsert    # → terrain.landcover_patch
+tileserver ingest --job n50-stedsnavn-upsert    # → anchors.anchor
+tileserver ingest --job n50-vegnett-upsert      # → paths.edge
+```
+
+Each prints `{"job":…,"rows_in":N,"rows_upserted":N}`. An upsert run before its
+restore fails loudly (`…not found; run n50-restore`) rather than silently
+no-op'ing.
+
+### Verify
+
+```sh
+# Row counts per canonical table.
+psql "$DATABASE_URL" -c "
+  SELECT 'contour' t, count(*) FROM terrain.contour
+  UNION ALL SELECT 'water',     count(*) FROM terrain.water_polygon
+  UNION ALL SELECT 'landcover', count(*) FROM terrain.landcover_patch
+  UNION ALL SELECT 'anchors',   count(*) FROM anchors.anchor
+  UNION ALL SELECT 'edges',     count(*) FROM paths.edge;"
+
+# Render an MVT tile straight from PostGIS (the basemap serve path).
+psql "$DATABASE_URL" -At -c "
+  WITH b AS (SELECT ST_TileEnvelope(12,2170,1189) e,
+                    ST_Transform(ST_TileEnvelope(12,2170,1189),25833) e25833),
+  g AS (SELECT ST_AsMVTGeom(ST_Transform(c.geom,3857),(SELECT e FROM b),4096,64,true) geom,
+               c.elev_m, c.kind, c.is_index
+        FROM terrain.contour c, b WHERE c.geom && b.e25833)
+  SELECT length(ST_AsMVT(g.*,'contour',4096,'geom')) FROM g WHERE geom IS NOT NULL;"
+```
+
+### Reference: Oslo (fylke 03) sample, observed counts
+
+| Upsert | Canonical table | Rows (Oslo) |
+| --- | --- | --- |
+| `n50-vann-upsert` | `terrain.water_polygon` | 434 |
+| `n50-hoydekurve-upsert` | `terrain.contour` | 2 268 (2 263 main / 3 aux / 2 depr; 422 index) |
+| `n50-isogbre-upsert` | `terrain.glacier_polygon` | 0 (no glaciers in Oslo) |
+| `n50-landcover-upsert` | `terrain.landcover_patch` | 2 619 |
+| `n50-stedsnavn-upsert` | `anchors.anchor` | 1 148 |
+| `n50-vegnett-upsert` | `paths.edge` | 16 996 |
+
+Contour heights are all multiples of 20 → N50's 20 m equidistance; `is_index`
+flags the 100 m lines.
+
+---
+
+## 4. Automated tests
+
+`crates/turbo-tiles-ingest/tests/e2e_pipeline.rs` runs the **real** production
+code path (restore → every upsert → assertions → reset) against a 5 KB
+synthetic dump (`data/fixtures/n50_mini.sql`) that mirrors the real schema
+shape. It **skips silently** unless a DB is reachable.
+
+```sh
+export INGEST_TEST_DATABASE_URL=postgres://postgres:testpass@localhost:5432/tiles
+tileserver migrate     # the test asserts against an already-migrated DB
+cargo test -p turbo-tiles-ingest --test e2e_pipeline -- --test-threads=1
+```
+
+> **Run single-threaded.** Every test shares one DB and one `n50_staging`
+> schema, cleaning it between runs — so they must not run concurrently
+> (`--test-threads=1`). In parallel they stomp each other's staging schema.
+
+When you add a new layer, extend the fixture **and** add an assertion — keep
+the synthetic dump in lockstep with the upsert SQL (the fixture must contain
+every `n50_staging.*` table the upsert SQLs reference, or the upsert errors
+with `relation … does not exist`).
+
+---
+
+## 5. Layer status & what to ingest next
+
+### Ingested today
+
+| Layer | N50 source table(s) | Canonical target | Tested |
+| --- | --- | --- | --- |
+| Water (lakes/rivers/sea) | `innsjo`, `innsjoregulert`, `elv`, `ferskvanntorrfall`, `havflate` | `terrain.water_polygon` | ✅ |
+| Contours | `hoydekurve`, `hjelpekurve`, `forsenkningskurve` | `terrain.contour` | ✅ |
+| Glaciers/snow | `snoisbre` | `terrain.glacier_polygon` | ✅ |
+| Landcover | `skog`, `myr`, `apentomrade`, `dyrketmark` | `terrain.landcover_patch` | ✅ |
+| Place names + spot heights | `stedsnavntekst`, `terrengpunkt` | `anchors.anchor` | ✅ |
+| Roads / paths | `veglenke` | `paths.edge` | ✅ |
+
+Non-N50, already wired: FKB sti (`fkb-sti`), Turrutebasen trails
+(`turbase`), DNT cabins (`dnt-cabins-load`), DTM10 raster (`dtm-bulk-load`).
+
+### Recommended next datasets (for a full N50 topo basemap)
+
+Prioritised by basemap impact. Each is a small, config/SQL-shaped addition:
+new `terrain.*`/canonical table + `upsert_n50_*.sql` + fixture rows + e2e
+assertion, then smoke against the Oslo (or a richer) county.
+
+1. **Buildings** — `bygning_omrade` (+ `bygning_posisjon`, and urban areas
+   `tettbebyggelse` / `bymessigbebyggelse`). The defining z14+ basemap layer;
+   already referenced in `tools/vector-layers.toml` but has no canonical
+   upsert/test yet.
+2. **Coastline** — `kystkontur` (shoreline line) paired with the existing
+   `havflate` sea polygon, for a crisp land/sea edge.
+3. **Streams / waterways (lines)** — `elvbekk`. Used by routing already; should
+   become a served basemap line layer with width, and be tested.
+4. **Railways** — `bane` (+ `jernbanetype`, `stasjon`). Standard topo content.
+5. **Power lines** — `ledning` / `luftledninglh`. Shown on topo maps.
+6. **Protected areas** — `naturvernomrade` (national parks/reserves). High-value
+   outdoor overlay.
+7. **Ski & recreation** — `alpinbakke`, `skitrekk`, `lysloype`, `hoppbakke`,
+   `sportidrettplass` — feeds the winter style.
+8. **DTM10 elevation** — bulk-load a small GeoTIFF via `dtm-bulk-load` to
+   exercise hillshade + Terrain-RGB and cross-check the vector contours.
+   (Separate product from N50 — høydedata.no.)
+
+When picking a real-data sample for these, prefer a **mountainous/coastal
+county** (e.g. Vestland `46` or Møre og Romsdal `15`) so glaciers, fjords,
+dense contours, and ski features are actually present — Oslo has none of the
+first two.
+
+### Known issue to reconcile (not introduced here)
+
+The `n50-vegnett-upsert` SQL and the graph encoder emit `fkb_type` values
+`traktorvei` / `skogsvei` / `sti` / `vei`, but the curated-resource MVT views
+(`migrations/20260601000005_views_resources.sql`) filter on `traktorveg` /
+`skogsbilveg` / `sykkelvei`. As a result, N50 vegnett edges do **not** surface
+in the `forest-roads` / `cycling-routes` served layers. Pick one vocabulary
+(align the views to the encoder, or vice-versa) before relying on N50 roads in
+those resources.

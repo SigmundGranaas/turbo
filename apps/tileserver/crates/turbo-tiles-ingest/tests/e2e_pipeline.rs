@@ -65,6 +65,7 @@ async fn ensure_clean(pool: &DbPool) {
         "DELETE FROM terrain.water_polygon",
         "DELETE FROM terrain.glacier_polygon",
         "DELETE FROM terrain.landcover_patch",
+        "DELETE FROM terrain.contour",
         "DELETE FROM paths.edge",
         "DELETE FROM paths.node",
     ] {
@@ -259,11 +260,17 @@ async fn n50_upsert_vegnett_creates_road_edges() {
     .unwrap();
     assert_eq!(n, 2, "fixture has 2 veglenke rows");
 
-    // Verify fkb_type classification: traktorveg + skogsbilveg.
+    // Verify fkb_type classification. The vegnett upsert deliberately emits
+    // the vocabulary the graph encoder (`encode_fkb_type`) understands —
+    // `traktorvei` / `skogsvei` — NOT the `traktorveg` / `skogsbilveg`
+    // spellings. (NB: the curated-resource MVT views in migration 0005 still
+    // filter on `traktorveg`/`skogsbilveg`/`sykkelvei`, so N50 vegnett edges
+    // do not currently surface in those served layers — a known mismatch to
+    // reconcile, tracked separately from this test.)
     let (traktor,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*)::bigint FROM paths.edge \
          WHERE deleted_at IS NULL AND attrs->>'source' = 'n50_vegnett' \
-           AND fkb_type = 'traktorveg'",
+           AND fkb_type = 'traktorvei'",
     )
     .fetch_one(&pool)
     .await
@@ -271,13 +278,62 @@ async fn n50_upsert_vegnett_creates_road_edges() {
     let (skogs,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*)::bigint FROM paths.edge \
          WHERE deleted_at IS NULL AND attrs->>'source' = 'n50_vegnett' \
-           AND fkb_type = 'skogsbilveg'",
+           AND fkb_type = 'skogsvei'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(traktor, 1);
-    assert_eq!(skogs, 1);
+    assert_eq!(traktor, 1, "Traktorveg → fkb_type 'traktorvei'");
+    assert_eq!(skogs, 1, "Skogsbilveg → fkb_type 'skogsvei'");
+}
+
+#[tokio::test]
+async fn n50_upsert_hoydekurve_creates_contours() {
+    // N50 "Høyde" theme → terrain.contour. The fixture has 3 main
+    // contours (200/220/600 m), 1 auxiliary (210 m) and 1 depression
+    // (180 m). Index lines are the 100 m multiples among main/depression
+    // (200 + 600), so 2 lines must carry is_index.
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
+    ensure_clean(&pool).await;
+    n50::restore(&pool, fixture_path("n50_mini.sql"), true)
+        .await
+        .expect("restore");
+
+    let outcome = n50::upsert_hoydekurve(&pool).await.expect("upsert");
+    assert_eq!(outcome.rows_in, 5, "fixture has 3 main + 1 aux + 1 depression");
+
+    for (kind, expected) in [("main", 3), ("auxiliary", 1), ("depression", 1)] {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*)::bigint FROM terrain.contour WHERE source = 'n50' AND kind = $1",
+        )
+        .bind(kind)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(n, expected, "kind {kind} count");
+    }
+
+    // Index detection: 200 m and 600 m main contours are the only
+    // 100 m multiples in the fixture.
+    let (index_lines,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.contour WHERE source = 'n50' AND is_index",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(index_lines, 2, "200 m + 600 m are index contours");
+
+    // Geometry must be clean LineStrings in EPSG:25833 (ST_Dump output).
+    let (bad_geom,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.contour \
+         WHERE source = 'n50' AND (ST_GeometryType(geom) <> 'ST_LineString' OR ST_SRID(geom) <> 25833)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bad_geom, 0, "all contours must be LineString/25833");
 }
 
 #[tokio::test]
@@ -405,6 +461,7 @@ async fn reset_all_clears_every_namespace_to_zero() {
         "DELETE FROM terrain.water_polygon",
         "DELETE FROM terrain.glacier_polygon",
         "DELETE FROM terrain.landcover_patch",
+        "DELETE FROM terrain.contour",
         "DELETE FROM paths.edge",
         "DELETE FROM paths.node",
         "DELETE FROM paths.dem",
