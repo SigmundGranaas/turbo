@@ -10,6 +10,28 @@ change minimally.
 
 Legend: ✚ new file · ✎ edit · 🧪 test
 
+## Status (as of 2026-06-09, branch `claude/android-caching-tile-analysis-7sr9hy`)
+
+| Task | Status |
+| --- | --- |
+| 0.1 rich model · 0.2 metadata codec · 0.3 estimator · 0.4 seam | ✅ done |
+| 1.1 failures + retry | ✅ done |
+| 1.2 foreground download service | ✅ done — *resume after process death deferred (regions reappear Paused; user resumes)* |
+| 1.3 Wi-Fi-only policy | ✅ done |
+| 1.4 pre-flight estimate + guardrail | ✅ done |
+| 2.1 overlays in downloads | ✅ done |
+| 2.2 persist base layer | ✅ done — *per-region base recorded in metadata; "current base differs" banner not built* |
+| 2.3 detail level | ✅ done (Standard/Detailed segmented choice in the confirm dialog) |
+| 2.4 region UX | ✅ rename, undo-delete snackbar, date on cards — *extent thumbnail, tap-to-open-on-map, on-screen download entry, sort: not built* |
+| 2.5 offline / out-of-coverage chip | ✅ done |
+| 2.6 overlayRow mislabel | ✅ done |
+| 3.1 ambient cache (256 MB ceiling + clear-cache action) | ✅ done — *true disk total (ambient + regions) not reported* |
+| 3.2 concurrency hardening | ✅ done (concurrent collections + atomic merge publication; not the coroutine rewrite) |
+| 3.3 licensing posture / tileserver | ⬜ open — product decision (gate OSM/Esri offline or restrict to Kartverket) + its own design doc |
+
+All work verified on a real SDK: full unit-test suite, `assembleDebug`,
+`assembleRelease`, detekt.
+
 ---
 
 ## Phase 0 — Foundation: model, seam, and a testable core
