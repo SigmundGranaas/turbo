@@ -49,6 +49,57 @@ struct RouteViewModelTests {
         #expect(vm.geometry.isEmpty)
     }
 
+    @Test("remove a specific waypoint by index")
+    func removeSpecific() {
+        let (vm, _) = vm()
+        vm.setMode(.line)
+        [LatLng(lat: 1, lng: 1), LatLng(lat: 2, lng: 2), LatLng(lat: 3, lng: 3)].forEach(vm.addWaypoint)
+        #expect(vm.waypoints.count == 3)
+        vm.removeWaypoint(at: 1)
+        #expect(vm.waypoints.map(\.lat) == [1, 3])   // middle dropped
+    }
+
+    @Test("reorder waypoints")
+    func reorder() {
+        let (vm, _) = vm()
+        vm.setMode(.line)
+        [LatLng(lat: 1, lng: 1), LatLng(lat: 2, lng: 2), LatLng(lat: 3, lng: 3)].forEach(vm.addWaypoint)
+        vm.moveWaypoint(from: 0, to: 2)
+        #expect(vm.waypoints.map(\.lat) == [2, 3, 1])
+    }
+
+    @Test("drag a waypoint to a new position")
+    func dragMove() {
+        let (vm, _) = vm()
+        vm.setMode(.line)
+        vm.addWaypoint(LatLng(lat: 1, lng: 1))
+        vm.addWaypoint(LatLng(lat: 2, lng: 2))
+        vm.moveWaypoint(at: 0, to: LatLng(lat: 9, lng: 9))
+        #expect(vm.waypoints.first?.lat == 9)
+    }
+
+    @Test("insert a stop at the least-detour segment")
+    func insertLeastDetour() {
+        // A→C with B near the A→C line: inserting D near A→B lands between A and B.
+        let a = LatLng(lat: 0, lng: 0), b = LatLng(lat: 0, lng: 2), c = LatLng(lat: 0, lng: 4)
+        let result = RouteViewModel.insertLeastDetour([a, b, c], LatLng(lat: 0, lng: 1))
+        #expect(result.map(\.lng) == [0, 1, 2, 4])
+    }
+
+    @Test("multi-level undo reverts edits one at a time")
+    func undo() {
+        let (vm, _) = vm()
+        vm.setMode(.line)
+        vm.addWaypoint(LatLng(lat: 1, lng: 1))   // undo→[]
+        vm.addWaypoint(LatLng(lat: 2, lng: 2))   // undo→[1]
+        #expect(vm.canUndo)
+        vm.undo()
+        #expect(vm.waypoints.map(\.lat) == [1])
+        vm.undo()
+        #expect(vm.waypoints.isEmpty)
+        #expect(vm.canUndo == false)
+    }
+
     @Test("saving a solved route persists it as a recorded path")
     func save() async {
         let (vm, paths) = vm()

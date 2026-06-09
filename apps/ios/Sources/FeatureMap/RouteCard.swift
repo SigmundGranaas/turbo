@@ -9,6 +9,7 @@ struct RouteCard: View {
     @Bindable var viewModel: RouteViewModel
     let onClose: () -> Void
     @State private var showSave = false
+    @State private var showStops = false
     @State private var name = ""
 
     var body: some View {
@@ -41,11 +42,17 @@ struct RouteCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: 10) {
-                Button { viewModel.removeLast() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+            HStack(spacing: 16) {
+                Button { showStops = true } label: { Label("\(viewModel.waypoints.count)", systemImage: "list.bullet") }
                     .disabled(viewModel.waypoints.isEmpty)
-                Button { viewModel.clear() } label: { Label("Clear", systemImage: "trash") }
+                    .accessibilityIdentifier("route.stops")
+                    .accessibilityLabel("Edit stops")
+                Button { viewModel.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                    .disabled(!viewModel.canUndo)
+                    .accessibilityLabel("Undo")
+                Button { viewModel.clear() } label: { Image(systemName: "trash") }
                     .disabled(viewModel.waypoints.isEmpty)
+                    .accessibilityLabel("Clear route")
                 Spacer()
                 Button { name = ""; showSave = true } label: {
                     Text("Save").font(.turboHeadline).foregroundStyle(.white)
@@ -63,6 +70,10 @@ struct RouteCard: View {
             TextField("Name", text: $name)
             Button("Save") { viewModel.saveAsPath(name: name); onClose() }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showStops) {
+            WaypointsEditor(viewModel: viewModel)
+                .presentationDetents([.medium, .large])
         }
     }
 

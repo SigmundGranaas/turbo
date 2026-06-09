@@ -23,6 +23,7 @@ public struct TurboMapView: UIViewRepresentable {
     private let onVisibleBoundsChange: ((GeoBounds) -> Void)?
     private let onSelectPin: ((String) -> Void)?
     private let onTap: ((LatLng) -> Void)?
+    private let onPinMoved: ((String, LatLng) -> Void)?
 
     /// Default camera — the Lyngen/Tromsø region, so topo tiles show on launch.
     private static let defaultCenter = CLLocationCoordinate2D(latitude: 69.58, longitude: 19.95)
@@ -39,7 +40,8 @@ public struct TurboMapView: UIViewRepresentable {
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
         onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil,
-        onTap: ((LatLng) -> Void)? = nil
+        onTap: ((LatLng) -> Void)? = nil,
+        onPinMoved: ((String, LatLng) -> Void)? = nil
     ) {
         self.baseLayer = baseLayer
         self.overlays = overlays
@@ -53,6 +55,7 @@ public struct TurboMapView: UIViewRepresentable {
         self.onVisibleBoundsChange = onVisibleBoundsChange
         self.onSelectPin = onSelectPin
         self.onTap = onTap
+        self.onPinMoved = onPinMoved
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(onLongPress: onLongPress) }
@@ -83,6 +86,7 @@ public struct TurboMapView: UIViewRepresentable {
         context.coordinator.onLongPress = onLongPress
         context.coordinator.onRegionChange = onRegionChange
         context.coordinator.onVisibleBoundsChange = onVisibleBoundsChange
+        context.coordinator.onPinMoved = onPinMoved
         context.coordinator.onSelectPin = onSelectPin
         context.coordinator.onTap = onTap
         context.coordinator.syncOverlay(on: map, base: baseLayer)
@@ -106,6 +110,7 @@ public struct TurboMapView: UIViewRepresentable {
         var onLongPress: ((LatLng) -> Void)?
         var onRegionChange: ((LatLng, Double) -> Void)?
         var onVisibleBoundsChange: ((GeoBounds) -> Void)?
+        var onPinMoved: ((String, LatLng) -> Void)?
         var onSelectPin: ((String) -> Void)?
         var onTap: ((LatLng) -> Void)?
         private var currentBase: BaseLayer?
@@ -213,13 +218,25 @@ public struct TurboMapView: UIViewRepresentable {
 
         func syncAnnotations(on map: MKMapView, pins: [MapPin]) {
             let existing = map.annotations.compactMap { $0 as? PinAnnotation }
-            let existingIds = Set(existing.map(\.pin.id))
+            let byId = Dictionary(existing.map { ($0.pin.id, $0) }, uniquingKeysWith: { first, _ in first })
             let incomingIds = Set(pins.map(\.id))
 
             let toRemove = existing.filter { !incomingIds.contains($0.pin.id) }
             if !toRemove.isEmpty { map.removeAnnotations(toRemove) }
 
-            let toAdd = pins.filter { !existingIds.contains($0.id) }.map(PinAnnotation.init)
+            var toAdd: [PinAnnotation] = []
+            for pin in pins {
+                if let annotation = byId[pin.id] {
+                    // Same id, moved point (reorder / remove shifts indices, drag) —
+                    // update in place so the marker follows.
+                    let target = CLLocationCoordinate2D(latitude: pin.coordinate.lat, longitude: pin.coordinate.lng)
+                    if annotation.coordinate.latitude != target.latitude || annotation.coordinate.longitude != target.longitude {
+                        annotation.coordinate = target
+                    }
+                } else {
+                    toAdd.append(PinAnnotation(pin))
+                }
+            }
             if !toAdd.isEmpty { map.addAnnotations(toAdd) }
         }
 
@@ -254,21 +271,41 @@ public struct TurboMapView: UIViewRepresentable {
             view.markerTintColor = UIColor(pinAnnotation.pin.tint)
             view.glyphImage = UIImage(systemName: pinAnnotation.pin.symbolName)
             view.canShowCallout = false
+            // Route waypoints can be dragged to reposition; other pins can't.
+            view.isDraggable = pinAnnotation.pin.id.hasPrefix("wp-")
             // Make the pin discoverable to UI tests / VoiceOver by its name.
             view.isAccessibilityElement = true
             view.accessibilityLabel = pinAnnotation.pin.title
             return view
         }
+
+        public func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView,
+                            didChange newState: MKAnnotationView.DragState, fromOldState oldState: MKAnnotationView.DragState) {
+            guard let pin = view.annotation as? PinAnnotation else { return }
+            switch newState {
+            case .ending:
+                let c = view.annotation?.coordinate ?? pin.coordinate
+                onPinMoved?(pin.pin.id, LatLng(lat: c.latitude, lng: c.longitude))
+                view.dragState = .none
+            case .canceling:
+                view.dragState = .none
+            default:
+                break
+            }
+        }
     }
 
-    /// Bridges a ``MapPin`` to MapKit's `MKAnnotation`.
+    /// Bridges a ``MapPin`` to MapKit's `MKAnnotation`. `coordinate` is settable
+    /// (and KVO-compliant via `@objc dynamic`) so MapKit can move it during a drag
+    /// and so `syncAnnotations` can update it in place when a waypoint moves.
     final class PinAnnotation: NSObject, MKAnnotation {
         let pin: MapPin
-        var coordinate: CLLocationCoordinate2D {
-            CLLocationCoordinate2D(latitude: pin.coordinate.lat, longitude: pin.coordinate.lng)
-        }
+        @objc dynamic var coordinate: CLLocationCoordinate2D
         var title: String? { pin.title }
-        init(_ pin: MapPin) { self.pin = pin }
+        init(_ pin: MapPin) {
+            self.pin = pin
+            self.coordinate = CLLocationCoordinate2D(latitude: pin.coordinate.lat, longitude: pin.coordinate.lng)
+        }
     }
 }
 
@@ -289,7 +326,8 @@ public struct TurboMapView: View {
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
         onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil,
-        onTap: ((LatLng) -> Void)? = nil
+        onTap: ((LatLng) -> Void)? = nil,
+        onPinMoved: ((String, LatLng) -> Void)? = nil
     ) {}
 
     public var body: some View {

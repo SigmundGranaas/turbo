@@ -82,6 +82,12 @@ public struct MapScreen: View {
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
 
+    /// A dragged route waypoint pin (id "wp-<index>") repositions that waypoint.
+    private func handlePinMoved(_ id: String, _ coord: LatLng) {
+        guard id.hasPrefix("wp-"), let index = Int(id.dropFirst(3)) else { return }
+        routing?.moveWaypoint(at: index, to: coord)
+    }
+
     /// Single-tap adds a waypoint (routing) or a measure point, else nothing.
     private var tapHandler: ((LatLng) -> Void)? {
         if routing != nil { return { routing?.addWaypoint($0) } }
@@ -102,7 +108,8 @@ public struct MapScreen: View {
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
             onVisibleBoundsChange: { viewModel.updateVisibleBounds($0) },
             onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } },
-            onTap: tapHandler
+            onTap: tapHandler,
+            onPinMoved: handlePinMoved
         )
         .ignoresSafeArea()
         .animation(.easeOut(duration: 0.25), value: viewModel.focusedPlace)

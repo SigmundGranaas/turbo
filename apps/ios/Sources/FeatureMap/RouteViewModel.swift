@@ -27,23 +27,92 @@ public final class RouteViewModel {
     private let routeRepository: RouteRepository
     private let pathRepository: PathRepository
     private var solveTask: Task<Void, Never>?
+    /// Snapshots of `waypoints` before each edit, for multi-level undo (capped).
+    private var undoStack: [[LatLng]] = []
+    private static let undoLimit = 20
+
+    public var canUndo: Bool { !undoStack.isEmpty }
 
     public init(routeRepository: RouteRepository, pathRepository: PathRepository) {
         self.routeRepository = routeRepository
         self.pathRepository = pathRepository
     }
 
-    public func addWaypoint(_ point: LatLng) { waypoints.append(point); resolve() }
+    public func addWaypoint(_ point: LatLng) { pushUndo(); waypoints.append(point); resolve() }
 
     public func removeLast() {
         guard !waypoints.isEmpty else { return }
+        pushUndo()
         waypoints.removeLast()
+        resolve()
+    }
+
+    /// Remove a specific waypoint. A route needs ≥2 points, so dropping below that
+    /// clears the plan but keeps the remaining points.
+    public func removeWaypoint(at index: Int) {
+        guard waypoints.indices.contains(index) else { return }
+        pushUndo()
+        waypoints.remove(at: index)
+        resolve()
+    }
+
+    /// Reorder a waypoint (the editor's up/down controls).
+    public func moveWaypoint(from: Int, to: Int) {
+        guard waypoints.indices.contains(from), waypoints.indices.contains(to), from != to else { return }
+        pushUndo()
+        let point = waypoints.remove(at: from)
+        waypoints.insert(point, at: to)
+        resolve()
+    }
+
+    /// Reposition a waypoint (dragging its pin on the map).
+    public func moveWaypoint(at index: Int, to point: LatLng) {
+        guard waypoints.indices.contains(index) else { return }
+        pushUndo()
+        waypoints[index] = point
+        resolve()
+    }
+
+    /// Insert a stop at the segment where it adds the least detour (Android's
+    /// `addStop`). Falls back to appending when there's nothing to insert between.
+    public func insertStop(_ point: LatLng) {
+        pushUndo()
+        waypoints = Self.insertLeastDetour(waypoints, point)
+        resolve()
+    }
+
+    /// Revert the last edit.
+    public func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        waypoints = previous
         resolve()
     }
 
     public func clear() {
         solveTask?.cancel(); solveTask = nil
         waypoints = []; geometry = []; plan = nil; isSolving = false
+        undoStack = []
+    }
+
+    private func pushUndo() {
+        undoStack.append(waypoints)
+        if undoStack.count > Self.undoLimit { undoStack.removeFirst() }
+    }
+
+    /// Insert `point` into `waypoints` at the position that minimises added detour.
+    static func insertLeastDetour(_ waypoints: [LatLng], _ point: LatLng) -> [LatLng] {
+        guard waypoints.count >= 2 else { return waypoints + [point] }
+        var bestIndex = waypoints.count
+        var bestDelta = Double.greatestFiniteMagnitude
+        for i in 0..<(waypoints.count - 1) {
+            let a = waypoints[i], b = waypoints[i + 1]
+            let delta = GeoMetrics.haversineMeters(a, point) + GeoMetrics.haversineMeters(point, b)
+                - GeoMetrics.haversineMeters(a, b)
+            if delta < bestDelta { bestDelta = delta; bestIndex = i + 1 }
+        }
+        var result = waypoints
+        result.insert(point, at: bestIndex)
+        return result
     }
 
     public func setMode(_ newMode: Mode) { mode = newMode; resolve() }
@@ -66,6 +135,7 @@ public final class RouteViewModel {
 
     private func resolve() {
         solveTask?.cancel(); solveTask = nil
+        let previousGeometry = plan?.geometry   // keep the last solved line while re-solving
         plan = nil
         guard waypoints.count >= 2 else { geometry = waypoints; isSolving = false; return }
 
@@ -77,7 +147,9 @@ public final class RouteViewModel {
                              onTrailPct: 0, surfaces: [:], geometry: waypoints)
             isSolving = false
         case .route:
-            geometry = waypoints   // show straight preview until the solver streams
+            // Hold the previous solved geometry (graceful re-solve) so the line
+            // doesn't snap to straight segments mid-edit; fall back to straight.
+            geometry = previousGeometry ?? waypoints
             isSolving = true
             let stream = routeRepository.planStream(points: waypoints, preset: preset, profile: "foot")
             solveTask = Task { [weak self] in
