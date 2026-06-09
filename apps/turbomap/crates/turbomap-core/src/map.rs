@@ -5,11 +5,13 @@
 //! carries its own source, scene-state (zoom bounds + ingested set +
 //! prefetch margin), and layer-specific pipeline + cache.
 //!
-//! Layers are drawn back-to-front in insertion order:
-//! 1. First layer's geometry clears the target.
-//! 2. Subsequent layers' geometry use `LoadOp::Load` to composite on top.
-//! 3. After all layer geometry, one text pass aggregates labels from
-//!    *all* vector layers.
+//! Layers are drawn back-to-front in insertion order, all inside ONE
+//! render pass per frame (tile-based mobile GPUs pay a full
+//! framebuffer load/store per pass):
+//! 1. The pass clears to the first visible layer's background (vector
+//!    layers' style background; otherwise the shared backdrop).
+//! 2. Each visible layer's geometry draws in order, compositing on top.
+//! 3. After all layer geometry, labels draw per visible vector layer.
 //! 4. Finally, markers paint on top.
 
 use std::sync::Arc;
@@ -21,11 +23,16 @@ use crate::{
     geo::LatLng,
     hit::geometry_hit,
     render::{
-        cache::CacheStats, gpu_timestamps::GpuTimestamps, hillshade::HillshadePipeline,
+        cache::CacheStats,
+        gpu_timestamps::GpuTimestamps,
+        hillshade::{HillshadePipeline, PreparedHillshade},
         marker::MarkerPipeline,
-        raster::{RasterPipeline, TerrainConfig},
+        raster::{PreparedRaster, RasterPipeline, TerrainConfig},
         terrain::{TerrainCache, TerrainOptions, TerrainShared},
-        text::TextPipeline, vector::VectorPipeline, vector_cache::VectorMeshCache, TextureCache,
+        text::{PreparedText, TextPipeline},
+        vector::{PreparedVector, VectorPipeline},
+        vector_cache::VectorMeshCache,
+        TextureCache, BACKGROUND_CLEAR,
     },
     scene::Scene,
     source::TileSource,
@@ -158,6 +165,15 @@ enum LayerEntry {
     Raster(Box<RasterLayer>),
     Vector(Box<VectorLayer>),
     Hillshade(Box<HillshadeLayer>),
+}
+
+/// Per-layer output of the render prep phase (Phase A). Tagged with
+/// the layer's index in `Map::layers` so the draw phase can pair each
+/// prepared item back up with an *immutable* borrow of its layer.
+enum PreparedLayer {
+    Raster(PreparedRaster),
+    Vector(PreparedVector),
+    Hillshade(PreparedHillshade),
 }
 
 struct RasterLayer {
@@ -912,11 +928,17 @@ impl Map {
             ts.try_drain();
             ts.begin(encoder);
         }
-        // 1. Each layer renders its geometry in order. The first
-        //    *visible* layer clears the target; later visible layers
-        //    blend on top. Hidden layers are skipped entirely so the
-        //    UI can isolate one layer for debugging without affecting
-        //    the clear semantics.
+        // The frame is recorded as exactly ONE render pass — on
+        // tile-based mobile GPUs every extra pass costs a full
+        // framebuffer load/store. Three phases:
+        //   A. prepare: every visible layer (in order) does its CPU
+        //      work — uniform/instance uploads, batch building, LRU
+        //      touches — and returns a draw list.
+        //   B. pick the frame clear colour (replicating the old
+        //      "first visible layer clears" semantics).
+        //   C. begin the single pass and replay the prepared draw
+        //      lists in order: layer geometry, then text per visible
+        //      vector layer, then markers.
         //
         // Compute the metres-to-world conversion for vertex
         // displacement now so hillshade (and future terrain consumers)
@@ -954,42 +976,44 @@ impl Map {
                 .unwrap_or(0),
         };
         let first_visible = self.first_visible_layer_index();
+
+        // ---- Phase A: prepare ------------------------------------
         // Split-borrow the parts we need so the loop can mutably
         // borrow `self.layers` while still passing references into
-        // `self.terrain` and `self.terrain_shared.placeholder_bind_group`.
-        let placeholder_dem = &self.terrain_shared.placeholder_bind_group;
-        let terrain_for_loop = self.terrain.as_mut();
-        // Convert to Option<&mut Terrain> we can `take` on a per-
-        // pipeline basis via reborrow.
-        let mut terrain_cell = terrain_for_loop;
+        // `self.terrain`. `terrain_cell` is an Option<&mut Terrain>
+        // we reborrow on a per-pipeline basis.
+        let mut terrain_cell = self.terrain.as_mut();
+        let mut prepared_layers: Vec<(usize, PreparedLayer)> =
+            Vec::with_capacity(self.layers.len());
+        // One prepared text item per *visible vector layer*, in layer
+        // order — preserving the old one-text-pass-per-vector-layer
+        // semantics (per-layer label collision sets).
+        let mut prepared_text: Vec<PreparedText> = Vec::new();
+        self.text_pipeline.begin_frame();
         for (i, layer) in self.layers.iter_mut().enumerate() {
-            let is_first = Some(i) == first_visible;
             match layer {
                 LayerEntry::Raster(r) if r.visible => {
-                    r.pipeline.render(
+                    let p = r.pipeline.prepare(
                         &r.scene,
                         &mut r.cache,
                         terrain_cell.as_deref_mut().map(|t| &mut t.cache),
-                        placeholder_dem,
                         raster_terrain_cfg,
-                        encoder,
-                        target,
-                        &self.depth_view,
                         r.fade_in_secs,
-                        is_first,
                     );
+                    prepared_layers.push((i, PreparedLayer::Raster(p)));
                 }
                 LayerEntry::Vector(v) if v.visible => {
-                    v.pipeline.render(
+                    let p = v.pipeline.prepare(
                         &v.scene,
                         &mut v.cache,
-                        encoder,
-                        target,
-                        srgb_color_to_linear_f32(v.style.background),
                         v.fade_in_secs,
-                        is_first,
                         v.paint_override,
                     );
+                    prepared_layers.push((i, PreparedLayer::Vector(p)));
+                    // Labels come from visible vector layers only —
+                    // text on top of a hidden vector layer would look
+                    // orphaned.
+                    prepared_text.push(self.text_pipeline.prepare(&v.scene, &mut v.cache));
                 }
                 LayerEntry::Hillshade(h) if h.visible => {
                     // Hillshade reads from the shared TerrainCache.
@@ -1000,59 +1024,118 @@ impl Map {
                     // `self.terrain` again (which the loop has
                     // mutably borrowed for the whole iteration).
                     if let Some(t) = terrain_cell.as_deref_mut() {
-                        h.pipeline.render(
+                        let p = h.pipeline.prepare(
                             &t.scene,
                             &mut t.cache,
                             h.style,
-                            encoder,
-                            target,
-                            &self.depth_view,
                             h.fade_in_secs,
-                            is_first,
                             meters_to_world,
                         );
+                        prepared_layers.push((i, PreparedLayer::Hillshade(p)));
                     }
                 }
                 _ => {}
             }
         }
+        self.text_pipeline.finish_frame();
 
-        // 2. Single text pass aggregating labels from visible vector
-        //    layers only — text on top of a hidden vector layer would
-        //    look orphaned.
-        for layer in self.layers.iter_mut() {
-            if let LayerEntry::Vector(v) = layer {
-                if v.visible {
-                    self.text_pipeline
-                        .render(&v.scene, &mut v.cache, encoder, target);
-                }
-            }
-        }
-
-        // 3. Markers last.
-        if !self.markers.is_empty() {
-            // Use the first layer's scene as the camera/viewport source —
-            // any layer works since they all sync from the Map.
-            // Pick any scene that's around — they all sync from the
-            // same camera. Prefer the first raster/vector layer (they
-            // have their own scenes); fall back to terrain; otherwise
-            // build a one-off from the Map's state.
+        // Markers last. Pick any scene that's around — they all sync
+        // from the same camera. Prefer the first raster/vector layer
+        // (they have their own scenes); fall back to terrain;
+        // otherwise build a one-off from the Map's state.
+        let prepared_markers = if self.markers.is_empty() {
+            None
+        } else {
             let scene_from_layer = self.layers.iter().find_map(|l| match l {
                 LayerEntry::Raster(r) => Some(&r.scene),
                 LayerEntry::Vector(v) => Some(&v.scene),
                 LayerEntry::Hillshade(_) => None,
             });
-            if let Some(scene) = scene_from_layer {
-                self.marker_pipeline
-                    .render(scene, &self.markers, encoder, target);
+            let p = if let Some(scene) = scene_from_layer {
+                self.marker_pipeline.prepare(scene, &self.markers)
             } else if let Some(t) = self.terrain.as_ref() {
-                self.marker_pipeline
-                    .render(&t.scene, &self.markers, encoder, target);
+                self.marker_pipeline.prepare(&t.scene, &self.markers)
             } else {
                 // No layers — build a one-off Scene from the Map's state.
                 let scene = Scene::with_margin(self.camera, self.viewport_px, 0, 22, 0);
-                self.marker_pipeline
-                    .render(&scene, &self.markers, encoder, target);
+                self.marker_pipeline.prepare(&scene, &self.markers)
+            };
+            Some(p)
+        };
+
+        // ---- Phase B: frame clear colour -------------------------
+        // Replicates the old "first visible layer clears" semantics:
+        // a vector layer clears to its style background; raster and
+        // hillshade (and an empty layer stack) clear to the shared
+        // backdrop colour.
+        let clear = match first_visible.map(|i| &self.layers[i]) {
+            Some(LayerEntry::Vector(v)) => {
+                let c = srgb_color_to_linear_f32(v.style.background);
+                wgpu::Color {
+                    r: c[0] as f64,
+                    g: c[1] as f64,
+                    b: c[2] as f64,
+                    a: c[3] as f64,
+                }
+            }
+            _ => BACKGROUND_CLEAR,
+        };
+
+        // ---- Phase C: the single render pass ---------------------
+        {
+            let terrain_cache = self.terrain.as_ref().map(|t| &t.cache);
+            let placeholder_dem = &self.terrain_shared.placeholder_bind_group;
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("turbomap-frame-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            for (i, prepared) in &prepared_layers {
+                match (&self.layers[*i], prepared) {
+                    (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
+                        r.pipeline
+                            .draw(p, &r.cache, terrain_cache, placeholder_dem, &mut pass);
+                    }
+                    (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
+                        v.pipeline.draw(p, &v.cache, &mut pass);
+                    }
+                    (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
+                        if let Some(tc) = terrain_cache {
+                            h.pipeline.draw(p, tc, &mut pass);
+                        }
+                    }
+                    // prepare tagged each item with its own layer's
+                    // index, and `self.layers` is not mutated between
+                    // the phases.
+                    _ => unreachable!("prepared layer kind mismatch"),
+                }
+            }
+
+            for p in &prepared_text {
+                self.text_pipeline.draw(p, &mut pass);
+            }
+
+            if let Some(p) = &prepared_markers {
+                self.marker_pipeline.draw(p, &mut pass);
             }
         }
 

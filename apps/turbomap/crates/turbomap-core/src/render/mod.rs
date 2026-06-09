@@ -37,11 +37,10 @@ pub(crate) const BACKGROUND_CLEAR: wgpu::Color = wgpu::Color {
 /// at zoom 6+).
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-/// Depth-stencil for ground-plane pipelines (raster, hillshade,
-/// vector). Writes z; later draws at the same pixel are rejected
-/// when their depth is greater (i.e. behind a mountain face that's
-/// already painted).
-#[allow(dead_code)] // Held for Phase 4 (raster/vector displacement).
+/// Depth-stencil for ground-plane pipelines that displace by the
+/// terrain DEM (raster). Writes z; later draws at the same pixel are
+/// rejected when their depth is greater (i.e. behind a mountain face
+/// that's already painted).
 pub(crate) fn ground_depth_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: DEPTH_FORMAT,
@@ -52,11 +51,10 @@ pub(crate) fn ground_depth_state() -> wgpu::DepthStencilState {
     }
 }
 
-/// Depth-stencil for screen-space overlays (text + markers). They
-/// don't have meaningful depth; treat them as always-in-front of the
-/// world without writing z (so subsequent overlays don't depth-cull
-/// each other).
-#[allow(dead_code)] // Held for Phase 4 (text/marker depth coexistence).
+/// Depth-stencil for screen-space overlays (vector geometry, text,
+/// markers). They don't have meaningful depth; treat them as
+/// always-in-front of the world without writing z (so subsequent
+/// overlays don't depth-cull each other).
 pub(crate) fn overlay_depth_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: DEPTH_FORMAT,

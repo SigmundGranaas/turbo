@@ -212,6 +212,13 @@ impl TerrainCache {
         self.cache.get(id)
     }
 
+    /// Read-only lookup — no LRU bump. Draw-time counterpart of
+    /// [`TerrainCache::get_entry`]; the prepare phase already touched
+    /// every tile a draw will reference.
+    pub(crate) fn peek_entry(&self, id: TileId) -> Option<&crate::render::cache::CacheEntry> {
+        self.cache.peek(id)
+    }
+
     pub(crate) fn stats(&self) -> crate::render::cache::CacheStats {
         self.cache.stats()
     }

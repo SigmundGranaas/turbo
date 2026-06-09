@@ -35,6 +35,15 @@ struct TileUniform {
     tile_alpha: f32,
 }
 
+/// Output of [`VectorPipeline::prepare`]: the ordered tile draw list.
+/// Index `i` in `tiles` was assigned the per-tile uniform slot at
+/// dynamic offset `i * TILE_UNIFORM_STRIDE` — `draw` replays the same
+/// offsets. No references into the cache; `draw` re-looks tiles up
+/// immutably via `peek`.
+pub(crate) struct PreparedVector {
+    tiles: Vec<TileId>,
+}
+
 pub(crate) struct VectorPipeline {
     pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
@@ -145,7 +154,10 @@ impl VectorPipeline {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            // The Map's single frame pass always carries a depth
+            // attachment. Vector geometry is a screen-space overlay —
+            // always in front, never writing z.
+            depth_stencil: Some(super::overlay_depth_state()),
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
@@ -195,20 +207,18 @@ impl VectorPipeline {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render(
+    /// CPU half of a frame: camera + per-tile uniform writes (fade
+    /// alpha, paint override at the same dynamic offsets `draw` will
+    /// bind) and LRU touches for every tile in the draw list.
+    pub(crate) fn prepare(
         &mut self,
         scene: &Scene,
         cache: &mut VectorMeshCache,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        clear_color: [f32; 4],
         fade_in_secs: f32,
-        is_first_layer: bool,
         // When set, the shader uses this colour for every fragment instead
         // of the baked vertex colour — the zoom/data-driven paint path.
         paint_override: Option<[f32; 4]>,
-    ) {
+    ) -> PreparedVector {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
         let uniform = CameraUniform {
@@ -278,36 +288,36 @@ impl VectorPipeline {
                 .write_buffer(&self.tile_uniform_buffer, 0, &bytes);
         }
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("turbomap-vector-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: if is_first_layer {
-                        wgpu::LoadOp::Clear(wgpu::Color {
-                            r: clear_color[0] as f64,
-                            g: clear_color[1] as f64,
-                            b: clear_color[2] as f64,
-                            a: clear_color[3] as f64,
-                        })
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        // Touch every drawn tile so the LRU can't evict it before the
+        // draw phase; `draw` then uses read-only `peek` lookups.
+        let tiles: Vec<TileId> = to_draw
+            .iter()
+            .take(draw_count)
+            .map(|(tile, _)| {
+                let _ = cache.get(*tile).expect("just verified above");
+                *tile
+            })
+            .collect();
+        PreparedVector { tiles }
+    }
+
+    /// GPU half of the frame: replay the prepared tile list inside the
+    /// Map's single render pass, binding the per-tile uniforms written
+    /// by `prepare` at the same dynamic offsets.
+    pub(crate) fn draw(
+        &self,
+        prepared: &PreparedVector,
+        cache: &VectorMeshCache,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        if prepared.tiles.is_empty() {
+            return;
+        }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-        for (idx, (tile, _)) in to_draw.iter().take(draw_count).enumerate() {
-            let entry = cache.get(*tile).expect("just verified above");
+        for (idx, tile) in prepared.tiles.iter().enumerate() {
+            let entry = cache.peek(*tile).expect("prepare touched this tile");
             if entry.index_count == 0 {
                 continue;
             }

@@ -26,6 +26,12 @@ budget caps in `turbomap-sim/tests/session.rs`), not mobile-GPU milliseconds.
 
 ## Decision 1 — Render-pass-per-layer must become one pass (the big one)
 
+**STATUS: EXECUTED.** One pass per frame; pipelines split into prepare/draw.
+Proven pixel-equivalent (all goldens pass compare-mode, references untouched)
+and faster even on llvmpipe (journey p95 3.6→2.6 ms). The split also fixed a
+latent text bug: per-layer instance-buffer rewrites would have clobbered
+earlier layers' labels on multi-symbol-layer frames.
+
 **Today:** `Map::render` (`map.rs:~940`) gives every layer its own
 `begin_render_pass` — raster, each vector layer, hillshade, then text and
 markers (`render/vector.rs:267`, `render/raster.rs:560/616`, …). Later passes
@@ -52,6 +58,11 @@ level; depth attach unifies; GPU timestamp scopes move from per-pass to
 per-pipeline ranges.
 
 ## Decision 2 — wgpu version policy: upgrade *before* the platform glue
+
+**STATUS: EXECUTED.** wgpu 29 + egui 0.34 + rustc 1.94.1; every golden passed
+compare-mode across the 7-major jump with zero regeneration. Executed *before*
+Decision 1, because wgpu ≥23 removes the RenderPass lifetime coupling the
+single-pass refactor would otherwise have fought.
 
 **Today:** pinned to `wgpu = "22"` (workspace), with egui pinned in lockstep
 for the desktop demo. wgpu has since moved several majors; known breaking

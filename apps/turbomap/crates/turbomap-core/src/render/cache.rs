@@ -103,6 +103,13 @@ impl TextureCache {
         }
     }
 
+    /// Read-only lookup — does *not* bump the LRU or the hit/miss
+    /// counters. Used at draw time inside a render pass, where every
+    /// referenced tile was already touched by the prepare phase.
+    pub(crate) fn peek(&self, id: TileId) -> Option<&CacheEntry> {
+        self.entries.get(&id)
+    }
+
     /// Walk up the pyramid looking for the nearest ancestor in the cache.
     pub(crate) fn nearest_ancestor(&mut self, id: TileId) -> Option<TileId> {
         for k in 1..=id.z {

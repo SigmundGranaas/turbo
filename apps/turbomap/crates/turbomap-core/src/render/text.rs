@@ -39,6 +39,14 @@ struct TextInstance {
     _pad: [u8; 4],
 }
 
+/// Output of one per-vector-layer [`TextPipeline::prepare`] call: the
+/// half-open instance range this layer's surviving glyphs occupy in
+/// the pipeline's shared instance buffer (uploaded by `finish_frame`).
+pub(crate) struct PreparedText {
+    start: u32,
+    end: u32,
+}
+
 pub(crate) struct TextPipeline {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
@@ -54,6 +62,14 @@ pub(crate) struct TextPipeline {
     /// Anchor-relative laid-out glyphs, keyed by (text, font_size). Avoids
     /// per-frame layout for the steady-state visible label set.
     layout_cache: LayoutCache,
+    /// Frame-local staging: instances appended by per-layer `prepare`
+    /// calls, uploaded once by `finish_frame`. One shared buffer (the
+    /// pipeline is shared across vector layers) — per-layer ranges are
+    /// carried in [`PreparedText`].
+    staged: Vec<TextInstance>,
+    /// Viewport recorded by the frame's `prepare` calls, written into
+    /// the globals uniform by `finish_frame`.
+    frame_viewport: [f32; 2],
 }
 
 impl TextPipeline {
@@ -168,7 +184,10 @@ impl TextPipeline {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            // The Map's single frame pass always carries a depth
+            // attachment. Text is a screen-space overlay — always in
+            // front, never writing z.
+            depth_stencil: Some(super::overlay_depth_state()),
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
@@ -264,18 +283,26 @@ impl TextPipeline {
             queue,
             atlas: FontAtlas::new(),
             layout_cache: LayoutCache::new(),
+            staged: Vec::new(),
+            frame_viewport: [0.0; 2],
         }
     }
 
-    /// Draw labels for the currently visible vector tiles. Renders on top of
-    /// whatever the geometry pass left in `target` (LoadOp::Load).
-    pub(crate) fn render(
+    /// Reset the frame-local staging list. Call once per `Map::render`
+    /// before the per-layer `prepare` calls.
+    pub(crate) fn begin_frame(&mut self) {
+        self.staged.clear();
+    }
+
+    /// Lay out labels for one vector layer's currently visible tiles
+    /// (per-layer collision set, like the old per-layer text pass) and
+    /// stage the surviving glyph instances. The returned range is drawn
+    /// by `draw` after `finish_frame` uploads the shared buffer.
+    pub(crate) fn prepare(
         &mut self,
         scene: &Scene,
         cache: &mut VectorMeshCache,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-    ) {
+    ) -> PreparedText {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
         let viewport_px = (vw as f32, vh as f32);
@@ -300,8 +327,8 @@ impl TextPipeline {
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
         });
 
+        let start = self.staged.len() as u32;
         let mut placed: Vec<Aabb> = Vec::new();
-        let mut instances: Vec<TextInstance> = Vec::new();
         for label in candidates {
             // Project world → screen.
             let screen = world_to_screen(&camera, label.world_pos, viewport_px);
@@ -359,7 +386,7 @@ impl TextPipeline {
             // sRGB-authored → linear, since the target re-encodes on write.
             let color = label.color.to_linear_bytes();
             for g in translated {
-                instances.push(TextInstance {
+                self.staged.push(TextInstance {
                     screen_origin: [g.screen_x, g.screen_y],
                     screen_size: [g.width, g.height],
                     atlas_origin: [g.atlas_x / ATLAS_SIZE as f32, g.atlas_y / ATLAS_SIZE as f32],
@@ -370,7 +397,23 @@ impl TextPipeline {
             }
         }
 
-        if instances.is_empty() {
+        // Record the viewport so `finish_frame` can fill the shared
+        // globals uniform (every layer's scene syncs from the same Map
+        // camera + viewport, so last-writer-wins is exact).
+        self.frame_viewport = [viewport_px.0, viewport_px.1];
+
+        PreparedText {
+            start,
+            end: self.staged.len() as u32,
+        }
+    }
+
+    /// Upload everything the frame's `prepare` calls staged: the glyph
+    /// atlas (if dirty), the globals uniform, and the shared instance
+    /// buffer (grown as needed). Call once, after all `prepare`s and
+    /// before the render pass begins.
+    pub(crate) fn finish_frame(&mut self) {
+        if self.staged.is_empty() {
             return;
         }
 
@@ -399,15 +442,15 @@ impl TextPipeline {
 
         // 3. Upload globals + instances.
         let globals = Globals {
-            viewport: [viewport_px.0, viewport_px.1],
+            viewport: self.frame_viewport,
             _pad: [0.0; 2],
         };
         self.queue
             .write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
 
-        if (instances.len() as u64) > self.instance_capacity {
+        if (self.staged.len() as u64) > self.instance_capacity {
             let mut new_cap = self.instance_capacity.max(1);
-            while new_cap < instances.len() as u64 {
+            while new_cap < self.staged.len() as u64 {
                 new_cap *= 2;
             }
             self.instance_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -419,32 +462,21 @@ impl TextPipeline {
             self.instance_capacity = new_cap;
         }
         self.queue
-            .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
+            .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.staged));
+    }
 
-        // 4. Draw — note LoadOp::Load so we composite on top of the geometry
-        // pass that ran before us.
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("turbomap-text-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+    /// Draw one layer's prepared glyph range inside the Map's single
+    /// render pass, on top of whatever geometry drew before it.
+    pub(crate) fn draw(&self, prepared: &PreparedText, pass: &mut wgpu::RenderPass<'_>) {
+        if prepared.start == prepared.end {
+            return;
+        }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        pass.draw_indexed(0..6, 0, 0..instances.len() as u32);
+        pass.draw_indexed(0..6, 0, prepared.start..prepared.end);
     }
 }
 

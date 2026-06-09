@@ -9,7 +9,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{dem::DemEncoding, scene::Scene, style::HillshadeStyle, tile::TileId};
 
-use super::{terrain::TerrainCache, vector::fade_alpha, BACKGROUND_CLEAR, DEPTH_FORMAT};
+use super::{terrain::TerrainCache, vector::fade_alpha, DEPTH_FORMAT};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -56,6 +56,13 @@ struct Instance {
     /// its own ingest age — late-arriving tiles ease in over their
     /// own `fade_in_secs`, not a global layer timer.
     alpha: f32,
+}
+
+/// Output of [`HillshadePipeline::prepare`]: the tile draw list, index-
+/// aligned with the instances uploaded by `prepare`. No cache
+/// references — `draw` re-looks tiles up immutably via `peek_entry`.
+pub(crate) struct PreparedHillshade {
+    tiles: Vec<TileId>,
 }
 
 pub(crate) struct HillshadePipeline {
@@ -184,23 +191,22 @@ impl HillshadePipeline {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            // Hillshade is the SECOND displaced layer drawn at
-            // the same DEM positions as the raster basemap. If
-            // both write depth, floating-point drift between
-            // the two pipelines (slightly different shader
-            // code paths for the same vertex) leaves some
-            // hillshade fragments at z = raster_z + epsilon —
-            // they fail LessEqual and the basemap shows
-            // through, every frame in different pixels. That
-            // is the panel + map flicker. Fix: hillshade
-            // READS depth (so it still gets culled behind
-            // mountains in steep terrain) but never WRITES
-            // it. The basemap owns the depth buffer; the
+            // Hillshade is the SECOND displaced layer drawn at the
+            // same DEM positions as the raster basemap, but the two
+            // displace by *different* exaggerations (the basemap uses
+            // `TerrainOptions::exaggeration`, hillshade uses its
+            // style's) and through slightly different shader paths,
+            // so their depths don't agree. In the per-pass era the
+            // hillshade pass cleared depth before testing, making its
+            // LessEqual test a guaranteed pass; with the whole frame
+            // in ONE pass the cleared-buffer trick is gone, so encode
+            // the same observable semantics directly: always pass,
+            // never write. The basemap owns the depth buffer; the
             // hillshade colour just blends on top.
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
                 depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                depth_compare: Some(wgpu::CompareFunction::Always),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -299,19 +305,16 @@ impl HillshadePipeline {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render(
+    /// CPU half of a frame: camera/globals/instance uploads plus LRU
+    /// touches for every DEM tile the draw list references.
+    pub(crate) fn prepare(
         &mut self,
         scene: &Scene,
         terrain: &mut TerrainCache,
         style: HillshadeStyle,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        depth: &wgpu::TextureView,
         fade_in_secs: f32,
-        is_first_layer: bool,
         meters_to_world: f32,
-    ) {
+    ) -> PreparedHillshade {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
 
@@ -373,34 +376,9 @@ impl HillshadePipeline {
         }
 
         if instances.is_empty() {
-            if is_first_layer {
-                // Need to clear the target so the previous frame doesn't
-                // bleed through when we have no tiles yet.
-                let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("turbomap-hillshade-clear-only"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: target,
-                        resolve_target: None,
-                depth_slice: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(BACKGROUND_CLEAR),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: depth,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-            multiview_mask: None,
-                });
-            }
-            return;
+            // Nothing to draw — the Map-level frame clear replaces the
+            // old clear-only pass.
+            return PreparedHillshade { tiles: Vec::new() };
         }
 
         if (instances.len() as u64) > self.instance_capacity {
@@ -419,46 +397,32 @@ impl HillshadePipeline {
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("turbomap-hillshade-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: if is_first_layer {
-                        wgpu::LoadOp::Clear(BACKGROUND_CLEAR)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            // Hillshade is the only depth user in the frame; nobody
-            // else writes z. Clear unconditionally so we don't read
-            // undefined memory when this is the only depth pass.
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        PreparedHillshade { tiles }
+    }
+
+    /// GPU half of the frame: replay the prepared tile list inside the
+    /// Map's single render pass. `prepare` already touched every tile,
+    /// so the read-only `peek_entry` lookups can't miss within one
+    /// `Map::render`.
+    pub(crate) fn draw(
+        &self,
+        prepared: &PreparedHillshade,
+        terrain: &TerrainCache,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        if prepared.tiles.is_empty() {
+            return;
+        }
         pass.set_pipeline(&self.pipeline);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-        for (i, tile) in tiles.iter().enumerate() {
+        for (i, tile) in prepared.tiles.iter().enumerate() {
             let entry = terrain
-                .get_entry(*tile)
-                .expect("just verified above");
+                .peek_entry(*tile)
+                .expect("prepare touched this DEM tile");
             pass.set_bind_group(1, &entry.bind_group, &[]);
             pass.draw_indexed(0..self.index_count, 0, i as u32..i as u32 + 1);
         }

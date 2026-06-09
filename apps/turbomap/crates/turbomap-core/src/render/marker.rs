@@ -29,6 +29,12 @@ struct MarkerInstance {
     _pad2: [u8; 12],
 }
 
+/// Output of [`MarkerPipeline::prepare`]: how many instances the frame
+/// uploaded. Zero → `draw` is a no-op.
+pub(crate) struct PreparedMarkers {
+    instance_count: u32,
+}
+
 pub(crate) struct MarkerPipeline {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
@@ -130,7 +136,10 @@ impl MarkerPipeline {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            // The Map's single frame pass always carries a depth
+            // attachment. Markers are a screen-space overlay — always
+            // in front, never writing z.
+            depth_stencil: Some(super::overlay_depth_state()),
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
@@ -190,15 +199,11 @@ impl MarkerPipeline {
         }
     }
 
-    pub(crate) fn render(
-        &mut self,
-        scene: &Scene,
-        markers: &[Marker],
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-    ) {
+    /// CPU half of a frame: project + cull markers, upload globals and
+    /// instances. Returns the instance count `draw` replays.
+    pub(crate) fn prepare(&mut self, scene: &Scene, markers: &[Marker]) -> PreparedMarkers {
         if markers.is_empty() {
-            return;
+            return PreparedMarkers { instance_count: 0 };
         }
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
@@ -226,7 +231,7 @@ impl MarkerPipeline {
             });
         }
         if instances.is_empty() {
-            return;
+            return PreparedMarkers { instance_count: 0 };
         }
 
         let globals = Globals {
@@ -252,28 +257,23 @@ impl MarkerPipeline {
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("turbomap-marker-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        PreparedMarkers {
+            instance_count: instances.len() as u32,
+        }
+    }
+
+    /// GPU half of the frame: draw the prepared instances inside the
+    /// Map's single render pass, on top of everything else.
+    pub(crate) fn draw(&self, prepared: &PreparedMarkers, pass: &mut wgpu::RenderPass<'_>) {
+        if prepared.instance_count == 0 {
+            return;
+        }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        pass.draw_indexed(0..6, 0, 0..instances.len() as u32);
+        pass.draw_indexed(0..6, 0, 0..prepared.instance_count);
     }
 }
 
