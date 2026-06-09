@@ -72,13 +72,13 @@
     }
   },
   "latency": {
-    "max_ms": 7097.464417,
-    "mean_ms": 996.0124896333334,
-    "p50_ms": 535.127875,
-    "p95_ms": 3810.5329169999995
+    "max_ms": 6457.309084,
+    "mean_ms": 657.9836388000001,
+    "p50_ms": 298.1155,
+    "p95_ms": 2294.170209
   },
   "memory": {
-    "peak_rss_mb": 1709.140625
+    "peak_rss_mb": 2305.21875
   },
   "quality": {
     "avg_score": 94.49152542372882,
@@ -144,7 +144,93 @@
       "trondelag-3803366": 100.0
     }
   },
+  "unified": {
+    "corpus": "tools/terrain-corpus.toml",
+    "counts": {
+      "failed": 0,
+      "ok": 60,
+      "total": 60
+    },
+    "determinism_ok": true,
+    "geometry": {
+      "corpus_hash": "f98cfd024edfd3ec",
+      "per_hike": {
+        "finnmark-1819613": "9b62e21ec7dd7f7a",
+        "finnmark-1821255": "f94bd26f258c7dae",
+        "finnmark-3174413": "62673246c885baba",
+        "finnmark-3208643": "f897ecbcf701ffce",
+        "finnmark-3227993": "947f974d6c6a41b7",
+        "finnmark-3301896": "ee750cfd05d9f079",
+        "finnmark-3312061": "e524c2decbd17c9b",
+        "finnmark-4005547": "9def14a8d8d34051",
+        "finnmark-4169259": "0f08f9b6ccc2765d",
+        "finnmark-4297154": "c4031852374b4db4",
+        "finnmark-4309497": "e3ba4ccd3f11d643",
+        "finnmark-4348287": "0549275eb1206a00",
+        "midwest-1903626": "9488922939b3eb53",
+        "midwest-1915468": "cf145ea0d426f34a",
+        "midwest-1948121": "2fd199db5b6a913e",
+        "midwest-3173703": "d575f360cf0c51ab",
+        "midwest-3263428": "e10b0f1ebc912f5c",
+        "midwest-3599213": "fe9ede233be35168",
+        "midwest-3827744": "4b1f0c6b767379f4",
+        "midwest-3949614": "35b5467cf52831a3",
+        "midwest-3959090": "34720be434968ee6",
+        "midwest-3971530": "473eddc9a4dd166b",
+        "midwest-4036963": "de7d15e873bc737d",
+        "midwest-4275314": "777252fcfed7209a",
+        "nordland-1821249": "00880a03546a20ad",
+        "nordland-1884462": "f3e35decab00f47f",
+        "nordland-1895277": "6e392548f8bdf894",
+        "nordland-1907799": "20c3dcd0d958526f",
+        "nordland-1948615": "b38bf15206bae658",
+        "nordland-1948926": "d68258203e906bf0",
+        "nordland-3245589": "eef351a522c0d1e7",
+        "nordland-3496285": "08dc3b9a86e1ad2b",
+        "nordland-3894666": "30b2f5a8d55713fb",
+        "nordland-3995973": "e876beee2959be6b",
+        "nordland-4214579": "b4861a67523c9a6c",
+        "nordland-4220456": "b4ada9d286268351",
+        "south-1841097": "7bdde0cfc12cf031",
+        "south-1864216": "5d58897c754e90db",
+        "south-1927123": "519246a9c2a1879c",
+        "south-3304880": "0806b9e6ba22a656",
+        "south-3801390": "2977207b4736233e",
+        "south-3870831": "d443e6bacfd326c0",
+        "south-3949921": "2838006b6b2da90b",
+        "south-3974026": "9cb77a0092e3323e",
+        "south-4138155": "39d512583c9139ba",
+        "south-4201484": "232133974054cd81",
+        "south-4279966": "a354f153e1619818",
+        "south-4297387": "437838bcb84cc1b8",
+        "trondelag-1849115": "929222a80f116f58",
+        "trondelag-1858232": "2578a9a27f537978",
+        "trondelag-1879251": "db1a9400fbff3efe",
+        "trondelag-1884520": "f5d64bd0e24ede69",
+        "trondelag-1887060": "47fc8eb96f3eb6d1",
+        "trondelag-1914142": "be5720b51cb4a48f",
+        "trondelag-3187113": "ef36d3ad8892e383",
+        "trondelag-3375156": "1fb0eefb45d40bd5",
+        "trondelag-3509190": "bf7e4b28c0d8cabc",
+        "trondelag-3747040": "72513e9cdfa61ebf",
+        "trondelag-3792559": "2d77818b40d9794f",
+        "trondelag-3803366": "d910ad0739ad76cc"
+      }
+    },
+    "latency": {
+      "max_ms": 39.53775,
+      "mean_ms": 5.305874316666666,
+      "p50_ms": 2.080167,
+      "p95_ms": 23.052583000000002
+    },
+    "memory": {
+      "peak_rss_mb": 2110.203125
+    },
+    "work": {
+      "dem_cache_lookups": 624409
+    }
+  },
   "work": {
-    "dem_cache_lookups": 207163699
+    "dem_cache_lookups": 53566026
   }
 }

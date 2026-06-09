@@ -198,17 +198,24 @@ impl Corridor {
 /// memo; depends only on the shared cost model.
 struct MeshOverlay<'a> {
     corr: &'a Corridor,
+    dem: &'a Dem,
     base_pace: f32,
     profile: Profile,
     contributors: &'a [Arc<dyn CostContributor>],
     /// 0 = uncomputed, 1 = passable, 2 = refused.
     state: RefCell<Vec<u8>>,
     mul: RefCell<Vec<f32>>,
+    /// Per-cell elevation memo (m). `+∞` = not yet sampled, `NaN` =
+    /// sampled-but-nodata. `mesh_step` queries each cell's elevation up
+    /// to ~16× (once per incident move); memoising collapses that to
+    /// one `Dem::sample()` per cell.
+    elev: RefCell<Vec<f32>>,
 }
 
 impl<'a> MeshOverlay<'a> {
     fn new(
         corr: &'a Corridor,
+        dem: &'a Dem,
         base_pace: f32,
         profile: Profile,
         contributors: &'a [Arc<dyn CostContributor>],
@@ -216,12 +223,28 @@ impl<'a> MeshOverlay<'a> {
         let n = (corr.nx as usize) * (corr.ny as usize);
         Self {
             corr,
+            dem,
             base_pace,
             profile,
             contributors,
             state: RefCell::new(vec![0u8; n]),
             mul: RefCell::new(vec![1.0f32; n]),
+            elev: RefCell::new(vec![f32::INFINITY; n]),
         }
+    }
+
+    /// Cell-centre elevation (m), sampled from the DEM once per cell
+    /// and memoised. `None` = no DEM coverage at that cell.
+    fn elevation(&self, i: u32, j: u32) -> Option<f32> {
+        let idx = self.idx(i, j);
+        let cached = self.elev.borrow()[idx];
+        if cached != f32::INFINITY {
+            return if cached.is_nan() { None } else { Some(cached) };
+        }
+        let (cx, cy) = self.corr.cell_centre(i, j);
+        let v = self.dem.sample(PointXY { x: cx, y: cy }).ok().flatten();
+        self.elev.borrow_mut()[idx] = v.unwrap_or(f32::NAN);
+        v
     }
 
     #[inline]
@@ -361,7 +384,7 @@ pub(crate) fn solve_unified(
     mesh_contribs.push(Arc::new(OffTrailRoughnessContributor::new(
         off_trail_factor,
     )));
-    let overlay = MeshOverlay::new(&corr, base_pace_s_per_m, profile, &mesh_contribs);
+    let overlay = MeshOverlay::new(&corr, dem, base_pace_s_per_m, profile, &mesh_contribs);
 
     // ---- Splice the trail network over a GENEROUS region ----
     // Trails are NOT clipped to the mesh corridor: a long route swinging
@@ -548,8 +571,8 @@ pub(crate) fn solve_unified(
         let (cx1, cy1) = corr.cell_centre(ni, nj);
         let step_m = (((cx1 - cx0).powi(2) + (cy1 - cy0).powi(2)).sqrt()) as f32;
         let mul = overlay.pace_mul(ni, nj);
-        let z0 = dem.sample(PointXY { x: cx0, y: cy0 }).ok().flatten();
-        let z1 = dem.sample(PointXY { x: cx1, y: cy1 }).ok().flatten();
+        let z0 = overlay.elevation(i, j);
+        let z1 = overlay.elevation(ni, nj);
         let cost = match (z0, z1) {
             (Some(a), Some(b)) => {
                 let grad = ((b - a) / step_m).abs();

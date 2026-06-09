@@ -130,6 +130,12 @@ enum Command {
         /// differs — catches accidental nondeterminism.
         #[arg(long, default_value_t = false)]
         check_determinism: bool,
+        /// Which router to exercise: `off-trail` (force-off-trail FMM —
+        /// quality vs ground truth is meaningful) or `unified`
+        /// (production-default prefs — the unified A* users hit;
+        /// geometry/latency/DEM-work regression lane).
+        #[arg(long, default_value = "off-trail")]
+        mode: eval_terrain::EvalMode,
     },
 }
 
@@ -171,7 +177,16 @@ async fn main() -> Result<()> {
             filter,
             limit,
             check_determinism,
-        } => eval_terrain::run(corpus, artifacts_dir, out, filter, limit, check_determinism),
+            mode,
+        } => eval_terrain::run(
+            corpus,
+            artifacts_dir,
+            out,
+            filter,
+            limit,
+            check_determinism,
+            mode,
+        ),
     }
 }
 

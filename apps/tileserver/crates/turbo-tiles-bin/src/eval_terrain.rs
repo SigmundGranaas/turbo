@@ -116,6 +116,34 @@ struct RunSummary {
     determinism_mismatches: Vec<i64>,
 }
 
+/// Which router a lane exercises. The corpus endpoints are sti graph
+/// nodes, so the two modes dispatch to DIFFERENT solvers (see
+/// `Pathfinder::solve_inner`):
+///   - `OffTrail`: `force_off_trail=true`, snapping disabled — the FMM
+///     grade-limited solver re-derives the route from terrain. Quality
+///     vs ground truth is meaningful here.
+///   - `Unified`: production-default prefs — endpoints snap to the
+///     graph and the unified A* (mesh ∪ trail) solves it. Quality vs
+///     truth is trivially high (the route retraces the trail), but
+///     geometry hash / latency / DEM work are real regression signals
+///     for the router users actually hit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EvalMode {
+    OffTrail,
+    Unified,
+}
+
+impl std::str::FromStr for EvalMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "off-trail" => Ok(Self::OffTrail),
+            "unified" => Ok(Self::Unified),
+            other => Err(format!("unknown mode `{other}` (off-trail|unified)")),
+        }
+    }
+}
+
 /// Entry point for the `eval-terrain` subcommand.
 pub fn run(
     corpus_path: PathBuf,
@@ -124,6 +152,7 @@ pub fn run(
     filter: Option<String>,
     limit: Option<usize>,
     check_determinism: bool,
+    mode: EvalMode,
 ) -> Result<()> {
     let corpus_text = std::fs::read_to_string(&corpus_path)
         .with_context(|| format!("reading corpus {}", corpus_path.display()))?;
@@ -162,7 +191,7 @@ pub fn run(
     // Capture DEM cache lookups across exactly the first solve pass
     // (the determinism re-run below would otherwise double-count).
     let cache_before = dem.cache_stats();
-    let results = solve_corpus(&pf, &dem, &hikes);
+    let results = solve_corpus(&pf, &dem, &hikes, mode);
     let cache_after = dem.cache_stats();
     let dem_cache_lookups = (cache_after.hits + cache_after.misses)
         .saturating_sub(cache_before.hits + cache_before.misses);
@@ -171,7 +200,7 @@ pub fn run(
     let mut determinism_ok = None;
     let mut mismatches = Vec::new();
     if check_determinism {
-        let second = solve_corpus(&pf, &dem, &hikes);
+        let second = solve_corpus(&pf, &dem, &hikes, mode);
         for (a, b) in results.iter().zip(second.iter()) {
             if a.geometry_hash != b.geometry_hash {
                 mismatches.push(a.id);
@@ -226,22 +255,27 @@ pub fn run(
     Ok(())
 }
 
-fn solve_corpus(pf: &Pathfinder, dem: &Dem, hikes: &[Hike]) -> Vec<HikeResult> {
-    hikes.iter().map(|h| solve_one(pf, dem, h)).collect()
+fn solve_corpus(pf: &Pathfinder, dem: &Dem, hikes: &[Hike], mode: EvalMode) -> Vec<HikeResult> {
+    hikes.iter().map(|h| solve_one(pf, dem, h, mode)).collect()
 }
 
-fn solve_one(pf: &Pathfinder, dem: &Dem, h: &Hike) -> HikeResult {
-    // Force the off-trail solver so the route is re-derived from
-    // terrain, not retraced from the corpus trail. Mirrors
-    // `terrain_metrics.py --force-off-trail`.
-    let prefs = Prefs {
-        force_off_trail: true,
-        snap_radius_m: 0.0,
-        bridge_radius_m: 0.0,
-        allow_off_trail: true,
-        max_off_trail_km: 20.0,
-        cost_mode: CostMode::FastMarching,
-        ..Default::default()
+fn solve_one(pf: &Pathfinder, dem: &Dem, h: &Hike, mode: EvalMode) -> HikeResult {
+    let prefs = match mode {
+        // Force the off-trail solver so the route is re-derived from
+        // terrain, not retraced from the corpus trail. Mirrors
+        // `terrain_metrics.py --force-off-trail`.
+        EvalMode::OffTrail => Prefs {
+            force_off_trail: true,
+            snap_radius_m: 0.0,
+            bridge_radius_m: 0.0,
+            allow_off_trail: true,
+            max_off_trail_km: 20.0,
+            cost_mode: CostMode::FastMarching,
+            ..Default::default()
+        },
+        // Production defaults — the unified A* over mesh ∪ trail, the
+        // router users actually hit.
+        EvalMode::Unified => Prefs::default(),
     };
 
     let truth = profile_line(dem, &h.polyline);

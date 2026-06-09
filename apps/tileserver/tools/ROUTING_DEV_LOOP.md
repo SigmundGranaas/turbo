@@ -57,16 +57,31 @@ develop the engine end-to-end on its own.
 4. **`routing_loop.py`** — chains build → eval → score → diff vs
    `routing-baseline.json` and prints the verdict.
 
-## The four verdict axes
+## Two lanes — both routers are covered
+
+The corpus endpoints are sti graph nodes, so prefs decide which router
+runs (`Pathfinder::solve_inner` dispatch):
+
+- **off-trail lane** (`--mode off-trail`, force-off-trail FMM): the
+  solver re-derives routes from terrain — **quality vs ground truth is
+  meaningful here**. This is the lane the composite score gates.
+- **unified lane** (`--mode unified`, production-default prefs): the
+  unified A* (mesh ∪ trail) that users actually hit. Quality vs truth is
+  trivially ~100 (routes retrace the trails), but geometry hash,
+  latency, and DEM work are real regression gates for the production
+  router. Without this lane, changes to `unified.rs` are invisible.
+
+## The verdict axes
 
 | Axis | Gate |
 |---|---|
-| **Determinism** | hard fail if the two passes disagree |
-| **Solves** | fail if more hikes fail than baseline |
-| **Quality** | fail if corpus avg score drops ≥ 0.5; lists per-hike drops ≥ 3.0 |
-| **Latency** | fail if p95 > baseline×1.25 + 50 ms |
+| **Determinism** | hard fail if the two passes disagree (per lane) |
+| **Solves** | fail if more hikes fail than baseline (per lane) |
+| **Quality** | off-trail lane only: fail if corpus avg drops ≥ 0.5; lists per-hike drops ≥ 3.0 |
+| **Latency** | fail if p95 > baseline×1.25 + 50 ms (per lane) |
 | **Memory** | fail if peak process RSS > baseline×1.20 + 64 MiB (`getrusage`; includes faulted DEM/mask mmap pages) |
-| **Geometry** | lists exactly which routes moved (hash diff) — the precise change-detector |
+| **DEM work** | `dem_cache_lookups` (deterministic!) — fail if lookups grow vs baseline (per lane). The noise-free perf signal. |
+| **Geometry** | lists exactly which routes moved (hash diff) — the precise change-detector (per lane) |
 
 Thresholds live at the top of `routing_loop.py`.
 

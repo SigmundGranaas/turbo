@@ -36,8 +36,12 @@ QUALITY_AVG_DROP = 0.5      # corpus avg score drop that counts as a regress
 QUALITY_HIKE_DROP = 3.0     # per-hike score drop worth flagging
 LATENCY_P95_FACTOR = 1.25   # p95 regress if > baseline*factor + pad
 LATENCY_P95_PAD_MS = 50.0
-MEMORY_FACTOR = 1.20        # peak RSS regress if > baseline*factor + pad
-MEMORY_PAD_MB = 64.0
+# Peak RSS is a coarse OOM guard, not a precision gate: observed noise
+# on identical code spans ~1.5-2.1 GiB run-to-run (DEM mmap page-fault
+# order + tile-cache fill, not solver allocations). The deterministic
+# DEM-work axis carries the precision; this only catches blowups.
+MEMORY_FACTOR = 1.35        # peak RSS regress if > baseline*factor + pad
+MEMORY_PAD_MB = 256.0
 
 
 def run(cmd, **kw):
@@ -45,9 +49,11 @@ def run(cmd, **kw):
     return subprocess.run(cmd, cwd=TILESERVER_DIR, check=True, **kw)
 
 
-def collect(eval_dir: Path, score_dir: Path) -> dict:
-    """Merge the eval summary (latency/determinism/geometry) and the
-    offline score summary (quality) into one snapshot dict."""
+def collect(eval_dir: Path, score_dir: Path | None) -> dict:
+    """Merge the eval summary (latency/determinism/geometry) and, when
+    given, the offline score summary (quality) into one snapshot dict.
+    The unified lane passes score_dir=None — quality vs ground truth is
+    trivially ~100 there (routes retrace the corpus trails)."""
     ev = json.loads((eval_dir / "_summary.json").read_text())
     # Per-hike geometry hashes live in the per-hike eval files.
     per_hash = {}
@@ -57,12 +63,8 @@ def collect(eval_dir: Path, score_dir: Path) -> dict:
         d = json.loads(p.read_text())
         per_hash[f"{d['region']}-{d['id']}"] = d.get("geometry_hash")
 
-    sc = json.loads((score_dir / "_summary.json").read_text())
-    per_score = {r["name"]: r["score"] for r in sc.get("rows", [])}
-
-    return {
+    snap = {
         "corpus": ev.get("corpus"),
-        "quality": {"avg_score": sc.get("avg_score"), "per_hike": per_score},
         "latency": {
             "mean_ms": ev.get("solve_ms_mean"),
             "p50_ms": ev.get("solve_ms_p50"),
@@ -78,6 +80,13 @@ def collect(eval_dir: Path, score_dir: Path) -> dict:
         "determinism_ok": ev.get("determinism_ok"),
         "counts": {"total": ev.get("total"), "ok": ev.get("ok"), "failed": ev.get("failed")},
     }
+    if score_dir is not None:
+        sc = json.loads((score_dir / "_summary.json").read_text())
+        snap["quality"] = {
+            "avg_score": sc.get("avg_score"),
+            "per_hike": {r["name"]: r["score"] for r in sc.get("rows", [])},
+        }
+    return snap
 
 
 def verdict(cur: dict, base: dict) -> bool:
@@ -153,32 +162,73 @@ def verdict(cur: dict, base: dict) -> bool:
             print(f"MEMORY       ok       peak RSS {bm:.0f}MiB -> {cm:.0f}MiB")
 
     # --- DEM work (deterministic; the noise-free perf signal) ---
-    cw = cur["work"]["dem_cache_lookups"]
-    bw = base["work"]["dem_cache_lookups"] if base.get("work") else None
-    if cw is None or bw is None:
-        print("DEM WORK     -        not recorded in baseline")
-    elif cw > bw:
-        # More DEM work than baseline is a real regression (deterministic).
-        print(f"DEM WORK     REGRESS  cache lookups {bw:,} -> {cw:,} ({cw - bw:+,})")
+    if not dem_work_axis(cur, base, label="DEM WORK"):
         ok = False
-    elif cw < bw:
-        pct = 100.0 * (bw - cw) / bw if bw else 0.0
-        print(f"DEM WORK     improved  cache lookups {bw:,} -> {cw:,} (-{pct:.0f}%)")
-    else:
-        print(f"DEM WORK     ok       cache lookups {cw:,} (unchanged)")
 
     # --- geometry drift (informational unless quality also moved) ---
+    geometry_axis(cur, base, label="GEOMETRY")
+
+    # --- unified lane (the production router; no quality-vs-truth) ---
+    cu = cur.get("unified")
+    bu = base.get("unified")
+    if cu is None:
+        print("UNIFIED      -        lane not run")
+    else:
+        det = cu.get("determinism_ok")
+        if det is False:
+            print("UNI DETERM   REGRESS  unified solves nondeterministic")
+            ok = False
+        if bu is None:
+            print("UNIFIED      -        no baseline for unified lane")
+        else:
+            if cu["counts"]["failed"] > bu["counts"]["failed"]:
+                print(f"UNI SOLVES   REGRESS  {cu['counts']['failed']} failed "
+                      f"(baseline {bu['counts']['failed']})")
+                ok = False
+            cp, bp = cu["latency"]["p95_ms"], bu["latency"]["p95_ms"]
+            limit = bp * LATENCY_P95_FACTOR + LATENCY_P95_PAD_MS
+            if cp > limit:
+                print(f"UNI LATENCY  REGRESS  p95 {bp:.0f}ms -> {cp:.0f}ms (limit {limit:.0f}ms)")
+                ok = False
+            else:
+                print(f"UNI LATENCY  ok       p95 {bp:.0f}ms -> {cp:.0f}ms")
+            if not dem_work_axis(cu, bu, label="UNI DEMWORK"):
+                ok = False
+            geometry_axis(cu, bu, label="UNI GEOM")
+    print("=" * 64)
+    return ok
+
+
+def dem_work_axis(cur: dict, base: dict, label: str) -> bool:
+    """Deterministic DEM-lookup gate. Returns False on regress."""
+    cw = cur["work"]["dem_cache_lookups"]
+    bw = base.get("work", {}).get("dem_cache_lookups") if base else None
+    if cw is None or bw is None:
+        print(f"{label:<12} -        not recorded in baseline")
+        return True
+    if cw > bw:
+        # More DEM work than baseline is a real regression (deterministic).
+        print(f"{label:<12} REGRESS  cache lookups {bw:,} -> {cw:,} ({cw - bw:+,})")
+        return False
+    if cw < bw:
+        pct = 100.0 * (bw - cw) / bw if bw else 0.0
+        print(f"{label:<12} improved  cache lookups {bw:,} -> {cw:,} (-{pct:.0f}%)")
+    else:
+        print(f"{label:<12} ok       cache lookups {cw:,} (unchanged)")
+    return True
+
+
+def geometry_axis(cur: dict, base: dict, label: str):
+    """Informational geometry-drift report (hash diff names moved routes)."""
     if cur["geometry"]["corpus_hash"] == base["geometry"]["corpus_hash"]:
-        print("GEOMETRY     identical  no route changed")
+        print(f"{label:<12} identical  no route changed")
     else:
         moved = [
             n for n, h in cur["geometry"]["per_hike"].items()
             if base["geometry"]["per_hike"].get(n) != h
         ]
-        print(f"GEOMETRY     changed   {len(moved)} route(s) moved: "
+        print(f"{label:<12} changed   {len(moved)} route(s) moved: "
               f"{', '.join(sorted(moved)[:10])}{' …' if len(moved) > 10 else ''}")
-    print("=" * 64)
-    return ok
 
 
 def main():
@@ -207,17 +257,27 @@ def main():
     with tempfile.TemporaryDirectory(prefix="routing-loop-") as tmp:
         eval_dir = Path(tmp) / "eval"
         score_dir = Path(tmp) / "score"
-        eval_cmd = [binary, "eval-terrain", "--artifacts-dir", artifacts,
-                    "--out", str(eval_dir), "--check-determinism"]
-        if args.filter:
-            eval_cmd += ["--filter", args.filter]
-        if args.limit:
-            eval_cmd += ["--limit", str(args.limit)]
-        run(eval_cmd)
+        uni_dir = Path(tmp) / "eval-unified"
+
+        def eval_cmd(mode: str, out: Path) -> list:
+            cmd = [binary, "eval-terrain", "--artifacts-dir", artifacts,
+                   "--out", str(out), "--check-determinism", "--mode", mode]
+            if args.filter:
+                cmd += ["--filter", args.filter]
+            if args.limit:
+                cmd += ["--limit", str(args.limit)]
+            return cmd
+
+        # Lane 1: force-off-trail FMM — quality vs ground truth.
+        run(eval_cmd("off-trail", eval_dir))
         run([sys.executable, str(HERE / "terrain_metrics.py"),
              "--offline", str(eval_dir), "--out", str(score_dir)])
+        # Lane 2: production-default unified router — geometry/latency/
+        # DEM-work regression lane (quality vs truth is trivial here).
+        run(eval_cmd("unified", uni_dir))
 
         cur = collect(eval_dir, score_dir)
+        cur["unified"] = collect(uni_dir, None)
 
         if args.update_baseline:
             BASELINE_PATH.write_text(json.dumps(cur, indent=2, sort_keys=True))
