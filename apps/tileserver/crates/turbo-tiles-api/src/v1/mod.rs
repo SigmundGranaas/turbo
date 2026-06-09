@@ -34,6 +34,7 @@ pub fn router() -> Router<ApiState> {
         // the generic `/:resource/...` routes so `basemap` isn't captured as
         // a resource slug.
         .route("/basemap", get(basemap::describe))
+        .route("/basemap/style.json", get(basemap::style))
         .route("/basemap/:z/:x/:y.mvt", get(basemap::tile))
         .route("/:resource/tiles/:z/:x/:y.mvt", get(tiles::tile))
         .route("/:resource", get(resource::list))

@@ -156,6 +156,7 @@ straight from PostGIS — no build step:
 ```
 GET /v1/basemap                      # TileJSON 3.0.0 descriptor (layers, zooms, fields)
 GET /v1/basemap/{z}/{x}/{y}.mvt      # one MVT with all active layers stitched in
+GET /v1/basemap/style.json           # the house n50-topo MapLibre style, wired to this server
 ```
 
 Layers, paint order, per-layer zoom ranges, and exposed attributes are declared
@@ -168,6 +169,24 @@ low-zoom tiles small.
 Verified locally (Oslo): `/v1/basemap/12/2170/1189.mvt` → 32 KB tile carrying
 `water` + `contour` + `transportation` + `place`; at z14 the `building` layer
 joins (it's gated to `min_zoom = 14`).
+
+### Styling
+
+The house style lives at `styles/n50-topo.json` (MapLibre Style Spec, embedded
+in the binary; a disk copy wins for live editing). `{BASE_URL}` placeholders
+resolve against `PUBLIC_BASE_URL` at serve time. Consumers:
+
+- **MapLibre GL (web / Flutter)** — point it at `/v1/basemap/style.json`
+  directly.
+- **turbomap (native)** — `turbomap-style-maplibre` lowers the same document
+  onto the renderer's `VectorStyle`; the desktop demo does this when
+  `TURBO_BASEMAP_URL` is set (e.g. `TURBO_BASEMAP_URL=http://localhost:8090
+  cargo run -p turbomap-app`).
+
+Two test layers guard the contract: the api crate asserts every
+`source-layer`/filter property in the style exists in `basemap-layers.toml`,
+and `turbomap-style-maplibre`'s tests parse the real style file — growing the
+style past the loader's subset fails at `cargo test` time, not on screen.
 
 ## 4. Automated tests
 
