@@ -113,12 +113,7 @@ impl Default for MapOptions {
             // so the eye perceived a chain of discrete additions
             // instead of a coordinated transition. Longer durations
             // also absorb the staggered cross-layer arrival times.
-            // DIAG: was 0.4. Setting to 0 to test whether the
-            // per-frame alpha animation during a fade-in is the
-            // flicker source — with fade=0 every tile snaps to
-            // fully opaque on ingest and there's no per-frame
-            // alpha change.
-            fade_in_secs: 0.0,
+            fade_in_secs: 0.4,
         }
     }
 }

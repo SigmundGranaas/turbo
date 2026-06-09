@@ -241,6 +241,7 @@ impl TerrainCache {
     /// Decoded elevation at world-space `(x, y)` on the ground plane,
     /// using whatever DEM tile currently covers that point. Used by
     /// the CPU side for hit-testing + label anchoring.
+    #[allow(dead_code)] // Phase 6 stub — see body; wired with CPU heightmap later.
     pub(crate) fn elevation_at_world(
         &self,
         _world: (f64, f64),

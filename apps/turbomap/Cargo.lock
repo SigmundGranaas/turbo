@@ -2762,6 +2762,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -3308,6 +3309,19 @@ dependencies = [
  "lyon",
  "thiserror 1.0.69",
  "turbomap-mvt",
+ "wgpu",
+]
+
+[[package]]
+name = "turbomap-golden"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "log",
+ "pollster",
+ "serde",
+ "serde_json",
+ "turbomap-core",
  "wgpu",
 ]
 
