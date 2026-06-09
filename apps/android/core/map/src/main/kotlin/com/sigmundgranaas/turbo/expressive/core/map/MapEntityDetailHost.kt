@@ -1,5 +1,8 @@
 package com.sigmundgranaas.turbo.expressive.core.map
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,12 +31,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -118,7 +123,7 @@ private fun ActionBar(actions: List<MapEntityAction>, onInvoke: (MapEntityAction
         Button(
             onClick = { onInvoke(primary) },
             interactionSource = primarySource,
-            modifier = Modifier.weight(1f).height(56.dp).pressScale(primarySource),
+            modifier = Modifier.weight(1f).height(56.dp).staggerIn(0).pressScale(primarySource),
         ) {
             Icon(primary.icon, null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.size(8.dp))
@@ -133,7 +138,7 @@ private fun ActionBar(actions: List<MapEntityAction>, onInvoke: (MapEntityAction
                 onClick = { onInvoke(quick) },
                 interactionSource = quickSource,
                 shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.size(56.dp).pressScale(quickSource),
+                modifier = Modifier.size(56.dp).staggerIn(1).pressScale(quickSource),
             ) { Icon(quick.icon, quick.label, modifier = Modifier.size(22.dp)) }
         }
 
@@ -142,7 +147,7 @@ private fun ActionBar(actions: List<MapEntityAction>, onInvoke: (MapEntityAction
         if (overflow.isNotEmpty()) {
             val moreSource = remember { MutableInteractionSource() }
             var menuOpen by remember { mutableStateOf(false) }
-            Box {
+            Box(Modifier.staggerIn(2)) {
                 FilledTonalIconButton(
                     onClick = { menuOpen = true },
                     interactionSource = moreSource,
@@ -166,4 +171,18 @@ private fun ActionBar(actions: List<MapEntityAction>, onInvoke: (MapEntityAction
             }
         }
     }
+}
+
+/** Staggered entrance: each action rises + fades in with a per-[index] delay so the
+ *  bar feels alive when the sheet opens. */
+@Composable
+private fun Modifier.staggerIn(index: Int): Modifier {
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val progress by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0f,
+        animationSpec = tween(durationMillis = 300, delayMillis = index * 55, easing = FastOutSlowInEasing),
+        label = "actionStagger",
+    )
+    return this.graphicsLayer { alpha = progress; translationY = (1f - progress) * 14.dp.toPx() }
 }

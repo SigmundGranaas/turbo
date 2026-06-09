@@ -20,21 +20,23 @@ fun defaultMapEntityActions(): List<MapEntityAction> = listOf(
         isAvailable = { it.point != null || it.path != null },
         onInvoke = { it.onNavigate?.invoke() },
     ),
-    MapEntityAction(
-        id = "share",
-        label = "Share",
-        icon = Icons.Rounded.IosShare,
-        priority = 80,
-        isAvailable = { it.onShare != null },
-        onInvoke = { it.onShare?.invoke() },
-    ),
+    // Edit outranks Share so it becomes the prominent square "quick" action in the
+    // detail bar (Share folds into the overflow menu).
     MapEntityAction(
         id = "edit",
         label = "Edit",
         icon = Icons.Rounded.Edit,
-        priority = 60,
+        priority = 80,
         isAvailable = { it.onEdit != null },
         onInvoke = { it.onEdit?.invoke() },
+    ),
+    MapEntityAction(
+        id = "share",
+        label = "Share",
+        icon = Icons.Rounded.IosShare,
+        priority = 60,
+        isAvailable = { it.onShare != null },
+        onInvoke = { it.onShare?.invoke() },
     ),
     MapEntityAction(
         id = "delete",

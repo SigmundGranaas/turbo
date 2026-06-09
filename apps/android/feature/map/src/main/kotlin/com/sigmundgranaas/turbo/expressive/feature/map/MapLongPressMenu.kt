@@ -1,7 +1,10 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -39,18 +42,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -123,9 +128,9 @@ internal fun MapLongPressMenu(
         val margin = 12.dp
         val cardWidthPx = with(density) { cardWidth.toPx() }
         val marginPx = with(density) { margin.toPx() }
-        // Realistic card height (mini-weather + 2 action rows); errs tall so the clamp
+        // Realistic card height (mini-weather + 4 action rows); errs tall so the clamp
         // never lets the bottom action slip under the gesture-nav bar.
-        val estCardHeightPx = with(density) { 320.dp.toPx() }
+        val estCardHeightPx = with(density) { 430.dp.toPx() }
         val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
         val statusTopPx = WindowInsets.statusBars.getTop(density).toFloat()
         val maxW = constraints.maxWidth.toFloat()
@@ -153,17 +158,16 @@ internal fun MapLongPressMenu(
                 shadowElevation = 6.dp,
                 modifier = Modifier.testTag("lpMenu"),
             ) {
-                Column(Modifier.padding(14.dp)) {
+                Column(Modifier.padding(12.dp)) {
                     MiniWeather(conditions, point, placeLabel, onClick = onOpenForecast)
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ActionTile(Icons.Rounded.AddLocationAlt, stringResource(R.string.lp_new_marker), onNewMarker, "lpNewMarker", Modifier.weight(1f), primary = true)
-                        ActionTile(Icons.Rounded.Navigation, stringResource(R.string.lp_route_here), onRouteHere, "lpRouteHere", Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ActionTile(Icons.Rounded.Route, stringResource(R.string.track_title), onCreateTrack, "lpCreateTrack", Modifier.weight(1f))
-                        ActionTile(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", Modifier.weight(1f))
+                    Spacer(Modifier.height(10.dp))
+                    // A simple list of actions — each rises + fades in with a slight stagger
+                    // so the menu feels alive, and springs on press.
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ActionRow(Icons.Rounded.AddLocationAlt, stringResource(R.string.lp_new_marker), onNewMarker, "lpNewMarker", index = 0, primary = true)
+                        ActionRow(Icons.Rounded.Navigation, stringResource(R.string.lp_route_here), onRouteHere, "lpRouteHere", index = 1)
+                        ActionRow(Icons.Rounded.Route, stringResource(R.string.track_title), onCreateTrack, "lpCreateTrack", index = 2)
+                        ActionRow(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", index = 3)
                     }
                 }
             }
@@ -215,29 +219,38 @@ private fun MiniWeather(state: ConditionsUiState, point: LatLng, placeLabel: Str
     }
 }
 
-/** One create-action as an equal, labelled tile in the 2×2 grid (icon + caption). */
+/** One create-action as a full-width list row (icon-in-circle + label). Rises + fades
+ *  in with a per-[index] stagger when the menu blooms, and springs on press. */
 @Composable
-private fun ActionTile(
+private fun ActionRow(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
     tag: String,
-    modifier: Modifier = Modifier,
+    index: Int,
     primary: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
     val container = if (primary) cs.secondaryContainer else cs.surfaceContainerHighest
     val onContainer = if (primary) cs.onSecondaryContainer else cs.onSurface
-    Column(
-        modifier
-            .clip(RoundedCornerShape(20.dp))
+    // Drive the staggered entrance: start hidden on first composition, then animate in.
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val progress by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0f,
+        animationSpec = tween(durationMillis = 300, delayMillis = index * 45, easing = FastOutSlowInEasing),
+        label = "lpRowEnter",
+    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = progress; translationY = (1f - progress) * 18.dp.toPx() }
+            .clip(RoundedCornerShape(18.dp))
             .background(container)
             .pressScaleClickable(onClick = onClick, onClickLabel = label)
             .testTag(tag)
-            .height(92.dp)
-            .padding(10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier.size(40.dp).clip(CircleShape).background(cs.primary.copy(alpha = 0.14f)),
@@ -245,13 +258,11 @@ private fun ActionTile(
         ) {
             Icon(icon, null, tint = cs.primary, modifier = Modifier.size(22.dp))
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.width(14.dp))
         Text(
             label,
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.W600),
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W600),
             color = onContainer,
-            maxLines = 2,
-            textAlign = TextAlign.Center,
         )
     }
 }
