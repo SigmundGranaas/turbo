@@ -1,6 +1,6 @@
 //! Paint evaluation, interpolation, and serde round-trips.
 
-use turbomap_scene::style::{FilterValue, ZoomStop};
+use turbomap_scene::style::{FilterValue, MatchCase, ZoomStop};
 use turbomap_scene::{Color, Filter, Interpolate, Paint};
 
 #[test]
@@ -64,6 +64,38 @@ fn paint_roundtrips_through_json() {
         ],
     };
     let json = serde_json::to_string(&p).unwrap();
+    let back: Paint<f32> = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, p);
+}
+
+#[test]
+fn match_paint_returns_default_without_feature_context() {
+    let p: Paint<Color> = Paint::Match {
+        property: "kind".to_string(),
+        cases: vec![MatchCase {
+            value: FilterValue::String("path".to_string()),
+            result: Color::rgb(0, 200, 0),
+        }],
+        default: Box::new(Color::rgb(80, 80, 80)),
+    };
+    // No feature context at a bare zoom → the default.
+    assert_eq!(p.at(12.0), Color::rgb(80, 80, 80));
+    assert!(p.is_data_driven());
+    assert!(!Paint::Const(Color::rgb(1, 2, 3)).is_data_driven());
+}
+
+#[test]
+fn match_paint_roundtrips_through_json() {
+    let p: Paint<f32> = Paint::Match {
+        property: "level".to_string(),
+        cases: vec![
+            MatchCase { value: FilterValue::Number(1.0), result: 2.0 },
+            MatchCase { value: FilterValue::Bool(true), result: 5.0 },
+        ],
+        default: Box::new(1.0),
+    };
+    let json = serde_json::to_string(&p).unwrap();
+    assert!(json.contains("\"match\""), "{json}");
     let back: Paint<f32> = serde_json::from_str(&json).unwrap();
     assert_eq!(back, p);
 }

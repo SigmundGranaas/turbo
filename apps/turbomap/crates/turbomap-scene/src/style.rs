@@ -63,7 +63,15 @@ pub struct ZoomStop<T> {
     pub value: T,
 }
 
-/// A styling value, possibly varying with zoom.
+/// One case of a data-driven [`Paint::Match`]: features whose property
+/// equals `value` get `result`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MatchCase<T> {
+    pub value: FilterValue,
+    pub result: T,
+}
+
+/// A styling value, possibly varying with zoom or with feature data.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Paint<T> {
@@ -72,13 +80,24 @@ pub enum Paint<T> {
     /// A piecewise-linear curve over zoom. Stops must be non-empty and
     /// sorted ascending by `zoom`; values clamp outside the stop range.
     Zoom { stops: Vec<ZoomStop<T>> },
+    /// Data-driven: pick the `result` whose case `value` matches the
+    /// feature's `property`, else `default`. This needs feature context,
+    /// so [`Paint::at`] (which has none) returns `default`; a renderer that
+    /// can read properties compiles each case instead.
+    Match {
+        property: String,
+        cases: Vec<MatchCase<T>>,
+        default: Box<T>,
+    },
 }
 
 impl<T: Interpolate> Paint<T> {
-    /// Resolve the paint at a given zoom.
+    /// Resolve the paint at a given zoom, with no feature context.
+    /// `Match` returns its `default`.
     pub fn at(&self, zoom: f64) -> T {
         match self {
             Paint::Const(v) => *v,
+            Paint::Match { default, .. } => **default,
             Paint::Zoom { stops } => {
                 assert!(!stops.is_empty(), "Paint::Zoom requires at least one stop");
                 if zoom <= stops[0].zoom {
@@ -111,6 +130,12 @@ impl<T> Paint<T> {
     /// Convenience constructor for a constant paint.
     pub fn constant(value: T) -> Self {
         Paint::Const(value)
+    }
+
+    /// Whether this paint reads feature data (a `Match`) and so must be
+    /// compiled per-feature rather than evaluated to one value.
+    pub fn is_data_driven(&self) -> bool {
+        matches!(self, Paint::Match { .. })
     }
 }
 

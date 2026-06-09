@@ -9,7 +9,7 @@ use common::SyntheticResolver;
 use turbomap_core::MapOptions;
 use turbomap_engine::{CameraState, LatLng, MapEngine, TurbomapEngine};
 use turbomap_golden::{assert_golden, headless, render_to_image, GoldenConfig, TARGET_FORMAT};
-use turbomap_scene::{Color, Filter, Layer, Paint, Scene, SourceDef};
+use turbomap_scene::{Color, Filter, FilterValue, Layer, MatchCase, Paint, Scene, SourceDef};
 
 fn route_scene() -> Scene {
     let mut scene = Scene::new();
@@ -193,6 +193,100 @@ fn symbol_labels_render_over_raster() {
 
     assert_golden(
         "symbol-labels-bergen",
+        &image,
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
+    );
+}
+
+#[test]
+fn data_driven_match_colour_styles_lines_by_property() {
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    // Three lines at different latitudes, tagged path / water / road.
+    scene.sources.insert(
+        "ways".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"kind":"path"},"geometry":{"type":"LineString","coordinates":[[5.10,60.45],[5.55,60.46]]}},
+                {"type":"Feature","properties":{"kind":"water"},"geometry":{"type":"LineString","coordinates":[[5.10,60.39],[5.55,60.40]]}},
+                {"type":"Feature","properties":{"kind":"road"},"geometry":{"type":"LineString","coordinates":[[5.10,60.33],[5.55,60.34]]}}
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    // Colour by the `kind` property: path→green, water→blue, else grey.
+    scene.layers.push(Layer::Line {
+        id: "ways".to_string(),
+        source: "ways".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Match {
+            property: "kind".to_string(),
+            cases: vec![
+                MatchCase {
+                    value: FilterValue::String("path".to_string()),
+                    result: Color::rgb(20, 170, 60),
+                },
+                MatchCase {
+                    value: FilterValue::String("water".to_string()),
+                    result: Color::rgb(30, 90, 220),
+                },
+            ],
+            default: Box::new(Color::rgb(110, 110, 110)),
+        },
+        width: Paint::Const(5.0),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    let stats = engine.pump_tiles();
+    assert!(stats.vector_tiles > 0, "expected way tiles, got {stats:?}");
+    assert!(engine.unsupported_layers().is_empty());
+
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    assert_golden(
+        "datadriven-lines-bergen",
         &image,
         GoldenConfig {
             max_channel_diff: 6,

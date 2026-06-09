@@ -187,7 +187,12 @@ impl TurbomapEngine {
                     let style = line_style(name, filter, color, width, zoom);
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
-                    self.layer_colors.insert(id.clone(), color.clone());
+                    // Single-colour layers get a per-frame GPU override
+                    // (zoom curves animate); data-driven Match colours are
+                    // baked per-feature, so leave the override off.
+                    if !color.is_data_driven() {
+                        self.layer_colors.insert(id.clone(), color.clone());
+                    }
                 }
             }
             Layer::Fill {
@@ -204,7 +209,9 @@ impl TurbomapEngine {
                     let style = fill_style(name, filter, color, opacity, zoom);
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
-                    self.layer_colors.insert(id.clone(), color.clone());
+                    if !color.is_data_driven() {
+                        self.layer_colors.insert(id.clone(), color.clone());
+                    }
                 }
             }
             Layer::Symbol {
@@ -527,8 +534,40 @@ fn geojson_or_declared(scene: &Scene, source: &str, declared: &Option<String>) -
     }
 }
 
+fn to_core_color(c: Color) -> CoreColor {
+    CoreColor::rgba(c.r, c.g, c.b, c.a)
+}
+
+/// Compile a colour paint into `(filter, colour)` pairs — the per-feature
+/// rules a core `VectorStyle` needs. `Const`/`Zoom` collapse to a single
+/// rule (resolved at zoom); `Match` expands to one rule per case (matched
+/// on the feature property) plus a default. Cases are emitted before the
+/// default so core's first-match-wins picks the specific case.
+fn color_rules(layer_filter: &Filter, color: &Paint<Color>, zoom: f64) -> Vec<(CoreFilter, CoreColor)> {
+    match color {
+        Paint::Match {
+            property,
+            cases,
+            default,
+        } => {
+            let mut rules: Vec<(CoreFilter, CoreColor)> = cases
+                .iter()
+                .map(|case| {
+                    (
+                        CoreFilter::Eq(property.clone(), filter_value_to_string(&case.value)),
+                        to_core_color(case.result),
+                    )
+                })
+                .collect();
+            rules.push((map_filter(layer_filter), to_core_color(**default)));
+            rules
+        }
+        _ => vec![(map_filter(layer_filter), to_core_color(color.at(zoom)))],
+    }
+}
+
 /// Build a core `VectorStyle` from a Scene `Fill` layer. Opacity folds
-/// into the colour's alpha (core fill paint has no separate opacity).
+/// into each colour's alpha (core fill paint has no separate opacity).
 fn fill_style(
     layer_name: String,
     filter: &Filter,
@@ -536,20 +575,26 @@ fn fill_style(
     opacity: &Paint<f32>,
     zoom: f64,
 ) -> VectorStyle {
-    let c = color.at(zoom);
-    let a = (c.a as f32 * opacity.at(zoom)).round().clamp(0.0, 255.0) as u8;
+    let op = opacity.at(zoom);
+    let rules = color_rules(filter, color, zoom)
+        .into_iter()
+        .map(|(f, c)| {
+            let a = (c.a as f32 * op).round().clamp(0.0, 255.0) as u8;
+            CoreRule {
+                source_layer: layer_name.clone(),
+                filter: f,
+                paint: CorePaint::Fill {
+                    color: CoreColor::rgba(c.r, c.g, c.b, a),
+                },
+                min_zoom: 0,
+                max_zoom: 22,
+                interactive: false,
+            }
+        })
+        .collect();
     VectorStyle {
         background: CoreColor::rgba(0, 0, 0, 0),
-        rules: vec![CoreRule {
-            source_layer: layer_name,
-            filter: map_filter(filter),
-            paint: CorePaint::Fill {
-                color: CoreColor::rgba(c.r, c.g, c.b, a),
-            },
-            min_zoom: 0,
-            max_zoom: 22,
-            interactive: false,
-        }],
+        rules,
     }
 }
 
@@ -592,21 +637,21 @@ fn line_style(
     width: &Paint<f32>,
     zoom: f64,
 ) -> VectorStyle {
-    let c = color.at(zoom);
     let w = (width.at(zoom) * PX_TO_EXTENT).max(1.0);
-    VectorStyle {
-        background: CoreColor::rgba(0, 0, 0, 0),
-        rules: vec![CoreRule {
-            source_layer: layer_name,
-            filter: map_filter(filter),
-            paint: CorePaint::Line {
-                color: CoreColor::rgba(c.r, c.g, c.b, c.a),
-                width: w,
-            },
+    let rules = color_rules(filter, color, zoom)
+        .into_iter()
+        .map(|(f, c)| CoreRule {
+            source_layer: layer_name.clone(),
+            filter: f,
+            paint: CorePaint::Line { color: c, width: w },
             min_zoom: 0,
             max_zoom: 22,
             interactive: false,
-        }],
+        })
+        .collect();
+    VectorStyle {
+        background: CoreColor::rgba(0, 0, 0, 0),
+        rules,
     }
 }
 

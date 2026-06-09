@@ -31,4 +31,4 @@ pub use engine::{Capabilities, CameraState, Hit, MapEngine};
 pub use geo::{LatLng, ScreenPoint};
 pub use model_engine::ModelEngine;
 pub use scene::{DemEncoding, Layer, Scene, SceneError, SourceDef};
-pub use style::{Color, Filter, FilterValue, Interpolate, Paint, ZoomStop};
+pub use style::{Color, Filter, FilterValue, Interpolate, MatchCase, Paint, ZoomStop};

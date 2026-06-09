@@ -28,9 +28,13 @@ const EXTENT: i32 = 4096;
 
 /// A [`VectorTileSource`] over inline GeoJSON line + polygon geometry.
 /// Parsed once into world space; each `request` clips to the tile.
+/// A line string in world space with its feature properties (for
+/// data-driven styling that filters on a property).
+type LineFeature = (Vec<(f64, f64)>, HashMap<String, VectorValue>);
+
 pub struct GeoJsonVectorSource {
-    /// Line strings in normalized world space (`[0,1]²`).
-    lines: Vec<Vec<(f64, f64)>>,
+    /// Line strings in normalized world space (`[0,1]²`) + properties.
+    lines: Vec<LineFeature>,
     /// Polygons (each a list of rings: outer then holes) in world space.
     polygons: Vec<Vec<Vec<(f64, f64)>>>,
     /// Points in world space with their feature properties (for symbol
@@ -90,7 +94,7 @@ impl VectorTileSource for GeoJsonVectorSource {
         };
 
         let mut features = Vec::new();
-        for line in &self.lines {
+        for (line, props) in &self.lines {
             let subpaths = if self.clip {
                 clip_polyline(line, rect)
             } else {
@@ -104,7 +108,7 @@ impl VectorTileSource for GeoJsonVectorSource {
                         id: features.len() as u64,
                         geom_type: GeomType::LineString,
                         geometry: Geometry::LineString(vec![local]),
-                        properties: HashMap::new(),
+                        properties: props.clone(),
                     });
                 }
             }
@@ -173,7 +177,7 @@ struct Rect {
 
 #[derive(Default)]
 struct ParsedGeometry {
-    lines: Vec<Vec<(f64, f64)>>,
+    lines: Vec<LineFeature>,
     polygons: Vec<Vec<Vec<(f64, f64)>>>,
     points: Vec<(f64, f64, HashMap<String, VectorValue>)>,
 }
@@ -213,7 +217,7 @@ fn collect_geometries(
         Some("LineString") => {
             if let Some(coords) = value.get("coordinates").and_then(|c| c.as_array()) {
                 if let Some(line) = parse_positions(coords) {
-                    out.lines.push(line);
+                    out.lines.push((line, props.clone()));
                 }
             }
         }
@@ -221,7 +225,7 @@ fn collect_geometries(
             for_each_array(value.get("coordinates"), |line| {
                 if let Some(coords) = line.as_array() {
                     if let Some(line) = parse_positions(coords) {
-                        out.lines.push(line);
+                        out.lines.push((line, props.clone()));
                     }
                 }
             });
