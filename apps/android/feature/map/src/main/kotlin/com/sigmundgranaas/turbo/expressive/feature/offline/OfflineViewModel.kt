@@ -7,9 +7,11 @@ import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -39,14 +41,44 @@ class OfflineViewModel @Inject constructor(
      * Names the region by the reverse-geocoded place at [centre] ("Storfjellet" /
      * "Tromsø") rather than raw coordinates, falling back to coordinates off-grid.
      */
-    fun download(centre: LatLng, base: BaseLayer, bounds: GeoBounds, fromZoom: Double) {
+    fun download(
+        centre: LatLng,
+        base: BaseLayer,
+        bounds: GeoBounds,
+        fromZoom: Double,
+        overlays: Set<OverlayId> = emptySet(),
+    ) {
         val minZoom = floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM)
         val maxZoom = (minZoom + ZOOM_SPAN).coerceAtMost(MAX_ZOOM)
         viewModelScope.launch {
             val place = (reverseGeocode.describe(centre) as? Outcome.Success)?.value?.title
-            manager.download(place ?: formatCoords(centre), base, bounds, minZoom, maxZoom)
+            manager.download(
+                DownloadSpec(
+                    name = place ?: formatCoords(centre),
+                    base = base,
+                    bounds = bounds,
+                    minZoom = minZoom,
+                    maxZoom = maxZoom,
+                    overlays = overlays,
+                ),
+            )
         }
     }
+
+    /** Pre-flight estimate for the currently-visible [bounds]; null when nothing to size. */
+    fun estimate(base: BaseLayer, bounds: GeoBounds, fromZoom: Double, overlays: Set<OverlayId> = emptySet()) =
+        manager.estimate(
+            DownloadSpec(
+                name = "",
+                base = base,
+                bounds = bounds,
+                minZoom = floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM),
+                maxZoom = (floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM) + ZOOM_SPAN).coerceAtMost(MAX_ZOOM),
+                overlays = overlays,
+            ),
+        )
+
+    fun retry(id: Long) = manager.retry(id)
 
     fun delete(id: Long) = manager.delete(id)
 

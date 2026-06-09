@@ -4,10 +4,13 @@ import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.LocationDescription
+import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
 import com.sigmundgranaas.turbo.expressive.domain.PlaceQualifier
 import com.sigmundgranaas.turbo.expressive.feature.map.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,19 +24,18 @@ import org.junit.Rule
 import org.junit.Test
 
 private class FakeOfflineTileManager(initial: List<OfflineRegionInfo> = emptyList()) : OfflineTileManager {
-    data class Download(val name: String, val base: BaseLayer, val bounds: GeoBounds, val minZoom: Double, val maxZoom: Double)
-
     private val flow = MutableStateFlow(initial)
     override val regions: StateFlow<List<OfflineRegionInfo>> = flow
 
     var refreshCount = 0
-    var lastDownload: Download? = null
+    var lastDownload: DownloadSpec? = null
     val deleted = mutableListOf<Long>()
+    val retried = mutableListOf<Long>()
 
     override fun refresh() { refreshCount++ }
-    override fun download(name: String, base: BaseLayer, bounds: GeoBounds, minZoom: Double, maxZoom: Double) {
-        lastDownload = Download(name, base, bounds, minZoom, maxZoom)
-    }
+    override fun download(spec: DownloadSpec) { lastDownload = spec }
+    override fun retry(id: Long) { retried += id }
+    override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) {
         deleted += id
         flow.value = flow.value.filterNot { it.id == id }
@@ -98,7 +100,7 @@ class OfflineViewModelTest {
     @Test
     fun `delete forwards to the manager and removes the region`() {
         val manager = FakeOfflineTileManager(
-            listOf(OfflineRegionInfo(id = 7, name = "A", complete = true, progress = 1f, sizeBytes = 1_000)),
+            listOf(OfflineRegionInfo(id = 7, name = "A", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000)),
         )
         val vm = OfflineViewModel(manager, FakeReverseGeocode("A"))
         vm.delete(7)

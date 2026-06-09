@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.feature.offline
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +18,9 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.PauseCircle
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -26,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
 import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.ConfirmDeleteDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
@@ -93,7 +99,11 @@ fun OfflineMapsScreen(
                     )
                 }
                 items(regions, key = { it.id }) { region ->
-                    RegionCard(region = region, onDelete = { pendingDelete = region })
+                    RegionCard(
+                        region = region,
+                        onDelete = { pendingDelete = region },
+                        onRetry = { viewModel.retry(region.id) },
+                    )
                 }
                 item { Spacer(Modifier.height(16.dp)) }
             }
@@ -111,7 +121,7 @@ fun OfflineMapsScreen(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit) {
+private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit, onRetry: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val regionDesc = stringResource(R.string.offline_region_desc, region.name)
     Surface(
@@ -131,24 +141,49 @@ private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // The base map differentiates same-named regions (e.g. two "Tromsø").
+                Text(
+                    region.base.title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.onSurfaceVariant,
+                )
                 Spacer(Modifier.height(6.dp))
-                if (region.complete) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.DownloadDone, null, tint = cs.primary, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.size(6.dp))
-                        Text(stringResource(R.string.offline_downloaded, formatSize(region.sizeBytes)), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                when (region.status) {
+                    OfflineStatus.Complete -> StatusLine(
+                        icon = Icons.Rounded.DownloadDone,
+                        tint = cs.primary,
+                        text = stringResource(R.string.offline_downloaded, formatSize(region.sizeBytes)),
+                    )
+                    OfflineStatus.Paused -> StatusLine(
+                        icon = Icons.Rounded.PauseCircle,
+                        tint = cs.onSurfaceVariant,
+                        text = stringResource(R.string.offline_paused, (region.progress * 100).toInt()),
+                    )
+                    OfflineStatus.Failed -> {
+                        StatusLine(
+                            icon = Icons.Rounded.ErrorOutline,
+                            tint = cs.error,
+                            text = region.errorReason?.let { stringResource(R.string.offline_failed_reason, it) }
+                                ?: stringResource(R.string.offline_failed),
+                        )
+                        TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                            Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text(stringResource(R.string.offline_retry))
+                        }
                     }
-                } else {
-                    LinearWavyProgressIndicator(
-                        progress = { region.progress },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        stringResource(R.string.offline_downloading, (region.progress * 100).toInt()),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = cs.onSurfaceVariant,
-                    )
+                    OfflineStatus.Downloading -> {
+                        LinearWavyProgressIndicator(
+                            progress = { region.progress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            stringResource(R.string.offline_downloading, (region.progress * 100).toInt()),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.size(8.dp))
@@ -156,6 +191,16 @@ private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit) {
                 Icon(Icons.Rounded.Delete, stringResource(R.string.offline_delete, region.name), tint = cs.error)
             }
         }
+    }
+}
+
+/** A small icon + caption row reused by the completed / paused / failed states. */
+@Composable
+private fun StatusLine(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: androidx.compose.ui.graphics.Color, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.size(6.dp))
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

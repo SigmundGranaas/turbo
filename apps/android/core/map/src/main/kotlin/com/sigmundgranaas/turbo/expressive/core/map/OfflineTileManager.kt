@@ -2,8 +2,10 @@ package com.sigmundgranaas.turbo.expressive.core.map
 
 import android.content.Context
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
-import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
+import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
+import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -31,8 +33,14 @@ import javax.inject.Singleton
 interface OfflineTileManager {
     val regions: StateFlow<List<OfflineRegionInfo>>
     fun refresh()
-    fun download(name: String, base: BaseLayer, bounds: GeoBounds, minZoom: Double, maxZoom: Double)
+    fun download(spec: DownloadSpec)
+
+    /** Re-activate a [OfflineStatus.Failed] region's download. */
+    fun retry(id: Long)
     fun delete(id: Long)
+
+    /** Pre-flight tile/byte estimate for [spec] (no I/O). */
+    fun estimate(spec: DownloadSpec): OfflineEstimate
 }
 
 @Singleton
@@ -42,19 +50,23 @@ class MapLibreOfflineTileManager @Inject constructor(
 
     private val manager: OfflineManager by lazy {
         MapLibre.getInstance(context)
-        OfflineManager.getInstance(context).apply { setOfflineMapboxTileCountLimit(MAX_TILES) }
+        OfflineManager.getInstance(context).apply { setOfflineMapboxTileCountLimit(TileMath.MAX_TILES) }
     }
     private val styleServer = LocalStyleServer()
     private val regionsById = mutableMapOf<Long, OfflineRegion>()
+    /** Regions that stopped on an error → reason, until the user retries/deletes. */
+    private val failures = mutableMapOf<Long, String>()
     private val _regions = MutableStateFlow<List<OfflineRegionInfo>>(emptyList())
     override val regions: StateFlow<List<OfflineRegionInfo>> = _regions.asStateFlow()
+
+    override fun estimate(spec: DownloadSpec): OfflineEstimate = TileMath.estimate(spec)
 
     override fun refresh() {
         manager.listOfflineRegions(object : OfflineManager.ListOfflineRegionsCallback {
             override fun onList(offlineRegions: Array<OfflineRegion>?) {
                 val list = offlineRegions?.toList().orEmpty()
                 regionsById.clear()
-                list.forEach { regionsById[it.id] = it }
+                list.forEach { regionsById[it.id] = it; it.setObserver(observerFor(it)) }
                 if (list.isEmpty()) { _regions.value = emptyList(); return }
                 val acc = mutableListOf<OfflineRegionInfo>()
                 var remaining = list.size
@@ -74,18 +86,29 @@ class MapLibreOfflineTileManager @Inject constructor(
         })
     }
 
-    override fun download(name: String, base: BaseLayer, bounds: GeoBounds, minZoom: Double, maxZoom: Double) {
+    override fun download(spec: DownloadSpec) {
         val definition = OfflineTilePyramidRegionDefinition(
-            styleUrl(base),
+            styleServer.styleUrl(spec.base),
             LatLngBounds.Builder()
-                .include(MlLatLng(bounds.north, bounds.east))
-                .include(MlLatLng(bounds.south, bounds.west))
+                .include(MlLatLng(spec.bounds.north, spec.bounds.east))
+                .include(MlLatLng(spec.bounds.south, spec.bounds.west))
                 .build(),
-            minZoom,
-            maxZoom,
+            spec.minZoom,
+            spec.maxZoom,
             context.resources.displayMetrics.density,
         )
-        manager.createOfflineRegion(definition, name.toByteArray(), object : OfflineManager.CreateOfflineRegionCallback {
+        val metadata = OfflineRegionMetadata.encode(
+            OfflineRegionMetadata.Meta(
+                name = spec.name,
+                base = spec.base,
+                overlays = spec.overlays,
+                bounds = spec.bounds,
+                minZoom = spec.minZoom,
+                maxZoom = spec.maxZoom,
+                createdAtEpochMs = System.currentTimeMillis(),
+            ),
+        )
+        manager.createOfflineRegion(definition, metadata, object : OfflineManager.CreateOfflineRegionCallback {
             override fun onCreate(offlineRegion: OfflineRegion) {
                 regionsById[offlineRegion.id] = offlineRegion
                 offlineRegion.setObserver(observerFor(offlineRegion))
@@ -96,19 +119,38 @@ class MapLibreOfflineTileManager @Inject constructor(
         })
     }
 
+    override fun retry(id: Long) {
+        val region = regionsById[id] ?: return
+        failures.remove(id)
+        region.setObserver(observerFor(region))
+        region.setDownloadState(OfflineRegion.STATE_ACTIVE)
+        // Surface the optimistic "downloading again" state immediately.
+        upsert(region.baseInfo())
+    }
+
     override fun delete(id: Long) {
         val region = regionsById[id] ?: return
         region.setDownloadState(OfflineRegion.STATE_INACTIVE)
         region.delete(object : OfflineRegion.OfflineRegionDeleteCallback {
-            override fun onDelete() { regionsById.remove(id); refresh() }
+            override fun onDelete() { regionsById.remove(id); failures.remove(id); refresh() }
             override fun onError(error: String) = Unit
         })
     }
 
     private fun observerFor(region: OfflineRegion) = object : OfflineRegion.OfflineRegionObserver {
         override fun onStatusChanged(status: OfflineRegionStatus) = upsert(region.toInfo(status))
-        override fun onError(error: OfflineRegionError) = Unit
-        override fun mapboxTileCountLimitExceeded(limit: Long) = Unit
+        override fun onError(error: OfflineRegionError) =
+            markFailed(region, error.reason?.takeIf { it.isNotBlank() } ?: error.message ?: "Download failed")
+        override fun mapboxTileCountLimitExceeded(limit: Long) {
+            region.setDownloadState(OfflineRegion.STATE_INACTIVE)
+            markFailed(region, "Tile limit exceeded ($limit)")
+        }
+    }
+
+    private fun markFailed(region: OfflineRegion, reason: String) {
+        failures[region.id] = reason
+        val current = _regions.value.firstOrNull { it.id == region.id } ?: region.baseInfo()
+        upsert(current.copy(status = OfflineStatus.Failed, errorReason = reason))
     }
 
     private fun upsert(info: OfflineRegionInfo) {
@@ -116,16 +158,44 @@ class MapLibreOfflineTileManager @Inject constructor(
     }
 
     private fun OfflineRegion.toInfo(status: OfflineRegionStatus): OfflineRegionInfo {
-        val name = runCatching { String(metadata) }.getOrDefault("Region")
         val required = status.requiredResourceCount.coerceAtLeast(1)
-        val progress = if (status.isComplete) 1f else (status.completedResourceCount.toDouble() / required).toFloat().coerceIn(0f, 1f)
-        return OfflineRegionInfo(id, name, status.isComplete, progress, status.completedResourceSize)
+        val progress = if (status.isComplete) 1f
+            else (status.completedResourceCount.toDouble() / required).toFloat().coerceIn(0f, 1f)
+        val st = when {
+            failures.containsKey(id) -> OfflineStatus.Failed
+            status.isComplete -> OfflineStatus.Complete
+            status.downloadState == OfflineRegion.STATE_INACTIVE -> OfflineStatus.Paused
+            else -> OfflineStatus.Downloading
+        }
+        return meta().copy(
+            status = st,
+            progress = progress,
+            sizeBytes = status.completedResourceSize,
+            tileCount = status.completedTileCount,
+            errorReason = failures[id],
+        )
     }
 
-    private fun styleUrl(base: BaseLayer): String = styleServer.styleUrl(base)
+    /** A zero-progress info from the persisted metadata — used before a status arrives. */
+    private fun OfflineRegion.baseInfo(): OfflineRegionInfo = meta()
 
-    private companion object {
-        const val MAX_TILES = 100_000L
+    /** Decode this region's metadata into an [OfflineRegionInfo] shell (status Downloading). */
+    private fun OfflineRegion.meta(): OfflineRegionInfo {
+        val m = OfflineRegionMetadata.decode(metadata)
+        return OfflineRegionInfo(
+            id = id,
+            name = m?.name ?: "Region",
+            status = OfflineStatus.Downloading,
+            progress = 0f,
+            sizeBytes = 0L,
+            tileCount = 0L,
+            base = m?.base ?: BaseLayer.Norgeskart,
+            overlays = m?.overlays ?: emptySet(),
+            bounds = m?.bounds,
+            minZoom = m?.minZoom ?: 0.0,
+            maxZoom = m?.maxZoom ?: 0.0,
+            createdAtEpochMs = m?.createdAtEpochMs ?: 0L,
+        )
     }
 }
 

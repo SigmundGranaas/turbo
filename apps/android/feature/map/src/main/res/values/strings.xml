@@ -147,6 +147,10 @@
     <string name="offline_region_desc">offline region %1$s</string>
     <string name="offline_downloaded">Downloaded · %1$s</string>
     <string name="offline_downloading">Downloading… %1$d%%</string>
+    <string name="offline_paused">Paused · %1$d%%</string>
+    <string name="offline_failed">Download failed</string>
+    <string name="offline_failed_reason">Download failed · %1$s</string>
+    <string name="offline_retry">Retry</string>
     <string name="offline_delete">Delete %1$s</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d area · %2$s</item>

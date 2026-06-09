@@ -10,8 +10,10 @@ import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
 import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
@@ -45,9 +47,11 @@ private class FakeOfflineTileManager : OfflineTileManager {
     var lastBounds: GeoBounds? = null
     override val regions = MutableStateFlow<List<OfflineRegionInfo>>(emptyList())
     override fun refresh() = Unit
-    override fun download(name: String, base: BaseLayer, bounds: GeoBounds, minZoom: Double, maxZoom: Double) {
-        downloads++; lastBounds = bounds
+    override fun download(spec: DownloadSpec) {
+        downloads++; lastBounds = spec.bounds
     }
+    override fun retry(id: Long) = Unit
+    override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) = Unit
 }
 

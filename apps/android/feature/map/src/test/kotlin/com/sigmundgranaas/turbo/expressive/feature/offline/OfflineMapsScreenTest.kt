@@ -8,11 +8,12 @@ import androidx.compose.ui.test.performClick
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
-import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
-import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
+import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.LocationDescription
+import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertTrue
@@ -27,8 +28,11 @@ private class StubOfflineTileManager(initial: List<OfflineRegionInfo>) : Offline
     private val flow = MutableStateFlow(initial)
     override val regions: StateFlow<List<OfflineRegionInfo>> = flow
     val deleted = mutableListOf<Long>()
+    val retried = mutableListOf<Long>()
     override fun refresh() = Unit
-    override fun download(name: String, base: BaseLayer, bounds: GeoBounds, minZoom: Double, maxZoom: Double) = Unit
+    override fun download(spec: DownloadSpec) = Unit
+    override fun retry(id: Long) { retried += id }
+    override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) {
         deleted += id
         flow.value = flow.value.filterNot { it.id == id }
@@ -57,7 +61,7 @@ class OfflineMapsScreenTest {
 
     @Test
     fun `a downloading region shows its name and progress`() {
-        val region = OfflineRegionInfo(id = 1, name = "Tromsø", complete = false, progress = 0.42f, sizeBytes = 5_000_000)
+        val region = OfflineRegionInfo(id = 1, name = "Tromsø", status = OfflineStatus.Downloading, progress = 0.42f, sizeBytes = 5_000_000)
         composeRule.setContent {
             OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(listOf(region)), stubGeo))
         }
@@ -66,8 +70,23 @@ class OfflineMapsScreenTest {
     }
 
     @Test
+    fun `a failed region offers retry which calls the manager`() {
+        val region = OfflineRegionInfo(
+            id = 3, name = "Senja", status = OfflineStatus.Failed, progress = 0f, sizeBytes = 0,
+            errorReason = "Area too large",
+        )
+        val manager = StubOfflineTileManager(listOf(region))
+        composeRule.setContent {
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
+        }
+        composeRule.onNodeWithText("Retry").performClick()
+        composeRule.waitForIdle()
+        assertTrue(manager.retried.contains(3L))
+    }
+
+    @Test
     fun `tapping delete removes the region`() {
-        val region = OfflineRegionInfo(id = 9, name = "Lofoten", complete = true, progress = 1f, sizeBytes = 12_000_000)
+        val region = OfflineRegionInfo(id = 9, name = "Lofoten", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 12_000_000)
         val manager = StubOfflineTileManager(listOf(region))
         composeRule.setContent {
             OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
