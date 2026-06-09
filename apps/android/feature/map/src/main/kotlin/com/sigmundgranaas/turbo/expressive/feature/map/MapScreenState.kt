@@ -73,6 +73,9 @@ class MapScreenState {
     var openCluster by mutableStateOf<PhotoCluster?>(null)
     var viewerStart by mutableStateOf(-1)
     var pendingPhotoAt by mutableStateOf<LatLng?>(null)
+
+    // Marker whose "Add photo" action was tapped → opens the camera/gallery chooser.
+    var addPhotoForMarker by mutableStateOf<Marker?>(null)
 }
 
 @Composable

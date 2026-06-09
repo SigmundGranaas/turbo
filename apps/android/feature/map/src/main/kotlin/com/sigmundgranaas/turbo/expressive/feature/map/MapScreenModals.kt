@@ -59,6 +59,15 @@ internal fun MapScreenModals(
         WeatherForecastSheet(point = point, onDismiss = { ui.forecastAt = null })
     }
 
+    // "Add photo" from a marker's action options → camera/gallery chooser.
+    ui.addPhotoForMarker?.let { marker ->
+        com.sigmundgranaas.turbo.expressive.feature.photos.AddMarkerPhotoSheet(
+            markerId = marker.id,
+            position = marker.position,
+            onDismiss = { ui.addPhotoForMarker = null },
+        )
+    }
+
     // Stopping a follow: keep it (→ Saved Tracks) or discard. Mirrors recording's
     // save-on-stop, so a route you followed can land in your history.
     if (ui.showFollowStopSave) {

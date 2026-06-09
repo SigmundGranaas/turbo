@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.MyLocation
+import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Route
@@ -466,6 +467,12 @@ fun MapScreen(
                             onDelete = { ui.pendingDelete = marker },
                             extraActions = listOf(
                                 com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
+                                    id = "add_photo",
+                                    label = context.getString(R.string.marker_add_photo),
+                                    icon = androidx.compose.material.icons.Icons.Rounded.AddAPhoto,
+                                    onInvoke = { ui.addPhotoForMarker = marker },
+                                ),
+                                com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
                                     id = "add_to_collection",
                                     label = context.getString(R.string.marker_add_to_collection),
                                     icon = androidx.compose.material.icons.Icons.Rounded.Folder,
@@ -486,7 +493,6 @@ fun MapScreen(
                                     Spacer(Modifier.height(14.dp))
                                     com.sigmundgranaas.turbo.expressive.feature.photos.MarkerPhotos(
                                         markerId = marker.id,
-                                        position = marker.position,
                                     )
                                 }
                             },

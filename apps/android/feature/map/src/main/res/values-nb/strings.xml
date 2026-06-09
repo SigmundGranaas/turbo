@@ -121,6 +121,7 @@
     <string name="marker_save">Lagre markør</string>
     <string name="marker_update">Oppdater markør</string>
     <string name="marker_add_to_collection">Legg til i samling</string>
+    <string name="marker_add_photo">Legg til bilde</string>
 
     <!-- Layers sheet -->
     <string name="layers_title">Kartlag</string>

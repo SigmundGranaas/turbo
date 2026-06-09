@@ -121,6 +121,7 @@
     <string name="marker_save">Save marker</string>
     <string name="marker_update">Update marker</string>
     <string name="marker_add_to_collection">Add to collection</string>
+    <string name="marker_add_photo">Add photo</string>
 
     <!-- Layers sheet -->
     <string name="layers_title">Map layers</string>
