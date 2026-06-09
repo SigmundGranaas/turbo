@@ -30,6 +30,8 @@ pub enum ResolvedSource {
 
 /// Turns a declarative [`SourceDef`] into a tile source. Injected at
 /// engine construction so I/O policy lives with the host, not the engine.
-pub trait SourceResolver {
+/// `Send + Sync` because the engine itself must cross thread boundaries
+/// (the FFI layer wraps it in a mutex shared with foreign code).
+pub trait SourceResolver: Send + Sync {
     fn resolve(&self, id: &str, def: &SourceDef) -> ResolvedSource;
 }

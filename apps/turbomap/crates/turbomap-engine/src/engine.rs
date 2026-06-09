@@ -277,6 +277,7 @@ impl TurbomapEngine {
     pub fn pump_tiles(&mut self) -> DrainStats {
         let mut stats = DrainStats::default();
         loop {
+            let before_round = stats.raster_tiles + stats.terrain_tiles + stats.vector_tiles;
             let pending = self.map.pending_tiles();
             if pending.is_empty() {
                 break;
@@ -311,6 +312,14 @@ impl TurbomapEngine {
                 }
             }
             stats.rounds += 1;
+            let ingested = stats.raster_tiles + stats.terrain_tiles + stats.vector_tiles;
+            if ingested == before_round {
+                // No progress this round — remaining pending tiles come
+                // from sources this pump can't serve (e.g. remote stubs a
+                // host feeds via the ingest API instead). Stop rather than
+                // spin.
+                break;
+            }
             if stats.rounds > 64 {
                 // Synthetic/HTTP sources converge in a handful of rounds;
                 // this only trips on a scene-state bug.
@@ -318,6 +327,58 @@ impl TurbomapEngine {
             }
         }
         stats
+    }
+
+    /// Tiles the engine is waiting on — the pull half of host-driven tile
+    /// IO. Hosts fetch these (they know the URL templates from their own
+    /// scene) and push results through the `ingest_*` methods below.
+    pub fn pending_tiles(&self) -> Vec<PendingTile> {
+        self.map.pending_tiles()
+    }
+
+    /// Push one fetched raster tile (encoded PNG/JPEG/WebP bytes, exactly
+    /// as served). Returns `false` if the bytes don't decode.
+    pub fn ingest_raster_encoded(&mut self, layer_id: &str, tile: TileId, bytes: &[u8]) -> bool {
+        let Ok(img) = image::load_from_memory(bytes) else {
+            return false;
+        };
+        let img = img.to_rgba8();
+        let (w, h) = img.dimensions();
+        self.map.ingest_raster(layer_id, tile, img.as_raw(), w, h);
+        true
+    }
+
+    /// Push one fetched DEM tile (encoded Terrain-RGB/Terrarium image).
+    pub fn ingest_terrain_encoded(&mut self, tile: TileId, bytes: &[u8]) -> bool {
+        let Ok(img) = image::load_from_memory(bytes) else {
+            return false;
+        };
+        let img = img.to_rgba8();
+        let (w, h) = img.dimensions();
+        self.map.ingest_terrain_tile(tile, img.as_raw(), w, h);
+        true
+    }
+
+    /// Push one fetched vector tile (raw MVT protobuf bytes). Returns
+    /// `false` if the bytes don't decode.
+    pub fn ingest_mvt(&mut self, layer_id: &str, tile: TileId, bytes: &[u8]) -> bool {
+        let Ok(vtile) = turbomap_core::vector::decode_mvt(bytes) else {
+            return false;
+        };
+        self.map.ingest_vector_tile(layer_id, tile, &vtile);
+        true
+    }
+
+    /// Animate the camera to `target` over `duration`; drive with
+    /// [`tick_now`](Self::tick_now) each frame.
+    pub fn ease_to(&mut self, target: CameraState, duration: std::time::Duration) {
+        self.map.ease_to(to_core_camera(target), duration);
+    }
+
+    /// Advance any running camera animation. Returns `true` while the
+    /// animation is still in flight (i.e. keep rendering frames).
+    pub fn tick_now(&mut self) -> bool {
+        self.map.tick(std::time::Instant::now())
     }
 
     /// Re-evaluate line/fill colour paints at the current zoom and push

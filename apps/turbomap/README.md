@@ -16,6 +16,7 @@ Kartverket Turkart raster tiles, and lets you pan and zoom around Norway.
 | `turbomap-golden` | Headless golden-image + record/replay test harness. No I/O, no window — deterministic render tests on a software adapter. |
 | `turbomap-scene` | Renderer-agnostic `Scene`/`Paint` IR, pure scene `diff`, and the `MapEngine` contract + conformance suite. No GPU, no I/O — the shared schema host languages bind to. |
 | `turbomap-engine` | `TurbomapEngine`: drives `turbomap-core`'s wgpu pipelines from the `Scene` IR via the `MapEngine` contract. Renders raster, hillshade, and GeoJSON line / fill / circle / symbol-label layers; reconciles scene edits incrementally (unchanged layers keep their GPU caches); evaluates zoom-curve line/fill colour on the GPU per frame (no re-tessellation) and compiles data-driven `Match` colour to per-feature style rules. Includes the `inspect` dev tool and a vector bench. |
+| `turbomap-ffi` | uniffi bindings (Kotlin/Swift) for the engine's control plane: scene JSON, camera, projection, hit-test, host-driven pull/push tile IO, and an offscreen PNG snapshot API. Surface creation + the render loop stay in per-platform glue. |
 
 Dependency direction is strict and one-way:
 

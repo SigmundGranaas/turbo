@@ -14,10 +14,12 @@
 
 pub mod engine;
 pub mod geojson;
+pub mod host_resolver;
 pub mod resolver;
 
 pub use engine::{DrainStats, TurbomapEngine};
 pub use geojson::GeoJsonVectorSource;
+pub use host_resolver::HostDrivenResolver;
 pub use resolver::{ResolvedSource, SourceResolver};
 
 // Re-export the contract surface so hosts depend on one crate.

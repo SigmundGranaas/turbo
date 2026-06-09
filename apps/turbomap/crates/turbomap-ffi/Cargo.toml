@@ -1,0 +1,38 @@
+[package]
+name = "turbomap-ffi"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "uniffi bindings for the turbomap engine — the control plane Kotlin/Swift hosts talk to."
+
+[lints]
+workspace = true
+
+[lib]
+name = "turbomap_ffi"
+# cdylib for the foreign-language bindings (and library-mode bindgen);
+# plain lib so Rust tests can exercise the same exported surface.
+crate-type = ["lib", "cdylib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[features]
+# FFI round-trip tests need a wgpu adapter (software is fine); the default
+# workspace lane stays GPU-free.
+gpu-tests = []
+
+[dependencies]
+turbomap-core = { path = "../turbomap-core" }
+turbomap-engine = { path = "../turbomap-engine" }
+turbomap-scene = { path = "../turbomap-scene" }
+uniffi.workspace = true
+wgpu.workspace = true
+image.workspace = true
+pollster.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true
