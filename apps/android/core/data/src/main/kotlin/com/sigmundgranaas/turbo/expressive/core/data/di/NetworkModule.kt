@@ -13,7 +13,10 @@ import com.sigmundgranaas.turbo.expressive.core.data.SyntheticConditionsReposito
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticRouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticSearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SyntheticTideRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticTrailSearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.KartverketTideRepository
+import com.sigmundgranaas.turbo.expressive.core.data.TideRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.BuildConfig
 import dagger.Module
@@ -78,6 +81,14 @@ object NetworkModule {
             http: HttpConditionsRepository,
             synthetic: SyntheticConditionsRepository,
         ): ConditionsRepository = if (BuildConfig.DEBUG) synthetic else http
+
+        /** Tide predictions (Kartverket sehavniva); synthetic in DEBUG. */
+        @Provides
+        @Singleton
+        fun provideTideRepository(
+            http: KartverketTideRepository,
+            synthetic: SyntheticTideRepository,
+        ): TideRepository = if (BuildConfig.DEBUG) synthetic else http
 
         @Provides
         @Singleton

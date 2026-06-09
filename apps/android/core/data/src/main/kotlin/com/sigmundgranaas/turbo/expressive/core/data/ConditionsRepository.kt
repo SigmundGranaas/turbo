@@ -31,6 +31,9 @@ interface ConditionsRepository {
 
     /** The full hourly + daily forecast for the conditions detail sheet. */
     suspend fun forecast(point: LatLng): Outcome<WeatherForecast>
+
+    /** Marine conditions alone (for the ocean section); null/empty off the coast. */
+    suspend fun marine(point: LatLng): Outcome<MarineNow?>
 }
 
 class HttpConditionsRepository @Inject constructor(
@@ -105,6 +108,10 @@ class HttpConditionsRepository @Inject constructor(
         )
     }
 
+    override suspend fun marine(point: LatLng): Outcome<MarineNow?> =
+        runCatching { fetchMarine(point)?.takeIf { it.hasData } }
+            .fold({ Outcome.Success(it) }, { Outcome.Failure(it) })
+
     private suspend fun fetchMarine(point: LatLng): MarineNow? {
         val res: MetResponse = client
             .get("https://api.met.no/weatherapi/oceanforecast/2.0/complete") {
@@ -118,6 +125,7 @@ class HttpConditionsRepository @Inject constructor(
             waveHeightM = d.seaWaveHeight,
             waveFromDeg = d.seaWaveFromDirection,
             seaTemperatureC = d.seaWaterTemperature,
+            seaCurrentSpeedMs = d.seaWaterSpeed,
         )
     }
 
@@ -180,6 +188,7 @@ private data class MetInstantDetails(
     @SerialName("sea_surface_wave_height") val seaWaveHeight: Double? = null,
     @SerialName("sea_surface_wave_from_direction") val seaWaveFromDirection: Double? = null,
     @SerialName("sea_water_temperature") val seaWaterTemperature: Double? = null,
+    @SerialName("sea_water_speed") val seaWaterSpeed: Double? = null,
 )
 
 @Serializable

@@ -19,6 +19,13 @@ private class StubConditionsRepository(private val outcome: Outcome<Conditions>)
     override suspend fun forPoint(point: LatLng): Outcome<Conditions> = outcome
     override suspend fun forecast(point: LatLng): Outcome<com.sigmundgranaas.turbo.expressive.domain.WeatherForecast> =
         Outcome.Failure(UnsupportedOperationException())
+    override suspend fun marine(point: LatLng): Outcome<com.sigmundgranaas.turbo.expressive.domain.MarineNow?> =
+        Outcome.Success(null)
+}
+
+private val stubTides = object : com.sigmundgranaas.turbo.expressive.core.data.TideRepository {
+    override suspend fun forPoint(point: LatLng) =
+        Outcome.Success(com.sigmundgranaas.turbo.expressive.domain.TideForecast(null, emptyList()))
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -35,7 +42,7 @@ class ConditionsBodyTest {
     fun `weather success renders the temperature tile`() {
         val conditions = Conditions(WeatherNow(-2.0, 4.0, 315.0, 0.2, "cloudy"), null)
         composeRule.setContent {
-            ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Success(conditions))))
+            ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Success(conditions)), stubTides))
         }
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithText("-2°").fetchSemanticsNodes().isNotEmpty()
@@ -50,7 +57,7 @@ class ConditionsBodyTest {
             null,
         )
         composeRule.setContent {
-            ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Success(conditions))))
+            ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Success(conditions)), stubTides))
         }
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithText("Humidity").fetchSemanticsNodes().isNotEmpty()
@@ -62,7 +69,7 @@ class ConditionsBodyTest {
     @Test
     fun `failure renders the offline message`() {
         composeRule.setContent {
-            ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Failure(RuntimeException()))))
+            ConditionsBody(point, ConditionsViewModel(StubConditionsRepository(Outcome.Failure(RuntimeException())), stubTides))
         }
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithText("Conditions unavailable offline.").fetchSemanticsNodes().isNotEmpty()

@@ -21,6 +21,13 @@ private class FakeConditionsRepository(var outcome: Outcome<Conditions>) : Condi
     }
     override suspend fun forecast(point: LatLng): Outcome<com.sigmundgranaas.turbo.expressive.domain.WeatherForecast> =
         Outcome.Failure(UnsupportedOperationException())
+    override suspend fun marine(point: LatLng): Outcome<com.sigmundgranaas.turbo.expressive.domain.MarineNow?> =
+        Outcome.Success(null)
+}
+
+private val noTides = object : com.sigmundgranaas.turbo.expressive.core.data.TideRepository {
+    override suspend fun forPoint(point: LatLng) =
+        Outcome.Success(com.sigmundgranaas.turbo.expressive.domain.TideForecast(null, emptyList()))
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -34,7 +41,7 @@ class ConditionsViewModelTest {
 
     @Test
     fun `load success exposes Content`() = runTest(mainRule.dispatcher) {
-        val vm = ConditionsViewModel(FakeConditionsRepository(Outcome.Success(conditions)))
+        val vm = ConditionsViewModel(FakeConditionsRepository(Outcome.Success(conditions)), noTides)
         vm.load(point)
         advanceUntilIdle()
         val content = vm.state.value as ConditionsUiState.Content
@@ -43,7 +50,7 @@ class ConditionsViewModelTest {
 
     @Test
     fun `load failure exposes Error`() = runTest(mainRule.dispatcher) {
-        val vm = ConditionsViewModel(FakeConditionsRepository(Outcome.Failure(RuntimeException("offline"))))
+        val vm = ConditionsViewModel(FakeConditionsRepository(Outcome.Failure(RuntimeException("offline"))), noTides)
         vm.load(point)
         advanceUntilIdle()
         assertTrue(vm.state.value is ConditionsUiState.Error)
@@ -52,7 +59,7 @@ class ConditionsViewModelTest {
     @Test
     fun `loading the same point twice fetches once`() = runTest(mainRule.dispatcher) {
         val repo = FakeConditionsRepository(Outcome.Success(conditions))
-        val vm = ConditionsViewModel(repo)
+        val vm = ConditionsViewModel(repo, noTides)
         vm.load(point)
         advanceUntilIdle()
         vm.load(point)

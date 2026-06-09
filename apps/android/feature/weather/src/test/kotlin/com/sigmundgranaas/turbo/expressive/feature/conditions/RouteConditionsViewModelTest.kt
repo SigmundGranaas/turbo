@@ -41,6 +41,9 @@ class RouteConditionsViewModelTest {
 
         override suspend fun forecast(point: LatLng): Outcome<WeatherForecast> =
             Outcome.Failure(RuntimeException("not used"))
+
+        override suspend fun marine(point: LatLng): Outcome<com.sigmundgranaas.turbo.expressive.domain.MarineNow?> =
+            Outcome.Success(null)
     }
 
     private fun line() = (0 until 10).map { LatLng(60.0 + it, 8.0) }

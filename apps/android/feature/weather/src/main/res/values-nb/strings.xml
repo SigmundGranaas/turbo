@@ -15,4 +15,11 @@
     <string name="route_cond_avalanche">Snøskred N%1$d</string>
     <string name="cond_forecast_title">Værvarsel · yr.no</string>
     <string name="cond_forecast_error_body">Kunne ikke nå yr.no — prøv igjen med tilkobling.</string>
+    <!-- Ocean section -->
+    <string name="cond_ocean_title">Hav</string>
+    <string name="cond_waves">Bølger</string>
+    <string name="cond_sea_temp">Sjøtemp</string>
+    <string name="cond_current">Strøm</string>
+    <string name="tide_high">Flo</string>
+    <string name="tide_low">Fjære</string>
 </resources>

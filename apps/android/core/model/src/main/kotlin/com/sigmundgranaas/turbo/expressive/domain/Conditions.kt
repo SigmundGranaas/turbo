@@ -84,8 +84,28 @@ data class MarineNow(
     val waveHeightM: Double?,
     val waveFromDeg: Double?,
     val seaTemperatureC: Double?,
+    /** Surface sea-current speed (m/s), when MET provides it. */
+    val seaCurrentSpeedMs: Double? = null,
 ) {
-    val hasData: Boolean get() = waveHeightM != null || seaTemperatureC != null
+    val hasData: Boolean
+        get() = waveHeightM != null || seaTemperatureC != null || seaCurrentSpeedMs != null
+}
+
+/** A predicted high or low tide. */
+enum class TideKind { High, Low }
+
+/** One tide extremum: ISO-8601 UTC instant + height (cm above chart datum) + kind. */
+data class TideExtreme(val timeIso: String, val levelCm: Double, val kind: TideKind) {
+    /** Hour-of-day 0–23 from the ISO instant; -1 if unparseable (UTC; UI localises). */
+    val hour: Int get() = timeIso.substringAfter('T', "").take(2).toIntOrNull() ?: -1
+}
+
+/** A short tide prediction (high/low extrema), Kartverket sehavniva; Norway coast only. */
+data class TideForecast(val stationName: String?, val extrema: List<TideExtreme>) {
+    val hasData: Boolean get() = extrema.isNotEmpty()
+
+    /** Next extremum strictly after [afterIso] (ISO UTC) — the "next high in 3 h" cue. */
+    fun nextAfter(afterIso: String): TideExtreme? = extrema.firstOrNull { it.timeIso > afterIso }
 }
 
 /** Combined conditions for a point; any field may be null if unavailable. */

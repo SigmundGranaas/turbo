@@ -51,10 +51,15 @@ class SyntheticConditionsRepository @Inject constructor() : ConditionsRepository
                         AvalancheProblem("Persistent weak layer", "Natural", "Widespread", "Size 3"),
                     ),
                 ),
-                marine = MarineNow(waveHeightM = 0.8, waveFromDeg = 270.0, seaTemperatureC = 9.5),
+                marine = syntheticMarine(),
             ),
         )
     }
+
+    override suspend fun marine(point: LatLng): Outcome<MarineNow?> = Outcome.Success(syntheticMarine())
+
+    private fun syntheticMarine() =
+        MarineNow(waveHeightM = 0.8, waveFromDeg = 270.0, seaTemperatureC = 9.5, seaCurrentSpeedMs = 0.4)
 
     override suspend fun forecast(point: LatLng): Outcome<WeatherForecast> {
         val start = ZonedDateTime.now(ZoneOffset.UTC).withMinute(0).withSecond(0).withNano(0)
