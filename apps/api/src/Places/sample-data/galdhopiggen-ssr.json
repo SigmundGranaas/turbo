@@ -1,0 +1,560 @@
+[
+    {
+        "source": "ssr",
+        "source_id": "495054",
+        "feature_type": "Fjell",
+        "primary_name": "Bakarste Storgrovh\u00f8e",
+        "status": "aktiv",
+        "lat": 61.6433,
+        "lng": 8.26734
+    },
+    {
+        "source": "ssr",
+        "source_id": "920055",
+        "feature_type": "Bekk",
+        "primary_name": "Breagrove",
+        "status": "aktiv",
+        "lat": 61.64369,
+        "lng": 8.39667
+    },
+    {
+        "source": "ssr",
+        "source_id": "10043",
+        "feature_type": "Fjell",
+        "primary_name": "Bukkeh\u00f8e",
+        "status": "aktiv",
+        "lat": 61.60423,
+        "lng": 8.26626
+    },
+    {
+        "source": "ssr",
+        "source_id": "616039",
+        "feature_type": "Isbre",
+        "primary_name": "Dumh\u00f8brean",
+        "status": "aktiv",
+        "lat": 61.6408,
+        "lng": 8.22279
+    },
+    {
+        "source": "ssr",
+        "source_id": "192052",
+        "feature_type": "Fjell",
+        "primary_name": "Dumh\u00f8e",
+        "status": "aktiv",
+        "lat": 61.63783,
+        "lng": 8.24575
+    },
+    {
+        "source": "ssr",
+        "source_id": "617040",
+        "feature_type": "Bekk",
+        "primary_name": "Dyrskridubekken",
+        "status": "aktiv",
+        "lat": 61.6222,
+        "lng": 8.3737
+    },
+    {
+        "source": "ssr",
+        "source_id": "512528",
+        "feature_type": "Fjell",
+        "primary_name": "Fremste Storgrovh\u00f8e",
+        "status": "aktiv",
+        "lat": 61.65018,
+        "lng": 8.27758
+    },
+    {
+        "source": "ssr",
+        "source_id": "192221",
+        "feature_type": "Fjell",
+        "primary_name": "Galdh\u00f8e",
+        "status": "aktiv",
+        "lat": 61.6498,
+        "lng": 8.31834
+    },
+    {
+        "source": "ssr",
+        "source_id": "313058",
+        "feature_type": "Fjell",
+        "primary_name": "Galdh\u00f8piggen",
+        "status": "aktiv",
+        "lat": 61.63644,
+        "lng": 8.31248
+    },
+    {
+        "source": "ssr",
+        "source_id": "1013042",
+        "feature_type": "Adressenavn",
+        "primary_name": "Galdh\u00f8piggvegen",
+        "status": "aktiv",
+        "lat": 61.66619,
+        "lng": 8.36275
+    },
+    {
+        "source": "ssr",
+        "source_id": "616183",
+        "feature_type": "Fjell",
+        "primary_name": "Heimes\u00e6terfjellet",
+        "status": "aktiv",
+        "lat": 61.66791,
+        "lng": 8.25043
+    },
+    {
+        "source": "ssr",
+        "source_id": "10053",
+        "feature_type": "Gammel bosettingsplass",
+        "primary_name": "Heimi Sygard",
+        "status": "aktiv",
+        "lat": 61.63208,
+        "lng": 8.4053
+    },
+    {
+        "source": "ssr",
+        "source_id": "10194",
+        "feature_type": "Isbre",
+        "primary_name": "Heimre Ill\u00e5brean",
+        "status": "aktiv",
+        "lat": 61.64499,
+        "lng": 8.24246
+    },
+    {
+        "source": "ssr",
+        "source_id": "556057",
+        "feature_type": "Skar",
+        "primary_name": "Ill\u00e5bandet",
+        "status": "aktiv",
+        "lat": 61.62897,
+        "lng": 8.27889
+    },
+    {
+        "source": "ssr",
+        "source_id": "71041",
+        "feature_type": "Fjell",
+        "primary_name": "Ill\u00e5bretinden, heimre",
+        "status": "aktiv",
+        "lat": 61.63875,
+        "lng": 8.26766
+    },
+    {
+        "source": "ssr",
+        "source_id": "328584",
+        "feature_type": "Fjellomr\u00e5de",
+        "primary_name": "Jotunheimen",
+        "status": "aktiv",
+        "lat": 61.605,
+        "lng": 8.4775
+    },
+    {
+        "source": "ssr",
+        "source_id": "252165",
+        "feature_type": "Slette",
+        "primary_name": "Juvflye",
+        "status": "aktiv",
+        "lat": 61.65524,
+        "lng": 8.35929
+    },
+    {
+        "source": "ssr",
+        "source_id": "920202",
+        "feature_type": "Isbre",
+        "primary_name": "Juvfonne",
+        "status": "aktiv",
+        "lat": 61.67698,
+        "lng": 8.35098
+    },
+    {
+        "source": "ssr",
+        "source_id": "131193",
+        "feature_type": "Vann",
+        "primary_name": "Juvvatnet",
+        "status": "aktiv",
+        "lat": 61.67015,
+        "lng": 8.36079
+    },
+    {
+        "source": "ssr",
+        "source_id": "71052",
+        "feature_type": "Fjell",
+        "primary_name": "Keilhaus topp",
+        "status": "aktiv",
+        "lat": 61.63491,
+        "lng": 8.32595
+    },
+    {
+        "source": "ssr",
+        "source_id": "10203",
+        "feature_type": "Botn",
+        "primary_name": "Kjelen",
+        "status": "aktiv",
+        "lat": 61.66982,
+        "lng": 8.34213
+    },
+    {
+        "source": "ssr",
+        "source_id": "373033",
+        "feature_type": "Fjell",
+        "primary_name": "Lindbergtinden",
+        "status": "aktiv",
+        "lat": 61.60434,
+        "lng": 8.28023
+    },
+    {
+        "source": "ssr",
+        "source_id": "677181",
+        "feature_type": "Skar",
+        "primary_name": "L\u00f8yfte",
+        "status": "aktiv",
+        "lat": 61.64722,
+        "lng": 8.31207
+    },
+    {
+        "source": "ssr",
+        "source_id": "27535",
+        "feature_type": "Fjell",
+        "primary_name": "Midtre Tverr\u00e5tinden",
+        "status": "aktiv",
+        "lat": 61.61451,
+        "lng": 8.31582
+    },
+    {
+        "source": "ssr",
+        "source_id": "71242",
+        "feature_type": "Fjell",
+        "primary_name": "Mytingsfjellet",
+        "status": "aktiv",
+        "lat": 61.68041,
+        "lng": 8.32284
+    },
+    {
+        "source": "ssr",
+        "source_id": "192062",
+        "feature_type": "Topp",
+        "primary_name": "N\u00e5le",
+        "status": "aktiv",
+        "lat": 61.63076,
+        "lng": 8.26786
+    },
+    {
+        "source": "ssr",
+        "source_id": "313041",
+        "feature_type": "Skar",
+        "primary_name": "Nedre Tverr\u00e5bandet",
+        "status": "aktiv",
+        "lat": 61.60879,
+        "lng": 8.28505
+    },
+    {
+        "source": "ssr",
+        "source_id": "451825",
+        "feature_type": "Fjell",
+        "primary_name": "N\u00f8rdre Bukkeh\u00f8e",
+        "status": "aktiv",
+        "lat": 61.61359,
+        "lng": 8.25886
+    },
+    {
+        "source": "ssr",
+        "source_id": "936779",
+        "feature_type": "Topp",
+        "primary_name": "N\u00f8rdre Heimre Ill\u00e5breatinden",
+        "status": "aktiv",
+        "lat": 61.63878,
+        "lng": 8.26799
+    },
+    {
+        "source": "ssr",
+        "source_id": "799027",
+        "feature_type": "Isbre",
+        "primary_name": "N\u00f8rdre Ill\u00e5brean",
+        "status": "aktiv",
+        "lat": 61.61993,
+        "lng": 8.26642
+    },
+    {
+        "source": "ssr",
+        "source_id": "295727",
+        "feature_type": "Foss",
+        "primary_name": "\u00d8ver Storgrovfossen",
+        "status": "aktiv",
+        "lat": 61.67335,
+        "lng": 8.26263
+    },
+    {
+        "source": "ssr",
+        "source_id": "677036",
+        "feature_type": "Skar",
+        "primary_name": "\u00d8vre Tverr\u00e5bandet",
+        "status": "aktiv",
+        "lat": 61.60373,
+        "lng": 8.27209
+    },
+    {
+        "source": "ssr",
+        "source_id": "738055",
+        "feature_type": "Isbre",
+        "primary_name": "Piggebrean",
+        "status": "aktiv",
+        "lat": 61.63878,
+        "lng": 8.32551
+    },
+    {
+        "source": "ssr",
+        "source_id": "556033",
+        "feature_type": "Bekk",
+        "primary_name": "Piggrove",
+        "status": "aktiv",
+        "lat": 61.62488,
+        "lng": 8.38732
+    },
+    {
+        "source": "ssr",
+        "source_id": "617062",
+        "feature_type": "Skar",
+        "primary_name": "Porten",
+        "status": "aktiv",
+        "lat": 61.63813,
+        "lng": 8.30845
+    },
+    {
+        "source": "ssr",
+        "source_id": "677054",
+        "feature_type": "Fjell",
+        "primary_name": "Skardstinden",
+        "status": "aktiv",
+        "lat": 61.63353,
+        "lng": 8.26565
+    },
+    {
+        "source": "ssr",
+        "source_id": "27533",
+        "feature_type": "Fjell",
+        "primary_name": "Solskinnstoppen",
+        "status": "aktiv",
+        "lat": 61.61952,
+        "lng": 8.34228
+    },
+    {
+        "source": "ssr",
+        "source_id": "1072691",
+        "feature_type": "Topp",
+        "primary_name": "S\u00f8raustre Skardstinden",
+        "status": "aktiv",
+        "lat": 61.62978,
+        "lng": 8.26969
+    },
+    {
+        "source": "ssr",
+        "source_id": "451824",
+        "feature_type": "Topp",
+        "primary_name": "S\u00f8re Heimre Ill\u00e5breatinden",
+        "status": "aktiv",
+        "lat": 61.63529,
+        "lng": 8.27128
+    },
+    {
+        "source": "ssr",
+        "source_id": "633534",
+        "feature_type": "Fjell",
+        "primary_name": "Store Tverr\u00e5tinden",
+        "status": "aktiv",
+        "lat": 61.61528,
+        "lng": 8.30194
+    },
+    {
+        "source": "ssr",
+        "source_id": "677190",
+        "feature_type": "Isbre",
+        "primary_name": "Storgrovbrean",
+        "status": "aktiv",
+        "lat": 61.66238,
+        "lng": 8.28071
+    },
+    {
+        "source": "ssr",
+        "source_id": "616171",
+        "feature_type": "Fjell",
+        "primary_name": "Storgrovh\u00f8e",
+        "status": "aktiv",
+        "lat": 61.65777,
+        "lng": 8.25646
+    },
+    {
+        "source": "ssr",
+        "source_id": "26762",
+        "feature_type": "Fjell",
+        "primary_name": "Storgrovtinden",
+        "status": "aktiv",
+        "lat": 61.64151,
+        "lng": 8.26664
+    },
+    {
+        "source": "ssr",
+        "source_id": "799237",
+        "feature_type": "Elv",
+        "primary_name": "Storjuva",
+        "status": "aktiv",
+        "lat": 61.67699,
+        "lng": 8.29736
+    },
+    {
+        "source": "ssr",
+        "source_id": "738058",
+        "feature_type": "Isbre",
+        "primary_name": "Storjuvbrean",
+        "status": "aktiv",
+        "lat": 61.64429,
+        "lng": 8.28423
+    },
+    {
+        "source": "ssr",
+        "source_id": "71048",
+        "feature_type": "Fjell",
+        "primary_name": "Storjuvtinden",
+        "status": "aktiv",
+        "lat": 61.63029,
+        "lng": 8.29406
+    },
+    {
+        "source": "ssr",
+        "source_id": "617067",
+        "feature_type": "Isbre",
+        "primary_name": "Styggebrean",
+        "status": "aktiv",
+        "lat": 61.64446,
+        "lng": 8.33571
+    },
+    {
+        "source": "ssr",
+        "source_id": "131023",
+        "feature_type": "Fjell",
+        "primary_name": "Styggeh\u00f8e",
+        "status": "aktiv",
+        "lat": 61.59717,
+        "lng": 8.34658
+    },
+    {
+        "source": "ssr",
+        "source_id": "617033",
+        "feature_type": "Fjell",
+        "primary_name": "Svarttinden",
+        "status": "aktiv",
+        "lat": 61.61813,
+        "lng": 8.23485
+    },
+    {
+        "source": "ssr",
+        "source_id": "253034",
+        "feature_type": "Fjell",
+        "primary_name": "Svellnosbreahesten",
+        "status": "aktiv",
+        "lat": 61.621,
+        "lng": 8.3064
+    },
+    {
+        "source": "ssr",
+        "source_id": "860036",
+        "feature_type": "Isbre",
+        "primary_name": "Svellnosbrean",
+        "status": "aktiv",
+        "lat": 61.62406,
+        "lng": 8.3107
+    },
+    {
+        "source": "ssr",
+        "source_id": "920064",
+        "feature_type": "Fjell",
+        "primary_name": "Svellnose",
+        "status": "aktiv",
+        "lat": 61.63362,
+        "lng": 8.33792
+    },
+    {
+        "source": "ssr",
+        "source_id": "192021",
+        "feature_type": "Isbre",
+        "primary_name": "Tverr\u00e5brean",
+        "status": "aktiv",
+        "lat": 61.59732,
+        "lng": 8.29434
+    },
+    {
+        "source": "ssr",
+        "source_id": "253040",
+        "feature_type": "Bekk",
+        "primary_name": "Tverr\u00e5e",
+        "status": "aktiv",
+        "lat": 61.60759,
+        "lng": 8.35158
+    },
+    {
+        "source": "ssr",
+        "source_id": "920043",
+        "feature_type": "Fjell",
+        "primary_name": "Tverr\u00e5tindan",
+        "status": "aktiv",
+        "lat": 61.61517,
+        "lng": 8.30179
+    },
+    {
+        "source": "ssr",
+        "source_id": "253249",
+        "feature_type": "Dal",
+        "primary_name": "Tverrgjelet",
+        "status": "aktiv",
+        "lat": 61.67394,
+        "lng": 8.30413
+    },
+    {
+        "source": "ssr",
+        "source_id": "70016",
+        "feature_type": "Skar",
+        "primary_name": "Vakkerbandet",
+        "status": "aktiv",
+        "lat": 61.5971,
+        "lng": 8.26649
+    },
+    {
+        "source": "ssr",
+        "source_id": "192054",
+        "feature_type": "Fjell",
+        "primary_name": "Vesle Galdh\u00f8piggen",
+        "status": "aktiv",
+        "lat": 61.64068,
+        "lng": 8.30603
+    },
+    {
+        "source": "ssr",
+        "source_id": "70185",
+        "feature_type": "Isbre",
+        "primary_name": "Vesljuvbrean",
+        "status": "aktiv",
+        "lat": 61.66442,
+        "lng": 8.34893
+    },
+    {
+        "source": "ssr",
+        "source_id": "876814",
+        "feature_type": "Fjell",
+        "primary_name": "Vestre Skardstinden",
+        "status": "aktiv",
+        "lat": 61.63394,
+        "lng": 8.25534
+    },
+    {
+        "source": "ssr",
+        "source_id": "252149",
+        "feature_type": "Fjell",
+        "primary_name": "Ymelsfjellet",
+        "status": "aktiv",
+        "lat": 61.63189,
+        "lng": 8.22637
+    },
+    {
+        "source": "ssr",
+        "source_id": "920062",
+        "feature_type": "Fjell",
+        "primary_name": "Ymmelstinden",
+        "status": "aktiv",
+        "lat": 61.62768,
+        "lng": 8.28818
+    }
+]

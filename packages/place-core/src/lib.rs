@@ -23,6 +23,9 @@ mod search;
 #[cfg(feature = "uniffi")]
 mod ffi;
 
+#[cfg(feature = "cabi")]
+mod cabi;
+
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 

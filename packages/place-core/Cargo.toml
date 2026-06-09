@@ -15,6 +15,8 @@ crate-type = ["lib", "cdylib"]
 # UniFFI bindings (Kotlin / Swift / Python) live behind a feature so the pure
 # logic + golden tests stay toolchain-free. Build with `--features uniffi`.
 uniffi = ["dep:uniffi"]
+# A plain C ABI (JSON in / JSON out) for the .NET server's P/Invoke path.
+cabi = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
