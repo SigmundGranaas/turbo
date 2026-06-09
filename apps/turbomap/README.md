@@ -11,7 +11,8 @@ Kartverket Turkart raster tiles, and lets you pan and zoom around Norway.
 | Crate | Role |
 | --- | --- |
 | `turbomap-core` | The renderer library. Knows about `wgpu`. Has no I/O, no HTTP, no winit. The FFI-ready boundary. |
-| `turbomap-tiles-http` | A `TileSource` implementation over `reqwest::blocking`. Includes a preconfigured Kartverket Turkart source. |
+| `turbomap-tiles-http` | A `TileSource` implementation over `reqwest::blocking`. Includes preconfigured Kartverket raster + Turbo basemap (`/v1/basemap`) sources. |
+| `turbomap-style-maplibre` | Lowers a MapLibre Style Spec subset (the tileserver's `/v1/basemap/style.json`) onto `turbomap-core`'s `VectorStyle`. One style document, every renderer. |
 | `turbomap-app` | The desktop binary. winit window + wgpu surface + tile fetch pump. |
 
 Dependency direction is strict and one-way:
@@ -30,6 +31,13 @@ cargo run --release -p turbomap-app
 
 The window opens centered on Bergen (60.39°N, 5.32°E) at zoom 11. Click-drag
 to pan, scroll wheel to zoom.
+
+To render the self-hosted N50 basemap with the tileserver's own style instead
+of the VersaTiles demo (requires a running `apps/tileserver` with N50 data):
+
+```sh
+TURBO_BASEMAP_URL=http://localhost:8090 cargo run --release -p turbomap-app
+```
 
 ## Tests
 

@@ -293,9 +293,31 @@ impl HttpVectorTileSource {
         .map(|s| s.with_attribution("© OpenStreetMap contributors / VersaTiles"))
     }
 
+    /// Our own tileserver's multi-layer N50 basemap
+    /// (`/v1/basemap/{z}/{x}/{y}.mvt`). Layer names: `water`, `glacier`,
+    /// `landcover`, `building`, `coastline`, `contour`, `transportation`,
+    /// `place` — styled by the document at `/v1/basemap/style.json`.
+    pub fn turbo_basemap(base_url: &str) -> Result<Self, reqwest::Error> {
+        let ua = format!("turbomap/{}", env!("CARGO_PKG_VERSION"));
+        let base = base_url.trim_end_matches('/');
+        Self::new(format!("{base}/v1/basemap/{{z}}/{{x}}/{{y}}.mvt"), ua, 4, 16)
+            .map(|s| s.with_attribution("© Kartverket"))
+    }
+
     pub fn url_for(&self, tile: TileId) -> String {
         expand_template(&self.url_template, tile)
     }
+}
+
+/// Fetch a small text document (e.g. a MapLibre `style.json`) over HTTP.
+/// Blocking, like the tile sources — call from a worker/startup path, not
+/// the render thread.
+pub fn fetch_text(url: &str) -> Result<String, reqwest::Error> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent(format!("turbomap/{}", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(15))
+        .build()?;
+    client.get(url).send()?.error_for_status()?.text()
 }
 
 impl VectorTileSource for HttpVectorTileSource {
