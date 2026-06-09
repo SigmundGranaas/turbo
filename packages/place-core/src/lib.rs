@@ -26,14 +26,20 @@ mod ffi;
 #[cfg(feature = "cabi")]
 mod cabi;
 
+#[cfg(feature = "embedded")]
+mod embedded;
+
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
 #[cfg(feature = "uniffi")]
 pub use ffi::{EngineError, PlaceEngine};
 
+#[cfg(feature = "embedded")]
+pub use embedded::{Bundle, BundleError};
+
 pub use classify::classify;
-pub use geo::haversine_m;
+pub use geo::{haversine_m, point_in_polygon, point_in_ring};
 pub use model::{
     Address, Candidate, Kommune, LocationDescription, ProtectedArea, Qualifier, ReverseInput,
     SearchCandidate, SearchHit, Tier,

@@ -17,11 +17,20 @@ crate-type = ["lib", "cdylib"]
 uniffi = ["dep:uniffi"]
 # A plain C ABI (JSON in / JSON out) for the .NET server's P/Invoke path.
 cabi = []
+# The on-device engine: reads a per-region SQLite bundle (R*Tree + FTS5) and
+# answers reverse/search by feeding candidates into the same rank()/
+# forward_search() as the server. `bundled` compiles SQLite in — fine for the
+# crate's own tests and the standalone harness; mobile targets link the
+# platform SQLite (drop `bundled`).
+embedded = ["dep:rusqlite"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uniffi = { version = "0.28", features = ["cli"], optional = true }
+# `bundled` compiles SQLite in with R*Tree + FTS5 enabled (the on-device
+# engine uses both); mobile targets drop `bundled` to link platform SQLite.
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 
 # The UniFFI binding generator, compiled only when the feature is on.
 [[bin]]
