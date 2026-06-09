@@ -6,6 +6,18 @@
   "name_rejections": ["unknown", "ukjent"],
   "elevation_min": -1000.0,
   "elevation_max": 9000.0,
+  "match_multiplier": 10000000.0,
+  "icon_default": "place",
+  "icon_map": {
+    "bruk": "farm",
+    "gard": "home",
+    "elv": "water",
+    "tettbebyggelse": "city",
+    "by": "city",
+    "fjell": "mountain",
+    "innsjø": "water",
+    "vann": "water"
+  },
   "kind_groups": {
     "peak": ["fjelltopp", "topp", "fjell", "ås", "haug", "berg", "nut", "pigg"],
     "glacier": ["isbre", "bre", "snøfonn", "jøkul"],

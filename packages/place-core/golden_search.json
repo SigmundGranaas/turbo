@@ -1,0 +1,90 @@
+[
+  {
+    "name": "icon mapping per navneobjekttype, input order preserved without proximity",
+    "query": "x",
+    "candidates": [
+      { "name": "Storgarden", "kind": "Gard" },
+      { "name": "Vesle bruk", "kind": "Bruk" },
+      { "name": "Glomma", "kind": "Elv" },
+      { "name": "Oslo", "kind": "By" },
+      { "name": "Tromsdalen", "kind": "Tettbebyggelse" },
+      { "name": "Galdhopiggen", "kind": "Fjell" },
+      { "name": "Mjosa", "kind": "Innsjø" },
+      { "name": "Store vann", "kind": "Vann" },
+      { "name": "Mardalsfossen", "kind": "Foss" }
+    ],
+    "expect": [
+      { "index": 0, "title": "Storgarden", "icon": "home" },
+      { "index": 1, "title": "Vesle bruk", "icon": "farm" },
+      { "index": 2, "title": "Glomma", "icon": "water" },
+      { "index": 3, "title": "Oslo", "icon": "city" },
+      { "index": 4, "title": "Tromsdalen", "icon": "city" },
+      { "index": 5, "title": "Galdhopiggen", "icon": "mountain" },
+      { "index": 6, "title": "Mjosa", "icon": "water" },
+      { "index": 7, "title": "Store vann", "icon": "water" },
+      { "index": 8, "title": "Mardalsfossen", "icon": "place" }
+    ]
+  },
+  {
+    "name": "exact beats prefix beats substring",
+    "query": "stor",
+    "candidates": [
+      { "name": "Storsteinnes", "kind": "Tettsted" },
+      { "name": "Lillestor", "kind": "Tettsted" },
+      { "name": "Stor", "kind": "Tettsted" }
+    ],
+    "expect": [
+      { "index": 2, "title": "Stor", "icon": "place" },
+      { "index": 0, "title": "Storsteinnes", "icon": "place" },
+      { "index": 1, "title": "Lillestor", "icon": "place" }
+    ]
+  },
+  {
+    "name": "within the same match class the nearer feature wins",
+    "query": "stor",
+    "candidates": [
+      { "name": "Storvatn", "kind": "Vann", "distance_m": 5000.0 },
+      { "name": "Storheia", "kind": "Fjell", "distance_m": 200.0 }
+    ],
+    "expect": [
+      { "index": 1, "title": "Storheia", "icon": "mountain" },
+      { "index": 0, "title": "Storvatn", "icon": "water" }
+    ]
+  },
+  {
+    "name": "without proximity, same-class hits keep input (source) order",
+    "query": "stor",
+    "candidates": [
+      { "name": "Stordal", "kind": "Tettsted", "description": "Tettsted, Møre" },
+      { "name": "Storfjord", "kind": "Tettsted" }
+    ],
+    "expect": [
+      { "index": 0, "title": "Stordal", "description": "Tettsted, Møre", "icon": "place" },
+      { "index": 1, "title": "Storfjord", "icon": "place" }
+    ]
+  },
+  {
+    "name": "case-insensitive prefix match on Norwegian characters",
+    "query": "GALDHØ",
+    "candidates": [
+      { "name": "Spiterhøi", "kind": "Fjell" },
+      { "name": "Galdhøpiggen", "kind": "Fjell" }
+    ],
+    "expect": [
+      { "index": 1, "title": "Galdhøpiggen", "icon": "mountain" },
+      { "index": 0, "title": "Spiterhøi", "icon": "mountain" }
+    ]
+  },
+  {
+    "name": "nameless and rejected candidates are dropped",
+    "query": "stor",
+    "candidates": [
+      { "name": "", "kind": "Gard" },
+      { "name": "Ukjent", "kind": "Haug" },
+      { "name": "Storsteinnes", "kind": "Tettsted" }
+    ],
+    "expect": [
+      { "index": 2, "title": "Storsteinnes", "icon": "place" }
+    ]
+  }
+]

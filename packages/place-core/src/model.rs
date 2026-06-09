@@ -151,6 +151,35 @@ pub struct LocationDescription {
     pub elevation_m: Option<f64>,
 }
 
+/// One forward-search candidate (a Stedsnavn `/navn` row, a PostGIS trigram
+/// match, or a local marker/path). The platform resolves `distance_m` from the
+/// map centre / user location when it wants proximity bias.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchCandidate {
+    pub name: String,
+    /// Feature type (`navneobjekttype`), used for the icon.
+    #[serde(default)]
+    pub kind: String,
+    /// Distance from the search origin (map centre), if known. `None` disables
+    /// proximity bias for this candidate (ties fall back to input order).
+    #[serde(default)]
+    pub distance_m: Option<f64>,
+    /// Platform-composed subtitle, passed through unchanged.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// One ranked forward-search result. `index` points back into the input
+/// candidates so the caller can recover position / source / metadata.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SearchHit {
+    pub index: usize,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub icon: String,
+}
+
 impl LocationDescription {
     pub(crate) fn titled(title: impl Into<String>) -> Self {
         LocationDescription {

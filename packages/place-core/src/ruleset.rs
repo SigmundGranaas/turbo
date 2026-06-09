@@ -38,6 +38,13 @@ pub struct Ruleset {
     /// Inclusive elevation sanity bounds; values outside are dropped.
     pub elevation_min: f64,
     pub elevation_max: f64,
+    /// Forward-search: score weight per match class (`class * match_multiplier
+    /// + distance`), so an exact/prefix hit dominates a loose fuzzy one.
+    pub match_multiplier: f64,
+    /// Forward-search icon for a lowercased `navneobjekttype`.
+    pub icon_map: BTreeMap<String, String>,
+    /// Icon for kinds absent from [`Ruleset::icon_map`].
+    pub icon_default: String,
 }
 
 impl Ruleset {
@@ -52,6 +59,13 @@ impl Ruleset {
 
     pub fn from_json(raw: &str) -> serde_json::Result<Self> {
         serde_json::from_str(raw)
+    }
+
+    /// Whether `name` may surface as a title: non-empty and not in
+    /// `name_rejections` (case-insensitive). Shared by reverse + forward.
+    pub fn name_allowed(&self, name: &str) -> bool {
+        let trimmed = name.trim();
+        !trimmed.is_empty() && !self.name_rejections.contains(&trimmed.to_lowercase())
     }
 
     /// Whether `kind` (already lowercased) belongs to `group`, with `"any"`

@@ -90,7 +90,7 @@ fn pick_best(ruleset: &Ruleset, input: &ReverseInput) -> Option<Scored> {
     let mut by_title: std::collections::HashMap<String, Scored> = std::collections::HashMap::new();
 
     for c in &input.toponyms {
-        if !name_ok(ruleset, &c.name) {
+        if !ruleset.name_allowed(&c.name) {
             continue;
         }
         let Some((tier, qualifier)) = classify(ruleset, &c.kind, c.distance_m) else {
@@ -130,14 +130,6 @@ fn pick_best(ruleset: &Ruleset, input: &ReverseInput) -> Option<Scored> {
         }
     }
     best
-}
-
-fn name_ok(ruleset: &Ruleset, name: &str) -> bool {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    !ruleset.name_rejections.contains(&trimmed.to_lowercase())
 }
 
 /// Bare cadastral references like "155/1/73" (gnr/bnr/…): slash-separated,

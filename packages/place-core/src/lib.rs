@@ -18,11 +18,14 @@ mod geo;
 mod model;
 mod rank;
 mod ruleset;
+mod search;
 
 pub use classify::classify;
 pub use geo::haversine_m;
 pub use model::{
-    Address, Candidate, Kommune, LocationDescription, ProtectedArea, Qualifier, ReverseInput, Tier,
+    Address, Candidate, Kommune, LocationDescription, ProtectedArea, Qualifier, ReverseInput,
+    SearchCandidate, SearchHit, Tier,
 };
 pub use rank::reverse_geocode;
 pub use ruleset::{ClassifyRule, Ruleset};
+pub use search::{forward_search, icon_for};
