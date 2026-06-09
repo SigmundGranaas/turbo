@@ -63,7 +63,13 @@ class SyntheticOfflineTileManager @Inject constructor() : OfflineTileManager {
     // The synthetic manager has no real network, so connectivity gating is a no-op.
     override fun setNetworkAllowed(allowed: Boolean) = Unit
 
+    override fun rename(id: Long, name: String) = _regions.update { list ->
+        list.map { if (it.id == id) it.copy(name = name) else it }
+    }
+
     override fun delete(id: Long) = _regions.update { list -> list.filterNot { it.id == id } }
+
+    override fun clearAmbientCache() = Unit // no ambient cache in the simulator
 
     private fun complete(id: Long) = _regions.update { list ->
         list.map {

@@ -45,6 +45,14 @@ class SyntheticOfflineTileManagerTest {
     }
 
     @Test
+    fun `rename rewrites the display name in place`() {
+        val m = SyntheticOfflineTileManager()
+        m.download(spec("Old name"))
+        m.rename(m.regions.value.single().id, "New name")
+        assertEquals("New name", m.regions.value.single().name)
+    }
+
+    @Test
     fun `delete removes the region by id`() {
         val m = SyntheticOfflineTileManager()
         m.download(spec("A"))

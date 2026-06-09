@@ -54,6 +54,8 @@ private class FakeOfflineTileManager : OfflineTileManager {
     override fun pause(id: Long) = Unit
     override fun resume(id: Long) = Unit
     override fun setNetworkAllowed(allowed: Boolean) = Unit
+    override fun rename(id: Long, name: String) = Unit
+    override fun clearAmbientCache() = Unit
     override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) = Unit
 }

@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Pause
@@ -30,6 +32,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,9 +58,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
 import com.sigmundgranaas.turbo.expressive.feature.map.R
-import com.sigmundgranaas.turbo.expressive.ui.components.ConfirmDeleteDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.EmptyState
+import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
+import com.sigmundgranaas.turbo.expressive.ui.components.TurboConfirmDialog
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
+import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,15 +75,26 @@ fun OfflineMapsScreen(
     val cs = MaterialTheme.colorScheme
     val regions by viewModel.regions.collectAsStateWithLifecycle()
     val totalBytes = regions.sumOf { it.sizeBytes }
-    var pendingDelete by remember { mutableStateOf<OfflineRegionInfo?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var renaming by remember { mutableStateOf<OfflineRegionInfo?>(null) }
+    var confirmClearCache by remember { mutableStateOf(false) }
+    val deletedMessage = stringResource(R.string.offline_deleted_snackbar)
+    val undoLabel = stringResource(R.string.offline_undo)
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.offline_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.offline_back))
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { confirmClearCache = true }) {
+                        Icon(Icons.Rounded.DeleteSweep, stringResource(R.string.offline_clear_cache))
                     }
                 },
             )
@@ -103,7 +124,24 @@ fun OfflineMapsScreen(
                 items(regions, key = { it.id }) { region ->
                     RegionCard(
                         region = region,
-                        onDelete = { pendingDelete = region },
+                        // Delete is staged, not immediate: the region hides, and the
+                        // snackbar's Undo restores it untouched; letting it lapse commits.
+                        onDelete = {
+                            viewModel.stageDelete(region.id)
+                            scope.launch {
+                                val result = snackbar.showSnackbar(
+                                    message = deletedMessage.format(region.name),
+                                    actionLabel = undoLabel,
+                                    duration = androidx.compose.material3.SnackbarDuration.Short,
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.undoDelete(region.id)
+                                } else {
+                                    viewModel.commitDelete(region.id)
+                                }
+                            }
+                        },
+                        onRename = { renaming = region },
                         onRetry = { viewModel.retry(region.id) },
                         onPause = { viewModel.pause(region.id) },
                         onResume = { viewModel.resume(region.id) },
@@ -114,11 +152,23 @@ fun OfflineMapsScreen(
         }
     }
 
-    pendingDelete?.let { target ->
-        ConfirmDeleteDialog(
-            itemName = target.name,
-            onConfirm = { viewModel.delete(target.id); pendingDelete = null },
-            onDismiss = { pendingDelete = null },
+    renaming?.let { target ->
+        NameInputDialog(
+            title = stringResource(R.string.offline_rename_title),
+            confirmLabel = stringResource(R.string.offline_rename_confirm),
+            initial = target.name,
+            onConfirm = { viewModel.rename(target.id, it); renaming = null },
+            onDismiss = { renaming = null },
+        )
+    }
+    if (confirmClearCache) {
+        TurboConfirmDialog(
+            title = stringResource(R.string.offline_clear_cache_title),
+            body = stringResource(R.string.offline_clear_cache_body),
+            confirmLabel = stringResource(R.string.offline_clear_cache_confirm),
+            icon = Icons.Rounded.DeleteSweep,
+            onConfirm = { viewModel.clearCache(); confirmClearCache = false },
+            onDismiss = { confirmClearCache = false },
         )
     }
 }
@@ -128,6 +178,7 @@ fun OfflineMapsScreen(
 private fun RegionCard(
     region: OfflineRegionInfo,
     onDelete: () -> Unit,
+    onRename: () -> Unit,
     onRetry: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -150,6 +201,7 @@ private fun RegionCard(
                     color = cs.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable(onClick = onRename),
                 )
                 // The base map (+ any overlays) differentiates same-named regions and
                 // shows what's actually available offline (e.g. avalanche terrain).
@@ -164,7 +216,10 @@ private fun RegionCard(
                     OfflineStatus.Complete -> StatusLine(
                         icon = Icons.Rounded.DownloadDone,
                         tint = cs.primary,
-                        text = stringResource(R.string.offline_downloaded, formatSize(region.sizeBytes)),
+                        text = stringResource(R.string.offline_downloaded, formatSize(region.sizeBytes)) +
+                            region.createdAtEpochMs.takeIf { it > 0 }
+                                ?.let { " · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) }
+                                .orEmpty(),
                     )
                     OfflineStatus.Paused -> StatusLine(
                         icon = Icons.Rounded.PauseCircle,

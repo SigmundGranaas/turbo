@@ -38,6 +38,8 @@ private class FakeOfflineTileManager(initial: List<OfflineRegionInfo> = emptyLis
     override fun pause(id: Long) = Unit
     override fun resume(id: Long) = Unit
     override fun setNetworkAllowed(allowed: Boolean) = Unit
+    override fun rename(id: Long, name: String) = Unit
+    override fun clearAmbientCache() = Unit
     override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) {
         deleted += id
@@ -101,12 +103,36 @@ class OfflineViewModelTest {
     }
 
     @Test
-    fun `delete forwards to the manager and removes the region`() {
+    fun `delete forwards to the manager and removes the region`() = runTest(mainRule.dispatcher) {
         val manager = FakeOfflineTileManager(
             listOf(OfflineRegionInfo(id = 7, name = "A", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000)),
         )
         val vm = OfflineViewModel(manager, FakeReverseGeocode("A"))
         vm.delete(7)
+        advanceUntilIdle()
+        assertTrue(manager.deleted.contains(7))
+        assertTrue(vm.regions.value.isEmpty())
+    }
+
+    @Test
+    fun `staged delete hides the region, undo restores it, commit deletes it`() = runTest(mainRule.dispatcher) {
+        val region = OfflineRegionInfo(id = 7, name = "A", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000)
+        val manager = FakeOfflineTileManager(listOf(region))
+        val vm = OfflineViewModel(manager, FakeReverseGeocode("A"))
+        advanceUntilIdle()
+
+        vm.stageDelete(7)
+        advanceUntilIdle()
+        assertTrue("hidden while staged", vm.regions.value.isEmpty())
+        assertTrue("nothing deleted yet", manager.deleted.isEmpty())
+
+        vm.undoDelete(7)
+        advanceUntilIdle()
+        assertEquals(listOf(region), vm.regions.value)
+
+        vm.stageDelete(7)
+        vm.commitDelete(7)
+        advanceUntilIdle()
         assertTrue(manager.deleted.contains(7))
         assertTrue(vm.regions.value.isEmpty())
     }

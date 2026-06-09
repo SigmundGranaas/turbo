@@ -171,6 +171,14 @@
     <string name="offline_download_cancel">Cancel</string>
     <string name="offline_detail_standard">Standard</string>
     <string name="offline_detail_detailed">Detailed</string>
+    <string name="offline_deleted_snackbar">Deleted %1$s</string>
+    <string name="offline_undo">Undo</string>
+    <string name="offline_rename_title">Rename area</string>
+    <string name="offline_rename_confirm">Rename</string>
+    <string name="offline_clear_cache">Clear map cache</string>
+    <string name="offline_clear_cache_title">Clear map cache?</string>
+    <string name="offline_clear_cache_body">Removes temporarily cached map tiles from browsing. Downloaded offline areas are kept.</string>
+    <string name="offline_clear_cache_confirm">Clear</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d area · %2$s</item>
         <item quantity="other">%1$d areas · %2$s</item>

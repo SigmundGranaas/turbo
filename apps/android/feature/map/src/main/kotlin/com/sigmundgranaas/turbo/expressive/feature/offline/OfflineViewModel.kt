@@ -14,7 +14,12 @@ import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.floor
@@ -30,7 +35,12 @@ class OfflineViewModel @Inject constructor(
     private val reverseGeocode: ReverseGeocodeRepository,
 ) : ViewModel() {
 
-    val regions: StateFlow<List<OfflineRegionInfo>> = manager.regions
+    /** Regions staged for deletion: hidden from the list while the undo snackbar runs. */
+    private val staged = MutableStateFlow<Set<Long>>(emptySet())
+
+    val regions: StateFlow<List<OfflineRegionInfo>> =
+        combine(manager.regions, staged) { list, hidden -> list.filterNot { it.id in hidden } }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, manager.regions.value)
 
     init { manager.refresh() }
 
@@ -93,7 +103,25 @@ class OfflineViewModel @Inject constructor(
 
     fun resume(id: Long) = manager.resume(id)
 
+    fun rename(id: Long, name: String) {
+        if (name.isNotBlank()) manager.rename(id, name.trim())
+    }
+
+    /** Hide the region while the undo snackbar runs; nothing is removed yet. */
+    fun stageDelete(id: Long) = staged.update { it + id }
+
+    /** Undo from the snackbar — the region was never actually deleted. */
+    fun undoDelete(id: Long) = staged.update { it - id }
+
+    /** The snackbar lapsed without undo: actually delete the region's tiles. */
+    fun commitDelete(id: Long) {
+        staged.update { it - id }
+        manager.delete(id)
+    }
+
     fun delete(id: Long) = manager.delete(id)
+
+    fun clearCache() = manager.clearAmbientCache()
 
     private companion object {
         const val MIN_ZOOM = 8.0

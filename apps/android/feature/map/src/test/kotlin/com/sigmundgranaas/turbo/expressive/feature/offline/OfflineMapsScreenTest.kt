@@ -1,10 +1,12 @@
 package com.sigmundgranaas.turbo.expressive.feature.offline
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
@@ -35,6 +37,9 @@ private class StubOfflineTileManager(initial: List<OfflineRegionInfo>) : Offline
     override fun pause(id: Long) = Unit
     override fun resume(id: Long) = Unit
     override fun setNetworkAllowed(allowed: Boolean) = Unit
+    override fun rename(id: Long, name: String) { renamed += id to name }
+    override fun clearAmbientCache() = Unit
+    val renamed = mutableListOf<Pair<Long, String>>()
     override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) {
         deleted += id
@@ -88,7 +93,7 @@ class OfflineMapsScreenTest {
     }
 
     @Test
-    fun `tapping delete removes the region`() {
+    fun `delete is staged with an undo snackbar - undo restores the region`() {
         val region = OfflineRegionInfo(id = 9, name = "Lofoten", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 12_000_000)
         val manager = StubOfflineTileManager(listOf(region))
         composeRule.setContent {
@@ -96,11 +101,27 @@ class OfflineMapsScreenTest {
         }
         composeRule.onNodeWithContentDescription("Delete Lofoten").performClick()
         composeRule.waitForIdle()
-        // Tapping delete only opens the confirmation — nothing removed yet.
+        // Hidden from the list, but nothing actually deleted while the snackbar runs.
         assertTrue(manager.deleted.isEmpty())
-        composeRule.onNodeWithText("Delete").performClick()
-        composeRule.waitForIdle()
-        assertTrue(manager.deleted.contains(9L))
         composeRule.onNodeWithText("No offline maps yet").assertIsDisplayed()
+
+        composeRule.onNodeWithText("Undo").performClick()
+        composeRule.waitForIdle()
+        assertTrue(manager.deleted.isEmpty())
+        composeRule.onNodeWithText("Lofoten").assertIsDisplayed()
+    }
+
+    @Test
+    fun `tapping the name opens rename and forwards the new name`() {
+        val region = OfflineRegionInfo(id = 4, name = "Tromsø", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000_000)
+        val manager = StubOfflineTileManager(listOf(region))
+        composeRule.setContent {
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
+        }
+        composeRule.onNodeWithText("Tromsø").performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("Kvaløya")
+        composeRule.onNodeWithText("Rename").performClick()
+        composeRule.waitForIdle()
+        assertTrue(manager.renamed.contains(4L to "Kvaløya"))
     }
 }

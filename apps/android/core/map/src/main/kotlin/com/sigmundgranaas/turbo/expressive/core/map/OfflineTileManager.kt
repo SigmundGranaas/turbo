@@ -43,7 +43,13 @@ interface OfflineTileManager {
 
     /** Continue a paused region's download (subject to the network policy). */
     fun resume(id: Long)
+
+    /** Rewrite a region's display name (the tiles are untouched). */
+    fun rename(id: Long, name: String)
     fun delete(id: Long)
+
+    /** Drop the ambient (browse) cache; explicit offline regions are untouched. */
+    fun clearAmbientCache()
 
     /**
      * Gate all in-flight downloads on connectivity: when [allowed] is false the
@@ -64,7 +70,12 @@ class MapLibreOfflineTileManager @Inject constructor(
 
     private val manager: OfflineManager by lazy {
         MapLibre.getInstance(context)
-        OfflineManager.getInstance(context).apply { setOfflineMapboxTileCountLimit(TileMath.MAX_TILES) }
+        OfflineManager.getInstance(context).apply {
+            setOfflineMapboxTileCountLimit(TileMath.MAX_TILES)
+            // Size the browse cache up from MapLibre's ~50 MB default so recently
+            // panned areas survive going offline even without an explicit region.
+            setMaximumAmbientCacheSize(AMBIENT_CACHE_BYTES, noopFileSourceCallback)
+        }
     }
     private val styleServer = LocalStyleServer()
     private val regionsById = mutableMapOf<Long, OfflineRegion>()
@@ -171,6 +182,21 @@ class MapLibreOfflineTileManager @Inject constructor(
         }
     }
 
+    override fun rename(id: Long, name: String) {
+        val region = regionsById[id] ?: return
+        val current = OfflineRegionMetadata.decode(region.metadata)
+            ?: OfflineRegionMetadata.Meta(name, BaseLayer.Norgeskart, emptySet(), null, 0.0, 0.0, 0L)
+        region.updateMetadata(
+            OfflineRegionMetadata.encode(current.copy(name = name)),
+            object : OfflineRegion.OfflineRegionUpdateMetadataCallback {
+                override fun onUpdate(metadata: ByteArray) {
+                    _regions.value.firstOrNull { it.id == id }?.let { upsert(it.copy(name = name)) }
+                }
+                override fun onError(error: String) = Unit
+            },
+        )
+    }
+
     override fun delete(id: Long) {
         val region = regionsById[id] ?: return
         region.setDownloadState(OfflineRegion.STATE_INACTIVE)
@@ -180,6 +206,10 @@ class MapLibreOfflineTileManager @Inject constructor(
             }
             override fun onError(error: String) = Unit
         })
+    }
+
+    override fun clearAmbientCache() {
+        manager.clearAmbientCache(noopFileSourceCallback)
     }
 
     private fun observerFor(region: OfflineRegion) = object : OfflineRegion.OfflineRegionObserver {
@@ -238,6 +268,15 @@ class MapLibreOfflineTileManager @Inject constructor(
             maxZoom = m?.maxZoom ?: 0.0,
             createdAtEpochMs = m?.createdAtEpochMs ?: 0L,
         )
+    }
+
+    private val noopFileSourceCallback = object : OfflineManager.FileSourceCallback {
+        override fun onSuccess() = Unit
+        override fun onError(message: String) = Unit
+    }
+
+    private companion object {
+        const val AMBIENT_CACHE_BYTES = 256L * 1024 * 1024
     }
 }
 
