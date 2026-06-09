@@ -78,7 +78,8 @@ impl VectorPipeline {
         // TILE_UNIFORM_STRIDE (256) intervals to satisfy
         // `min_uniform_buffer_offset_alignment`, but the shader's binding
         // *view* is 16 bytes wide.
-        const WGSL_TILE_UNIFORM_BYTES: u64 = 16;
+        // tile_alpha(4) + use_paint_color(4) + pad(8) + paint_color vec4(16).
+        const WGSL_TILE_UNIFORM_BYTES: u64 = 32;
         let tile_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("turbomap-vector-tile-bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -204,6 +205,9 @@ impl VectorPipeline {
         clear_color: [f32; 4],
         fade_in_secs: f32,
         is_first_layer: bool,
+        // When set, the shader uses this colour for every fragment instead
+        // of the baked vertex colour — the zoom/data-driven paint path.
+        paint_override: Option<[f32; 4]>,
     ) {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
@@ -255,10 +259,20 @@ impl VectorPipeline {
         // Only the first 4 bytes of each 256-byte slot carry data (the
         // rest is just alignment padding); one big write covers them all.
         if draw_count > 0 {
+            let (use_paint, paint) = match paint_override {
+                Some(c) => (1.0f32, c),
+                None => (0.0f32, [0.0; 4]),
+            };
             let mut bytes = vec![0u8; draw_count * TILE_UNIFORM_STRIDE as usize];
             for (i, (_, alpha)) in to_draw.iter().take(draw_count).enumerate() {
                 let off = i * TILE_UNIFORM_STRIDE as usize;
                 bytes[off..off + 4].copy_from_slice(&alpha.to_le_bytes());
+                bytes[off + 4..off + 8].copy_from_slice(&use_paint.to_le_bytes());
+                // paint_color vec4 at the 16-byte-aligned slot.
+                for (k, comp) in paint.iter().enumerate() {
+                    let c = off + 16 + k * 4;
+                    bytes[c..c + 4].copy_from_slice(&comp.to_le_bytes());
+                }
             }
             self.queue
                 .write_buffer(&self.tile_uniform_buffer, 0, &bytes);

@@ -51,6 +51,9 @@ pub struct TurbomapEngine {
     terrain_source: Option<Arc<dyn TileSource>>,
     /// Resolved vector source per layer id (MVT or GeoJSON).
     vector_sources: HashMap<String, Arc<dyn VectorTileSource>>,
+    /// Colour paint per line/fill layer, re-evaluated each frame so zoom
+    /// curves animate on the GPU without re-tessellation.
+    layer_colors: HashMap<String, Paint<Color>>,
     /// Layer ids the current backend cannot render (recorded each apply).
     unsupported: Vec<String>,
     max_texture_size: u32,
@@ -78,6 +81,7 @@ impl TurbomapEngine {
             raster_sources: HashMap::new(),
             terrain_source: None,
             vector_sources: HashMap::new(),
+            layer_colors: HashMap::new(),
             unsupported: Vec::new(),
             max_texture_size,
         })
@@ -113,6 +117,7 @@ impl TurbomapEngine {
             self.map.remove_layer(id);
             self.raster_sources.remove(id);
             self.vector_sources.remove(id);
+            self.layer_colors.remove(id);
         }
         // Re-install the new tail in order (core appends).
         for layer in new_pos.iter().skip(prefix) {
@@ -182,6 +187,7 @@ impl TurbomapEngine {
                     let style = line_style(name, filter, color, width, zoom);
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
+                    self.layer_colors.insert(id.clone(), color.clone());
                 }
             }
             Layer::Fill {
@@ -198,6 +204,7 @@ impl TurbomapEngine {
                     let style = fill_style(name, filter, color, opacity, zoom);
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
+                    self.layer_colors.insert(id.clone(), color.clone());
                 }
             }
             Layer::Symbol {
@@ -306,8 +313,29 @@ impl TurbomapEngine {
         stats
     }
 
+    /// Re-evaluate line/fill colour paints at the current zoom and push
+    /// them to the GPU as per-layer overrides. Cheap (one eval per layer),
+    /// no re-tessellation — this is how zoom-curve / data-driven colour
+    /// stays live. Called automatically before every [`render`](Self::render).
+    pub fn update_dynamic_paint(&mut self) {
+        let zoom = self.map.camera().zoom;
+        for (id, paint) in &self.layer_colors {
+            let c = paint.at(zoom);
+            self.map.set_vector_layer_color(
+                id,
+                Some([
+                    c.r as f32 / 255.0,
+                    c.g as f32 / 255.0,
+                    c.b as f32 / 255.0,
+                    c.a as f32 / 255.0,
+                ]),
+            );
+        }
+    }
+
     /// Record one frame into the host's encoder + target view.
     pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        self.update_dynamic_paint();
         self.map.render(encoder, target);
     }
 

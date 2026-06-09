@@ -179,6 +179,11 @@ struct VectorLayer {
     cache: VectorMeshCache,
     fade_in_secs: f32,
     visible: bool,
+    /// Per-frame paint colour override (linear RGBA in `[0,1]`). When set,
+    /// the shader uses it instead of the baked vertex colour — the path
+    /// zoom-interpolated / data-driven paint takes. `None` keeps the baked
+    /// colour.
+    paint_override: Option<[f32; 4]>,
 }
 
 struct HillshadeLayer {
@@ -436,7 +441,23 @@ impl Map {
             cache,
             fade_in_secs: self.options.fade_in_secs,
             visible: true,
+            paint_override: None,
         })));
+    }
+
+    /// Set (or clear) a vector layer's per-frame paint colour override.
+    /// `color` is linear RGBA in `[0,1]`. Returns `false` if no vector
+    /// layer matches `id`.
+    pub fn set_vector_layer_color(&mut self, id: &str, color: Option<[f32; 4]>) -> bool {
+        for layer in &mut self.layers {
+            if let LayerEntry::Vector(v) = layer {
+                if v.id == id {
+                    v.paint_override = color;
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     pub fn remove_layer(&mut self, id: &str) {
@@ -967,6 +988,7 @@ impl Map {
                         srgb_color_to_linear_f32(v.style.background),
                         v.fade_in_secs,
                         is_first,
+                        v.paint_override,
                     );
                 }
                 LayerEntry::Hillshade(h) if h.visible => {

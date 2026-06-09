@@ -7,9 +7,15 @@ struct CameraUniform {
 
 struct TileUniform {
     tile_alpha: f32,
-    // No further fields needed. The buffer is laid out at 256-byte stride
-    // for dynamic-offset alignment, but the shader only reads the first
-    // four bytes from each binding.
+    // >0.5 → ignore the baked vertex colour and use `paint_color` instead.
+    // This is how zoom-interpolated / data-driven paint reaches the GPU
+    // without re-tessellating: the host evaluates the paint per frame and
+    // writes the result here. Vertex colour stays the fallback so the
+    // baked multi-rule path is unchanged when no override is set.
+    use_paint_color: f32,
+    // Padding to align the following vec4 to 16 bytes.
+    _pad: vec2<f32>,
+    paint_color: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -47,5 +53,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // space derivative of `dist`. fwidth = |dFdx| + |dFdy|.
     let fade = fwidth(dist);
     let edge_alpha = 1.0 - smoothstep(1.0 - fade, 1.0, dist);
-    return vec4<f32>(in.color.rgb, in.color.a * edge_alpha * tile.tile_alpha);
+    var base = in.color;
+    if (tile.use_paint_color > 0.5) {
+        base = tile.paint_color;
+    }
+    return vec4<f32>(base.rgb, base.a * edge_alpha * tile.tile_alpha);
 }
