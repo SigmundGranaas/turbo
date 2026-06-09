@@ -47,6 +47,9 @@ pub struct ApiState {
     /// `tools/basemap-layers.toml` (embedded fallback). Drives
     /// `/v1/basemap/{z}/{x}/{y}.mvt`.
     pub basemap: Arc<turbo_tiles_mvt::BasemapConfig>,
+    /// The house style parsed for the server-side raster renderer
+    /// (`/v1/raster/n50/...`). Same document as `/v1/basemap/style.json`.
+    pub raster_style: Arc<turbo_tiles_raster::RasterStyle>,
 }
 
 impl ApiState {
@@ -63,6 +66,10 @@ impl ApiState {
             pathfinder: None,
             presets: Arc::new(turbo_tiles_pathfind::PresetSet::load_or_default()),
             basemap: Arc::new(turbo_tiles_mvt::BasemapConfig::load_or_default()),
+            raster_style: Arc::new(
+                turbo_tiles_raster::RasterStyle::load_or_default()
+                    .expect("embedded n50-topo style must parse"),
+            ),
         }
     }
 }

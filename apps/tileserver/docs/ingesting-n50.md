@@ -157,7 +157,16 @@ straight from PostGIS — no build step:
 GET /v1/basemap                      # TileJSON 3.0.0 descriptor (layers, zooms, fields)
 GET /v1/basemap/{z}/{x}/{y}.mvt      # one MVT with all active layers stitched in
 GET /v1/basemap/style.json           # the house n50-topo MapLibre style, wired to this server
+GET /v1/raster/n50/{z}/{x}/{y}.png   # raster fallback: same data + style, rasterised at origin
 ```
+
+The raster endpoint (`turbo-tiles-raster`, tiny-skia + embedded DejaVu Sans
+for labels) is the M1 drop-in for `flutter_map` — the app's
+`TurboN50TopoConfig` provider consumes it, replacing the Kartverket
+Norgeskart WMTS without a client renderer change. Native max zoom 16
+(N50 scale); clients overzoom beyond. The edge worker's allowlist covers
+`/v1/raster/...`, so each tile rasterises once per data version
+(~0.5 s/tile debug, much faster in release) and serves from cache after.
 
 Layers, paint order, per-layer zoom ranges, and exposed attributes are declared
 in `tools/basemap-layers.toml` (embedded fallback compiled in). Adding a feature
