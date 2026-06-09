@@ -38,17 +38,44 @@ public sealed class KartverketEnrichmentClient
         return double.IsFinite(value) && value is >= MinElevationM and <= MaxElevationM ? value : null;
     }
 
-    public async Task<(string? Kommune, string? Fylke)> KommuneAsync(
+    public async Task<(string? Nummer, string? Kommune, string? Fylke)> KommuneAsync(
         double lat, double lng, CancellationToken ct = default)
     {
         var url = string.Format(CultureInfo.InvariantCulture,
             "{0}?nord={1}&ost={2}&koordsys=4258", KommuneEndpoint, lat, lng);
         using var doc = await GetAsync(url, ct);
-        if (doc is null) return (null, null);
+        if (doc is null) return (null, null, null);
         var root = doc.RootElement;
+        var nummer = root.TryGetProperty("kommunenummer", out var nr) ? nr.GetString() : null;
         var kommune = root.TryGetProperty("kommunenavn", out var k) ? k.GetString() : null;
         var fylke = root.TryGetProperty("fylkesnavn", out var f) ? f.GetString() : null;
-        return (kommune, fylke);
+        return (nummer, kommune, fylke);
+    }
+
+    /// <summary>The kommune's boundary polygon (Kommuneinfo
+    /// <c>/kommuner/{nr}/omrade</c>) as an <see cref="Area"/> for the
+    /// containment table. <paramref name="fylke"/> rides along as the area's
+    /// Kind so containment answers kommune + fylke from one row.</summary>
+    public async Task<Area?> KommuneAreaAsync(
+        string kommunenummer, string? fylke, CancellationToken ct = default)
+    {
+        var url = string.Format(CultureInfo.InvariantCulture,
+            "https://ws.geonorge.no/kommuneinfo/v1/kommuner/{0}/omrade", kommunenummer);
+        using var doc = await GetAsync(url, ct);
+        if (doc is null) return null;
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("omrade", out var omrade) ||
+            omrade.ValueKind != JsonValueKind.Object) return null;
+        var name = root.TryGetProperty("kommunenavn", out var k) ? k.GetString() : null;
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        return new Area(
+            Source: "kommuneinfo",
+            SourceId: kommunenummer,
+            AreaType: "kommune",
+            Name: name,
+            Kind: fylke,
+            GeoJsonGeometry: omrade.GetRawText());
     }
 
     private async Task<JsonDocument?> GetAsync(string url, CancellationToken ct)

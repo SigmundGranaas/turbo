@@ -23,6 +23,7 @@ public sealed class PgPlaceStore : IPlaceStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
             CREATE SCHEMA IF NOT EXISTS places;
             CREATE TABLE IF NOT EXISTS places.places (
                 source          text NOT NULL,
@@ -46,8 +47,109 @@ public sealed class PgPlaceStore : IPlaceStore
             ALTER TABLE places.places ADD COLUMN IF NOT EXISTS fylke_name   text;
             CREATE INDEX IF NOT EXISTS places_centroid_gist ON places.places USING gist (centroid);
             CREATE INDEX IF NOT EXISTS places_geom_gist     ON places.places USING gist (geom);
+            CREATE INDEX IF NOT EXISTS places_name_trgm     ON places.places USING gin (name_fold gin_trgm_ops);
+            CREATE TABLE IF NOT EXISTS places.areas (
+                source          text NOT NULL,
+                source_id       text NOT NULL,
+                area_type       text NOT NULL,   -- 'protected_area' | 'kommune'
+                name            text NOT NULL,
+                kind            text,            -- verneform | fylke name
+                geom            geometry(Geometry,4326) NOT NULL,
+                dataset_version text NOT NULL,
+                updated_at      timestamptz NOT NULL DEFAULT now(),
+                PRIMARY KEY (source, source_id)
+            );
+            CREATE INDEX IF NOT EXISTS areas_geom_gist ON places.areas USING gist (geom);
+            CREATE INDEX IF NOT EXISTS areas_type      ON places.areas (area_type);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<int> UpsertAreasAsync(
+        IReadOnlyCollection<Area> areas, string datasetVersion, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        // ST_MakeValid: real-world coastline/boundary polygons routinely carry
+        // self-intersections that would otherwise poison ST_Contains.
+        cmd.CommandText = """
+            INSERT INTO places.areas (source, source_id, area_type, name, kind, geom, dataset_version)
+            VALUES (@source, @sid, @type, @name, @kind,
+                    ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(@geojson), 4326)),
+                    @ver)
+            ON CONFLICT (source, source_id) DO UPDATE SET
+                area_type       = EXCLUDED.area_type,
+                name            = EXCLUDED.name,
+                kind            = EXCLUDED.kind,
+                geom            = EXCLUDED.geom,
+                dataset_version = EXCLUDED.dataset_version,
+                updated_at      = now();
+            """;
+        var pSource = cmd.Parameters.Add("source", NpgsqlTypes.NpgsqlDbType.Text);
+        var pSid = cmd.Parameters.Add("sid", NpgsqlTypes.NpgsqlDbType.Text);
+        var pType = cmd.Parameters.Add("type", NpgsqlTypes.NpgsqlDbType.Text);
+        var pName = cmd.Parameters.Add("name", NpgsqlTypes.NpgsqlDbType.Text);
+        var pKind = cmd.Parameters.Add("kind", NpgsqlTypes.NpgsqlDbType.Text);
+        var pGeo = cmd.Parameters.Add("geojson", NpgsqlTypes.NpgsqlDbType.Text);
+        var pVer = cmd.Parameters.Add("ver", NpgsqlTypes.NpgsqlDbType.Text);
+        await cmd.PrepareAsync(ct);
+
+        var n = 0;
+        foreach (var a in areas)
+        {
+            pSource.Value = a.Source;
+            pSid.Value = a.SourceId;
+            pType.Value = a.AreaType;
+            pName.Value = a.Name;
+            pKind.Value = (object?)a.Kind ?? DBNull.Value;
+            pGeo.Value = a.GeoJsonGeometry;
+            pVer.Value = datasetVersion;
+            n += await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+        return n;
+    }
+
+    public async Task<Containment> ContainingAsync(double lat, double lng, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // One pass over the GIST index; smallest containing polygon per type
+        // (a nature reserve inside a national park should win the title).
+        cmd.CommandText = """
+            SELECT DISTINCT ON (area_type) area_type, name, kind
+            FROM places.areas
+            WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(@lng, @lat), 4326))
+            ORDER BY area_type, ST_Area(geom) ASC;
+            """;
+        cmd.Parameters.AddWithValue("lng", lng);
+        cmd.Parameters.AddWithValue("lat", lat);
+
+        string? parkName = null, parkKind = null, kommune = null, fylke = null;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var type = reader.GetString(0);
+            var name = reader.GetString(1);
+            var kind = reader.IsDBNull(2) ? null : reader.GetString(2);
+            switch (type)
+            {
+                case "protected_area":
+                    parkName = name;
+                    parkKind = kind;
+                    break;
+                case "kommune":
+                    kommune = name;
+                    fylke = kind;
+                    break;
+            }
+        }
+        return new Containment(parkName, parkKind, kommune, fylke);
     }
 
     public async Task<int> UpsertAsync(

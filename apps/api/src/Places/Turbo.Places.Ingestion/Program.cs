@@ -44,13 +44,15 @@ Console.WriteLine($"downloaded {raw.Count} names from Kartverket");
 // concurrency so we're a good API citizen.
 var enricher = new KartverketEnrichmentClient(http);
 using var gate = new SemaphoreSlim(6);
+var kommuneNumbers = new System.Collections.Concurrent.ConcurrentDictionary<string, string?>();
 var batch = await Task.WhenAll(raw.Select(async p =>
 {
     await gate.WaitAsync();
     try
     {
         var elevation = await enricher.ElevationAsync(p.Lat, p.Lng);
-        var (kommune, fylke) = await enricher.KommuneAsync(p.Lat, p.Lng);
+        var (nummer, kommune, fylke) = await enricher.KommuneAsync(p.Lat, p.Lng);
+        if (nummer is not null) kommuneNumbers.TryAdd(nummer, fylke);
         return p with { ElevationM = elevation, KommuneName = kommune, FylkeName = fylke };
     }
     finally { gate.Release(); }
@@ -59,33 +61,55 @@ var batch = await Task.WhenAll(raw.Select(async p =>
 var upserted = await store.UpsertAsync(batch, version);
 Console.WriteLine($"enriched + upserted {upserted}");
 
-// Reverse-geocode the centre — from our own data, no Kartverket call.
-var reverse = new ReverseGeocodeService(store);
-var description = await reverse.DescribeAsync(lat, lng);
-
-if (description is null)
+// Polygon areas for containment: protected areas (Naturbase) for a bbox
+// around the sample disc, plus the boundary polygon of every kommune seen.
+var dLat = radius * 3.0 / 111_320.0; // 3x the disc so park demo points fit
+var dLng = dLat / Math.Cos(lat * Math.PI / 180.0);
+var naturbase = new NaturbaseClient(http);
+var areas = new List<Area>(
+    await naturbase.DownloadAreasAsync(lng - dLng, lat - dLat, lng + dLng, lat + dLat));
+foreach (var (nummer, fylke) in kommuneNumbers)
 {
-    Console.WriteLine("reverse: (no result)");
-    return 1;
+    if (await enricher.KommuneAreaAsync(nummer, fylke) is { } kommuneArea)
+        areas.Add(kommuneArea);
 }
+var areaCount = await store.UpsertAreasAsync(areas, version);
+Console.WriteLine($"areas upserted: {areaCount} " +
+    $"({areas.Count(a => a.AreaType == "protected_area")} protected, " +
+    $"{areas.Count(a => a.AreaType == "kommune")} kommune)");
 
-var label = description.Qualifier switch
+// Reverse-geocode demo points — from our own data, no Kartverket call.
+// The wilderness point sits inside a protected area but outside the
+// ingested toponym disc, exercising the polygon-containment fallback.
+var reverse = new ReverseGeocodeService(store);
+var ok = await Demo(reverse, "centre    ", lat, lng);
+ok &= await Demo(reverse, "wilderness", lat - 0.13, lng + 0.10);
+return ok ? 0 : 1;
+
+static async Task<bool> Demo(ReverseGeocodeService reverse, string tag, double lat, double lng)
 {
-    "on" => $"On {description.Title}",
-    "inArea" => $"In {description.Title}",
-    "atPlace" => $"At {description.Title}",
-    "closeTo" => $"Close to {description.Title}",
-    "near" => $"Near {description.Title}",
-    _ => description.Title,
-};
-var subtitleParts = new List<string>();
-if (description.ElevationM is { } e)
-    subtitleParts.Add($"{e.ToString("0", CultureInfo.InvariantCulture)} m");
-var area = string.Join(", ", new[] { description.Kommune, description.Fylke }.Where(s => !string.IsNullOrEmpty(s)));
-if (!string.IsNullOrEmpty(area)) subtitleParts.Add(area);
-var subtitle = subtitleParts.Count > 0 ? " · " + string.Join(" · ", subtitleParts) : "";
-
-Console.WriteLine($"reverse @ centre -> \"{label}\"{subtitle} " +
-                  $"({description.DistanceM?.ToString("0", CultureInfo.InvariantCulture)} m) " +
-                  $"[from our own stack]");
-return 0;
+    var d = await reverse.DescribeAsync(lat, lng);
+    if (d is null)
+    {
+        Console.WriteLine($"reverse @ {tag} -> (no result)");
+        return false;
+    }
+    var label = d.Qualifier switch
+    {
+        "on" => $"On {d.Title}",
+        "inArea" => $"In {d.Title}",
+        "atPlace" => $"At {d.Title}",
+        "closeTo" => $"Close to {d.Title}",
+        "near" => $"Near {d.Title}",
+        _ => d.Title,
+    };
+    var parts = new List<string>();
+    if (d.Secondary is { Length: > 0 }) parts.Add(d.Secondary);
+    if (d.ElevationM is { } e) parts.Add($"{e.ToString("0", CultureInfo.InvariantCulture)} m");
+    var area = string.Join(", ", new[] { d.Kommune, d.Fylke }.Where(s => !string.IsNullOrEmpty(s)));
+    if (!string.IsNullOrEmpty(area)) parts.Add(area);
+    var subtitle = parts.Count > 0 ? " · " + string.Join(" · ", parts) : "";
+    var dist = d.DistanceM is { } m ? $" ({m.ToString("0", CultureInfo.InvariantCulture)} m)" : "";
+    Console.WriteLine($"reverse @ {tag} -> \"{label}\"{subtitle}{dist} [from our own stack]");
+    return true;
+}

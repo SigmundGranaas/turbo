@@ -18,9 +18,16 @@ public static class PlaceCoreJson
 public sealed class ReverseInputDto
 {
     [JsonPropertyName("toponyms")] public List<CandidateDto> Toponyms { get; set; } = new();
+    [JsonPropertyName("protected_area")] public ProtectedAreaDto? ProtectedArea { get; set; }
     [JsonPropertyName("kommune")] public KommuneDto? Kommune { get; set; }
     [JsonPropertyName("elevation_m")] public double? ElevationM { get; set; }
-    // protected_area / address are added when those sources are ingested (M2b).
+    // address joins once Matrikkel is ingested (M4).
+}
+
+public sealed class ProtectedAreaDto
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("kind")] public string? Kind { get; set; }
 }
 
 public sealed class KommuneDto

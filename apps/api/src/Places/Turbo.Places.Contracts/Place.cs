@@ -36,3 +36,28 @@ public sealed record ReverseCandidate(
     double? ElevationM = null,
     string? KommuneName = null,
     string? FylkeName = null);
+
+/// <summary>
+/// A polygon reference area used for point-containment at query time:
+/// protected areas (Naturbase) and administrative units (kommuner).
+/// Geometry travels as a GeoJSON geometry string and is parsed by PostGIS
+/// (<c>ST_GeomFromGeoJSON</c>) at upsert.
+/// </summary>
+/// <param name="AreaType"><c>protected_area</c> | <c>kommune</c>.</param>
+/// <param name="Kind">Protection class (<c>verneform</c>) for parks; the
+/// fylke name for kommuner.</param>
+public sealed record Area(
+    string Source,
+    string SourceId,
+    string AreaType,
+    string Name,
+    string? Kind,
+    string GeoJsonGeometry);
+
+/// <summary>Point-containment over the areas table: the smallest containing
+/// protected area (if any) and the containing kommune/fylke.</summary>
+public sealed record Containment(
+    string? ProtectedAreaName,
+    string? ProtectedAreaKind,
+    string? KommuneName,
+    string? FylkeName);
