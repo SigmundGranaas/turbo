@@ -71,12 +71,6 @@ impl Elevation for DemElevation {
     }
 }
 
-/// Lazy `CellOverlay`: evaluates the project's `CostContributor` stack
-/// (water/glacier refusal + trail-proximity/slope pace) for a cell ONLY when
-/// the lifted A* first asks about it, memoising the result. On a long route
-/// the search touches a fraction of the corridor, so this avoids the eager
-/// whole-corridor bake — speeding the solve and letting progress snapshots
-/// stream from the first step instead of after a silent bake.
 /// Append the off-trail roughness contributor (a multiplicative pace
 /// factor on mesh edges) to a per-request contributor stack. Off-trail
 /// roughness is per-request/profile (`inputs.off_trail_factor`), so it
@@ -95,125 +89,6 @@ pub(crate) fn with_off_trail(
     v
 }
 
-pub(crate) struct LazyContributorOverlay<'a> {
-    shape: GridShape,
-    /// For the shared `EdgeElevProbe` handed to the contributor stack
-    /// — one DEM pass per cell instead of one per slope contributor.
-    dem: Arc<Dem>,
-    base_pace: f32,
-    profile: turbo_tiles_graph::Profile,
-    contributors: &'a [Arc<dyn CostContributor>],
-    // 0 = uncomputed, 1 = passable, 2 = refused.
-    state: std::cell::RefCell<Vec<u8>>,
-    mul: std::cell::RefCell<Vec<f32>>,
-    refused_by: std::cell::RefCell<std::collections::BTreeSet<String>>,
-}
-
-impl<'a> LazyContributorOverlay<'a> {
-    pub(crate) fn new(
-        shape: GridShape,
-        dem: Arc<Dem>,
-        base_pace: f32,
-        profile: turbo_tiles_graph::Profile,
-        contributors: &'a [Arc<dyn CostContributor>],
-    ) -> Self {
-        let n = (shape.nx as usize) * (shape.ny as usize);
-        Self {
-            shape,
-            dem,
-            base_pace,
-            profile,
-            contributors,
-            state: std::cell::RefCell::new(vec![0u8; n]),
-            mul: std::cell::RefCell::new(vec![1.0f32; n]),
-            refused_by: std::cell::RefCell::new(std::collections::BTreeSet::new()),
-        }
-    }
-
-    #[inline]
-    fn idx(&self, i: u32, j: u32) -> usize {
-        (j as usize) * (self.shape.nx as usize) + (i as usize)
-    }
-
-    fn ensure(&self, i: u32, j: u32) {
-        let idx = self.idx(i, j);
-        if self.state.borrow()[idx] != 0 {
-            return;
-        }
-        let cell_m = self.shape.cell_m;
-        let (cx, cy) = self.shape.cell_centre(i, j);
-        // ONE shared elevation probe for the whole contributor stack:
-        // the slope-family contributors all sample the same points
-        // along this synthetic cell edge.
-        let probe = crate::contributor::EdgeElevProbe::new(
-            &self.dem,
-            cx - 0.5 * cell_m,
-            cy,
-            cx + 0.5 * cell_m,
-            cy,
-        );
-        let ctx = EdgeContext {
-            fx: cx - 0.5 * cell_m,
-            fy: cy,
-            tx: cx + 0.5 * cell_m,
-            ty: cy,
-            length_m: cell_m,
-            profile: self.profile,
-            kind: EdgeKind::Mesh,
-            elev_probe: Some(&probe),
-        };
-        for c in self.contributors {
-            if let Some(label) = c.veto(&ctx) {
-                self.state.borrow_mut()[idx] = 2;
-                self.refused_by.borrow_mut().insert(label.to_string());
-                return;
-            }
-        }
-        let mut extra_s: f64 = 0.0;
-        let mut factor: f64 = 1.0;
-        for c in self.contributors {
-            let dv = c.contribute(&ctx);
-            if dv.is_finite() {
-                extra_s += dv;
-            }
-            let f = c.pace_factor(&ctx);
-            if f.is_finite() && f > 0.0 {
-                factor *= f;
-            }
-        }
-        let extra_pace = (extra_s / cell_m) as f32;
-        // Additive deltas scale the base pace; multiplicative pace
-        // factors (off-trail roughness, …) scale the whole composed
-        // pace — matching the solver's former `tobler × off × mul`.
-        let mul = ((self.base_pace + extra_pace) / self.base_pace) as f64 * factor;
-        self.mul.borrow_mut()[idx] = (mul as f32).clamp(0.1, 20.0);
-        self.state.borrow_mut()[idx] = 1;
-    }
-
-    fn refused_count(&self) -> u32 {
-        self.state.borrow().iter().filter(|&&s| s == 2).count() as u32
-    }
-
-    pub(crate) fn refused_labels(&self) -> Vec<String> {
-        self.refused_by.borrow().iter().cloned().collect()
-    }
-}
-
-impl<'a> turbo_tiles_fmm::CellOverlay for LazyContributorOverlay<'a> {
-    fn refused(&self, i: u32, j: u32) -> bool {
-        self.ensure(i, j);
-        self.state.borrow()[self.idx(i, j)] == 2
-    }
-    fn pace_mul(&self, i: u32, j: u32) -> f32 {
-        self.ensure(i, j);
-        let idx = self.idx(i, j);
-        if self.state.borrow()[idx] == 2 {
-            1.0
-        } else {
-            self.mul.borrow()[idx]
-        }
-    }
-}
 
 /// Inputs to `solve_fmm_corridor`. Mirrors the off-trail-solve API
 /// shape used by the existing `Pathfinder::build_off_trail_segment`
@@ -912,7 +787,7 @@ fn solve_grade_limited_path(
     // `off_trail_factor` in `forward_cost`. It survives on
     // `GradeLimitedCost` purely as the A* heuristic's pace floor.
     let augmented = with_off_trail(contributors, inputs.off_trail_factor);
-    let overlay = LazyContributorOverlay::new(
+    let overlay = crate::cost_field::LazyCostField::new(
         shape2d,
         dem.clone(),
         inputs.base_pace_s_per_m,
@@ -983,7 +858,6 @@ fn solve_grade_limited_path(
     // dropping iterations and finally falling back to raw if a clip remains.
     let cell_m_f = shape2d.cell_m;
     let seg_clear = |poly: &[PathPoint]| -> bool {
-        use turbo_tiles_fmm::CellOverlay;
         for w in poly.windows(2) {
             let d = ((w[1].x - w[0].x).powi(2) + (w[1].y - w[0].y).powi(2)).sqrt();
             let steps = ((d / (0.4 * cell_m_f)).ceil() as i32).max(1);

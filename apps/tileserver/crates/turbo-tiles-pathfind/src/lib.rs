@@ -26,6 +26,7 @@ pub mod config;
 pub mod contributor;
 pub mod core;
 pub mod cost;
+pub(crate) mod cost_field;
 pub mod fmm_adapter;
 pub mod layers;
 pub mod native_contributors;

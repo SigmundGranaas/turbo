@@ -12,22 +12,22 @@
 //! contributor stack on `EdgeKind::Graph`. Because it is one search, the
 //! "follow this trail vs cut across here" decision is made per-edge.
 //!
-//! ## Independence
-//! This module is deliberately SELF-CONTAINED. It owns its corridor
-//! ([`Corridor`]), its per-cell cost overlay ([`MeshOverlay`]) and its
-//! Tobler pace ([`tobler_pace`]). It shares NOTHING with the off-trail
-//! FMM solver (`fmm_adapter` / `turbo-tiles-fmm`) — the two algorithms
-//! are independent, so a change to one cannot affect the other. The only
-//! shared dependencies are the **cost model** (the `CostContributor`
-//! stack — shared by design: there is one cost definition) and the raw
-//! **data** (graph + DEM).
+//! ## Shared seams
+//! Per the routing-engine unification plan, this module shares the
+//! CANONICAL seams with the FMM solver instead of duplicating them:
+//! the grid ([`turbo_tiles_fmm::GridShape`] via [`corridor_shape`])
+//! and the per-cell cost field ([`crate::cost_field::LazyCostField`]),
+//! plus the cost model (the `CostContributor` stack) and the raw data
+//! (graph + DEM). The SOLVERS stay independent — this A* and the FMM
+//! eikonal solve share no search code — but a cost/grid definition
+//! exists exactly once.
 
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 
 use turbo_tiles_elev::{Dem, PointXY};
+use turbo_tiles_fmm::GridShape;
 use turbo_tiles_graph::{Graph, Profile};
 
 use crate::contributor::{compose_edge_walk_seconds, CostContributor, EdgeContext, EdgeKind};
@@ -101,222 +101,61 @@ fn tobler_pace(grad_mag: f32) -> f32 {
     }
 }
 
-/// A rectangular off-trail search grid oriented to the from→to line,
-/// padded enough to detour around local obstacles but capped so the cell
-/// count grows O(d), not O(d²). Owns the cell ↔ world mapping.
-struct Corridor {
-    origin_x: f64,
-    origin_y: f64,
-    nx: u32,
-    ny: u32,
-    cell_m: f64,
-}
-
-impl Corridor {
-    /// Build the corridor for a route. Returns `None` if the endpoints
-    /// are closer than half a cell (degenerate).
-    fn for_route(from: PointXY, to: PointXY, cell_m: f64) -> Option<Corridor> {
-        let dx = to.x - from.x;
-        let dy = to.y - from.y;
-        let d = (dx * dx + dy * dy).sqrt();
-        if d < cell_m * 0.5 {
-            return None;
-        }
-        let pad = (4.0 * cell_m).max(0.30 * d).min(PAD_CAP_M);
-        let half_width = 800.0_f64.max(0.20 * d).min(HALF_WIDTH_CAP_M);
-        let u = (dx / d, dy / d);
-        let v = (-u.1, u.0);
-        let along = d * 0.5 + pad;
-        let cross = half_width + pad;
-        let cx = (from.x + to.x) * 0.5;
-        let cy = (from.y + to.y) * 0.5;
-        let corners = [
-            (
-                cx + along * u.0 + cross * v.0,
-                cy + along * u.1 + cross * v.1,
-            ),
-            (
-                cx + along * u.0 - cross * v.0,
-                cy + along * u.1 - cross * v.1,
-            ),
-            (
-                cx - along * u.0 + cross * v.0,
-                cy - along * u.1 + cross * v.1,
-            ),
-            (
-                cx - along * u.0 - cross * v.0,
-                cy - along * u.1 - cross * v.1,
-            ),
-        ];
-        let (mut min_x, mut max_x, mut min_y, mut max_y) = (
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-            f64::INFINITY,
-            f64::NEG_INFINITY,
-        );
-        for (x, y) in corners {
-            min_x = min_x.min(x);
-            max_x = max_x.max(x);
-            min_y = min_y.min(y);
-            max_y = max_y.max(y);
-        }
-        let origin_x = (min_x / cell_m).floor() * cell_m;
-        let origin_y = (min_y / cell_m).floor() * cell_m;
-        let nx = ((max_x - origin_x) / cell_m).ceil() as u32 + 1;
-        let ny = ((max_y - origin_y) / cell_m).ceil() as u32 + 1;
-        Some(Corridor {
-            origin_x,
-            origin_y,
-            nx,
-            ny,
-            cell_m,
-        })
+/// Build the corridor grid for a route: a rectangle oriented to the
+/// from→to line, padded enough to detour around local obstacles but
+/// capped so the cell count grows O(d), not O(d²). Returns the
+/// CANONICAL [`GridShape`] (the same cell↔world mapping the FMM solver
+/// uses) — `None` if the endpoints are closer than half a cell.
+fn corridor_shape(from: PointXY, to: PointXY, cell_m: f64) -> Option<GridShape> {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let d = (dx * dx + dy * dy).sqrt();
+    if d < cell_m * 0.5 {
+        return None;
     }
-
-    #[inline]
-    fn cell_centre(&self, i: u32, j: u32) -> (f64, f64) {
+    let pad = (4.0 * cell_m).max(0.30 * d).min(PAD_CAP_M);
+    let half_width = 800.0_f64.max(0.20 * d).min(HALF_WIDTH_CAP_M);
+    let u = (dx / d, dy / d);
+    let v = (-u.1, u.0);
+    let along = d * 0.5 + pad;
+    let cross = half_width + pad;
+    let cx = (from.x + to.x) * 0.5;
+    let cy = (from.y + to.y) * 0.5;
+    let corners = [
         (
-            self.origin_x + (i as f64 + 0.5) * self.cell_m,
-            self.origin_y + (j as f64 + 0.5) * self.cell_m,
-        )
+            cx + along * u.0 + cross * v.0,
+            cy + along * u.1 + cross * v.1,
+        ),
+        (
+            cx + along * u.0 - cross * v.0,
+            cy + along * u.1 - cross * v.1,
+        ),
+        (
+            cx - along * u.0 + cross * v.0,
+            cy - along * u.1 + cross * v.1,
+        ),
+        (
+            cx - along * u.0 - cross * v.0,
+            cy - along * u.1 - cross * v.1,
+        ),
+    ];
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for (x, y) in corners {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
     }
-
-    #[inline]
-    fn world_to_cell(&self, x: f64, y: f64) -> Option<(u32, u32)> {
-        let ci = ((x - self.origin_x) / self.cell_m).floor();
-        let cj = ((y - self.origin_y) / self.cell_m).floor();
-        if ci < 0.0 || cj < 0.0 || ci >= self.nx as f64 || cj >= self.ny as f64 {
-            None
-        } else {
-            Some((ci as u32, cj as u32))
-        }
-    }
-}
-
-/// Lazy per-cell off-trail cost: evaluates the contributor stack at a
-/// cell centre the first time it's asked about, then memoises. Owns its
-/// memo; depends only on the shared cost model.
-struct MeshOverlay<'a> {
-    corr: &'a Corridor,
-    dem: &'a Dem,
-    base_pace: f32,
-    profile: Profile,
-    contributors: &'a [Arc<dyn CostContributor>],
-    /// 0 = uncomputed, 1 = passable, 2 = refused.
-    state: RefCell<Vec<u8>>,
-    mul: RefCell<Vec<f32>>,
-    /// Per-cell elevation memo (m). `+∞` = not yet sampled, `NaN` =
-    /// sampled-but-nodata. `mesh_step` queries each cell's elevation up
-    /// to ~16× (once per incident move); memoising collapses that to
-    /// one `Dem::sample()` per cell.
-    elev: RefCell<Vec<f32>>,
-}
-
-impl<'a> MeshOverlay<'a> {
-    fn new(
-        corr: &'a Corridor,
-        dem: &'a Dem,
-        base_pace: f32,
-        profile: Profile,
-        contributors: &'a [Arc<dyn CostContributor>],
-    ) -> Self {
-        let n = (corr.nx as usize) * (corr.ny as usize);
-        Self {
-            corr,
-            dem,
-            base_pace,
-            profile,
-            contributors,
-            state: RefCell::new(vec![0u8; n]),
-            mul: RefCell::new(vec![1.0f32; n]),
-            elev: RefCell::new(vec![f32::INFINITY; n]),
-        }
-    }
-
-    /// Cell-centre elevation (m), sampled from the DEM once per cell
-    /// and memoised. `None` = no DEM coverage at that cell.
-    fn elevation(&self, i: u32, j: u32) -> Option<f32> {
-        let idx = self.idx(i, j);
-        let cached = self.elev.borrow()[idx];
-        if cached != f32::INFINITY {
-            return if cached.is_nan() { None } else { Some(cached) };
-        }
-        let (cx, cy) = self.corr.cell_centre(i, j);
-        let v = self.dem.sample(PointXY { x: cx, y: cy }).ok().flatten();
-        self.elev.borrow_mut()[idx] = v.unwrap_or(f32::NAN);
-        v
-    }
-
-    #[inline]
-    fn idx(&self, i: u32, j: u32) -> usize {
-        (j as usize) * (self.corr.nx as usize) + (i as usize)
-    }
-
-    fn ensure(&self, i: u32, j: u32) {
-        let idx = self.idx(i, j);
-        if self.state.borrow()[idx] != 0 {
-            return;
-        }
-        let cell_m = self.corr.cell_m;
-        let (cx, cy) = self.corr.cell_centre(i, j);
-        // ONE shared elevation probe for the whole contributor stack:
-        // the slope-family contributors all sample the same points
-        // along this synthetic cell edge.
-        let probe = crate::contributor::EdgeElevProbe::new(
-            self.dem,
-            cx - 0.5 * cell_m,
-            cy,
-            cx + 0.5 * cell_m,
-            cy,
-        );
-        let ctx = EdgeContext {
-            fx: cx - 0.5 * cell_m,
-            fy: cy,
-            tx: cx + 0.5 * cell_m,
-            ty: cy,
-            length_m: cell_m,
-            profile: self.profile,
-            kind: EdgeKind::Mesh,
-            elev_probe: Some(&probe),
-        };
-        for c in self.contributors {
-            if c.veto(&ctx).is_some() {
-                self.state.borrow_mut()[idx] = 2;
-                return;
-            }
-        }
-        let mut extra_s = 0.0f64;
-        let mut factor = 1.0f64;
-        for c in self.contributors {
-            let dv = c.contribute(&ctx);
-            if dv.is_finite() {
-                extra_s += dv;
-            }
-            let f = c.pace_factor(&ctx);
-            if f.is_finite() && f > 0.0 {
-                factor *= f;
-            }
-        }
-        let extra_pace = (extra_s / cell_m) as f32;
-        let mul = ((self.base_pace + extra_pace) / self.base_pace) as f64 * factor;
-        self.mul.borrow_mut()[idx] = (mul as f32).clamp(0.1, 20.0);
-        self.state.borrow_mut()[idx] = 1;
-    }
-
-    fn refused(&self, i: u32, j: u32) -> bool {
-        self.ensure(i, j);
-        self.state.borrow()[self.idx(i, j)] == 2
-    }
-
-    fn pace_mul(&self, i: u32, j: u32) -> f32 {
-        self.ensure(i, j);
-        let idx = self.idx(i, j);
-        if self.state.borrow()[idx] == 2 {
-            1.0
-        } else {
-            self.mul.borrow()[idx]
-        }
-    }
+    let origin_x = (min_x / cell_m).floor() * cell_m;
+    let origin_y = (min_y / cell_m).floor() * cell_m;
+    let nx = ((max_x - origin_x) / cell_m).ceil() as u32 + 1;
+    let ny = ((max_y - origin_y) / cell_m).ceil() as u32 + 1;
+    Some(GridShape::new_2d(nx, ny, origin_x, origin_y, cell_m))
 }
 
 /// Result of a unified solve: geometry in EPSG:25833 + a per-segment
@@ -378,7 +217,7 @@ pub(crate) fn solve_unified(
     // height difference" — prefer flatter detours.
     mesh_gain_k: f32,
 ) -> Option<UnifiedRoute> {
-    let corr = Corridor::for_route(from, to, cell_m)?;
+    let corr = corridor_shape(from, to, cell_m)?;
     let nx = corr.nx as usize;
     let ny = corr.ny as usize;
     let nm = nx * ny;
@@ -395,7 +234,8 @@ pub(crate) fn solve_unified(
     mesh_contribs.push(Arc::new(OffTrailRoughnessContributor::new(
         off_trail_factor,
     )));
-    let overlay = MeshOverlay::new(&corr, dem, base_pace_s_per_m, profile, &mesh_contribs);
+    let overlay =
+        crate::cost_field::LazyCostField::new(corr, dem.clone(), base_pace_s_per_m, profile, &mesh_contribs);
 
     // ---- Splice the trail network over a GENEROUS region ----
     // Trails are NOT clipped to the mesh corridor: a long route swinging
@@ -858,8 +698,8 @@ fn smooth_off_trail(
     geom: &[(f64, f64)],
     on_trail: &[bool],
     seg_fkb: &[u8],
-    corr: &Corridor,
-    overlay: &MeshOverlay,
+    corr: &GridShape,
+    overlay: &crate::cost_field::LazyCostField,
 ) -> (Vec<(f64, f64)>, Vec<bool>, Vec<u8>) {
     if geom.len() < 3 {
         return (geom.to_vec(), on_trail.to_vec(), seg_fkb.to_vec());
