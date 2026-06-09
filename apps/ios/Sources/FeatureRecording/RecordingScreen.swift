@@ -38,17 +38,21 @@ public struct RecordingScreen: View {
                 Text(controller.isRecording ? "Recording" : "Paused").font(.turboHeadline).foregroundStyle(t.label)
             }
 
-            VStack(spacing: 6) {
-                Text(elapsed)
-                    .font(.system(size: 64, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(t.label)
-                    .accessibilityIdentifier("recording.elapsed")
-                Text(String(format: "%.2f km", controller.distanceMeters / 1000))
-                    .font(.turboTitle2)
-                    .foregroundStyle(t.label2)
-                    .accessibilityIdentifier("recording.distance")
+            Text(elapsed)
+                .font(.system(size: 60, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(t.label)
+                .accessibilityIdentifier("recording.elapsed")
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                statTile(String(format: "%.2f", controller.distanceMeters / 1000), "km", "ruler", id: "recording.distance")
+                statTile("\(Int(controller.ascentMeters))", "m ↑", "arrow.up.right")
+                statTile("\(Int(controller.descentMeters))", "m ↓", "arrow.down.right")
+                statTile(speedText, "km/h", "speedometer")
+                statTile(paceText, "/km", "figure.walk")
+                statTile(altitudeText, "m alt", "mountain.2")
             }
+            .padding(.horizontal, 20)
 
             Spacer()
 
@@ -79,8 +83,38 @@ public struct RecordingScreen: View {
         }
     }
 
+    private func statTile(_ value: String, _ unit: String, _ symbol: String, id: String? = nil) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: symbol).font(.system(size: 15)).foregroundStyle(t.label3)
+            Text(value)
+                .font(.system(size: 26, weight: .semibold, design: .rounded)).monospacedDigit()
+                .foregroundStyle(t.label)
+                .accessibilityIdentifier(id ?? "")
+            Text(unit).font(.turboCaption).foregroundStyle(t.label2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
     private var elapsed: String {
         let s = controller.elapsedSeconds
-        return String(format: "%02d:%02d", s / 60, s % 60)
+        let h = s / 3600
+        return h > 0 ? String(format: "%d:%02d:%02d", h, (s % 3600) / 60, s % 60)
+                     : String(format: "%02d:%02d", s / 60, s % 60)
+    }
+
+    private var speedText: String {
+        guard let mps = controller.currentSpeedMps else { return "—" }
+        return String(format: "%.1f", mps * 3.6)
+    }
+
+    private var paceText: String {
+        guard let pace = controller.paceSecondsPerKm else { return "—" }
+        return String(format: "%d'%02d", pace / 60, pace % 60)
+    }
+
+    private var altitudeText: String {
+        controller.currentAltitude.map { "\(Int($0))" } ?? "—"
     }
 }

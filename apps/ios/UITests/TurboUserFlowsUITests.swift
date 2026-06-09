@@ -236,7 +236,7 @@ final class TurboUserFlowsUITests: XCTestCase {
 
         // Wait until the track has actually moved (distance > 0).
         let distance = app.staticTexts["recording.distance"]
-        let moved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", "0.00 km"), object: distance)
+        let moved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", "0.00"), object: distance)
         XCTAssertEqual(XCTWaiter().wait(for: [moved], timeout: 5), .completed, "recording captured no movement")
 
         app.buttons["recording.stop"].tap()

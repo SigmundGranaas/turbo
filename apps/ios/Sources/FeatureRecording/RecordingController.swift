@@ -18,6 +18,17 @@ public final class RecordingController {
     public private(set) var pointCount = 0
     public private(set) var distanceMeters: Double = 0
     public private(set) var elapsedSeconds: Int = 0
+    public private(set) var ascentMeters: Double = 0
+    public private(set) var descentMeters: Double = 0
+    public private(set) var currentAltitude: Double?
+    public private(set) var currentSpeedMps: Double?
+    public private(set) var maxSpeedMps: Double = 0
+
+    /// Average moving pace in seconds per kilometre, or nil before any distance.
+    public var paceSecondsPerKm: Int? {
+        guard distanceMeters > 50 else { return nil }
+        return Int(Double(elapsedSeconds) / (distanceMeters / 1000))
+    }
 
     private var points: [LatLng] = []
     private var elevations: [Double] = []
@@ -53,6 +64,8 @@ public final class RecordingController {
         guard !isRecording else { return }
         points = []; elevations = []
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
+        ascentMeters = 0; descentMeters = 0; currentAltitude = nil
+        currentSpeedMps = nil; maxSpeedMps = 0
         startedAt = now()
         // Always-auth keeps the track alive when the phone is pocketed or locked —
         // the iOS analogue of Android's foreground service. Only needed on a fresh
@@ -124,9 +137,18 @@ public final class RecordingController {
     private func append(_ fix: LocationFix) {
         guard isRecording else { return }
         points.append(fix.position)
-        if let altitude = fix.altitude { elevations.append(altitude) }
+        if let altitude = fix.altitude {
+            elevations.append(altitude)
+            currentAltitude = altitude
+        }
         pointCount = points.count
         distanceMeters = GeoMetrics.pathLengthMeters(points)
+        ascentMeters = GeoMetrics.ascentMeters(elevations) ?? ascentMeters
+        descentMeters = GeoMetrics.descentMeters(elevations) ?? descentMeters
+        if let speed = fix.speedMps {
+            currentSpeedMps = speed
+            maxSpeedMps = max(maxSpeedMps, speed)
+        }
         activity.update(distanceMeters: distanceMeters, elapsedSeconds: elapsedSeconds)
     }
 
@@ -134,5 +156,7 @@ public final class RecordingController {
         stop()
         points = []; elevations = []; startedAt = nil
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
+        ascentMeters = 0; descentMeters = 0; currentAltitude = nil
+        currentSpeedMps = nil; maxSpeedMps = 0
     }
 }

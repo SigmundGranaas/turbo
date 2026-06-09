@@ -95,6 +95,24 @@ struct RecordingControllerTests {
         #expect(vm.pointCount >= captured)   // track preserved, NOT reset to 0
     }
 
+    @Test("live stats: ascent, descent, speed accumulate from fixes")
+    func liveStats() async {
+        let fixes = [
+            LocationFix(position: LatLng(lat: 69.60, lng: 19.90), altitude: 100, speedMps: 1.0),
+            LocationFix(position: LatLng(lat: 69.61, lng: 19.92), altitude: 130, speedMps: 2.5),  // +30 climb
+            LocationFix(position: LatLng(lat: 69.62, lng: 19.95), altitude: 110, speedMps: 1.5),  // -20 descend
+        ]
+        let vm = RecordingController(location: SimulatedLocationProvider(fixes: fixes),
+                                     pathRepository: InMemoryPathRepository(seed: []))
+        vm.start()
+        try? await Task.sleep(for: .milliseconds(250))
+        #expect(abs(vm.ascentMeters - 30) < 0.001)
+        #expect(abs(vm.descentMeters - 20) < 0.001)
+        #expect(vm.currentAltitude == 110)
+        #expect(vm.maxSpeedMps == 2.5)
+        #expect(vm.currentSpeedMps == 1.5)
+    }
+
     @Test("session stays active across stop, clears on save/discard")
     func sessionLifetime() async {
         let vm = RecordingController(location: provider(), pathRepository: InMemoryPathRepository(seed: []))

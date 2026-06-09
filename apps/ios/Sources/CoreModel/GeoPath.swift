@@ -67,4 +67,11 @@ public enum GeoMetrics {
         return zip(elevations, elevations.dropFirst())
             .reduce(0) { $0 + max(0, $1.1 - $1.0) }
     }
+
+    /// Cumulative elevation loss in metres (a positive number).
+    public static func descentMeters(_ elevations: [Double]?) -> Double? {
+        guard let elevations, elevations.count > 1 else { return nil }
+        return zip(elevations, elevations.dropFirst())
+            .reduce(0) { $0 + max(0, $1.0 - $1.1) }
+    }
 }

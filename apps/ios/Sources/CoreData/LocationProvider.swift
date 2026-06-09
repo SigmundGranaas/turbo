@@ -12,11 +12,14 @@ public struct LocationFix: Equatable, Sendable {
     public let headingDegrees: Double?
     /// Altitude in metres, when available (drives recorded elevation profiles).
     public let altitude: Double?
+    /// Ground speed in metres/second, when available (negative readings → nil).
+    public let speedMps: Double?
 
-    public init(position: LatLng, headingDegrees: Double? = nil, altitude: Double? = nil) {
+    public init(position: LatLng, headingDegrees: Double? = nil, altitude: Double? = nil, speedMps: Double? = nil) {
         self.position = position
         self.headingDegrees = headingDegrees
         self.altitude = altitude
+        self.speedMps = speedMps
     }
 }
 
@@ -120,11 +123,16 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
     }
 
     private var lastAltitude: Double?
+    private var lastSpeed: Double?
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
         let position = LatLng(lat: loc.coordinate.latitude, lng: loc.coordinate.longitude)
-        lock.withLock { lastPosition = position; lastAltitude = loc.altitude }
+        lock.withLock {
+            lastPosition = position
+            lastAltitude = loc.altitude
+            lastSpeed = loc.speed >= 0 ? loc.speed : nil   // CL reports -1 when invalid
+        }
         emit()
     }
 
@@ -139,7 +147,7 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
     private func emit() {
         lock.withLock {
             guard let position = lastPosition else { return }
-            let fix = LocationFix(position: position, headingDegrees: lastHeading, altitude: lastAltitude)
+            let fix = LocationFix(position: position, headingDegrees: lastHeading, altitude: lastAltitude, speedMps: lastSpeed)
             for continuation in continuations.values { continuation.yield(fix) }
         }
     }
