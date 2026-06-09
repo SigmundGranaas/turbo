@@ -57,6 +57,9 @@ pub fn router(state: AdminState) -> Router {
         .route("/api/ingest/bulk", post(routes::ingest::trigger_bulk))
         .route("/api/ingest/incoming", get(routes::ingest::incoming))
         .route("/api/ingest/jobs", get(routes::ingest::jobs))
+        // Hands-off provisioning: download + restore + upsert from Geonorge.
+        .route("/api/provision", post(routes::provision::provision))
+        .route("/api/geonorge/areas", get(routes::provision::geonorge_areas))
         .route("/api/reset/:scope", post(routes::reset::reset))
         .route("/api/state", get(routes::reset::state))
         // TUS resumable upload endpoints. Flat routes because mixing

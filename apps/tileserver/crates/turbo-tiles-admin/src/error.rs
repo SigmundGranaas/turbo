@@ -15,6 +15,8 @@ pub enum AdminError {
     Auth(String),
     #[error("upload too large or malformed: {0}")]
     Upload(String),
+    #[error("upstream service error: {0}")]
+    Upstream(String),
 }
 
 impl IntoResponse for AdminError {
@@ -24,6 +26,7 @@ impl IntoResponse for AdminError {
             AdminError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             AdminError::Auth(m) => (StatusCode::UNAUTHORIZED, m.clone()),
             AdminError::Upload(m) => (StatusCode::UNPROCESSABLE_ENTITY, m.clone()),
+            AdminError::Upstream(m) => (StatusCode::BAD_GATEWAY, m.clone()),
             AdminError::Db(_) => (StatusCode::INTERNAL_SERVER_ERROR, "database error".into()),
         };
         if matches!(self, AdminError::Db(_)) {
