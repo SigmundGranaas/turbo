@@ -111,6 +111,18 @@ spec:
               valueFrom: { secretKeyRef: { name: tiles-db-app, key: uri } }
             - name: PUBLIC_BASE_URL
               value: "https://kart-api.sandring.no/api/route"
+            # Decompressed DEM-tile cache ceiling. The binary default is
+            # 512MiB — sized for dev boxes, not this 1536Mi-limit pod
+            # (cache + heap + resident mmap pages must fit under the
+            # cgroup limit or big routes get OOMKilled). 128MiB keeps the
+            # hot corridor tiles warm; misses page from the SSD mmap.
+            - name: TILESERVER_DEM_CACHE_BYTES
+              value: "134217728"
+            # Concurrent routing solves (each holds corridor + trail
+            # scratch for its duration; excess requests queue). Match the
+            # CPU limit rather than the node's core count.
+            - name: TILESERVER_ROUTING_CONCURRENCY
+              value: "2"
             # AuthConfig::from_env requires a secret even though the
             # routing endpoints are public (it gates only /admin + debug).
             - name: JWT_SECRET
