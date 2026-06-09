@@ -88,6 +88,23 @@ public class PlacesApiBehaviour : IClassFixture<PlacesHostFixture>
     }
 
     [Fact]
+    public async Task Reverse_carries_dataset_ETag_and_honours_IfNoneMatch_with_304()
+    {
+        var client = _fixture.CreateClient();
+        const string url = "/api/places/reverse?lat=61.6363&lon=8.3120";
+
+        var first = await client.GetAsync(url);
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        var etag = first.Headers.ETag?.Tag;
+        etag.Should().Be("\"test-fixture\"", "the ETag is the active dataset version");
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("If-None-Match", etag);
+        var second = await client.SendAsync(request);
+        second.StatusCode.Should().Be(HttpStatusCode.NotModified);
+    }
+
+    [Fact]
     public async Task Health_reports_dataset_counts_and_version()
     {
         var client = _fixture.CreateClient();

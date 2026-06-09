@@ -30,13 +30,18 @@ public class PlacesController : ControllerBase
         _store = store;
     }
 
-    /// <summary>GET /api/places/reverse?lat=&amp;lon= — describe a coordinate.</summary>
+    /// <summary>GET /api/places/reverse?lat=&amp;lon= — describe a coordinate.
+    /// Responses are deterministic per dataset version, so they carry an ETag
+    /// (= dataset version) and honour If-None-Match with 304 — cacheable at
+    /// the gateway/CDN until the next ingestion run.</summary>
     [HttpGet("reverse")]
     public async Task<ActionResult<ReverseResponse>> Reverse(
         [FromQuery] double lat, [FromQuery] double lon, CancellationToken ct)
     {
         if (!InNorway(lat, lon))
             return BadRequest(new ErrorResponse("out_of_coverage", "Coordinate is outside Norway."));
+
+        if (await NotModifiedAsync(ct)) return StatusCode(StatusCodes.Status304NotModified);
 
         var d = await _reverse.DescribeAsync(lat, lon, ct);
         if (d is null)
@@ -64,6 +69,8 @@ public class PlacesController : ControllerBase
             return BadRequest(new ErrorResponse("out_of_coverage", "Centre is outside Norway."));
         limit = Math.Clamp(limit, 1, 50);
 
+        if (await NotModifiedAsync(ct)) return StatusCode(StatusCodes.Status304NotModified);
+
         var results = await _search.SearchAsync(q, lat, lon, limit, ct);
         return Ok(new SearchResponse(
             results.Select(r => new SearchHitResponse(
@@ -80,4 +87,15 @@ public class PlacesController : ControllerBase
 
     private static bool InNorway(double lat, double lng) =>
         lat is >= MinLat and <= MaxLat && lng is >= MinLng and <= MaxLng;
+
+    /// <summary>Stamps the dataset-version ETag on the response and answers
+    /// whether the client's If-None-Match already matches it.</summary>
+    private async Task<bool> NotModifiedAsync(CancellationToken ct)
+    {
+        var (_, _, version) = await _store.StatsAsync(ct);
+        if (version is null) return false;
+        var etag = $"\"{version}\"";
+        Response.Headers.ETag = etag;
+        return Request.Headers.IfNoneMatch.Any(v => v == etag);
+    }
 }
