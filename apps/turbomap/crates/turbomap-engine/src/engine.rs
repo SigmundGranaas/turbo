@@ -389,15 +389,10 @@ impl TurbomapEngine {
         let zoom = self.map.camera().zoom;
         for (id, paint) in &self.layer_colors {
             let c = paint.at(zoom);
-            self.map.set_vector_layer_color(
-                id,
-                Some([
-                    c.r as f32 / 255.0,
-                    c.g as f32 / 255.0,
-                    c.b as f32 / 255.0,
-                    c.a as f32 / 255.0,
-                ]),
-            );
+            // Same colour-management contract as baked vertex colours:
+            // authored sRGB, decoded to linear once before the shader.
+            let linear = CoreColor::rgba(c.r, c.g, c.b, c.a).to_linear_f32();
+            self.map.set_vector_layer_color(id, Some(linear));
         }
     }
 

@@ -356,7 +356,8 @@ impl TextPipeline {
                 continue;
             }
             placed.push(padded);
-            let color = [label.color.r, label.color.g, label.color.b, label.color.a];
+            // sRGB-authored → linear, since the target re-encodes on write.
+            let color = label.color.to_linear_bytes();
             for g in translated {
                 instances.push(TextInstance {
                     screen_origin: [g.screen_x, g.screen_y],

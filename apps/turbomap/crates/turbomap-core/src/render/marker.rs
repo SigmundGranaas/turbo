@@ -220,7 +220,8 @@ impl MarkerPipeline {
                 screen_centre: [sx, sy],
                 radius_px: m.radius_px,
                 _pad: 0.0,
-                color: [m.color.r, m.color.g, m.color.b, m.color.a],
+                // sRGB-authored → linear, since the target re-encodes.
+                color: m.color.to_linear_bytes(),
                 _pad2: [0; 12],
             });
         }

@@ -1,0 +1,28 @@
+[package]
+name = "turbomap-sim"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Headless device-equivalent: scripted user sessions against the real engine, with latency-simulated tile delivery and frame-level behavioural assertions."
+
+[lints]
+workspace = true
+
+[features]
+# Session tests render real frames and need a wgpu adapter (software OK).
+gpu-tests = []
+
+[dependencies]
+turbomap-core = { path = "../turbomap-core" }
+turbomap-engine = { path = "../turbomap-engine" }
+turbomap-golden = { path = "../turbomap-golden" }
+turbomap-mvt = { path = "../turbomap-mvt" }
+turbomap-scene = { path = "../turbomap-scene" }
+image.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]

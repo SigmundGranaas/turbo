@@ -1159,20 +1159,9 @@ pub struct FrameMetrics {
 }
 
 fn srgb_color_to_linear_f32(c: Color) -> [f32; 4] {
-    fn to_linear(u: u8) -> f32 {
-        let s = u as f32 / 255.0;
-        if s <= 0.04045 {
-            s / 12.92
-        } else {
-            ((s + 0.055) / 1.055).powf(2.4)
-        }
-    }
-    [
-        to_linear(c.r),
-        to_linear(c.g),
-        to_linear(c.b),
-        c.a as f32 / 255.0,
-    ]
+    // Canonical decode lives on Color; backgrounds use the same contract
+    // as vertex/text/marker colours.
+    c.to_linear_f32()
 }
 
 #[cfg(test)]

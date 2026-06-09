@@ -25,6 +25,41 @@ impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
+
+    /// The colour-management contract: colours are *authored* in sRGB
+    /// (what design tools and style specs produce), but every render
+    /// target is `*Srgb`, meaning the GPU re-encodes on write and blends
+    /// in linear space. Anything fed to a shader as a colour therefore
+    /// has to be decoded sRGB→linear exactly once, here. Skipping this
+    /// double-encodes and visibly washes out everything darker than
+    /// white (the bug the simulator's colour histogram caught).
+    pub fn to_linear_f32(self) -> [f32; 4] {
+        [
+            srgb_channel_to_linear(self.r),
+            srgb_channel_to_linear(self.g),
+            srgb_channel_to_linear(self.b),
+            self.a as f32 / 255.0, // alpha is coverage — never gamma-encoded
+        ]
+    }
+
+    /// [`Self::to_linear_f32`] quantised to bytes, for `Unorm8x4` vertex
+    /// attributes. Flat fills don't band; if gradients ever do, the
+    /// decode moves into the shader instead.
+    pub fn to_linear_bytes(self) -> [u8; 4] {
+        let [r, g, b, a] = self.to_linear_f32();
+        let q = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        [q(r), q(g), q(b), q(a)]
+    }
+}
+
+/// Exact (piecewise) sRGB EOTF for one 8-bit channel.
+fn srgb_channel_to_linear(byte: u8) -> f32 {
+    let c = byte as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 /// What to do with a matching feature.

@@ -3723,6 +3723,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbomap-sim"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "log",
+ "serde",
+ "serde_json",
+ "turbomap-core",
+ "turbomap-engine",
+ "turbomap-golden",
+ "turbomap-mvt",
+ "turbomap-scene",
+]
+
+[[package]]
 name = "turbomap-tiles-cache"
 version = "0.1.0"
 dependencies = [

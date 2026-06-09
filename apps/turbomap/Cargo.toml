@@ -11,6 +11,7 @@ members = [
     "crates/turbomap-scene",
     "crates/turbomap-engine",
     "crates/turbomap-ffi",
+    "crates/turbomap-sim",
 ]
 
 [workspace.package]

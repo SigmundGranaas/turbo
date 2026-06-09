@@ -241,8 +241,10 @@ fn project(tile_id: TileId, extent: u32, local: (i32, i32)) -> lyon::math::Point
     point(x as f32, y as f32)
 }
 
+/// Vertex colours are consumed by shaders writing to an sRGB target, so
+/// the sRGB-authored style colour is decoded to linear exactly here.
 fn pack_color(c: Color) -> [u8; 4] {
-    [c.r, c.g, c.b, c.a]
+    c.to_linear_bytes()
 }
 
 #[cfg(test)]
