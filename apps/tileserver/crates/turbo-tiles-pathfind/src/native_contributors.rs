@@ -1329,14 +1329,22 @@ impl PolygonIntegralContributor {
         self
     }
     fn extra_metres(&self, ctx: &EdgeContext<'_>) -> f64 {
-        use turbo_tiles_geom::segment_polygon_intersection_length;
         use turbo_tiles_geom::Point;
+        use turbo_tiles_geom::{
+            segment_polygon_intersection_length, segment_polygon_intersection_length_indexed,
+        };
         let a = Point::new(ctx.fx as f32, ctx.fy as f32);
         let b = Point::new(ctx.tx as f32, ctx.ty as f32);
         let mut extra: f64 = 0.0;
         for fid in self.collection.query_segment(a, b, self.aabb_pad_m) {
             let coords = self.collection.feature_coords(fid);
-            let len_in = segment_polygon_intersection_length(a, b, coords);
+            // Big rings (huge lakes) go through the y-banded edge
+            // index — bit-identical result, O(band) instead of
+            // O(ring) per evaluated cell.
+            let len_in = match self.collection.ring_index(fid) {
+                Some(idx) => segment_polygon_intersection_length_indexed(a, b, coords, &idx),
+                None => segment_polygon_intersection_length(a, b, coords),
+            };
             if len_in < 1e-6 {
                 continue;
             }

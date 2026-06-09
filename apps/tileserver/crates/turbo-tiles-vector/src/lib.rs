@@ -206,6 +206,13 @@ pub struct VectorCollection {
     coords: &'static [Point],
     attrs: &'static [u8],
     rtree: RTree<IndexedFeature>,
+    /// Lazily-built y-banded edge indexes for BIG polygon rings (see
+    /// [`turbo_tiles_geom::RingIndex`]); keyed by feature id. Norway
+    /// lake rings reach tens of thousands of vertices and the
+    /// off-trail cost field intersects a tiny segment against them
+    /// once per mesh cell — the index turns that O(ring) scan into a
+    /// band lookup, bit-identically.
+    ring_index: std::sync::Mutex<std::collections::HashMap<u32, Arc<turbo_tiles_geom::RingIndex>>>,
     /// Keeps the underlying mmap pages alive. Touched once per
     /// query path — the slices above already point at the pages.
     _mmap: Arc<Mmap>,
@@ -271,6 +278,23 @@ impl VectorCollection {
         self.rtree
             .locate_in_envelope_intersecting(&envelope)
             .map(|f| f.feature_id)
+    }
+
+    /// Y-banded edge index for feature `idx`'s ring, built lazily and
+    /// cached. `None` for rings below the size threshold, where the
+    /// brute scan is cheaper than the lookup.
+    pub fn ring_index(&self, idx: u32) -> Option<Arc<turbo_tiles_geom::RingIndex>> {
+        let coords = self.feature_coords(idx);
+        if coords.len() < turbo_tiles_geom::RingIndex::MIN_RING_LEN {
+            return None;
+        }
+        let mut cache = self.ring_index.lock().unwrap();
+        Some(
+            cache
+                .entry(idx)
+                .or_insert_with(|| Arc::new(turbo_tiles_geom::RingIndex::build(coords)))
+                .clone(),
+        )
     }
 
     /// Iterate features whose AABB could contain a crossing with
@@ -499,6 +523,7 @@ fn parse_collection_blob(
         coords: coords_static,
         attrs: attrs_static,
         rtree,
+        ring_index: std::sync::Mutex::new(std::collections::HashMap::new()),
         _mmap: mmap,
     })
 }
