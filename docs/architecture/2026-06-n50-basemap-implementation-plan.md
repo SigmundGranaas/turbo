@@ -117,7 +117,7 @@ produces one). Layers, source tables, and per-zoom rules, defined in a new
 | `water` | `terrain.water_polygon` (lake/river/sea) | polygon | 4 | `ST_SimplifyPreserveTopology(tol(z))`; drop area < f(z). |
 | `glacier` | `terrain.glacier_polygon` | polygon | 6 | snow/ice fill. |
 | `landcover` | `terrain.landcover_patch` (forest/wetland/open) | polygon | 7 | `class` property drives fill. |
-| `contour` | `terrain.contour` *(new, §4)* | line | 11 | `elev_m`, `index` (bold every 5th). |
+| `contour` | `terrain.contour` *(new §4.1, from N50 Høyde theme)* | line | 11 | `elev_m`, `kind`, `is_index` (bold every 100 m). 20 m base equidistance. |
 | `waterway` | `n50_staging.elvbekk` (streams) | line | 11 | `width_m`. |
 | `transportation` | `paths.edge` (N50 `vegnett`) | line | 8 | `fkb_type`/`typeveg` → road class; thin→thick by z. |
 | `building` | `n50_staging.bygning_omrade` | polygon | 14 | footprints. |
@@ -135,14 +135,37 @@ the version is in the path). Low-zoom column projection like today's
 
 ### 4.1 New ingest: contours + buildings
 
-- **Contours.** Preferred: ingest N50 `hoydekurve` (already in the N50 SOSI/
-  GML product) into a new `terrain.contour(id, geom LineString 25833, elev_m,
-  is_index bool)`. Add migration + `upsert_n50_hoydekurve.sql` +
-  `JobName::N50HoydekurveUpsert` (mirror `n50-vann-upsert`). Fallback if
-  `hoydekurve` is awkward: generate from `norway.dem` via a `contour` build
-  step (marching-squares at 20/100 m) — we already own the DEM and a build
-  crate. **Decision:** ingest N50 `hoydekurve` first (matches official topo
-  cartography); DEM-derived is the fallback.
+- **Contours — primary source: N50 Kartdata, "Høyde" theme (`Høydekurve`).**
+  Contour lines *do* exist as a bulk dataset; they are not separate from what
+  we already use. The **Høyde** theme of **N50 Kartdata** carries
+  `Høydekurve` (main contours, **20 m equidistance**), `Hjelpekurve`
+  (auxiliary contours, ~10 m in flat terrain), and `Forsenkningskurve`
+  (depression contours) — all `senterlinje` LineStrings with a `høyde`
+  elevation attribute, in EPSG:25833. This is the **same product the repo
+  already restores**: `n50_staging.terrengpunkt` (also a Høyde-theme object)
+  is already present, and the dump is the national
+  **`n50-kartdata-utm33-hele-landet-postgis`** distribution from Geonorge /
+  `data.kartverket.no`. The Høyde *line* tables were simply not loaded.
+
+  **No fallback needed — N50 Høyde is the source.** Work:
+  1. Ensure the N50 restore includes the Høyde theme tables (`n50_staging.hoydekurve`,
+     `n50_staging.hjelpekurve`, `n50_staging.forsenkningskurve`). If the
+     current dump excluded them, re-pull N50 Kartdata UTM33 (whole-country
+     PostGIS) — same source, same `n50-restore`/`pgdump_load` path, just
+     don't filter out the Høyde layers.
+  2. New migration `terrain.contour(id, geom LineString 25833, elev_m double
+     precision, kind text /* main|auxiliary|depression */, is_index bool)`.
+  3. `upsert_n50_hoydekurve.sql` + `JobName::N50HoydekurveUpsert`, mirroring
+     `upsert_n50_vegnett.sql` exactly (read `senterlinje`/`høyde` from the
+     three staging tables, tag `kind`, set `is_index = (elev_m % 100 = 0)`
+     for bold index contours). N50's 20 m base interval means index every
+     100 m is the natural cartographic choice.
+
+  Cartographically this is the *right* source, not a compromise: it is the
+  identical contour geometry Norgeskart's own N50 topo renders, so our map
+  matches the official one line-for-line. (We keep `norway.dem` for hillshade
+  and Terrain-RGB — it complements the vector contours, it does not replace
+  them.)
 - **Buildings.** `n50_staging.bygning_omrade` already loads (referenced in
   `vector-layers.toml`); just expose it as a basemap layer. No new ingest.
 
@@ -371,7 +394,7 @@ cache only".
 | --- | --- | --- |
 | **M0** | Spike: multi-layer `render_basemap_tile` over existing `terrain.*`/`paths.edge`/`anchors` for one region; `turbomap` renders it with a hand-written `n50-topo` style. | A Bergen-extent tile shows water + forest + roads + labels, styled, in turbomap. Validates the layer schema + style reach. |
 | **M1** | **Raster N50 fallback live.** Build `norway-n50-raster.pmtiles`; serve `/v1/raster/n50`; Worker+R2 cache; Flutter topo provider repointed behind a flag. | App basemap loads from `tiles.turkart.no`; Norgeskart CDN no longer hit (flag on); R2 fills on miss, origin hit once per tile. **Kartverket topo dependency removed.** |
-| **M2** | Contours + buildings ingested; full Norway N50 in `tiles-db`; per-zoom matviews; health audits green. | `terrain.contour` populated nationally; basemap tiles at z14 show buildings + contours; audit job passes. |
+| **M2** | Contours + buildings ingested from the N50 Høyde theme; full Norway N50 in `tiles-db`; per-zoom matviews; health audits green. | `terrain.contour` populated nationally from `Høydekurve`/`Hjelpekurve`/`Forsenkningskurve` (20 m equidistance, index every 100 m); basemap tiles at z14 show buildings + contours matching Norgeskart N50; audit job passes. |
 | **M3** | **Vector basemap GA** on desktop/web: `/v1/basemap` + `style.json` + glyphs + sprites; grown style engine; 3 house styles. | turbomap renders the national vector basemap with any of 3 styles; labels place without overlap; style switch is instant (no re-fetch). |
 | **M4** | Own geometry/search endpoints: route live WFS/WMS/Overpass + Geonorge search through tileserver (curated MVT + `turbo-tiles-search`). | `wfs.geonorge.no`, `wms.geonorge.no`, `overpass-api.de`, `ws.geonorge.no` no longer called at runtime (fallbacks retained). |
 | **M5** | Mobile vector renderer (turbomap via FFI) replaces raster fallback; retire raster where vector parity holds. | Android/iOS render vector N50 with custom styles + hillshade; raster kept only as ultimate fallback. |
@@ -409,7 +432,7 @@ dependency with no client-renderer change).
 | Cartographic parity with official N50 is hard. | Vector + iterative styling; raster fallback (M1) means we're never worse than today while styling matures. |
 | Style engine too narrow for N50 labels/contours. | M0 spike sizes exactly what's needed; grow `style.rs` incrementally; MapLibre JSON as interchange. |
 | Dynamic origin overloaded on cache-cold low-zoom tiles (cover all Norway). | Per-zoom matviews + optional vector PMTiles on PV + post-rebuild warm of z4–10. |
-| `hoydekurve` ingest awkward / inconsistent. | DEM-derived contour fallback (we own `norway.dem` + a build crate). |
+| Høyde-theme line tables missing from the current N50 restore. | They are part of the national `n50-kartdata-utm33-hele-landet-postgis` product (same source as the `terrengpunkt` we already load) — re-pull N50 without filtering the Høyde layers; no new data source, no fallback needed. |
 | Mobile vector renderer (FFI) slips. | M1–M4 don't depend on it; raster covers mobile until M5. |
 | Licence/attribution. | NLOD/CC-BY allow self-serve + derived styles **with attribution**; carry `© Kartverket` in `style.json` + client (already tracked). Confirm exact text before GA. |
 | Node capacity for raster PMTiles. | Range-serve from origin storage / separate PV; keep raster max-zoom capped; rely on edge cache. |
@@ -428,7 +451,11 @@ dependency with no client-renderer change).
 - `tools/basemap-layers.toml` — **new** layer definitions (config-only growth).
 - `migrations/2026xxxx_contour_schema.sql` — **new** `terrain.contour`.
 - `crates/turbo-tiles-ingest/{src/n50_hoydekurve.rs, sql/upsert_n50_hoydekurve.sql,
-  src/job.rs}` — **new** contour ingest job.
+  src/job.rs}` — **new** contour ingest from N50 Høyde theme
+  (`n50_staging.{hoydekurve,hjelpekurve,forsenkningskurve}` → `terrain.contour`).
+- `crates/turbo-tiles-ingest/src/pgdump_load.rs` / the N50 restore — ensure
+  the Høyde-theme line tables are included when restoring the national N50
+  UTM33 PostGIS dump (today only `terrengpunkt` from that theme is loaded).
 - `crates/turbo-tiles-build/src/{pmtiles_writer.rs, raster_render.rs}` — **new**
   optional vector pack + raster render; reuse `health.rs`.
 - `crates/turbo-tiles-bin/src/main.rs` — `build-basemap --version` subcommand.
