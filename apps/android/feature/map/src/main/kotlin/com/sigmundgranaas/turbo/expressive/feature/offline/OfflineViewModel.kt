@@ -7,11 +7,20 @@ import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.DetailLevel
+import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.floor
@@ -27,7 +36,13 @@ class OfflineViewModel @Inject constructor(
     private val reverseGeocode: ReverseGeocodeRepository,
 ) : ViewModel() {
 
-    val regions: StateFlow<List<OfflineRegionInfo>> = manager.regions
+    /** Regions staged for deletion: hidden from the list while the undo snackbar runs. */
+    private val staged = MutableStateFlow<Set<Long>>(emptySet())
+    private val deleteJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
+
+    val regions: StateFlow<List<OfflineRegionInfo>> =
+        combine(manager.regions, staged) { list, hidden -> list.filterNot { it.id in hidden } }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, manager.regions.value)
 
     init { manager.refresh() }
 
@@ -39,20 +54,91 @@ class OfflineViewModel @Inject constructor(
      * Names the region by the reverse-geocoded place at [centre] ("Storfjellet" /
      * "Tromsø") rather than raw coordinates, falling back to coordinates off-grid.
      */
-    fun download(centre: LatLng, base: BaseLayer, bounds: GeoBounds, fromZoom: Double) {
-        val minZoom = floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        val maxZoom = (minZoom + ZOOM_SPAN).coerceAtMost(MAX_ZOOM)
+    fun download(
+        centre: LatLng,
+        base: BaseLayer,
+        bounds: GeoBounds,
+        fromZoom: Double,
+        overlays: Set<OverlayId> = emptySet(),
+        detail: DetailLevel = DetailLevel.Standard,
+    ) {
         viewModelScope.launch {
             val place = (reverseGeocode.describe(centre) as? Outcome.Success)?.value?.title
-            manager.download(place ?: formatCoords(centre), base, bounds, minZoom, maxZoom)
+            manager.download(
+                spec(place ?: formatCoords(centre), base, bounds, fromZoom, overlays, detail),
+            )
         }
+    }
+
+    /** Pre-flight tile/byte estimate (+ within-limits guard) for the visible [bounds]. */
+    fun estimate(
+        base: BaseLayer,
+        bounds: GeoBounds,
+        fromZoom: Double,
+        overlays: Set<OverlayId> = emptySet(),
+        detail: DetailLevel = DetailLevel.Standard,
+    ) = manager.estimate(spec("", base, bounds, fromZoom, overlays, detail))
+
+    /** One zoom policy for estimate + download, so the dialog's number is what ships. */
+    private fun spec(
+        name: String,
+        base: BaseLayer,
+        bounds: GeoBounds,
+        fromZoom: Double,
+        overlays: Set<OverlayId>,
+        detail: DetailLevel,
+    ): DownloadSpec {
+        val minZoom = floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        return DownloadSpec(
+            name = name,
+            base = base,
+            bounds = bounds,
+            minZoom = minZoom,
+            maxZoom = (minZoom + detail.zoomSpan).coerceAtMost(MAX_ZOOM),
+            overlays = overlays,
+        )
+    }
+
+    fun retry(id: Long) = manager.retry(id)
+
+    fun pause(id: Long) = manager.pause(id)
+
+    fun resume(id: Long) = manager.resume(id)
+
+    fun rename(id: Long, name: String) {
+        if (name.isNotBlank()) manager.rename(id, name.trim())
+    }
+
+    /**
+     * Hide the region, then actually delete its tiles once the undo window lapses —
+     * unless [undoDelete] cancels first. The commit runs in [viewModelScope], not the
+     * snackbar's, so navigating away mid-undo still completes the delete (no orphaned
+     * hidden region).
+     */
+    fun stageDelete(id: Long) {
+        staged.update { it + id }
+        deleteJobs.remove(id)?.cancel()
+        deleteJobs[id] = viewModelScope.launch {
+            delay(UNDO_WINDOW_MS)
+            manager.delete(id)
+            staged.update { it - id }
+            deleteJobs.remove(id)
+        }
+    }
+
+    /** Undo from the snackbar — cancel the pending commit and restore the region. */
+    fun undoDelete(id: Long) {
+        deleteJobs.remove(id)?.cancel()
+        staged.update { it - id }
     }
 
     fun delete(id: Long) = manager.delete(id)
 
+    fun clearCache() = manager.clearAmbientCache()
+
     private companion object {
         const val MIN_ZOOM = 8.0
         const val MAX_ZOOM = 16.0
-        const val ZOOM_SPAN = 4.0
+        const val UNDO_WINDOW_MS = 4_500L
     }
 }

@@ -11,6 +11,7 @@ import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.core.map.RouteCorridor
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
 import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
@@ -247,7 +248,7 @@ class RouteViewModel @Inject constructor(
             else -> return
         }
         val bounds = RouteCorridor.bounds(geometry) ?: return
-        offline.download(name, base, bounds, minZoom = 8.0, maxZoom = 15.0)
+        offline.download(DownloadSpec(name = name, base = base, bounds = bounds, minZoom = 8.0, maxZoom = 15.0))
     }
 
     fun saveAsTrack(name: String, kind: com.sigmundgranaas.turbo.expressive.domain.ActivityKindId? = null) {

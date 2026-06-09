@@ -31,4 +31,6 @@
     <string name="about_terms">Terms of use</string>
     <string name="settings_cloud_sync">Cloud sync</string>
     <string name="settings_cloud_sync_sub">Back up tracks, markers and collections to your account</string>
+    <string name="settings_wifi_only">Download over Wi-Fi only</string>
+    <string name="settings_wifi_only_sub">Pause offline map downloads on mobile data</string>
 </resources>
