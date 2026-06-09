@@ -37,8 +37,6 @@ public enum MapTileStyles {
             "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png"
         case .avalanche:
             "https://gis3.nve.no/arcgis/rest/services/wmts/Bratthet_2024/MapServer/tile/{z}/{y}/{x}"
-        case .waves, .wind:
-            nil
         }
     }
 

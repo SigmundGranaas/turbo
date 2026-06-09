@@ -145,16 +145,12 @@ private extension OverlayId {
     var symbol: String {
         switch self {
         case .trails: "point.topleft.down.curvedto.point.bottomright.up"
-        case .waves: "water.waves"
-        case .wind: "wind"
         case .avalanche: "exclamationmark.triangle.fill"
         }
     }
     func tint(_ t: TurboColors) -> Color {
         switch self {
         case .trails: t.red
-        case .waves: t.teal
-        case .wind: t.indigo
         case .avalanche: t.orange
         }
     }

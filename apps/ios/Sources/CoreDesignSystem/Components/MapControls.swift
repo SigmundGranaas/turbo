@@ -161,29 +161,32 @@ public struct CompassDial: View {
     @Environment(\.turbo) private var t
     let heading: Double
     let size: CGFloat
-    public init(heading: Double, size: CGFloat = 26) {
+    public init(heading: Double, size: CGFloat = 24) {
         self.heading = heading
         self.size = size
     }
     public var body: some View {
         Canvas { context, canvasSize in
             let w = canvasSize.width, h = canvasSize.height
-            let cx = w / 2
+            let cx = w / 2, cy = h / 2
+            // A clean two-triangle needle: red north, gray south, meeting at a hub.
             var north = Path()
-            north.move(to: CGPoint(x: cx, y: h * 0.19))
-            north.addLine(to: CGPoint(x: w * 0.4, y: h / 2))
-            north.addLine(to: CGPoint(x: cx, y: h * 0.44))
-            north.addLine(to: CGPoint(x: w * 0.6, y: h / 2))
+            north.move(to: CGPoint(x: cx, y: h * 0.12))
+            north.addLine(to: CGPoint(x: w * 0.33, y: cy))
+            north.addLine(to: CGPoint(x: w * 0.67, y: cy))
             north.closeSubpath()
             context.fill(north, with: .color(t.red))
 
             var south = Path()
-            south.move(to: CGPoint(x: cx, y: h * 0.81))
-            south.addLine(to: CGPoint(x: w * 0.4, y: h / 2))
-            south.addLine(to: CGPoint(x: cx, y: h * 0.56))
-            south.addLine(to: CGPoint(x: w * 0.6, y: h / 2))
+            south.move(to: CGPoint(x: cx, y: h * 0.88))
+            south.addLine(to: CGPoint(x: w * 0.33, y: cy))
+            south.addLine(to: CGPoint(x: w * 0.67, y: cy))
             south.closeSubpath()
             context.fill(south, with: .color(t.label2))
+
+            // Center hub keeps the two halves visually joined.
+            let hub = CGRect(x: cx - w * 0.06, y: cy - h * 0.06, width: w * 0.12, height: h * 0.12)
+            context.fill(Path(ellipseIn: hub), with: .color(t.label))
         }
         .frame(width: size, height: size)
         .rotationEffect(.degrees(-heading))
