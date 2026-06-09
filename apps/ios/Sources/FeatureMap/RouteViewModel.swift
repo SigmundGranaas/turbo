@@ -9,16 +9,23 @@ import CoreData
 @MainActor
 @Observable
 public final class RouteViewModel {
-    /// How legs between waypoints are formed.
+    /// How the track's geometry is formed. One tool, three modes (mirrors
+    /// Android's CreateTrack), folding the old separate "Measure" in — Line/Draw
+    /// with the live distance readout *are* the measure tool.
     public enum Mode: String, CaseIterable, Sendable {
-        case route   // snap to trails via the solver
-        case line    // straight legs
-        public var label: String { self == .route ? "Route" : "Line" }
+        case route   // tap waypoints; snap to trails via the solver
+        case line    // tap waypoints; straight legs
+        case draw    // freehand finger stroke
+        public var label: String {
+            switch self { case .route: "Route"; case .line: "Line"; case .draw: "Draw" }
+        }
     }
 
     public var mode: Mode = .route
     public var preset: RoutePreset = .balanced
     public private(set) var waypoints: [LatLng] = []
+    /// Freehand points captured in Draw mode (separate from tapped `waypoints`).
+    public private(set) var drawPoints: [LatLng] = []
     /// The polyline to draw — the solver preview/result, or the straight legs.
     public private(set) var geometry: [LatLng] = []
     public private(set) var plan: RoutePlan?
@@ -38,7 +45,26 @@ public final class RouteViewModel {
         self.pathRepository = pathRepository
     }
 
-    public func addWaypoint(_ point: LatLng) { pushUndo(); waypoints.append(point); resolve() }
+    public func addWaypoint(_ point: LatLng) {
+        guard mode != .draw else { return }   // Draw uses the freehand stroke, not taps
+        pushUndo(); waypoints.append(point); resolve()
+    }
+
+    /// Begin a fresh freehand stroke (drag start). Replaces any prior stroke.
+    public func beginStroke() {
+        guard mode == .draw else { return }
+        pushUndo()
+        drawPoints = []
+    }
+
+    /// Append a freehand point (drag move), throttled so we don't store hundreds
+    /// of near-duplicate points per second.
+    public func appendDrawPoint(_ point: LatLng) {
+        guard mode == .draw else { return }
+        if let last = drawPoints.last, GeoMetrics.haversineMeters(last, point) < 3 { return }
+        drawPoints.append(point)
+        resolve()
+    }
 
     public func removeLast() {
         guard !waypoints.isEmpty else { return }
@@ -90,7 +116,7 @@ public final class RouteViewModel {
 
     public func clear() {
         solveTask?.cancel(); solveTask = nil
-        waypoints = []; geometry = []; plan = nil; isSolving = false
+        waypoints = []; drawPoints = []; geometry = []; plan = nil; isSolving = false
         undoStack = []
     }
 
@@ -115,7 +141,14 @@ public final class RouteViewModel {
         return result
     }
 
-    public func setMode(_ newMode: Mode) { mode = newMode; resolve() }
+    public func setMode(_ newMode: Mode) {
+        guard newMode != mode else { return }
+        // Switching modes starts a fresh track (tapped waypoints and freehand
+        // strokes don't mix), matching Android's openTrackTool reset.
+        mode = newMode
+        waypoints = []; drawPoints = []; geometry = []; plan = nil; undoStack = []
+        solveTask?.cancel(); solveTask = nil; isSolving = false
+    }
     public func setPreset(_ newPreset: RoutePreset) { preset = newPreset; if mode == .route { resolve() } }
 
     /// Persist the solved route as a recorded path.
@@ -137,9 +170,22 @@ public final class RouteViewModel {
         solveTask?.cancel(); solveTask = nil
         let previousGeometry = plan?.geometry   // keep the last solved line while re-solving
         plan = nil
+
+        if mode == .draw {
+            geometry = drawPoints
+            isSolving = false
+            guard drawPoints.count >= 2 else { return }
+            let distance = GeoMetrics.pathLengthMeters(drawPoints)
+            plan = RoutePlan(distanceM: distance, durationS: distance / 1.3, ascentM: 0,
+                             onTrailPct: 0, surfaces: [:], geometry: drawPoints)
+            return
+        }
+
         guard waypoints.count >= 2 else { geometry = waypoints; isSolving = false; return }
 
         switch mode {
+        case .draw:
+            break   // handled above
         case .line:
             geometry = waypoints
             let distance = GeoMetrics.pathLengthMeters(waypoints)

@@ -29,7 +29,7 @@ public struct MapScreen: View {
     private let follow: FollowController?
     private let solveRoute: (@Sendable ([LatLng]) async -> RoutePlan?)?
     @State private var routing: RouteViewModel?
-    @State private var measuring: MeasureViewModel?
+    @State private var drawStarted = false
     @State private var showWeather = false
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
@@ -93,7 +93,6 @@ public struct MapScreen: View {
     private var drawnGeometry: [LatLng] {
         if isFollowing { return follow?.geometry ?? [] }
         if let routing { return routing.geometry }
-        if let measuring { return measuring.points }
         return []
     }
 
@@ -123,11 +122,52 @@ public struct MapScreen: View {
         routing?.moveWaypoint(at: index, to: coord)
     }
 
-    /// Single-tap adds a waypoint (routing) or a measure point, else nothing.
+    /// Single-tap adds a waypoint while building a track (route/line modes; draw
+    /// uses the freehand gesture, and addWaypoint no-ops there).
     private var tapHandler: ((LatLng) -> Void)? {
         if routing != nil { return { routing?.addWaypoint($0) } }
-        if measuring != nil { return { measuring?.addPoint($0) } }
         return nil
+    }
+
+    /// True while the track tool is in freehand Draw mode (drives the draw layer).
+    private var isDrawing: Bool { routing?.mode == .draw }
+
+    /// A transparent capture layer for freehand Draw — turns finger drags into
+    /// track points (and consumes the gesture so the map doesn't pan). Mirrors
+    /// Android's `detectDragGestures` draw overlay.
+    @ViewBuilder
+    private var drawLayer: some View {
+        if isDrawing, let bounds = viewModel.visibleBounds {
+            GeometryReader { geo in
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let point = Self.coordinate(at: value.location, in: geo.size, bounds: bounds)
+                                if drawStarted {
+                                    routing?.appendDrawPoint(point)
+                                } else {
+                                    routing?.beginStroke()
+                                    routing?.appendDrawPoint(point)
+                                    drawStarted = true
+                                }
+                            }
+                            .onEnded { _ in drawStarted = false }
+                    )
+            }
+        }
+    }
+
+    /// Linear screen→geo mapping over the map's visible rect — fine at trail scale
+    /// for freehand drawing.
+    private static func coordinate(at point: CGPoint, in size: CGSize, bounds: GeoBounds) -> LatLng {
+        let fx = min(max(point.x / max(size.width, 1), 0), 1)
+        let fy = min(max(point.y / max(size.height, 1), 0), 1)
+        return LatLng(
+            lat: bounds.north - fy * (bounds.north - bounds.south),
+            lng: bounds.west + fx * (bounds.east - bounds.west)
+        )
     }
 
     public var body: some View {
@@ -147,6 +187,7 @@ public struct MapScreen: View {
             onPinMoved: handlePinMoved
         )
         .ignoresSafeArea()
+        .overlay { drawLayer }   // below the chrome so the card stays interactive
         .animation(.easeOut(duration: 0.25), value: viewModel.focusedPlace)
         .animation(.easeOut(duration: 0.2), value: viewModel.following)
         .sensoryFeedback(.impact(weight: .medium), trigger: longPressCoord) { _, new in new != nil }
@@ -200,18 +241,14 @@ public struct MapScreen: View {
         ) { coord in
             Button("New Marker") { editorTarget = .new(coord, name: ""); longPressCoord = nil }
             if makeRouteViewModel != nil {
-                Button("Plan a Route") {
+                // One track tool — Route / Line / Draw (Line/Draw double as the
+                // measure tool via the live distance readout).
+                Button("Plan a Track") {
                     let vm = makeRouteViewModel?()
                     vm?.addWaypoint(coord)
                     routing = vm
                     longPressCoord = nil
                 }
-            }
-            Button("Measure") {
-                let vm = MeasureViewModel()
-                vm.addPoint(coord)
-                measuring = vm
-                longPressCoord = nil
             }
             openInMapsButton(coord)
             Button("Cancel", role: .cancel) { longPressCoord = nil }
@@ -246,7 +283,7 @@ public struct MapScreen: View {
             result.append(MapPin(id: "focus-\(place.id)", coordinate: place.position,
                                  title: place.name, symbolName: "mappin", tint: t.red))
         }
-        let toolPoints = routing?.waypoints ?? measuring?.points ?? []
+        let toolPoints = routing?.waypoints ?? []
         for (i, wp) in toolPoints.enumerated() {
             result.append(MapPin(id: "wp-\(i)", coordinate: wp, title: "\(i + 1)", symbolName: "smallcircle.filled.circle", tint: t.blue))
         }
@@ -369,10 +406,6 @@ public struct MapScreen: View {
             RouteCard(viewModel: routing,
                       onClose: { self.routing = nil },
                       onFollow: follow != nil ? { startFollowingPlannedRoute() } : nil)
-                .padding(.horizontal, 14)
-                .padding(.bottom, 12)
-        } else if let measuring {
-            MeasureCard(viewModel: measuring, onClose: { self.measuring = nil })
                 .padding(.horizontal, 14)
                 .padding(.bottom, 12)
         } else {

@@ -16,7 +16,7 @@ struct RouteCard: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("Plan a Route").font(.turboHeadline).foregroundStyle(t.label)
+                Text("Plan a Track").font(.turboHeadline).foregroundStyle(t.label)
                 Spacer()
                 Button { onClose() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(t.label3)
@@ -39,7 +39,8 @@ struct RouteCard: View {
             } else if viewModel.isSolving {
                 HStack(spacing: 8) { ProgressView(); Text("Solving…").font(.turboFootnote).foregroundStyle(t.label2); Spacer() }
             } else {
-                Text("Tap the map to add points.").font(.turboFootnote).foregroundStyle(t.label2)
+                Text(viewModel.mode == .draw ? "Draw on the map to trace a path." : "Tap the map to add points.")
+                    .font(.turboFootnote).foregroundStyle(t.label2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 

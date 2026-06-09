@@ -100,6 +100,43 @@ struct RouteViewModelTests {
         #expect(vm.canUndo == false)
     }
 
+    @Test("draw mode captures a freehand stroke and measures it")
+    func draw() {
+        let (vm, _) = vm()
+        vm.setMode(.draw)
+        vm.beginStroke()
+        vm.appendDrawPoint(LatLng(lat: 0, lng: 0))
+        vm.appendDrawPoint(LatLng(lat: 0, lng: 0.01))   // ~1.1 km east
+        #expect(vm.drawPoints.count == 2)
+        #expect(vm.geometry.count == 2)
+        #expect((vm.plan?.distanceM ?? 0) > 0)
+        // Taps are ignored in draw mode.
+        vm.addWaypoint(LatLng(lat: 5, lng: 5))
+        #expect(vm.waypoints.isEmpty)
+    }
+
+    @Test("draw throttles near-duplicate points")
+    func drawThrottle() {
+        let (vm, _) = vm()
+        vm.setMode(.draw)
+        vm.beginStroke()
+        vm.appendDrawPoint(LatLng(lat: 69.6, lng: 19.9))
+        vm.appendDrawPoint(LatLng(lat: 69.6, lng: 19.9))   // identical → dropped
+        #expect(vm.drawPoints.count == 1)
+    }
+
+    @Test("switching modes starts a fresh track")
+    func modeSwitchClears() {
+        let (vm, _) = vm()
+        vm.setMode(.line)
+        vm.addWaypoint(LatLng(lat: 1, lng: 1))
+        vm.addWaypoint(LatLng(lat: 2, lng: 2))
+        #expect(vm.waypoints.count == 2)
+        vm.setMode(.draw)
+        #expect(vm.waypoints.isEmpty)
+        #expect(vm.plan == nil)
+    }
+
     @Test("saving a solved route persists it as a recorded path")
     func save() async {
         let (vm, paths) = vm()
