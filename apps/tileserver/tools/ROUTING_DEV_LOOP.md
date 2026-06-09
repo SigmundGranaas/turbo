@@ -123,7 +123,17 @@ RUST_LOG=error ./target/release/tileserver eval-terrain \
 
 The global-allocator shim taxes every allocation, so solves run much
 slower under it — use a small `--limit` and skip `--check-determinism`.
-This is the lens for the allocation-churn work in the architecture plan
-(`edge_polyline().to_vec()`, per-cell `EdgeContext`, dense per-request
-arrays): a baseline run shows multi-GB total allocation across millions
-of blocks for a handful of routes.
+For symbolized backtraces use the `profiling` cargo profile (release
+speed + line debuginfo; the plain release profile strips symbols):
+
+```bash
+cargo build --profile profiling -p turbo-tiles-bin --features dhat-heap
+./target/profiling/tileserver eval-terrain ...
+```
+
+Findings from the 2026-06 profiling pass (3 hikes, post-EdgeElevProbe):
+~3 GB of the ~4.5 GB total churn is ONE-TIME BOOT (rstar tree build in
+`TrailProximityContributor::new`, `VectorStore` blob parse) — harmless
+steady-state. Per-solve churn (~0.5 GB / 1.6 M blocks per off-trail
+solve) is diffuse: rstar query internals, polygon intersection math,
+small per-cell probe vectors. No single dominant site remains.
