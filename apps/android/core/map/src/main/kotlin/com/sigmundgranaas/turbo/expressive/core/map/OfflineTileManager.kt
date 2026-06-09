@@ -106,7 +106,7 @@ class MapLibreOfflineTileManager @Inject constructor(
     override fun download(spec: DownloadSpec) {
         serviceLauncher.ensureRunning()
         val definition = OfflineTilePyramidRegionDefinition(
-            styleServer.styleUrl(spec.base),
+            styleServer.styleUrl(spec.base, spec.overlays),
             LatLngBounds.Builder()
                 .include(MlLatLng(spec.bounds.north, spec.bounds.east))
                 .include(MlLatLng(spec.bounds.south, spec.bounds.west))

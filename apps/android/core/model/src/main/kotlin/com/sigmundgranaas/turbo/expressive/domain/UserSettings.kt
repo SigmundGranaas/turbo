@@ -13,4 +13,6 @@ data class UserSettings(
     val cloudSyncEnabled: Boolean = true,
     /** When on, offline map downloads only run on un-metered (Wi-Fi) networks. */
     val downloadOverWifiOnly: Boolean = false,
+    /** The last-selected base map, restored on launch. */
+    val baseLayer: BaseLayer = BaseLayer.Norgeskart,
 )

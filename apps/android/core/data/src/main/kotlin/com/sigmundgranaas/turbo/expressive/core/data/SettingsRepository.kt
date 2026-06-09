@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
 import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,6 +25,7 @@ interface SettingsRepository {
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setCloudSyncEnabled(enabled: Boolean)
     suspend fun setDownloadOverWifiOnly(enabled: Boolean)
+    suspend fun setBaseLayer(layer: BaseLayer)
 }
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_settings")
@@ -40,6 +42,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val CLOUD_SYNC = booleanPreferencesKey("cloud_sync_enabled")
         val WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
+        val BASE_LAYER = stringPreferencesKey("base_layer")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -52,6 +55,9 @@ class DataStoreSettingsRepository @Inject constructor(
                 ?: ThemeMode.System,
             cloudSyncEnabled = prefs[Keys.CLOUD_SYNC] ?: true,
             downloadOverWifiOnly = prefs[Keys.WIFI_ONLY] ?: false,
+            baseLayer = prefs[Keys.BASE_LAYER]
+                ?.let { id -> BaseLayer.entries.firstOrNull { it.id == id } }
+                ?: BaseLayer.Norgeskart,
         )
     }
 
@@ -77,5 +83,9 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setDownloadOverWifiOnly(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.WIFI_ONLY] = enabled }
+    }
+
+    override suspend fun setBaseLayer(layer: BaseLayer) {
+        context.settingsDataStore.edit { it[Keys.BASE_LAYER] = layer.id }
     }
 }

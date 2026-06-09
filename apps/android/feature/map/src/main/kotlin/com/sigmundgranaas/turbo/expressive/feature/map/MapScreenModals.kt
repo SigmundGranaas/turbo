@@ -112,13 +112,15 @@ internal fun MapScreenModals(
     // Pre-flight size confirm for "Download this area": shows the estimate and blocks
     // areas too large to download (zoom in instead). Confirm commits + opens Offline.
     ui.pendingDownloadArea?.let { area ->
-        val estimate = remember(area, baseLayer) {
-            offlineViewModel.estimate(baseLayer, area.bounds, area.zoom)
+        // Cache the overlays toggled on now, so the estimate and the download agree.
+        val overlays = ui.activeOverlays
+        val estimate = remember(area, baseLayer, overlays) {
+            offlineViewModel.estimate(baseLayer, area.bounds, area.zoom, overlays)
         }
         DownloadAreaDialog(
             estimate = estimate,
             onConfirm = {
-                offlineViewModel.download(area.centre, baseLayer, area.bounds, area.zoom)
+                offlineViewModel.download(area.centre, baseLayer, area.bounds, area.zoom, overlays)
                 ui.pendingDownloadArea = null
                 onOpenOffline()
             },

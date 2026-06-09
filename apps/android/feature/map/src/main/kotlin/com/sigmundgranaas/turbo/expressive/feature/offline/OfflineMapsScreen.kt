@@ -151,9 +151,11 @@ private fun RegionCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // The base map differentiates same-named regions (e.g. two "Tromsø").
+                // The base map (+ any overlays) differentiates same-named regions and
+                // shows what's actually available offline (e.g. avalanche terrain).
                 Text(
-                    region.base.title,
+                    region.base.title + region.overlays.takeIf { it.isNotEmpty() }
+                        ?.joinToString(prefix = " · ") { it.title }.orEmpty(),
                     style = MaterialTheme.typography.labelSmall,
                     color = cs.onSurfaceVariant,
                 )
