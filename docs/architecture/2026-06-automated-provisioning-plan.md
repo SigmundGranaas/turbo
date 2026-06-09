@@ -148,7 +148,38 @@ Two fixes fell out of the live testing:
 Not yet done: per-source version recording for fetch-skip (a re-fetch always
 re-orders today), a recurring refresh schedule (only the boot/empty trigger
 exists), and folding the new `coastline`/raster work — which lives on a later
-branch state — back in.
+branch state — back in. *(Update: coastline is merged in; `provision-n50` now
+runs all 8 upserts.)*
+
+## Scaling probe → national dry-run projections (2026-06-09)
+
+Measured by provisioning the largest county, **Innlandet (34)**, end-to-end on
+dev hardware (debug build, dockerised PG17):
+
+| | Oslo (03) | Innlandet (34) | National (projected ≈10× Innlandet) |
+| --- | --- | --- | --- |
+| Zip download | 8.6 MB | 664 MB | ~5–7 GB |
+| Canonical rows | 28 284 | 749 912 | ~7–8 M |
+| Wall-clock (full chain) | ~15 s | **194 s** | **~30–45 min** |
+| `n50_staging` size | ~60 MB | 1.3 GB | ~13 GB |
+| DB total after | — | 2.2 GB | ~22–28 GB |
+
+**Disk sizing for the national run:** zip + unzipped SQL + staging + canonical
++ WAL peaks around **35–40 GB**. The dev sandbox (16 GB free) cannot run it —
+the dry-run needs the prod node or a sized build box. Timings scale roughly
+linearly with dump size in the probe, dominated by the psql restore and the
+vegnett/contour upserts.
+
+**Load-bearing semantics finding:** county provisioning **replaces, does not
+merge**. Every `upsert_n50_*.sql` starts with `DELETE … WHERE source='n50'`,
+so provisioning Oslo after Innlandet wiped Innlandet (contour 138 662 → 2 268,
+verified empirically). Consequences:
+- **Whole-country coverage requires `--area national`** — you cannot
+  accumulate counties. Per-county provisioning is for dev/preview only.
+- A scheduled refresh re-provisions the *same* area it was configured with;
+  mixing areas across runs silently shrinks coverage. The provision job should
+  eventually record its area and warn (or refuse) when a smaller area would
+  replace a larger one — noted as a follow-up guard.
 
 ## 4. Milestones
 
