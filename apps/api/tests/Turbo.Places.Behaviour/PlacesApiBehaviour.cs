@@ -120,6 +120,20 @@ public class PlacesApiBehaviour : IClassFixture<PlacesHostFixture>
     }
 
     [Fact]
+    public async Task Ruleset_endpoint_serves_version_1_and_404s_unknown()
+    {
+        var client = _fixture.CreateClient();
+
+        var ok = await client.GetAsync("/api/places/ruleset/1");
+        ok.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await ok.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("version").GetString().Should().Be("1");
+
+        var unknown = await client.GetAsync("/api/places/ruleset/999");
+        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Health_reports_dataset_counts_and_version()
     {
         var client = _fixture.CreateClient();

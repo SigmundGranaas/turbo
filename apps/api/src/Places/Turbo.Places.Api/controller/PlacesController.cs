@@ -23,15 +23,17 @@ public class PlacesController : ControllerBase
     private readonly SearchService _search;
     private readonly IPlaceStore _store;
     private readonly DatasetVersionProvider _version;
+    private readonly RulesetProvider _ruleset;
 
     public PlacesController(
         ReverseGeocodeService reverse, SearchService search, IPlaceStore store,
-        DatasetVersionProvider version)
+        DatasetVersionProvider version, RulesetProvider ruleset)
     {
         _reverse = reverse;
         _search = search;
         _store = store;
         _version = version;
+        _ruleset = ruleset;
     }
 
     /// <summary>GET /api/places/reverse?lat=&amp;lon= — describe a coordinate.
@@ -79,6 +81,17 @@ public class PlacesController : ControllerBase
         return Ok(new SearchResponse(
             results.Select(r => new SearchHitResponse(
                 r.Title, r.Description, r.Icon, r.Lat, r.Lng)).ToList()));
+    }
+
+    /// <summary>GET /api/places/ruleset/{version} — the classification ruleset
+    /// the core ran for that version (bundles embed the same artifact).</summary>
+    [HttpGet("ruleset/{version}")]
+    public ActionResult Ruleset(string version)
+    {
+        var json = _ruleset.ForVersion(version);
+        return json is null
+            ? NotFound(new ErrorResponse("unknown_ruleset", $"No ruleset version '{version}'."))
+            : Content(json, "application/json");
     }
 
     /// <summary>GET /api/places/health — dataset freshness for ops + clients.</summary>

@@ -37,7 +37,19 @@ public static class PlaceCore
     private static extern IntPtr place_core_search_default(IntPtr queryUtf8, IntPtr candidatesJsonUtf8);
 
     [DllImport(Lib)]
+    private static extern IntPtr place_core_ruleset_default();
+
+    [DllImport(Lib)]
     private static extern void place_core_string_free(IntPtr ptr);
+
+    /// <summary>The embedded ruleset artifact (verbatim JSON) — what the core
+    /// runs, so the server serves exactly that.</summary>
+    public static string RulesetJson()
+    {
+        var result = place_core_ruleset_default();
+        try { return Marshal.PtrToStringUTF8(result) ?? "{}"; }
+        finally { place_core_string_free(result); }
+    }
 
     /// <summary>Reverse-geocode a JSON <c>ReverseInput</c> → JSON
     /// <c>LocationDescription</c> (or the literal <c>null</c>).</summary>

@@ -31,6 +31,7 @@ public static class PlacesModule
         var ttl = TimeSpan.FromSeconds(configuration.GetValue("Places:VersionCacheSeconds", 5.0));
         services.AddSingleton(sp => new DatasetVersionProvider(
             sp.GetRequiredService<IPlaceStore>(), ttl));
+        services.AddSingleton<RulesetProvider>();
 
         services.AddControllers().AddApplicationPart(typeof(PlacesController).Assembly);
 
@@ -39,11 +40,15 @@ public static class PlacesModule
 
     /// <summary>
     /// Startup hook (the Places analogue of <c>MigrateModuleDatabaseAsync</c>):
-    /// creates the database if missing and applies the idempotent schema DDL.
+    /// fails fast if the native ranking core isn't loadable, then creates the
+    /// database if missing and applies the idempotent schema DDL.
     /// </summary>
     public static Task InitializePlacesModuleAsync(
         this IServiceProvider _, string connectionString, CancellationToken ct = default)
-        => PlacesDatabaseInitializer.InitializeAsync(connectionString, ct);
+    {
+        Turboapi.Places.Core.PlacesStartupProbe.Verify();
+        return PlacesDatabaseInitializer.InitializeAsync(connectionString, ct);
+    }
 
     public static string ResolveConnectionString(IConfiguration configuration) =>
         configuration.GetConnectionString(ConnectionStringName)

@@ -146,6 +146,13 @@ pub unsafe extern "C" fn place_core_search_default(
     search_with(default_ruleset(), query, candidates_json)
 }
 
+/// The embedded ruleset artifact (verbatim JSON), so the server serves exactly
+/// what the core runs — one source of truth across the FFI.
+#[no_mangle]
+pub extern "C" fn place_core_ruleset_default() -> *mut c_char {
+    give(include_str!("../ruleset.v1.json").to_string())
+}
+
 /// Release a string returned by this ABI.
 ///
 /// # Safety
@@ -209,6 +216,22 @@ mod tests {
         unsafe {
             let bad = CString::new("{ not a ruleset").unwrap();
             assert!(place_core_engine_new(bad.as_ptr()).is_null());
+        }
+    }
+
+    #[test]
+    fn ruleset_default_is_the_embedded_version_1_artifact() {
+        unsafe {
+            let out = place_core_ruleset_default();
+            let json = CStr::from_ptr(out).to_str().unwrap().to_owned();
+            place_core_string_free(out);
+            let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(v["version"], "1");
+            // Round-trips into a usable engine (proves it's the real artifact).
+            let c = CString::new(json).unwrap();
+            let engine = place_core_engine_new(c.as_ptr());
+            assert!(!engine.is_null());
+            place_core_engine_free(engine);
         }
     }
 }

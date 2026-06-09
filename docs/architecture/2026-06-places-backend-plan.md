@@ -63,7 +63,7 @@ CREATE TABLE places.places (
     id              uuid PRIMARY KEY,            -- deterministic: uuidv5(source|source_id)
     source          text NOT NULL,               -- 'ssr' | 'matrikkel' | 'naturbase'
     source_id       text NOT NULL,
-    feature_type    text NOT NULL,               -- canonical enum (peak/water/settlement/built/address/protected_area/...)
+    feature_type    text NOT NULL,               -- raw navneobjekttype (Fjell/Innsjø/Tettsted/…); the place-core ruleset matches these directly, lower-cased
     primary_name    text NOT NULL,
     name_fold       text NOT NULL,               -- lowercased, diacritics normalised for trgm/fts
     geom            geometry(Geometry,4326) NOT NULL,   -- point for names/addresses, polygon for protected areas
