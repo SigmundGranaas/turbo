@@ -1,0 +1,15 @@
+[package]
+name = "place-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared, pure ranking/classification core for Turbo search + reverse-geocoding. Bound into Dart (flutter_rust_bridge), Kotlin/Swift (UniFFI) and .NET (P/Invoke)."
+license = "MIT"
+
+[lib]
+# Phase 0 ships the pure logic only. FFI crate-types (staticlib/cdylib) are
+# added per-binding in later phases so the toolchain cost lands incrementally.
+name = "place_core"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

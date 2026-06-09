@@ -1,0 +1,34 @@
+{
+  "version": "1",
+  "tier_multiplier": 10000.0,
+  "status_penalty": 50.0,
+  "active_status": "aktiv",
+  "name_rejections": ["unknown", "ukjent"],
+  "elevation_min": -1000.0,
+  "elevation_max": 9000.0,
+  "kind_groups": {
+    "peak": ["fjelltopp", "topp", "fjell", "ås", "haug", "berg", "nut", "pigg"],
+    "glacier": ["isbre", "bre", "snøfonn", "jøkul"],
+    "water": ["innsjø", "vann", "vatn", "tjern", "elv", "bekk", "fjord", "sund", "vik", "bukt", "havn", "pøl"],
+    "landform": ["øy", "holme", "skjær", "nes", "halvøy"],
+    "settlement": ["tettsted", "by", "tettbebyggelse", "bygd", "grend", "bydel"],
+    "built": ["gard", "bruk", "seter", "hytte", "bygning"]
+  },
+  "rules": [
+    { "group": "peak",       "max_m": 100.0,  "tier": "exactContact", "qualifier": "on" },
+    { "group": "glacier",    "max_m": 200.0,  "tier": "exactContact", "qualifier": "on" },
+    { "group": "landform",   "max_m": 200.0,  "tier": "exactContact", "qualifier": "on" },
+    { "group": "water",      "max_m": 100.0,  "tier": "exactContact", "qualifier": "atPlace" },
+    { "group": "built",      "max_m": 50.0,   "tier": "exactContact", "qualifier": "atPlace" },
+    { "group": "settlement", "max_m": 1500.0, "tier": "inSettlement", "qualifier": "inArea" },
+    { "group": "peak",       "max_m": 800.0,  "tier": "closeToPeak",  "qualifier": "closeTo" },
+    { "group": "settlement", "max_m": 4000.0, "tier": "periphery",    "qualifier": "near" },
+    { "group": "built",      "max_m": 200.0,  "tier": "periphery",    "qualifier": "closeTo" },
+    { "group": "built",      "max_m": 500.0,  "tier": "periphery",    "qualifier": "near" },
+    { "group": "water",      "max_m": 500.0,  "tier": "periphery",    "qualifier": "closeTo" },
+    { "group": "landform",   "max_m": 500.0,  "tier": "periphery",    "qualifier": "closeTo" },
+    { "group": "glacier",    "max_m": 500.0,  "tier": "periphery",    "qualifier": "closeTo" },
+    { "group": "any",        "max_m": 100.0,  "tier": "periphery",    "qualifier": "atPlace" },
+    { "group": "any",        "max_m": 500.0,  "tier": "periphery",    "qualifier": "near" }
+  ]
+}
