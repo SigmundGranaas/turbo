@@ -61,6 +61,9 @@ public sealed class PlacesHostFixture : IAsyncLifetime
             builder.UseEnvironment("Test");
             builder.UseContentRoot(Path.Combine(repoRoot, "apps", "api", "hosts", "Turbo.Host.Places"));
             builder.UseSetting("ConnectionStrings:Places", _postgres.GetConnectionString());
+            // No version cache in tests: every request reads the (cheap, 1-row)
+            // active version, so a publish is visible immediately.
+            builder.UseSetting("Places:VersionCacheSeconds", "0");
         });
 
         // Force host startup (runs the schema initializer), then seed.
@@ -73,6 +76,11 @@ public sealed class PlacesHostFixture : IAsyncLifetime
         _factory?.Dispose();
         await _postgres.DisposeAsync();
     }
+
+    /// <summary>Marks <paramref name="version"/> the active publication (the
+    /// P1 swap's promote step, exercised in isolation by the versioning tests).</summary>
+    public Task PublishDatasetVersionAsync(string version) =>
+        new PgPlaceStore(_postgres.GetConnectionString()).PublishDatasetVersionAsync(version);
 
     private async Task SeedAsync(string repoRoot, string connectionString)
     {
@@ -112,6 +120,8 @@ public sealed class PlacesHostFixture : IAsyncLifetime
             new Area("test", "kommune-1", "kommune", "Lom", "Innlandet",
                 Square(8.0, 61.4, 8.6, 61.8)),
         }, "test-fixture");
+
+        await store.PublishDatasetVersionAsync("test-fixture");
     }
 
     private static string Square(double minLng, double minLat, double maxLng, double maxLat) =>

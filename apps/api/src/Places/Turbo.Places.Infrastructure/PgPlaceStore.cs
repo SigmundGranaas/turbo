@@ -61,6 +61,12 @@ public sealed class PgPlaceStore : IPlaceStore
             );
             CREATE INDEX IF NOT EXISTS areas_geom_gist ON places.areas USING gist (geom);
             CREATE INDEX IF NOT EXISTS areas_type      ON places.areas (area_type);
+            CREATE TABLE IF NOT EXISTS places.dataset (
+                version      text PRIMARY KEY,
+                status       text NOT NULL,           -- 'active' | 'superseded'
+                published_at timestamptz NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS dataset_active ON places.dataset (status, published_at DESC);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -205,15 +211,48 @@ public sealed class PgPlaceStore : IPlaceStore
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
+        // Counts are real (ops endpoint, low traffic); the version is the
+        // authoritative active publication from places.dataset, NOT a scan of
+        // row versions — so /health and the ETag always agree.
         cmd.CommandText = """
             SELECT (SELECT count(*) FROM places.places),
                    (SELECT count(*) FROM places.areas),
-                   (SELECT max(dataset_version) FROM places.places);
+                   (SELECT version FROM places.dataset WHERE status = 'active'
+                    ORDER BY published_at DESC LIMIT 1);
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         await reader.ReadAsync(ct);
         return (reader.GetInt64(0), reader.GetInt64(1),
                 reader.IsDBNull(2) ? null : reader.GetString(2));
+    }
+
+    public async Task<string?> GetActiveDatasetVersionAsync(CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT version FROM places.dataset WHERE status = 'active'
+            ORDER BY published_at DESC LIMIT 1;
+            """;
+        return await cmd.ExecuteScalarAsync(ct) as string;
+    }
+
+    public async Task PublishDatasetVersionAsync(string version, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE places.dataset SET status = 'superseded' WHERE status = 'active';
+            INSERT INTO places.dataset (version, status, published_at)
+            VALUES (@v, 'active', now())
+            ON CONFLICT (version) DO UPDATE SET status = 'active', published_at = now();
+            """;
+        cmd.Parameters.AddWithValue("v", version);
+        await cmd.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     private static string EscapeLike(string s) =>

@@ -25,6 +25,13 @@ public static class PlacesModule
         services.AddSingleton<ReverseGeocodeService>();
         services.AddSingleton<SearchService>();
 
+        // ETag source: cache the active dataset version in-process so the hot
+        // path never scans places. 0 disables the cache (tests see publishes
+        // immediately); production default 5 s.
+        var ttl = TimeSpan.FromSeconds(configuration.GetValue("Places:VersionCacheSeconds", 5.0));
+        services.AddSingleton(sp => new DatasetVersionProvider(
+            sp.GetRequiredService<IPlaceStore>(), ttl));
+
         services.AddControllers().AddApplicationPart(typeof(PlacesController).Assembly);
 
         return services;

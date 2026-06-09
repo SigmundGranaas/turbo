@@ -98,6 +98,9 @@ foreach (var (name, lat, lng, radius) in runs)
         $"{areas.Count(a => a.AreaType == "kommune")} kommune");
 }
 
+// Promote this run to the active publication (the ETag flips here).
+await store.PublishDatasetVersionAsync(version);
+
 // ── Verification: reverse + search from our own stack, no Kartverket ────────
 Console.WriteLine();
 Console.WriteLine("== verify (owned data only) ==");

@@ -22,12 +22,16 @@ public class PlacesController : ControllerBase
     private readonly ReverseGeocodeService _reverse;
     private readonly SearchService _search;
     private readonly IPlaceStore _store;
+    private readonly DatasetVersionProvider _version;
 
-    public PlacesController(ReverseGeocodeService reverse, SearchService search, IPlaceStore store)
+    public PlacesController(
+        ReverseGeocodeService reverse, SearchService search, IPlaceStore store,
+        DatasetVersionProvider version)
     {
         _reverse = reverse;
         _search = search;
         _store = store;
+        _version = version;
     }
 
     /// <summary>GET /api/places/reverse?lat=&amp;lon= — describe a coordinate.
@@ -92,7 +96,7 @@ public class PlacesController : ControllerBase
     /// whether the client's If-None-Match already matches it.</summary>
     private async Task<bool> NotModifiedAsync(CancellationToken ct)
     {
-        var (_, _, version) = await _store.StatsAsync(ct);
+        var version = await _version.GetActiveVersionAsync(ct);
         if (version is null) return false;
         var etag = $"\"{version}\"";
         Response.Headers.ETag = etag;

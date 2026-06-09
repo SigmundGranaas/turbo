@@ -33,6 +33,15 @@ public interface IPlaceStore
         string query, double? nearLat, double? nearLng, int limit, CancellationToken ct = default);
 
     /// <summary>Dataset stats for the health endpoint: row counts and the
-    /// newest dataset version per kind.</summary>
+    /// active publication version.</summary>
     Task<(long Places, long Areas, string? DatasetVersion)> StatsAsync(CancellationToken ct = default);
+
+    /// <summary>The active publication version from <c>places.dataset</c>
+    /// (a cheap 1-row read — the ETag source). <c>null</c> before first publish.</summary>
+    Task<string?> GetActiveDatasetVersionAsync(CancellationToken ct = default);
+
+    /// <summary>Mark <paramref name="version"/> the sole active publication
+    /// (prior active → superseded), atomically. The ingestion swap's promote
+    /// step; decoupled from row content so reads flip exactly once.</summary>
+    Task PublishDatasetVersionAsync(string version, CancellationToken ct = default);
 }
