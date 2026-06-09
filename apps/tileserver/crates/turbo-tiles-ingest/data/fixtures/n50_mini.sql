@@ -178,6 +178,22 @@ CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.typeveg (
     identifier text, description text
 );
 
+-- Arealdekke theme: coastline. The kystkontur upsert routes this to
+-- terrain.coastline. One synthetic shoreline segment near the fixture area.
+CREATE TABLE n50kartdata_aabbccddeeff11223344556677889900.kystkontur (
+    objid integer NOT NULL,
+    objtype text,
+    grense public.geometry(Geometry, 25833),
+    datafangstdato date,
+    oppdateringsdato date,
+    malemetode text,
+    noyaktighet text
+);
+INSERT INTO n50kartdata_aabbccddeeff11223344556677889900.kystkontur
+  (objid, objtype, grense) VALUES
+  (10001, 'Kystkontur',
+   ST_GeomFromText('LINESTRING(594000 6649000, 594500 6649200, 595000 6649100)', 25833));
+
 -- BygningerOgAnlegg theme: building footprints. The bygning upsert routes
 -- these to terrain.building_polygon. Two footprints near Sognsvann; one
 -- carries a name (a cabin), one does not.

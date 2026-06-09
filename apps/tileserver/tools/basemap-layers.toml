@@ -47,6 +47,15 @@ kind        = "polygon"
 min_zoom    = 14
 attrs       = [{ name = "building_type" }]
 
+# ----- Coastline (land/sea shoreline) ----------------------------
+# Drawn over the sea fill (water kind='sea') as the crisp coast edge.
+[[layer]]
+name        = "coastline"
+table       = "terrain.coastline"
+kind        = "line"
+min_zoom    = 4
+simplify    = true
+
 # ----- Contour lines (20 m equidistance, index every 100 m) ------
 [[layer]]
 name        = "contour"
