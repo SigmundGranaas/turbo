@@ -14,6 +14,7 @@ import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +38,7 @@ class OfflineViewModel @Inject constructor(
 
     /** Regions staged for deletion: hidden from the list while the undo snackbar runs. */
     private val staged = MutableStateFlow<Set<Long>>(emptySet())
+    private val deleteJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
 
     val regions: StateFlow<List<OfflineRegionInfo>> =
         combine(manager.regions, staged) { list, hidden -> list.filterNot { it.id in hidden } }
@@ -107,16 +109,27 @@ class OfflineViewModel @Inject constructor(
         if (name.isNotBlank()) manager.rename(id, name.trim())
     }
 
-    /** Hide the region while the undo snackbar runs; nothing is removed yet. */
-    fun stageDelete(id: Long) = staged.update { it + id }
+    /**
+     * Hide the region, then actually delete its tiles once the undo window lapses —
+     * unless [undoDelete] cancels first. The commit runs in [viewModelScope], not the
+     * snackbar's, so navigating away mid-undo still completes the delete (no orphaned
+     * hidden region).
+     */
+    fun stageDelete(id: Long) {
+        staged.update { it + id }
+        deleteJobs.remove(id)?.cancel()
+        deleteJobs[id] = viewModelScope.launch {
+            delay(UNDO_WINDOW_MS)
+            manager.delete(id)
+            staged.update { it - id }
+            deleteJobs.remove(id)
+        }
+    }
 
-    /** Undo from the snackbar — the region was never actually deleted. */
-    fun undoDelete(id: Long) = staged.update { it - id }
-
-    /** The snackbar lapsed without undo: actually delete the region's tiles. */
-    fun commitDelete(id: Long) {
+    /** Undo from the snackbar — cancel the pending commit and restore the region. */
+    fun undoDelete(id: Long) {
+        deleteJobs.remove(id)?.cancel()
         staged.update { it - id }
-        manager.delete(id)
     }
 
     fun delete(id: Long) = manager.delete(id)
@@ -126,5 +139,6 @@ class OfflineViewModel @Inject constructor(
     private companion object {
         const val MIN_ZOOM = 8.0
         const val MAX_ZOOM = 16.0
+        const val UNDO_WINDOW_MS = 4_500L
     }
 }

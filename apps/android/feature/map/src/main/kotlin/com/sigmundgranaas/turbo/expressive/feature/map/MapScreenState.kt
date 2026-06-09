@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,9 @@ class MapScreenState {
     // ── Camera / map handle ──
     var controller by mutableStateOf<MapController?>(null)
     var bearing by mutableFloatStateOf(0f)
+    /** Bumped on every camera-idle so on-map chrome that reads the camera (e.g. the
+     *  offline-coverage chip) recomposes after a pan/zoom, not just on rotation. */
+    var cameraIdleTick by mutableIntStateOf(0)
     /** A saved track opened on the map ("Show on map") — drawn + selected. */
     var displayedTrack by mutableStateOf<List<LatLng>?>(null)
 

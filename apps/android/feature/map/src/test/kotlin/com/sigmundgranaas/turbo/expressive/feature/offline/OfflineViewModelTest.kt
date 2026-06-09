@@ -16,7 +16,9 @@ import com.sigmundgranaas.turbo.expressive.feature.map.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -115,25 +117,35 @@ class OfflineViewModelTest {
     }
 
     @Test
-    fun `staged delete hides the region, undo restores it, commit deletes it`() = runTest(mainRule.dispatcher) {
+    fun `staged delete hides the region then auto-commits after the undo window`() = runTest(mainRule.dispatcher) {
         val region = OfflineRegionInfo(id = 7, name = "A", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000)
         val manager = FakeOfflineTileManager(listOf(region))
         val vm = OfflineViewModel(manager, FakeReverseGeocode("A"))
-        advanceUntilIdle()
+        runCurrent()
 
         vm.stageDelete(7)
-        advanceUntilIdle()
+        runCurrent()
         assertTrue("hidden while staged", vm.regions.value.isEmpty())
-        assertTrue("nothing deleted yet", manager.deleted.isEmpty())
+        assertTrue("not deleted during the undo window", manager.deleted.isEmpty())
 
-        vm.undoDelete(7)
-        advanceUntilIdle()
-        assertEquals(listOf(region), vm.regions.value)
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertTrue("committed after the window", manager.deleted.contains(7))
+    }
+
+    @Test
+    fun `undo within the window cancels the delete and restores the region`() = runTest(mainRule.dispatcher) {
+        val region = OfflineRegionInfo(id = 7, name = "A", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000)
+        val manager = FakeOfflineTileManager(listOf(region))
+        val vm = OfflineViewModel(manager, FakeReverseGeocode("A"))
+        runCurrent()
 
         vm.stageDelete(7)
-        vm.commitDelete(7)
-        advanceUntilIdle()
-        assertTrue(manager.deleted.contains(7))
-        assertTrue(vm.regions.value.isEmpty())
+        runCurrent()
+        vm.undoDelete(7)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(listOf(region), vm.regions.value)
+        assertTrue("never deleted", manager.deleted.isEmpty())
     }
 }

@@ -134,11 +134,9 @@ fun OfflineMapsScreen(
                                     actionLabel = undoLabel,
                                     duration = androidx.compose.material3.SnackbarDuration.Short,
                                 )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    viewModel.undoDelete(region.id)
-                                } else {
-                                    viewModel.commitDelete(region.id)
-                                }
+                                // Undo cancels the pending commit; otherwise the
+                                // view-model commits the delete when the window lapses.
+                                if (result == SnackbarResult.ActionPerformed) viewModel.undoDelete(region.id)
                             }
                         },
                         onRename = { renaming = region },

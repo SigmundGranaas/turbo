@@ -530,7 +530,9 @@ fun MapScreen(
                     }
                 },
                 onMapReady = { ui.controller = it },
-                onBearingChange = { ui.bearing = it.toFloat() },
+                // Fired on every camera-idle; also bump the idle tick so camera-reading
+                // chrome (the offline-coverage chip) recomposes after a pan, not only rotation.
+                onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -575,8 +577,8 @@ fun MapScreen(
                     )
                 } else if (isOffline) {
                     // Why-is-the-map-blank affordance: offline, and (stronger) outside
-                    // every downloaded region. Coverage is re-checked as the camera moves
-                    // (bearing/camera changes recompose this block).
+                    // every downloaded region. Re-checked on each camera-idle via the tick.
+                    @Suppress("UNUSED_EXPRESSION") ui.cameraIdleTick
                     val centre = ui.controller?.center()
                     val outside = centre != null && !offlineIndicator.covered(centre)
                     OfflineChip(

@@ -47,7 +47,11 @@ class OfflineDownloadService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var policyJob: Job? = null
     private var notifyJob: Job? = null
+    private var graceJob: Job? = null
     private var started = false
+    /** Have we observed actual work yet? Guards against tearing down during the gap
+     *  between startForegroundService and the new region appearing in the flow. */
+    private var sawWork = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -75,21 +79,31 @@ class OfflineDownloadService : Service() {
             }.distinctUntilChanged().collect { manager.setNetworkAllowed(it) }
         }
 
-        // Re-post the notification on progress; tear down when no work remains.
+        // Re-post the notification on progress; tear down once work that we've actually
+        // seen is finished. Don't tear down before any work appears (warm-up gap).
         notifyJob = scope.launch {
             manager.regions.collect { regions ->
-                if (regions.none { it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Paused }) {
-                    teardown()
-                } else {
-                    notificationManager().notify(NOTIF_ID, buildNotification(regions))
+                val pending = regions.any { it.status == OfflineStatus.Downloading || it.status == OfflineStatus.Paused }
+                when {
+                    pending -> { sawWork = true; notificationManager().notify(NOTIF_ID, buildNotification(regions)) }
+                    sawWork -> teardown()
+                    else -> Unit // still warming up — keep foreground, wait for the region
                 }
             }
+        }
+
+        // Safety net: if a download never materialises (e.g. it failed instantly), don't
+        // hold the foreground service open forever.
+        graceJob = scope.launch {
+            kotlinx.coroutines.delay(STARTUP_GRACE_MS)
+            if (!sawWork) teardown()
         }
     }
 
     private fun teardown() {
         policyJob?.cancel()
         notifyJob?.cancel()
+        graceJob?.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -97,6 +111,7 @@ class OfflineDownloadService : Service() {
     override fun onDestroy() {
         policyJob?.cancel()
         notifyJob?.cancel()
+        graceJob?.cancel()
         super.onDestroy()
     }
 
@@ -156,6 +171,7 @@ class OfflineDownloadService : Service() {
     companion object {
         private const val CHANNEL_ID = "offline_downloads"
         private const val NOTIF_ID = 43
+        private const val STARTUP_GRACE_MS = 15_000L
         private const val ACTION_PAUSE = "com.sigmundgranaas.turbo.expressive.OFFLINE_PAUSE"
         private const val ACTION_RESUME = "com.sigmundgranaas.turbo.expressive.OFFLINE_RESUME"
 
