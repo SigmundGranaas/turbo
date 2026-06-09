@@ -25,13 +25,15 @@ pub const GEOJSON_LAYER: &str = "geojson";
 
 const EXTENT: i32 = 4096;
 
-/// A [`VectorTileSource`] over inline GeoJSON line geometry. Parsed once
-/// into world space; each `request` clips to the tile.
+/// A [`VectorTileSource`] over inline GeoJSON line + polygon geometry.
+/// Parsed once into world space; each `request` clips to the tile.
 pub struct GeoJsonVectorSource {
     /// Line strings in normalized world space (`[0,1]²`).
     lines: Vec<Vec<(f64, f64)>>,
-    /// When false, geometry is emitted unclipped (the whole line per tile)
-    /// — only used to profile the cost clipping saves.
+    /// Polygons (each a list of rings: outer then holes) in world space.
+    polygons: Vec<Vec<Vec<(f64, f64)>>>,
+    /// When false, geometry is emitted unclipped (the whole feature per
+    /// tile) — only used to profile the cost clipping saves.
     clip: bool,
 }
 
@@ -39,8 +41,12 @@ impl GeoJsonVectorSource {
     /// Parse inline GeoJSON. Unrecognised geometry is ignored rather than
     /// erroring — a partial overlay beats a failed map.
     pub fn new(data: &str) -> Self {
-        let lines = parse_lines(data);
-        Self { lines, clip: true }
+        let (lines, polygons) = parse_geometry(data);
+        Self {
+            lines,
+            polygons,
+            clip: true,
+        }
     }
 
     /// Disable per-tile clipping (profiling/comparison only).
@@ -53,6 +59,11 @@ impl GeoJsonVectorSource {
     pub fn line_count(&self) -> usize {
         self.lines.len()
     }
+
+    /// Number of parsed polygons.
+    pub fn polygon_count(&self) -> usize {
+        self.polygons.len()
+    }
 }
 
 impl VectorTileSource for GeoJsonVectorSource {
@@ -62,6 +73,12 @@ impl VectorTileSource for GeoJsonVectorSource {
         let (x1, y1) = ((tile.x as f64 + 1.0) / n, (tile.y as f64 + 1.0) / n);
         let rect = Rect { x0, y0, x1, y1 };
 
+        let to_local = |wx: f64, wy: f64| -> (i32, i32) {
+            let lx = ((wx - x0) / (x1 - x0) * EXTENT as f64).round() as i32;
+            let ly = ((wy - y0) / (y1 - y0) * EXTENT as f64).round() as i32;
+            (lx, ly)
+        };
+
         let mut features = Vec::new();
         for line in &self.lines {
             let subpaths = if self.clip {
@@ -70,14 +87,8 @@ impl VectorTileSource for GeoJsonVectorSource {
                 vec![line.clone()]
             };
             for sub in subpaths {
-                let local: Vec<(i32, i32)> = sub
-                    .iter()
-                    .map(|&(wx, wy)| {
-                        let lx = ((wx - x0) / (x1 - x0) * EXTENT as f64).round() as i32;
-                        let ly = ((wy - y0) / (y1 - y0) * EXTENT as f64).round() as i32;
-                        (lx, ly)
-                    })
-                    .collect();
+                let local: Vec<(i32, i32)> =
+                    sub.iter().map(|&(wx, wy)| to_local(wx, wy)).collect();
                 if local.len() >= 2 {
                     features.push(Feature {
                         id: features.len() as u64,
@@ -86,6 +97,27 @@ impl VectorTileSource for GeoJsonVectorSource {
                         properties: HashMap::new(),
                     });
                 }
+            }
+        }
+        for polygon in &self.polygons {
+            let mut rings: Vec<Vec<(i32, i32)>> = Vec::new();
+            for ring in polygon {
+                let clipped = if self.clip {
+                    clip_ring(ring, rect)
+                } else {
+                    ring.clone()
+                };
+                if clipped.len() >= 3 {
+                    rings.push(clipped.iter().map(|&(wx, wy)| to_local(wx, wy)).collect());
+                }
+            }
+            if !rings.is_empty() {
+                features.push(Feature {
+                    id: features.len() as u64,
+                    geom_type: GeomType::Polygon,
+                    geometry: Geometry::Polygon(rings),
+                    properties: HashMap::new(),
+                });
             }
         }
 
@@ -115,52 +147,88 @@ struct Rect {
     y1: f64,
 }
 
-/// Parse GeoJSON into world-space line strings. Accepts a
-/// FeatureCollection, a Feature, or a bare geometry; pulls LineString and
-/// MultiLineString coordinates and projects `[lng, lat]` to world space.
-fn parse_lines(data: &str) -> Vec<Vec<(f64, f64)>> {
+type Lines = Vec<Vec<(f64, f64)>>;
+type Polygons = Vec<Vec<Vec<(f64, f64)>>>;
+
+/// Parse GeoJSON into world-space lines and polygons. Accepts a
+/// FeatureCollection, a Feature, or a bare geometry; projects every
+/// `[lng, lat]` to world space.
+fn parse_geometry(data: &str) -> (Lines, Polygons) {
     let Ok(root) = serde_json::from_str::<serde_json::Value>(data) else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
-    let mut out = Vec::new();
-    collect_geometries(&root, &mut out);
-    out
+    let mut lines = Vec::new();
+    let mut polygons = Vec::new();
+    collect_geometries(&root, &mut lines, &mut polygons);
+    (lines, polygons)
 }
 
-fn collect_geometries(value: &serde_json::Value, out: &mut Vec<Vec<(f64, f64)>>) {
+fn collect_geometries(value: &serde_json::Value, lines: &mut Lines, polygons: &mut Polygons) {
     match value.get("type").and_then(|t| t.as_str()) {
         Some("FeatureCollection") => {
             if let Some(features) = value.get("features").and_then(|f| f.as_array()) {
                 for f in features {
-                    collect_geometries(f, out);
+                    collect_geometries(f, lines, polygons);
                 }
             }
         }
         Some("Feature") => {
             if let Some(geom) = value.get("geometry") {
-                collect_geometries(geom, out);
+                collect_geometries(geom, lines, polygons);
             }
         }
         Some("LineString") => {
             if let Some(coords) = value.get("coordinates").and_then(|c| c.as_array()) {
                 if let Some(line) = parse_positions(coords) {
-                    out.push(line);
+                    lines.push(line);
                 }
             }
         }
         Some("MultiLineString") => {
-            if let Some(lines) = value.get("coordinates").and_then(|c| c.as_array()) {
-                for line in lines {
-                    if let Some(coords) = line.as_array() {
-                        if let Some(line) = parse_positions(coords) {
-                            out.push(line);
-                        }
+            for_each_array(value.get("coordinates"), |line| {
+                if let Some(coords) = line.as_array() {
+                    if let Some(line) = parse_positions(coords) {
+                        lines.push(line);
                     }
                 }
+            });
+        }
+        Some("Polygon") => {
+            if let Some(rings) = parse_rings(value.get("coordinates")) {
+                polygons.push(rings);
             }
+        }
+        Some("MultiPolygon") => {
+            for_each_array(value.get("coordinates"), |poly| {
+                if let Some(rings) = parse_rings(Some(poly)) {
+                    polygons.push(rings);
+                }
+            });
         }
         _ => {}
     }
+}
+
+fn for_each_array(value: Option<&serde_json::Value>, mut f: impl FnMut(&serde_json::Value)) {
+    if let Some(arr) = value.and_then(|v| v.as_array()) {
+        for item in arr {
+            f(item);
+        }
+    }
+}
+
+/// Parse a polygon's rings (`[[[lng,lat],...], ...]`) into world space.
+fn parse_rings(value: Option<&serde_json::Value>) -> Option<Vec<Vec<(f64, f64)>>> {
+    let rings = value?.as_array()?;
+    let mut out = Vec::new();
+    for ring in rings {
+        if let Some(coords) = ring.as_array() {
+            if let Some(r) = parse_positions(coords) {
+                out.push(r);
+            }
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 fn parse_positions(coords: &[serde_json::Value]) -> Option<Vec<(f64, f64)>> {
@@ -263,6 +331,59 @@ fn clip_polyline(line: &[(f64, f64)], rect: Rect) -> Vec<Vec<(f64, f64)>> {
 
 fn approx_eq(a: (f64, f64), b: (f64, f64)) -> bool {
     (a.0 - b.0).abs() < 1e-12 && (a.1 - b.1).abs() < 1e-12
+}
+
+/// Clip a polygon ring to `rect` (Sutherland–Hodgman). Returns the clipped
+/// ring, or empty if nothing survives. Holes clip the same way; lyon's
+/// fill rule recombines outer + hole rings.
+fn clip_ring(ring: &[(f64, f64)], r: Rect) -> Vec<(f64, f64)> {
+    // Clip against each rectangle edge in turn. `keep`/`x_at`/`y_at` encode
+    // the half-plane and the intersection on that edge.
+    let mut poly = ring.to_vec();
+    // left: x >= x0
+    poly = clip_edge(&poly, |p| p.0 >= r.x0, |a, b| intersect_x(a, b, r.x0));
+    // right: x <= x1
+    poly = clip_edge(&poly, |p| p.0 <= r.x1, |a, b| intersect_x(a, b, r.x1));
+    // bottom: y >= y0
+    poly = clip_edge(&poly, |p| p.1 >= r.y0, |a, b| intersect_y(a, b, r.y0));
+    // top: y <= y1
+    poly = clip_edge(&poly, |p| p.1 <= r.y1, |a, b| intersect_y(a, b, r.y1));
+    poly
+}
+
+fn clip_edge(
+    input: &[(f64, f64)],
+    inside: impl Fn((f64, f64)) -> bool,
+    intersect: impl Fn((f64, f64), (f64, f64)) -> (f64, f64),
+) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    if input.is_empty() {
+        return out;
+    }
+    let mut prev = *input.last().unwrap();
+    for &cur in input {
+        let cur_in = inside(cur);
+        if cur_in {
+            if !inside(prev) {
+                out.push(intersect(prev, cur));
+            }
+            out.push(cur);
+        } else if inside(prev) {
+            out.push(intersect(prev, cur));
+        }
+        prev = cur;
+    }
+    out
+}
+
+fn intersect_x(a: (f64, f64), b: (f64, f64), xe: f64) -> (f64, f64) {
+    let t = (xe - a.0) / (b.0 - a.0);
+    (xe, a.1 + t * (b.1 - a.1))
+}
+
+fn intersect_y(a: (f64, f64), b: (f64, f64), ye: f64) -> (f64, f64) {
+    let t = (ye - a.1) / (b.1 - a.1);
+    (a.0 + t * (b.0 - a.0), ye)
 }
 
 /// Liang–Barsky segment clip. Returns the clipped endpoints, or `None` if
@@ -370,6 +491,43 @@ mod tests {
         }"#;
         let src = GeoJsonVectorSource::new(data);
         assert_eq!(src.line_count(), 1);
+    }
+
+    #[test]
+    fn ring_fully_inside_is_unchanged() {
+        let ring = vec![(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8)];
+        let clipped = clip_ring(&ring, RECT);
+        assert_eq!(clipped.len(), 4);
+    }
+
+    #[test]
+    fn ring_straddling_an_edge_is_clipped_inside() {
+        // A square poking out the right edge → all x within [0,1].
+        let ring = vec![(0.5, 0.2), (1.5, 0.2), (1.5, 0.8), (0.5, 0.8)];
+        let clipped = clip_ring(&ring, RECT);
+        assert!(!clipped.is_empty());
+        assert!(
+            clipped.iter().all(|p| p.0 <= 1.0 + 1e-9 && p.0 >= -1e-9),
+            "{clipped:?}"
+        );
+    }
+
+    #[test]
+    fn ring_fully_outside_is_empty() {
+        let ring = vec![(1.2, 1.2), (1.8, 1.2), (1.8, 1.8), (1.2, 1.8)];
+        assert!(clip_ring(&ring, RECT).is_empty());
+    }
+
+    #[test]
+    fn parses_polygon_geometry() {
+        let data = r#"{"type":"Polygon","coordinates":[[[5.2,60.3],[5.4,60.3],[5.4,60.45],[5.2,60.45],[5.2,60.3]]]}"#;
+        let src = GeoJsonVectorSource::new(data);
+        assert_eq!(src.polygon_count(), 1);
+        let tile = src.request(TileId::new(0, 0, 0)).unwrap();
+        assert!(tile.layers[0]
+            .features
+            .iter()
+            .any(|f| f.geom_type == GeomType::Polygon));
     }
 
     #[test]

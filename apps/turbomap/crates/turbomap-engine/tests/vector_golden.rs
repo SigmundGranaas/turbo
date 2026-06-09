@@ -122,6 +122,83 @@ fn full_overlay_set_renders() {
 }
 
 #[test]
+fn geojson_fill_renders_over_raster() {
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "area".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"Polygon","coordinates":[[
+                [5.20,60.34],[5.44,60.34],[5.44,60.46],[5.20,60.46],[5.20,60.34]
+            ]]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Fill {
+        id: "area".to_string(),
+        source: "area".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgba(40, 120, 220, 150)),
+        opacity: Paint::Const(1.0),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    let stats = engine.pump_tiles();
+    assert!(stats.vector_tiles > 0, "expected fill tiles, got {stats:?}");
+    assert!(engine.unsupported_layers().is_empty());
+
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    assert_golden(
+        "fill-bergen",
+        &image,
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
+    );
+}
+
+#[test]
 fn geojson_line_renders_over_raster() {
     let Some(gpu) = headless() else {
         if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {

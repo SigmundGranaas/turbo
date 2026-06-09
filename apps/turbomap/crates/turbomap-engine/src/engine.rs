@@ -83,110 +83,161 @@ impl TurbomapEngine {
         })
     }
 
-    /// Bring the core `Map` in line with `new`. This slice does a full
-    /// rebuild whenever anything changed — correctness first; an
-    /// incremental reconcile that preserves unchanged layers' GPU caches
-    /// is a follow-up. The returned [`SceneDelta`] is still the minimal
-    /// logical change (computed in [`MapEngine::apply`]).
-    fn reconcile(&mut self, new: &Scene) {
-        for id in self.map.layer_ids() {
-            self.map.remove_layer(&id);
-        }
-        self.map.clear_terrain();
-        self.map.clear_markers();
-        self.raster_sources.clear();
-        self.terrain_source = None;
-        self.vector_sources.clear();
-        self.unsupported.clear();
+    /// Bring the core `Map` in line with the new scene (`self.scene`),
+    /// given the previous `old`, doing the *minimal* GPU work.
+    ///
+    /// Positional GPU layers (raster/line/fill/hillshade) reconcile by a
+    /// longest-unchanged-prefix + tail rebuild: a layer is "unchanged"
+    /// only if both its definition and its source data are unchanged, so
+    /// appending an overlay or repainting the top layer leaves the rest of
+    /// the stack — and its GPU tile caches — untouched. Circle layers
+    /// (markers) rebuild only when a circle layer or its data changes.
+    fn reconcile(&mut self, old: &Scene) {
+        let new = self.scene.clone();
+        let dirty = dirty_sources(old, &new);
 
-        for layer in &new.layers {
-            match layer {
-                Layer::Raster { id, source, .. } => {
-                    match new.sources.get(source).map(|def| self.resolver.resolve(source, def)) {
-                        Some(ResolvedSource::Raster(src)) => {
-                            self.map.add_raster_layer(id.clone(), src.clone());
-                            self.raster_sources.insert(id.clone(), src);
-                        }
-                        _ => self.unsupported.push(id.clone()),
-                    }
+        // --- positional GPU layers: longest-unchanged-prefix + tail rebuild
+        let old_pos = positional_layers(old);
+        let new_pos = positional_layers(&new);
+        let mut prefix = 0;
+        while prefix < old_pos.len()
+            && prefix < new_pos.len()
+            && old_pos[prefix] == new_pos[prefix]
+            && new_pos[prefix].source().map(|s| !dirty.contains(s)).unwrap_or(true)
+        {
+            prefix += 1;
+        }
+        // Remove the divergent tail (reverse order keeps ids stable).
+        let current = self.map.layer_ids();
+        for id in current.iter().skip(prefix).rev() {
+            self.map.remove_layer(id);
+            self.raster_sources.remove(id);
+            self.vector_sources.remove(id);
+        }
+        // Re-install the new tail in order (core appends).
+        for layer in new_pos.iter().skip(prefix) {
+            self.install_positional(layer, &new);
+        }
+        // Terrain is global; if the new scene has no hillshade, drop it.
+        if !new.layers.iter().any(|l| matches!(l, Layer::Hillshade { .. })) {
+            self.map.clear_terrain();
+            self.terrain_source = None;
+        }
+
+        // --- circle layers → markers: rebuild only when they or their data change
+        let circles_changed = circle_layers(old) != circle_layers(&new)
+            || circle_layers(&new)
+                .iter()
+                .any(|l| l.source().map(|s| dirty.contains(s)).unwrap_or(false));
+        if circles_changed {
+            self.rebuild_markers(&new);
+        }
+
+        // --- unsupported report: a pure scan over the whole scene
+        self.unsupported = new
+            .layers
+            .iter()
+            .filter(|l| !is_supportable(l, &new))
+            .map(|l| l.id().to_string())
+            .collect();
+    }
+
+    /// Install one positional layer into the core map (append).
+    fn install_positional(&mut self, layer: &Layer, scene: &Scene) {
+        match layer {
+            Layer::Raster { id, source, .. } => {
+                if let Some(ResolvedSource::Raster(src)) = self.resolve(scene, source) {
+                    self.map.add_raster_layer(id.clone(), src.clone());
+                    self.raster_sources.insert(id.clone(), src);
                 }
-                Layer::Hillshade {
-                    id,
-                    source,
-                    exaggeration,
-                } => {
-                    match new.sources.get(source).map(|def| self.resolver.resolve(source, def)) {
-                        Some(ResolvedSource::Dem(dem)) => {
-                            self.map.set_terrain_source(
-                                dem.clone(),
-                                TerrainOptions {
-                                    exaggeration: *exaggeration,
-                                    ..Default::default()
-                                },
-                            );
-                            self.map.add_hillshade_layer(id.clone(), HillshadeStyle::default());
-                            self.terrain_source = Some(dem);
-                        }
-                        _ => self.unsupported.push(id.clone()),
-                    }
+            }
+            Layer::Hillshade {
+                id,
+                source,
+                exaggeration,
+            } => {
+                if let Some(ResolvedSource::Dem(dem)) = self.resolve(scene, source) {
+                    self.map.set_terrain_source(
+                        dem.clone(),
+                        TerrainOptions {
+                            exaggeration: *exaggeration,
+                            ..Default::default()
+                        },
+                    );
+                    self.map.add_hillshade_layer(id.clone(), HillshadeStyle::default());
+                    self.terrain_source = Some(dem);
                 }
-                Layer::Line {
-                    id,
-                    source,
-                    source_layer,
-                    filter,
-                    color,
-                    width,
-                } => {
-                    let def = new.sources.get(source);
-                    match def.map(|d| self.resolver.resolve(source, d)) {
-                        Some(ResolvedSource::Vector(vsrc)) => {
-                            let zoom = self.map.camera().zoom;
-                            // GeoJSON sources emit a fixed layer name; MVT
-                            // sources use the layer's declared source-layer.
-                            let layer_name = if matches!(def, Some(SourceDef::GeoJson { .. })) {
-                                GEOJSON_LAYER.to_string()
-                            } else {
-                                source_layer.clone().unwrap_or_default()
-                            };
-                            let style = line_style(layer_name, filter, color, width, zoom);
-                            self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
-                            self.vector_sources.insert(id.clone(), vsrc);
-                        }
-                        _ => self.unsupported.push(id.clone()),
-                    }
+            }
+            Layer::Line {
+                id,
+                source,
+                source_layer,
+                filter,
+                color,
+                width,
+            } => {
+                if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
+                    let zoom = self.map.camera().zoom;
+                    let name = geojson_or_declared(scene, source, source_layer);
+                    let style = line_style(name, filter, color, width, zoom);
+                    self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
+                    self.vector_sources.insert(id.clone(), vsrc);
                 }
-                Layer::Circle {
-                    id,
-                    source,
-                    color,
-                    radius,
-                    ..
-                } => {
-                    // Circles render as core markers (screen-space discs),
-                    // positioned in lng/lat — no tiling. We read points
-                    // straight from the GeoJSON source's data.
-                    match new.sources.get(source) {
-                        Some(SourceDef::GeoJson { data }) => {
-                            let zoom = self.map.camera().zoom;
-                            let c = color.at(zoom);
-                            let r = radius.at(zoom);
-                            for (lng, lat) in crate::geojson::parse_points(data) {
-                                self.map.add_marker(Marker {
-                                    id: MarkerId(0),
-                                    lng_lat: CoreLatLng { lng, lat },
-                                    radius_px: r,
-                                    color: CoreColor::rgba(c.r, c.g, c.b, c.a),
-                                    data: HashMap::from([("layer".to_string(), id.clone())]),
-                                });
-                            }
-                        }
-                        _ => self.unsupported.push(id.clone()),
-                    }
+            }
+            Layer::Fill {
+                id,
+                source,
+                source_layer,
+                filter,
+                color,
+                opacity,
+            } => {
+                if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
+                    let zoom = self.map.camera().zoom;
+                    let name = geojson_or_declared(scene, source, source_layer);
+                    let style = fill_style(name, filter, color, opacity, zoom);
+                    self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
+                    self.vector_sources.insert(id.clone(), vsrc);
                 }
-                other => self.unsupported.push(other.id().to_string()),
+            }
+            // Circles and unsupported kinds are handled outside the
+            // positional stack.
+            _ => {}
+        }
+    }
+
+    fn rebuild_markers(&mut self, scene: &Scene) {
+        self.map.clear_markers();
+        let zoom = self.map.camera().zoom;
+        for layer in &scene.layers {
+            let Layer::Circle {
+                id,
+                source,
+                color,
+                radius,
+                ..
+            } = layer
+            else {
+                continue;
+            };
+            if let Some(SourceDef::GeoJson { data }) = scene.sources.get(source) {
+                let c = color.at(zoom);
+                let r = radius.at(zoom);
+                for (lng, lat) in crate::geojson::parse_points(data) {
+                    self.map.add_marker(Marker {
+                        id: MarkerId(0),
+                        lng_lat: CoreLatLng { lng, lat },
+                        radius_px: r,
+                        color: CoreColor::rgba(c.r, c.g, c.b, c.a),
+                        data: HashMap::from([("layer".to_string(), id.clone())]),
+                    });
+                }
             }
         }
+    }
+
+    fn resolve(&self, scene: &Scene, source: &str) -> Option<ResolvedSource> {
+        scene.sources.get(source).map(|def| self.resolver.resolve(source, def))
     }
 
     /// Synchronously drain pending tiles against the resolved sources and
@@ -269,9 +320,11 @@ impl MapEngine for TurbomapEngine {
     fn apply(&mut self, scene: Scene) -> SceneDelta {
         let delta = diff(&self.scene, &scene);
         if !delta.is_empty() {
-            self.reconcile(&scene);
+            // Swap the new scene in first so `reconcile` reads it as the
+            // target and `old` holds the previous one.
+            let old = std::mem::replace(&mut self.scene, scene);
+            self.reconcile(&old);
         }
-        self.scene = scene;
         delta
     }
 
@@ -361,6 +414,96 @@ fn from_core_camera(c: Camera) -> CameraState {
         zoom: c.zoom,
         pitch_deg: c.pitch_deg,
         bearing_deg: c.bearing_deg,
+    }
+}
+
+/// Positional GPU layers in scene order — the ones that occupy a slot in
+/// the core layer stack (everything but circles/symbol/custom).
+fn positional_layers(scene: &Scene) -> Vec<Layer> {
+    scene
+        .layers
+        .iter()
+        .filter(|l| {
+            matches!(
+                l,
+                Layer::Raster { .. }
+                    | Layer::Line { .. }
+                    | Layer::Fill { .. }
+                    | Layer::Hillshade { .. }
+            )
+        })
+        .cloned()
+        .collect()
+}
+
+fn circle_layers(scene: &Scene) -> Vec<Layer> {
+    scene
+        .layers
+        .iter()
+        .filter(|l| matches!(l, Layer::Circle { .. }))
+        .cloned()
+        .collect()
+}
+
+/// Source keys whose definition was added or changed between scenes — the
+/// signal that a layer drawing from them must be rebuilt (e.g. a live GPS
+/// trace whose GeoJSON data updated while the layer itself didn't).
+fn dirty_sources(old: &Scene, new: &Scene) -> std::collections::BTreeSet<String> {
+    new.sources
+        .iter()
+        .filter(|(k, v)| old.sources.get(*k) != Some(v))
+        .map(|(k, _)| k.clone())
+        .collect()
+}
+
+/// Whether this backend can render a layer, by layer kind × source kind.
+/// Drives the inspect tool's `unsupported` report.
+fn is_supportable(layer: &Layer, scene: &Scene) -> bool {
+    let source_is = |want: fn(&SourceDef) -> bool| layer.source().and_then(|s| scene.sources.get(s)).map(want).unwrap_or(false);
+    match layer {
+        Layer::Raster { .. } => source_is(|d| matches!(d, SourceDef::RasterXyz { .. })),
+        Layer::Hillshade { .. } => source_is(|d| matches!(d, SourceDef::DemXyz { .. })),
+        Layer::Line { .. } | Layer::Fill { .. } => {
+            source_is(|d| matches!(d, SourceDef::GeoJson { .. } | SourceDef::VectorXyz { .. }))
+        }
+        Layer::Circle { .. } => source_is(|d| matches!(d, SourceDef::GeoJson { .. })),
+        Layer::Symbol { .. } | Layer::Custom { .. } => false,
+    }
+}
+
+/// GeoJSON sources emit a fixed layer name; MVT sources use the layer's
+/// declared source-layer.
+fn geojson_or_declared(scene: &Scene, source: &str, declared: &Option<String>) -> String {
+    if matches!(scene.sources.get(source), Some(SourceDef::GeoJson { .. })) {
+        GEOJSON_LAYER.to_string()
+    } else {
+        declared.clone().unwrap_or_default()
+    }
+}
+
+/// Build a core `VectorStyle` from a Scene `Fill` layer. Opacity folds
+/// into the colour's alpha (core fill paint has no separate opacity).
+fn fill_style(
+    layer_name: String,
+    filter: &Filter,
+    color: &Paint<Color>,
+    opacity: &Paint<f32>,
+    zoom: f64,
+) -> VectorStyle {
+    let c = color.at(zoom);
+    let a = (c.a as f32 * opacity.at(zoom)).round().clamp(0.0, 255.0) as u8;
+    VectorStyle {
+        background: CoreColor::rgba(0, 0, 0, 0),
+        rules: vec![CoreRule {
+            source_layer: layer_name,
+            filter: map_filter(filter),
+            paint: CorePaint::Fill {
+                color: CoreColor::rgba(c.r, c.g, c.b, a),
+            },
+            min_zoom: 0,
+            max_zoom: 22,
+            interactive: false,
+        }],
     }
 }
 
