@@ -1614,11 +1614,11 @@ class EngineError:  # type: ignore
         `from_ruleset_json` was given a ruleset that didn't parse.
         """
 
-        def __init__(self, message):
+        def __init__(self, reason):
             super().__init__(", ".join([
-                "message={!r}".format(message),
+                "reason={!r}".format(reason),
             ]))
-            self.message = message
+            self.reason = reason
 
         def __repr__(self):
             return "EngineError.InvalidRuleset({})".format(str(self))
@@ -1641,14 +1641,14 @@ class _UniffiConverterTypeEngineError(_UniffiConverterRustBuffer):
     @staticmethod
     def check_lower(value):
         if isinstance(value, EngineError.InvalidRuleset):
-            _UniffiConverterString.check_lower(value.message)
+            _UniffiConverterString.check_lower(value.reason)
             return
 
     @staticmethod
     def write(value, buf):
         if isinstance(value, EngineError.InvalidRuleset):
             buf.write_i32(1)
-            _UniffiConverterString.write(value.message, buf)
+            _UniffiConverterString.write(value.reason, buf)
 
 
 

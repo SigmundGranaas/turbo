@@ -28,41 +28,61 @@ cargo run --features uniffi --bin uniffi-bindgen -- \
 The committed `python/`, `kotlin/`, `swift/` binding files are a reviewable
 snapshot of the surface; the runner below regenerates Python so it never drifts.
 
-## Python — verified in CI / the dev container
+## One command: `ci.sh`
 
-The only client runnable here (Python 3 + ctypes; no extra toolchain):
+Runs every verifiable layer — pure Rust golden tests, the Python client, and
+(when a Kotlin toolchain + JNA are present) the Kotlin client:
+
+```sh
+./clients/ci.sh                              # Rust + Python (Kotlin auto-skipped)
+KOTLINC=/path/to/kotlinc JNA_JAR=/path/to/jna-5.x.jar ./clients/ci.sh   # + Kotlin
+```
+
+Each client replays the golden cases through the binding, then exercises the
+`from_ruleset_json` **round-trip** (an engine built from the ruleset JSON must
+match the embedded one) and the **invalid-ruleset error path** (typed
+`EngineError` / `EngineException`, no crash).
+
+## Python — verified
+
+Standalone runner (Python 3 + ctypes, no extra toolchain):
 
 ```sh
 ./clients/run_python_client.sh
-# OK — golden fixtures pass through the UniFFI Python binding
+# OK — golden fixtures + round-trip + error path pass through the UniFFI Python binding
 ```
 
-It builds the cdylib, regenerates the binding, drops `libplace_core.so` beside
-it, and replays **every** golden case (23 reverse + 6 search) through the
-binding.
+Replays **every** golden case (23 reverse + 6 search) through the binding.
 
-## Kotlin / Swift — run where the toolchain exists
+## Kotlin — verified
 
-`GoldenClient.kt` and `place_core.swift` are dedicated clients for the Android
-and iOS targets. They are **not** executed in the dev container (no `kotlinc` /
-`swift` here); they assert a representative subset constructed via the generated
-types. When the core lands in each app these become ordinary unit / instrumented
-tests.
-
-Kotlin (needs `kotlinc`, the JNA jar, and the cdylib on `java.library.path`):
+`GoldenClient.kt` is the Android target's client. It asserts a representative
+subset (full fixture parity is the Python client's job) plus the round-trip and
+error paths. Verified on JDK 21 + Kotlin 2.0 + JNA 5.14. Note JNA resolves the
+cdylib via **`jna.library.path`** (not `java.library.path`):
 
 ```sh
 cargo build --features uniffi
 cargo run --features uniffi --bin uniffi-bindgen -- \
     generate --library target/debug/libplace_core.so --language kotlin --out-dir clients/kotlin
 kotlinc clients/kotlin/uniffi/place_core/place_core.kt clients/kotlin/GoldenClient.kt \
-    -cp jna.jar -include-runtime -d golden_client.jar
-java -cp golden_client.jar:jna.jar -Djava.library.path=target/debug GoldenClientKt
+    -cp jna.jar -include-runtime -d gc.jar
+java -cp gc.jar:jna.jar -Djna.library.path="$PWD/target/debug" GoldenClientKt
 ```
 
-Swift (needs the Swift toolchain): compile `clients/swift/place_core.swift`
-against `place_coreFFI.modulemap` and link `libplace_core`, then call the same
-`PlaceEngine` API.
+When the core lands in the Android module this becomes an ordinary unit test.
+
+> The Kotlin compile caught a real binding bug Python couldn't: an `EngineError`
+> variant field named `message` collides with `Throwable.message` in the
+> generated error class — hence the field is `reason`. Verifying each binding
+> against its real toolchain matters.
+
+## Swift — generated, not yet executed
+
+`place_core.swift` is generated for the iOS target but isn't compiled here (no
+Swift toolchain in the container). Compile it against `place_coreFFI.modulemap`,
+link `libplace_core`, and call the same `PlaceEngine` API; it becomes an XCTest
+when the core lands in the iOS app.
 
 ## Why no Dart client here
 

@@ -1407,7 +1407,7 @@ public enum EngineError {
     /**
      * `from_ruleset_json` was given a ruleset that didn't parse.
      */
-    case InvalidRuleset(message: String
+    case InvalidRuleset(reason: String
     )
 }
 
@@ -1426,7 +1426,7 @@ public struct FfiConverterTypeEngineError: FfiConverterRustBuffer {
 
         
         case 1: return .InvalidRuleset(
-            message: try FfiConverterString.read(from: &buf)
+            reason: try FfiConverterString.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -1440,9 +1440,9 @@ public struct FfiConverterTypeEngineError: FfiConverterRustBuffer {
 
         
         
-        case let .InvalidRuleset(message):
+        case let .InvalidRuleset(reason):
             writeInt(&buf, Int32(1))
-            FfiConverterString.write(message, into: &buf)
+            FfiConverterString.write(reason, into: &buf)
             
         }
     }

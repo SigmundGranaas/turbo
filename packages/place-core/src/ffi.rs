@@ -16,13 +16,15 @@ use crate::ruleset::Ruleset;
 #[derive(Debug, uniffi::Error)]
 pub enum EngineError {
     /// `from_ruleset_json` was given a ruleset that didn't parse.
-    InvalidRuleset { message: String },
+    // NB: avoid a field named `message` — it collides with `Throwable.message`
+    // in the generated Kotlin error class.
+    InvalidRuleset { reason: String },
 }
 
 impl fmt::Display for EngineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EngineError::InvalidRuleset { message } => write!(f, "invalid ruleset: {message}"),
+            EngineError::InvalidRuleset { reason } => write!(f, "invalid ruleset: {reason}"),
         }
     }
 }
@@ -52,7 +54,7 @@ impl PlaceEngine {
         Ruleset::from_json(&json)
             .map(|ruleset| Arc::new(Self { ruleset }))
             .map_err(|e| EngineError::InvalidRuleset {
-                message: e.to_string(),
+                reason: e.to_string(),
             })
     }
 

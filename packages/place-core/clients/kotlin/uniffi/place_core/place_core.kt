@@ -1832,10 +1832,10 @@ sealed class EngineException: kotlin.Exception() {
      */
     class InvalidRuleset(
         
-        val `message`: kotlin.String
+        val `reason`: kotlin.String
         ) : EngineException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "reason=${ `reason` }"
     }
     
 
@@ -1866,7 +1866,7 @@ public object FfiConverterTypeEngineError : FfiConverterRustBuffer<EngineExcepti
             is EngineException.InvalidRuleset -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
-                + FfiConverterString.allocationSize(value.`message`)
+                + FfiConverterString.allocationSize(value.`reason`)
             )
         }
     }
@@ -1875,7 +1875,7 @@ public object FfiConverterTypeEngineError : FfiConverterRustBuffer<EngineExcepti
         when(value) {
             is EngineException.InvalidRuleset -> {
                 buf.putInt(1)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`reason`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

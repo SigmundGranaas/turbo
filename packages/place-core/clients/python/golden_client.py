@@ -86,35 +86,63 @@ def _expected_hit(d):
     )
 
 
-def _load(name):
+def _load_text(name):
     with open(os.path.join(CRATE, name), encoding="utf-8") as f:
-        return json.load(f)
+        return f.read()
 
 
-def main():
-    engine = pc.PlaceEngine.with_default_ruleset()
-    assert engine.ruleset_version() == "1", "binding reached an unexpected ruleset"
+def _load(name):
+    return json.loads(_load_text(name))
 
+
+def _run_suites(engine, label):
+    """Replay every golden case through `engine`, returning failure strings."""
     failures = []
-
     for case in _load("golden.json"):
         got = engine.reverse_geocode(_reverse_input(case["input"]))
         want = _expected_description(case["expect"])
         if got != want:
-            failures.append(f"[reverse] {case['name']!r}\n    want: {want}\n    got:  {got}")
-
+            failures.append(f"[{label} reverse] {case['name']!r}\n    want: {want}\n    got:  {got}")
     for case in _load("golden_search.json"):
         got = engine.forward_search(case["query"], [_search_candidate(c) for c in case["candidates"]])
         want = [_expected_hit(h) for h in case["expect"]]
         if got != want:
-            failures.append(f"[search]  {case['name']!r}\n    want: {want}\n    got:  {got}")
+            failures.append(f"[{label} search]  {case['name']!r}\n    want: {want}\n    got:  {got}")
+    return failures
+
+
+def main():
+    failures = []
+
+    # 1. Embedded ruleset.
+    default_engine = pc.PlaceEngine.with_default_ruleset()
+    if default_engine.ruleset_version() != "1":
+        failures.append(f"[version] embedded engine reported {default_engine.ruleset_version()!r}")
+    failures += _run_suites(default_engine, "default")
+
+    # 3a. Round-trip: an engine built from the ruleset JSON must behave
+    #     identically to the embedded one (proves from_ruleset_json + the
+    #     ruleset (de)serialization across the boundary).
+    json_engine = pc.PlaceEngine.from_ruleset_json(_load_text("ruleset.v1.json"))
+    if json_engine.ruleset_version() != "1":
+        failures.append(f"[version] json engine reported {json_engine.ruleset_version()!r}")
+    failures += _run_suites(json_engine, "from-json")
+
+    # 3b. Invalid ruleset must raise the typed FFI error, not crash.
+    try:
+        pc.PlaceEngine.from_ruleset_json("{ not valid json")
+        failures.append("[error] from_ruleset_json accepted invalid JSON")
+    except pc.EngineError.InvalidRuleset:
+        pass
+    except Exception as e:  # noqa: BLE001
+        failures.append(f"[error] from_ruleset_json raised {type(e).__name__}, expected EngineError.InvalidRuleset")
 
     if failures:
         print(f"FAIL — {len(failures)} case(s) diverged across the FFI boundary:\n")
         print("\n\n".join(failures))
         return 1
 
-    print("OK — golden fixtures pass through the UniFFI Python binding")
+    print("OK — golden fixtures + round-trip + error path pass through the UniFFI Python binding")
     return 0
 
 
