@@ -1,10 +1,9 @@
 package com.sigmundgranaas.turbo.expressive.core.map
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,28 +11,34 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
-import com.sigmundgranaas.turbo.expressive.ui.components.pressScaleClickable
+import com.sigmundgranaas.turbo.expressive.ui.components.pressScale
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 /**
@@ -88,71 +93,77 @@ fun MapEntityDetailHost(
 
             if (actions.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
-                // A compact row of icon-over-label chips, like a map place card: every
-                // action stays labelled yet uniform, the primary verb is emphasised, and
-                // the row wraps gracefully when an entity exposes many actions — so we
-                // never cram N equal-width text buttons that can't fit the screen.
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    actions.forEachIndexed { index, action ->
-                        ActionChip(
-                            label = action.label,
-                            icon = action.icon,
-                            emphasized = index == 0,
-                            destructive = action.isDestructive,
-                            onClick = { action.onInvoke(ctx); state.clear() },
-                        )
-                    }
-                }
+                ActionBar(actions = actions, onInvoke = { it.onInvoke(ctx); state.clear() })
             }
         }
     }
 }
 
 /**
- * One action rendered as an icon-in-a-circle over its label — uniform width so any
- * number of them line up and wrap cleanly. The primary verb is [emphasized] (filled
- * primary), destructive actions go error-tinted; the whole circle springs on press.
+ * The detail action bar: ONE big expressive primary button (icon + label), ONE
+ * square icon-only quick action, and the rest tucked into an overflow menu (a
+ * list, not strewn across the sheet). Degrades cleanly when there are fewer
+ * actions — primary only, or primary + quick with no overflow.
  */
 @Composable
-private fun ActionChip(
-    label: String,
-    icon: ImageVector,
-    emphasized: Boolean,
-    destructive: Boolean,
-    onClick: () -> Unit,
-) {
+private fun ActionBar(actions: List<MapEntityAction>, onInvoke: (MapEntityAction) -> Unit) {
     val cs = MaterialTheme.colorScheme
-    val (container, content) = when {
-        destructive -> cs.errorContainer to cs.onErrorContainer
-        emphasized -> cs.primary to cs.onPrimary
-        else -> cs.secondaryContainer to cs.onSecondaryContainer
-    }
-    Column(
-        modifier = Modifier.width(70.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(container)
-                .pressScaleClickable(onClick = onClick, onClickLabel = label, role = Role.Button),
-            contentAlignment = Alignment.Center,
+        val primary = actions.first()
+        val primarySource = remember { MutableInteractionSource() }
+        Button(
+            onClick = { onInvoke(primary) },
+            interactionSource = primarySource,
+            modifier = Modifier.weight(1f).height(56.dp).pressScale(primarySource),
         ) {
-            Icon(icon, null, tint = content, modifier = Modifier.size(24.dp))
+            Icon(primary.icon, null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.size(8.dp))
+            Text(primary.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = cs.onSurface,
-            maxLines = 2,
-            textAlign = TextAlign.Center,
-            overflow = TextOverflow.Ellipsis,
-        )
+
+        val rest = actions.drop(1)
+        // One square quick action (the next-most-useful verb).
+        rest.firstOrNull()?.let { quick ->
+            val quickSource = remember { MutableInteractionSource() }
+            FilledTonalIconButton(
+                onClick = { onInvoke(quick) },
+                interactionSource = quickSource,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.size(56.dp).pressScale(quickSource),
+            ) { Icon(quick.icon, quick.label, modifier = Modifier.size(22.dp)) }
+        }
+
+        // Everything else lives behind an overflow "⋮" → a dropdown list.
+        val overflow = rest.drop(1)
+        if (overflow.isNotEmpty()) {
+            val moreSource = remember { MutableInteractionSource() }
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                FilledTonalIconButton(
+                    onClick = { menuOpen = true },
+                    interactionSource = moreSource,
+                    shape = RoundedCornerShape(18.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = cs.surfaceContainerHighest,
+                        contentColor = cs.onSurface,
+                    ),
+                    modifier = Modifier.size(56.dp).pressScale(moreSource),
+                ) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.me_more_actions), modifier = Modifier.size(22.dp)) }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    overflow.forEach { action ->
+                        val tint = if (action.isDestructive) cs.error else cs.onSurface
+                        DropdownMenuItem(
+                            text = { Text(action.label, color = tint) },
+                            leadingIcon = { Icon(action.icon, null, tint = tint) },
+                            onClick = { menuOpen = false; onInvoke(action) },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
