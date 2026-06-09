@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\hosts\Turbo.Host.Places\Turbo.Host.Places.csproj" />
     <ProjectReference Include="..\..\src\Places\Turbo.Places.Api\Turbo.Places.Api.csproj" />
+    <ProjectReference Include="..\..\src\Places\Turbo.Places.Ingestion\Turbo.Places.Ingestion.csproj" />
   </ItemGroup>
 
 </Project>
