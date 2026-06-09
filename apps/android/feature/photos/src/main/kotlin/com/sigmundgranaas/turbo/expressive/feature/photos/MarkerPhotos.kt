@@ -6,8 +6,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,6 +24,7 @@ import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +47,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Photo
+import com.sigmundgranaas.turbo.expressive.ui.components.pressScale
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import java.io.File
 
@@ -70,46 +75,56 @@ fun MarkerPhotos(
         ActivityResultContracts.TakePicture(),
     ) { success -> pendingCapture?.let { if (success) viewModel.addCaptured(markerId, position, it) } }
 
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier.fillMaxWidth()) {
-        item {
-            Box(
-                Modifier.size(72.dp).clip(RoundedCornerShape(TurboRadius.m)).background(cs.surfaceContainerHighest)
-                    .clickable { addMenu = true },
-                contentAlignment = Alignment.Center,
+    Column(modifier.fillMaxWidth()) {
+        // A clearly-labelled "Add photo" affordance (camera / gallery) rather than a bare
+        // 72dp icon tile that reads as a mystery thumbnail. The strip below is photos only.
+        Box {
+            val addSource = remember { MutableInteractionSource() }
+            FilledTonalButton(
+                onClick = { addMenu = true },
+                interactionSource = addSource,
+                modifier = Modifier.pressScale(addSource),
             ) {
-                Icon(Icons.Rounded.AddAPhoto, "Add photo", tint = cs.primary)
-                DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Camera") },
-                        leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null) },
-                        onClick = {
-                            addMenu = false
-                            val file = viewModel.newPhotoFile()
-                            pendingCapture = file
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                            cameraLauncher.launch(uri)
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Gallery") },
-                        leadingIcon = { Icon(Icons.Rounded.PhotoLibrary, null) },
-                        onClick = {
-                            addMenu = false
-                            galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        },
-                    )
-                }
+                Icon(Icons.Rounded.AddAPhoto, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(8.dp))
+                Text("Add photo")
+            }
+            DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Camera") },
+                    leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null) },
+                    onClick = {
+                        addMenu = false
+                        val file = viewModel.newPhotoFile()
+                        pendingCapture = file
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                        cameraLauncher.launch(uri)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Gallery") },
+                    leadingIcon = { Icon(Icons.Rounded.PhotoLibrary, null) },
+                    onClick = {
+                        addMenu = false
+                        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                )
             }
         }
-        items(photos.size) { i ->
-            val photo = photos[i]
-            val bmp = rememberPhotoBitmap(photo.uri, maxPx = 256)
-            Box(
-                Modifier.size(72.dp).clip(RoundedCornerShape(TurboRadius.m)).background(cs.surfaceContainerHigh)
-                    .clickable { viewing = photo },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (photos.isNotEmpty()) {
+            Spacer(Modifier.size(12.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                items(photos.size) { i ->
+                    val photo = photos[i]
+                    val bmp = rememberPhotoBitmap(photo.uri, maxPx = 256)
+                    Box(
+                        Modifier.size(72.dp).clip(RoundedCornerShape(TurboRadius.m)).background(cs.surfaceContainerHigh)
+                            .clickable { viewing = photo },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    }
+                }
             }
         }
     }

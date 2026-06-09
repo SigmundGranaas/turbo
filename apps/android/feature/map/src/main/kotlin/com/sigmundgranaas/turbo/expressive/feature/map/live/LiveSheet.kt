@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -67,6 +68,7 @@ import com.sigmundgranaas.turbo.expressive.feature.map.R
 import com.sigmundgranaas.turbo.expressive.ui.components.LiveElevationSpark
 import com.sigmundgranaas.turbo.expressive.ui.components.LiveMetricTile
 import com.sigmundgranaas.turbo.expressive.ui.components.MetricTone
+import com.sigmundgranaas.turbo.expressive.ui.components.pressScale
 
 /**
  * The rest positions of the live sheet, à la the Google-Maps drawer. [Mini] is a
@@ -323,8 +325,14 @@ private fun ElevationCard(elevations: List<Double>, stats: LiveStats, metric: Bo
 @Composable
 private fun PrimaryStopRow(paused: Boolean, onTogglePause: () -> Unit, onStop: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val pauseIs = remember { MutableInteractionSource() }
+    val stopIs = remember { MutableInteractionSource() }
     Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        FilledTonalButton(onClick = onTogglePause, modifier = Modifier.weight(1f).height(52.dp).testTag("livePause")) {
+        FilledTonalButton(
+            onClick = onTogglePause,
+            interactionSource = pauseIs,
+            modifier = Modifier.weight(1f).height(52.dp).pressScale(pauseIs).testTag("livePause"),
+        ) {
             Icon(if (paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text(stringResource(if (paused) R.string.live_resume else R.string.live_pause), fontWeight = FontWeight.W700)
@@ -332,7 +340,8 @@ private fun PrimaryStopRow(paused: Boolean, onTogglePause: () -> Unit, onStop: (
         Button(
             onClick = onStop,
             colors = ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = Color.White),
-            modifier = Modifier.width(64.dp).height(52.dp).testTag("liveFinish")
+            interactionSource = stopIs,
+            modifier = Modifier.width(64.dp).height(52.dp).pressScale(stopIs).testTag("liveFinish")
                 .clearAndSetSemantics { contentDescription = "Finish" },
         ) { Icon(Icons.Rounded.Stop, null, modifier = Modifier.size(22.dp)) }
     }
@@ -341,8 +350,14 @@ private fun PrimaryStopRow(paused: Boolean, onTogglePause: () -> Unit, onStop: (
 @Composable
 private fun FullActions(paused: Boolean, onTogglePause: () -> Unit, onStop: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val pauseIs = remember { MutableInteractionSource() }
+    val stopIs = remember { MutableInteractionSource() }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        FilledTonalButton(onClick = onTogglePause, modifier = Modifier.weight(1f).height(56.dp).testTag("livePause")) {
+        FilledTonalButton(
+            onClick = onTogglePause,
+            interactionSource = pauseIs,
+            modifier = Modifier.weight(1f).height(56.dp).pressScale(pauseIs).testTag("livePause"),
+        ) {
             Icon(if (paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
             Text(stringResource(if (paused) R.string.live_resume else R.string.live_pause), fontWeight = FontWeight.W700)
@@ -350,7 +365,8 @@ private fun FullActions(paused: Boolean, onTogglePause: () -> Unit, onStop: () -
         Button(
             onClick = onStop,
             colors = ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = Color.White),
-            modifier = Modifier.weight(1f).height(56.dp).testTag("liveFinish"),
+            interactionSource = stopIs,
+            modifier = Modifier.weight(1f).height(56.dp).pressScale(stopIs).testTag("liveFinish"),
         ) {
             Icon(Icons.Rounded.Stop, null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
@@ -362,10 +378,12 @@ private fun FullActions(paused: Boolean, onTogglePause: () -> Unit, onStop: () -
 @Composable
 private fun StopFollowingButton(onStop: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val stopIs = remember { MutableInteractionSource() }
     Button(
         onClick = onStop,
         colors = ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = Color.White),
-        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("liveStop"),
+        interactionSource = stopIs,
+        modifier = Modifier.fillMaxWidth().height(56.dp).pressScale(stopIs).testTag("liveStop"),
     ) {
         Icon(Icons.Rounded.Close, null, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(9.dp))

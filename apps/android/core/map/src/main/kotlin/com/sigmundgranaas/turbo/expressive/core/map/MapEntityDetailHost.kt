@@ -1,7 +1,9 @@
 package com.sigmundgranaas.turbo.expressive.core.map
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,20 +15,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
+import com.sigmundgranaas.turbo.expressive.ui.components.pressScale
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 /**
@@ -84,28 +88,39 @@ fun MapEntityDetailHost(
                 // Primary action gets a full-width row so its label never wraps/clips;
                 // the rest spread evenly on a second row (fits any phone width).
                 val primary = actions.first()
+                val primarySource = remember { MutableInteractionSource() }
                 Button(
                     onClick = { primary.onInvoke(ctx); state.clear() },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    interactionSource = primarySource,
+                    modifier = Modifier.fillMaxWidth().height(52.dp).pressScale(primarySource),
                 ) {
                     Icon(primary.icon, null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.size(8.dp))
                     Text(primary.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                // Secondary actions are LABELLED (icon + text), not bare icons, so
+                // Edit / Add-to-collection / Delete read at a glance; each springs on press.
                 val secondary = actions.drop(1)
                 if (secondary.isNotEmpty()) {
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         secondary.forEach { action ->
-                            FilledIconButton(
+                            val source = remember(action.label) { MutableInteractionSource() }
+                            FilledTonalButton(
                                 onClick = { action.onInvoke(ctx); state.clear() },
-                                modifier = Modifier.weight(1f).height(52.dp),
+                                interactionSource = source,
                                 colors = if (action.isDestructive) {
-                                    IconButtonDefaults.filledIconButtonColors(containerColor = cs.errorContainer, contentColor = cs.onErrorContainer)
+                                    ButtonDefaults.filledTonalButtonColors(containerColor = cs.errorContainer, contentColor = cs.onErrorContainer)
                                 } else {
-                                    IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer)
+                                    ButtonDefaults.filledTonalButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer)
                                 },
-                            ) { Icon(action.icon, action.label) }
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier.weight(1f).height(52.dp).pressScale(source),
+                            ) {
+                                Icon(action.icon, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.size(6.dp))
+                                Text(action.label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                 }
