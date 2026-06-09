@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -79,13 +80,15 @@ fun WeatherForecastSheet(
     ) {
         ProvideWeatherImageLoader {
             Column(
+                // Fixed sheet height so switching to a longer day's hour list scrolls
+                // inside instead of resizing the whole sheet (the current day has fewer
+                // remaining hours than full days).
                 Modifier.fillMaxWidth()
+                    .fillMaxHeight(0.9f)
                     .verticalScroll(rememberScrollState())
                     .navigationBarsPadding()
-                    .padding(horizontal = 20.dp).padding(bottom = 24.dp),
+                    .padding(horizontal = 20.dp).padding(top = 4.dp, bottom = 24.dp),
             ) {
-                Text(stringResource(R.string.cond_forecast_title), style = MaterialTheme.typography.headlineSmall, color = cs.onSurface)
-                Spacer(Modifier.height(14.dp))
                 when (val s = state) {
                     is ForecastUiState.Loading -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -97,21 +100,61 @@ fun WeatherForecastSheet(
                         modifier = Modifier.fillMaxWidth().height(200.dp),
                     )
                     is ForecastUiState.Content -> {
-                        // Current weather up top, then the day strip + hourly list, then the
-                        // ocean section stacked below (no tabs).
-                        WeatherNowHeader(s.forecast.points.firstOrNull())
-                        Spacer(Modifier.height(18.dp))
-                        WeatherForecastContent(s.forecast)
-                        (ocean as? OceanUiState.Content)?.let {
-                            Spacer(Modifier.height(22.dp))
-                            Text(stringResource(R.string.cond_ocean_title), style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
-                            Spacer(Modifier.height(10.dp))
-                            OceanSection(it.marine, it.tides)
+                        // Summary of the current weather on top, then the shared day strip; the
+                        // small Weather / Ocean tabs sit UNDER the days and just switch which
+                        // detail the selected day shows (Ocean tab only when marine data exists).
+                        val forecast = s.forecast
+                        var selectedDate by remember(forecast) { mutableStateOf(forecast.days.firstOrNull()?.date) }
+                        var tab by remember { mutableStateOf(WeatherTab.Weather) }
+                        val oceanContent = ocean as? OceanUiState.Content
+
+                        WeatherNowHeader(forecast.points.firstOrNull())
+                        Spacer(Modifier.height(16.dp))
+                        DayStrip(forecast.days, selectedDate) { selectedDate = it }
+                        Spacer(Modifier.height(12.dp))
+                        if (oceanContent != null) {
+                            WeatherOceanTabs(tab) { tab = it }
+                            Spacer(Modifier.height(12.dp))
+                        }
+                        if (oceanContent == null || tab == WeatherTab.Weather) {
+                            HourlyList(forecast, selectedDate)
+                        } else {
+                            OceanSection(oceanContent.marine, oceanContent.tides, selectedDate)
                         }
                     }
                 }
             }
         }
+    }
+}
+
+private enum class WeatherTab { Weather, Ocean }
+
+/** Compact Weather / Ocean segmented pills (small — they switch the detail below). */
+@Composable
+private fun WeatherOceanTabs(selected: WeatherTab, onSelect: (WeatherTab) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TabPill(stringResource(R.string.cond_tab_weather), selected == WeatherTab.Weather) { onSelect(WeatherTab.Weather) }
+        TabPill(stringResource(R.string.cond_ocean_title), selected == WeatherTab.Ocean) { onSelect(WeatherTab.Ocean) }
+    }
+}
+
+@Composable
+private fun TabPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) cs.primary else cs.surfaceContainerHigh)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.W600),
+            color = if (selected) cs.onPrimary else cs.onSurfaceVariant,
+        )
     }
 }
 
@@ -145,9 +188,9 @@ private fun WeatherNowHeader(now: AtmosphericPoint?) {
     }
 }
 
-/** Ocean section: marine tiles + a tide high/low card. Only shown when data exists. */
+/** Ocean view for the selected day: marine tiles + that day's tide high/low card. */
 @Composable
-internal fun OceanSection(marine: MarineNow?, tides: TideForecast?) {
+internal fun OceanSection(marine: MarineNow?, tides: TideForecast?, selectedDate: String?) {
     val cs = MaterialTheme.colorScheme
     if (marine != null) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -157,6 +200,10 @@ internal fun OceanSection(marine: MarineNow?, tides: TideForecast?) {
         }
     }
     if (tides != null && tides.hasData) {
+        // Show the selected day's tide extrema (fall back to all if none match the day).
+        val dayExtrema = tides.extrema
+            .filter { selectedDate == null || it.timeIso.substringBefore('T') == selectedDate }
+            .ifEmpty { tides.extrema }
         Spacer(Modifier.height(12.dp))
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(TurboRadius.l)).background(cs.surfaceContainerHigh).padding(14.dp),
@@ -165,7 +212,7 @@ internal fun OceanSection(marine: MarineNow?, tides: TideForecast?) {
                 Text(it, style = MaterialTheme.typography.labelLarge, color = cs.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
             }
-            tides.extrema.take(6).forEach { e ->
+            dayExtrema.take(6).forEach { e ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         stringResource(if (e.kind == TideKind.High) R.string.tide_high else R.string.tide_low),
@@ -196,22 +243,31 @@ private fun OceanTile(value: String, label: String, modifier: Modifier = Modifie
     }
 }
 
-/** Stateless forecast body — day strip + hourly list — extracted so it's testable. */
+/** Test-facing wrapper: day strip + hourly list with its own selected-day state. */
 @Composable
 internal fun WeatherForecastContent(forecast: WeatherForecast) {
-    val cs = MaterialTheme.colorScheme
     var selectedDate by remember(forecast) { mutableStateOf(forecast.days.firstOrNull()?.date) }
+    DayStrip(forecast.days, selectedDate) { selectedDate = it }
+    Spacer(Modifier.height(8.dp))
+    HourlyList(forecast, selectedDate)
+}
 
+/** The shared horizontal day picker — used by both the Weather and Ocean views. */
+@Composable
+private fun DayStrip(days: List<DailySummary>, selectedDate: String?, onSelect: (String) -> Unit) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(forecast.days) { day ->
-            DayChip(day, selected = day.date == selectedDate) { selectedDate = day.date }
+        items(days) { day ->
+            DayChip(day, selected = day.date == selectedDate) { onSelect(day.date) }
         }
     }
-    Spacer(Modifier.height(8.dp))
-    // Plain column (the sheet scrolls as one piece), hairline dividers between hours.
+}
+
+/** Hourly rows for the selected day, hairline dividers between (the sheet scrolls). */
+@Composable
+private fun HourlyList(forecast: WeatherForecast, selectedDate: String?) {
+    val cs = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth()) {
-        val hours = forecast.points.filter { it.date == selectedDate }
-        hours.forEachIndexed { i, p ->
+        forecast.points.filter { it.date == selectedDate }.forEachIndexed { i, p ->
             if (i > 0) HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.4f))
             HourRow(p)
         }
