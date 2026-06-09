@@ -8,6 +8,20 @@ tiles) from our own services, replacing the Kartverket Norgeskart WMTS
 basemap, and make it restylable. Cloudflare **R2 is used strictly as a
 distributed cache** — never the origin or system of record.
 
+> **Status — contour pipeline validated against real data (2026-06-09).**
+> The contour source and the new ingest in §4.1 are no longer a proposal.
+> Real N50 Kartdata for Oslo (fylke `03`) was pulled from the Geonorge
+> Nedlasting API in PostGIS/EPSG:25833, restored through the production
+> `n50-restore` path, and the new `n50-hoydekurve-upsert` job (implemented in
+> this change) loaded **2 268 contour features** into `terrain.contour`
+> (2 263 main + 3 auxiliary + 2 depression). Main-contour elevations are
+> exactly 20/40/60/…/620 m — confirming the **20 m equidistance**; 422 lines
+> are flagged `is_index` (every 100 m). A `ST_AsMVT` basemap tile (z12 over
+> Nordmarka) rendered **85 contour features → 13.9 KB**, proving the
+> serve path end-to-end. The existing N50 upserts also ran clean on the same
+> real data (water 434, landcover 2 619, place names 1 148, roads 16 996).
+> See §A.
+
 ---
 
 ## 0. Design rules (non-negotiable)
@@ -480,6 +494,46 @@ dependency with no client-renderer change).
   flip tileserver live, add basemap/raster/fonts/sprite paths.
 - `infra/k8s/envs/prod/` — R2 cache bucket secret (separate from backup).
 - `.github/workflows/tileserver_basemap_build.yml` — **new** versioned build.
+
+---
+
+## A. Validation against real N50 data (2026-06-09)
+
+The contour leg of this plan was executed and verified against the live
+dataset, not just designed on paper.
+
+**Pull.** Ordered N50 Kartdata for Oslo (fylke `03`) via the Geonorge
+Nedlasting API (`POST /api/order`, format `PostGIS`, projection `25833`),
+downloaded `Basisdata_03_Oslo_25833_N50Kartdata_PostGIS.zip` (8.5 MB → 34 MB
+SQL). The dump contains the Høyde-theme tables exactly as predicted:
+`hoydekurve`, `hjelpekurve`, `forsenkningskurve`, each
+`(objid, objtype, senterlinje geometry(_,25833), hoyde integer, …)`.
+
+**Restore + existing pipeline.** Spun up the PostGIS+pgRouting image,
+applied all migrations, and restored the dump through the production
+`tileserver ingest --job n50-restore` path (hash schema → `n50_staging`).
+The existing upserts ran clean on real data — water 434, glaciers 0 (none in
+Oslo), landcover 2 619, place names 1 148, roads/paths 16 996 — confirming
+the current ingest works on real Kartverket data (previously tested only
+against a 5 KB synthetic fixture).
+
+**New contour pipeline (implemented in this change).**
+- `migrations/20260603000001_contour_schema.sql` → `terrain.contour`.
+- `sql/upsert_n50_hoydekurve.sql` (main/auxiliary/depression, `is_index` at
+  100 m, `ST_Dump` to keep clean LineStrings).
+- `n50::upsert_hoydekurve` + `JobName::N50HoydekurveUpsert`
+  (`n50-hoydekurve-upsert`).
+
+Running it loaded **2 268 features** into `terrain.contour`: 2 263 main
+(422 index lines), 3 auxiliary, 2 depression. Distinct main elevations are
+`20,40,60,80,100,120,…,620` — **20 m equidistance confirmed**.
+
+**Serve path.** A `ST_AsMVT` basemap tile (z12 / x2170 / y1189, over
+Nordmarka) carrying `elev_m`, `kind`, `is_index` rendered **85 contour
+features → 13 924 bytes** — the exact `render_basemap_tile` mechanism §4.2
+describes, proven on real geometry.
+
+All 35 `turbo-tiles-ingest` unit tests still pass with the new job wired in.
 
 ---
 

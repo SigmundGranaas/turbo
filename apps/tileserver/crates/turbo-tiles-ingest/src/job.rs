@@ -27,6 +27,8 @@ pub enum JobName {
     N50Restore,
     /// Cheap: re-run vann upsert against `n50_staging`.
     N50VannUpsert,
+    /// Cheap: re-run contour upsert (hoydekurve/hjelpekurve/forsenkningskurve).
+    N50HoydekurveUpsert,
     /// Cheap: re-run glacier upsert against `n50_staging`.
     N50IsogBreUpsert,
     /// Cheap: re-run landcover upsert (skog/myr/apentomrade/dyrketmark).
@@ -59,6 +61,7 @@ impl FromStr for JobName {
             "skeleton-build" => Ok(JobName::SkeletonBuild),
             "n50-restore" => Ok(JobName::N50Restore),
             "n50-vann-upsert" => Ok(JobName::N50VannUpsert),
+            "n50-hoydekurve-upsert" => Ok(JobName::N50HoydekurveUpsert),
             "n50-isogbre-upsert" => Ok(JobName::N50IsogBreUpsert),
             "n50-landcover-upsert" => Ok(JobName::N50LandcoverUpsert),
             "n50-stedsnavn-upsert" => Ok(JobName::N50StedsnavnUpsert),
@@ -86,6 +89,7 @@ impl JobName {
             JobName::SkeletonBuild => "skeleton-build",
             JobName::N50Restore => "n50-restore",
             JobName::N50VannUpsert => "n50-vann-upsert",
+            JobName::N50HoydekurveUpsert => "n50-hoydekurve-upsert",
             JobName::N50IsogBreUpsert => "n50-isogbre-upsert",
             JobName::N50LandcoverUpsert => "n50-landcover-upsert",
             JobName::N50StedsnavnUpsert => "n50-stedsnavn-upsert",
@@ -123,6 +127,7 @@ impl JobName {
             JobName::SkeletonBuild,
             JobName::N50Restore,
             JobName::N50VannUpsert,
+            JobName::N50HoydekurveUpsert,
             JobName::N50IsogBreUpsert,
             JobName::N50LandcoverUpsert,
             JobName::N50StedsnavnUpsert,
@@ -259,6 +264,10 @@ async fn run_job_with_options_owned(
         JobName::N50VannUpsert => {
             let p = pool.clone();
             Box::pin(async move { crate::n50::upsert_vann(&p).await })
+        }
+        JobName::N50HoydekurveUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_hoydekurve(&p).await })
         }
         JobName::N50IsogBreUpsert => {
             let p = pool.clone();
