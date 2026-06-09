@@ -79,12 +79,46 @@ The migrations create the four extensions they need (`postgis`,
 
 ---
 
-## 3. Migrate → restore → upsert
+## 2a. The automated path (no manual download)
 
-The ingest pipeline is two-phase: one heavy **restore** (psql-loads the dump
-into `n50_staging`, ~10–20 min for the whole country, seconds for a county),
-then several cheap **upserts** that read `n50_staging` and write the canonical
-tables. Re-running an upsert is cheap because the restore is amortised.
+The whole chain — order + download from Geonorge, restore, every upsert — is
+one job. Nothing is downloaded or uploaded by hand:
+
+```sh
+tileserver migrate
+tileserver ingest --job provision-n50 --area 03         # one county
+tileserver ingest --job provision-n50 --area national   # whole country
+```
+
+`provision-n50` calls the Geonorge Nedlasting API itself (`geonorge.rs`),
+streams the PostGIS zip into the incoming dir, restores it, and runs the
+canonical upserts in order — logged as one `paths.ingest_job` row. Each
+sub-step is idempotent, so a retry converges; `--force` re-downloads and
+re-restores from scratch.
+
+**From the admin panel:** "Provision data" → pick a county → click. Backed by
+`POST /admin/api/provision {area, force}` (returns a `run_id`; watch it on the
+Jobs screen) and `GET /admin/api/geonorge/areas` (the county dropdown).
+
+**Zero-touch deploy:** set `TILESERVER_PROVISION_ON_BOOT=<area>` (e.g.
+`national`). On a fresh deploy with an empty basemap the server provisions
+itself in the background at startup; restarts are a no-op (it only fires when
+`terrain.water_polygon` is empty). The download client trusts both the bundled
+webpki roots (distroless prod) and the OS trust store (TLS-intercepting CI/dev
+proxies), so it works in every environment `curl` does.
+
+> Egress: `*.geonorge.no` must be on the environment's outbound allowlist.
+
+The manual `--file` path below still works for air-gapped imports or one-offs,
+but is no longer the happy path.
+
+## 3. Manual: migrate → restore → upsert
+
+The pipeline under `provision-n50` is two-phase: one heavy **restore**
+(psql-loads the dump into `n50_staging`, ~10–20 min for the whole country,
+seconds for a county), then several cheap **upserts** that read `n50_staging`
+and write the canonical tables. Re-running an upsert is cheap because the
+restore is amortised. To drive the steps by hand (e.g. from a pre-staged zip):
 
 ```sh
 tileserver migrate                                          # apply schema
