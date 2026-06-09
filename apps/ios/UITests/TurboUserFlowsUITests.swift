@@ -225,6 +225,39 @@ final class TurboUserFlowsUITests: XCTestCase {
                       "the record control should return once the session ends")
     }
 
+    // MARK: Goal — plan a track on the map and move a point
+
+    func test_hiker_can_plan_a_track_and_move_a_point() {
+        let app = launch()
+
+        // Open the track tool from the control rail (no flaky long-press needed).
+        XCTAssertTrue(app.buttons["map.track"].waitForExistence(timeout: 10))
+        app.buttons["map.track"].tap()
+        XCTAssertTrue(app.staticTexts["Plan a Track"].waitForExistence(timeout: 5))
+
+        // Line mode: straight legs, no solver — deterministic.
+        app.buttons["Line"].tap()
+
+        // Add two points by tapping the open map.
+        let p1 = app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.30))
+        let p2 = app.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.42))
+        p1.tap()
+        p2.tap()
+
+        // Two points → a saveable track.
+        let save = app.buttons["route.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        XCTAssertTrue(save.isEnabled, "two points should produce a saveable track")
+
+        // Tap the first point to select it, then tap a new spot to move it.
+        p1.tap()
+        XCTAssertTrue(app.staticTexts["Moving point 1 — tap a new spot"].waitForExistence(timeout: 5),
+                      "tapping a waypoint should arm move mode")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.55)).tap()
+        XCTAssertFalse(app.staticTexts["Moving point 1 — tap a new spot"].waitForExistence(timeout: 2),
+                       "placing the point should clear move mode")
+    }
+
     // MARK: Goal — follow a saved track with live navigation
 
     func test_hiker_can_follow_a_saved_track() {

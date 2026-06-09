@@ -117,6 +117,9 @@ public struct TurboMapView: UIViewRepresentable {
         private var tileOverlay: MKTileOverlay?
         private var dataOverlays: [OverlayId: MKTileOverlay] = [:]
         private var routeOverlay: MKPolyline?
+        /// Pins currently being dragged — their coordinate must not be reset by a
+        /// `syncAnnotations` pass mid-drag (or the marker snaps back).
+        private var draggingPinIds: Set<String> = []
         private var lastRouteCount = -1
         private var lastFocus: LatLng?
         private var lastBearingToken = 0
@@ -228,7 +231,9 @@ public struct TurboMapView: UIViewRepresentable {
             for pin in pins {
                 if let annotation = byId[pin.id] {
                     // Same id, moved point (reorder / remove shifts indices, drag) —
-                    // update in place so the marker follows.
+                    // update in place so the marker follows. Skip a pin mid-drag, or
+                    // the stale view-model coordinate would snap it back.
+                    guard !draggingPinIds.contains(pin.id) else { continue }
                     let target = CLLocationCoordinate2D(latitude: pin.coordinate.lat, longitude: pin.coordinate.lng)
                     if annotation.coordinate.latitude != target.latitude || annotation.coordinate.longitude != target.longitude {
                         annotation.coordinate = target
@@ -283,11 +288,15 @@ public struct TurboMapView: UIViewRepresentable {
                             didChange newState: MKAnnotationView.DragState, fromOldState oldState: MKAnnotationView.DragState) {
             guard let pin = view.annotation as? PinAnnotation else { return }
             switch newState {
+            case .starting:
+                draggingPinIds.insert(pin.pin.id)
             case .ending:
                 let c = view.annotation?.coordinate ?? pin.coordinate
+                draggingPinIds.remove(pin.pin.id)
                 onPinMoved?(pin.pin.id, LatLng(lat: c.latitude, lng: c.longitude))
                 view.dragState = .none
             case .canceling:
+                draggingPinIds.remove(pin.pin.id)
                 view.dragState = .none
             default:
                 break

@@ -30,6 +30,8 @@ public struct MapScreen: View {
     private let solveRoute: (@Sendable ([LatLng]) async -> RoutePlan?)?
     @State private var routing: RouteViewModel?
     @State private var drawStarted = false
+    /// The waypoint index picked for moving (tap-to-select → tap-to-place).
+    @State private var selectedWaypoint: Int?
     @State private var showWeather = false
     @State private var editorTarget: EditorTarget?
     @State private var mapCenter: LatLng?
@@ -122,11 +124,29 @@ public struct MapScreen: View {
         routing?.moveWaypoint(at: index, to: coord)
     }
 
-    /// Single-tap adds a waypoint while building a track (route/line modes; draw
-    /// uses the freehand gesture, and addWaypoint no-ops there).
+    /// Single-tap behaviour while building a track: if a waypoint is selected,
+    /// move it to the tapped spot; otherwise add a new waypoint (route/line modes;
+    /// draw uses the freehand gesture, where addWaypoint no-ops).
     private var tapHandler: ((LatLng) -> Void)? {
-        if routing != nil { return { routing?.addWaypoint($0) } }
-        return nil
+        guard routing != nil else { return nil }
+        return { coord in
+            if let index = selectedWaypoint {
+                routing?.moveWaypoint(at: index, to: coord)
+                selectedWaypoint = nil
+            } else {
+                routing?.addWaypoint(coord)
+            }
+        }
+    }
+
+    /// Tapping a waypoint pin selects it for moving (tap again to deselect); other
+    /// pins open their marker detail.
+    private func handleSelectPin(_ id: String) {
+        if id.hasPrefix("wp-"), let index = Int(id.dropFirst(3)) {
+            selectedWaypoint = (selectedWaypoint == index) ? nil : index
+        } else {
+            selectedMarker = viewModel.markers.first { $0.id == id }
+        }
     }
 
     /// True while the track tool is in freehand Draw mode (drives the draw layer).
@@ -182,7 +202,7 @@ public struct MapScreen: View {
             onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
             onVisibleBoundsChange: { viewModel.updateVisibleBounds($0) },
-            onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } },
+            onSelectPin: handleSelectPin,
             onTap: tapHandler,
             onPinMoved: handlePinMoved
         )
@@ -285,7 +305,12 @@ public struct MapScreen: View {
         }
         let toolPoints = routing?.waypoints ?? []
         for (i, wp) in toolPoints.enumerated() {
-            result.append(MapPin(id: "wp-\(i)", coordinate: wp, title: "\(i + 1)", symbolName: "smallcircle.filled.circle", tint: t.blue))
+            let selected = selectedWaypoint == i
+            result.append(MapPin(
+                id: "wp-\(i)", coordinate: wp, title: "\(i + 1)",
+                symbolName: selected ? "scope" : "smallcircle.filled.circle",
+                tint: selected ? t.orange : t.blue
+            ))
         }
         // A pin at the long-pressed point, so the action sheet refers to a spot
         // the user can actually see.
@@ -316,9 +341,27 @@ public struct MapScreen: View {
                 focusBanner(place)
             }
             if let recording { recordingPill(recording) }
+            if let index = selectedWaypoint, index < (routing?.waypoints.count ?? 0) {
+                movePointBanner(index)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    /// Shown while a waypoint is selected for moving — tap a new spot to place it.
+    private func movePointBanner(_ index: Int) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "scope").foregroundStyle(t.orange)
+            Text("Moving point \(index + 1) — tap a new spot").font(.turboSubhead).foregroundStyle(t.label).lineLimit(1)
+            Spacer(minLength: 8)
+            Button("Cancel") { selectedWaypoint = nil }
+                .font(.turboSubhead.weight(.semibold)).foregroundStyle(t.blue)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .liquidGlass(Capsule())
+        .accessibilityIdentifier("route.movehint")
     }
 
     /// Ambient "recording in progress" pill — visible whenever a session is
@@ -371,6 +414,15 @@ public struct MapScreen: View {
                     .accessibilityLabel("Record a track")
                 MapRailDivider()
             }
+            // Plan a track (Route / Line / Draw). Active while the tool is open.
+            if makeRouteViewModel != nil {
+                MapRailButton(symbol: "point.topleft.down.curvedto.point.bottomright.up", active: routing != nil) {
+                    if routing == nil { routing = makeRouteViewModel?() }
+                }
+                .accessibilityIdentifier("map.track")
+                .accessibilityLabel("Plan a track")
+                MapRailDivider()
+            }
             MapRailButton(symbol: "square.2.stack.3d", action: onOpenLayers)
                 .accessibilityIdentifier("map.layers")
                 .accessibilityLabel("Map layers")
@@ -404,7 +456,7 @@ public struct MapScreen: View {
                 .padding(.bottom, 12)
         } else if let routing {
             RouteCard(viewModel: routing,
-                      onClose: { self.routing = nil },
+                      onClose: { self.routing = nil; selectedWaypoint = nil },
                       onFollow: follow != nil ? { startFollowingPlannedRoute() } : nil)
                 .padding(.horizontal, 14)
                 .padding(.bottom, 12)
