@@ -6,7 +6,6 @@ import androidx.compose.material.icons.rounded.Route
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -114,13 +113,10 @@ internal fun MapScreenModals(
     ui.pendingDownloadArea?.let { area ->
         // Cache the overlays toggled on now, so the estimate and the download agree.
         val overlays = ui.activeOverlays
-        val estimate = remember(area, baseLayer, overlays) {
-            offlineViewModel.estimate(baseLayer, area.bounds, area.zoom, overlays)
-        }
         DownloadAreaDialog(
-            estimate = estimate,
-            onConfirm = {
-                offlineViewModel.download(area.centre, baseLayer, area.bounds, area.zoom, overlays)
+            estimateFor = { detail -> offlineViewModel.estimate(baseLayer, area.bounds, area.zoom, overlays, detail) },
+            onConfirm = { detail ->
+                offlineViewModel.download(area.centre, baseLayer, area.bounds, area.zoom, overlays, detail)
                 ui.pendingDownloadArea = null
                 onOpenOffline()
             },

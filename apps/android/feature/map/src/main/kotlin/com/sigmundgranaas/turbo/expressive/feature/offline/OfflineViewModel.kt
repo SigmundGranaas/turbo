@@ -7,6 +7,7 @@ import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.DetailLevel
 import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -47,36 +48,44 @@ class OfflineViewModel @Inject constructor(
         bounds: GeoBounds,
         fromZoom: Double,
         overlays: Set<OverlayId> = emptySet(),
+        detail: DetailLevel = DetailLevel.Standard,
     ) {
-        val minZoom = floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        val maxZoom = (minZoom + ZOOM_SPAN).coerceAtMost(MAX_ZOOM)
         viewModelScope.launch {
             val place = (reverseGeocode.describe(centre) as? Outcome.Success)?.value?.title
             manager.download(
-                DownloadSpec(
-                    name = place ?: formatCoords(centre),
-                    base = base,
-                    bounds = bounds,
-                    minZoom = minZoom,
-                    maxZoom = maxZoom,
-                    overlays = overlays,
-                ),
+                spec(place ?: formatCoords(centre), base, bounds, fromZoom, overlays, detail),
             )
         }
     }
 
     /** Pre-flight tile/byte estimate (+ within-limits guard) for the visible [bounds]. */
-    fun estimate(base: BaseLayer, bounds: GeoBounds, fromZoom: Double, overlays: Set<OverlayId> = emptySet()) =
-        manager.estimate(
-            DownloadSpec(
-                name = "",
-                base = base,
-                bounds = bounds,
-                minZoom = floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM),
-                maxZoom = (floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM) + ZOOM_SPAN).coerceAtMost(MAX_ZOOM),
-                overlays = overlays,
-            ),
+    fun estimate(
+        base: BaseLayer,
+        bounds: GeoBounds,
+        fromZoom: Double,
+        overlays: Set<OverlayId> = emptySet(),
+        detail: DetailLevel = DetailLevel.Standard,
+    ) = manager.estimate(spec("", base, bounds, fromZoom, overlays, detail))
+
+    /** One zoom policy for estimate + download, so the dialog's number is what ships. */
+    private fun spec(
+        name: String,
+        base: BaseLayer,
+        bounds: GeoBounds,
+        fromZoom: Double,
+        overlays: Set<OverlayId>,
+        detail: DetailLevel,
+    ): DownloadSpec {
+        val minZoom = floor(fromZoom).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        return DownloadSpec(
+            name = name,
+            base = base,
+            bounds = bounds,
+            minZoom = minZoom,
+            maxZoom = (minZoom + detail.zoomSpan).coerceAtMost(MAX_ZOOM),
+            overlays = overlays,
         )
+    }
 
     fun retry(id: Long) = manager.retry(id)
 
@@ -89,6 +98,5 @@ class OfflineViewModel @Inject constructor(
     private companion object {
         const val MIN_ZOOM = 8.0
         const val MAX_ZOOM = 16.0
-        const val ZOOM_SPAN = 4.0
     }
 }

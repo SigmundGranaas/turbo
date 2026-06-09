@@ -130,6 +130,10 @@
     <string name="layers_trails_sub">Marked routes · Waymarked Trails</string>
     <string name="layers_avalanche">Avalanche terrain</string>
     <string name="layers_avalanche_sub">Slope steepness ≥27° · NVE</string>
+    <string name="layers_waves">Wave height</string>
+    <string name="layers_waves_sub">Marine swell heatmap</string>
+    <string name="layers_wind">Wind</string>
+    <string name="layers_wind_sub">Animated flow field</string>
     <string name="layers_offline">Offline</string>
     <string name="layers_download_area">Download this area</string>
 
@@ -165,6 +169,8 @@
     <string name="offline_download_too_large">This area is too large (about %1$s). Zoom in and try again.</string>
     <string name="offline_download_confirm">Download</string>
     <string name="offline_download_cancel">Cancel</string>
+    <string name="offline_detail_standard">Standard</string>
+    <string name="offline_detail_detailed">Detailed</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d area · %2$s</item>
         <item quantity="other">%1$d areas · %2$s</item>

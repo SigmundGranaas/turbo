@@ -64,6 +64,15 @@ data class DownloadSpec(
     val overlays: Set<OverlayId> = emptySet(),
 )
 
+/**
+ * The detail-vs-size trade-off for an offline download: how many zoom levels
+ * past the current camera to cache. Standard matches the historical default.
+ */
+enum class DetailLevel(val zoomSpan: Double) {
+    Standard(4.0),
+    Detailed(6.0),
+}
+
 /** A pre-download estimate of how big a [DownloadSpec] will be. */
 data class OfflineEstimate(
     val tiles: Long,

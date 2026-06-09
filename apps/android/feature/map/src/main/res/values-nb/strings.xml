@@ -130,6 +130,10 @@
     <string name="layers_trails_sub">Merkede ruter · Waymarked Trails</string>
     <string name="layers_avalanche">Skredterreng</string>
     <string name="layers_avalanche_sub">Brattheit ≥27° · NVE</string>
+    <string name="layers_waves">Bølgehøyde</string>
+    <string name="layers_waves_sub">Varmekart for dønninger</string>
+    <string name="layers_wind">Vind</string>
+    <string name="layers_wind_sub">Animert strømningsfelt</string>
     <string name="layers_offline">Frakoblet</string>
     <string name="layers_download_area">Last ned dette området</string>
 
@@ -164,6 +168,8 @@
     <string name="offline_download_too_large">Dette området er for stort (omtrent %1$s). Zoom inn og prøv igjen.</string>
     <string name="offline_download_confirm">Last ned</string>
     <string name="offline_download_cancel">Avbryt</string>
+    <string name="offline_detail_standard">Standard</string>
+    <string name="offline_detail_detailed">Detaljert</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d område · %2$s</item>
         <item quantity="other">%1$d områder · %2$s</item>
