@@ -21,6 +21,21 @@ distributed cache** — never the origin or system of record.
 > serve path end-to-end. The existing N50 upserts also ran clean on the same
 > real data (water 434, landcover 2 619, place names 1 148, roads 16 996).
 > See §A.
+>
+> **Status update (2026-06-09, later):** the serve path is now built and
+> tested end-to-end on small real samples. Landed since: buildings +
+> coastline ingest (fixture + e2e coverage), the fkb_type vocabulary
+> reconciliation (N50 roads now surface in the resource views), the
+> multi-layer `/v1/basemap/{z}/{x}/{y}.mvt` endpoint with TileJSON
+> descriptor (§4.2 — done), the house `n50-topo` MapLibre style served at
+> `/v1/basemap/style.json` with a style↔tiles contract test, the
+> `turbomap-style-maplibre` loader so the native renderer consumes the same
+> style document (§6 — first slice done), public-only boot (JWT_SECRET now
+> optional, gates only /admin), and the R2 pull-through Worker
+> (`infra/edge/tiles-worker`, §5 — done, node-tested). Remaining from the
+> plan: glyphs/sprites for MapLibre GL clients, the raster fallback
+> pipeline (§7 / M1), per-zoom matviews + full-Norway ingest (M2), and the
+> Flutter client wiring (§8).
 
 ---
 
