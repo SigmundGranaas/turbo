@@ -21,32 +21,34 @@ pub struct GpuContext {
 
 /// Acquire a headless context, or `None` if no adapter exists.
 pub fn headless() -> Option<GpuContext> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY | wgpu::Backends::GL,
-        ..Default::default()
+    let instance = wgpu::Instance::new({
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        desc.backends = wgpu::Backends::PRIMARY | wgpu::Backends::GL;
+        desc
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
         force_fallback_adapter: true,
     }))
+    .ok()
     .or_else(|| {
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
+        .ok()
     })?;
     let adapter_name = adapter.get_info().name;
-    let (device, queue) = pollster::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            label: Some("turbomap-ffi-device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
-            memory_hints: wgpu::MemoryHints::Performance,
-        },
-        None,
-    ))
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("turbomap-ffi-device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+        memory_hints: wgpu::MemoryHints::Performance,
+        experimental_features: wgpu::ExperimentalFeatures::default(),
+        trace: wgpu::Trace::Off,
+    }))
     .ok()?;
     Some(GpuContext {
         device: Arc::new(device),
@@ -93,15 +95,15 @@ pub fn render_to_rgba(
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
     record(&mut encoder, &view);
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &target,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: &readback,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bpr),
                 rows_per_image: Some(height),
@@ -122,7 +124,7 @@ pub fn render_to_rgba(
     });
     let started = Instant::now();
     loop {
-        gpu.device.poll(wgpu::Maintain::Poll);
+        let _ = gpu.device.poll(wgpu::PollType::Poll);
         if let Ok(Ok(())) = rx.recv_timeout(Duration::from_millis(10)) {
             break;
         }

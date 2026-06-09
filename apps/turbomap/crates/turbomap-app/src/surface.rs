@@ -125,8 +125,9 @@ impl RenderSurface {
     /// physical size from `Window::inner_size`) and return
     /// `None`. Callers should retry on the next tick.
     pub fn acquire(&mut self, window_size_hint: (u32, u32)) -> Option<SurfaceFrame> {
+        use wgpu::CurrentSurfaceTexture;
         match self.surface.get_current_texture() {
-            Ok(tex) => {
+            CurrentSurfaceTexture::Success(tex) | CurrentSurfaceTexture::Suboptimal(tex) => {
                 let view = tex
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
@@ -137,7 +138,7 @@ impl RenderSurface {
                     size,
                 })
             }
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            CurrentSurfaceTexture::Lost | CurrentSurfaceTexture::Outdated => {
                 // The CAMetalLayer dimension diverged from
                 // our configured surface — most likely because
                 // AppKit just resized the window. Sync to the
@@ -151,8 +152,8 @@ impl RenderSurface {
                 self.resize_to(window_size_hint.0, window_size_hint.1);
                 None
             }
-            Err(e) => {
-                log::warn!("surface acquire error: {e:?}");
+            other => {
+                log::warn!("surface acquire: {other:?}");
                 None
             }
         }

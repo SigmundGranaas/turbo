@@ -785,15 +785,15 @@ fn encode_frame_dump(
         mapped_at_creation: false,
     });
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: src,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bytes_per_row),
                 rows_per_image: Some(height),
@@ -830,7 +830,7 @@ fn save_dump_to_png(
     // ones the render loop hasn't sent yet.
     let started = std::time::Instant::now();
     loop {
-        device.poll(wgpu::Maintain::Poll);
+        let _ = device.poll(wgpu::PollType::Poll);
         if let Ok(Ok(())) = rx.recv_timeout(std::time::Duration::from_millis(10)) {
             break;
         }

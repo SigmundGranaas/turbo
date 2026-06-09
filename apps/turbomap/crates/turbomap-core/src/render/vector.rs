@@ -96,8 +96,8 @@ impl VectorPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("turbomap-vector-layout"),
-            bind_group_layouts: &[&camera_bgl, &tile_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&camera_bgl), Some(&tile_bgl)],
+            immediate_size: 0,
         });
 
         let vertex_layout = wgpu::VertexBufferLayout {
@@ -130,13 +130,13 @@ impl VectorPipeline {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[vertex_layout],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -147,7 +147,7 @@ impl VectorPipeline {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -283,6 +283,7 @@ impl VectorPipeline {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: if is_first_layer {
                         wgpu::LoadOp::Clear(wgpu::Color {
@@ -300,6 +301,7 @@ impl VectorPipeline {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);

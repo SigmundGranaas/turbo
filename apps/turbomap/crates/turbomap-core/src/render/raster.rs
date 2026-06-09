@@ -195,8 +195,8 @@ impl RasterPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("turbomap-raster-layout"),
-            bind_group_layouts: &[&camera_bgl, &texture_bgl, terrain_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&camera_bgl), Some(&texture_bgl), Some(terrain_bgl)],
+            immediate_size: 0,
         });
 
         let vertex_layout = wgpu::VertexBufferLayout {
@@ -255,13 +255,13 @@ impl RasterPipeline {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[vertex_layout, instance_layout],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -275,13 +275,13 @@ impl RasterPipeline {
             // mountains don't paint over front faces.
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -368,7 +368,7 @@ impl RasterPipeline {
             // uploads a full mip chain for raster tiles, so the GPU
             // picks the right LOD automatically. Without this, far-
             // zoomed tiles alias and shimmer when panning.
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         }));
 
@@ -556,6 +556,7 @@ impl RasterPipeline {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: target,
                         resolve_target: None,
+                depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(BACKGROUND_CLEAR),
                             store: wgpu::StoreOp::Store,
@@ -571,6 +572,7 @@ impl RasterPipeline {
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
+            multiview_mask: None,
                 });
             }
             return;
@@ -611,6 +613,7 @@ impl RasterPipeline {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: if is_first_layer {
                         wgpu::LoadOp::Clear(BACKGROUND_CLEAR)
@@ -634,6 +637,7 @@ impl RasterPipeline {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
