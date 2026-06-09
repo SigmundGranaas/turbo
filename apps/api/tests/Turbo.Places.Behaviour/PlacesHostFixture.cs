@@ -35,6 +35,10 @@ public sealed class PlacesHostFixture : IAsyncLifetime
 
     private WebApplicationFactory<PlacesHostProgram>? _factory;
 
+    /// <summary>Total rows seeded from the sample-data fixtures (pinned by
+    /// the health behaviour, so fixture growth can't silently skew it).</summary>
+    public int SeededPlaces { get; private set; }
+
     public HttpClient CreateClient() => _factory!.CreateClient();
 
     public async Task InitializeAsync()
@@ -70,28 +74,34 @@ public sealed class PlacesHostFixture : IAsyncLifetime
         await _postgres.DisposeAsync();
     }
 
-    private static async Task SeedAsync(string repoRoot, string connectionString)
+    private async Task SeedAsync(string repoRoot, string connectionString)
     {
         var store = new PgPlaceStore(connectionString);
 
-        var fixturePath = Path.Combine(
-            repoRoot, "apps", "api", "src", "Places", "sample-data", "galdhopiggen-ssr.json");
-        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(fixturePath));
-        var places = doc.RootElement.EnumerateArray()
-            .Select(r => new Place(
-                Source: r.GetProperty("source").GetString()!,
-                SourceId: r.GetProperty("source_id").GetString()!,
-                FeatureType: r.GetProperty("feature_type").GetString()!,
-                PrimaryName: r.GetProperty("primary_name").GetString()!,
-                Lat: r.GetProperty("lat").GetDouble(),
-                Lng: r.GetProperty("lng").GetDouble(),
-                Status: r.GetProperty("status").GetString()!,
-                ElevationM: r.TryGetProperty("elevation_m", out var e) && e.ValueKind == JsonValueKind.Number
-                    ? e.GetDouble() : null,
-                KommuneName: r.TryGetProperty("kommune_name", out var k) ? k.GetString() : null,
-                FylkeName: r.TryGetProperty("fylke_name", out var f) ? f.GetString() : null))
-            .ToList();
-        await store.UpsertAsync(places, "test-fixture");
+        // Real-data fixtures: Jotunheimen high mountains + Tromsø city core —
+        // peak/water/farm cases and the dense urban (Adressenavn/Kirke) cases.
+        foreach (var file in new[] { "galdhopiggen-ssr.json", "tromso-city-ssr.json" })
+        {
+            var fixturePath = Path.Combine(
+                repoRoot, "apps", "api", "src", "Places", "sample-data", file);
+            using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(fixturePath));
+            var places = doc.RootElement.EnumerateArray()
+                .Select(r => new Place(
+                    Source: r.GetProperty("source").GetString()!,
+                    SourceId: r.GetProperty("source_id").GetString()!,
+                    FeatureType: r.GetProperty("feature_type").GetString()!,
+                    PrimaryName: r.GetProperty("primary_name").GetString()!,
+                    Lat: r.GetProperty("lat").GetDouble(),
+                    Lng: r.GetProperty("lng").GetDouble(),
+                    Status: r.GetProperty("status").GetString()!,
+                    ElevationM: r.TryGetProperty("elevation_m", out var e) && e.ValueKind == JsonValueKind.Number
+                        ? e.GetDouble() : null,
+                    KommuneName: r.TryGetProperty("kommune_name", out var k) ? k.GetString() : null,
+                    FylkeName: r.TryGetProperty("fylke_name", out var f) ? f.GetString() : null))
+                .ToList();
+            SeededPlaces += places.Count;
+            await store.UpsertAsync(places, "test-fixture");
+        }
 
         // Synthetic containment polygons: a park square around the wilderness
         // point and a kommune square covering the whole sample area.

@@ -48,6 +48,21 @@ public class PlacesApiBehaviour : IClassFixture<PlacesHostFixture>
     }
 
     [Fact]
+    public async Task Reverse_in_a_city_resolves_the_tight_urban_feature()
+    {
+        var client = _fixture.CreateClient();
+        var d = await client.GetFromJsonAsync<JsonElement>(
+            "/api/places/reverse?lat=69.6492&lon=18.9553");
+
+        // Dense-city case (real Tromsø data): the cathedral 70 m away wins the
+        // title; kommune/fylke come from the row enrichment.
+        d.GetProperty("title").GetString().Should().Be("Tromsø domkirke");
+        d.GetProperty("qualifier").GetString().Should().Be("atPlace");
+        d.GetProperty("kommune").GetString().Should().Be("Tromsø");
+        d.GetProperty("fylke").GetString().Should().Be("Troms");
+    }
+
+    [Fact]
     public async Task Reverse_far_from_all_data_returns_404()
     {
         var client = _fixture.CreateClient();
@@ -110,7 +125,7 @@ public class PlacesApiBehaviour : IClassFixture<PlacesHostFixture>
         var client = _fixture.CreateClient();
         var h = await client.GetFromJsonAsync<JsonElement>("/api/places/health");
 
-        h.GetProperty("places").GetInt64().Should().Be(62);
+        h.GetProperty("places").GetInt64().Should().Be(_fixture.SeededPlaces);
         h.GetProperty("areas").GetInt64().Should().Be(2);
         h.GetProperty("datasetVersion").GetString().Should().Be("test-fixture");
     }
