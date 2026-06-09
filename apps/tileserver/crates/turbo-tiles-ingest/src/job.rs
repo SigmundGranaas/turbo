@@ -45,6 +45,12 @@ pub enum JobName {
     TurbaseUpsert,
     /// DNT cabins HTTP API → anchors.anchor.
     DntCabinsLoad,
+    /// Download an N50 dump from the Geonorge Nedlasting API into the
+    /// incoming dir (no restore). Needs `--area`.
+    GeonorgeFetch,
+    /// Full hands-off N50 provisioning: download → restore → all upserts.
+    /// Needs `--area`.
+    ProvisionN50,
 }
 
 impl FromStr for JobName {
@@ -72,6 +78,8 @@ impl FromStr for JobName {
             "turbase-restore" => Ok(JobName::TurbaseRestore),
             "turbase-upsert" => Ok(JobName::TurbaseUpsert),
             "dnt-cabins-load" => Ok(JobName::DntCabinsLoad),
+            "geonorge-fetch" => Ok(JobName::GeonorgeFetch),
+            "provision-n50" => Ok(JobName::ProvisionN50),
             other => Err(format!("unknown job `{other}`")),
         }
     }
@@ -101,6 +109,8 @@ impl JobName {
             JobName::TurbaseRestore => "turbase-restore",
             JobName::TurbaseUpsert => "turbase-upsert",
             JobName::DntCabinsLoad => "dnt-cabins-load",
+            JobName::GeonorgeFetch => "geonorge-fetch",
+            JobName::ProvisionN50 => "provision-n50",
         }
     }
 
@@ -140,6 +150,8 @@ impl JobName {
             JobName::TurbaseRestore,
             JobName::TurbaseUpsert,
             JobName::DntCabinsLoad,
+            JobName::GeonorgeFetch,
+            JobName::ProvisionN50,
         ]
     }
 }
@@ -163,6 +175,9 @@ pub struct JobOptions {
     pub bbox: Option<Bbox>,
     pub file: Option<PathBuf>,
     pub source: Option<String>,
+    /// Geonorge area for `geonorge-fetch` / `provision-n50`: a two-digit
+    /// county code (`"03"`) or `national`.
+    pub area: Option<String>,
     pub run_id: Option<uuid::Uuid>,
     /// Used for `dtm10-attach` (overwrite) and `n50-restore`/`turbase-restore`
     /// (drop+recreate the canonical staging schema).
@@ -311,6 +326,29 @@ async fn run_job_with_options_owned(
             let p = pool.clone();
             let file = opts.file.clone();
             Box::pin(async move { crate::dnt_cabins::run(&p, file, None).await })
+        }
+        JobName::GeonorgeFetch => {
+            let area = opts.area.clone();
+            Box::pin(async move {
+                let area = area.ok_or(JobError::MissingOption("area"))?;
+                let parsed = crate::geonorge::Area::parse(&area)?;
+                let dest = std::path::PathBuf::from(crate::incoming_dir());
+                let path =
+                    crate::geonorge::fetch(crate::geonorge::Dataset::N50, &parsed, &dest).await?;
+                tracing::info!(file = %path.display(), "geonorge-fetch: downloaded");
+                // rows_in/upserted are N/A for a pure download; report 1 so the
+                // job row reads as "did something" rather than an empty no-op.
+                Ok(JobOutcome { rows_in: 1, rows_upserted: 1 })
+            })
+        }
+        JobName::ProvisionN50 => {
+            let p = pool.clone();
+            let area = opts.area.clone();
+            let force = opts.force;
+            Box::pin(async move {
+                let area = area.ok_or(JobError::MissingOption("area"))?;
+                crate::provision::provision_n50(&p, &area, force).await
+            })
         }
         other => Box::pin(async move { Err(JobError::NotImplemented(other.as_str())) }),
     };

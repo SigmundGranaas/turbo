@@ -62,7 +62,12 @@ thiserror = "1"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# `rustls-tls` bundles Mozilla webpki roots (works in distroless prod with no
+# system CA store); `rustls-tls-native-roots` additionally lets a client opt
+# into the OS trust store (needed where egress is TLS-intercepted by a
+# corporate/proxy CA — e.g. some CI/dev sandboxes). Clients that fetch from
+# the public internet enable both via `.tls_built_in_native_certs(true)`.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "rustls-tls-native-roots", "json", "stream"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
