@@ -1,0 +1,6 @@
+# Build artifacts dropped next to the generated bindings at run time.
+*.so
+*.dylib
+*.dll
+__pycache__/
+*.class

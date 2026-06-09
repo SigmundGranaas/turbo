@@ -20,6 +20,15 @@ mod rank;
 mod ruleset;
 mod search;
 
+#[cfg(feature = "uniffi")]
+mod ffi;
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
+#[cfg(feature = "uniffi")]
+pub use ffi::{EngineError, PlaceEngine};
+
 pub use classify::classify;
 pub use geo::haversine_m;
 pub use model::{

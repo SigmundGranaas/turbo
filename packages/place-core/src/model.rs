@@ -48,6 +48,7 @@ impl Tier {
 /// The Android binding folds `CloseTo`→Near and `InArea`→In to match its
 /// 4-value `PlaceQualifier`; the UI turns these into localized words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum Qualifier {
     /// Standing on the feature (peak / glacier / island).
     #[serde(rename = "on")]
@@ -70,6 +71,7 @@ pub enum Qualifier {
 /// or one SQLite R*Tree row). The caller resolves `distance_m` — from the
 /// server's `meterFraPunkt` when present, else via [`crate::haversine_m`].
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Candidate {
     pub name: String,
     /// Feature type (`navneobjekttype`), matched case-insensitively against the
@@ -90,6 +92,7 @@ pub struct Candidate {
 
 /// A containing protected area (national park / nature reserve / …).
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ProtectedArea {
     pub name: String,
     /// Protection class (`verneform`), used as the subtitle.
@@ -100,6 +103,7 @@ pub struct ProtectedArea {
 /// Nearest civic address. `text` is the street + number; `secondary` is the
 /// post code + post town (e.g. "2686 LOM").
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Address {
     pub text: String,
     #[serde(default)]
@@ -108,6 +112,7 @@ pub struct Address {
 
 /// The municipality containing the point (final fallback + subtitle context).
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct Kommune {
     pub name: String,
     #[serde(default)]
@@ -117,6 +122,7 @@ pub struct Kommune {
 /// Everything a platform has gathered for one reverse-geocode. All sources are
 /// optional; `reverse_geocode` runs the cascade over whatever is present.
 #[derive(Debug, Clone, Default, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ReverseInput {
     #[serde(default)]
     pub toponyms: Vec<Candidate>,
@@ -135,6 +141,7 @@ pub struct ReverseInput {
 /// The lenient reverse-geocode result. Mirrors the clients' `LocationDescription`
 /// field-for-field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct LocationDescription {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -155,6 +162,7 @@ pub struct LocationDescription {
 /// match, or a local marker/path). The platform resolves `distance_m` from the
 /// map centre / user location when it wants proximity bias.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct SearchCandidate {
     pub name: String,
     /// Feature type (`navneobjekttype`), used for the icon.
@@ -172,8 +180,9 @@ pub struct SearchCandidate {
 /// One ranked forward-search result. `index` points back into the input
 /// candidates so the caller can recover position / source / metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct SearchHit {
-    pub index: usize,
+    pub index: u64,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,

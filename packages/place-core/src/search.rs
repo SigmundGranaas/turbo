@@ -61,7 +61,7 @@ pub fn forward_search(
             score,
             i,
             SearchHit {
-                index: i,
+                index: i as u64,
                 title: c.name.clone(),
                 description: c.description.clone(),
                 icon: icon_for(ruleset, &c.kind),
