@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use image::RgbaImage;
-use turbomap_core::Map;
 
 /// A headless GPU context. `None` from [`headless`] means no adapter is
 /// available — callers should skip rather than fail.
@@ -71,9 +70,18 @@ pub fn headless() -> Option<Gpu> {
     })
 }
 
-/// Render the map once into an offscreen target and read it back as an
-/// RGBA image. The map must already have its tiles ingested.
-pub fn render_to_image(gpu: &Gpu, map: &mut Map, width: u32, height: u32) -> RgbaImage {
+/// Render once into an offscreen target and read it back as an RGBA
+/// image. The `render` closure receives the encoder + target view and
+/// should record one frame; the harness handles the texture readback. It
+/// is renderer-agnostic on purpose — `Map`, the `TurbomapEngine`, or any
+/// future engine can drive it — which is what lets the dev tooling
+/// inspect (and shadow-compare) different renderers through one path.
+pub fn render_to_image(
+    gpu: &Gpu,
+    width: u32,
+    height: u32,
+    mut render: impl FnMut(&mut wgpu::CommandEncoder, &wgpu::TextureView),
+) -> RgbaImage {
     let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("turbomap-golden-target"),
         size: wgpu::Extent3d {
@@ -103,7 +111,7 @@ pub fn render_to_image(gpu: &Gpu, map: &mut Map, width: u32, height: u32) -> Rgb
 
     // Render + copy in one encoder so the readback is this exact frame.
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
-    map.render(&mut encoder, &target_view);
+    render(&mut encoder, &target_view);
     encoder.copy_texture_to_buffer(
         wgpu::ImageCopyTexture {
             texture: &target,
@@ -126,7 +134,6 @@ pub fn render_to_image(gpu: &Gpu, map: &mut Map, width: u32, height: u32) -> Rgb
         },
     );
     gpu.queue.submit([encoder.finish()]);
-    map.after_submit();
 
     let slice = readback.slice(..);
     let (tx, rx) = std::sync::mpsc::channel();

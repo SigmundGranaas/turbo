@@ -9,6 +9,7 @@ members = [
     "crates/turbomap-app",
     "crates/turbomap-golden",
     "crates/turbomap-scene",
+    "crates/turbomap-engine",
 ]
 
 [workspace.package]

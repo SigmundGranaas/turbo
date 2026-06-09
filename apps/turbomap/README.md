@@ -15,6 +15,7 @@ Kartverket Turkart raster tiles, and lets you pan and zoom around Norway.
 | `turbomap-app` | The desktop binary. winit window + wgpu surface + tile fetch pump. |
 | `turbomap-golden` | Headless golden-image + record/replay test harness. No I/O, no window — deterministic render tests on a software adapter. |
 | `turbomap-scene` | Renderer-agnostic `Scene`/`Paint` IR, pure scene `diff`, and the `MapEngine` contract + conformance suite. No GPU, no I/O — the shared schema host languages bind to. |
+| `turbomap-engine` | `TurbomapEngine`: drives `turbomap-core`'s wgpu pipelines from the `Scene` IR via the `MapEngine` contract. Includes the `inspect` dev tool. |
 
 Dependency direction is strict and one-way:
 
@@ -57,7 +58,26 @@ UPDATE_GOLDEN=1 cargo test -p turbomap-golden --features gpu-tests
 ```
 
 CI runs both lanes (`.github/workflows/turbomap_build.yml`): a fast
-Rust lane (tests + lints) and a golden lane on Lavapipe.
+Rust lane (tests + lints) and a golden lane on Lavapipe (which also runs
+the engine conformance + scene-vs-imperative parity tests).
+
+### Inspecting the engine
+
+`turbomap-engine` ships an **agent-first inspection tool**: it runs a
+`Scene` through the real engine headless and emits one machine-readable
+JSON report covering every stage — the scene + validation, the applied
+diff, which layers the backend supports, tile-drain activity, per-layer
+render metrics + cache stats, and projection round-trips — plus the
+rendered PNG.
+
+```sh
+# Built-in raster+hillshade scene → /tmp/turbomap-inspect.png + JSON report
+cargo run -p turbomap-engine --example inspect -- --png /tmp/out.png
+
+# Inspect a Scene JSON, reporting the delta vs a previous scene
+cargo run -p turbomap-engine --example inspect -- \
+  --scene scene.json --prev prev.json --report report.json
+```
 
 ## License
 

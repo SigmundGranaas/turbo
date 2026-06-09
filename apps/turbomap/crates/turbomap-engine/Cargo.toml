@@ -1,0 +1,30 @@
+[package]
+name = "turbomap-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "TurbomapEngine — drives turbomap-core's wgpu pipelines from the renderer-agnostic Scene IR via the MapEngine contract."
+
+[lints]
+workspace = true
+
+[features]
+# GPU-backed tests (engine construction needs a wgpu adapter; a software
+# one is fine). Off by default so `cargo test --workspace` stays GPU-free.
+gpu-tests = []
+
+[dependencies]
+turbomap-core = { path = "../turbomap-core" }
+turbomap-scene = { path = "../turbomap-scene" }
+wgpu.workspace = true
+image.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+# The golden harness supplies a headless GPU context, the offscreen
+# readback, and deterministic synthetic tile sources for tests + the
+# inspect example. (golden does not depend on engine, so no cycle.)
+turbomap-golden = { path = "../turbomap-golden" }
+serde_json.workspace = true

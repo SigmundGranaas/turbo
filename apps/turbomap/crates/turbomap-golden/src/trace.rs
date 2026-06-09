@@ -132,7 +132,11 @@ pub fn replay(trace: &Trace, gpu: &Gpu) -> RgbaImage {
     }
 
     drain_pending(&mut map, &raster_sources, terrain_source.as_ref());
-    render_to_image(gpu, &mut map, trace.width, trace.height)
+    let image = render_to_image(gpu, trace.width, trace.height, |enc, view| {
+        map.render(enc, view)
+    });
+    map.after_submit();
+    image
 }
 
 fn ingest_raster_tile(
