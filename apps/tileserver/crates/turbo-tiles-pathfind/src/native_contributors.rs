@@ -1280,6 +1280,15 @@ pub struct PolygonIntegralContributor {
     pub collection: Arc<VectorCollection>,
     pub cost_fn: Box<dyn Fn(f64, &AttrView<'_>, Profile) -> f64 + Send + Sync + 'static>,
     pub aabb_pad_m: f32,
+    /// One-slot memo of the last `extra_metres` evaluation, keyed on
+    /// the exact edge geometry + profile. Every composer calls
+    /// `veto()` then `contribute()` back-to-back with the SAME edge,
+    /// so the polygon integral — the single hottest computation on
+    /// water-heavy corridors (~2× the entire remaining solve time) —
+    /// was evaluated twice per edge. `Mutex` because the trait is
+    /// `Send + Sync`; uncontended in the single-threaded solvers, and
+    /// a key mismatch under concurrent solves just recomputes.
+    memo: std::sync::Mutex<Option<([u64; 5], f64)>>,
 }
 
 impl PolygonIntegralContributor {
@@ -1293,7 +1302,27 @@ impl PolygonIntegralContributor {
             collection,
             cost_fn: Box::new(cost_fn),
             aabb_pad_m: 0.0,
+            memo: std::sync::Mutex::new(None),
         }
+    }
+
+    /// `extra_metres` through the one-slot memo (see `memo` field).
+    fn memoized_extra_metres(&self, ctx: &EdgeContext<'_>) -> f64 {
+        let key = [
+            ctx.fx.to_bits(),
+            ctx.fy.to_bits(),
+            ctx.tx.to_bits(),
+            ctx.ty.to_bits(),
+            ctx.profile as u64,
+        ];
+        if let Some((k, v)) = *self.memo.lock().unwrap() {
+            if k == key {
+                return v;
+            }
+        }
+        let v = self.extra_metres(ctx);
+        *self.memo.lock().unwrap() = Some((key, v));
+        v
     }
     pub fn with_aabb_pad(mut self, m: f32) -> Self {
         self.aabb_pad_m = m;
@@ -1330,14 +1359,14 @@ impl CostContributor for PolygonIntegralContributor {
         ContributorKind::Vegetation
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
-        let extra = self.extra_metres(ctx);
+        let extra = self.memoized_extra_metres(ctx);
         if !extra.is_finite() {
             return 0.0;
         }
         extra * BASE_PACE_S_PER_M
     }
     fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
-        if !self.extra_metres(ctx).is_finite() {
+        if !self.memoized_extra_metres(ctx).is_finite() {
             Some(self.name)
         } else {
             None
@@ -1353,6 +1382,10 @@ pub struct LineCrossingContributor {
     pub collection: Arc<VectorCollection>,
     pub cost_fn: Box<dyn Fn(usize, &AttrView<'_>, Profile) -> f64 + Send + Sync + 'static>,
     pub aabb_pad_m: f32,
+    /// One-slot memo of the last `extra_metres` evaluation — same
+    /// rationale as [`PolygonIntegralContributor::memo`]: `veto()` and
+    /// `contribute()` are called back-to-back with the same edge.
+    memo: std::sync::Mutex<Option<([u64; 5], f64)>>,
 }
 
 impl LineCrossingContributor {
@@ -1366,7 +1399,27 @@ impl LineCrossingContributor {
             collection,
             cost_fn: Box::new(cost_fn),
             aabb_pad_m: 0.0,
+            memo: std::sync::Mutex::new(None),
         }
+    }
+
+    /// `extra_metres` through the one-slot memo (see `memo` field).
+    fn memoized_extra_metres(&self, ctx: &EdgeContext<'_>) -> f64 {
+        let key = [
+            ctx.fx.to_bits(),
+            ctx.fy.to_bits(),
+            ctx.tx.to_bits(),
+            ctx.ty.to_bits(),
+            ctx.profile as u64,
+        ];
+        if let Some((k, v)) = *self.memo.lock().unwrap() {
+            if k == key {
+                return v;
+            }
+        }
+        let v = self.extra_metres(ctx);
+        *self.memo.lock().unwrap() = Some((key, v));
+        v
     }
     pub fn with_aabb_pad(mut self, m: f32) -> Self {
         self.aabb_pad_m = m;
@@ -1403,14 +1456,14 @@ impl CostContributor for LineCrossingContributor {
         ContributorKind::Vegetation
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
-        let extra = self.extra_metres(ctx);
+        let extra = self.memoized_extra_metres(ctx);
         if !extra.is_finite() {
             return 0.0;
         }
         extra * BASE_PACE_S_PER_M
     }
     fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
-        if !self.extra_metres(ctx).is_finite() {
+        if !self.memoized_extra_metres(ctx).is_finite() {
             Some(self.name)
         } else {
             None
