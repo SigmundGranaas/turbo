@@ -199,6 +199,23 @@ public sealed class PgPlaceStore : IPlaceStore
         return rows;
     }
 
+    public async Task<(long Places, long Areas, string? DatasetVersion)> StatsAsync(
+        CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT (SELECT count(*) FROM places.places),
+                   (SELECT count(*) FROM places.areas),
+                   (SELECT max(dataset_version) FROM places.places);
+            """;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+        return (reader.GetInt64(0), reader.GetInt64(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2));
+    }
+
     private static string EscapeLike(string s) =>
         s.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
 

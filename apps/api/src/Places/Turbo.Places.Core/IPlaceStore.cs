@@ -31,4 +31,8 @@ public interface IPlaceStore
     /// retrieval only — final ordering is place-core's.</summary>
     Task<IReadOnlyList<SearchRow>> SearchAsync(
         string query, double? nearLat, double? nearLng, int limit, CancellationToken ct = default);
+
+    /// <summary>Dataset stats for the health endpoint: row counts and the
+    /// newest dataset version per kind.</summary>
+    Task<(long Places, long Areas, string? DatasetVersion)> StatsAsync(CancellationToken ct = default);
 }

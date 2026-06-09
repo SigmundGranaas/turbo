@@ -7,6 +7,7 @@ using Turboapi.Collections;
 using Turboapi.Collections.data;
 using Turboapi.Geo;
 using Turboapi.Geo.domain.query.model;
+using Turboapi.Places;
 using Turboapi.Sharing;
 using Turboapi.Sharing.data;
 using Turboapi.Sharing.integration;
@@ -31,6 +32,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddSharingModule(builder.Configuration);
 builder.Services.AddGeoModule(builder.Configuration);
+builder.Services.AddPlacesModule(builder.Configuration);
 builder.Services.AddTracksModule(builder.Configuration);
 builder.Services.AddCollectionsModule(builder.Configuration);
 
@@ -66,6 +68,10 @@ await app.Services.MigrateModuleDatabaseAsync<SharingReadContext>(
 await app.Services.MigrateModuleDatabaseAsync<LocationReadContext>(
     builder.Configuration.GetConnectionString("Geo")
         ?? throw new InvalidOperationException("ConnectionStrings:Geo is not configured"));
+// Places has no EF context (raw-SQL spatial read path); its initializer
+// mirrors MigrateModuleDatabaseAsync (create DB if missing + idempotent DDL).
+await app.Services.InitializePlacesModuleAsync(
+    PlacesModule.ResolveConnectionString(builder.Configuration));
 await app.Services.MigrateModuleDatabaseAsync<TrackReadContext>(
     builder.Configuration.GetConnectionString("Tracks")
         ?? throw new InvalidOperationException("ConnectionStrings:Tracks is not configured"));
