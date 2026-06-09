@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -114,30 +115,31 @@ fun WeatherForecastSheet(
     }
 }
 
-/** Current conditions presented up top: big symbol + temperature + wind/precip. */
+/** Current conditions up top: symbol + temperature on the left, wind/precip on the right. */
 @Composable
 private fun WeatherNowHeader(now: AtmosphericPoint?) {
     if (now == null) return
     val cs = MaterialTheme.colorScheme
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        WeatherSymbol(now.symbol1h, size = 60.dp)
-        Spacer(Modifier.width(16.dp))
-        Column {
-            Text(
-                now.temperatureC?.let { "${it.roundToInt()}°" } ?: "—",
-                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.W700),
-                color = cs.onSurface,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                now.windSpeedMs?.let { wind ->
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        WeatherSymbol(now.symbol1h, size = 52.dp)
+        Spacer(Modifier.width(14.dp))
+        Text(
+            now.temperatureC?.let { "${it.roundToInt()}°" } ?: "—",
+            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.W700),
+            color = cs.onSurface,
+        )
+        Spacer(Modifier.weight(1f))
+        Column(horizontalAlignment = Alignment.End) {
+            now.windSpeedMs?.let { wind ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     WindArrow(now.windFromDeg, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("${wind.roundToInt()} m/s", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                    Spacer(Modifier.width(5.dp))
+                    Text("${wind.roundToInt()} m/s", style = MaterialTheme.typography.bodyLarge, color = cs.onSurfaceVariant)
                 }
-                if ((now.precipitation1hMm ?: 0.0) > 0.0) {
-                    Spacer(Modifier.width(12.dp))
-                    Text("%.1f mm".format(now.precipitation1hMm), style = MaterialTheme.typography.bodyMedium, color = cs.primary)
-                }
+            }
+            if ((now.precipitation1hMm ?: 0.0) > 0.0) {
+                Spacer(Modifier.height(2.dp))
+                Text("%.1f mm".format(now.precipitation1hMm), style = MaterialTheme.typography.bodyMedium, color = cs.primary)
             }
         }
     }
@@ -197,6 +199,7 @@ private fun OceanTile(value: String, label: String, modifier: Modifier = Modifie
 /** Stateless forecast body — day strip + hourly list — extracted so it's testable. */
 @Composable
 internal fun WeatherForecastContent(forecast: WeatherForecast) {
+    val cs = MaterialTheme.colorScheme
     var selectedDate by remember(forecast) { mutableStateOf(forecast.days.firstOrNull()?.date) }
 
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -205,9 +208,13 @@ internal fun WeatherForecastContent(forecast: WeatherForecast) {
         }
     }
     Spacer(Modifier.height(8.dp))
-    // Plain column (the sheet scrolls as one piece) — no nested fixed-height list/gap.
+    // Plain column (the sheet scrolls as one piece), hairline dividers between hours.
     Column(Modifier.fillMaxWidth()) {
-        forecast.points.filter { it.date == selectedDate }.forEach { p -> HourRow(p) }
+        val hours = forecast.points.filter { it.date == selectedDate }
+        hours.forEachIndexed { i, p ->
+            if (i > 0) HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.4f))
+            HourRow(p)
+        }
     }
 }
 
@@ -215,24 +222,26 @@ internal fun WeatherForecastContent(forecast: WeatherForecast) {
 private fun DayChip(day: DailySummary, selected: Boolean, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val fg = if (selected) cs.onPrimary else cs.onSurface
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
         modifier = Modifier
             .width(84.dp)
-            .clip(RoundedCornerShape(28.dp))
+            .height(116.dp)
+            .clip(RoundedCornerShape(50))
             .background(if (selected) cs.primary else cs.surfaceContainerHigh)
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(weekday(day.date), style = MaterialTheme.typography.labelLarge, color = fg)
-        Spacer(Modifier.height(6.dp))
-        WeatherSymbol(day.middaySymbol, size = 32.dp)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "${day.maxTempC?.roundToInt() ?: "–"}° / ${day.minTempC?.roundToInt() ?: "–"}°",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (selected) fg.copy(alpha = 0.9f) else cs.onSurfaceVariant,
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(weekday(day.date), style = MaterialTheme.typography.bodyMedium, color = fg)
+            Spacer(Modifier.height(6.dp))
+            WeatherSymbol(day.middaySymbol, size = 30.dp)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "${day.maxTempC?.roundToInt() ?: "–"}° / ${day.minTempC?.roundToInt() ?: "–"}°",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (selected) fg else cs.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -241,12 +250,12 @@ private fun HourRow(p: AtmosphericPoint) {
     val cs = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
     ) {
         Text(hourLabel(p.timeIso), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.width(52.dp))
         WeatherSymbol(p.symbol1h, size = 28.dp)
         Spacer(Modifier.width(14.dp))
-        Text(p.temperatureC?.let { "${it.roundToInt()}°" } ?: "—", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W600), color = cs.onSurface)
+        Text(p.temperatureC?.let { "${it.roundToInt()}°" } ?: "—", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
         Spacer(Modifier.weight(1f))
         if ((p.precipitation1hMm ?: 0.0) > 0.0) {
             Text("%.1f mm".format(p.precipitation1hMm), style = MaterialTheme.typography.bodySmall, color = cs.primary)
