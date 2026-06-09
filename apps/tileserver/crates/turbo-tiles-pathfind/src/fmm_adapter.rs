@@ -97,6 +97,9 @@ pub(crate) fn with_off_trail(
 
 pub(crate) struct LazyContributorOverlay<'a> {
     shape: GridShape,
+    /// For the shared `EdgeElevProbe` handed to the contributor stack
+    /// — one DEM pass per cell instead of one per slope contributor.
+    dem: Arc<Dem>,
     base_pace: f32,
     profile: turbo_tiles_graph::Profile,
     contributors: &'a [Arc<dyn CostContributor>],
@@ -109,6 +112,7 @@ pub(crate) struct LazyContributorOverlay<'a> {
 impl<'a> LazyContributorOverlay<'a> {
     pub(crate) fn new(
         shape: GridShape,
+        dem: Arc<Dem>,
         base_pace: f32,
         profile: turbo_tiles_graph::Profile,
         contributors: &'a [Arc<dyn CostContributor>],
@@ -116,6 +120,7 @@ impl<'a> LazyContributorOverlay<'a> {
         let n = (shape.nx as usize) * (shape.ny as usize);
         Self {
             shape,
+            dem,
             base_pace,
             profile,
             contributors,
@@ -137,6 +142,16 @@ impl<'a> LazyContributorOverlay<'a> {
         }
         let cell_m = self.shape.cell_m;
         let (cx, cy) = self.shape.cell_centre(i, j);
+        // ONE shared elevation probe for the whole contributor stack:
+        // the slope-family contributors all sample the same points
+        // along this synthetic cell edge.
+        let probe = crate::contributor::EdgeElevProbe::new(
+            &self.dem,
+            cx - 0.5 * cell_m,
+            cy,
+            cx + 0.5 * cell_m,
+            cy,
+        );
         let ctx = EdgeContext {
             fx: cx - 0.5 * cell_m,
             fy: cy,
@@ -145,6 +160,7 @@ impl<'a> LazyContributorOverlay<'a> {
             length_m: cell_m,
             profile: self.profile,
             kind: EdgeKind::Mesh,
+            elev_probe: Some(&probe),
         };
         for c in self.contributors {
             if let Some(label) = c.veto(&ctx) {
@@ -434,6 +450,7 @@ fn bake_contributor_pace(
                 length_m: cell_m,
                 profile,
                 kind: EdgeKind::Mesh,
+                elev_probe: None,
             };
             // Sum walk-seconds contributions; skip Inf (vetoes). Also
             // accumulate the multiplicative pace factors (off-trail
@@ -487,6 +504,7 @@ fn bake_vetoes(
                 length_m: cell_m,
                 profile,
                 kind: EdgeKind::Mesh,
+                elev_probe: None,
             };
             for c in contributors {
                 if let Some(label) = c.veto(&ctx) {
@@ -535,6 +553,7 @@ fn apply_contributor_factors_aniso(
                 length_m: cell_m,
                 profile,
                 kind: EdgeKind::Mesh,
+                elev_probe: None,
             };
             let mut extra_s: f64 = 0.0;
             let mut factor: f64 = 1.0;
@@ -588,6 +607,7 @@ fn bake_vetoes_aniso(
                 length_m: cell_m,
                 profile,
                 kind: EdgeKind::Mesh,
+                elev_probe: None,
             };
             for c in contributors {
                 if let Some(label) = c.veto(&ctx) {
@@ -892,8 +912,13 @@ fn solve_grade_limited_path(
     // `off_trail_factor` in `forward_cost`. It survives on
     // `GradeLimitedCost` purely as the A* heuristic's pace floor.
     let augmented = with_off_trail(contributors, inputs.off_trail_factor);
-    let overlay =
-        LazyContributorOverlay::new(shape2d, inputs.base_pace_s_per_m, profile, &augmented);
+    let overlay = LazyContributorOverlay::new(
+        shape2d,
+        dem.clone(),
+        inputs.base_pace_s_per_m,
+        profile,
+        &augmented,
+    );
 
     let cost = GradeLimitedCost {
         elev: DemElevation::new(dem.clone()),

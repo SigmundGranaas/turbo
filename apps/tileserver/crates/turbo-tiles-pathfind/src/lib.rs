@@ -40,8 +40,8 @@ pub use config::{
     ProfileSurface, SlopeConfig, SurfaceMultipliers, TotalGainConfig, TrailProximityConfig,
 };
 pub use contributor::{
-    compose_edge_walk_seconds, ContributorKind, CostContributor, EdgeContext, EdgeKind,
-    EdgeWalkCost, LegacyLayerAdapter, NamedContribution, BASE_PACE_S_PER_M,
+    compose_edge_walk_seconds, ContributorKind, CostContributor, EdgeContext, EdgeElevProbe,
+    EdgeKind, EdgeWalkCost, LegacyLayerAdapter, NamedContribution, BASE_PACE_S_PER_M,
 };
 pub use core::off_trail::{theta_star, Mesh, MeshNode, MeshNodeId, PathResult, Point2};
 pub use core::off_trail_connector::{nearest_exit_via_mesh, OffTrailConnector};

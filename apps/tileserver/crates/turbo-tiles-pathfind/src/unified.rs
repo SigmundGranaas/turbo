@@ -259,6 +259,16 @@ impl<'a> MeshOverlay<'a> {
         }
         let cell_m = self.corr.cell_m;
         let (cx, cy) = self.corr.cell_centre(i, j);
+        // ONE shared elevation probe for the whole contributor stack:
+        // the slope-family contributors all sample the same points
+        // along this synthetic cell edge.
+        let probe = crate::contributor::EdgeElevProbe::new(
+            self.dem,
+            cx - 0.5 * cell_m,
+            cy,
+            cx + 0.5 * cell_m,
+            cy,
+        );
         let ctx = EdgeContext {
             fx: cx - 0.5 * cell_m,
             fy: cy,
@@ -267,6 +277,7 @@ impl<'a> MeshOverlay<'a> {
             length_m: cell_m,
             profile: self.profile,
             kind: EdgeKind::Mesh,
+            elev_probe: Some(&probe),
         };
         for c in self.contributors {
             if c.veto(&ctx).is_some() {
@@ -442,6 +453,7 @@ pub(crate) fn solve_unified(
             length_m: er.length_m as f64,
             profile,
             kind: EdgeKind::Graph(er),
+            elev_probe: None,
         };
         let cost = compose_edge_walk_seconds(contributors, &ctx);
         if !cost.total_walk_seconds.is_finite() {

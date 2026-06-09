@@ -949,6 +949,7 @@ impl Pathfinder {
             length_m,
             profile,
             kind: crate::contributor::EdgeKind::Mesh,
+            elev_probe: None,
         };
         let contributors = self.contributors_for_breakdown();
         crate::contributor::compose_edge_walk_seconds(&contributors, &ctx)

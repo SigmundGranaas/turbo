@@ -103,16 +103,23 @@ impl ToblerSlopeContributor {
     /// neighbours so a single-pixel gap doesn't kill the integration.
     fn sample_elevations(&self, ctx: &EdgeContext<'_>) -> Option<Vec<f32>> {
         let n = self.sample_count(ctx.length_m);
-        let mut zs: Vec<Option<f32>> = Vec::with_capacity(n + 1);
-        let dx = ctx.tx - ctx.fx;
-        let dy = ctx.ty - ctx.fy;
-        for i in 0..=n {
-            let t = i as f64 / n as f64;
-            let x = ctx.fx + dx * t;
-            let y = ctx.fy + dy * t;
-            let z = self.dem.sample(PointXY { x, y }).ok().flatten();
-            zs.push(z);
-        }
+        // Shared probe when present (one DEM pass for the whole
+        // contributor stack); direct sampling otherwise.
+        let mut zs: Vec<Option<f32>> = match ctx.elev_probe {
+            Some(p) => p.elevations(n).as_ref().clone(),
+            None => {
+                let mut v = Vec::with_capacity(n + 1);
+                let dx = ctx.tx - ctx.fx;
+                let dy = ctx.ty - ctx.fy;
+                for i in 0..=n {
+                    let t = i as f64 / n as f64;
+                    let x = ctx.fx + dx * t;
+                    let y = ctx.fy + dy * t;
+                    v.push(self.dem.sample(PointXY { x, y }).ok().flatten());
+                }
+                v
+            }
+        };
         if zs.iter().all(Option::is_none) {
             return None;
         }
@@ -145,6 +152,11 @@ impl ToblerSlopeContributor {
     /// to charge edges that route through terrain we can't see.
     pub fn sample_missing_fraction(&self, ctx: &EdgeContext<'_>) -> f64 {
         let n = self.sample_count(ctx.length_m);
+        if let Some(p) = ctx.elev_probe {
+            let zs = p.elevations(n);
+            let missing = zs.iter().filter(|z| z.is_none()).count();
+            return missing as f64 / zs.len() as f64;
+        }
         let dx = ctx.tx - ctx.fx;
         let dy = ctx.ty - ctx.fy;
         let mut missing = 0usize;
@@ -541,15 +553,24 @@ impl CostContributor for ContourCrossingContributor {
             return 0.0;
         }
         let n = ((ctx.length_m / self.sample_step_m).round() as usize).clamp(4, 64);
-        let dx = ctx.tx - ctx.fx;
-        let dy = ctx.ty - ctx.fy;
-        let mut zs: Vec<Option<f32>> = Vec::with_capacity(n + 1);
-        for i in 0..=n {
-            let t = i as f64 / n as f64;
-            let x = ctx.fx + dx * t;
-            let y = ctx.fy + dy * t;
-            zs.push(self.dem.sample(PointXY { x, y }).ok().flatten());
-        }
+        let probe_zs = ctx.elev_probe.map(|p| p.elevations(n));
+        let direct_zs: Vec<Option<f32>>;
+        let zs: &[Option<f32>] = match &probe_zs {
+            Some(rc) => rc.as_ref(),
+            None => {
+                let dx = ctx.tx - ctx.fx;
+                let dy = ctx.ty - ctx.fy;
+                let mut v: Vec<Option<f32>> = Vec::with_capacity(n + 1);
+                for i in 0..=n {
+                    let t = i as f64 / n as f64;
+                    let x = ctx.fx + dx * t;
+                    let y = ctx.fy + dy * t;
+                    v.push(self.dem.sample(PointXY { x, y }).ok().flatten());
+                }
+                direct_zs = v;
+                &direct_zs
+            }
+        };
         // Need endpoint elevations to define the linear interp.
         let (Some(z0), Some(z_n)) = (zs.first().and_then(|z| *z), zs.last().and_then(|z| *z))
         else {
@@ -622,16 +643,17 @@ impl CostContributor for DemCoveragePenaltyContributor {
             return 0.0;
         }
         // Reuse Tobler's sampler so we share the same step density
-        // and lookup cost across the slope-side contributors. The
-        // returned fraction scales the per-metre penalty linearly:
-        // an edge that's 30% nodata pays 30% of the full penalty
-        // across its full length.
-        let probe = ToblerSlopeContributor {
+        // and lookup cost across the slope-side contributors (and the
+        // shared `ctx.elev_probe` when present — one DEM pass for the
+        // whole stack). The returned fraction scales the per-metre
+        // penalty linearly: an edge that's 30% nodata pays 30% of the
+        // full penalty across its full length.
+        let sampler = ToblerSlopeContributor {
             dem: self.dem.clone(),
             refuse_above_deg: 90.0,
             sample_step_m: self.sample_step_m,
         };
-        let missing_frac = probe.sample_missing_fraction(ctx);
+        let missing_frac = sampler.sample_missing_fraction(ctx);
         if missing_frac <= 0.0 {
             return 0.0;
         }
@@ -685,27 +707,34 @@ impl NaismithGainContributor {
 
     fn sample_gain(&self, ctx: &EdgeContext<'_>) -> f64 {
         let n = self.sample_count(ctx.length_m);
+        // Positive-gain integral over the sample sequence; `None`
+        // (nodata) samples are skipped without breaking the chain.
+        let integrate = |samples: &mut dyn Iterator<Item = Option<f32>>| -> f64 {
+            let mut last_z: Option<f32> = None;
+            let mut gain: f64 = 0.0;
+            for z in samples {
+                let Some(z) = z else { continue };
+                if let Some(prev) = last_z {
+                    let dz = z - prev;
+                    if dz > 0.0 {
+                        gain += dz as f64;
+                    }
+                }
+                last_z = Some(z);
+            }
+            gain
+        };
+        if let Some(p) = ctx.elev_probe {
+            return integrate(&mut p.elevations(n).iter().copied());
+        }
         let dx = ctx.tx - ctx.fx;
         let dy = ctx.ty - ctx.fy;
-        let mut last_z: Option<f32> = None;
-        let mut gain: f64 = 0.0;
-        for i in 0..=n {
+        integrate(&mut (0..=n).map(|i| {
             let t = i as f64 / n as f64;
             let x = ctx.fx + dx * t;
             let y = ctx.fy + dy * t;
-            let z = match self.dem.sample(PointXY { x, y }).ok().flatten() {
-                Some(v) => v,
-                None => continue,
-            };
-            if let Some(prev) = last_z {
-                let dz = z - prev;
-                if dz > 0.0 {
-                    gain += dz as f64;
-                }
-            }
-            last_z = Some(z);
-        }
-        gain
+            self.dem.sample(PointXY { x, y }).ok().flatten()
+        }))
     }
 
     fn k_for(profile: Profile) -> f64 {
@@ -1582,6 +1611,7 @@ mod tests {
             length_m,
             profile: Profile::Foot,
             kind: EdgeKind::Mesh,
+            elev_probe: None,
         }
     }
 
@@ -1628,6 +1658,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         let c = layer.contribute(&ctx);
         assert!(c < 0.0, "red-T should be a bonus, got {c}");
@@ -1649,6 +1680,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         let c = layer.contribute(&ctx);
         assert!(c > 0.0);
@@ -1685,6 +1717,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         let c = layer.contribute(&ctx);
         assert!(c < 0.0, "dnt should be a bonus, got {c}");
@@ -1704,6 +1737,7 @@ mod tests {
             length_m: 100.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         assert_eq!(layer.veto(&ctx), Some("slope_too_steep"));
     }
@@ -1722,6 +1756,7 @@ mod tests {
             length_m: 100.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         // (15/15)² × 0.714 × 100 ≈ 71 s.
         let c = layer.contribute(&ctx);
@@ -1746,6 +1781,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         // k × gain × (amp-1) = 8 × 50 × 1 = 400 "extra metres".
         // In walk-seconds: 400 × 0.714 ≈ 286 s.
@@ -1761,6 +1797,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         assert_eq!(layer.contribute(&ctx2), 0.0);
     }

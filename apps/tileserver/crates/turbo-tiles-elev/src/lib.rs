@@ -9,7 +9,7 @@ pub mod cache;
 pub mod dem;
 pub mod format;
 
-pub use cache::{CacheStats, TileCache, TileId};
+pub use cache::{thread_lookups, CacheStats, TileCache, TileId};
 pub use dem::{
     wgs84_to_utm33n, Dem, DemCoverage, DemError, PointXY, SlopeAspect, DEFAULT_CACHE_BYTES,
 };
