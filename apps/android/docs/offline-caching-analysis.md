@@ -136,6 +136,42 @@ Ordered roughly by severity.
     caching. Caching these into offline regions is a compliance risk worth a
     review.
 
+### Folded in from the feature/UX review
+
+13. **No offline / blank-tile affordance on the map (P1).** When the device is
+    offline, or the camera pans **outside** a downloaded region, tiles simply
+    fail to load and the user sees the bare background colour
+    (`TurboMap.kt`/`MapStyles` `bg`) with no loading state and no explanation.
+    For a backcountry app this is exactly the moment the user most needs to
+    understand *why the map is blank* ("You're offline — showing downloaded
+    areas"). There is no connectivity indicator and no "outside offline
+    coverage" hint anywhere in the map UI.
+14. **`overlayRow` mislabels Waves/Wind (P2, latent).** In
+    `feature/map/.../layers/MapLayersSheet.kt`, `overlayRow(Waves|Wind)` returns
+    the **Trails** title/subtitle strings (`R.string.layers_trails*`). Harmless
+    today because Waves/Wind are filtered out of `MapStyles.renderableOverlays`,
+    but it is a wrong-label bug that surfaces the moment either overlay is
+    wired — it should be exhaustive with correct strings (or those entries
+    removed until wired).
+
+### UX-level gaps on the Offline screen (P1, refine #7)
+
+These sharpen finding #7 with the concrete experience problems found in review
+of `OfflineMapsScreen.kt`:
+
+- **Region cards are not tappable** — no open-on-map, no detail view; the only
+  per-region action is destructive **delete**.
+- **No add/download entry point from the screen** — the empty state instructs
+  the user to leave and use the layers sheet; a "Download current area" entry
+  (e.g. a FAB or pick-on-map) belongs here.
+- **Cards carry no distinguishing info** (base layer, extent, date), so two
+  reverse-geocoded "Tromsø" regions are indistinguishable.
+- **No rename at creation** — names are auto reverse-geocoded (coordinates on
+  failure) with no chance to edit.
+- **Delete is immediate after confirm** — no undo snackbar.
+- **Stopping a download means deleting it** — there is no non-destructive
+  pause/cancel for an in-flight region (ties to #2).
+
 ## 3. Recommendations
 
 ### P0 — make downloads trustworthy
@@ -161,11 +197,18 @@ Ordered roughly by severity.
   **store the base layer in region metadata**; warn when the current base
   differs from any downloaded region.
 - **Enrich `OfflineRegionInfo`** (bounds, base, zoom range, date, tile count),
-  render a region's extent on a mini-map, and allow **rename**.
+  render a region's extent on a mini-map, make **cards tappable** (open on map /
+  detail), add a **"Download current area"** entry on the screen, support
+  **rename** (at creation and after), and add an **undo** snackbar on delete.
 - **Let the user pick a detail level** (e.g. Standard / Detailed) that maps to a
   zoom span, with the live size estimate from the guardrail above.
+- **Add an offline / out-of-coverage affordance on the map** — a connectivity
+  indicator and a hint when panning outside downloaded regions (#13).
 
 ### P2 — strategic / housekeeping
+
+- **Fix the `overlayRow` Waves/Wind mislabel** (#14) — correct strings or drop
+  the entries until those overlays are wired.
 
 - **Tune the ambient cache** (`setMaximumAmbientCacheSize`), expose **Clear
   cache**, and report *true* disk usage (ambient + regions).

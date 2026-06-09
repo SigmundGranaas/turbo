@@ -235,11 +235,48 @@ These are prerequisites for almost everything else, so they land first.
 - **Files:**
   - ✎ `feature/map/.../offline/OfflineMapsScreen.kt`
   - ✎ `OfflineTileManager` (`rename`, `updateRegion`)
-- **Approach:** card shows created date + tile count; a small static map
-  thumbnail of `bounds`; **Rename** (edit metadata via 0.2); **Update** (re-run
-  the same `DownloadSpec` to refresh tiles). Sort options (name/date/size).
-- 🧪 ✎ `OfflineMapsScreenTest` — rename/update actions invoke the manager;
-  metadata renders.
+- **Approach:** card shows base layer + created date + tile count and a small
+  static map thumbnail of `bounds`; **tap a card to open the region on the map**
+  (frame to its bounds) and/or open a detail view; add a **"Download current
+  area"** entry on the screen itself (FAB or pick-on-map) so the empty state no
+  longer has to send the user elsewhere; **Rename** at creation *and* after
+  (edit metadata via 0.2); **Update** (re-run the same `DownloadSpec`); **undo**
+  snackbar on delete. Sort options (name/date/size). Resolves the offline-screen
+  UX gaps from the feature review (refines #7).
+- 🧪 ✎ `OfflineMapsScreenTest` — tap-to-open, rename/update, undo-delete, and the
+  on-screen download entry invoke the right callbacks; metadata renders.
+
+### 2.5 Offline / out-of-coverage affordance on the map
+
+- **Goal:** tell the user when the map is blank because they're offline or
+  outside a downloaded region. Fixes finding **#13**.
+- **Files:**
+  - ✚ connectivity observer reuse from 1.3 (`DownloadPolicy` / network state)
+  - ✎ `feature/map/.../MapScreen.kt` (status chip / banner)
+  - ✎ `core/map/.../ui/map/TurboMap.kt` (expose "is camera inside any offline
+    region" via the region bounds from 0.1)
+  - ✎ string resources (`values*/strings.xml`)
+- **Approach:** subscribe to connectivity (from 1.3) and to the offline region
+  list (bounds now available per 0.1). When **offline** show a small "You're
+  offline" chip; when offline **and** the camera centre is outside every region
+  bounds, show "Outside downloaded area — pan to a saved region or download
+  this one." Keep it a lightweight, dismissible chip — never a blocking dialog.
+- 🧪 ✚ pure `OfflineCoverage.contains(regions, center): Boolean` test; ✎
+  `MapScreen`/`TurboMap` test asserting the chip shows when offline + outside.
+
+### 2.6 Quick fix — `overlayRow` Waves/Wind mislabel
+
+- **Goal:** stop `overlayRow` returning Trails strings for Waves/Wind. Fixes
+  finding **#14**.
+- **Files:**
+  - ✎ `feature/map/.../layers/MapLayersSheet.kt`
+  - ✎ string resources if Waves/Wind get real labels
+- **Approach:** make the `when` exhaustive with correct title/subtitle strings,
+  or remove the Waves/Wind arms until those overlays are wired (they're already
+  filtered out of `renderableOverlays`, so this is a latent-bug fix, not new
+  UI). A genuine quick win — can land independently at any time.
+- 🧪 ✎ `MapLayersSheetTest` (✚ if absent) — each renderable overlay shows its own
+  label (guards against future mislabels).
 
 ---
 
@@ -300,14 +337,17 @@ These are prerequisites for almost everything else, so they land first.
            └───────────────────────────────  2.1 overlays
                                               2.2 persist base
                                               2.3 detail level (needs 1.4)
-                                              2.4 region UX (needs 0.2)
+                                              2.4 region UX   (needs 0.2)
+                                              2.5 offline affordance (needs 0.1 bounds + 1.3 net)
+2.6 overlayRow mislabel (independent quick win)
                                               3.1 / 3.2 / 3.3 (independent)
 ```
 
-Recommended merge order: **0.x → 1.1 → 1.3 → 1.2 → 1.4 → 2.1 → 2.2 → 2.3 →
-2.4 → 3.1 → 3.2 → 3.3.** The Phase 0 + 1.1/1.4 slice alone removes the two worst
-failure modes ("stuck at X% with no error" and "huge download with no warning")
-and is shippable on its own.
+Recommended merge order: **2.6 (anytime) → 0.x → 1.1 → 1.3 → 1.2 → 1.4 → 2.1 →
+2.2 → 2.3 → 2.4 → 2.5 → 3.1 → 3.2 → 3.3.** `2.6` is a one-line latent-bug fix
+that can ship immediately. The Phase 0 + 1.1/1.4 slice alone removes the two
+worst failure modes ("stuck at X% with no error" and "huge download with no
+warning") and is shippable on its own.
 
 ## Cross-cutting checklist
 
