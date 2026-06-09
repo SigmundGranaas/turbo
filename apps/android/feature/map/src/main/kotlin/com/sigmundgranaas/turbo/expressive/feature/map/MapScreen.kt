@@ -40,6 +40,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -893,7 +894,19 @@ fun MapScreen(
             }
 
             // On-map contextual menu blooming at a long-press (weather + create actions).
-            ui.longPressAt?.let { p ->
+            // Kept mounted through its exit animation via a transition state + last point,
+            // so the bloom can scale/fade back out after longPressAt clears.
+            val lpVisible = remember { MutableTransitionState(false) }
+            val lpShown = remember { mutableStateOf<LatLng?>(null) }
+            LaunchedEffect(ui.longPressAt) {
+                val target = ui.longPressAt
+                if (target != null) { lpShown.value = target; lpVisible.targetState = true }
+                else lpVisible.targetState = false
+            }
+            LaunchedEffect(lpVisible.isIdle, lpVisible.currentState) {
+                if (lpVisible.isIdle && !lpVisible.currentState) lpShown.value = null
+            }
+            lpShown.value?.let { p ->
                 ui.controller?.let { ctrl ->
                     val (sx, sy) = ctrl.toScreen(p)
                     // Reverse-geocode the pressed point so the header reads "On Storfjellet"
@@ -901,6 +914,7 @@ fun MapScreen(
                     val lpDescription by viewModel.pointDescription.collectAsStateWithLifecycle()
                     LaunchedEffect(p) { viewModel.describePoint(p) }
                     MapLongPressMenu(
+                        visibleState = lpVisible,
                         point = p,
                         anchor = androidx.compose.ui.geometry.Offset(sx, sy),
                         placeLabel = lpDescription?.label,

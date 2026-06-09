@@ -1,11 +1,12 @@
 package com.sigmundgranaas.turbo.expressive.feature.map.live
 
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
+import androidx.compose.foundation.gestures.AnchoredDraggableState
+import androidx.compose.foundation.gestures.DraggableAnchors
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.anchoredDraggable
+import androidx.compose.foundation.gestures.animateTo
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -43,12 +44,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -78,13 +82,6 @@ private fun LiveDetent.up() = when (this) {
     LiveDetent.Full -> LiveDetent.Full
 }
 
-private fun LiveDetent.down() = when (this) {
-    LiveDetent.Full -> LiveDetent.Half
-    LiveDetent.Half -> LiveDetent.Peek
-    LiveDetent.Peek -> LiveDetent.Mini
-    LiveDetent.Mini -> LiveDetent.Mini
-}
-
 /**
  * The in-app "Google-Maps sheet": a draggable bottom sheet over the live map you
  * swipe UP for full track data and DOWN to collapse. Three detents — peek · half
@@ -107,6 +104,7 @@ fun LiveSheet(
     nextWaypoint: Pair<String, String>? = null,
 ) {
     val cs = MaterialTheme.colorScheme
+    val density = LocalDensity.current
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val full = maxHeight * 0.92f
         val half = maxHeight * 0.56f
@@ -115,31 +113,61 @@ fun LiveSheet(
         val peek = minOf(340.dp, maxHeight * 0.64f)
         // Mini: just the handle + the one-line status bar + the stop control.
         val mini = minOf(208.dp, peek)
-        val target = when (detent) {
+        fun heightFor(d: LiveDetent) = when (d) {
             LiveDetent.Mini -> mini
             LiveDetent.Peek -> peek
             LiveDetent.Half -> half
             LiveDetent.Full -> full
         }
-        val height by animateDpAsState(target, spring(dampingRatio = 0.82f, stiffness = 380f), label = "sheetHeight")
 
-        // Plain holder (not snapshot state): accumulating drag must not recompose per delta.
-        val dragAccum = remember { floatArrayOf(0f) }
-        val dragState = rememberDraggableState { delta -> dragAccum[0] += delta }
-        // Drag the whole header (handle + hero) — a big target, not just a 4 dp pill —
-        // and fling fast to jump straight to the extremes; a slow drag steps one detent.
-        val headerDrag = Modifier.draggable(
+        // anchoredDraggable so the sheet FOLLOWS the finger — its height tracks the live
+        // drag offset and settles to the nearest detent on release with the expressive
+        // spring, instead of the old release-only jump. Anchors are top-edge offsets
+        // (containerPx − detentHeightPx); Mini is the largest offset (smallest sheet).
+        val containerPx = with(density) { maxHeight.toPx() }
+        val anchors = remember(containerPx, mini, peek, half, full) {
+            with(density) {
+                DraggableAnchors {
+                    LiveDetent.Mini at containerPx - mini.toPx()
+                    LiveDetent.Peek at containerPx - peek.toPx()
+                    LiveDetent.Half at containerPx - half.toPx()
+                    LiveDetent.Full at containerPx - full.toPx()
+                }
+            }
+        }
+        val dragState = remember { AnchoredDraggableState(initialValue = detent) }
+        LaunchedEffect(anchors) { dragState.updateAnchors(anchors, dragState.targetValue) }
+
+        // Bridge the hoisted detent contract both ways. Out→in: a tap-to-step or external
+        // detent change animates the sheet to that anchor. In→out: report the settled
+        // detent upward once a drag/fling comes to rest.
+        val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+        LaunchedEffect(detent) {
+            if (!dragState.offset.isNaN() && dragState.targetValue != detent) {
+                dragState.animateTo(detent, settleSpec)
+            }
+        }
+        LaunchedEffect(dragState.settledValue) {
+            if (dragState.settledValue != detent) onDetentChange(dragState.settledValue)
+        }
+
+        // Height = container minus the live top-edge offset; fall back to the static
+        // target until anchors resolve (offset is NaN on the very first frame).
+        val offsetPx = if (dragState.offset.isNaN()) {
+            with(density) { containerPx - heightFor(detent).toPx() }
+        } else {
+            dragState.offset
+        }
+        val height = with(density) { (containerPx - offsetPx).toDp() }
+
+        // Drag the whole header (handle + hero) — a big, finger-friendly target.
+        val headerDrag = Modifier.anchoredDraggable(
             state = dragState,
             orientation = Orientation.Vertical,
-            onDragStopped = { velocity ->
-                when {
-                    velocity < -FLING_PX -> onDetentChange(LiveDetent.Full)
-                    velocity > FLING_PX -> onDetentChange(LiveDetent.Mini)
-                    dragAccum[0] < -DRAG_SNAP_PX -> onDetentChange(detent.up())
-                    dragAccum[0] > DRAG_SNAP_PX -> onDetentChange(detent.down())
-                }
-                dragAccum[0] = 0f
-            },
+            flingBehavior = AnchoredDraggableDefaults.flingBehavior(
+                state = dragState,
+                animationSpec = settleSpec,
+            ),
         )
         val expandLabel = stringResource(R.string.live_expand)
 
@@ -158,6 +186,7 @@ fun LiveSheet(
                 Box(
                     Modifier
                         .fillMaxWidth()
+                        .height(40.dp)
                         .clickable(onClickLabel = expandLabel) {
                             onDetentChange(if (detent == LiveDetent.Full) LiveDetent.Half else detent.up())
                         }
@@ -166,7 +195,7 @@ fun LiveSheet(
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
-                        Modifier.padding(top = 10.dp, bottom = 10.dp).size(width = 38.dp, height = 4.dp)
+                        Modifier.size(width = 38.dp, height = 4.dp)
                             .clip(CircleShape).background(cs.onSurfaceVariant.copy(alpha = .5f)),
                     )
                 }
@@ -398,6 +427,3 @@ private fun etaValueUnit(seconds: Int): Pair<String, String> {
     val totalMin = seconds / 60
     return if (totalMin >= 60) "%d:%02d".format(totalMin / 60, totalMin % 60) to "h" else "$totalMin" to "min"
 }
-
-private const val DRAG_SNAP_PX = 36f
-private const val FLING_PX = 1200f
