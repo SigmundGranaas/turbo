@@ -912,6 +912,7 @@ fun MapScreen(
                             routeViewModel.planRoute(from, p)
                         },
                         onCreateTrack = { ui.longPressAt = null; openTrackTool(TrackMode.Route) },
+                        onOpenForecast = { ui.longPressAt = null; ui.forecastAt = p },
                         onAddPhoto = {
                             ui.longPressAt = null
                             ui.pendingPhotoAt = p

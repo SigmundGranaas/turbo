@@ -63,6 +63,8 @@ class MapScreenState {
     // ── Markers + on-map long-press ──
     var newMarkerAt by mutableStateOf<LatLng?>(null)
     var longPressAt by mutableStateOf<LatLng?>(null)
+    /** Point whose full weather forecast sheet is open (from the long-press readout). */
+    var forecastAt by mutableStateOf<LatLng?>(null)
     var editingMarker by mutableStateOf<Marker?>(null)
     var pendingDelete by mutableStateOf<Marker?>(null)
     var addToCollection by mutableStateOf<Marker?>(null)

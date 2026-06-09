@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -65,6 +69,8 @@ internal fun MapLongPressMenu(
     onCreateTrack: () -> Unit,
     onAddPhoto: () -> Unit,
     onDismiss: () -> Unit,
+    /** Tapping the weather readout opens the full forecast for this point. */
+    onOpenForecast: () -> Unit,
     /** Reverse-geocoded place label ("On Storfjellet, 612 m"); falls back to coords. */
     placeLabel: String? = null,
     conditionsViewModel: ConditionsViewModel = hiltViewModel(),
@@ -99,13 +105,19 @@ internal fun MapLongPressMenu(
         val margin = 12.dp
         val cardWidthPx = with(density) { cardWidth.toPx() }
         val marginPx = with(density) { margin.toPx() }
-        val estCardHeightPx = with(density) { 292.dp.toPx() }
+        // Realistic card height (mini-weather + 4 actions); errs tall so the clamp
+        // never lets the bottom action slip under the gesture-nav bar.
+        val estCardHeightPx = with(density) { 360.dp.toPx() }
+        // Respect the system bars: keep the card below the status bar and, crucially,
+        // above the navigation bar so the last action never falls behind it.
+        val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
+        val statusTopPx = WindowInsets.statusBars.getTop(density).toFloat()
         val maxW = constraints.maxWidth.toFloat()
         val maxH = constraints.maxHeight.toFloat()
         val left = (anchor.x - cardWidthPx / 2f).coerceIn(marginPx, (maxW - cardWidthPx - marginPx).coerceAtLeast(marginPx))
-        val top = (anchor.y + with(density) { 28.dp.toPx() })
-            .coerceAtMost((maxH - estCardHeightPx - marginPx).coerceAtLeast(marginPx))
-            .coerceAtLeast(marginPx)
+        val topMin = statusTopPx + marginPx
+        val topMax = (maxH - navBottomPx - estCardHeightPx - marginPx).coerceAtLeast(topMin)
+        val top = (anchor.y + with(density) { 28.dp.toPx() }).coerceIn(topMin, topMax)
 
         Surface(
             shape = RoundedCornerShape(28.dp),
@@ -117,7 +129,7 @@ internal fun MapLongPressMenu(
                 .testTag("lpMenu"),
         ) {
             Column(Modifier.padding(14.dp)) {
-                MiniWeather(conditions, point, placeLabel)
+                MiniWeather(conditions, point, placeLabel, onClick = onOpenForecast)
                 Spacer(Modifier.height(12.dp))
                 MenuAction(Icons.Rounded.AddLocationAlt, stringResource(R.string.lp_new_marker), filled = true, onClick = onNewMarker, tag = "lpNewMarker")
                 Spacer(Modifier.height(8.dp))
@@ -132,13 +144,16 @@ internal fun MapLongPressMenu(
 }
 
 @Composable
-private fun MiniWeather(state: ConditionsUiState, point: LatLng, placeLabel: String?) {
+private fun MiniWeather(state: ConditionsUiState, point: LatLng, placeLabel: String?, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val where = placeLabel ?: formatCoords(point)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
-            .background(cs.surfaceContainerLow, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(18.dp))
+            .background(cs.surfaceContainerLow)
+            .clickable(onClick = onClick)
+            .testTag("lpWeather")
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         when (state) {

@@ -16,6 +16,7 @@ import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.CollectionItemType
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.feature.collectionpicker.CollectionPickerSheet
+import com.sigmundgranaas.turbo.expressive.feature.conditions.WeatherForecastSheet
 import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
 import com.sigmundgranaas.turbo.expressive.feature.markers.MarkerEditorSheet
 import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingViewModel
@@ -52,6 +53,11 @@ internal fun MapScreenModals(
 
     // ---- Selection detail host (markers, and any future entity) ----
     MapEntityDetailHost(state = ui.selectionState, registry = actionRegistry)
+
+    // Full weather/ocean forecast for a long-pressed point (its weather readout was tapped).
+    ui.forecastAt?.let { point ->
+        WeatherForecastSheet(point = point, onDismiss = { ui.forecastAt = null })
+    }
 
     // Stopping a follow: keep it (→ Saved Tracks) or discard. Mirrors recording's
     // save-on-stop, so a route you followed can land in your history.
