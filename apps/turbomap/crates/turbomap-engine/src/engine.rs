@@ -200,6 +200,23 @@ impl TurbomapEngine {
                     self.vector_sources.insert(id.clone(), vsrc);
                 }
             }
+            Layer::Symbol {
+                id,
+                source,
+                source_layer,
+                filter,
+                text_field,
+                text_size,
+                color,
+            } => {
+                if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
+                    let zoom = self.map.camera().zoom;
+                    let name = geojson_or_declared(scene, source, source_layer);
+                    let style = symbol_style(name, filter, text_field, text_size, color, zoom);
+                    self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
+                    self.vector_sources.insert(id.clone(), vsrc);
+                }
+            }
             // Circles and unsupported kinds are handled outside the
             // positional stack.
             _ => {}
@@ -429,6 +446,7 @@ fn positional_layers(scene: &Scene) -> Vec<Layer> {
                 Layer::Raster { .. }
                     | Layer::Line { .. }
                     | Layer::Fill { .. }
+                    | Layer::Symbol { .. }
                     | Layer::Hillshade { .. }
             )
         })
@@ -463,11 +481,11 @@ fn is_supportable(layer: &Layer, scene: &Scene) -> bool {
     match layer {
         Layer::Raster { .. } => source_is(|d| matches!(d, SourceDef::RasterXyz { .. })),
         Layer::Hillshade { .. } => source_is(|d| matches!(d, SourceDef::DemXyz { .. })),
-        Layer::Line { .. } | Layer::Fill { .. } => {
+        Layer::Line { .. } | Layer::Fill { .. } | Layer::Symbol { .. } => {
             source_is(|d| matches!(d, SourceDef::GeoJson { .. } | SourceDef::VectorXyz { .. }))
         }
         Layer::Circle { .. } => source_is(|d| matches!(d, SourceDef::GeoJson { .. })),
-        Layer::Symbol { .. } | Layer::Custom { .. } => false,
+        Layer::Custom { .. } => false,
     }
 }
 
@@ -499,6 +517,35 @@ fn fill_style(
             filter: map_filter(filter),
             paint: CorePaint::Fill {
                 color: CoreColor::rgba(c.r, c.g, c.b, a),
+            },
+            min_zoom: 0,
+            max_zoom: 22,
+            interactive: false,
+        }],
+    }
+}
+
+/// Build a core `VectorStyle` from a Scene `Symbol` layer — a text label
+/// per point feature, reading the label from each feature's `text_field`
+/// property.
+fn symbol_style(
+    layer_name: String,
+    filter: &Filter,
+    text_field: &str,
+    text_size: &Paint<f32>,
+    color: &Paint<Color>,
+    zoom: f64,
+) -> VectorStyle {
+    let c = color.at(zoom);
+    VectorStyle {
+        background: CoreColor::rgba(0, 0, 0, 0),
+        rules: vec![CoreRule {
+            source_layer: layer_name,
+            filter: map_filter(filter),
+            paint: CorePaint::Text {
+                text_field: text_field.to_string(),
+                font_size_px: text_size.at(zoom),
+                color: CoreColor::rgba(c.r, c.g, c.b, c.a),
             },
             min_zoom: 0,
             max_zoom: 22,

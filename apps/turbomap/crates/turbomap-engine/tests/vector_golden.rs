@@ -122,6 +122,86 @@ fn full_overlay_set_renders() {
 }
 
 #[test]
+fn symbol_labels_render_over_raster() {
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "places".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"name":"NORTH"},"geometry":{"type":"Point","coordinates":[5.32,60.45]}},
+                {"type":"Feature","properties":{"name":"BERGEN"},"geometry":{"type":"Point","coordinates":[5.32,60.39]}},
+                {"type":"Feature","properties":{"name":"SOUTH"},"geometry":{"type":"Point","coordinates":[5.32,60.33]}}
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Symbol {
+        id: "labels".to_string(),
+        source: "places".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        text_field: "name".to_string(),
+        text_size: Paint::Const(18.0),
+        color: Paint::Const(Color::rgb(20, 20, 30)),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    let stats = engine.pump_tiles();
+    assert!(stats.vector_tiles > 0, "expected label tiles, got {stats:?}");
+    assert!(engine.unsupported_layers().is_empty());
+
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    assert_golden(
+        "symbol-labels-bergen",
+        &image,
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
+    );
+}
+
+#[test]
 fn geojson_fill_renders_over_raster() {
     let Some(gpu) = headless() else {
         if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {

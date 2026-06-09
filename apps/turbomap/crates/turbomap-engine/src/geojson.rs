@@ -15,6 +15,7 @@ use std::collections::HashMap;
 
 use turbomap_core::{
     Feature, GeomType, Geometry, TileError, TileId, VectorTile, VectorTileLayer, VectorTileSource,
+    VectorValue,
 };
 use turbomap_scene::geo::mercator_normalized;
 use turbomap_scene::LatLng;
@@ -32,6 +33,9 @@ pub struct GeoJsonVectorSource {
     lines: Vec<Vec<(f64, f64)>>,
     /// Polygons (each a list of rings: outer then holes) in world space.
     polygons: Vec<Vec<Vec<(f64, f64)>>>,
+    /// Points in world space with their feature properties (for symbol
+    /// labels — `Point` features whose `text_field` property is the label).
+    points: Vec<(f64, f64, HashMap<String, VectorValue>)>,
     /// When false, geometry is emitted unclipped (the whole feature per
     /// tile) — only used to profile the cost clipping saves.
     clip: bool,
@@ -41,10 +45,11 @@ impl GeoJsonVectorSource {
     /// Parse inline GeoJSON. Unrecognised geometry is ignored rather than
     /// erroring — a partial overlay beats a failed map.
     pub fn new(data: &str) -> Self {
-        let (lines, polygons) = parse_geometry(data);
+        let parsed = parse_geometry(data);
         Self {
-            lines,
-            polygons,
+            lines: parsed.lines,
+            polygons: parsed.polygons,
+            points: parsed.points,
             clip: true,
         }
     }
@@ -63,6 +68,11 @@ impl GeoJsonVectorSource {
     /// Number of parsed polygons.
     pub fn polygon_count(&self) -> usize {
         self.polygons.len()
+    }
+
+    /// Number of parsed points.
+    pub fn point_count(&self) -> usize {
+        self.points.len()
     }
 }
 
@@ -120,6 +130,20 @@ impl VectorTileSource for GeoJsonVectorSource {
                 });
             }
         }
+        for (wx, wy, props) in &self.points {
+            // Points need no clipping — include those inside the tile
+            // (half-open bounds so a point on a shared edge lands in one
+            // tile only).
+            if *wx >= x0 && *wx < x1 && *wy >= y0 && *wy < y1 {
+                let local = to_local(*wx, *wy);
+                features.push(Feature {
+                    id: features.len() as u64,
+                    geom_type: GeomType::Point,
+                    geometry: Geometry::Point(vec![local]),
+                    properties: props.clone(),
+                });
+            }
+        }
 
         Ok(VectorTile {
             layers: vec![VectorTileLayer {
@@ -147,40 +171,49 @@ struct Rect {
     y1: f64,
 }
 
-type Lines = Vec<Vec<(f64, f64)>>;
-type Polygons = Vec<Vec<Vec<(f64, f64)>>>;
-
-/// Parse GeoJSON into world-space lines and polygons. Accepts a
-/// FeatureCollection, a Feature, or a bare geometry; projects every
-/// `[lng, lat]` to world space.
-fn parse_geometry(data: &str) -> (Lines, Polygons) {
-    let Ok(root) = serde_json::from_str::<serde_json::Value>(data) else {
-        return (Vec::new(), Vec::new());
-    };
-    let mut lines = Vec::new();
-    let mut polygons = Vec::new();
-    collect_geometries(&root, &mut lines, &mut polygons);
-    (lines, polygons)
+#[derive(Default)]
+struct ParsedGeometry {
+    lines: Vec<Vec<(f64, f64)>>,
+    polygons: Vec<Vec<Vec<(f64, f64)>>>,
+    points: Vec<(f64, f64, HashMap<String, VectorValue>)>,
 }
 
-fn collect_geometries(value: &serde_json::Value, lines: &mut Lines, polygons: &mut Polygons) {
+/// Parse GeoJSON into world-space lines, polygons, and points-with-
+/// properties. Accepts a FeatureCollection, a Feature, or a bare geometry;
+/// projects every `[lng, lat]` to world space and carries each feature's
+/// properties onto its points (for symbol labels).
+fn parse_geometry(data: &str) -> ParsedGeometry {
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(data) else {
+        return ParsedGeometry::default();
+    };
+    let mut out = ParsedGeometry::default();
+    collect_geometries(&root, &HashMap::new(), &mut out);
+    out
+}
+
+fn collect_geometries(
+    value: &serde_json::Value,
+    props: &HashMap<String, VectorValue>,
+    out: &mut ParsedGeometry,
+) {
     match value.get("type").and_then(|t| t.as_str()) {
         Some("FeatureCollection") => {
             if let Some(features) = value.get("features").and_then(|f| f.as_array()) {
                 for f in features {
-                    collect_geometries(f, lines, polygons);
+                    collect_geometries(f, props, out);
                 }
             }
         }
         Some("Feature") => {
+            let feature_props = parse_props(value.get("properties"));
             if let Some(geom) = value.get("geometry") {
-                collect_geometries(geom, lines, polygons);
+                collect_geometries(geom, &feature_props, out);
             }
         }
         Some("LineString") => {
             if let Some(coords) = value.get("coordinates").and_then(|c| c.as_array()) {
                 if let Some(line) = parse_positions(coords) {
-                    lines.push(line);
+                    out.lines.push(line);
                 }
             }
         }
@@ -188,25 +221,57 @@ fn collect_geometries(value: &serde_json::Value, lines: &mut Lines, polygons: &m
             for_each_array(value.get("coordinates"), |line| {
                 if let Some(coords) = line.as_array() {
                     if let Some(line) = parse_positions(coords) {
-                        lines.push(line);
+                        out.lines.push(line);
                     }
                 }
             });
         }
         Some("Polygon") => {
             if let Some(rings) = parse_rings(value.get("coordinates")) {
-                polygons.push(rings);
+                out.polygons.push(rings);
             }
         }
         Some("MultiPolygon") => {
             for_each_array(value.get("coordinates"), |poly| {
                 if let Some(rings) = parse_rings(Some(poly)) {
-                    polygons.push(rings);
+                    out.polygons.push(rings);
+                }
+            });
+        }
+        Some("Point") => {
+            if let Some((lng, lat)) = value.get("coordinates").and_then(point_lng_lat) {
+                let (wx, wy) = mercator_normalized(LatLng::new(lat, lng));
+                out.points.push((wx, wy, props.clone()));
+            }
+        }
+        Some("MultiPoint") => {
+            for_each_array(value.get("coordinates"), |p| {
+                if let Some((lng, lat)) = point_lng_lat(p) {
+                    let (wx, wy) = mercator_normalized(LatLng::new(lat, lng));
+                    out.points.push((wx, wy, props.clone()));
                 }
             });
         }
         _ => {}
     }
+}
+
+/// Convert a GeoJSON `properties` object into MVT property values.
+fn parse_props(value: Option<&serde_json::Value>) -> HashMap<String, VectorValue> {
+    let mut out = HashMap::new();
+    if let Some(obj) = value.and_then(|v| v.as_object()) {
+        for (k, v) in obj {
+            let val = match v {
+                serde_json::Value::String(s) => VectorValue::String(s.clone()),
+                serde_json::Value::Bool(b) => VectorValue::Bool(*b),
+                serde_json::Value::Number(n) if n.is_i64() => VectorValue::Int(n.as_i64().unwrap()),
+                serde_json::Value::Number(n) => VectorValue::Float(n.as_f64().unwrap_or(0.0)),
+                _ => continue,
+            };
+            out.insert(k.clone(), val);
+        }
+    }
+    out
 }
 
 fn for_each_array(value: Option<&serde_json::Value>, mut f: impl FnMut(&serde_json::Value)) {
@@ -528,6 +593,29 @@ mod tests {
             .features
             .iter()
             .any(|f| f.geom_type == GeomType::Polygon));
+    }
+
+    #[test]
+    fn point_feature_carries_properties_for_labels() {
+        let data = r#"{
+            "type": "Feature",
+            "properties": { "name": "Bergen" },
+            "geometry": { "type": "Point", "coordinates": [5.32, 60.39] }
+        }"#;
+        let src = GeoJsonVectorSource::new(data);
+        assert_eq!(src.point_count(), 1);
+        // The tile containing Bergen should carry a Point feature with the
+        // name property (the symbol label).
+        let tile = src.request(TileId::new(0, 0, 0)).unwrap();
+        let pt = tile.layers[0]
+            .features
+            .iter()
+            .find(|f| f.geom_type == GeomType::Point)
+            .expect("a point feature");
+        assert_eq!(
+            pt.properties.get("name"),
+            Some(&VectorValue::String("Bergen".to_string()))
+        );
     }
 
     #[test]
