@@ -102,6 +102,12 @@ struct RunSummary {
     /// DEM/mask mmap pages, so it reflects the memory the solver
     /// actually touches over the corpus. The memory axis of the loop.
     peak_rss_mb: f64,
+    /// DEM tile-cache lookups (hits + misses) over the corpus solve —
+    /// ~4 per `dem.sample()`. DETERMINISTic (unlike wall-clock), so it's
+    /// the noise-free proxy for "how much DEM work the solver does": the
+    /// exact before/after signal for sampling optimisations, and a
+    /// regression guard.
+    dem_cache_lookups: u64,
     /// Set when `--check-determinism` ran a second pass and every hash
     /// matched (or lists the hikes that differed).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,7 +159,13 @@ pub fn run(
     std::fs::create_dir_all(&out_dir)
         .with_context(|| format!("creating out dir {}", out_dir.display()))?;
 
+    // Capture DEM cache lookups across exactly the first solve pass
+    // (the determinism re-run below would otherwise double-count).
+    let cache_before = dem.cache_stats();
     let results = solve_corpus(&pf, &dem, &hikes);
+    let cache_after = dem.cache_stats();
+    let dem_cache_lookups = (cache_after.hits + cache_after.misses)
+        .saturating_sub(cache_before.hits + cache_before.misses);
 
     // Optional determinism gate: solve again, compare geometry hashes.
     let mut determinism_ok = None;
@@ -187,6 +199,7 @@ pub fn run(
         determinism_ok,
         mismatches,
         peak_rss_mb(),
+        dem_cache_lookups,
     );
     let summary_path = out_dir.join("_summary.json");
     std::fs::write(
@@ -198,7 +211,7 @@ pub fn run(
     // Human-readable headline on stdout (the durable signal is the
     // JSON files; this is for a glance).
     println!(
-        "eval-terrain: {}/{} ok, solve_ms mean={:.1} p50={:.1} p95={:.1} max={:.1}, peak_rss={:.0}MiB, corpus_hash={}",
+        "eval-terrain: {}/{} ok, solve_ms mean={:.1} p50={:.1} p95={:.1} max={:.1}, peak_rss={:.0}MiB, dem_lookups={}, corpus_hash={}",
         summary.ok,
         summary.total,
         summary.solve_ms_mean,
@@ -206,6 +219,7 @@ pub fn run(
         summary.solve_ms_p95,
         summary.solve_ms_max,
         summary.peak_rss_mb,
+        summary.dem_cache_lookups,
         summary.corpus_geometry_hash,
     );
     eprintln!("eval-terrain: wrote {} + per-hike JSON", summary_path.display());
@@ -388,6 +402,7 @@ fn summarize(
     determinism_ok: Option<bool>,
     determinism_mismatches: Vec<i64>,
     peak_rss_mb: f64,
+    dem_cache_lookups: u64,
 ) -> RunSummary {
     let total = results.len();
     let ok = results.iter().filter(|r| r.ok).count();
@@ -422,6 +437,7 @@ fn summarize(
         solve_ms_max: times.last().copied().unwrap_or(0.0),
         corpus_geometry_hash: format!("{:016x}", corpus_hasher.finish()),
         peak_rss_mb,
+        dem_cache_lookups,
         determinism_ok,
         determinism_mismatches,
     }

@@ -70,6 +70,7 @@ def collect(eval_dir: Path, score_dir: Path) -> dict:
             "max_ms": ev.get("solve_ms_max"),
         },
         "memory": {"peak_rss_mb": ev.get("peak_rss_mb")},
+        "work": {"dem_cache_lookups": ev.get("dem_cache_lookups")},
         "geometry": {
             "corpus_hash": ev.get("corpus_geometry_hash"),
             "per_hike": per_hash,
@@ -150,6 +151,21 @@ def verdict(cur: dict, base: dict) -> bool:
             ok = False
         else:
             print(f"MEMORY       ok       peak RSS {bm:.0f}MiB -> {cm:.0f}MiB")
+
+    # --- DEM work (deterministic; the noise-free perf signal) ---
+    cw = cur["work"]["dem_cache_lookups"]
+    bw = base["work"]["dem_cache_lookups"] if base.get("work") else None
+    if cw is None or bw is None:
+        print("DEM WORK     -        not recorded in baseline")
+    elif cw > bw:
+        # More DEM work than baseline is a real regression (deterministic).
+        print(f"DEM WORK     REGRESS  cache lookups {bw:,} -> {cw:,} ({cw - bw:+,})")
+        ok = False
+    elif cw < bw:
+        pct = 100.0 * (bw - cw) / bw if bw else 0.0
+        print(f"DEM WORK     improved  cache lookups {bw:,} -> {cw:,} (-{pct:.0f}%)")
+    else:
+        print(f"DEM WORK     ok       cache lookups {cw:,} (unchanged)")
 
     # --- geometry drift (informational unless quality also moved) ---
     if cur["geometry"]["corpus_hash"] == base["geometry"]["corpus_hash"]:

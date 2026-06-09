@@ -30,12 +30,44 @@ use crate::contributor::{CostContributor, EdgeContext, EdgeKind};
 /// the `Arc` so it can outlive the corridor solve.
 pub struct DemElevation {
     pub dem: Arc<Dem>,
+    /// Per-cell elevation memo (m), sized `nx*ny` lazily on first use.
+    /// `+∞` = not yet sampled, `NaN` = sampled-but-nodata, else the
+    /// value. The grade-limited lifted solver queries each cell's
+    /// elevation ~16-30× (once per incident move across all headings);
+    /// memoising collapses that to one `Dem::sample()` per cell — the
+    /// dominant per-solve DEM cost. `Mutex` (not `RefCell`) because
+    /// `Elevation: Send + Sync`; the solver is single-threaded so the
+    /// lock is always uncontended and far cheaper than a DEM sample.
+    memo: std::sync::Mutex<Vec<f32>>,
+}
+
+impl DemElevation {
+    pub fn new(dem: Arc<Dem>) -> Self {
+        Self {
+            dem,
+            memo: std::sync::Mutex::new(Vec::new()),
+        }
+    }
 }
 
 impl Elevation for DemElevation {
     fn at(&self, shape: &GridShape, i: u32, j: u32) -> Option<f32> {
+        let nx = shape.nx as usize;
+        let idx = (j as usize) * nx + (i as usize);
+        {
+            let mut m = self.memo.lock().unwrap();
+            if m.is_empty() {
+                m.resize(nx * (shape.ny as usize), f32::INFINITY);
+            }
+            let cached = m[idx];
+            if cached != f32::INFINITY {
+                return if cached.is_nan() { None } else { Some(cached) };
+            }
+        }
         let (x, y) = shape.cell_centre(i, j);
-        self.dem.sample(PointXY { x, y }).ok().flatten()
+        let v = self.dem.sample(PointXY { x, y }).ok().flatten();
+        self.memo.lock().unwrap()[idx] = v.unwrap_or(f32::NAN);
+        v
     }
 }
 
@@ -592,7 +624,7 @@ fn solve_fmm_corridor_aniso(
         .world_to_cell(inputs.to.x, inputs.to.y)
         .ok_or(FmmAdapterError::GoalOutsideGrid)?;
 
-    let elev = DemElevation { dem: dem.clone() };
+    let elev = DemElevation::new(dem.clone());
     let metric = ToblerAnisotropic {
         elev,
         refuse_above_deg: inputs.refuse_above_deg,
@@ -676,7 +708,7 @@ pub fn solve_fmm_corridor(
     // 1) Bake the per-cell pace from the Tobler metric. This is
     //    the slope-aware baseline; non-slope contributors are
     //    folded in below.
-    let elev = DemElevation { dem: dem.clone() };
+    let elev = DemElevation::new(dem.clone());
     let metric = ToblerIsotropic {
         elev,
         refuse_above_deg: inputs.refuse_above_deg,
@@ -864,7 +896,7 @@ fn solve_grade_limited_path(
         LazyContributorOverlay::new(shape2d, inputs.base_pace_s_per_m, profile, &augmented);
 
     let cost = GradeLimitedCost {
-        elev: DemElevation { dem: dem.clone() },
+        elev: DemElevation::new(dem.clone()),
         base_pace_s_per_m: inputs.base_pace_s_per_m,
         off_trail_factor: inputs.off_trail_factor,
         max_grade_deg: inputs.max_grade_deg,
