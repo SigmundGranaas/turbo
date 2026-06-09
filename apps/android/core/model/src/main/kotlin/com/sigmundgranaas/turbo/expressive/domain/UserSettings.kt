@@ -11,4 +11,6 @@ data class UserSettings(
     val themeMode: ThemeMode = ThemeMode.System,
     /** When off, the cloud sync engine is paused even while signed in. */
     val cloudSyncEnabled: Boolean = true,
+    /** When on, offline map downloads only run on un-metered (Wi-Fi) networks. */
+    val downloadOverWifiOnly: Boolean = false,
 )

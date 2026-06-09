@@ -151,7 +151,15 @@
     <string name="offline_failed">Download failed</string>
     <string name="offline_failed_reason">Download failed · %1$s</string>
     <string name="offline_retry">Retry</string>
+    <string name="offline_pause">Pause %1$s</string>
+    <string name="offline_resume">Resume %1$s</string>
     <string name="offline_delete">Delete %1$s</string>
+    <string name="offline_notif_channel">Offline map downloads</string>
+    <string name="offline_notif_channel_desc">Progress while map areas download</string>
+    <string name="offline_notif_title">Downloading maps</string>
+    <string name="offline_notif_content">%1$d areas · %2$d%%</string>
+    <string name="offline_notif_pause">Pause</string>
+    <string name="offline_notif_resume">Resume</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d area · %2$s</item>
         <item quantity="other">%1$d areas · %2$s</item>

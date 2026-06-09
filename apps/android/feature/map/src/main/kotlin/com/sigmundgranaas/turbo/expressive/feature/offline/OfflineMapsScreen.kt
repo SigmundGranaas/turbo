@@ -19,7 +19,9 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PauseCircle
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -103,6 +105,8 @@ fun OfflineMapsScreen(
                         region = region,
                         onDelete = { pendingDelete = region },
                         onRetry = { viewModel.retry(region.id) },
+                        onPause = { viewModel.pause(region.id) },
+                        onResume = { viewModel.resume(region.id) },
                     )
                 }
                 item { Spacer(Modifier.height(16.dp)) }
@@ -121,7 +125,13 @@ fun OfflineMapsScreen(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit, onRetry: () -> Unit) {
+private fun RegionCard(
+    region: OfflineRegionInfo,
+    onDelete: () -> Unit,
+    onRetry: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+) {
     val cs = MaterialTheme.colorScheme
     val regionDesc = stringResource(R.string.offline_region_desc, region.name)
     Surface(
@@ -187,6 +197,15 @@ private fun RegionCard(region: OfflineRegionInfo, onDelete: () -> Unit, onRetry:
                 }
             }
             Spacer(Modifier.size(8.dp))
+            when (region.status) {
+                OfflineStatus.Downloading -> IconButton(onClick = onPause) {
+                    Icon(Icons.Rounded.Pause, stringResource(R.string.offline_pause, region.name), tint = cs.onSurfaceVariant)
+                }
+                OfflineStatus.Paused -> IconButton(onClick = onResume) {
+                    Icon(Icons.Rounded.PlayArrow, stringResource(R.string.offline_resume, region.name), tint = cs.primary)
+                }
+                else -> Unit
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Rounded.Delete, stringResource(R.string.offline_delete, region.name), tint = cs.error)
             }

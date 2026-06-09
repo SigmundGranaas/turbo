@@ -35,6 +35,9 @@ private class FakeOfflineTileManager(initial: List<OfflineRegionInfo> = emptyLis
     override fun refresh() { refreshCount++ }
     override fun download(spec: DownloadSpec) { lastDownload = spec }
     override fun retry(id: Long) { retried += id }
+    override fun pause(id: Long) = Unit
+    override fun resume(id: Long) = Unit
+    override fun setNetworkAllowed(allowed: Boolean) = Unit
     override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) {
         deleted += id

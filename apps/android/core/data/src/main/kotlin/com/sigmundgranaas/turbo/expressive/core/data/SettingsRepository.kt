@@ -23,6 +23,7 @@ interface SettingsRepository {
     suspend fun setMetricUnits(metric: Boolean)
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setCloudSyncEnabled(enabled: Boolean)
+    suspend fun setDownloadOverWifiOnly(enabled: Boolean)
 }
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_settings")
@@ -38,6 +39,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val METRIC = booleanPreferencesKey("metric_units")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val CLOUD_SYNC = booleanPreferencesKey("cloud_sync_enabled")
+        val WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -49,6 +51,7 @@ class DataStoreSettingsRepository @Inject constructor(
                 ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
                 ?: ThemeMode.System,
             cloudSyncEnabled = prefs[Keys.CLOUD_SYNC] ?: true,
+            downloadOverWifiOnly = prefs[Keys.WIFI_ONLY] ?: false,
         )
     }
 
@@ -70,5 +73,9 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setCloudSyncEnabled(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.CLOUD_SYNC] = enabled }
+    }
+
+    override suspend fun setDownloadOverWifiOnly(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.WIFI_ONLY] = enabled }
     }
 }

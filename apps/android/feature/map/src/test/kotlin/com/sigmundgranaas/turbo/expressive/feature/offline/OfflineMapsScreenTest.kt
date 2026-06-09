@@ -32,6 +32,9 @@ private class StubOfflineTileManager(initial: List<OfflineRegionInfo>) : Offline
     override fun refresh() = Unit
     override fun download(spec: DownloadSpec) = Unit
     override fun retry(id: Long) { retried += id }
+    override fun pause(id: Long) = Unit
+    override fun resume(id: Long) = Unit
+    override fun setNetworkAllowed(allowed: Boolean) = Unit
     override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) {
         deleted += id

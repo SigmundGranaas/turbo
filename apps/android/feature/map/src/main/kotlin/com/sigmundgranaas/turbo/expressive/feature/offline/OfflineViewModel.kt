@@ -80,6 +80,10 @@ class OfflineViewModel @Inject constructor(
 
     fun retry(id: Long) = manager.retry(id)
 
+    fun pause(id: Long) = manager.pause(id)
+
+    fun resume(id: Long) = manager.resume(id)
+
     fun delete(id: Long) = manager.delete(id)
 
     private companion object {

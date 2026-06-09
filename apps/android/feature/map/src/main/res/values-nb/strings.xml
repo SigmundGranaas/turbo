@@ -150,7 +150,15 @@
     <string name="offline_failed">Nedlasting mislyktes</string>
     <string name="offline_failed_reason">Nedlasting mislyktes · %1$s</string>
     <string name="offline_retry">Prøv igjen</string>
+    <string name="offline_pause">Sett %1$s på pause</string>
+    <string name="offline_resume">Fortsett %1$s</string>
     <string name="offline_delete">Slett %1$s</string>
+    <string name="offline_notif_channel">Nedlasting av frakoblede kart</string>
+    <string name="offline_notif_channel_desc">Fremdrift mens kartområder lastes ned</string>
+    <string name="offline_notif_title">Laster ned kart</string>
+    <string name="offline_notif_content">%1$d områder · %2$d %%</string>
+    <string name="offline_notif_pause">Pause</string>
+    <string name="offline_notif_resume">Fortsett</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d område · %2$s</item>
         <item quantity="other">%1$d områder · %2$s</item>

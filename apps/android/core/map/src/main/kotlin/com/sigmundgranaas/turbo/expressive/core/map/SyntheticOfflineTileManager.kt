@@ -52,15 +52,22 @@ class SyntheticOfflineTileManager @Inject constructor() : OfflineTileManager {
         }
     }
 
-    override fun retry(id: Long) = _regions.update { list ->
-        list.map {
-            if (it.id == id && it.status == OfflineStatus.Failed) {
-                it.copy(status = OfflineStatus.Complete, progress = 1f, errorReason = null)
-            } else {
-                it
-            }
-        }
+    override fun retry(id: Long) = complete(id)
+
+    override fun pause(id: Long) = _regions.update { list ->
+        list.map { if (it.id == id) it.copy(status = OfflineStatus.Paused) else it }
     }
 
+    override fun resume(id: Long) = complete(id)
+
+    // The synthetic manager has no real network, so connectivity gating is a no-op.
+    override fun setNetworkAllowed(allowed: Boolean) = Unit
+
     override fun delete(id: Long) = _regions.update { list -> list.filterNot { it.id == id } }
+
+    private fun complete(id: Long) = _regions.update { list ->
+        list.map {
+            if (it.id == id) it.copy(status = OfflineStatus.Complete, progress = 1f, errorReason = null) else it
+        }
+    }
 }

@@ -37,7 +37,20 @@ interface OfflineTileManager {
 
     /** Re-activate a [OfflineStatus.Failed] region's download. */
     fun retry(id: Long)
+
+    /** Stop a region's download without discarding the tiles already fetched. */
+    fun pause(id: Long)
+
+    /** Continue a paused region's download (subject to the network policy). */
+    fun resume(id: Long)
     fun delete(id: Long)
+
+    /**
+     * Gate all in-flight downloads on connectivity: when [allowed] is false the
+     * active regions are paused; when it flips back they resume (except ones the
+     * user paused explicitly). Driven by the foreground service's network policy.
+     */
+    fun setNetworkAllowed(allowed: Boolean)
 
     /** Pre-flight tile/byte estimate for [spec] (no I/O). */
     fun estimate(spec: DownloadSpec): OfflineEstimate
@@ -46,6 +59,7 @@ interface OfflineTileManager {
 @Singleton
 class MapLibreOfflineTileManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val serviceLauncher: OfflineServiceLauncher,
 ) : OfflineTileManager {
 
     private val manager: OfflineManager by lazy {
@@ -56,6 +70,9 @@ class MapLibreOfflineTileManager @Inject constructor(
     private val regionsById = mutableMapOf<Long, OfflineRegion>()
     /** Regions that stopped on an error → reason, until the user retries/deletes. */
     private val failures = mutableMapOf<Long, String>()
+    /** Regions the user paused explicitly — must NOT auto-resume on connectivity. */
+    private val userPaused = mutableSetOf<Long>()
+    private var networkAllowed = true
     private val _regions = MutableStateFlow<List<OfflineRegionInfo>>(emptyList())
     override val regions: StateFlow<List<OfflineRegionInfo>> = _regions.asStateFlow()
 
@@ -87,6 +104,7 @@ class MapLibreOfflineTileManager @Inject constructor(
     }
 
     override fun download(spec: DownloadSpec) {
+        serviceLauncher.ensureRunning()
         val definition = OfflineTilePyramidRegionDefinition(
             styleServer.styleUrl(spec.base),
             LatLngBounds.Builder()
@@ -112,7 +130,7 @@ class MapLibreOfflineTileManager @Inject constructor(
             override fun onCreate(offlineRegion: OfflineRegion) {
                 regionsById[offlineRegion.id] = offlineRegion
                 offlineRegion.setObserver(observerFor(offlineRegion))
-                offlineRegion.setDownloadState(OfflineRegion.STATE_ACTIVE)
+                offlineRegion.setDownloadState(if (networkAllowed) OfflineRegion.STATE_ACTIVE else OfflineRegion.STATE_INACTIVE)
                 refresh()
             }
             override fun onError(error: String) = Unit
@@ -122,17 +140,44 @@ class MapLibreOfflineTileManager @Inject constructor(
     override fun retry(id: Long) {
         val region = regionsById[id] ?: return
         failures.remove(id)
+        userPaused.remove(id)
+        serviceLauncher.ensureRunning()
         region.setObserver(observerFor(region))
-        region.setDownloadState(OfflineRegion.STATE_ACTIVE)
-        // Surface the optimistic "downloading again" state immediately.
-        upsert(region.baseInfo())
+        region.setDownloadState(if (networkAllowed) OfflineRegion.STATE_ACTIVE else OfflineRegion.STATE_INACTIVE)
+        upsert(region.meta())
+    }
+
+    override fun pause(id: Long) {
+        val region = regionsById[id] ?: return
+        userPaused += id
+        region.setDownloadState(OfflineRegion.STATE_INACTIVE)
+    }
+
+    override fun resume(id: Long) {
+        val region = regionsById[id] ?: return
+        userPaused -= id
+        failures.remove(id)
+        serviceLauncher.ensureRunning()
+        if (networkAllowed) region.setDownloadState(OfflineRegion.STATE_ACTIVE)
+    }
+
+    override fun setNetworkAllowed(allowed: Boolean) {
+        networkAllowed = allowed
+        regionsById.forEach { (id, region) ->
+            val status = _regions.value.firstOrNull { it.id == id }?.status
+            if (status == OfflineStatus.Complete || status == OfflineStatus.Failed) return@forEach
+            if (id in userPaused) return@forEach
+            region.setDownloadState(if (allowed) OfflineRegion.STATE_ACTIVE else OfflineRegion.STATE_INACTIVE)
+        }
     }
 
     override fun delete(id: Long) {
         val region = regionsById[id] ?: return
         region.setDownloadState(OfflineRegion.STATE_INACTIVE)
         region.delete(object : OfflineRegion.OfflineRegionDeleteCallback {
-            override fun onDelete() { regionsById.remove(id); failures.remove(id); refresh() }
+            override fun onDelete() {
+                regionsById.remove(id); failures.remove(id); userPaused.remove(id); refresh()
+            }
             override fun onError(error: String) = Unit
         })
     }
@@ -149,7 +194,7 @@ class MapLibreOfflineTileManager @Inject constructor(
 
     private fun markFailed(region: OfflineRegion, reason: String) {
         failures[region.id] = reason
-        val current = _regions.value.firstOrNull { it.id == region.id } ?: region.baseInfo()
+        val current = _regions.value.firstOrNull { it.id == region.id } ?: region.meta()
         upsert(current.copy(status = OfflineStatus.Failed, errorReason = reason))
     }
 
@@ -175,9 +220,6 @@ class MapLibreOfflineTileManager @Inject constructor(
             errorReason = failures[id],
         )
     }
-
-    /** A zero-progress info from the persisted metadata — used before a status arrives. */
-    private fun OfflineRegion.baseInfo(): OfflineRegionInfo = meta()
 
     /** Decode this region's metadata into an [OfflineRegionInfo] shell (status Downloading). */
     private fun OfflineRegion.meta(): OfflineRegionInfo {
@@ -207,7 +249,11 @@ object OfflineModule {
     @Provides
     @Singleton
     fun provideOfflineTileManager(
-        real: MapLibreOfflineTileManager,
+        real: dagger.Lazy<MapLibreOfflineTileManager>,
         synthetic: SyntheticOfflineTileManager,
-    ): OfflineTileManager = if (BuildConfig.DEBUG) synthetic else real
+    ): OfflineTileManager = if (BuildConfig.DEBUG) synthetic else real.get()
+
+    @Provides
+    @Singleton
+    fun provideNetworkMonitor(impl: AndroidNetworkMonitor): NetworkMonitor = impl
 }

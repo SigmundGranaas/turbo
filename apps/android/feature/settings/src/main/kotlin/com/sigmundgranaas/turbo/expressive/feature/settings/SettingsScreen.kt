@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Straighten
+import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -145,6 +146,12 @@ fun SettingsScreen(
                     Icons.Rounded.CloudSync, stringResource(R.string.settings_cloud_sync),
                     subtitle = stringResource(R.string.settings_cloud_sync_sub),
                     trailing = { Switch(settings.cloudSyncEnabled, { haptics.toggle(it); viewModel.setCloudSync(it) }, modifier = Modifier.testTag("cloudSyncSwitch")) },
+                )
+                HorizontalDivider(color = cs.outlineVariant)
+                ListRowItem(
+                    Icons.Rounded.Wifi, stringResource(R.string.settings_wifi_only),
+                    subtitle = stringResource(R.string.settings_wifi_only_sub),
+                    trailing = { Switch(settings.downloadOverWifiOnly, { haptics.toggle(it); viewModel.setWifiOnly(it) }, modifier = Modifier.testTag("wifiOnlySwitch")) },
                 )
             }
             SettingsGroup {
