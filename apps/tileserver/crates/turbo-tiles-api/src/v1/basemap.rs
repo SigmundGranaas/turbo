@@ -89,3 +89,78 @@ pub async fn describe(State(state): State<ApiState>) -> Json<Value> {
         "vector_layers": layers,
     }))
 }
+
+/// The house `n50-topo` MapLibre style, embedded at compile time. Disk copy
+/// (when running from the repo) wins so style edits are live without a
+/// rebuild.
+const EMBEDDED_STYLE: &str = include_str!("../../../../styles/n50-topo.json");
+
+/// `/v1/basemap/style.json` — a MapLibre Style Spec document wired to this
+/// server's tile URL. MapLibre GL (web/Flutter) consumes it directly;
+/// `turbomap-style-maplibre` lowers the same document onto turbomap's
+/// `VectorStyle` for the native renderer. `{BASE_URL}` placeholders are
+/// resolved against `PUBLIC_BASE_URL` at serve time so one style document
+/// works across dev/staging/prod.
+pub async fn style(State(state): State<ApiState>) -> Response {
+    let text = std::fs::read_to_string("styles/n50-topo.json")
+        .unwrap_or_else(|_| EMBEDDED_STYLE.to_string());
+    let body = text.replace("{BASE_URL}", &state.public_base_url);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=3600, stale-while-revalidate=86400"),
+        )
+        .body(Body::from(body))
+        .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EMBEDDED_STYLE;
+
+    /// Style ↔ tiles consistency guard: every `source-layer` the style
+    /// references must exist in the basemap layer config, and every filter
+    /// property must be an attribute that layer actually ships. Catches the
+    /// silent-blank-layer class of bug (style names drifting from the TOML).
+    #[test]
+    fn style_source_layers_and_fields_match_basemap_config() {
+        let style: serde_json::Value = serde_json::from_str(EMBEDDED_STYLE).expect("style parses");
+        let cfg = turbo_tiles_mvt::BasemapConfig::load_or_default();
+        assert!(!cfg.layer.is_empty(), "basemap config must define layers");
+
+        for layer in style["layers"].as_array().expect("layers array") {
+            let Some(source_layer) = layer["source-layer"].as_str() else {
+                continue; // background has no source
+            };
+            let Some(def) = cfg.layer.iter().find(|l| l.name == source_layer) else {
+                panic!(
+                    "style layer `{}` references unknown source-layer `{source_layer}`",
+                    layer["id"]
+                );
+            };
+            // Filter properties must be advertised attrs of that layer.
+            if let Some(filter) = layer.get("filter").and_then(|f| f.as_array()) {
+                if let Some(prop) = filter.get(1).and_then(|p| p.as_str()) {
+                    assert!(
+                        def.attrs.iter().any(|a| a.name == prop),
+                        "style layer `{}` filters on `{prop}` which `{source_layer}` does not ship",
+                        layer["id"]
+                    );
+                }
+            }
+        }
+    }
+
+    /// The tile URL template must carry the {BASE_URL} placeholder (resolved
+    /// at serve time) and the z/x/y slots the clients interpolate.
+    #[test]
+    fn style_tiles_template_has_placeholders() {
+        let style: serde_json::Value = serde_json::from_str(EMBEDDED_STYLE).unwrap();
+        let tiles = style["sources"]["n50"]["tiles"][0].as_str().unwrap();
+        for needle in ["{BASE_URL}", "{z}", "{x}", "{y}"] {
+            assert!(tiles.contains(needle), "tiles template missing {needle}: {tiles}");
+        }
+    }
+}

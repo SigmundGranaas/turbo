@@ -43,6 +43,7 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
     step!("vann", n50::upsert_vann(pool));
     step!("hoydekurve", n50::upsert_hoydekurve(pool));
     step!("bygning", n50::upsert_bygning(pool));
+    step!("kystkontur", n50::upsert_kystkontur(pool));
     step!("isogbre", n50::upsert_isogbre(pool));
     step!("landcover", n50::upsert_landcover(pool));
     step!("stedsnavn", n50::upsert_stedsnavn(pool));

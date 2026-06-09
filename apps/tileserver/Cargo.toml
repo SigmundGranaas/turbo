@@ -4,6 +4,7 @@ members = [
     "crates/turbo-tiles-core",
     "crates/turbo-tiles-db",
     "crates/turbo-tiles-mvt",
+    "crates/turbo-tiles-raster",
     "crates/turbo-tiles-artifacts",
     "crates/turbo-tiles-geom",
     "crates/turbo-tiles-vector",
@@ -31,6 +32,7 @@ publish = false
 turbo-tiles-core = { path = "crates/turbo-tiles-core" }
 turbo-tiles-db = { path = "crates/turbo-tiles-db" }
 turbo-tiles-mvt = { path = "crates/turbo-tiles-mvt" }
+turbo-tiles-raster = { path = "crates/turbo-tiles-raster" }
 turbo-tiles-artifacts = { path = "crates/turbo-tiles-artifacts" }
 turbo-tiles-geom = { path = "crates/turbo-tiles-geom" }
 turbo-tiles-vector = { path = "crates/turbo-tiles-vector" }

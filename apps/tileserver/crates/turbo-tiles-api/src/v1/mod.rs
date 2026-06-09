@@ -10,6 +10,7 @@ mod elev;
 mod inspect;
 mod mask;
 mod pathfind;
+mod raster;
 mod resource;
 mod route;
 mod route_plan;
@@ -34,7 +35,10 @@ pub fn router() -> Router<ApiState> {
         // the generic `/:resource/...` routes so `basemap` isn't captured as
         // a resource slug.
         .route("/basemap", get(basemap::describe))
+        .route("/basemap/style.json", get(basemap::style))
         .route("/basemap/:z/:x/:y.mvt", get(basemap::tile))
+        // Raster fallback: same data + style, rasterised at the origin.
+        .route("/raster/n50/:z/:x/:y.png", get(raster::tile))
         .route("/:resource/tiles/:z/:x/:y.mvt", get(tiles::tile))
         .route("/:resource", get(resource::list))
         .route("/:resource/:id", get(resource::detail))

@@ -183,7 +183,17 @@ async fn serve(
         pool
     };
 
-    let auth = AuthConfig::from_env().context("auth config")?;
+    // Auth is only needed for the /admin + debug surface. A missing
+    // JWT_SECRET must NOT block boot — the public tiles / basemap / routing
+    // endpoints serve fine without it. Run in public-only mode and warn.
+    let auth = AuthConfig::from_env_lenient();
+    if !auth.enabled {
+        tracing::warn!(
+            "JWT_SECRET not set: running in public-only mode. /admin and \
+             auth-gated debug endpoints will reject all requests; tiles, \
+             basemap, and routing endpoints are unaffected."
+        );
+    }
     let auth_state = AuthState(Arc::new(auth.clone()));
 
     // Primitive handles are loaded once at boot from the artifact

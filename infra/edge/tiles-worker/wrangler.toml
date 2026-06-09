@@ -1,0 +1,21 @@
+# Cloudflare Worker config for the tile cache tier. See README.md.
+name = "turbo-tiles-worker"
+main = "src/worker.js"
+compatibility_date = "2026-06-01"
+
+# Public host. Route DNS for tiles.turkart.no at the zone first.
+routes = [
+  { pattern = "tiles.turkart.no/*", zone_name = "turkart.no" },
+]
+
+[vars]
+# Self-hosted origin (Traefik → tileserver). The Worker can always
+# regenerate any cached byte from here — R2 is never the only copy.
+ORIGIN = "https://kart-api.sandring.no"
+# Bump on every basemap data rebuild: new key space in R2, old keys
+# orphan and lifecycle-expire. No purge needed for correctness.
+DATA_VERSION = "n50-2026.06"
+
+[[r2_buckets]]
+binding = "TILES"
+bucket_name = "turbo-tiles-cache"

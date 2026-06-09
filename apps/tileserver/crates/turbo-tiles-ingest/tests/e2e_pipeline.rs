@@ -66,6 +66,7 @@ async fn ensure_clean(pool: &DbPool) {
         "DELETE FROM terrain.glacier_polygon",
         "DELETE FROM terrain.landcover_patch",
         "DELETE FROM terrain.building_polygon",
+        "DELETE FROM terrain.coastline",
         "DELETE FROM terrain.contour",
         "DELETE FROM paths.edge",
         "DELETE FROM paths.node",
@@ -348,6 +349,31 @@ async fn n50_upsert_hoydekurve_creates_contours() {
 }
 
 #[tokio::test]
+async fn n50_upsert_kystkontur_creates_coastline() {
+    // N50 Arealdekke (kystkontur) → terrain.coastline. The fixture has one
+    // shoreline segment; geometry must come out as LineString in 25833.
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
+    ensure_clean(&pool).await;
+    n50::restore(&pool, fixture_path("n50_mini.sql"), true)
+        .await
+        .expect("restore");
+
+    let outcome = n50::upsert_kystkontur(&pool).await.expect("upsert");
+    assert_eq!(outcome.rows_in, 1, "fixture has 1 coastline segment");
+
+    let (bad_geom,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.coastline \
+         WHERE source = 'n50' AND (ST_GeometryType(geom) <> 'ST_LineString' OR ST_SRID(geom) <> 25833)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bad_geom, 0, "all coastline must be LineString/25833");
+}
+
+#[tokio::test]
 async fn n50_upsert_bygning_creates_buildings() {
     // N50 BygningerOgAnlegg → terrain.building_polygon. The fixture has 2
     // footprints, one named (a cabin), one unnamed. Geometry must come out as
@@ -508,6 +534,7 @@ async fn reset_all_clears_every_namespace_to_zero() {
         "DELETE FROM terrain.glacier_polygon",
         "DELETE FROM terrain.landcover_patch",
         "DELETE FROM terrain.building_polygon",
+        "DELETE FROM terrain.coastline",
         "DELETE FROM terrain.contour",
         "DELETE FROM paths.edge",
         "DELETE FROM paths.node",

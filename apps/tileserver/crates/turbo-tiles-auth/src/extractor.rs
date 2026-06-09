@@ -49,6 +49,14 @@ where
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         let AuthState(cfg) = AuthState::from_ref(state);
+        // No JWT_SECRET was configured: the server runs in public-only mode,
+        // so every authenticated request is rejected rather than validated
+        // against a placeholder key.
+        if !cfg.enabled {
+            return Err(AuthError::Invalid(
+                "authentication is not configured on this server".into(),
+            ));
+        }
         let token = extract_token(parts).ok_or(AuthError::MissingToken)?;
         let data = decode::<Claims>(&token, &cfg.decoding_key, &cfg.validation)
             .map_err(|e| AuthError::Invalid(e.to_string()))?;

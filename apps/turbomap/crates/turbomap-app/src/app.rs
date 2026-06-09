@@ -1055,12 +1055,33 @@ pub fn run() {
         .join("turbomap");
     log::info!("tile caches under {}", cache_root.display());
 
-    // Vector overlay: VersaTiles OSM with disk caching.
-    let vector_source: Arc<dyn VectorTileSource> = Arc::new(
-        turbomap_tiles_http::HttpVectorTileSource::versatiles_osm()
-            .expect("build VersaTiles source")
-            .with_cache_dir(cache_root.join("versatiles-osm")),
-    );
+    // Vector layer + style. With TURBO_BASEMAP_URL set (e.g.
+    // http://localhost:8090), the demo renders OUR OWN N50 basemap with the
+    // tileserver's served MapLibre style — the self-hosted path. Without it,
+    // the VersaTiles OSM overlay + built-in demo style (the original MVP).
+    let basemap_base = std::env::var("TURBO_BASEMAP_URL").ok();
+    let (vector_source, style): (Arc<dyn VectorTileSource>, VectorStyle) = match &basemap_base {
+        Some(base) => {
+            log::info!("vector basemap from {base}/v1/basemap (style.json + MVT)");
+            let src = turbomap_tiles_http::HttpVectorTileSource::turbo_basemap(base)
+                .expect("build turbo basemap source")
+                .with_cache_dir(cache_root.join("turbo-basemap"));
+            let style_json =
+                turbomap_tiles_http::fetch_text(&format!("{base}/v1/basemap/style.json"))
+                    .expect("fetch /v1/basemap/style.json");
+            let style = turbomap_style_maplibre::parse_style(&style_json)
+                .expect("parse served MapLibre style");
+            (Arc::new(src), style)
+        }
+        None => (
+            Arc::new(
+                turbomap_tiles_http::HttpVectorTileSource::versatiles_osm()
+                    .expect("build VersaTiles source")
+                    .with_cache_dir(cache_root.join("versatiles-osm")),
+            ),
+            versatiles_demo_style(),
+        ),
+    };
 
     // Raster basemap: Kartverket Norgeskart in the grey topo style — a
     // light, neutral basemap that lets the vector overlay's colours pop.
@@ -1081,7 +1102,6 @@ pub fn run() {
                 .ok()
         });
 
-    let style = versatiles_demo_style();
     let initial_camera = Camera::new(LatLng::new(60.39, 5.32), 11.0);
     let mut app = TurbomapApp::new(
         raster_source,

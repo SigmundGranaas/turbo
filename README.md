@@ -6,8 +6,10 @@ Monorepo for the Turkart product.
 | --- | --- |
 | [`apps/flutter`](apps/flutter) | Flutter app (iOS / Android / web / desktop). The user-facing Turkart client. |
 | [`apps/api`](apps/api) | .NET API — auth, geo, tracks, collections, activities, gateway. |
-| `apps/tileserver` | Reserved for the upcoming custom tile server. |
+| [`apps/tileserver`](apps/tileserver) | Rust tile server — N50 ingest, multi-layer basemap MVT + style, routing, search. |
+| [`apps/turbomap`](apps/turbomap) | wgpu map renderer (desktop now; Android/iOS/web by design). |
 | [`infra/compose`](infra/compose) | Docker Compose stacks for local + CI. |
+| [`infra/edge`](infra/edge) | Cloudflare Workers (R2 pull-through tile cache). |
 | [`infra/k8s`](infra/k8s) | Kubernetes manifests. |
 | [`infra/observability`](infra/observability) | Prometheus, Loki, OTel collector, Promtail configs. |
 | [`infra/migrations`](infra/migrations) | Shared bootstrap SQL (per-service migrations live in `apps/api`). |

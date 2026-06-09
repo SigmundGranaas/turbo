@@ -111,8 +111,10 @@ spec:
               valueFrom: { secretKeyRef: { name: tiles-db-app, key: uri } }
             - name: PUBLIC_BASE_URL
               value: "https://kart-api.sandring.no/api/route"
-            # AuthConfig::from_env requires a secret even though the
-            # routing endpoints are public (it gates only /admin + debug).
+            # JWT_SECRET gates only the /admin + debug surface; the public
+            # tiles/basemap/routing endpoints serve without it (boot no longer
+            # fails when it's unset — public-only mode). We still set it here so
+            # the admin panel works in prod.
             - name: JWT_SECRET
               valueFrom: { secretKeyRef: { name: auth-secrets, key: jwt-key } }
           startupProbe:                  # mmapping an 11Gi DEM at boot can be slow on cold cache

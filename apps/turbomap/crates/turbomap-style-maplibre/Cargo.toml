@@ -1,0 +1,16 @@
+[package]
+name = "turbomap-style-maplibre"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Lower a MapLibre Style Spec subset onto turbomap-core's VectorStyle."
+
+[lints]
+workspace = true
+
+[dependencies]
+turbomap-core = { path = "../turbomap-core" }
+serde_json = "1"
+thiserror.workspace = true

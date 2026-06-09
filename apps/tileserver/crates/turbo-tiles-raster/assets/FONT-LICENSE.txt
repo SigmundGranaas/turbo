@@ -1,0 +1,5 @@
+DejaVuSans.ttf — DejaVu fonts (https://dejavu-fonts.github.io/).
+Copyright (c) 2003 Bitstream, Inc. / DejaVu changes are in the public domain.
+Redistribution permitted under the Bitstream Vera Fonts license; the
+"DejaVu" name is used per its terms. Embedded for server-side map-label
+rasterisation in turbo-tiles-raster.

@@ -128,6 +128,7 @@ tileserver ingest --job n50-restore --file /tmp/n50oslo/n50.zip
 tileserver ingest --job n50-vann-upsert         # → terrain.water_polygon
 tileserver ingest --job n50-hoydekurve-upsert   # → terrain.contour
 tileserver ingest --job n50-bygning-upsert      # → terrain.building_polygon
+tileserver ingest --job n50-kystkontur-upsert   # → terrain.coastline
 tileserver ingest --job n50-isogbre-upsert      # → terrain.glacier_polygon
 tileserver ingest --job n50-landcover-upsert    # → terrain.landcover_patch
 tileserver ingest --job n50-stedsnavn-upsert    # → anchors.anchor
@@ -189,7 +190,17 @@ straight from PostGIS — no build step:
 ```
 GET /v1/basemap                      # TileJSON 3.0.0 descriptor (layers, zooms, fields)
 GET /v1/basemap/{z}/{x}/{y}.mvt      # one MVT with all active layers stitched in
+GET /v1/basemap/style.json           # the house n50-topo MapLibre style, wired to this server
+GET /v1/raster/n50/{z}/{x}/{y}.png   # raster fallback: same data + style, rasterised at origin
 ```
+
+The raster endpoint (`turbo-tiles-raster`, tiny-skia + embedded DejaVu Sans
+for labels) is the M1 drop-in for `flutter_map` — the app's
+`TurboN50TopoConfig` provider consumes it, replacing the Kartverket
+Norgeskart WMTS without a client renderer change. Native max zoom 16
+(N50 scale); clients overzoom beyond. The edge worker's allowlist covers
+`/v1/raster/...`, so each tile rasterises once per data version
+(~0.5 s/tile debug, much faster in release) and serves from cache after.
 
 Layers, paint order, per-layer zoom ranges, and exposed attributes are declared
 in `tools/basemap-layers.toml` (embedded fallback compiled in). Adding a feature
@@ -201,6 +212,24 @@ low-zoom tiles small.
 Verified locally (Oslo): `/v1/basemap/12/2170/1189.mvt` → 32 KB tile carrying
 `water` + `contour` + `transportation` + `place`; at z14 the `building` layer
 joins (it's gated to `min_zoom = 14`).
+
+### Styling
+
+The house style lives at `styles/n50-topo.json` (MapLibre Style Spec, embedded
+in the binary; a disk copy wins for live editing). `{BASE_URL}` placeholders
+resolve against `PUBLIC_BASE_URL` at serve time. Consumers:
+
+- **MapLibre GL (web / Flutter)** — point it at `/v1/basemap/style.json`
+  directly.
+- **turbomap (native)** — `turbomap-style-maplibre` lowers the same document
+  onto the renderer's `VectorStyle`; the desktop demo does this when
+  `TURBO_BASEMAP_URL` is set (e.g. `TURBO_BASEMAP_URL=http://localhost:8090
+  cargo run -p turbomap-app`).
+
+Two test layers guard the contract: the api crate asserts every
+`source-layer`/filter property in the style exists in `basemap-layers.toml`,
+and `turbomap-style-maplibre`'s tests parse the real style file — growing the
+style past the loader's subset fails at `cargo test` time, not on screen.
 
 ## 4. Automated tests
 
@@ -235,6 +264,7 @@ with `relation … does not exist`).
 | Water (lakes/rivers/sea) | `innsjo`, `innsjoregulert`, `elv`, `ferskvanntorrfall`, `havflate` | `terrain.water_polygon` | ✅ |
 | Contours | `hoydekurve`, `hjelpekurve`, `forsenkningskurve` | `terrain.contour` | ✅ |
 | Buildings | `bygning_omrade` | `terrain.building_polygon` | ✅ |
+| Coastline | `kystkontur` | `terrain.coastline` | ✅ |
 | Glaciers/snow | `snoisbre` | `terrain.glacier_polygon` | ✅ |
 | Landcover | `skog`, `myr`, `apentomrade`, `dyrketmark` | `terrain.landcover_patch` | ✅ |
 | Place names + spot heights | `stedsnavntekst`, `terrengpunkt` | `anchors.anchor` | ✅ |
@@ -249,19 +279,17 @@ Prioritised by basemap impact. Each is a small, config/SQL-shaped addition:
 new `terrain.*`/canonical table + `upsert_n50_*.sql` + fixture rows + e2e
 assertion, then smoke against the Oslo (or a richer) county.
 
-1. **Coastline** — `kystkontur` (shoreline line) paired with the existing
-   `havflate` sea polygon, for a crisp land/sea edge. *(Next up.)*
-2. **Streams / waterways (lines)** — `elvbekk`. Used by routing already; should
+1. **Streams / waterways (lines)** — `elvbekk`. Used by routing already; should
    become a served basemap line layer with width, and be tested.
-3. **Railways** — `bane` (+ `jernbanetype`, `stasjon`). Standard topo content.
-4. **Power lines** — `ledning` / `luftledninglh`. Shown on topo maps.
-5. **Protected areas** — `naturvernomrade` (national parks/reserves). High-value
+2. **Railways** — `bane` (+ `jernbanetype`, `stasjon`). Standard topo content.
+3. **Power lines** — `ledning` / `luftledninglh`. Shown on topo maps.
+4. **Protected areas** — `naturvernomrade` (national parks/reserves). High-value
    outdoor overlay.
-6. **Ski & recreation** — `alpinbakke`, `skitrekk`, `lysloype`, `hoppbakke`,
+5. **Ski & recreation** — `alpinbakke`, `skitrekk`, `lysloype`, `hoppbakke`,
    `sportidrettplass` — feeds the winter style.
-7. **Urban areas** — `tettbebyggelse` / `bymessigbebyggelse` for built-up fill
+6. **Urban areas** — `tettbebyggelse` / `bymessigbebyggelse` for built-up fill
    at low zoom (complements the per-footprint `building` layer).
-8. **DTM10 elevation** — bulk-load a small GeoTIFF via `dtm-bulk-load` to
+7. **DTM10 elevation** — bulk-load a small GeoTIFF via `dtm-bulk-load` to
    exercise hillshade + Terrain-RGB and cross-check the vector contours.
    (Separate product from N50 — høydedata.no.)
 
