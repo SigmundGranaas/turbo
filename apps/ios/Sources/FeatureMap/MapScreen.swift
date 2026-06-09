@@ -179,7 +179,9 @@ public struct MapScreen: View {
                 onEdit: { editorTarget = .edit(marker) },
                 onDelete: { viewModel.deleteMarker(id: marker.id) },
                 makePhotos: makePhotosViewModel.map { f in { f(marker) } },
-                shareResource: shareResource
+                shareResource: shareResource,
+                makeWeather: makeWeatherViewModel,
+                makeAvalanche: makeAvalancheViewModel
             )
             .presentationDetents([.medium, .large])
         }

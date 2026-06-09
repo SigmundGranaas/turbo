@@ -150,7 +150,9 @@ public struct RootView: View {
         case .markers:
             MarkersScreen(viewModel: container.makeMarkersViewModel(),
                           makePhotosViewModel: container.makePhotosViewModel,
-                          shareResource: shareResource)
+                          shareResource: shareResource,
+                          makeWeather: { container.makeWeatherViewModel(position: $0, placeName: "Weather") },
+                          makeAvalanche: { container.makeAvalancheViewModel(position: $0) })
         case .paths:
             PathsScreen(viewModel: container.makePathsViewModel(),
                         onStartRecording: { container.recordingController.start(); showRecording = true },
