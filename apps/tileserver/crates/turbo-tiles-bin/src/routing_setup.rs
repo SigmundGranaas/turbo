@@ -44,7 +44,14 @@ pub fn load_routing_artifacts(dir: Option<&Path>) -> RoutingArtifacts {
 
     let dem_path = dir.join("norway.dem");
     if dem_path.exists() {
-        match Dem::open(&dem_path) {
+        // Decompressed-tile cache ceiling. The env knob is the lever
+        // for memory-constrained deploys (e.g. set 128 MiB on a
+        // 1.5 Gi pod); default is the crate's DEFAULT_CACHE_BYTES.
+        let cache_bytes = std::env::var("TILESERVER_DEM_CACHE_BYTES")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(turbo_tiles_elev::DEFAULT_CACHE_BYTES);
+        match Dem::open_with_cache(&dem_path, cache_bytes) {
             Ok(d) => {
                 let cov = d.coverage();
                 tracing::info!(
@@ -54,6 +61,7 @@ pub fn load_routing_artifacts(dir: Option<&Path>) -> RoutingArtifacts {
                     tiles_present = cov.tiles_present,
                     tiles_absent = cov.tiles_absent,
                     file_size_bytes = cov.file_size_bytes,
+                    cache_bytes,
                     "loaded DEM artifact"
                 );
                 art.dem = Some(Arc::new(d));

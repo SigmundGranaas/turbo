@@ -43,10 +43,27 @@ pub struct ApiState {
     /// from `tools/route-presets.toml`. A request's `preset` field maps
     /// to one of these; the SPA lists them in its "Trip style" dropdown.
     pub presets: Arc<turbo_tiles_pathfind::PresetSet>,
+    /// Global routing-solve concurrency cap. Each Pathfinder solve
+    /// holds corridor + trail-graph scratch (MBs) for its duration and
+    /// the default blocking pool allows 512 threads — so without a cap,
+    /// N concurrent long solves are the realistic OOM path on a small
+    /// node. At most `TILESERVER_ROUTING_CONCURRENCY` solves (default:
+    /// CPU cores) run at once; excess requests await a permit cheaply
+    /// instead of all allocating at once.
+    pub routing_permits: Arc<tokio::sync::Semaphore>,
 }
 
 impl ApiState {
     pub fn new(db: DbPool, auth: AuthConfig, public_base_url: String) -> Self {
+        let permits = std::env::var("TILESERVER_ROUTING_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4)
+            });
         Self {
             db,
             auth: AuthState(Arc::new(auth)),
@@ -58,7 +75,20 @@ impl ApiState {
             landcover: std::collections::HashMap::new(),
             pathfinder: None,
             presets: Arc::new(turbo_tiles_pathfind::PresetSet::load_or_default()),
+            routing_permits: Arc::new(tokio::sync::Semaphore::new(permits)),
         }
+    }
+
+    /// Acquire a routing-solve permit (see `routing_permits`). Await is
+    /// cheap — the request queues instead of allocating solver scratch.
+    /// Hold the returned permit for the duration of the blocking solve
+    /// (move it into the `spawn_blocking` closure).
+    pub async fn acquire_routing_permit(&self) -> tokio::sync::OwnedSemaphorePermit {
+        self.routing_permits
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("routing semaphore is never closed")
     }
 }
 
