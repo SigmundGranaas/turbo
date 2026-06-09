@@ -32,6 +32,9 @@
     <PackageVersion Include="Npgsql.NetTopologySuite" Version="10.0.2" />
     <PackageVersion Include="NetTopologySuite" Version="2.6.0" />
     <PackageVersion Include="NetTopologySuite.IO.GeoJSON" Version="4.0.0" />
+    <!-- Ingestion: read Geonorge GeoPackage (which is SQLite) without GDAL,
+         and build offline SQLite bundles. -->
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.8" />
     <!-- Messaging -->
     <PackageVersion Include="NATS.Net" Version="2.8.0" />
     <!-- Misc -->

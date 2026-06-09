@@ -10,6 +10,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="NetTopologySuite" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Turbo.Places.Contracts\Turbo.Places.Contracts.csproj" />
     <ProjectReference Include="..\Turbo.Places.Core\Turbo.Places.Core.csproj" />
     <ProjectReference Include="..\Turbo.Places.Infrastructure\Turbo.Places.Infrastructure.csproj" />
