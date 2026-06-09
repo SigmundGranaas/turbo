@@ -225,6 +225,28 @@ final class TurboUserFlowsUITests: XCTestCase {
                       "the record control should return once the session ends")
     }
 
+    // MARK: Goal — follow a saved track with live navigation
+
+    func test_hiker_can_follow_a_saved_track() {
+        let app = launch()
+        openMenu(app)
+        app.buttons["menu.paths"].tap()
+        XCTAssertTrue(app.navigationBars["Paths"].waitForExistence(timeout: 5))
+
+        // Open a saved track and start following it.
+        app.cells.containing(.staticText, identifier: "Storheia Loop").firstMatch.tap()
+        let follow = app.buttons["hike.follow"]
+        XCTAssertTrue(follow.waitForExistence(timeout: 5))
+        follow.tap()
+
+        // Back on the map, live follow is running; the Stop control is there.
+        XCTAssertTrue(app.buttons["follow.stop"].waitForExistence(timeout: 5),
+                      "the follow card did not appear on the map")
+        app.buttons["follow.stop"].tap()
+        XCTAssertFalse(app.buttons["follow.stop"].waitForExistence(timeout: 2),
+                       "following did not stop")
+    }
+
     // MARK: Goal — record a hike and save it
 
     func test_hiker_can_record_a_track_and_save_it() {

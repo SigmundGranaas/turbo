@@ -26,6 +26,8 @@ public struct MapScreen: View {
     private let recording: RecordingStatus?
     private let onOpenRecording: (() -> Void)?
     private let onStartRecording: (() -> Void)?
+    private let follow: FollowController?
+    private let solveRoute: (@Sendable ([LatLng]) async -> RoutePlan?)?
     @State private var routing: RouteViewModel?
     @State private var measuring: MeasureViewModel?
     @State private var showWeather = false
@@ -63,7 +65,9 @@ public struct MapScreen: View {
         shareResource: ((String) async -> URL?)? = nil,
         recording: RecordingStatus? = nil,
         onOpenRecording: (() -> Void)? = nil,
-        onStartRecording: (() -> Void)? = nil
+        onStartRecording: (() -> Void)? = nil,
+        follow: FollowController? = nil,
+        solveRoute: (@Sendable ([LatLng]) async -> RoutePlan?)? = nil
     ) {
         self.viewModel = viewModel
         self.onOpenSearch = onOpenSearch
@@ -78,6 +82,37 @@ public struct MapScreen: View {
         self.recording = recording
         self.onOpenRecording = onOpenRecording
         self.onStartRecording = onStartRecording
+        self.follow = follow
+        self.solveRoute = solveRoute
+    }
+
+    private var isFollowing: Bool { follow?.isFollowing ?? false }
+    private var mapFollowing: Bool { viewModel.following || isFollowing }
+
+    /// The polyline drawn on the map: the followed route, else the route/measure tool.
+    private var drawnGeometry: [LatLng] {
+        if isFollowing { return follow?.geometry ?? [] }
+        if let routing { return routing.geometry }
+        if let measuring { return measuring.points }
+        return []
+    }
+
+    /// Start following the currently-planned route, with auto-reroute via `solveRoute`.
+    private func startFollowingPlannedRoute() {
+        guard let routing, let plan = routing.plan, let follow else { return }
+        let waypoints = routing.waypoints
+        let route = FollowRoute(geometry: plan.geometry, distanceM: plan.distanceM,
+                                ascentM: plan.ascentM, name: "Route", waypoints: waypoints)
+        var reroute: (@Sendable ([LatLng]) async -> FollowRoute?)?
+        if let solver = solveRoute {
+            reroute = { points in
+                guard let plan = await solver(points) else { return nil }
+                return FollowRoute(geometry: plan.geometry, distanceM: plan.distanceM,
+                                   ascentM: plan.ascentM, name: "Route", waypoints: points)
+            }
+        }
+        follow.start(route, reroute: reroute)
+        self.routing = nil
     }
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
@@ -100,10 +135,10 @@ public struct MapScreen: View {
             baseLayer: viewModel.baseLayer,
             overlays: viewModel.overlays,
             pins: pins,
-            following: viewModel.following,
+            following: mapFollowing,
             focus: viewModel.focusedPlace?.position,
             resetBearingToken: compassResetToken,
-            routeGeometry: routing?.geometry ?? measuring?.points ?? [],
+            routeGeometry: drawnGeometry,
             onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
             onVisibleBoundsChange: { viewModel.updateVisibleBounds($0) },
@@ -324,8 +359,14 @@ public struct MapScreen: View {
 
     @ViewBuilder
     private var bottomBar: some View {
-        if let routing {
-            RouteCard(viewModel: routing, onClose: { self.routing = nil })
+        if let follow, follow.isFollowing {
+            FollowCard(controller: follow, onStop: { follow.stop() })
+                .padding(.horizontal, 14)
+                .padding(.bottom, 12)
+        } else if let routing {
+            RouteCard(viewModel: routing,
+                      onClose: { self.routing = nil },
+                      onFollow: follow != nil ? { startFollowingPlannedRoute() } : nil)
                 .padding(.horizontal, 14)
                 .padding(.bottom, 12)
         } else if let measuring {

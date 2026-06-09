@@ -8,6 +8,7 @@ struct RouteCard: View {
     @Environment(\.turbo) private var t
     @Bindable var viewModel: RouteViewModel
     let onClose: () -> Void
+    var onFollow: (() -> Void)? = nil
     @State private var showSave = false
     @State private var showStops = false
     @State private var name = ""
@@ -54,6 +55,15 @@ struct RouteCard: View {
                     .disabled(viewModel.waypoints.isEmpty)
                     .accessibilityLabel("Clear route")
                 Spacer()
+                if let onFollow {
+                    Button(action: onFollow) {
+                        Label("Go", systemImage: "location.north.fill").font(.turboHeadline).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(height: 38)
+                            .background(t.green, in: Capsule())
+                    }
+                    .disabled(viewModel.plan == nil)
+                    .accessibilityIdentifier("route.follow")
+                }
                 Button { name = ""; showSave = true } label: {
                     Text("Save").font(.turboHeadline).foregroundStyle(.white)
                         .padding(.horizontal, 16).frame(height: 38)

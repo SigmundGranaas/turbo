@@ -8,11 +8,13 @@ public struct HikeDetailScreen: View {
     @Environment(\.turbo) private var t
     private let path: SavedPath
     private let shareResource: ((String) async -> URL?)?
+    private let onFollow: (() -> Void)?
     private var stats: HikeStats { HikeStats(path.path) }
 
-    public init(path: SavedPath, shareResource: ((String) async -> URL?)? = nil) {
+    public init(path: SavedPath, shareResource: ((String) async -> URL?)? = nil, onFollow: (() -> Void)? = nil) {
         self.path = path
         self.shareResource = shareResource
+        self.onFollow = onFollow
     }
 
     public var body: some View {
@@ -33,6 +35,17 @@ public struct HikeDetailScreen: View {
                     statTile("Duration", stats.formattedDuration ?? "—", "clock")
                     statTile("Ascent", stats.ascentMeters.map { "\(Int($0)) m" } ?? "—", "arrow.up.right")
                     statTile("Avg Pace", stats.formattedPace ?? "—", "speedometer")
+                }
+
+                if let onFollow, path.path.points.count >= 2 {
+                    Button(action: onFollow) {
+                        Label("Follow This Track", systemImage: "location.north.fill")
+                            .font(.turboHeadline)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(t.green, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .foregroundStyle(.white)
+                    }
+                    .accessibilityIdentifier("hike.follow")
                 }
 
                 if let url = try? TrackExport.writeTemporaryFile(path, as: .gpx) {

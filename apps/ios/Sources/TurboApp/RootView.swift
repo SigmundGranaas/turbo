@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreModel
+import CoreData
 import CoreDesignSystem
 import FeatureMap
 import FeatureSearch
@@ -56,7 +57,9 @@ public struct RootView: View {
                     shareResource: shareResource,
                     recording: recordingStatus,
                     onOpenRecording: { showRecording = true },
-                    onStartRecording: { container.recordingController.start(); showRecording = true }
+                    onStartRecording: { container.recordingController.start(); showRecording = true },
+                    follow: container.followController,
+                    solveRoute: makeSolveRoute()
                 )
                 .navigationDestination(for: Route.self, destination: destination)
             }
@@ -117,6 +120,30 @@ public struct RootView: View {
         return RecordingStatus(isRecording: c.isRecording, distanceMeters: c.distanceMeters, elapsedSeconds: c.elapsedSeconds)
     }
 
+    /// A one-shot route solve (collect the SSE stream to its result), captured as
+    /// a Sendable closure so the follow controller can auto-reroute.
+    private func makeSolveRoute() -> (@Sendable ([LatLng]) async -> RoutePlan?) {
+        let repository = container.routeRepository
+        return { points in
+            guard points.count >= 2 else { return nil }
+            for await event in repository.planStream(points: points, preset: .balanced, profile: "foot") {
+                if case .result(let plan) = event { return plan }
+            }
+            return nil
+        }
+    }
+
+    /// Begin following a saved track and return to the map to see the follow card.
+    private func followSavedPath(_ saved: SavedPath) {
+        let geo = saved.path
+        let distance = geo.distanceM > 0 ? geo.distanceM : GeoMetrics.pathLengthMeters(geo.points)
+        let ascent = GeoMetrics.ascentMeters(geo.elevations) ?? geo.ascentM ?? 0
+        container.followController.start(FollowRoute(
+            geometry: geo.points, distanceM: distance, ascentM: ascent, name: saved.name
+        ))
+        path = NavigationPath()
+    }
+
     @ViewBuilder
     private func destination(_ route: Route) -> some View {
         switch route {
@@ -127,7 +154,8 @@ public struct RootView: View {
         case .paths:
             PathsScreen(viewModel: container.makePathsViewModel(),
                         onStartRecording: { container.recordingController.start(); showRecording = true },
-                        shareResource: shareResource)
+                        shareResource: shareResource,
+                        onFollow: followSavedPath)
         case .collections:
             CollectionsScreen(viewModel: container.makeCollectionsViewModel())
         case .settings:
