@@ -16,14 +16,28 @@ per-region embedded SQLite bundles). Both derive from the same source, so remote
 and offline answers are consistent by construction.
 
 **Two architectural principles (carry through every phase):**
-1. **Policy is data, not code.** The tier / distance-band / qualifier rules become
-   a versioned *ruleset artifact* consumed by a small interpreter in each of the
-   three runtimes (C#, Dart, Kotlin). Behavior changes = bump the ruleset, not
-   three codebases.
-2. **One golden fixture pins behavior across languages.** The existing 28+
-   reverse-geocode invariants + search invariants become a single shared
-   `golden.json` (input → expected) run by xUnit, Flutter `test`, and the Android
-   suite. This is how three implementations of the spec avoid drift.
+1. **Shared decision core, native data access.** The ranking/classification logic
+   (cascade, tier selection, distance bands, qualifier, dedup, status penalty,
+   Naturbase filtering) lives in **one place** — a pure, I/O-free **Rust core** —
+   bound into every runtime via FFI: `flutter_rust_bridge` (Dart), **UniFFI**
+   (Kotlin + Swift), **P/Invoke** (.NET). Each platform keeps its *own* data
+   access (PostGIS KNN on the server, SQLite R\*Tree/FTS on device) and funnels
+   candidates into the same `rank()`. We share the *decision*, not the plumbing.
+   Tunables stay a versioned *ruleset struct* passed into the core — shared
+   algorithm + shared-as-data tuning, bumpable without recompiling the native lib.
+2. **One golden fixture, much smaller drift surface.** The existing 28+
+   reverse-geocode + search invariants become a single `golden.json` (input →
+   expected) whose primary job is validating the **one core** (`cargo test`),
+   plus thin per-binding smoke tests (and server parity if the server keeps a C#
+   ranker — see Open decisions). Not three full interpreters to keep in lockstep.
+
+**Why a Rust core (vs. the alternatives):** KMP can't target .NET *or* Dart, so it
+can't span our three runtimes; codegen-from-spec means maintaining a brittle
+generator for branchy logic. Rust is fast and low-footprint (serves the NFRs
+directly), has the best FFI bridges, and — the real win — lets us share the **whole
+embedded query engine** (rusqlite R\*Tree + FTS + rank) in Phase 3, not just the
+~300 lines of ranking. That engine is what genuinely hurts to maintain across 2–3
+native clients. Costs are real and tracked in **Risks & costs** below.
 
 Reuse what exists — don't add parallel infrastructure:
 - Server: the `Turbo.{Module}.{Contracts,Core,Infrastructure,Api}` layering,
@@ -62,13 +76,25 @@ elevation HTTP calls disappear for named features.
 
 ---
 
-## Phase 0 — Ruleset + golden fixtures (do first, behavior-preserving)
+## Phase 0 — Shared core + ruleset + golden fixtures (do first, behavior-preserving)
 
-The point of Phase 0 is to extract today's behavior into portable, testable
-artifacts **before** changing any data source, so every later phase is guarded.
+The point of Phase 0 is to extract today's behavior into a single shared core and a
+golden fixture **before** changing any data source, so every later phase is guarded.
 
-### 0A. Define the ruleset schema + classification artifact *(~medium)*
-Encode today's hardcoded logic as data (JSON, schema-versioned):
+### 0A. The `place-core` Rust crate + ruleset struct *(~medium)*
+One pure, I/O-free crate at `packages/place-core/` exposing:
+- `classify(featureType, distanceM, &ruleset) -> Option<(Tier, Qualifier)>`
+- `rank(candidates: &[Candidate], query, &ruleset) -> Option<LocationDescription>`
+  — the full cascade (tight toponym → protected area → loose toponym → address →
+  kommune), dedup, status penalty, Naturbase/parcel/"Ukjent" rejection.
+- `forward_rank(...)` for search ordering (proximity + match score).
+
+The crate is binding-agnostic; FFI surfaces are generated per platform
+(`flutter_rust_bridge`, UniFFI, P/Invoke) in later phases. `cargo test` runs the
+golden fixture directly — this crate is the single source of truth for behavior.
+
+The **ruleset** stays *data* passed into the core (schema-versioned, so tuning ships
+without recompiling the lib):
 - feature-type → tier class (exactContact / inSettlement / closeToPeak / periphery)
 - per-type tight + loose distance caps (peak ≤800 m "closeTo", settlement ≤4 km
   "near" but ≤1500 m "inSettlement", water ≤100 m "at", building ≤50 m, …)
@@ -83,34 +109,36 @@ Source of truth for the values: `apps/flutter/lib/features/search/data/
 stedsnavn_descriptors.dart` (`categorizeFeature`, the kind sets, status penalty),
 `kartverket_reverse_geocoder.dart` (`_describeUnbounded` cascade), and Android's
 `ReverseGeocodeRepository.kt` (`compose`, `categoryOf`, `qualifierFor`).
-- New artifact: `packages/place-ruleset/ruleset.v1.json` (+ a short README on the
-  schema). Lives in the repo, embedded in clients at build time and served by the
-  API at `GET /api/places/ruleset/{version}`.
+- New artifact: `packages/place-core/ruleset.v1.json` (+ README on the schema).
+  Lives in the repo, embedded in clients at build time and served by the API at
+  `GET /api/places/ruleset/{version}`.
 
-### 0B. Author the shared golden fixture *(~medium)*
+### 0B. Author the golden fixture *(~medium)*
 Translate the 28 reverse-geocode invariants + the forward-search/composite
 invariants (catalogued from `kartverket_reverse_geocoder_test.dart`,
 `ReverseGeocodeTest.kt`, `stedsnavn_search_backend_test.dart`,
 `composite_search_service_test.dart`) into one declarative file:
-- `packages/place-ruleset/golden.json`: list of cases `{ candidates[], query,
-  rulesetVersion } → { title, qualifier, secondary, kommune, fylke,
-  distanceMeters?, elevationMeters? }`.
-- Each runtime gets a thin harness that feeds `golden.json` through its interpreter
-  and asserts equality. This file is the contract.
+- `packages/place-core/golden.json`: cases `{ candidates[], query, rulesetVersion }
+  → { title, qualifier, secondary, kommune, fylke, distanceMeters?,
+  elevationMeters? }`.
+- `cargo test` runs it against `place-core` directly. Each binding later adds a
+  thin smoke test that the FFI surface returns identical results for a sampled
+  subset. This file is the contract.
 
-### 0C. Interpreter #1 (Dart) + refactor the Flutter reverse-geocoder onto it *(~medium)*
-- New `apps/flutter/lib/features/search/data/ruleset/` — a pure
-  `PlaceRuleset` loader + `classify(featureType, distanceM)` and `pickWinner(...)`
-  that today's `KartverketReverseGeocoder` calls instead of the inline logic in
-  `stedsnavn_descriptors.dart`.
-- Keep the live Kartverket backends exactly as-is for now; only the *decision*
-  logic moves behind the interpreter. Existing tests + the new `golden.json`
-  harness must stay green. This proves policy-as-data end-to-end with zero user-
-  visible change.
+### 0C. Dart binding + refactor the Flutter reverse-geocoder onto the core *(~medium)*
+- Generate the Dart FFI for `place-core` via `flutter_rust_bridge`; build the
+  Android/iOS/desktop artifacts and wire them into `apps/flutter`.
+- Point `KartverketReverseGeocoder` at `place_core.rank(...)` instead of the inline
+  logic in `stedsnavn_descriptors.dart` (which becomes a thin candidate-mapping
+  shim: parse Kartverket JSON → `Candidate`, then call the core).
+- Keep the live Kartverket backends exactly as-is for now; only the *decision* moves
+  into the core. Existing tests + the binding smoke test stay green. This proves the
+  shared-core + FFI path end-to-end with zero user-visible change.
 
-**Exit criteria for Phase 0:** ruleset + golden committed; Flutter still uses live
-Kartverket data but routes all ranking through the interpreter; `golden.json`
-passes in Dart. Android + C# interpreters can follow in their phases.
+**Exit criteria for Phase 0:** `place-core` + ruleset + golden committed and green
+under `cargo test`; Flutter still uses live Kartverket data but routes all ranking
+through the core via FFI. Server (P/Invoke) and Android (UniFFI) bindings follow in
+their phases — no new hand-written interpreters.
 
 ---
 
@@ -121,8 +149,9 @@ Mirror the Geo module layout:
 - `apps/api/src/Places/Turbo.Places.Contracts/` — `Place` value objects, domain
   events (`PlaceIngested`, `PlaceRetired`), `PlacesScope : IModuleScope`.
 - `Turbo.Places.Core/` — domain model (`Place` aggregate-lite), query handlers
-  (`SearchPlacesHandler`, `ReverseGeocodeHandler`, `BuildBundleHandler`), the C#
-  ruleset interpreter (interpreter #2) + `golden.json` test.
+  (`SearchPlacesHandler`, `ReverseGeocodeHandler`, `BuildBundleHandler`), and a
+  thin P/Invoke wrapper over `place-core` (`rank`/`classify`) + a `golden.json`
+  parity smoke test. (See Open decisions for the C#-native-ranker alternative.)
 - `Turbo.Places.Infrastructure/` — `PlacesReadContext` (EF Core + NetTopologySuite),
   GIST index on `geometry`, `pg_trgm` GIN + `tsvector` on `nameFold`, migrations.
 - `Turbo.Places.Api/` — `PlacesModule.cs` DI wiring (copy `GeoModule.cs`),
@@ -144,13 +173,15 @@ pattern, run as a CLI/job (not request-path):
   carry a `datasetVersion` so bundles and clients can detect staleness.
 - New project: `apps/api/src/Places/Turbo.Places.Ingestion/` (console host).
 
-### 1C. Query primitives + interpreter #2 *(~medium)*
+### 1C. Query primitives + core binding (P/Invoke) *(~medium)*
 - **Reverse**: `ReverseGeocodeHandler` — `geometry <-> @point` KNN over GIST,
-  pull the K nearest candidates, run the C# ruleset interpreter → `LocationDescription`.
+  pull the K nearest candidates, hand them to `place-core.rank(...)` via P/Invoke
+  → `LocationDescription`. Ship the `.so` in the server container; native data
+  access (Postgres) stays in C#, the decision is the shared core.
 - **Forward**: `SearchPlacesHandler` — `pg_trgm` fuzzy + `tsvector` rank, biased by
   distance to `near` (proximity matters: dozens of "Storvatnet"). Behind an
   `IPlaceSearchIndex` port so Typesense/OpenSearch is a later drop-in.
-- C# `golden.json` harness green.
+- `golden.json` parity smoke test green through the P/Invoke surface.
 
 ---
 
@@ -175,13 +206,16 @@ Controllers (match the Geo controller style, `[Authorize]` as appropriate):
 - Retire the live `backends/*_backend.dart` once parity is confirmed by `golden.json`
   + existing tests.
 
-### 2C. Android remote repositories → `Turbo.Places` + interpreter #3 *(~medium)*
+### 2C. Android remote repositories → `Turbo.Places` + UniFFI binding *(~medium)*
 - New `RemoteSearchRepository : SearchRepository` and
   `RemoteReverseGeocodeRepository : ReverseGeocodeRepository` using the provided
   Ktor `HttpClient`.
 - Flip the two providers in `core/data/.../di/NetworkModule.kt:42-61`. Keep the
   `Synthetic*` debug stand-ins.
-- Port the Kotlin ruleset interpreter (#3); Android `golden.json` harness green.
+- Generate the Kotlin binding for `place-core` via **UniFFI** (+ JNI libs for the
+  NDK ABIs); reuse it for the offline path in Phase 3. Binding smoke test green —
+  no hand-written Kotlin ranker. (A Swift/iOS binding comes from the same UniFFI
+  definition if/when the iOS client needs it.)
 
 **Exit criteria for Phase 2:** both clients answer search + reverse-geocode from
 `Turbo.Places`; no live third-party calls in the request path; responses identical
@@ -200,17 +234,29 @@ to today per the golden fixtures.
   scales with area (a national park ≈ hundreds of KB); whole-Norway pack is an
   opt-in extra, not the default.
 
-### 3B. Client local index store, over the existing download rails *(~medium)*
-- Flutter: a `placeBundleStore` (new `sqflite` DB or attached file) + a
-  `LocalPlaceSearchBackend` / `LocalReverseGeocoder` querying R\*Tree + FTS5 via the
-  Dart interpreter. Disk-resident / mmap'd → negligible RAM.
+### 3B. Extend `place-core` to own the embedded query engine *(~medium)* — the payoff
+This is where shared code earns its keep: rather than reimplement the offline reader
+in Dart *and* Kotlin (*and* Swift), `place-core` gains an optional `embedded`
+feature using **`rusqlite`** that, given a bundle path + query, runs the R\*Tree
+nearest / FTS5 lookup and feeds candidates straight into the same `rank()`:
+- `reverse(bundle, lat, lon) -> LocationDescription?` and
+  `search(bundle, q, near) -> [Hit]` — one implementation, exposed through the
+  existing FFI bindings to every client.
+- **SQLite linking:** build `rusqlite` against the *system/bundled* SQLite the
+  clients already ship (`sqlite3` on Flutter, Android system SQLite) — do **not**
+  vendor a second copy. (Tracked in Risks.)
+- Clients become thin: download the bundle (below), hand its path to the core.
+
+### 3C. Client local store + download wiring, over the existing rails *(~medium)*
 - Hook bundle download into the existing offline-region flow: when a user downloads
   a map region (or a route corridor via `corridorBounds()`), enqueue a bundle fetch
   on the **same** `TileJobQueue` (reuse retry + circuit breaker). Track a coverage
   index (which bboxes are present + their `datasetVersion`).
-- Android: equivalent Room-backed store + MapLibre-region hook.
+- Flutter stores the bundle file + coverage index in `sqflite`; Android via Room +
+  the MapLibre-region hook. Both call `place-core`'s `embedded` API for the lookup —
+  no per-language query/rank code. Disk-resident / mmap'd → negligible RAM.
 
-### 3C. `TieredPlaceService` — coverage- & connectivity-aware routing *(~medium)*
+### 3D. `TieredPlaceService` — coverage- & connectivity-aware routing *(~medium)*
 - One class per client implementing the existing interfaces (zero consumer change):
   - **Reverse-geocode**: local-first when the point is inside a downloaded region
     (instant + offline-resilient in the mountains); else remote; remote
@@ -229,15 +275,40 @@ unchanged; remote failures degrade to local silently.
 
 ## Open decisions (defaults chosen; override if desired)
 
-1. **Remote forward-search engine** — default: Postgres `pg_trgm` + `tsvector`
+1. **Server: bind `place-core` or keep a C# ranker?** — default: **P/Invoke the
+   core** on the server too (one implementation everywhere, zero drift; a Linux
+   `.so` in the container is straightforward). Alternative: keep ranking in C#
+   for a pure-managed deployment, accepting exactly one reimplementation guarded by
+   `golden.json`. Lean: bind the core.
+2. **Remote forward-search engine** — default: Postgres `pg_trgm` + `tsvector`
    behind an `IPlaceSearchIndex` port (no extra infra; fine for ~1–2M Norwegian
    features). Swap to Typesense/OpenSearch later if needed.
-2. **Offline elevation** — peaks get `elevationM` precomputed at ingest. For
+3. **Offline elevation** — peaks get `elevationM` precomputed at ingest. For
    arbitrary tapped points offline: derive from already-downloaded contour vector
    tiles, or omit and degrade gracefully (`elevationMeters` is already nullable).
    Default: omit-or-derive to protect footprint; remote serves a DTM point lookup.
-3. **Offline default scope** — per-downloaded-region (default; minimal footprint)
+4. **Offline default scope** — per-downloaded-region (default; minimal footprint)
    vs. an optional whole-Norway pack (~50–150 MB names+addresses) for power users.
+
+---
+
+## Risks & costs of the shared Rust core (eyes open)
+
+- **Toolchain + CI:** cross-compile `place-core` for Android NDK ABIs
+  (arm64/armv7/x86_64), iOS, desktop, and the Linux server `.so`. New CI matrix and
+  a Rust toolchain in a C#/Dart/Kotlin shop.
+- **FFI boundary:** struct/error/async marshalling — mitigated by
+  `flutter_rust_bridge` + UniFFI codegen, but the generated layer must be owned.
+- **SQLite double-linking (Phase 3B):** `rusqlite` must link the system/bundled
+  SQLite the clients already ship, not vendor its own, or you get two SQLite copies
+  and subtle breakage. Validate per platform early.
+- **Binary size:** the ranking core is tiny; with the `embedded` (rusqlite) feature
+  expect a few hundred KB–1 MB per ABI. Acceptable, but measure.
+- **Skillset/onboarding:** introduces Rust as a maintained language. Keep the crate
+  small, pure, and well-tested (`golden.json`) so the FFI surface stays narrow.
+- **Mitigation:** Phase 0 scopes the core to *pure ranking only* (no SQLite, no
+  cross-compile beyond the Flutter dev targets) — the toolchain cost is proven on a
+  small surface before the embedded engine lands in Phase 3.
 
 ---
 
@@ -266,13 +337,16 @@ unchanged; remote failures degrade to local silently.
 
 ## Sequencing summary
 
-- **Phase 0** (ruleset + golden + Dart interpreter refactor) — behavior-preserving,
-  unblocks everything, independently shippable.
-- **Phase 1** (ingestion + `Turbo.Places` + PostGIS read model) — the heavy lift;
-  ships server-only, no client change yet.
-- **Phase 2** (contract + client remote rewiring + C#/Kotlin interpreters) — clients
+- **Phase 0** (`place-core` Rust crate + ruleset + golden + Dart/FFI refactor) —
+  behavior-preserving, proves the shared-core + toolchain on a small surface,
+  unblocks everything.
+- **Phase 1** (ingestion + `Turbo.Places` + PostGIS read model; server P/Invokes
+  the core) — the heavy lift; ships server-only, no client change yet.
+- **Phase 2** (contract + client remote rewiring + Android UniFFI binding) — clients
   now own their data; identical responses.
-- **Phase 3** (offline bundles + `TieredPlaceService`) — offline lights up; online
-  unchanged.
+- **Phase 3** (offline bundles + `place-core` embedded engine + `TieredPlaceService`)
+  — the shared core now owns the on-device query path too; offline lights up;
+  online unchanged.
 
-Each phase is independently shippable and guarded by the shared golden fixtures.
+Each phase is independently shippable; behavior is guarded by one `golden.json`
+against one core, not three hand-written interpreters.
