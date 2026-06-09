@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 turbo-tiles-core.workspace = true
 turbo-tiles-db.workspace = true
+sqlx.workspace = true
 turbo-tiles-mvt.workspace = true
 turbo-tiles-auth.workspace = true
 turbo-tiles-api.workspace = true
