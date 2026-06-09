@@ -100,6 +100,7 @@ public struct MapScreen: View {
             routeGeometry: routing?.geometry ?? measuring?.points ?? [],
             onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
+            onVisibleBoundsChange: { viewModel.updateVisibleBounds($0) },
             onSelectPin: { id in selectedMarker = viewModel.markers.first { $0.id == id } },
             onTap: tapHandler
         )

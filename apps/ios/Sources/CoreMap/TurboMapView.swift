@@ -20,6 +20,7 @@ public struct TurboMapView: UIViewRepresentable {
     private let routeGeometry: [LatLng]
     private let onLongPress: ((LatLng) -> Void)?
     private let onRegionChange: ((LatLng, Double) -> Void)?
+    private let onVisibleBoundsChange: ((GeoBounds) -> Void)?
     private let onSelectPin: ((String) -> Void)?
     private let onTap: ((LatLng) -> Void)?
 
@@ -36,6 +37,7 @@ public struct TurboMapView: UIViewRepresentable {
         routeGeometry: [LatLng] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
+        onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil,
         onTap: ((LatLng) -> Void)? = nil
     ) {
@@ -48,6 +50,7 @@ public struct TurboMapView: UIViewRepresentable {
         self.routeGeometry = routeGeometry
         self.onLongPress = onLongPress
         self.onRegionChange = onRegionChange
+        self.onVisibleBoundsChange = onVisibleBoundsChange
         self.onSelectPin = onSelectPin
         self.onTap = onTap
     }
@@ -79,6 +82,7 @@ public struct TurboMapView: UIViewRepresentable {
     public func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.onLongPress = onLongPress
         context.coordinator.onRegionChange = onRegionChange
+        context.coordinator.onVisibleBoundsChange = onVisibleBoundsChange
         context.coordinator.onSelectPin = onSelectPin
         context.coordinator.onTap = onTap
         context.coordinator.syncOverlay(on: map, base: baseLayer)
@@ -101,6 +105,7 @@ public struct TurboMapView: UIViewRepresentable {
     public final class Coordinator: NSObject, MKMapViewDelegate {
         var onLongPress: ((LatLng) -> Void)?
         var onRegionChange: ((LatLng, Double) -> Void)?
+        var onVisibleBoundsChange: ((GeoBounds) -> Void)?
         var onSelectPin: ((String) -> Void)?
         var onTap: ((LatLng) -> Void)?
         private var currentBase: BaseLayer?
@@ -183,6 +188,13 @@ public struct TurboMapView: UIViewRepresentable {
                 ? mapView.visibleMapRect.size.width * MKMetersPerMapPointAtLatitude(c.latitude) / Double(width)
                 : 0
             onRegionChange?(LatLng(lat: c.latitude, lng: c.longitude), metersPerPoint)
+            let r = mapView.region
+            onVisibleBoundsChange?(GeoBounds(
+                south: r.center.latitude - r.span.latitudeDelta / 2,
+                west: r.center.longitude - r.span.longitudeDelta / 2,
+                north: r.center.latitude + r.span.latitudeDelta / 2,
+                east: r.center.longitude + r.span.longitudeDelta / 2
+            ))
         }
 
         func installOverlay(on map: MKMapView, base: BaseLayer) {
@@ -275,6 +287,7 @@ public struct TurboMapView: View {
         routeGeometry: [LatLng] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
+        onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil,
         onTap: ((LatLng) -> Void)? = nil
     ) {}

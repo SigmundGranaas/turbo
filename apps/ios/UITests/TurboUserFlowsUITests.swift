@@ -122,11 +122,13 @@ final class TurboUserFlowsUITests: XCTestCase {
         app.buttons["menu.offline"].tap()
 
         XCTAssertTrue(app.navigationBars["Offline Maps"].waitForExistence(timeout: 5))
-        app.buttons["Download New Region"].tap()
+        app.buttons["Download This Area"].tap()
 
-        // The region the hiker asked for is now in their offline maps.
-        XCTAssertTrue(app.staticTexts["Lyngen Alps"].waitForExistence(timeout: 10),
-                      "the requested region was not added to offline maps")
+        // The area the hiker was viewing is now in their offline maps (named by
+        // its coordinates when no place name resolves).
+        let region = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Area ")).firstMatch
+        XCTAssertTrue(region.waitForExistence(timeout: 10),
+                      "the viewed area was not added to offline maps")
     }
 
     // MARK: Goal — set a preference and have the app remember it

@@ -137,7 +137,15 @@ public struct RootView: View {
                 onOpenOffline: { path.append(Route.offline) }
             )
         case .offline:
-            OfflineMapsScreen(viewModel: container.makeOfflineViewModel())
+            OfflineMapsScreen(
+                viewModel: container.makeOfflineViewModel(),
+                currentBounds: mapViewModel.visibleBounds,
+                currentBase: mapViewModel.baseLayer,
+                resolveName: { bounds in
+                    let center = LatLng(lat: (bounds.south + bounds.north) / 2, lng: (bounds.west + bounds.east) / 2)
+                    return await container.reverseGeocode.describe(center)?.title
+                }
+            )
         }
     }
 }

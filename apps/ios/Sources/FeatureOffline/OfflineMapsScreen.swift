@@ -12,9 +12,21 @@ public struct OfflineMapsScreen: View {
     @Environment(\.turbo) private var t
     @State private var viewModel: OfflineViewModel
     private let onBack: (() -> Void)?
+    /// The map's current visible rectangle — what "Download" grabs. Nil if the
+    /// map hasn't reported a region yet (download is then unavailable).
+    private let currentBounds: GeoBounds?
+    private let currentBase: BaseLayer
+    /// Resolve a human name for a downloaded area (reverse-geocode), else nil.
+    private let resolveName: ((GeoBounds) async -> String?)?
 
-    public init(viewModel: OfflineViewModel, onBack: (() -> Void)? = nil) {
+    public init(viewModel: OfflineViewModel, currentBounds: GeoBounds? = nil,
+                currentBase: BaseLayer = .norgeskart,
+                resolveName: ((GeoBounds) async -> String?)? = nil,
+                onBack: (() -> Void)? = nil) {
         _viewModel = State(initialValue: viewModel)
+        self.currentBounds = currentBounds
+        self.currentBase = currentBase
+        self.resolveName = resolveName
         self.onBack = onBack
     }
 
@@ -36,8 +48,13 @@ public struct OfflineMapsScreen: View {
             }
 
             Section {
-                Button(action: downloadSample) {
-                    Label("Download New Region", systemImage: "plus")
+                Button(action: downloadCurrentArea) {
+                    Label("Download This Area", systemImage: "square.and.arrow.down")
+                }
+                .disabled(currentBounds == nil)
+            } footer: {
+                if currentBounds == nil {
+                    Text("Open the map and pan to the area you want before downloading.")
                 }
             }
         }
@@ -45,10 +62,11 @@ public struct OfflineMapsScreen: View {
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button(action: downloadSample) {
-                    Image(systemName: "plus")
+                Button(action: downloadCurrentArea) {
+                    Image(systemName: "square.and.arrow.down")
                 }
-                .accessibilityLabel("Download region")
+                .accessibilityLabel("Download this area")
+                .disabled(currentBounds == nil)
             }
         }
         .task { viewModel.start() }
@@ -68,10 +86,22 @@ public struct OfflineMapsScreen: View {
         return values?.volumeAvailableCapacityForImportantUsage
     }
 
-    /// Demo download — the real flow downloads the current map camera box.
-    private func downloadSample() {
-        let lyngen = GeoBounds(south: 69.45, west: 19.80, north: 69.75, east: 20.40)
-        viewModel.download(name: "Lyngen Alps", base: .norgeskart, bounds: lyngen, fromZoom: 11)
+    /// Download the area currently shown on the map, at a zoom matched to the
+    /// viewport (plus a few more detailed levels) and named via reverse-geocode.
+    private func downloadCurrentArea() {
+        guard let bounds = currentBounds else { return }
+        let lonSpan = max(bounds.east - bounds.west, 0.0001)
+        let fromZoom = min(15, max(8, log2(360 / lonSpan)))
+        Task {
+            let name = await resolveName?(bounds) ?? Self.coordinateName(bounds)
+            viewModel.download(name: name, base: currentBase, bounds: bounds, fromZoom: fromZoom)
+        }
+    }
+
+    /// Fallback name from the area's centre, e.g. "Area 69.6°N 19.9°E".
+    private static func coordinateName(_ b: GeoBounds) -> String {
+        let lat = (b.south + b.north) / 2, lng = (b.west + b.east) / 2
+        return String(format: "Area %.1f°N %.1f°E", lat, lng)
     }
 }
 
