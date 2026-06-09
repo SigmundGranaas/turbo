@@ -147,6 +147,27 @@ mountainous/coastal county — e.g. Møre og Romsdal (`15`, ~272 MB zip): observ
 
 ---
 
+## 3a. Serving the basemap
+
+Once the canonical tables are populated, the multi-layer N50 basemap is served
+straight from PostGIS — no build step:
+
+```
+GET /v1/basemap                      # TileJSON 3.0.0 descriptor (layers, zooms, fields)
+GET /v1/basemap/{z}/{x}/{y}.mvt      # one MVT with all active layers stitched in
+```
+
+Layers, paint order, per-layer zoom ranges, and exposed attributes are declared
+in `tools/basemap-layers.toml` (embedded fallback compiled in). Adding a feature
+class is a TOML edit. The tile is assembled in one SQL statement — `ST_AsMVT`
+per active layer, concatenated — and line/polygon layers can opt into
+zoom-scaled `ST_SimplifyPreserveTopology` + a sub-pixel-area drop to keep
+low-zoom tiles small.
+
+Verified locally (Oslo): `/v1/basemap/12/2170/1189.mvt` → 32 KB tile carrying
+`water` + `contour` + `transportation` + `place`; at z14 the `building` layer
+joins (it's gated to `min_zoom = 14`).
+
 ## 4. Automated tests
 
 `crates/turbo-tiles-ingest/tests/e2e_pipeline.rs` runs the **real** production

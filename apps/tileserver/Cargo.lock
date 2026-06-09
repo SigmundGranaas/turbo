@@ -3301,6 +3301,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror 1.0.69",
+ "toml",
  "tracing",
  "turbo-tiles-core",
  "turbo-tiles-db",

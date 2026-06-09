@@ -3,6 +3,7 @@ use axum::Router;
 
 use crate::state::ApiState;
 
+mod basemap;
 mod catalog;
 mod dem;
 mod elev;
@@ -28,6 +29,12 @@ mod tiles;
 pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/catalog", get(catalog::catalog))
+        // Multi-layer N50 topo basemap (water/landcover/contour/building/
+        // transportation/place) + its TileJSON descriptor. Registered before
+        // the generic `/:resource/...` routes so `basemap` isn't captured as
+        // a resource slug.
+        .route("/basemap", get(basemap::describe))
+        .route("/basemap/:z/:x/:y.mvt", get(basemap::tile))
         .route("/:resource/tiles/:z/:x/:y.mvt", get(tiles::tile))
         .route("/:resource", get(resource::list))
         .route("/:resource/:id", get(resource::detail))

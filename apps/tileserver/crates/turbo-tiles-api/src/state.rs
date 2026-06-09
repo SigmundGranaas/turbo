@@ -43,6 +43,10 @@ pub struct ApiState {
     /// from `tools/route-presets.toml`. A request's `preset` field maps
     /// to one of these; the SPA lists them in its "Trip style" dropdown.
     pub presets: Arc<turbo_tiles_pathfind::PresetSet>,
+    /// Multi-layer N50 basemap definition, resolved at boot from
+    /// `tools/basemap-layers.toml` (embedded fallback). Drives
+    /// `/v1/basemap/{z}/{x}/{y}.mvt`.
+    pub basemap: Arc<turbo_tiles_mvt::BasemapConfig>,
 }
 
 impl ApiState {
@@ -58,6 +62,7 @@ impl ApiState {
             landcover: std::collections::HashMap::new(),
             pathfinder: None,
             presets: Arc::new(turbo_tiles_pathfind::PresetSet::load_or_default()),
+            basemap: Arc::new(turbo_tiles_mvt::BasemapConfig::load_or_default()),
         }
     }
 }
