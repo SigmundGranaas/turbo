@@ -4,13 +4,13 @@
 
 use std::sync::Arc;
 
-use turbomap_engine::{ResolvedSource, SourceResolver};
+use turbomap_engine::{GeoJsonVectorSource, ResolvedSource, SourceResolver};
 use turbomap_golden::sources::{GaussianTerrainSource, ParchmentBasemap};
 use turbomap_scene::SourceDef;
 
-/// Resolves raster sources to a flat parchment basemap and DEM sources to
-/// the Gaussian-Bergen terrain — the same synthetic data the golden trace
-/// path uses, so engine renders are comparable to the imperative golden.
+/// Resolves raster→parchment, DEM→Gaussian-Bergen terrain, and GeoJSON to a
+/// real `GeoJsonVectorSource` over the inline data — the same data path
+/// production uses, just with synthetic raster/DEM.
 pub struct SyntheticResolver;
 
 impl SourceResolver for SyntheticResolver {
@@ -20,7 +20,10 @@ impl SourceResolver for SyntheticResolver {
             SourceDef::DemXyz { .. } => {
                 ResolvedSource::Dem(Arc::new(GaussianTerrainSource::bergen()))
             }
-            SourceDef::VectorXyz { .. } | SourceDef::GeoJson { .. } => ResolvedSource::Unsupported,
+            SourceDef::GeoJson { data } => {
+                ResolvedSource::Vector(Arc::new(GeoJsonVectorSource::new(data)))
+            }
+            SourceDef::VectorXyz { .. } => ResolvedSource::Unsupported,
         }
     }
 }

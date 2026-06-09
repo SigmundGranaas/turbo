@@ -12,14 +12,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use turbomap_core::{
-    Camera, HillshadeStyle, HitResult, LatLng as CoreLatLng, Map, MapError, MapOptions,
-    PendingTile, TerrainOptions, TileId, TileSource,
+    Camera, Color as CoreColor, Filter as CoreFilter, HillshadeStyle, HitResult,
+    LatLng as CoreLatLng, Map, MapError, MapOptions, Paint as CorePaint, PendingTile, Rule as CoreRule,
+    TerrainOptions, TileId, TileSource, VectorStyle, VectorTileSource,
 };
 use turbomap_scene::{
-    diff, Capabilities, CameraState, Hit, LatLng, Layer, MapEngine, Scene, SceneDelta, ScreenPoint,
+    diff, Capabilities, CameraState, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
+    Paint, Scene, SceneDelta, ScreenPoint, SourceDef,
 };
 
+use crate::geojson::GEOJSON_LAYER;
 use crate::resolver::{ResolvedSource, SourceResolver};
+
+/// Pixels-to-extent-units for vector line widths. Core line width is in
+/// tile-extent units (~0.0625 px each at extent 4096), so a `W`-px line is
+/// roughly `W * 16` extent units.
+const PX_TO_EXTENT: f32 = 16.0;
 
 /// Counts from one [`TurbomapEngine::pump_tiles`] drain — useful both as
 /// a convergence guard and as an inspectable signal.
@@ -28,6 +36,7 @@ pub struct DrainStats {
     pub rounds: u32,
     pub raster_tiles: u32,
     pub terrain_tiles: u32,
+    pub vector_tiles: u32,
 }
 
 /// A wgpu map engine driven by the renderer-agnostic [`Scene`] IR.
@@ -40,6 +49,8 @@ pub struct TurbomapEngine {
     raster_sources: HashMap<String, Arc<dyn TileSource>>,
     /// The single resolved DEM source feeding terrain/hillshade.
     terrain_source: Option<Arc<dyn TileSource>>,
+    /// Resolved vector source per layer id (MVT or GeoJSON).
+    vector_sources: HashMap<String, Arc<dyn VectorTileSource>>,
     /// Layer ids the current backend cannot render (recorded each apply).
     unsupported: Vec<String>,
     max_texture_size: u32,
@@ -66,6 +77,7 @@ impl TurbomapEngine {
             resolver,
             raster_sources: HashMap::new(),
             terrain_source: None,
+            vector_sources: HashMap::new(),
             unsupported: Vec::new(),
             max_texture_size,
         })
@@ -83,6 +95,7 @@ impl TurbomapEngine {
         self.map.clear_terrain();
         self.raster_sources.clear();
         self.terrain_source = None;
+        self.vector_sources.clear();
         self.unsupported.clear();
 
         for layer in &new.layers {
@@ -112,6 +125,32 @@ impl TurbomapEngine {
                             );
                             self.map.add_hillshade_layer(id.clone(), HillshadeStyle::default());
                             self.terrain_source = Some(dem);
+                        }
+                        _ => self.unsupported.push(id.clone()),
+                    }
+                }
+                Layer::Line {
+                    id,
+                    source,
+                    source_layer,
+                    filter,
+                    color,
+                    width,
+                } => {
+                    let def = new.sources.get(source);
+                    match def.map(|d| self.resolver.resolve(source, d)) {
+                        Some(ResolvedSource::Vector(vsrc)) => {
+                            let zoom = self.map.camera().zoom;
+                            // GeoJSON sources emit a fixed layer name; MVT
+                            // sources use the layer's declared source-layer.
+                            let layer_name = if matches!(def, Some(SourceDef::GeoJson { .. })) {
+                                GEOJSON_LAYER.to_string()
+                            } else {
+                                source_layer.clone().unwrap_or_default()
+                            };
+                            let style = line_style(layer_name, filter, color, width, zoom);
+                            self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
+                            self.vector_sources.insert(id.clone(), vsrc);
                         }
                         _ => self.unsupported.push(id.clone()),
                     }
@@ -146,6 +185,14 @@ impl TurbomapEngine {
                             if let Some((rgba, w, h)) = fetch_decode(src.as_ref(), tile) {
                                 self.map.ingest_terrain_tile(tile, &rgba, w, h);
                                 stats.terrain_tiles += 1;
+                            }
+                        }
+                    }
+                    PendingTile::Vector { layer_id, tile } => {
+                        if let Some(src) = self.vector_sources.get(&layer_id).cloned() {
+                            if let Ok(vtile) = src.request(tile) {
+                                self.map.ingest_vector_tile(&layer_id, tile, &vtile);
+                                stats.vector_tiles += 1;
                             }
                         }
                     }
@@ -279,6 +326,59 @@ fn from_core_camera(c: Camera) -> CameraState {
         zoom: c.zoom,
         pitch_deg: c.pitch_deg,
         bearing_deg: c.bearing_deg,
+    }
+}
+
+/// Build a core `VectorStyle` from a Scene `Line` layer. Paints are
+/// resolved at the current zoom (data-driven/zoom GPU paint is Phase 3);
+/// line width is converted from pixels to core's extent units.
+fn line_style(
+    layer_name: String,
+    filter: &Filter,
+    color: &Paint<Color>,
+    width: &Paint<f32>,
+    zoom: f64,
+) -> VectorStyle {
+    let c = color.at(zoom);
+    let w = (width.at(zoom) * PX_TO_EXTENT).max(1.0);
+    VectorStyle {
+        background: CoreColor::rgba(0, 0, 0, 0),
+        rules: vec![CoreRule {
+            source_layer: layer_name,
+            filter: map_filter(filter),
+            paint: CorePaint::Line {
+                color: CoreColor::rgba(c.r, c.g, c.b, c.a),
+                width: w,
+            },
+            min_zoom: 0,
+            max_zoom: 22,
+            interactive: false,
+        }],
+    }
+}
+
+/// Map the IR filter onto core's narrower matcher. Compound forms
+/// (`Not`/`All`/`Any`) have no core equivalent yet, so they degrade to
+/// `Always` rather than failing.
+fn map_filter(filter: &Filter) -> CoreFilter {
+    match filter {
+        Filter::Always => CoreFilter::Always,
+        Filter::Eq(key, value) => CoreFilter::Eq(key.clone(), filter_value_to_string(value)),
+        Filter::In(key, values) => {
+            CoreFilter::In(key.clone(), values.iter().map(filter_value_to_string).collect())
+        }
+        Filter::Not(_) | Filter::All(_) | Filter::Any(_) => {
+            log::warn!("compound filter unsupported by core style; treating as Always");
+            CoreFilter::Always
+        }
+    }
+}
+
+fn filter_value_to_string(value: &FilterValue) -> String {
+    match value {
+        FilterValue::Bool(b) => b.to_string(),
+        FilterValue::Number(n) => n.to_string(),
+        FilterValue::String(s) => s.clone(),
     }
 }
 

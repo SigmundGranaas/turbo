@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use turbomap_core::TileSource;
+use turbomap_core::{TileSource, VectorTileSource};
 use turbomap_scene::SourceDef;
 
 /// The concrete tile source a [`SourceResolver`] produces for a layer,
@@ -20,6 +20,9 @@ pub enum ResolvedSource {
     Raster(Arc<dyn TileSource>),
     /// A DEM source feeding terrain/hillshade.
     Dem(Arc<dyn TileSource>),
+    /// A vector source (MVT tiles, or inline GeoJSON via
+    /// [`crate::GeoJsonVectorSource`]) feeding line/fill layers.
+    Vector(Arc<dyn VectorTileSource>),
     /// The resolver does not provide this source (the layer is skipped
     /// and recorded as unsupported).
     Unsupported,

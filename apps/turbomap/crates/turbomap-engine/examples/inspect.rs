@@ -21,7 +21,8 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use turbomap_core::MapOptions;
 use turbomap_engine::{
-    CameraState, MapEngine, ResolvedSource, SceneDelta, SourceResolver, TurbomapEngine,
+    CameraState, GeoJsonVectorSource, MapEngine, ResolvedSource, SceneDelta, SourceResolver,
+    TurbomapEngine,
 };
 use turbomap_golden::sources::{GaussianTerrainSource, ParchmentBasemap};
 use turbomap_golden::{headless, render_to_image, TARGET_FORMAT};
@@ -34,7 +35,10 @@ impl SourceResolver for SyntheticResolver {
         match def {
             SourceDef::RasterXyz { .. } => ResolvedSource::Raster(Arc::new(ParchmentBasemap)),
             SourceDef::DemXyz { .. } => ResolvedSource::Dem(Arc::new(GaussianTerrainSource::bergen())),
-            _ => ResolvedSource::Unsupported,
+            SourceDef::GeoJson { data } => {
+                ResolvedSource::Vector(Arc::new(GeoJsonVectorSource::new(data)))
+            }
+            SourceDef::VectorXyz { .. } => ResolvedSource::Unsupported,
         }
     }
 }
@@ -303,6 +307,7 @@ fn main() {
             "drain_rounds": drain.rounds,
             "raster_tiles": drain.raster_tiles,
             "terrain_tiles": drain.terrain_tiles,
+            "vector_tiles": drain.vector_tiles,
         },
         "render": {
             "adapter": gpu.adapter_name,

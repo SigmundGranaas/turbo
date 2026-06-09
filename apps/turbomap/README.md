@@ -15,7 +15,7 @@ Kartverket Turkart raster tiles, and lets you pan and zoom around Norway.
 | `turbomap-app` | The desktop binary. winit window + wgpu surface + tile fetch pump. |
 | `turbomap-golden` | Headless golden-image + record/replay test harness. No I/O, no window — deterministic render tests on a software adapter. |
 | `turbomap-scene` | Renderer-agnostic `Scene`/`Paint` IR, pure scene `diff`, and the `MapEngine` contract + conformance suite. No GPU, no I/O — the shared schema host languages bind to. |
-| `turbomap-engine` | `TurbomapEngine`: drives `turbomap-core`'s wgpu pipelines from the `Scene` IR via the `MapEngine` contract. Includes the `inspect` dev tool. |
+| `turbomap-engine` | `TurbomapEngine`: drives `turbomap-core`'s wgpu pipelines from the `Scene` IR via the `MapEngine` contract. Renders raster, hillshade and GeoJSON line layers. Includes the `inspect` dev tool and a vector bench. |
 
 Dependency direction is strict and one-way:
 
@@ -78,6 +78,18 @@ cargo run -p turbomap-engine --example inspect -- --png /tmp/out.png
 cargo run -p turbomap-engine --example inspect -- \
   --scene scene.json --prev prev.json --report report.json
 ```
+
+### Profiling
+
+The GeoJSON line path (per-tile clip + tessellate) has a criterion bench:
+
+```sh
+cargo bench -p turbomap-engine
+```
+
+Per-tile clipping is what keeps it cheap — without it every tile
+tessellates the whole line. On a Bergen route across ~35 tiles the
+clipped clip+tessellate runs ~9× faster than the unclipped path.
 
 ## License
 

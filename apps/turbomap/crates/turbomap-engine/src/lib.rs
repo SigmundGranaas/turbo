@@ -13,9 +13,11 @@
 //! the golden tests and the `inspect` dev tool exercise it.
 
 pub mod engine;
+pub mod geojson;
 pub mod resolver;
 
 pub use engine::{DrainStats, TurbomapEngine};
+pub use geojson::GeoJsonVectorSource;
 pub use resolver::{ResolvedSource, SourceResolver};
 
 // Re-export the contract surface so hosts depend on one crate.
