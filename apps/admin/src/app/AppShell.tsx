@@ -50,6 +50,9 @@ export function AppShell() {
           <NavLink to="/incoming" className={linkClass}>
             Incoming files
           </NavLink>
+          <NavLink to="/provision" className={linkClass}>
+            Provision data
+          </NavLink>
           <NavLink to="/jobs" className={linkClass}>
             Ingest jobs
           </NavLink>
