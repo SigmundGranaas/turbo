@@ -65,26 +65,53 @@ class ReverseGeocodeTest {
     @Test
     fun `compose cascades name then address then kommune`() {
         val peak = ReverseGeocode.NearbyName("Galdhøpiggen", "fjelltopp", 80.0)
-        val byName = ReverseGeocode.compose(peak, "ignored", ReverseGeocode.Kommune("Lom", "Innlandet"), 2469.0)!!
+        val byName = ReverseGeocode.compose(peak, null, "ignored", ReverseGeocode.Kommune("Lom", "Innlandet"), 2469.0)!!
         assertEquals("On Galdhøpiggen", byName.label)
         assertTrue(byName.subtitle.contains("2469 m"))
 
-        val byAddress = ReverseGeocode.compose(null, "Storgata 4", ReverseGeocode.Kommune("Lom", null), null)!!
+        val byAddress = ReverseGeocode.compose(null, null, "Storgata 4", ReverseGeocode.Kommune("Lom", null), null)!!
         assertEquals("Near Storgata 4", byAddress.label)
 
-        val byKommune = ReverseGeocode.compose(null, null, ReverseGeocode.Kommune("Lom", "Innlandet"), null)!!
+        val byKommune = ReverseGeocode.compose(null, null, null, ReverseGeocode.Kommune("Lom", "Innlandet"), null)!!
         assertEquals("In Lom", byKommune.label)
 
-        assertNull(ReverseGeocode.compose(null, null, null, null))
+        assertNull(ReverseGeocode.compose(null, null, null, null, null))
+    }
+
+    @Test
+    fun `a containing protected area beats a distant settlement but loses to a close peak`() {
+        val park = ReverseGeocode.ProtectedArea("Jotunheimen", "Nasjonalpark")
+        // A national park is more useful than the kommune (a far settlement).
+        val byPark = ReverseGeocode.compose(null, park, null, ReverseGeocode.Kommune("Lom", "Innlandet"), 1400.0)!!
+        assertEquals("In Jotunheimen", byPark.label)
+        // …but a close peak still wins.
+        val peak = ReverseGeocode.NearbyName("Galdhøpiggen", "fjelltopp", 60.0)
+        val byPeak = ReverseGeocode.compose(peak, park, null, null, 2469.0)!!
+        assertEquals("On Galdhøpiggen", byPeak.label)
+    }
+
+    @Test
+    fun `parseProtectedArea reads name + verneform, prefers national park, rejects codes`() {
+        val body = """
+            {"results":[
+              {"layerName":"Naturreservat","value":"ignored","attributes":{"navn":"Sjodalen","verneform":"Naturreservat"}},
+              {"layerName":"Nasjonalpark","value":"VV00002858","attributes":{"Navn":"Jotunheimen","Verneform":"Nasjonalpark"}}
+            ]}
+        """.trimIndent()
+        val area = ReverseGeocode.parseProtectedArea(body)!!
+        assertEquals("Jotunheimen", area.name) // national park preferred; code in `value` ignored
+        assertEquals("Nasjonalpark", area.kind)
+        assertNull(ReverseGeocode.parseProtectedArea("""{"results":[]}"""))
+        assertTrue(ReverseGeocode.looksLikeNaturbaseCode("VV00002858"))
     }
 
     @Test
     fun `a bare parcel-code address is skipped in favour of the kommune`() {
         // "155/1/73" is a gnr/bnr code — prefer "In Lom" over "Near 155/1/73".
-        val byKommune = ReverseGeocode.compose(null, "155/1/73", ReverseGeocode.Kommune("Lom", "Innlandet"), 2268.0)!!
+        val byKommune = ReverseGeocode.compose(null, null, "155/1/73", ReverseGeocode.Kommune("Lom", "Innlandet"), 2268.0)!!
         assertEquals("In Lom", byKommune.label)
         // A real street address is kept.
-        val byAddress = ReverseGeocode.compose(null, "Storgata 4", ReverseGeocode.Kommune("Lom", null), null)!!
+        val byAddress = ReverseGeocode.compose(null, null, "Storgata 4", ReverseGeocode.Kommune("Lom", null), null)!!
         assertEquals("Near Storgata 4", byAddress.label)
     }
 

@@ -12,6 +12,8 @@ import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
@@ -45,18 +47,20 @@ class KartverketReverseGeocodeRepository @Inject constructor(
         cache[cellKey]?.let { return Outcome.Success(it) }
         return try {
             coroutineScope {
-                // The name, kommune and elevation are independent — fetch concurrently.
+                // The sources are independent — fetch concurrently.
                 val nameDeferred = async { runCatching { fetchNearestName(point) }.getOrNull() }
+                val protectedDeferred = async { runCatching { fetchProtectedArea(point) }.getOrNull() }
                 val addressDeferred = async { runCatching { fetchAddress(point) }.getOrNull() }
                 val kommuneDeferred = async { runCatching { fetchKommune(point) }.getOrNull() }
                 val elevationDeferred = async { runCatching { fetchElevation(point) }.getOrNull() }
 
                 val name = nameDeferred.await()
+                val protectedArea = protectedDeferred.await()
                 val address = addressDeferred.await()
                 val kommune = kommuneDeferred.await()
                 val elevation = elevationDeferred.await()
 
-                val description = ReverseGeocode.compose(name, address, kommune, elevation)
+                val description = ReverseGeocode.compose(name, protectedArea, address, kommune, elevation)
                     ?: return@coroutineScope Outcome.Failure(IllegalStateException("No description"))
                 cache[cellKey] = description
                 Outcome.Success(description)
@@ -79,6 +83,34 @@ class KartverketReverseGeocodeRepository @Inject constructor(
             }
             .bodyAsText()
         return ReverseGeocode.pickNearestName(ReverseGeocode.parseStedsnavn(raw))
+    }
+
+    /**
+     * Miljødirektoratet's Vern (Naturbase) ArcGIS Identify — national parks, nature
+     * reserves, landscape-protected areas. Stedsnavn doesn't carry these polygons, so
+     * without this the geocoder can't say "In Jotunheimen nasjonalpark". Layer scope is
+     * the long-shipped `all:1`; out of coverage → null.
+     */
+    private suspend fun fetchProtectedArea(point: LatLng): ReverseGeocode.ProtectedArea? {
+        val half = 0.005 // ~500 m at Nordic latitudes
+        val geometry = """{"x":${point.lng},"y":${point.lat},"spatialReference":{"wkid":4326}}"""
+        val extent = """{"xmin":${point.lng - half},"ymin":${point.lat - half},""" +
+            """"xmax":${point.lng + half},"ymax":${point.lat + half},"spatialReference":{"wkid":4326}}"""
+        val raw = client
+            .get("https://kart.miljodirektoratet.no/arcgis/rest/services/vern/MapServer/identify") {
+                parameter("geometry", geometry)
+                parameter("geometryType", "esriGeometryPoint")
+                parameter("sr", 4326)
+                parameter("tolerance", 1)
+                parameter("layers", "all:1")
+                parameter("mapExtent", extent)
+                parameter("imageDisplay", "400,400,96")
+                parameter("returnGeometry", false)
+                parameter("f", "json")
+                header("User-Agent", USER_AGENT)
+            }
+            .bodyAsText()
+        return ReverseGeocode.parseProtectedArea(raw)
     }
 
     private suspend fun fetchAddress(point: LatLng): String? {
@@ -136,6 +168,9 @@ internal object ReverseGeocode {
 
     data class Kommune(val name: String, val fylke: String?)
 
+    /** A Naturbase protected area containing the point (national park / reserve / …). */
+    data class ProtectedArea(val name: String, val kind: String?)
+
     /** ~250 m grid cell (0.0025°): quantize lat/lng and pack into a stable key. */
     fun cellKey(point: LatLng): Long {
         val qLat = Math.round(point.lat * GRID).toInt()
@@ -181,6 +216,53 @@ internal object ReverseGeocode {
         Kommune(name, obj["fylkesnavn"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank))
     }.getOrNull()
 
+    /**
+     * Parse an ArcGIS Identify response from the Vern MapServer into the best
+     * containing area: national park → nature reserve → anything else. Area *codes*
+     * ("VV00002858") are rejected so they never surface as a title.
+     */
+    fun parseProtectedArea(body: String): ProtectedArea? = runCatching {
+        val results = json.parseToJsonElement(body).jsonObject["results"]?.jsonArray.orEmpty()
+        val areas = results.mapNotNull { el ->
+            val obj = el.jsonObject
+            val name = readAreaName(obj) ?: return@mapNotNull null
+            ProtectedArea(name, readAreaKind(obj))
+        }
+        pickArea(areas)
+    }.getOrNull()
+
+    fun pickArea(areas: List<ProtectedArea>): ProtectedArea? {
+        if (areas.isEmpty()) return null
+        return areas.firstOrNull { it.kind?.lowercase()?.contains("nasjonalpark") == true }
+            ?: areas.firstOrNull { it.kind?.lowercase()?.contains("naturreservat") == true }
+            ?: areas.first()
+    }
+
+    /** ArcGIS puts the display value in `value` or a named attribute; Naturbase uses
+     *  navn / områdenavn variants. Probe named keys first, fall back to `value`. */
+    private fun readAreaName(result: JsonObject): String? {
+        val attrs = result["attributes"] as? JsonObject
+        val keys = listOf("navn", "Navn", "NAVN", "områdenavn", "OMRÅDENAVN", "omradenavn", "Name", "NAME")
+        val candidates = keys.mapNotNull { attrs?.get(it) } + listOfNotNull(result["value"])
+        return candidates.firstNotNullOfOrNull { raw ->
+            (raw as? JsonPrimitive)?.contentOrNull?.trim()
+                ?.takeIf { it.isNotEmpty() && it != "Null" && !looksLikeNaturbaseCode(it) }
+        }
+    }
+
+    /** `verneform` is Naturbase's protection-class label; fall back to the layer name. */
+    private fun readAreaKind(result: JsonObject): String? {
+        val attrs = result["attributes"] as? JsonObject
+        for (k in listOf("verneform", "Verneform", "VERNEFORM")) {
+            val v = (attrs?.get(k) as? JsonPrimitive)?.contentOrNull?.trim()
+            if (!v.isNullOrEmpty() && v != "Null") return v
+        }
+        return (result["layerName"] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotBlank)
+    }
+
+    /** Naturbase area codes like "VV00002858" / "LVO00567" — uppercase prefix + digits. */
+    fun looksLikeNaturbaseCode(s: String): Boolean = Regex("""^[A-Z]{1,5}\d{3,}$""").matches(s)
+
     fun parseAddress(body: String): String? = runCatching {
         val first = json.parseToJsonElement(body).jsonObject["adresser"]?.jsonArray?.firstOrNull()?.jsonObject
             ?: return null
@@ -194,18 +276,36 @@ internal object ReverseGeocode {
     }.getOrNull()
 
     /**
-     * Cascade: a named place wins; then a *human-readable* nearby address; then
-     * the kommune. A bare gårds-/bruksnummer ("155/1/73") is not a useful name,
-     * so it's skipped in favour of the kommune when one is known.
+     * Cascade (mirrors the Flutter geocoder): a *precise* nearby toponym (peak/water)
+     * wins; otherwise a containing protected area (national park / reserve) — more
+     * informative than a distant settlement; then any nearby named place; then a
+     * human-readable address; then the kommune. A bare gårds-/bruksnummer ("155/1/73")
+     * is skipped in favour of the kommune when one is known.
      */
     fun compose(
         name: NearbyName?,
+        protectedArea: ProtectedArea?,
         address: String?,
         kommune: Kommune?,
         elevationM: Double?,
     ): LocationDescription? {
         val usableAddress = address?.takeUnless { looksLikeParcelCode(it) }
+        val precise = name?.takeIf {
+            qualifierFor(it) == PlaceQualifier.On || qualifierFor(it) == PlaceQualifier.At
+        }
         return when {
+            precise != null -> LocationDescription(
+                title = precise.name,
+                qualifier = qualifierFor(precise),
+                secondary = precise.type.takeIf(String::isNotBlank) ?: kommune?.name,
+                elevationM = elevationM,
+            )
+            protectedArea != null -> LocationDescription(
+                title = protectedArea.name,
+                qualifier = PlaceQualifier.In,
+                secondary = protectedArea.kind ?: kommune?.name,
+                elevationM = elevationM,
+            )
             name != null -> LocationDescription(
                 title = name.name,
                 qualifier = qualifierFor(name),
