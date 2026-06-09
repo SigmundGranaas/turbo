@@ -31,6 +31,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Build place-core native library
+        # The Places module P/Invokes the shared Rust ranking core; the
+        # behaviour tests resolve target/debug/libplace_core.so from the
+        # repo layout. ubuntu-latest ships a Rust toolchain.
+        run: cargo build --features cabi
+        working-directory: packages/place-core
+
       - name: Restore
         run: dotnet restore Turboapi.sln
 
@@ -51,6 +58,9 @@ jobs:
 
       - name: Test Geo
         run: dotnet test tests/Turbo.Geo.Behaviour/Turbo.Geo.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
+
+      - name: Test Places
+        run: dotnet test tests/Turbo.Places.Behaviour/Turbo.Places.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"
 
       - name: Test Modulith
         run: dotnet test tests/Turbo.Modulith.Behaviour/Turbo.Modulith.Behaviour.csproj --no-build -c Release --logger "console;verbosity=minimal"

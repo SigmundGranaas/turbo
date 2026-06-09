@@ -369,21 +369,25 @@ reference data; protect at the gateway (app token / rate limit), not per-user.
 
 ---
 
-## 10. Milestones (data-first, vertical slices)
+## 10. Milestones (data-first, vertical slices) — status as of 2026-06-09
 
-| # | Deliverable | Proves |
-|---|---|---|
-| **M0** | Module skeleton + schema + migration + empty endpoints (compiles, deploys, `/health`) | wiring |
-| **M1** | Ingest **one kommune's** SSR slice; `/reverse` returns a real result through `place-core`, no Kartverket | **the pipeline + the whole architecture, end to end** |
-| **M2** | Admin + protected-area containment + elevation enrichment; reverse parity with the current app on that region | correctness |
-| **M3** | Forward search (trgm + tsvector + proximity via `IPlaceSearchIndex`) | search |
-| **M4** | National ingestion (SSR + addresses + admin + parks); index/perf tuning; dataset versioning + refresh CronJob | scale |
-| **M5** | `/bundle` spatial-slice export | unblocks the offline phase |
-| **M6** | Gateway auth + caching/ETag + rate limit + NetArchTest + load test | production |
+| # | Deliverable | Proves | Status |
+|---|---|---|---|
+| **M1** | Sample-area ingestion (Stedsnavn `/punkt` batch download); `/reverse` answers through `place-core`, no Kartverket at query time | **the pipeline + the whole architecture** | ✅ done — "On Galdhøpiggen" (30 m) from owned data |
+| **M2** | Elevation + kommune/fylke enrichment precomputed at ingest | parity subtitle | ✅ done — "· 2468 m · Lom, Innlandet" |
+| **M2b** | Polygon containment: Naturbase parks + kommune boundaries (`places.areas`, ST_Contains) | wilderness/park cases | ✅ done — "In Jotunheimen · Nasjonalpark" |
+| **M3** | Forward search (pg_trgm + prefix retrieval; place-core ordering + icons) | search | ✅ done |
+| **HTTP** | `Turbo.Places.Api` module + `Turbo.Host.Places` + modulith wiring + gateway routes (both topologies) + Dockerfiles + CI (test workflow + image build stage the cdylib) | deployable service | ✅ done — `/api/places/{reverse,search,health}` live |
+| **Tests** | `Turbo.Places.Behaviour`: Testcontainers PostGIS + real host, seeded from the committed fixture (zero network) + golden parity through P/Invoke | regression safety | ✅ done — 8/8 green |
+| **M4** | National ingestion (Geonorge GPKG bulk for SSR + addresses + admin + parks via the staged loader of §3); index/perf tuning; refresh CronJob | scale | ⬜ next |
+| **M5** | `/bundle` spatial-slice export (SQLite R\*Tree + FTS5) | unblocks offline | ⬜ |
+| **M6** | Gateway app-token/rate limit, response caching/ETag on `dataset_version`, NLOD attribution surfaced, load test, observability dashboards | production hardening | ⬜ partially (validation, health, CI in place) |
 
-**M1 is the first thing worth shipping** — it replaces third-party reverse
-geocoding for a real area from our own stack and de-risks the data pipeline,
-which is the actual unknown.
+Notes vs. the original plan: the M1 slice ingests via the Stedsnavn REST API
+(real data, 5 km discs) instead of GPKG bulk — GPKG + `ogr2ogr` remains the M4
+path; the per-point enrichment calls of §3 are likewise replaced by the DTM
+raster + admin spatial join at national scale. The spatial read path is raw
+Npgsql (`PgPlaceStore`) rather than EF Core — deliberate; see §4 note in code.
 
 ---
 

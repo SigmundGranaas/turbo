@@ -67,6 +67,7 @@ public sealed class ModulithHostFixture : IAsyncLifetime
         var sharingConn = RepoLayout.WithDatabase(baseConn, "sharing");
         var tracksConn = RepoLayout.WithDatabase(baseConn, "tracks");
         var geoConn = RepoLayout.WithDatabase(baseConn, "geo");
+        var placesConn = RepoLayout.WithDatabase(baseConn, "places");
         var collectionsConn = RepoLayout.WithDatabase(baseConn, "collections");
         // Activities is one DB with a Postgres schema per kind, owned
         // internally by each module.
@@ -79,6 +80,7 @@ public sealed class ModulithHostFixture : IAsyncLifetime
             builder.UseSetting("ConnectionStrings:Sharing", sharingConn);
             builder.UseSetting("ConnectionStrings:Tracks", tracksConn);
             builder.UseSetting("ConnectionStrings:Geo", geoConn);
+            builder.UseSetting("ConnectionStrings:Places", placesConn);
             builder.UseSetting("ConnectionStrings:Collections", collectionsConn);
             builder.UseSetting("ConnectionStrings:Activities", activitiesConn);
             builder.ConfigureServices((context, _) =>

@@ -1,0 +1,4 @@
+# Staged by CI (api_image_build.yaml) for the docker build context;
+# build locally with: cargo build --release --features cabi (packages/place-core)
+*.so
+!.gitkeep
