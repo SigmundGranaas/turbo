@@ -67,12 +67,64 @@ public sealed class PgPlaceStore : IPlaceStore
                 published_at timestamptz NOT NULL DEFAULT now()
             );
             CREATE INDEX IF NOT EXISTS dataset_active ON places.dataset (status, published_at DESC);
+            -- Staging mirrors live columns; only a unique index for ON CONFLICT
+            -- (no GIST/GIN — they'd just slow the bulk load). A national dataset
+            -- lands here, then SwapAsync replaces live atomically (sweeping
+            -- features absent from the new version).
+            CREATE TABLE IF NOT EXISTS places.places_staging (LIKE places.places INCLUDING DEFAULTS);
+            CREATE UNIQUE INDEX IF NOT EXISTS places_staging_pk
+                ON places.places_staging (source, source_id);
+            CREATE TABLE IF NOT EXISTS places.areas_staging (LIKE places.areas INCLUDING DEFAULTS);
+            CREATE UNIQUE INDEX IF NOT EXISTS areas_staging_pk
+                ON places.areas_staging (source, source_id);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    public async Task<int> UpsertAreasAsync(
+    /// <summary>
+    /// Atomically promote a staged dataset version to live: replace all live
+    /// places + areas from staging (sweeping features absent in the new
+    /// version), clear staging, and mark the version active — all in one
+    /// transaction. DELETE+INSERT (not TRUNCATE) so concurrent readers keep
+    /// serving the prior version under MVCC, with no blocking and no partial
+    /// reads, until the commit flips everything at once.
+    /// </summary>
+    public async Task SwapAsync(string version, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM places.places;
+            INSERT INTO places.places
+                SELECT * FROM places.places_staging WHERE dataset_version = @v;
+            DELETE FROM places.areas;
+            INSERT INTO places.areas
+                SELECT * FROM places.areas_staging WHERE dataset_version = @v;
+            DELETE FROM places.places_staging WHERE dataset_version = @v;
+            DELETE FROM places.areas_staging  WHERE dataset_version = @v;
+            UPDATE places.dataset SET status = 'superseded' WHERE status = 'active';
+            INSERT INTO places.dataset (version, status, published_at)
+            VALUES (@v, 'active', now())
+            ON CONFLICT (version) DO UPDATE SET status = 'active', published_at = now();
+            """;
+        cmd.Parameters.AddWithValue("v", version);
+        await cmd.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    public Task<int> UpsertAreasAsync(
         IReadOnlyCollection<Area> areas, string datasetVersion, CancellationToken ct = default)
+        => UpsertAreasIntoAsync("places.areas", areas, datasetVersion, ct);
+
+    /// <summary>Stage areas ahead of an atomic <see cref="SwapAsync"/>.</summary>
+    public Task<int> StageAreasAsync(
+        IReadOnlyCollection<Area> areas, string datasetVersion, CancellationToken ct = default)
+        => UpsertAreasIntoAsync("places.areas_staging", areas, datasetVersion, ct);
+
+    private async Task<int> UpsertAreasIntoAsync(
+        string table, IReadOnlyCollection<Area> areas, string datasetVersion, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -81,8 +133,8 @@ public sealed class PgPlaceStore : IPlaceStore
         await using var cmd = conn.CreateCommand();
         // ST_MakeValid: real-world coastline/boundary polygons routinely carry
         // self-intersections that would otherwise poison ST_Contains.
-        cmd.CommandText = """
-            INSERT INTO places.areas (source, source_id, area_type, name, kind, geom, dataset_version)
+        cmd.CommandText = $"""
+            INSERT INTO {table} (source, source_id, area_type, name, kind, geom, dataset_version)
             VALUES (@source, @sid, @type, @name, @kind,
                     ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(@geojson), 4326)),
                     @ver)
@@ -258,16 +310,26 @@ public sealed class PgPlaceStore : IPlaceStore
     private static string EscapeLike(string s) =>
         s.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
 
-    public async Task<int> UpsertAsync(
+    public Task<int> UpsertAsync(
         IReadOnlyCollection<Place> places, string datasetVersion, CancellationToken ct = default)
+        => UpsertPlacesIntoAsync("places.places", places, datasetVersion, ct);
+
+    /// <summary>Load places into the staging table (idempotent upsert) ahead of
+    /// an atomic <see cref="SwapAsync"/>. Re-running is safe (resume).</summary>
+    public Task<int> StagePlacesAsync(
+        IReadOnlyCollection<Place> places, string datasetVersion, CancellationToken ct = default)
+        => UpsertPlacesIntoAsync("places.places_staging", places, datasetVersion, ct);
+
+    private async Task<int> UpsertPlacesIntoAsync(
+        string table, IReadOnlyCollection<Place> places, string datasetVersion, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO places.places
+        cmd.CommandText = $"""
+            INSERT INTO {table}
                 (source, source_id, feature_type, primary_name, name_fold, status, geom, centroid,
                  elevation_m, kommune_name, fylke_name, dataset_version)
             VALUES

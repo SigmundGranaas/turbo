@@ -39,6 +39,9 @@ public sealed class PlacesHostFixture : IAsyncLifetime
     /// the health behaviour, so fixture growth can't silently skew it).</summary>
     public int SeededPlaces { get; private set; }
 
+    /// <summary>The live DB connection (for tests that stage/swap directly).</summary>
+    public string ConnectionString => _postgres.GetConnectionString();
+
     public HttpClient CreateClient() => _factory!.CreateClient();
 
     public async Task InitializeAsync()
