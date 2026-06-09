@@ -174,6 +174,55 @@ fn parse_positions(coords: &[serde_json::Value]) -> Option<Vec<(f64, f64)>> {
     (line.len() >= 2).then_some(line)
 }
 
+/// Parse GeoJSON `Point`/`MultiPoint` geometry into `(lng, lat)` pairs —
+/// used to drive circle/marker layers, which are positioned in geographic
+/// coordinates (not the world space lines use).
+pub fn parse_points(data: &str) -> Vec<(f64, f64)> {
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(data) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_points(&root, &mut out);
+    out
+}
+
+fn collect_points(value: &serde_json::Value, out: &mut Vec<(f64, f64)>) {
+    match value.get("type").and_then(|t| t.as_str()) {
+        Some("FeatureCollection") => {
+            if let Some(features) = value.get("features").and_then(|f| f.as_array()) {
+                for f in features {
+                    collect_points(f, out);
+                }
+            }
+        }
+        Some("Feature") => {
+            if let Some(geom) = value.get("geometry") {
+                collect_points(geom, out);
+            }
+        }
+        Some("Point") => {
+            if let Some(p) = value.get("coordinates").and_then(point_lng_lat) {
+                out.push(p);
+            }
+        }
+        Some("MultiPoint") => {
+            if let Some(points) = value.get("coordinates").and_then(|c| c.as_array()) {
+                for p in points {
+                    if let Some(p) = point_lng_lat(p) {
+                        out.push(p);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn point_lng_lat(value: &serde_json::Value) -> Option<(f64, f64)> {
+    let arr = value.as_array()?;
+    Some((arr.first()?.as_f64()?, arr.get(1)?.as_f64()?))
+}
+
 /// Clip a polyline to `rect`, returning the connected in-rect subpaths.
 fn clip_polyline(line: &[(f64, f64)], rect: Rect) -> Vec<Vec<(f64, f64)>> {
     let mut out = Vec::new();
@@ -321,6 +370,23 @@ mod tests {
         }"#;
         let src = GeoJsonVectorSource::new(data);
         assert_eq!(src.line_count(), 1);
+    }
+
+    #[test]
+    fn parses_points_from_mixed_geojson() {
+        let data = r#"{
+            "type": "FeatureCollection",
+            "features": [
+                { "type": "Feature", "geometry": { "type": "Point", "coordinates": [5.32, 60.39] } },
+                { "type": "Feature", "geometry":
+                    { "type": "MultiPoint", "coordinates": [[5.1,60.3],[5.4,60.45]] } },
+                { "type": "Feature", "geometry":
+                    { "type": "LineString", "coordinates": [[5.0,60.0],[5.1,60.1]] } }
+            ]
+        }"#;
+        let pts = parse_points(data);
+        assert_eq!(pts.len(), 3, "two from points/multipoint + ignores the line");
+        assert_eq!(pts[0], (5.32, 60.39));
     }
 
     #[test]

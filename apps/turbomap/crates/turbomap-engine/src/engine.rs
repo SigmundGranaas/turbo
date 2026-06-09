@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use turbomap_core::{
     Camera, Color as CoreColor, Filter as CoreFilter, HillshadeStyle, HitResult,
-    LatLng as CoreLatLng, Map, MapError, MapOptions, Paint as CorePaint, PendingTile, Rule as CoreRule,
-    TerrainOptions, TileId, TileSource, VectorStyle, VectorTileSource,
+    LatLng as CoreLatLng, Map, MapError, MapOptions, Marker, MarkerId, Paint as CorePaint,
+    PendingTile, Rule as CoreRule, TerrainOptions, TileId, TileSource, VectorStyle, VectorTileSource,
 };
 use turbomap_scene::{
     diff, Capabilities, CameraState, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
@@ -93,6 +93,7 @@ impl TurbomapEngine {
             self.map.remove_layer(&id);
         }
         self.map.clear_terrain();
+        self.map.clear_markers();
         self.raster_sources.clear();
         self.terrain_source = None;
         self.vector_sources.clear();
@@ -151,6 +152,34 @@ impl TurbomapEngine {
                             let style = line_style(layer_name, filter, color, width, zoom);
                             self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                             self.vector_sources.insert(id.clone(), vsrc);
+                        }
+                        _ => self.unsupported.push(id.clone()),
+                    }
+                }
+                Layer::Circle {
+                    id,
+                    source,
+                    color,
+                    radius,
+                    ..
+                } => {
+                    // Circles render as core markers (screen-space discs),
+                    // positioned in lng/lat — no tiling. We read points
+                    // straight from the GeoJSON source's data.
+                    match new.sources.get(source) {
+                        Some(SourceDef::GeoJson { data }) => {
+                            let zoom = self.map.camera().zoom;
+                            let c = color.at(zoom);
+                            let r = radius.at(zoom);
+                            for (lng, lat) in crate::geojson::parse_points(data) {
+                                self.map.add_marker(Marker {
+                                    id: MarkerId(0),
+                                    lng_lat: CoreLatLng { lng, lat },
+                                    radius_px: r,
+                                    color: CoreColor::rgba(c.r, c.g, c.b, c.a),
+                                    data: HashMap::from([("layer".to_string(), id.clone())]),
+                                });
+                            }
                         }
                         _ => self.unsupported.push(id.clone()),
                     }
@@ -287,9 +316,15 @@ impl MapEngine for TurbomapEngine {
                     layer_id: f.layer_id,
                     feature_id: Some(f.feature_id.to_string()),
                 },
-                HitResult::Marker(_) => Hit {
-                    layer_id: "<marker>".to_string(),
-                    feature_id: None,
+                HitResult::Marker(m) => Hit {
+                    // Circle layers stash their id in marker data so a hit
+                    // attributes back to the right layer.
+                    layer_id: m
+                        .data
+                        .get("layer")
+                        .cloned()
+                        .unwrap_or_else(|| "<marker>".to_string()),
+                    feature_id: Some(m.id.0.to_string()),
                 },
             })
             .collect()

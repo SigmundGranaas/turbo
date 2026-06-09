@@ -49,6 +49,78 @@ fn route_scene() -> Scene {
     scene
 }
 
+/// raster base + route line + measure-point circles — the overlay set the
+/// app actually draws, all through the scene path.
+fn overlay_scene() -> Scene {
+    let mut scene = route_scene();
+    scene.sources.insert(
+        "points".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"MultiPoint","coordinates":[
+                [5.22,60.34],[5.32,60.39],[5.40,60.45]
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Circle {
+        id: "measure-points".to_string(),
+        source: "points".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(255, 200, 0)),
+        radius: Paint::Const(9.0),
+    });
+    scene
+}
+
+#[test]
+fn full_overlay_set_renders() {
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(overlay_scene());
+    engine.pump_tiles();
+    assert!(
+        engine.unsupported_layers().is_empty(),
+        "raster + line + circle should all be supported, unsupported = {:?}",
+        engine.unsupported_layers()
+    );
+    // Three measure points → three markers.
+    assert_eq!(engine.map().markers().len(), 3, "expected 3 circle markers");
+
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    assert_golden(
+        "overlays-bergen",
+        &image,
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
+    );
+}
+
 #[test]
 fn geojson_line_renders_over_raster() {
     let Some(gpu) = headless() else {
