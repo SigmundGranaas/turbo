@@ -181,17 +181,39 @@ impl Dem {
     ///     "no data" — the v00 cell value is the honest answer.
     pub fn sample(&self, p: PointXY) -> Result<Option<f32>, DemError> {
         let tile_for_p = match self.find_tile(p.x, p.y) {
-            Some(t) => t,
+            Some(t) => *t,
             None => return Err(DemError::OutOfCoverage { x: p.x, y: p.y }),
         };
         let pixel = self.meta.pixel_size_m as f64;
-        let v00 = self.cell_value_at(p.x, p.y)?;
-        let Some(v00) = v00 else { return Ok(None) };
+        let tc = self.meta.tile_cells as usize;
+        // Resolve the containing tile's payload ONCE; the four bilinear
+        // corners read straight from it (one cache lookup instead of
+        // four, one rstar query instead of five). Only a corner that
+        // falls outside this tile — the point is within a pixel of the
+        // eastern/southern edge — takes the per-coordinate fallback
+        // that resolves the neighbouring tile.
+        let payload = match self.cache.get(TileId(tile_for_p.idx, 0)) {
+            Some(pl) => pl,
+            None => self.load_tile(tile_for_p.idx)?,
+        };
+        let read = |x: f64, y: f64| -> Result<Option<f32>, DemError> {
+            let col = ((x - tile_for_p.ulx) / pixel).floor() as i64;
+            let row = ((tile_for_p.uly - y) / pixel).floor() as i64;
+            if col >= 0 && row >= 0 && (col as usize) < tc && (row as usize) < tc {
+                let v = payload[(row as usize) * tc + col as usize];
+                Ok(if v == self.meta.nodata { None } else { Some(v) })
+            } else {
+                self.cell_value_at(x, y)
+            }
+        };
+        let Some(v00) = read(p.x, p.y)? else {
+            return Ok(None);
+        };
         // Neighbours: missing entries fall back to v00 so the
         // bilinear collapses to nearest-neighbour at tile edges.
-        let v10 = self.cell_value_at(p.x + pixel, p.y)?.unwrap_or(v00);
-        let v01 = self.cell_value_at(p.x, p.y - pixel)?.unwrap_or(v00);
-        let v11 = self.cell_value_at(p.x + pixel, p.y - pixel)?.unwrap_or(v00);
+        let v10 = read(p.x + pixel, p.y)?.unwrap_or(v00);
+        let v01 = read(p.x, p.y - pixel)?.unwrap_or(v00);
+        let v11 = read(p.x + pixel, p.y - pixel)?.unwrap_or(v00);
         let col_in_tile = ((p.x - tile_for_p.ulx) / pixel).floor() as i64;
         let row_in_tile = ((tile_for_p.uly - p.y) / pixel).floor() as i64;
         let cell_origin_x = tile_for_p.ulx + col_in_tile as f64 * pixel;
@@ -209,13 +231,37 @@ impl Dem {
     /// world coordinate).
     pub fn slope_aspect(&self, p: PointXY) -> Result<Option<SlopeAspect>, DemError> {
         let pixel = self.meta.pixel_size_m as f64;
+        // Resolve the centre tile's payload ONCE; the 3×3 neighbourhood
+        // reads straight from it (one cache lookup instead of nine).
+        // Cells outside the tile — p within a pixel of a tile edge —
+        // take the per-coordinate fallback to the adjacent tile.
+        let tc = self.meta.tile_cells as usize;
+        let tile = self.find_tile(p.x, p.y).copied();
+        let payload = match &tile {
+            Some(t) => Some(match self.cache.get(TileId(t.idx, 0)) {
+                Some(pl) => pl,
+                None => self.load_tile(t.idx)?,
+            }),
+            None => None,
+        };
+        let read = |x: f64, y: f64| -> Result<Option<f32>, DemError> {
+            if let (Some(t), Some(pl)) = (&tile, &payload) {
+                let col = ((x - t.ulx) / pixel).floor() as i64;
+                let row = ((t.uly - y) / pixel).floor() as i64;
+                if col >= 0 && row >= 0 && (col as usize) < tc && (row as usize) < tc {
+                    let v = pl[(row as usize) * tc + col as usize];
+                    return Ok(if v == self.meta.nodata { None } else { Some(v) });
+                }
+            }
+            self.cell_value_at(x, y)
+        };
         // 3×3 neighbours centred at p, stepping by pixel size.
         let mut n = [[0.0f32; 3]; 3];
         for dy in -1..=1i32 {
             for dx in -1..=1i32 {
                 let x = p.x + dx as f64 * pixel;
                 let y = p.y + dy as f64 * pixel;
-                match self.cell_value_at(x, y)? {
+                match read(x, y)? {
                     Some(v) => n[(dy + 1) as usize][(dx + 1) as usize] = v,
                     None => return Ok(None),
                 }
