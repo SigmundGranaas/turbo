@@ -14,6 +14,7 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import org.maplibre.android.MapLibre
 import org.maplibre.android.geometry.LatLng as MlLatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -78,12 +79,15 @@ class MapLibreOfflineTileManager @Inject constructor(
         }
     }
     private val styleServer = LocalStyleServer()
-    private val regionsById = mutableMapOf<Long, OfflineRegion>()
+    // MapLibre delivers callbacks off the registering thread in some paths, and a
+    // refresh()'s batched statuses interleave with the per-region observer — so all
+    // shared mutable state is concurrent and list publication is atomic (see below).
+    private val regionsById = java.util.concurrent.ConcurrentHashMap<Long, OfflineRegion>()
     /** Regions that stopped on an error → reason, until the user retries/deletes. */
-    private val failures = mutableMapOf<Long, String>()
+    private val failures = java.util.concurrent.ConcurrentHashMap<Long, String>()
     /** Regions the user paused explicitly — must NOT auto-resume on connectivity. */
-    private val userPaused = mutableSetOf<Long>()
-    private var networkAllowed = true
+    private val userPaused = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+    @Volatile private var networkAllowed = true
     private val _regions = MutableStateFlow<List<OfflineRegionInfo>>(emptyList())
     override val regions: StateFlow<List<OfflineRegionInfo>> = _regions.asStateFlow()
 
@@ -96,17 +100,28 @@ class MapLibreOfflineTileManager @Inject constructor(
                 regionsById.clear()
                 list.forEach { regionsById[it.id] = it; it.setObserver(observerFor(it)) }
                 if (list.isEmpty()) { _regions.value = emptyList(); return }
-                val acc = mutableListOf<OfflineRegionInfo>()
-                var remaining = list.size
+                val acc = java.util.Collections.synchronizedList(mutableListOf<OfflineRegionInfo>())
+                val remaining = java.util.concurrent.atomic.AtomicInteger(list.size)
+                fun publishIfDone() {
+                    // Merge (don't replace): a region created while statuses were being
+                    // gathered survives, and deleted regions drop out atomically.
+                    if (remaining.decrementAndGet() == 0) {
+                        val byId = acc.associateBy { it.id }
+                        _regions.update { current ->
+                            val currentIds = current.map { it.id }.toSet()
+                            (current.map { byId[it.id] ?: it } + acc.filterNot { it.id in currentIds })
+                                .filter { it.id in regionsById.keys }
+                                .sortedBy { it.name }
+                        }
+                    }
+                }
                 list.forEach { region ->
                     region.getStatus(object : OfflineRegion.OfflineRegionStatusCallback {
                         override fun onStatus(status: OfflineRegionStatus?) {
                             if (status != null) acc += region.toInfo(status)
-                            if (--remaining == 0) _regions.value = acc.sortedBy { it.name }
+                            publishIfDone()
                         }
-                        override fun onError(error: String?) {
-                            if (--remaining == 0) _regions.value = acc.sortedBy { it.name }
-                        }
+                        override fun onError(error: String?) = publishIfDone()
                     })
                 }
             }
@@ -229,7 +244,7 @@ class MapLibreOfflineTileManager @Inject constructor(
     }
 
     private fun upsert(info: OfflineRegionInfo) {
-        _regions.value = (_regions.value.filterNot { it.id == info.id } + info).sortedBy { it.name }
+        _regions.update { current -> (current.filterNot { it.id == info.id } + info).sortedBy { it.name } }
     }
 
     private fun OfflineRegion.toInfo(status: OfflineRegionStatus): OfflineRegionInfo {

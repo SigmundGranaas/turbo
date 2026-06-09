@@ -179,6 +179,8 @@
     <string name="offline_clear_cache_title">Clear map cache?</string>
     <string name="offline_clear_cache_body">Removes temporarily cached map tiles from browsing. Downloaded offline areas are kept.</string>
     <string name="offline_clear_cache_confirm">Clear</string>
+    <string name="offline_chip">You\'re offline — showing saved maps</string>
+    <string name="offline_chip_uncovered">Offline — outside downloaded areas</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d area · %2$s</item>
         <item quantity="other">%1$d areas · %2$s</item>

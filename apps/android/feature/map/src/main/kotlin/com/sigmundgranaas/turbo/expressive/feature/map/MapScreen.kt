@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Folder
@@ -108,6 +109,7 @@ fun MapScreen(
     routeViewModel: RouteViewModel = hiltViewModel(),
     offlineViewModel: OfflineViewModel = hiltViewModel(),
     recordingViewModel: RecordingViewModel = hiltViewModel(),
+    offlineIndicator: com.sigmundgranaas.turbo.expressive.feature.offline.OfflineIndicatorViewModel = hiltViewModel(),
 ) {
     val cs = MaterialTheme.colorScheme
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -115,6 +117,7 @@ fun MapScreen(
     // All transient UI/tool/dialog state lives in one holder (see MapScreenState).
     val ui = rememberMapScreenState()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isOffline by offlineIndicator.offline.collectAsStateWithLifecycle()
     val routeState by routeViewModel.state.collectAsStateWithLifecycle()
     val routePreset by routeViewModel.preset.collectAsStateWithLifecycle()
     val toolWaypoints by routeViewModel.waypoints.collectAsStateWithLifecycle()
@@ -570,6 +573,19 @@ fun MapScreen(
                             .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(top = 84.dp),
                     )
+                } else if (isOffline) {
+                    // Why-is-the-map-blank affordance: offline, and (stronger) outside
+                    // every downloaded region. Coverage is re-checked as the camera moves
+                    // (bearing/camera changes recompose this block).
+                    val centre = ui.controller?.center()
+                    val outside = centre != null && !offlineIndicator.covered(centre)
+                    OfflineChip(
+                        outsideCoverage = outside,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .padding(top = 84.dp),
+                    )
                 }
 
                 // The live sheet owns the bottom of the screen; reserve its height so
@@ -1009,6 +1025,37 @@ private fun LocatingChip(modifier: Modifier = Modifier) {
                 stringResource(R.string.location_finding),
                 style = MaterialTheme.typography.labelLarge,
                 color = cs.onSurface,
+            )
+        }
+    }
+}
+
+/** "You're offline" pill under the search bar; says so louder when the camera is
+ *  also outside every downloaded region (i.e. the basemap will be blank). */
+@Composable
+private fun OfflineChip(outsideCoverage: Boolean, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(50),
+        color = if (outsideCoverage) cs.errorContainer else cs.surfaceContainerHigh,
+        shadowElevation = 3.dp,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            Icon(
+                Icons.Rounded.CloudOff,
+                null,
+                tint = if (outsideCoverage) cs.onErrorContainer else cs.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                stringResource(if (outsideCoverage) R.string.offline_chip_uncovered else R.string.offline_chip),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (outsideCoverage) cs.onErrorContainer else cs.onSurface,
             )
         }
     }
