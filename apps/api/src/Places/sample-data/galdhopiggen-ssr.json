@@ -6,7 +6,10 @@
         "primary_name": "Bakarste Storgrovh\u00f8e",
         "status": "aktiv",
         "lat": 61.6433,
-        "lng": 8.26734
+        "lng": 8.26734,
+        "elevation_m": 2255.87,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -15,7 +18,10 @@
         "primary_name": "Breagrove",
         "status": "aktiv",
         "lat": 61.64369,
-        "lng": 8.39667
+        "lng": 8.39667,
+        "elevation_m": 1426.09,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -24,7 +30,10 @@
         "primary_name": "Bukkeh\u00f8e",
         "status": "aktiv",
         "lat": 61.60423,
-        "lng": 8.26626
+        "lng": 8.26626,
+        "elevation_m": 2310.64,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -33,7 +42,10 @@
         "primary_name": "Dumh\u00f8brean",
         "status": "aktiv",
         "lat": 61.6408,
-        "lng": 8.22279
+        "lng": 8.22279,
+        "elevation_m": 1931.24,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -42,7 +54,10 @@
         "primary_name": "Dumh\u00f8e",
         "status": "aktiv",
         "lat": 61.63783,
-        "lng": 8.24575
+        "lng": 8.24575,
+        "elevation_m": 2179.89,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -51,7 +66,10 @@
         "primary_name": "Dyrskridubekken",
         "status": "aktiv",
         "lat": 61.6222,
-        "lng": 8.3737
+        "lng": 8.3737,
+        "elevation_m": 1503.08,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -60,7 +78,10 @@
         "primary_name": "Fremste Storgrovh\u00f8e",
         "status": "aktiv",
         "lat": 61.65018,
-        "lng": 8.27758
+        "lng": 8.27758,
+        "elevation_m": 2235.05,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -69,7 +90,10 @@
         "primary_name": "Galdh\u00f8e",
         "status": "aktiv",
         "lat": 61.6498,
-        "lng": 8.31834
+        "lng": 8.31834,
+        "elevation_m": 2283.45,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -78,7 +102,10 @@
         "primary_name": "Galdh\u00f8piggen",
         "status": "aktiv",
         "lat": 61.63644,
-        "lng": 8.31248
+        "lng": 8.31248,
+        "elevation_m": 2468.25,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -87,7 +114,10 @@
         "primary_name": "Galdh\u00f8piggvegen",
         "status": "aktiv",
         "lat": 61.66619,
-        "lng": 8.36275
+        "lng": 8.36275,
+        "elevation_m": 1841.21,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -96,7 +126,10 @@
         "primary_name": "Heimes\u00e6terfjellet",
         "status": "aktiv",
         "lat": 61.66791,
-        "lng": 8.25043
+        "lng": 8.25043,
+        "elevation_m": 1501.83,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -105,7 +138,10 @@
         "primary_name": "Heimi Sygard",
         "status": "aktiv",
         "lat": 61.63208,
-        "lng": 8.4053
+        "lng": 8.4053,
+        "elevation_m": 1091.08,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -114,7 +150,10 @@
         "primary_name": "Heimre Ill\u00e5brean",
         "status": "aktiv",
         "lat": 61.64499,
-        "lng": 8.24246
+        "lng": 8.24246,
+        "elevation_m": 1765.57,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -123,7 +162,10 @@
         "primary_name": "Ill\u00e5bandet",
         "status": "aktiv",
         "lat": 61.62897,
-        "lng": 8.27889
+        "lng": 8.27889,
+        "elevation_m": 2086.19,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -132,7 +174,10 @@
         "primary_name": "Ill\u00e5bretinden, heimre",
         "status": "aktiv",
         "lat": 61.63875,
-        "lng": 8.26766
+        "lng": 8.26766,
+        "elevation_m": 2166.36,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -141,7 +186,10 @@
         "primary_name": "Jotunheimen",
         "status": "aktiv",
         "lat": 61.605,
-        "lng": 8.4775
+        "lng": 8.4775,
+        "elevation_m": 1657.72,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -150,7 +198,10 @@
         "primary_name": "Juvflye",
         "status": "aktiv",
         "lat": 61.65524,
-        "lng": 8.35929
+        "lng": 8.35929,
+        "elevation_m": 1942.36,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -159,7 +210,10 @@
         "primary_name": "Juvfonne",
         "status": "aktiv",
         "lat": 61.67698,
-        "lng": 8.35098
+        "lng": 8.35098,
+        "elevation_m": 1888.72,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -168,7 +222,10 @@
         "primary_name": "Juvvatnet",
         "status": "aktiv",
         "lat": 61.67015,
-        "lng": 8.36079
+        "lng": 8.36079,
+        "elevation_m": 1836,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -177,7 +234,10 @@
         "primary_name": "Keilhaus topp",
         "status": "aktiv",
         "lat": 61.63491,
-        "lng": 8.32595
+        "lng": 8.32595,
+        "elevation_m": 2353.14,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -186,7 +246,10 @@
         "primary_name": "Kjelen",
         "status": "aktiv",
         "lat": 61.66982,
-        "lng": 8.34213
+        "lng": 8.34213,
+        "elevation_m": 1987.88,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -195,7 +258,10 @@
         "primary_name": "Lindbergtinden",
         "status": "aktiv",
         "lat": 61.60434,
-        "lng": 8.28023
+        "lng": 8.28023,
+        "elevation_m": 2117.49,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -204,7 +270,10 @@
         "primary_name": "L\u00f8yfte",
         "status": "aktiv",
         "lat": 61.64722,
-        "lng": 8.31207
+        "lng": 8.31207,
+        "elevation_m": 2184.89,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -213,7 +282,10 @@
         "primary_name": "Midtre Tverr\u00e5tinden",
         "status": "aktiv",
         "lat": 61.61451,
-        "lng": 8.31582
+        "lng": 8.31582,
+        "elevation_m": 2297.71,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -222,7 +294,10 @@
         "primary_name": "Mytingsfjellet",
         "status": "aktiv",
         "lat": 61.68041,
-        "lng": 8.32284
+        "lng": 8.32284,
+        "elevation_m": 1699.44,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -231,7 +306,10 @@
         "primary_name": "N\u00e5le",
         "status": "aktiv",
         "lat": 61.63076,
-        "lng": 8.26786
+        "lng": 8.26786,
+        "elevation_m": 2314.5,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -240,7 +318,10 @@
         "primary_name": "Nedre Tverr\u00e5bandet",
         "status": "aktiv",
         "lat": 61.60879,
-        "lng": 8.28505
+        "lng": 8.28505,
+        "elevation_m": 1966.48,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -249,7 +330,10 @@
         "primary_name": "N\u00f8rdre Bukkeh\u00f8e",
         "status": "aktiv",
         "lat": 61.61359,
-        "lng": 8.25886
+        "lng": 8.25886,
+        "elevation_m": 2094.98,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -258,7 +342,10 @@
         "primary_name": "N\u00f8rdre Heimre Ill\u00e5breatinden",
         "status": "aktiv",
         "lat": 61.63878,
-        "lng": 8.26799
+        "lng": 8.26799,
+        "elevation_m": 2169.6,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -267,7 +354,10 @@
         "primary_name": "N\u00f8rdre Ill\u00e5brean",
         "status": "aktiv",
         "lat": 61.61993,
-        "lng": 8.26642
+        "lng": 8.26642,
+        "elevation_m": 1779.59,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -276,7 +366,10 @@
         "primary_name": "\u00d8ver Storgrovfossen",
         "status": "aktiv",
         "lat": 61.67335,
-        "lng": 8.26263
+        "lng": 8.26263,
+        "elevation_m": 1341.6,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -285,7 +378,10 @@
         "primary_name": "\u00d8vre Tverr\u00e5bandet",
         "status": "aktiv",
         "lat": 61.60373,
-        "lng": 8.27209
+        "lng": 8.27209,
+        "elevation_m": 2057.55,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -294,7 +390,10 @@
         "primary_name": "Piggebrean",
         "status": "aktiv",
         "lat": 61.63878,
-        "lng": 8.32551
+        "lng": 8.32551,
+        "elevation_m": 2164.32,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -303,7 +402,10 @@
         "primary_name": "Piggrove",
         "status": "aktiv",
         "lat": 61.62488,
-        "lng": 8.38732
+        "lng": 8.38732,
+        "elevation_m": 1374.18,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -312,7 +414,10 @@
         "primary_name": "Porten",
         "status": "aktiv",
         "lat": 61.63813,
-        "lng": 8.30845
+        "lng": 8.30845,
+        "elevation_m": 2225.16,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -321,7 +426,10 @@
         "primary_name": "Skardstinden",
         "status": "aktiv",
         "lat": 61.63353,
-        "lng": 8.26565
+        "lng": 8.26565,
+        "elevation_m": 2367.64,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -330,7 +438,10 @@
         "primary_name": "Solskinnstoppen",
         "status": "aktiv",
         "lat": 61.61952,
-        "lng": 8.34228
+        "lng": 8.34228,
+        "elevation_m": 1873.17,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -339,7 +450,10 @@
         "primary_name": "S\u00f8raustre Skardstinden",
         "status": "aktiv",
         "lat": 61.62978,
-        "lng": 8.26969
+        "lng": 8.26969,
+        "elevation_m": 2188.05,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -348,7 +462,10 @@
         "primary_name": "S\u00f8re Heimre Ill\u00e5breatinden",
         "status": "aktiv",
         "lat": 61.63529,
-        "lng": 8.27128
+        "lng": 8.27128,
+        "elevation_m": 2169.75,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -357,7 +474,10 @@
         "primary_name": "Store Tverr\u00e5tinden",
         "status": "aktiv",
         "lat": 61.61528,
-        "lng": 8.30194
+        "lng": 8.30194,
+        "elevation_m": 2217.86,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -366,7 +486,10 @@
         "primary_name": "Storgrovbrean",
         "status": "aktiv",
         "lat": 61.66238,
-        "lng": 8.28071
+        "lng": 8.28071,
+        "elevation_m": 1922.16,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -375,7 +498,10 @@
         "primary_name": "Storgrovh\u00f8e",
         "status": "aktiv",
         "lat": 61.65777,
-        "lng": 8.25646
+        "lng": 8.25646,
+        "elevation_m": 2050.39,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -384,7 +510,10 @@
         "primary_name": "Storgrovtinden",
         "status": "aktiv",
         "lat": 61.64151,
-        "lng": 8.26664
+        "lng": 8.26664,
+        "elevation_m": 2226.04,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -393,7 +522,10 @@
         "primary_name": "Storjuva",
         "status": "aktiv",
         "lat": 61.67699,
-        "lng": 8.29736
+        "lng": 8.29736,
+        "elevation_m": 1162.82,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -402,7 +534,10 @@
         "primary_name": "Storjuvbrean",
         "status": "aktiv",
         "lat": 61.64429,
-        "lng": 8.28423
+        "lng": 8.28423,
+        "elevation_m": 1951.37,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -411,7 +546,10 @@
         "primary_name": "Storjuvtinden",
         "status": "aktiv",
         "lat": 61.63029,
-        "lng": 8.29406
+        "lng": 8.29406,
+        "elevation_m": 2335.86,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -420,7 +558,10 @@
         "primary_name": "Styggebrean",
         "status": "aktiv",
         "lat": 61.64446,
-        "lng": 8.33571
+        "lng": 8.33571,
+        "elevation_m": 2052.38,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -429,7 +570,10 @@
         "primary_name": "Styggeh\u00f8e",
         "status": "aktiv",
         "lat": 61.59717,
-        "lng": 8.34658
+        "lng": 8.34658,
+        "elevation_m": 2198.96,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -438,7 +582,10 @@
         "primary_name": "Svarttinden",
         "status": "aktiv",
         "lat": 61.61813,
-        "lng": 8.23485
+        "lng": 8.23485,
+        "elevation_m": 1936.63,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -447,7 +594,10 @@
         "primary_name": "Svellnosbreahesten",
         "status": "aktiv",
         "lat": 61.621,
-        "lng": 8.3064
+        "lng": 8.3064,
+        "elevation_m": 2178.88,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -456,7 +606,10 @@
         "primary_name": "Svellnosbrean",
         "status": "aktiv",
         "lat": 61.62406,
-        "lng": 8.3107
+        "lng": 8.3107,
+        "elevation_m": 2076.97,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -465,7 +618,10 @@
         "primary_name": "Svellnose",
         "status": "aktiv",
         "lat": 61.63362,
-        "lng": 8.33792
+        "lng": 8.33792,
+        "elevation_m": 2271.15,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -474,7 +630,10 @@
         "primary_name": "Tverr\u00e5brean",
         "status": "aktiv",
         "lat": 61.59732,
-        "lng": 8.29434
+        "lng": 8.29434,
+        "elevation_m": 1954.66,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -483,7 +642,10 @@
         "primary_name": "Tverr\u00e5e",
         "status": "aktiv",
         "lat": 61.60759,
-        "lng": 8.35158
+        "lng": 8.35158,
+        "elevation_m": 1385.35,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -492,7 +654,10 @@
         "primary_name": "Tverr\u00e5tindan",
         "status": "aktiv",
         "lat": 61.61517,
-        "lng": 8.30179
+        "lng": 8.30179,
+        "elevation_m": 2307.42,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -501,7 +666,10 @@
         "primary_name": "Tverrgjelet",
         "status": "aktiv",
         "lat": 61.67394,
-        "lng": 8.30413
+        "lng": 8.30413,
+        "elevation_m": 1358.31,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -510,7 +678,10 @@
         "primary_name": "Vakkerbandet",
         "status": "aktiv",
         "lat": 61.5971,
-        "lng": 8.26649
+        "lng": 8.26649,
+        "elevation_m": 2137.95,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -519,7 +690,10 @@
         "primary_name": "Vesle Galdh\u00f8piggen",
         "status": "aktiv",
         "lat": 61.64068,
-        "lng": 8.30603
+        "lng": 8.30603,
+        "elevation_m": 2367.43,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -528,7 +702,10 @@
         "primary_name": "Vesljuvbrean",
         "status": "aktiv",
         "lat": 61.66442,
-        "lng": 8.34893
+        "lng": 8.34893,
+        "elevation_m": 2011.4,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -537,7 +714,10 @@
         "primary_name": "Vestre Skardstinden",
         "status": "aktiv",
         "lat": 61.63394,
-        "lng": 8.25534
+        "lng": 8.25534,
+        "elevation_m": 2213.92,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -546,7 +726,10 @@
         "primary_name": "Ymelsfjellet",
         "status": "aktiv",
         "lat": 61.63189,
-        "lng": 8.22637
+        "lng": 8.22637,
+        "elevation_m": 2061.8,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     },
     {
         "source": "ssr",
@@ -555,6 +738,9 @@
         "primary_name": "Ymmelstinden",
         "status": "aktiv",
         "lat": 61.62768,
-        "lng": 8.28818
+        "lng": 8.28818,
+        "elevation_m": 2294.03,
+        "kommune_name": "Lom",
+        "fylke_name": "Innlandet"
     }
 ]

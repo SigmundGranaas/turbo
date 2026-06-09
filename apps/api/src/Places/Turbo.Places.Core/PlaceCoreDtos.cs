@@ -18,8 +18,15 @@ public static class PlaceCoreJson
 public sealed class ReverseInputDto
 {
     [JsonPropertyName("toponyms")] public List<CandidateDto> Toponyms { get; set; } = new();
-    // protected_area / address / kommune / elevation_m are optional in
-    // place-core (serde default); omitted here until those sources are ingested.
+    [JsonPropertyName("kommune")] public KommuneDto? Kommune { get; set; }
+    [JsonPropertyName("elevation_m")] public double? ElevationM { get; set; }
+    // protected_area / address are added when those sources are ingested (M2b).
+}
+
+public sealed class KommuneDto
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("fylke")] public string? Fylke { get; set; }
 }
 
 public sealed class CandidateDto

@@ -18,14 +18,21 @@ public sealed record Place(
     string PrimaryName,
     double Lat,
     double Lng,
-    string Status);
+    string Status,
+    double? ElevationM = null,
+    string? KommuneName = null,
+    string? FylkeName = null);
 
 /// <summary>
 /// A nearest-feature row returned by the reverse-geocode query — shaped to
-/// become a place-core toponym candidate.
+/// become a place-core toponym candidate, carrying the precomputed enrichment
+/// (elevation, containing kommune/fylke).
 /// </summary>
 public sealed record ReverseCandidate(
     string Name,
     string Kind,
     double DistanceM,
-    string Status);
+    string Status,
+    double? ElevationM = null,
+    string? KommuneName = null,
+    string? FylkeName = null);

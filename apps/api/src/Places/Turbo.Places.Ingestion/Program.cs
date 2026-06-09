@@ -33,13 +33,31 @@ using var http = new HttpClient();
 http.DefaultRequestHeaders.UserAgent.ParseAdd("turbo-places-ingest/0.1 (+https://github.com/sigmundgranaas/turbo)");
 var kartverket = new KartverketStedsnavnClient(http);
 
-var batch = new List<Place>();
+var raw = new List<Place>();
 await foreach (var place in kartverket.DownloadAreaAsync(lat, lng, radius))
 {
-    batch.Add(place);
+    raw.Add(place);
 }
+Console.WriteLine($"downloaded {raw.Count} names from Kartverket");
+
+// Precompute per-feature enrichment (elevation + kommune/fylke), bounded
+// concurrency so we're a good API citizen.
+var enricher = new KartverketEnrichmentClient(http);
+using var gate = new SemaphoreSlim(6);
+var batch = await Task.WhenAll(raw.Select(async p =>
+{
+    await gate.WaitAsync();
+    try
+    {
+        var elevation = await enricher.ElevationAsync(p.Lat, p.Lng);
+        var (kommune, fylke) = await enricher.KommuneAsync(p.Lat, p.Lng);
+        return p with { ElevationM = elevation, KommuneName = kommune, FylkeName = fylke };
+    }
+    finally { gate.Release(); }
+}));
+
 var upserted = await store.UpsertAsync(batch, version);
-Console.WriteLine($"downloaded {batch.Count} names from Kartverket, upserted {upserted}");
+Console.WriteLine($"enriched + upserted {upserted}");
 
 // Reverse-geocode the centre — from our own data, no Kartverket call.
 var reverse = new ReverseGeocodeService(store);
@@ -60,7 +78,14 @@ var label = description.Qualifier switch
     "near" => $"Near {description.Title}",
     _ => description.Title,
 };
-Console.WriteLine($"reverse @ centre -> \"{label}\" " +
+var subtitleParts = new List<string>();
+if (description.ElevationM is { } e)
+    subtitleParts.Add($"{e.ToString("0", CultureInfo.InvariantCulture)} m");
+var area = string.Join(", ", new[] { description.Kommune, description.Fylke }.Where(s => !string.IsNullOrEmpty(s)));
+if (!string.IsNullOrEmpty(area)) subtitleParts.Add(area);
+var subtitle = subtitleParts.Count > 0 ? " · " + string.Join(" · ", subtitleParts) : "";
+
+Console.WriteLine($"reverse @ centre -> \"{label}\"{subtitle} " +
                   $"({description.DistanceM?.ToString("0", CultureInfo.InvariantCulture)} m) " +
                   $"[from our own stack]");
 return 0;

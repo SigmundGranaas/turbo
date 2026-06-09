@@ -24,6 +24,12 @@ public sealed class ReverseGeocodeService
     {
         var candidates = await _store.NearestAsync(lat, lng, _radiusM, _limit, ct);
 
+        // The nearest feature's stored enrichment stands in for the queried
+        // point: place-core merges kommune/fylke + elevation onto whichever
+        // source wins, and uses kommune as the title fallback when no feature
+        // qualifies. (M2b will use admin-polygon containment for the latter.)
+        var nearest = candidates.FirstOrDefault();
+
         var input = new ReverseInputDto
         {
             Toponyms = candidates
@@ -35,6 +41,10 @@ public sealed class ReverseGeocodeService
                     Status = c.Status,
                 })
                 .ToList(),
+            Kommune = nearest?.KommuneName is { } kommune
+                ? new KommuneDto { Name = kommune, Fylke = nearest.FylkeName }
+                : null,
+            ElevationM = nearest?.ElevationM,
         };
 
         var resultJson = PlaceCore.ReverseJson(JsonSerializer.Serialize(input, PlaceCoreJson.Options));

@@ -33,10 +33,17 @@ public sealed class PgPlaceStore : IPlaceStore
                 status          text NOT NULL DEFAULT 'aktiv',
                 geom            geometry(Point,4326) NOT NULL,
                 centroid        geography(Point,4326) NOT NULL,
+                elevation_m     double precision,
+                kommune_name    text,
+                fylke_name      text,
                 dataset_version text NOT NULL,
                 updated_at      timestamptz NOT NULL DEFAULT now(),
                 PRIMARY KEY (source, source_id)
             );
+            -- Idempotent column adds for a table created by an earlier slice.
+            ALTER TABLE places.places ADD COLUMN IF NOT EXISTS elevation_m  double precision;
+            ALTER TABLE places.places ADD COLUMN IF NOT EXISTS kommune_name text;
+            ALTER TABLE places.places ADD COLUMN IF NOT EXISTS fylke_name   text;
             CREATE INDEX IF NOT EXISTS places_centroid_gist ON places.places USING gist (centroid);
             CREATE INDEX IF NOT EXISTS places_geom_gist     ON places.places USING gist (geom);
             """;
@@ -53,12 +60,13 @@ public sealed class PgPlaceStore : IPlaceStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO places.places
-                (source, source_id, feature_type, primary_name, name_fold, status, geom, centroid, dataset_version)
+                (source, source_id, feature_type, primary_name, name_fold, status, geom, centroid,
+                 elevation_m, kommune_name, fylke_name, dataset_version)
             VALUES
                 (@source, @sid, @ft, @name, @fold, @status,
                  ST_SetSRID(ST_MakePoint(@lng, @lat), 4326),
                  ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography,
-                 @ver)
+                 @elev, @kommune, @fylke, @ver)
             ON CONFLICT (source, source_id) DO UPDATE SET
                 feature_type    = EXCLUDED.feature_type,
                 primary_name    = EXCLUDED.primary_name,
@@ -66,6 +74,9 @@ public sealed class PgPlaceStore : IPlaceStore
                 status          = EXCLUDED.status,
                 geom            = EXCLUDED.geom,
                 centroid        = EXCLUDED.centroid,
+                elevation_m     = EXCLUDED.elevation_m,
+                kommune_name    = EXCLUDED.kommune_name,
+                fylke_name      = EXCLUDED.fylke_name,
                 dataset_version = EXCLUDED.dataset_version,
                 updated_at      = now();
             """;
@@ -77,6 +88,9 @@ public sealed class PgPlaceStore : IPlaceStore
         var pStatus = cmd.Parameters.Add("status", NpgsqlTypes.NpgsqlDbType.Text);
         var pLng = cmd.Parameters.Add("lng", NpgsqlTypes.NpgsqlDbType.Double);
         var pLat = cmd.Parameters.Add("lat", NpgsqlTypes.NpgsqlDbType.Double);
+        var pElev = cmd.Parameters.Add("elev", NpgsqlTypes.NpgsqlDbType.Double);
+        var pKommune = cmd.Parameters.Add("kommune", NpgsqlTypes.NpgsqlDbType.Text);
+        var pFylke = cmd.Parameters.Add("fylke", NpgsqlTypes.NpgsqlDbType.Text);
         var pVer = cmd.Parameters.Add("ver", NpgsqlTypes.NpgsqlDbType.Text);
         await cmd.PrepareAsync(ct);
 
@@ -91,6 +105,9 @@ public sealed class PgPlaceStore : IPlaceStore
             pStatus.Value = p.Status;
             pLng.Value = p.Lng;
             pLat.Value = p.Lat;
+            pElev.Value = (object?)p.ElevationM ?? DBNull.Value;
+            pKommune.Value = (object?)p.KommuneName ?? DBNull.Value;
+            pFylke.Value = (object?)p.FylkeName ?? DBNull.Value;
             pVer.Value = datasetVersion;
             n += await cmd.ExecuteNonQueryAsync(ct);
         }
@@ -107,7 +124,8 @@ public sealed class PgPlaceStore : IPlaceStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT primary_name, feature_type, status,
-                   ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography) AS d
+                   ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography) AS d,
+                   elevation_m, kommune_name, fylke_name
             FROM places.places
             WHERE ST_DWithin(centroid, ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography, @radius)
             ORDER BY centroid <-> ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography
@@ -126,7 +144,10 @@ public sealed class PgPlaceStore : IPlaceStore
                 Name: reader.GetString(0),
                 Kind: reader.GetString(1),
                 Status: reader.GetString(2),
-                DistanceM: reader.GetDouble(3)));
+                DistanceM: reader.GetDouble(3),
+                ElevationM: reader.IsDBNull(4) ? null : reader.GetDouble(4),
+                KommuneName: reader.IsDBNull(5) ? null : reader.GetString(5),
+                FylkeName: reader.IsDBNull(6) ? null : reader.GetString(6)));
         }
         return results;
     }
