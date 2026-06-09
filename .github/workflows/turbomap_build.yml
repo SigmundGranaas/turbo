@@ -50,7 +50,7 @@ jobs:
       # warnings; full-workspace clippy below is informational until it is
       # cleaned up.
       - name: Clippy (engine crates, deny warnings)
-        run: cargo clippy -p turbomap-core -p turbomap-golden --all-targets -- -D warnings
+        run: cargo clippy -p turbomap-core -p turbomap-scene -p turbomap-golden --all-targets -- -D warnings
 
       - name: Clippy (full workspace, informational)
         run: cargo clippy --workspace --all-targets

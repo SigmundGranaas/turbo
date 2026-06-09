@@ -8,6 +8,7 @@ members = [
     "crates/turbomap-tiles-pmtiles",
     "crates/turbomap-app",
     "crates/turbomap-golden",
+    "crates/turbomap-scene",
 ]
 
 [workspace.package]

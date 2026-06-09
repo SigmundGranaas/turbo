@@ -3335,6 +3335,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbomap-scene"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "turbomap-tiles-cache"
 version = "0.1.0"
 dependencies = [
