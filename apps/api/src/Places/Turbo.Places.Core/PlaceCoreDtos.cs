@@ -44,6 +44,22 @@ public sealed class CandidateDto
     [JsonPropertyName("status")] public string? Status { get; set; }
 }
 
+public sealed class SearchCandidateDto
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("kind")] public string Kind { get; set; } = "";
+    [JsonPropertyName("distance_m")] public double? DistanceM { get; set; }
+    [JsonPropertyName("description")] public string? Description { get; set; }
+}
+
+public sealed class SearchHitDto
+{
+    [JsonPropertyName("index")] public int Index { get; set; }
+    [JsonPropertyName("title")] public string Title { get; set; } = "";
+    [JsonPropertyName("description")] public string? Description { get; set; }
+    [JsonPropertyName("icon")] public string Icon { get; set; } = "";
+}
+
 public sealed class LocationDescriptionDto
 {
     [JsonPropertyName("title")] public string Title { get; set; } = "";

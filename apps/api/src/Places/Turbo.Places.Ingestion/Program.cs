@@ -84,6 +84,16 @@ Console.WriteLine($"areas upserted: {areaCount} " +
 var reverse = new ReverseGeocodeService(store);
 var ok = await Demo(reverse, "centre    ", lat, lng);
 ok &= await Demo(reverse, "wilderness", lat - 0.13, lng + 0.10);
+
+// Forward search — same stack, place-core ordering + icons.
+var search = new SearchService(store);
+foreach (var q in new[] { "galdh", "tverr" })
+{
+    var results = await search.SearchAsync(q, lat, lng, limit: 3);
+    var rendered = string.Join("; ", results.Select(r => $"{r.Title} [{r.Icon}] ({r.Description})"));
+    Console.WriteLine($"search \"{q}\" -> {rendered}");
+    ok &= results.Count > 0;
+}
 return ok ? 0 : 1;
 
 static async Task<bool> Demo(ReverseGeocodeService reverse, string tag, double lat, double lng)

@@ -152,6 +152,56 @@ public sealed class PgPlaceStore : IPlaceStore
         return new Containment(parkName, parkKind, kommune, fylke);
     }
 
+    public async Task<IReadOnlyList<SearchRow>> SearchAsync(
+        string query, double? nearLat, double? nearLng, int limit, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // Trigram similarity for fuzz + prefix LIKE for short queries (trigram
+        // recall is weak under 3 chars). Retrieval ranking only — place-core
+        // applies the canonical match-class + proximity ordering on top.
+        cmd.CommandText = """
+            SELECT primary_name, feature_type,
+                   ST_Y(geom) AS lat, ST_X(geom) AS lng,
+                   kommune_name, fylke_name,
+                   CASE WHEN @hasNear
+                        THEN ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
+                   END AS d
+            FROM places.places
+            WHERE name_fold % @q OR name_fold LIKE @prefix
+            ORDER BY GREATEST(similarity(name_fold, @q),
+                              CASE WHEN name_fold LIKE @prefix THEN 0.95 ELSE 0 END) DESC,
+                     d ASC NULLS LAST
+            LIMIT @limit;
+            """;
+        var fold = query.Trim().ToLowerInvariant();
+        cmd.Parameters.AddWithValue("q", fold);
+        cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
+        cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
+        cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
+        cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var rows = new List<SearchRow>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new SearchRow(
+                Name: reader.GetString(0),
+                Kind: reader.GetString(1),
+                Lat: reader.GetDouble(2),
+                Lng: reader.GetDouble(3),
+                KommuneName: reader.IsDBNull(4) ? null : reader.GetString(4),
+                FylkeName: reader.IsDBNull(5) ? null : reader.GetString(5),
+                DistanceM: reader.IsDBNull(6) ? null : reader.GetDouble(6)));
+        }
+        return rows;
+    }
+
+    private static string EscapeLike(string s) =>
+        s.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
+
     public async Task<int> UpsertAsync(
         IReadOnlyCollection<Place> places, string datasetVersion, CancellationToken ct = default)
     {

@@ -61,3 +61,13 @@ public sealed record Containment(
     string? ProtectedAreaKind,
     string? KommuneName,
     string? FylkeName);
+
+/// <summary>One forward-search retrieval row (pre-ranking).</summary>
+public sealed record SearchRow(
+    string Name,
+    string Kind,
+    double Lat,
+    double Lng,
+    string? KommuneName,
+    string? FylkeName,
+    double? DistanceM);

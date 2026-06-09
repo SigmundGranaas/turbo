@@ -25,4 +25,10 @@ public interface IPlaceStore
     /// <summary>Point-containment over the areas table: smallest containing
     /// protected area + containing kommune/fylke.</summary>
     Task<Containment> ContainingAsync(double lat, double lng, CancellationToken ct = default);
+
+    /// <summary>Top-N fuzzy name matches for <paramref name="query"/> (trigram +
+    /// prefix), optionally distance-annotated against a map centre. Relevance
+    /// retrieval only — final ordering is place-core's.</summary>
+    Task<IReadOnlyList<SearchRow>> SearchAsync(
+        string query, double? nearLat, double? nearLng, int limit, CancellationToken ct = default);
 }
