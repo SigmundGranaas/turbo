@@ -86,7 +86,9 @@ public struct TurboMapView: UIViewRepresentable {
         context.coordinator.syncRoute(on: map, geometry: routeGeometry)
         context.coordinator.syncAnnotations(on: map, pins: pins)
         context.coordinator.applyBearingReset(on: map, token: resetBearingToken)
-        map.showsUserLocation = following
+        // Always show the blue user-location dot; follow mode only changes whether
+        // the camera tracks it.
+        map.showsUserLocation = true
         let desiredMode: MKUserTrackingMode = following ? .follow : .none
         if map.userTrackingMode != desiredMode {
             map.setUserTrackingMode(desiredMode, animated: true)

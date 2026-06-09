@@ -116,6 +116,7 @@ public struct MapScreen: View {
         .hideNavigationBar()
         .task {
             viewModel.start()
+            viewModel.enableLocation()   // show the user's location dot from the start
             if let vm = makeWeatherViewModel?(currentCenter) {
                 await vm.load()
                 conditions = vm.state.value
@@ -203,6 +204,11 @@ public struct MapScreen: View {
         let toolPoints = routing?.waypoints ?? measuring?.points ?? []
         for (i, wp) in toolPoints.enumerated() {
             result.append(MapPin(id: "wp-\(i)", coordinate: wp, title: "\(i + 1)", symbolName: "smallcircle.filled.circle", tint: t.blue))
+        }
+        // A pin at the long-pressed point, so the action sheet refers to a spot
+        // the user can actually see.
+        if let longPressCoord {
+            result.append(MapPin(id: "longpress", coordinate: longPressCoord, title: "Dropped point", symbolName: "mappin", tint: t.red))
         }
         return result
     }
