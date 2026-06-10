@@ -31,11 +31,17 @@ use crate::world::world_tile;
 /// "blank map while loading".
 pub const CLEAR_SRGB: [u8; 3] = [172, 172, 168];
 
-pub const LAND_SRGB: [u8; 3] = [232, 224, 204];
-pub const WATER_SRGB: [u8; 3] = [96, 148, 210];
+// A cohesive, muted cartographic palette (warm paper land, soft blue
+// water, two greens for landuse, white roads cased in cool grey, amber
+// arterials, dark-slate labels with a near-white halo).
+pub const LAND_SRGB: [u8; 3] = [242, 239, 232];
+pub const WATER_SRGB: [u8; 3] = [166, 204, 222];
+pub const PARK_SRGB: [u8; 3] = [201, 224, 192];
+pub const WOOD_SRGB: [u8; 3] = [180, 210, 172];
+pub const ROAD_CASING_SRGB: [u8; 3] = [214, 216, 220];
 pub const ROAD_INNER_SRGB: [u8; 3] = [255, 255, 255];
-pub const ROAD_MAJOR_SRGB: [u8; 3] = [250, 220, 120];
-pub const LABEL_SRGB: [u8; 3] = [60, 60, 70];
+pub const ROAD_MAJOR_SRGB: [u8; 3] = [247, 220, 150];
+pub const LABEL_SRGB: [u8; 3] = [70, 74, 84];
 pub const HALO_SRGB: [u8; 3] = [248, 248, 250];
 
 /// A width-by-road-class paint: `cases` give (kind → px), `default` the
@@ -90,12 +96,28 @@ pub fn basemap_scene() -> Scene {
         color: Paint::Const(Color::rgb(WATER_SRGB[0], WATER_SRGB[1], WATER_SRGB[2])),
         opacity: Paint::Const(1.0),
     });
+    scene.layers.push(Layer::Fill {
+        id: "landuse".to_string(),
+        source: "world".to_string(),
+        source_layer: Some("landuse".to_string()),
+        filter: Filter::Always,
+        // Park vs wood, data-driven on the landuse class.
+        color: Paint::Match {
+            property: "kind".to_string(),
+            cases: vec![MatchCase {
+                value: FilterValue::String("wood".to_string()),
+                result: Color::rgb(WOOD_SRGB[0], WOOD_SRGB[1], WOOD_SRGB[2]),
+            }],
+            default: Box::new(Color::rgb(PARK_SRGB[0], PARK_SRGB[1], PARK_SRGB[2])),
+        },
+        opacity: Paint::Const(1.0),
+    });
     scene.layers.push(Layer::Line {
         id: "roads-casing".to_string(),
         source: "world".to_string(),
         source_layer: Some("roads".to_string()),
         filter: Filter::Always,
-        color: Paint::Const(Color::rgb(70, 70, 80)),
+        color: Paint::Const(Color::rgb(ROAD_CASING_SRGB[0], ROAD_CASING_SRGB[1], ROAD_CASING_SRGB[2])),
         width: road_width_by_class(&[("major", 12.0), ("minor", 8.0), ("local", 5.5)], 4.0),
     });
     scene.layers.push(Layer::Line {

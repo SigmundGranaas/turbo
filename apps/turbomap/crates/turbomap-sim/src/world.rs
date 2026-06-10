@@ -83,6 +83,44 @@ pub fn world_tile(z: u8, x: u32, y: u32) -> Vec<u8> {
     }
     let tile = water.finish();
 
+    // Landuse parks/woods on the cells the lakes don't take — a green
+    // class so the map reads as land use, not just roads on blank ground.
+    let mut landuse = tile.layer("landuse", EXTENT as u32);
+    let park_half = feature_spacing * 0.34;
+    let i0 = ((bx0 - park_half) / feature_spacing).floor() as i64;
+    let i1 = ((bx1 + park_half) / feature_spacing).ceil() as i64;
+    let j0 = ((by0 - park_half) / feature_spacing).floor() as i64;
+    let j1 = ((by1 + park_half) / feature_spacing).ceil() as i64;
+    for i in i0..=i1 {
+        for j in j0..=j1 {
+            // Odd cells (the non-lake ones), thinned to ~a third by a
+            // parity-independent mod-3 so parks don't carpet the map.
+            if (i + j).rem_euclid(2) != 1 || (2 * i + j).rem_euclid(3) != 0 {
+                continue;
+            }
+            let cx = (i as f64 + 0.5) * feature_spacing;
+            let cy = (j as f64 + 0.5) * feature_spacing;
+            if cx + park_half < bx0
+                || cx - park_half > bx1
+                || cy + park_half < by0
+                || cy - park_half > by1
+            {
+                continue;
+            }
+            let kind = if (i + 2 * j).rem_euclid(3) == 0 { "wood" } else { "park" };
+            let ring = [
+                (clamp(lx(cx - park_half)), clamp(ly(cy - park_half))),
+                (clamp(lx(cx + park_half)), clamp(ly(cy - park_half))),
+                (clamp(lx(cx + park_half)), clamp(ly(cy + park_half))),
+                (clamp(lx(cx - park_half)), clamp(ly(cy + park_half))),
+            ];
+            if ring[0].0 != ring[1].0 && ring[1].1 != ring[2].1 {
+                landuse = landuse.polygon(&ring, &[("kind", Value::String(kind.to_string()))]);
+            }
+        }
+    }
+    let tile = landuse.finish();
+
     let mut roads = tile.layer("roads", EXTENT as u32);
     // Levels included at this zoom (≤ ~8 lines/axis), coarsest first —
     // the equivalent of a real basemap's per-zoom data selection.
@@ -171,8 +209,8 @@ mod tests {
         assert_eq!(a, b, "same tile must encode identically");
         let tile = decode(&a).expect("world tile decodes");
         let names: Vec<&str> = tile.layers.iter().map(|l| l.name.as_str()).collect();
-        assert_eq!(names, vec!["water", "roads", "places"]);
-        let roads = &tile.layers[1];
+        assert_eq!(names, vec!["water", "landuse", "roads", "places"]);
+        let roads = &tile.layers[2];
         assert!(!roads.features.is_empty(), "roads grid expected at z12");
     }
 
@@ -183,7 +221,7 @@ mod tests {
         // a road level dense enough to draw a visible grid.
         for z in 9..=18u8 {
             let t = decode(&world_tile(z, 1 << (z - 2), 1 << (z - 2))).unwrap();
-            let roads = t.layers[1].features.len();
+            let roads = t.layers[2].features.len();
             assert!(roads >= 4, "z{z} should have a visible grid, got {roads} roads");
         }
     }
@@ -196,7 +234,7 @@ mod tests {
         let z = 12u8;
         let left = decode(&world_tile(z, 2119, 1110)).unwrap();
         let right = decode(&world_tile(z, 2120, 1110)).unwrap();
-        assert!(!left.layers[1].features.is_empty());
-        assert!(!right.layers[1].features.is_empty());
+        assert!(!left.layers[2].features.is_empty());
+        assert!(!right.layers[2].features.is_empty());
     }
 }

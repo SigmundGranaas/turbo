@@ -38,9 +38,9 @@ fn cold_load_paints_every_subsystem() {
     // view alongside minor roads, lakes, and labels — every styling path
     // on one screen.
     let Some(mut sim) = (match Sim::new(
-        W,
-        H,
-        Sim::camera_at_major_crossroads(12.0),
+        640,
+        420,
+        Sim::camera_at_major_crossroads(11.0),
         no_fade(),
     ) {
         Some(sim) => Some(sim),
@@ -61,12 +61,18 @@ fn cold_load_paints_every_subsystem() {
     let img = sim.last.as_ref().expect("a rendered frame");
     let land = fraction_near(img, session::LAND_SRGB, 8);
     let water = fraction_near(img, session::WATER_SRGB, 10);
+    let landuse = img
+        .pixels()
+        .filter(|p| p.0[1] > p.0[0] && p.0[1] > p.0[2] && p.0[1] > 150)
+        .count() as f64
+        / (img.width() * img.height()) as f64;
     let road_white = fraction_near(img, session::ROAD_INNER_SRGB, 10);
     let road_major = fraction_near(img, session::ROAD_MAJOR_SRGB, 14);
     let blank = fraction_near(img, session::CLEAR_SRGB, 6);
 
-    assert!(land > 0.30, "land raster should dominate, got {land:.3}");
+    assert!(land > 0.25, "land raster should dominate, got {land:.3}");
     assert!(water > 0.005, "lakes should be visible, got {water:.4}");
+    assert!(landuse > 0.005, "landuse (parks/woods) should be visible, got {landuse:.4}");
     assert!(road_white > 0.005, "minor roads should be visible, got {road_white:.4}");
     assert!(road_major > 0.0005, "major (amber) roads should be visible, got {road_major:.5}");
     assert!(blank < 0.01, "nothing should remain unloaded, got {blank:.4}");
