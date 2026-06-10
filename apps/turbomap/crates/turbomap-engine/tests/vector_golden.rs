@@ -221,6 +221,96 @@ fn line_width_is_pixel_constant_across_zoom() {
 }
 
 #[test]
+fn msaa_smooths_polygon_fill_edges() {
+    // Polygon fills carry no shader AA, so their edges are only smooth if
+    // the frame pass is multisampled. A diamond (all-diagonal edges) over a
+    // flat base must show a band of *partially-covered* edge pixels — colours
+    // between the fill and the background. Without MSAA those edges are a
+    // hard binary step (≈0 intermediate pixels).
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    // A diamond (rotated square) — every edge is diagonal.
+    scene.sources.insert(
+        "area".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"Polygon","coordinates":[[
+                [5.32,60.30],[5.50,60.39],[5.32,60.48],[5.14,60.39],[5.32,60.30]
+            ]]}"#
+                .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Fill {
+        id: "area".to_string(),
+        source: "area".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(40, 160, 80)),
+        opacity: Paint::Const(1.0),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    // Edge pixels: red channel strictly between the fill (40) and the base
+    // (~lighter) — i.e. partially covered samples the resolve blended.
+    let edge_blend = image
+        .pixels()
+        .filter(|p| {
+            let r = p.0[0];
+            // Greenish but neither pure fill nor pure base.
+            r > 70 && r < 200 && p.0[1] > 150
+        })
+        .count();
+    eprintln!("msaa: edge_blend px = {edge_blend}");
+    assert!(
+        edge_blend > 120,
+        "multisampled diamond edges should be antialiased (blended), got {edge_blend}"
+    );
+
+    assert_golden(
+        "msaa-diamond",
+        &image,
+        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+    );
+}
+
+#[test]
 fn dashed_line_renders_with_gaps() {
     // A dashed line layer must paint repeated dash/gap segments, not a solid
     // stroke. Draw a horizontal line with dash_array [14, 10] px and scan

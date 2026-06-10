@@ -226,7 +226,7 @@ impl TextPipeline {
             // attachment. Text is a screen-space overlay — always in
             // front, never writing z.
             depth_stencil: Some(super::overlay_depth_state()),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,
         });

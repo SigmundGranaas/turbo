@@ -287,7 +287,7 @@ impl RasterPipeline {
             // shader → 3D geometry → needs depth so back faces of
             // mountains don't paint over front faces.
             depth_stencil: Some(super::ground_depth_state()),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,
         });

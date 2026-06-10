@@ -56,9 +56,34 @@ fn create_depth_view(device: &wgpu::Device, size: (u32, u32)) -> wgpu::TextureVi
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count: crate::render::MSAA_SAMPLES,
         dimension: wgpu::TextureDimension::D2,
         format: crate::render::DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+/// Build the multisampled colour attachment the frame pass renders into,
+/// before resolving down to the (single-sample) surface. Re-created on
+/// resize; its format matches the surface so the resolve is valid.
+fn create_msaa_color_view(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    size: (u32, u32),
+) -> wgpu::TextureView {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("turbomap-msaa-color"),
+        size: wgpu::Extent3d {
+            width: size.0.max(1),
+            height: size.1.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: crate::render::MSAA_SAMPLES,
+        dimension: wgpu::TextureDimension::D2,
+        format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
@@ -250,6 +275,9 @@ pub struct Map {
     /// front. All render passes share this texture.
     depth_view: wgpu::TextureView,
     depth_size: (u32, u32),
+    /// Multisampled colour target the frame pass renders into; resolved to
+    /// the surface at pass end. Recreated alongside the depth view.
+    msaa_color_view: wgpu::TextureView,
 }
 
 struct Terrain {
@@ -276,6 +304,7 @@ impl Map {
         let marker_pipeline = MarkerPipeline::new(device.clone(), queue.clone(), surface_format);
         let gpu_timestamps = GpuTimestamps::new(&device, &queue);
         let depth_view = create_depth_view(&device, initial_size);
+        let msaa_color_view = create_msaa_color_view(&device, surface_format, initial_size);
         let terrain_shared = TerrainShared::new(&device, &queue);
         Ok(Self {
             device,
@@ -296,6 +325,7 @@ impl Map {
             terrain: None,
             terrain_shared,
             depth_view,
+            msaa_color_view,
             depth_size: initial_size,
         })
     }
@@ -578,6 +608,8 @@ impl Map {
         // the next render.
         if (width, height) != self.depth_size && width > 0 && height > 0 {
             self.depth_view = create_depth_view(&self.device, (width, height));
+            self.msaa_color_view =
+                create_msaa_color_view(&self.device, self.surface_format, (width, height));
             self.depth_size = (width, height);
         }
         self.sync_scenes();
@@ -1136,12 +1168,15 @@ impl Map {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("turbomap-frame-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target,
-                    resolve_target: None,
+                    // Render multisampled, then resolve down to the surface.
+                    view: &self.msaa_color_view,
+                    resolve_target: Some(target),
                     depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear),
-                        store: wgpu::StoreOp::Store,
+                        // The multisampled buffer is transient — we only keep
+                        // the resolved surface, so it needn't be stored.
+                        store: wgpu::StoreOp::Discard,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {

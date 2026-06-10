@@ -174,5 +174,13 @@ validation.
   regenerated (tinted SDF dot + blue shield with white ref); other goldens
   unchanged. Remaining C1: load a real MapLibre sprite sheet (RGBA) for
   multi-colour POIs, @2x, data-driven per-feature icon colour.
+- _2026-06-10_: **D2 (MSAA)** — the single frame pass is now 4× multisampled
+  (shared `MSAA_SAMPLES` + `multisample_state()`; depth + a colour target at
+  4×, resolved to the surface). Smooths the geometry edges without shader AA
+  (polygon fills); `msaa-diamond` golden proves antialiased diagonal edges.
+  All prior goldens stayed within perceptual tolerance — none regenerated.
+  One switch flips it for device-perf tuning.
+- _Recovery note_: a SECOND container reset rewound local mid-session; again
+  recovered by fast-forward from origin with zero loss.
 - _Next_: Workstream B (real data + tile-stack hardening), or C3 line
   gradients / pattern fills.

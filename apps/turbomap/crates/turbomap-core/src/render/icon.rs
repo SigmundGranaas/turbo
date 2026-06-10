@@ -174,7 +174,7 @@ impl IconPipeline {
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: Some(super::overlay_depth_state()),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,
         });

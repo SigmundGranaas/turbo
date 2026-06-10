@@ -38,6 +38,23 @@ pub(crate) const BACKGROUND_CLEAR: wgpu::Color = wgpu::Color {
 /// at zoom 6+).
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+/// Multisample count for the single frame pass. 4× is supported on every
+/// backend we target and smooths the geometry edges that don't carry their
+/// own shader AA (polygon fills especially). All pipelines that draw into
+/// the frame pass must match this, and the pass resolves into the surface.
+/// (Mobile-bandwidth tuning — drop to 1, or swap for a post-process AA — is
+/// a device-time decision; this constant is the single switch.)
+pub(crate) const MSAA_SAMPLES: u32 = 4;
+
+/// The `MultisampleState` every frame-pass pipeline uses, so they all match
+/// the multisampled attachment.
+pub(crate) fn multisample_state() -> wgpu::MultisampleState {
+    wgpu::MultisampleState {
+        count: MSAA_SAMPLES,
+        ..Default::default()
+    }
+}
+
 /// Depth-stencil for ground-plane pipelines that displace by the
 /// terrain DEM (raster). Writes z; later draws at the same pixel are
 /// rejected when their depth is greater (i.e. behind a mountain face

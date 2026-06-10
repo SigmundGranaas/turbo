@@ -210,7 +210,7 @@ impl HillshadePipeline {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,
         });
