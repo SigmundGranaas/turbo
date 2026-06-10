@@ -65,7 +65,8 @@ impl Area {
         )))
     }
 
-    fn is_national(&self) -> bool {
+    /// `true` for the whole-country area (code `0000`).
+    pub fn is_national(&self) -> bool {
         self.0 == "0000"
     }
 

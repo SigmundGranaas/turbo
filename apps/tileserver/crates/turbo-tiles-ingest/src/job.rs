@@ -173,6 +173,10 @@ pub enum JobError {
     NotImplemented(&'static str),
     #[error("missing required option: {0}")]
     MissingOption(&'static str),
+    /// A provision would shrink coverage (e.g. a county replacing national)
+    /// without `force`. Carries a human-readable explanation.
+    #[error("{0}")]
+    WouldReplace(String),
 }
 
 #[derive(Debug, Default, Clone)]
