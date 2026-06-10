@@ -22,12 +22,16 @@ struct InstanceInput {
     @location(3) atlas_origin: vec2<f32>, // normalised [0, 1]
     @location(4) atlas_size: vec2<f32>,   // normalised [0, 1]
     @location(5) color: vec4<f32>,        // text colour (unorm rgba)
+    @location(6) halo_color: vec4<f32>,   // halo colour (unorm rgba)
+    @location(7) halo_width: f32,         // SDF threshold offset, 0 = none
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
+    @location(2) halo_color: vec4<f32>,
+    @location(3) @interpolate(flat) halo_width: f32,
 };
 
 @vertex
@@ -41,6 +45,8 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
     out.uv = inst.atlas_origin + in.corner * inst.atlas_size;
     out.color = inst.color;
+    out.halo_color = inst.halo_color;
+    out.halo_width = inst.halo_width;
     return out;
 }
 
@@ -55,24 +61,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // band of `2*aa` straddling the contour.
     let fill_alpha = 1.0 - smoothstep(0.5 - aa, 0.5 + aa, sdf);
 
-    // Halo: a wider band beyond the contour. Threshold 0.625 ≈ ~1.5 raster
-    // pixels of outline; tuned by eye to be readable but not visually loud.
-    let halo_outer: f32 = 0.625;
+    // Halo: a band reaching `halo_width` (normalised SDF units) beyond the
+    // contour, per-instance. width 0 → outer == fill threshold → no halo.
+    let halo_outer = 0.5 + in.halo_width;
     let halo_total = 1.0 - smoothstep(halo_outer - aa, halo_outer + aa, sdf);
     // The "halo-only" region is the band between contour and outer edge —
-    // i.e. halo_total minus the fill region underneath.
-    let halo_only = max(0.0, halo_total - fill_alpha);
+    // i.e. halo_total minus the fill region underneath. Gated on alpha so a
+    // transparent halo colour contributes nothing.
+    let halo_only = max(0.0, halo_total - fill_alpha) * in.halo_color.a;
 
-    // Halo colour is fixed (dark grey) — could be promoted to a uniform
-    // later for per-rule halo control.
-    let halo_rgb = vec3<f32>(0.96, 0.96, 0.96);
-
-    // Composite halo first, text on top, in straight-alpha space.
+    // Composite halo behind, text on top, in straight-alpha space.
     let combined_alpha = fill_alpha + halo_only;
     if (combined_alpha <= 0.0) {
         discard;
     }
     let rgb =
-        (in.color.rgb * fill_alpha + halo_rgb * halo_only) / max(combined_alpha, 1e-5);
+        (in.color.rgb * fill_alpha + in.halo_color.rgb * halo_only) / max(combined_alpha, 1e-5);
     return vec4<f32>(rgb, combined_alpha * in.color.a);
 }

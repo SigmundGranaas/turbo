@@ -36,7 +36,11 @@ struct TextInstance {
     atlas_origin: [f32; 2],
     atlas_size: [f32; 2],
     color: [u8; 4],
-    _pad: [u8; 4],
+    halo_color: [u8; 4],
+    /// Halo half-width as a normalized SDF threshold offset beyond the
+    /// glyph contour (0 = no halo). px → this is converted at stage time.
+    halo_width: f32,
+    _pad: f32,
 }
 
 /// Output of one per-vector-layer [`TextPipeline::prepare`] call: the
@@ -155,6 +159,16 @@ impl TextPipeline {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: 24,
                     shader_location: 4,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Unorm8x4,
+                    offset: 36,
+                    shader_location: 6,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 40,
+                    shader_location: 7,
                 },
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Unorm8x4,
@@ -385,6 +399,13 @@ impl TextPipeline {
             placed.push(padded);
             // sRGB-authored → linear, since the target re-encodes on write.
             let color = label.color.to_linear_bytes();
+            let halo_color = label.halo_color.to_linear_bytes();
+            // px → normalized SDF units. The atlas encodes 128/SDF_PAD u8
+            // units per glyph pixel (see text::generate_sdf); /255 puts it
+            // in the [0,1] frame the shader samples.
+            let halo_width = label.halo_width
+                * (128.0 / crate::text::SDF_PAD as f32)
+                / 255.0;
             for g in translated {
                 self.staged.push(TextInstance {
                     screen_origin: [g.screen_x, g.screen_y],
@@ -392,7 +413,9 @@ impl TextPipeline {
                     atlas_origin: [g.atlas_x / ATLAS_SIZE as f32, g.atlas_y / ATLAS_SIZE as f32],
                     atlas_size: [g.atlas_w / ATLAS_SIZE as f32, g.atlas_h / ATLAS_SIZE as f32],
                     color,
-                    _pad: [0; 4],
+                    halo_color,
+                    halo_width,
+                    _pad: 0.0,
                 });
             }
         }

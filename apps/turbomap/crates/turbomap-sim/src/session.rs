@@ -36,6 +36,7 @@ pub const WATER_SRGB: [u8; 3] = [96, 148, 210];
 pub const ROAD_INNER_SRGB: [u8; 3] = [255, 255, 255];
 pub const ROAD_MAJOR_SRGB: [u8; 3] = [250, 220, 120];
 pub const LABEL_SRGB: [u8; 3] = [60, 60, 70];
+pub const HALO_SRGB: [u8; 3] = [248, 248, 250];
 
 /// A Google-Maps-shaped basemap scene over the synthetic world: land
 /// raster, water fills, cased roads (inner colour data-driven by road
@@ -108,6 +109,10 @@ pub fn basemap_scene() -> Scene {
         text_field: "name".to_string(),
         text_size: Paint::Const(14.0),
         color: Paint::Const(Color::rgb(LABEL_SRGB[0], LABEL_SRGB[1], LABEL_SRGB[2])),
+        // Dark label ink with a white halo — the readability outline real
+        // basemaps use so labels stay legible over roads and water.
+        halo_color: Paint::Const(Color::rgb(HALO_SRGB[0], HALO_SRGB[1], HALO_SRGB[2])),
+        halo_width: Paint::Const(1.5),
     });
     scene
 }

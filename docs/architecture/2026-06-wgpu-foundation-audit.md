@@ -106,7 +106,19 @@ GPU-paint roadmap (width, opacity ramps) without layout changes. Instanced
 attributes remain the escape hatch if per-draw data ever outgrows this.
 **No change.**
 
-## Decision 5 — Text: SDF atlas is the endgame; halos decide the timing
+## Decision 5 — Text: SDF atlas + configurable halos
+
+**STATUS: DONE (audit was stale).** The SDF atlas already existed — glyphs
+are rasterised once at a reference size (`text::RASTER_PX`) into an 8SSEDT
+distance field (`text::generate_sdf`) and reconstructed via `smoothstep`,
+so text is crisp at any zoom for free. The genuinely missing piece was
+*halo control*: the outline colour/width were hardcoded. Now per-`Symbol`
+layer (`halo_color` + `halo_width`, opt-in, default off), plumbed
+Scene → engine → `Paint::Text` → per-instance text attributes → shader.
+The `symbol-halo-busy` golden proves dark labels stay legible over thick
+lines. Non-Latin shaping remains out of scope.
+
+### Superseded reasoning (kept for the record)
 
 Today's text pipeline rasterises glyphs per size into a single atlas and does
 per-frame layout + collision (`render/text.rs:55`). Fine at current label

@@ -122,6 +122,123 @@ fn full_overlay_set_renders() {
 }
 
 #[test]
+fn symbol_halo_keeps_labels_readable_over_busy_lines() {
+    // The readability test: dark labels with a white halo, sitting on top
+    // of thick dark-blue lines. Without the halo the ink would blend into
+    // the lines where they cross; the halo must keep the glyphs legible.
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    // Thick dark lines crossing where the labels sit.
+    scene.sources.insert(
+        "lines".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","geometry":{"type":"LineString","coordinates":[[5.10,60.45],[5.55,60.45]]}},
+                {"type":"Feature","geometry":{"type":"LineString","coordinates":[[5.10,60.39],[5.55,60.39]]}},
+                {"type":"Feature","geometry":{"type":"LineString","coordinates":[[5.10,60.33],[5.55,60.33]]}}
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.sources.insert(
+        "places".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"name":"NORTH"},"geometry":{"type":"Point","coordinates":[5.32,60.45]}},
+                {"type":"Feature","properties":{"name":"BERGEN"},"geometry":{"type":"Point","coordinates":[5.32,60.39]}},
+                {"type":"Feature","properties":{"name":"SOUTH"},"geometry":{"type":"Point","coordinates":[5.32,60.33]}}
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Line {
+        id: "lines".to_string(),
+        source: "lines".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(30, 40, 90)),
+        width: Paint::Const(10.0),
+    });
+    scene.layers.push(Layer::Symbol {
+        id: "labels".to_string(),
+        source: "places".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        text_field: "name".to_string(),
+        text_size: Paint::Const(20.0),
+        color: Paint::Const(Color::rgb(20, 20, 30)),
+        halo_color: Paint::Const(Color::rgb(250, 250, 252)),
+        halo_width: Paint::Const(2.0),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions {
+            fade_in_secs: 0.0,
+            ..Default::default()
+        },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    // The halo paints white pixels that are NOT the line colour and NOT the
+    // dark ink — proof the outline is actually there around the glyphs.
+    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
+        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
+    };
+    let halo_px = image
+        .pixels()
+        .filter(|p| near(p, [250, 250, 252], 12))
+        .count();
+    assert!(
+        halo_px > 80,
+        "halo outline should be visible around glyphs, got {halo_px} white px"
+    );
+
+    assert_golden(
+        "symbol-halo-busy",
+        &image,
+        GoldenConfig {
+            max_channel_diff: 6,
+            max_outlier_frac: 0.02,
+        },
+    );
+}
+
+#[test]
 fn symbol_labels_render_over_raster() {
     let Some(gpu) = headless() else {
         if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
@@ -167,6 +284,8 @@ fn symbol_labels_render_over_raster() {
         text_field: "name".to_string(),
         text_size: Paint::Const(18.0),
         color: Paint::Const(Color::rgb(20, 20, 30)),
+        halo_color: Paint::Const(Color::rgba(0, 0, 0, 0)),
+        halo_width: Paint::Const(0.0),
     });
 
     let mut engine = TurbomapEngine::new(

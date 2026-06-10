@@ -76,10 +76,16 @@ pub enum Paint {
     },
     /// Render the feature's value at `text_field` as a text label at the
     /// feature's point. `font_size_px` is the rasterised line height.
+    ///
+    /// The label is drawn from the SDF atlas with an optional halo (the
+    /// readability outline real maps use over busy ground). `halo_width`
+    /// is in glyph pixels (0 = no halo); `halo_color` its colour.
     Text {
         text_field: String,
         font_size_px: f32,
         color: Color,
+        halo_color: Color,
+        halo_width: f32,
     },
 }
 

@@ -222,11 +222,15 @@ impl TurbomapEngine {
                 text_field,
                 text_size,
                 color,
+                halo_color,
+                halo_width,
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
-                    let style = symbol_style(name, filter, text_field, text_size, color, zoom);
+                    let style = symbol_style(
+                        name, filter, text_field, text_size, color, halo_color, halo_width, zoom,
+                    );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
                 }
@@ -657,15 +661,19 @@ fn fill_style(
 /// Build a core `VectorStyle` from a Scene `Symbol` layer — a text label
 /// per point feature, reading the label from each feature's `text_field`
 /// property.
+#[allow(clippy::too_many_arguments)]
 fn symbol_style(
     layer_name: String,
     filter: &Filter,
     text_field: &str,
     text_size: &Paint<f32>,
     color: &Paint<Color>,
+    halo_color: &Paint<Color>,
+    halo_width: &Paint<f32>,
     zoom: f64,
 ) -> VectorStyle {
     let c = color.at(zoom);
+    let hc = halo_color.at(zoom);
     VectorStyle {
         background: CoreColor::rgba(0, 0, 0, 0),
         rules: vec![CoreRule {
@@ -675,6 +683,8 @@ fn symbol_style(
                 text_field: text_field.to_string(),
                 font_size_px: text_size.at(zoom),
                 color: CoreColor::rgba(c.r, c.g, c.b, c.a),
+                halo_color: CoreColor::rgba(hc.r, hc.g, hc.b, hc.a),
+                halo_width: halo_width.at(zoom),
             },
             min_zoom: 0,
             max_zoom: 22,

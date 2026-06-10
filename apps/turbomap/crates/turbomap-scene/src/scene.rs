@@ -114,6 +114,12 @@ pub enum Layer {
         text_field: String,
         text_size: Paint<f32>,
         color: Paint<Color>,
+        /// Readability outline behind the label. Defaults to none
+        /// (`halo_width` 0). `halo_width` is in glyph pixels.
+        #[serde(default = "no_halo_color")]
+        halo_color: Paint<Color>,
+        #[serde(default = "no_halo_width")]
+        halo_width: Paint<f32>,
     },
     Hillshade {
         id: String,
@@ -126,6 +132,12 @@ pub enum Layer {
     Custom { id: String, kind: String },
 }
 
+fn no_halo_color() -> Paint<Color> {
+    Paint::Const(Color::rgba(0, 0, 0, 0))
+}
+fn no_halo_width() -> Paint<f32> {
+    Paint::Const(0.0)
+}
 fn opaque() -> Paint<f32> {
     Paint::Const(1.0)
 }

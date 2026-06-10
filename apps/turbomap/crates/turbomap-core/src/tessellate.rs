@@ -53,6 +53,9 @@ pub struct LabelRequest {
     pub text: String,
     pub font_size_px: f32,
     pub color: Color,
+    /// Readability outline. `halo_width` in glyph pixels (0 = none).
+    pub halo_color: Color,
+    pub halo_width: f32,
 }
 
 /// A feature retained verbatim alongside the mesh, so the host can hit-test
@@ -164,6 +167,8 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     text_field,
                     font_size_px,
                     color,
+                    halo_color,
+                    halo_width,
                 } => {
                     if let Geometry::Point(points) = &feature.geometry {
                         let Some(text) = read_text_property(feature, text_field) else {
@@ -176,6 +181,8 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 text: text.clone(),
                                 font_size_px: *font_size_px,
                                 color: *color,
+                                halo_color: *halo_color,
+                                halo_width: *halo_width,
                             });
                         }
                     }
@@ -450,6 +457,8 @@ mod tests {
                     text_field: "name".into(),
                     font_size_px: 14.0,
                     color: Color::rgb(0, 0, 0),
+                    halo_color: Color::rgba(0, 0, 0, 0),
+                    halo_width: 0.0,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
@@ -494,6 +503,8 @@ mod tests {
                     text_field: "name".into(),
                     font_size_px: 14.0,
                     color: Color::rgb(0, 0, 0),
+                    halo_color: Color::rgba(0, 0, 0, 0),
+                    halo_width: 0.0,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
