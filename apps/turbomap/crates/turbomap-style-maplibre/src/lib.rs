@@ -66,6 +66,10 @@ pub fn parse_style(json: &str) -> Result<VectorStyle, StyleError> {
             "fill" | "line" | "symbol" => {
                 style.rules.extend(lower_layer(id, ty, layer)?);
             }
+            // turbomap renders relief from its own hillshade pass over the DEM
+            // source, not from a style `hillshade` layer; raster layers aren't
+            // part of the vector style. Skip rather than reject.
+            "hillshade" | "raster" => {}
             other => return Err(unsupported(id, format!("layer type `{other}`"))),
         }
     }
@@ -424,7 +428,7 @@ mod tests {
 
     #[test]
     fn unsupported_constructs_fail_loud() {
-        let bad = r##"{"layers":[{"id":"x","type":"raster"}]}"##;
+        let bad = r##"{"layers":[{"id":"x","type":"fill-extrusion"}]}"##;
         assert!(matches!(
             parse_style(bad),
             Err(StyleError::Unsupported { .. })
