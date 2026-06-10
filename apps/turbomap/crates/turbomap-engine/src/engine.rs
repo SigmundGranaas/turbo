@@ -24,11 +24,6 @@ use turbomap_scene::{
 use crate::geojson::GEOJSON_LAYER;
 use crate::resolver::{ResolvedSource, SourceResolver};
 
-/// Pixels-to-extent-units for vector line widths. Core line width is in
-/// tile-extent units (~0.0625 px each at extent 4096), so a `W`-px line is
-/// roughly `W * 16` extent units.
-const PX_TO_EXTENT: f32 = 16.0;
-
 /// Counts from one [`TurbomapEngine::pump_tiles`] drain — useful both as
 /// a convergence guard and as an inspectable signal.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -719,8 +714,10 @@ fn as_match<T>(paint: &Paint<T>) -> Option<(&str, &[turbomap_scene::MatchCase<T>
     }
 }
 
-fn width_to_extent(px: f32) -> f32 {
-    (px * PX_TO_EXTENT).max(1.0)
+/// Core line width is now screen pixels (extruded GPU-side per frame), so
+/// this just clamps to a sane minimum.
+fn line_width_px(px: f32) -> f32 {
+    px.max(0.5)
 }
 
 /// Compile a line layer's colour + width into `(filter, colour, width)`
@@ -741,7 +738,7 @@ fn line_rules(
         return vec![(
             map_filter(layer_filter),
             to_core_color(color.at(zoom)),
-            width_to_extent(width.at(zoom)),
+            line_width_px(width.at(zoom)),
         )];
     }
 
@@ -791,13 +788,13 @@ fn line_rules(
     };
     let resolve_width = |value: Option<&FilterValue>| -> f32 {
         match wm {
-            Some((p, cases, default)) if p == driving => width_to_extent(
+            Some((p, cases, default)) if p == driving => line_width_px(
                 value
                     .and_then(|v| cases.iter().find(|c| &c.value == v))
                     .map(|c| c.result)
                     .unwrap_or(*default),
             ),
-            _ => width_to_extent(width.at(zoom)),
+            _ => line_width_px(width.at(zoom)),
         }
     };
 

@@ -24,7 +24,16 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct VectorVertex {
-    pub position: [f32; 2], // world coords
+    /// World-space centerline position (the point on the path, *not* the
+    /// stroke edge). The vertex shader extrudes this along `normal`.
+    pub base: [f32; 2],
+    /// Unit normal in world space (0,0 for fills). lyon defines it so
+    /// `edge = base + normal * half_width`.
+    pub normal: [f32; 2],
+    /// Line width in screen pixels (0 for fills). The shader converts to
+    /// world half-width per frame, giving pixel-constant, smoothly-zooming
+    /// strokes regardless of the tessellation zoom.
+    pub width_px: f32,
     pub color: [u8; 4],
     /// Stored as `[u8; 4]` so it lines up with `Unorm8x4` (wgpu has no
     /// single-byte format). Only the first byte is meaningful: 0 at one
@@ -128,7 +137,9 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                         let packed = pack_color(*color);
                         let mut builder =
                             BuffersBuilder::new(&mut buffers, |v: FillVertex| VectorVertex {
-                                position: v.position().to_array(),
+                                base: v.position().to_array(),
+                                normal: [0.0, 0.0], // fills don't extrude
+                                width_px: 0.0,
                                 color: packed,
                                 edge_pos: [128, 0, 0, 0], // centre — no AA for fills
                             });
@@ -142,8 +153,13 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                 Paint::Line { color, width } => {
                     if let Geometry::LineString(lines) = &feature.geometry {
                         let path = build_lines_path(tile_id, extent, lines);
+                        // `width` is now screen pixels. Tessellate at the
+                        // pixel-constant world width for *this tile's* zoom —
+                        // that only sets arc density for round joins/caps;
+                        // the shader re-extrudes to the camera's exact px.
+                        let width_px = *width;
                         let world_width =
-                            (*width as f64 / extent as f64 / (1u64 << tile_id.z) as f64) as f32;
+                            width_px / (256.0 * (1u64 << tile_id.z) as f32);
                         let packed = pack_color(*color);
                         let mut builder = BuffersBuilder::new(&mut buffers, |v: StrokeVertex| {
                             use lyon::tessellation::Side;
@@ -151,8 +167,11 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 Side::Negative => 0,
                                 Side::Positive => 255,
                             };
+                            let n = v.normal();
                             VectorVertex {
-                                position: v.position().to_array(),
+                                base: v.position_on_path().to_array(),
+                                normal: [n.x, n.y],
+                                width_px,
                                 color: packed,
                                 edge_pos: [edge_pos, 0, 0, 0],
                             }

@@ -122,6 +122,101 @@ fn full_overlay_set_renders() {
 }
 
 #[test]
+fn line_width_is_pixel_constant_across_zoom() {
+    // A road must stay the same number of screen pixels wide as the camera
+    // zooms — the GPU extrudes from the centerline per frame. Zoom within
+    // one tile level (no re-tessellation) and assert the thickness holds.
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (w, h) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "line".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"LineString","coordinates":[[5.0,60.39],[5.64,60.39]]}"#.to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Line {
+        id: "road".to_string(),
+        source: "line".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(200, 40, 60)),
+        width: Paint::Const(8.0),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (w, h),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("engine");
+
+    // Measure the vertical thickness of the horizontal line in the centre
+    // column (a run of red pixels).
+    let thickness = |img: &image::RgbaImage| -> u32 {
+        let cx = w / 2;
+        let mut run = 0u32;
+        let mut best = 0u32;
+        for y in 0..h {
+            let p = img.get_pixel(cx, y);
+            if p.0[0] > 150 && p.0[1] < 100 && p.0[2] < 110 {
+                run += 1;
+                best = best.max(run);
+            } else {
+                run = 0;
+            }
+        }
+        best
+    };
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    let img0 = render_to_image(&gpu, w, h, |e, v| engine.render(e, v));
+    engine.after_submit();
+    let t0 = thickness(&img0);
+
+    // Zoom in 0.6 — same tile level (floor == 9), so no re-fetch.
+    engine.set_camera(CameraState::new(LatLng::new(60.39, 5.32), 9.6));
+    let drained = engine.pump_tiles();
+    assert_eq!(drained.vector_tiles, 0, "zoom within a level must not re-tessellate");
+    let img1 = render_to_image(&gpu, w, h, |e, v| engine.render(e, v));
+    engine.after_submit();
+    let t1 = thickness(&img1);
+
+    assert!(t0 >= 6, "line should be ~8px thick, got {t0}");
+    assert!(
+        t0.abs_diff(t1) <= 2,
+        "width must stay pixel-constant across zoom: {t0}px at z9.0 vs {t1}px at z9.6"
+    );
+}
+
+#[test]
 fn label_importance_ranking_wins_collisions() {
     // Two labels at the SAME spot (guaranteed collision). The high-rank
     // CAPITAL (dark) must win over the low-rank HAMLET (red), regardless

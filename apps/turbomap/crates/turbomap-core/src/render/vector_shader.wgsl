@@ -3,6 +3,7 @@
 // mat4 so tilt + bearing flow through transparently.
 struct CameraUniform {
     view_proj: mat4x4<f32>,
+    params: vec4<f32>,  // .x = pixels per world unit
 };
 
 struct TileUniform {
@@ -22,11 +23,13 @@ struct TileUniform {
 @group(1) @binding(0) var<uniform> tile: TileUniform;
 
 struct VertexInput {
-    @location(0) position: vec2<f32>, // world coords (pre-projected on CPU)
-    @location(1) color: vec4<f32>,    // 8-bit sRGB, fed as Unorm
+    @location(0) base: vec2<f32>,    // world centerline
+    @location(1) normal: vec2<f32>,  // unit world normal (0 for fills)
+    @location(2) width_px: f32,      // screen px (0 for fills)
+    @location(3) color: vec4<f32>,   // 8-bit sRGB, fed as Unorm
     // Cross-line position used for AA. .x: 0.0 at one stroke edge, 1.0 at
     // the other, ~0.5 for fills (no AA). Other components unused.
-    @location(2) edge_pos: vec4<f32>,
+    @location(4) edge_pos: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -38,7 +41,12 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = camera.view_proj * vec4<f32>(in.position, 0.0, 1.0);
+    // Extrude the centerline by the normal to a half-width that is a
+    // constant number of *screen* pixels — so a road stays N px wide at
+    // every zoom. width_px 0 (fills) leaves the position untouched.
+    let half_width_world = (in.width_px * 0.5) / camera.params.x;
+    let world = in.base + in.normal * half_width_world;
+    out.clip_position = camera.view_proj * vec4<f32>(world, 0.0, 1.0);
     out.color = in.color;
     out.edge_pos = in.edge_pos.x;
     return out;

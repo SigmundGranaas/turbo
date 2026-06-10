@@ -23,6 +23,12 @@ const MAX_TILES_PER_FRAME: u64 = 256;
 struct CameraUniform {
     /// World → clip 4×4 — see raster `shader.wgsl` for the rationale.
     view_proj: [[f32; 4]; 4],
+    /// `.x` = screen pixels per world unit at the current zoom
+    /// (`256 * 2^zoom`); the vertex shader divides a vertex's `width_px`
+    /// by it to get the world half-width, so strokes stay a constant pixel
+    /// width as the camera zooms — without re-tessellating. Packed as a
+    /// vec4 to keep the Rust + WGSL layouts both exactly 80 bytes.
+    params: [f32; 4],
 }
 
 /// The only data the GPU reads per draw — 4 bytes. We bind 256-byte
@@ -113,23 +119,35 @@ impl VectorPipeline {
             array_stride: std::mem::size_of::<VectorVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
-                // position: [f32; 2] @ offset 0
+                // base: [f32; 2] @ 0 — world centerline.
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: 0,
                     shader_location: 0,
                 },
-                // color: [u8; 4] Unorm @ offset 8
+                // normal: [f32; 2] @ 8 — unit world normal.
                 wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Unorm8x4,
+                    format: wgpu::VertexFormat::Float32x2,
                     offset: 8,
                     shader_location: 1,
                 },
-                // edge_pos: [u8; 4] Unorm @ offset 12 — shader reads .x.
+                // width_px: f32 @ 16.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 16,
+                    shader_location: 2,
+                },
+                // color: [u8; 4] Unorm @ 20.
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Unorm8x4,
-                    offset: 12,
-                    shader_location: 2,
+                    offset: 20,
+                    shader_location: 3,
+                },
+                // edge_pos: [u8; 4] Unorm @ 24 — shader reads .x.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Unorm8x4,
+                    offset: 24,
+                    shader_location: 4,
                 },
             ],
         };
@@ -223,6 +241,7 @@ impl VectorPipeline {
         let (vw, vh) = scene.viewport_px();
         let uniform = CameraUniform {
             view_proj: camera.view_projection_matrix((vw, vh)),
+            params: [(256.0 * 2f64.powf(camera.zoom)) as f32, 0.0, 0.0, 0.0],
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
