@@ -1099,7 +1099,11 @@ impl Map {
                     // Icons first (they collect from the same cache), then
                     // labels — both per visible vector layer.
                     prepared_icons.push(self.icon_pipeline.prepare(&v.scene, &mut v.cache));
-                    prepared_text.push(self.text_pipeline.prepare(&v.scene, &mut v.cache));
+                    prepared_text.push(self.text_pipeline.prepare(
+                        &v.scene,
+                        &mut v.cache,
+                        self.options.pixel_ratio,
+                    ));
                 }
                 LayerEntry::Hillshade(h) if h.visible => {
                     // Hillshade reads from the shared TerrainCache.

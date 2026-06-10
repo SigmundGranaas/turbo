@@ -702,7 +702,9 @@ fn symbol_style(
 ) -> VectorStyle {
     let hc = halo_color.at(zoom);
     let core_halo = CoreColor::rgba(hc.r, hc.g, hc.b, hc.a);
-    let hw = halo_width.at(zoom) * pixel_ratio;
+    // Halo width already scales with font size on screen (it is in glyph
+    // raster px), so it must NOT be multiplied by pixel_ratio again.
+    let hw = halo_width.at(zoom);
     let font = text_size.at(zoom) * pixel_ratio;
     let along_line = matches!(placement, SymbolPlacement::Line);
     let ic = icon_color.at(zoom);

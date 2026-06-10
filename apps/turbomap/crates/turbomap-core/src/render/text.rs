@@ -55,6 +55,11 @@ struct TextInstance {
     /// Screen-space point the quad rotates about (the glyph's pen point on
     /// the path). Ignored when `angle == 0`.
     pivot: [f32; 2],
+    /// 1.0 → halo-only instance, 0.0 → fill-only. Halos for a whole label
+    /// are staged *before* its fills (the MapLibre two-pass), so a glyph's
+    /// halo can never paint over a neighbouring glyph's body.
+    mode: f32,
+    _pad: [f32; 3],
 }
 
 /// Output of one per-vector-layer [`TextPipeline::prepare`] call: the
@@ -88,6 +93,13 @@ pub(crate) struct TextPipeline {
     /// Viewport recorded by the frame's `prepare` calls, written into
     /// the globals uniform by `finish_frame`.
     frame_viewport: [f32; 2],
+    /// Collision boxes of every label placed this frame — shared across
+    /// *all* Symbol layers, so place names, street names and water names
+    /// can never overlap each other. Earlier layers win space.
+    frame_placed: Vec<Aabb>,
+    /// Screen anchors of placed line labels keyed by text (frame-wide):
+    /// cross-tile dedup + repeat spacing for road names.
+    frame_line_names: HashMap<String, Vec<(f32, f32)>>,
 }
 
 impl TextPipeline {
@@ -198,6 +210,11 @@ impl TextPipeline {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: 48,
                     shader_location: 9,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 56,
+                    shader_location: 10,
                 },
             ],
         };
@@ -323,6 +340,8 @@ impl TextPipeline {
             layout_cache: LayoutCache::new(),
             staged: Vec::new(),
             frame_viewport: [0.0; 2],
+            frame_placed: Vec::new(),
+            frame_line_names: HashMap::new(),
         }
     }
 
@@ -338,16 +357,21 @@ impl TextPipeline {
     /// before the per-layer `prepare` calls.
     pub(crate) fn begin_frame(&mut self) {
         self.staged.clear();
+        self.frame_placed.clear();
+        self.frame_line_names.clear();
     }
 
-    /// Lay out labels for one vector layer's currently visible tiles
-    /// (per-layer collision set, like the old per-layer text pass) and
-    /// stage the surviving glyph instances. The returned range is drawn
-    /// by `draw` after `finish_frame` uploads the shared buffer.
+    /// Lay out labels for one vector layer's currently visible tiles and
+    /// stage the surviving glyph instances. Collision state is **frame-
+    /// wide** (`begin_frame` resets it), so labels from different Symbol
+    /// layers never overlap each other; layers prepared earlier win space.
+    /// The returned range is drawn by `draw` after `finish_frame` uploads
+    /// the shared buffer.
     pub(crate) fn prepare(
         &mut self,
         scene: &Scene,
         cache: &mut VectorMeshCache,
+        pixel_ratio: f32,
     ) -> PreparedText {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
@@ -381,21 +405,10 @@ impl TextPipeline {
         });
 
         let start = self.staged.len() as u32;
-        let mut placed: Vec<Aabb> = Vec::new();
-        // Screen anchors of already-placed line labels, keyed by text — the
-        // cross-tile dedup / repeat-spacing index for road names.
-        let mut placed_line_text: HashMap<String, Vec<(f32, f32)>> = HashMap::new();
         for label in candidates {
             // Line-placed labels (road names) follow a projected centerline.
             if let Some(path) = &label.path {
-                self.stage_line_label(
-                    &camera,
-                    viewport_px,
-                    &label,
-                    path,
-                    &mut placed,
-                    &mut placed_line_text,
-                );
+                self.stage_line_label(&camera, viewport_px, &label, path, pixel_ratio);
                 continue;
             }
             // Project world → screen.
@@ -446,22 +459,20 @@ impl TextPipeline {
                 max_x: aabb_xy.2,
                 max_y: aabb_xy.3,
             };
-            let padded = aabb.pad(2.0);
-            if placed.iter().any(|p| p.overlaps(padded)) {
+            let padded = aabb.pad(2.0 * pixel_ratio);
+            if self.frame_placed.iter().any(|p| p.overlaps(padded)) {
                 continue;
             }
-            placed.push(padded);
+            self.frame_placed.push(padded);
             // sRGB-authored → linear, since the target re-encodes on write.
             let color = label.color.to_linear_bytes();
             let halo_color = label.halo_color.to_linear_bytes();
-            // px → normalized SDF units. The atlas encodes 128/SDF_PAD u8
-            // units per glyph pixel (see text::generate_sdf); /255 puts it
-            // in the [0,1] frame the shader samples.
-            let halo_width = label.halo_width
-                * (128.0 / crate::text::SDF_PAD as f32)
-                / 255.0;
-            for g in translated {
-                self.staged.push(TextInstance {
+            let halo_width = sdf_halo_width(label.halo_width);
+            // Two passes per label (the MapLibre order): every glyph's halo
+            // first, then every fill — so no halo paints over a neighbouring
+            // glyph's body.
+            let push = |staged: &mut Vec<TextInstance>, g: &crate::text::LayoutGlyph, mode: f32| {
+                staged.push(TextInstance {
                     screen_origin: [g.screen_x, g.screen_y],
                     screen_size: [g.width, g.height],
                     atlas_origin: [g.atlas_x / ATLAS_SIZE as f32, g.atlas_y / ATLAS_SIZE as f32],
@@ -473,7 +484,17 @@ impl TextPipeline {
                     // pivot irrelevant, so the shader path is unchanged.
                     angle: 0.0,
                     pivot: [g.screen_x, g.screen_y],
+                    mode,
+                    _pad: [0.0; 3],
                 });
+            };
+            if halo_width > 0.0 && halo_color[3] > 0 {
+                for g in &translated {
+                    push(&mut self.staged, g, 1.0);
+                }
+            }
+            for g in &translated {
+                push(&mut self.staged, g, 0.0);
             }
         }
 
@@ -497,8 +518,7 @@ impl TextPipeline {
         viewport_px: (f32, f32),
         label: &LabelRequest,
         path: &[(f32, f32)],
-        placed: &mut Vec<Aabb>,
-        placed_line_text: &mut HashMap<String, Vec<(f32, f32)>>,
+        pixel_ratio: f32,
     ) {
         // Cheap cull on the anchor (path midpoint) before any layout.
         let anchor = world_to_screen(camera, label.world_pos, viewport_px);
@@ -513,9 +533,9 @@ impl TextPipeline {
         // road name was already placed within the repeat distance. Sorting
         // put the piece nearest the camera centre first, so the survivor is
         // the best-placed one.
-        if let Some(prev) = placed_line_text.get(&label.text) {
-            let min_sq = LINE_LABEL_REPEAT_PX * LINE_LABEL_REPEAT_PX;
-            if prev.iter().any(|&p| sq_dist(p, anchor) < min_sq) {
+        if let Some(prev) = self.frame_line_names.get(&label.text) {
+            let repeat = LINE_LABEL_REPEAT_PX * pixel_ratio;
+            if prev.iter().any(|&p| sq_dist(p, anchor) < repeat * repeat) {
                 return;
             }
         }
@@ -565,23 +585,24 @@ impl TextPipeline {
             max_x: bb.2,
             max_y: bb.3,
         }
-        .pad(2.0);
-        if placed.iter().any(|p| p.overlaps(padded)) {
+        .pad(2.0 * pixel_ratio);
+        if self.frame_placed.iter().any(|p| p.overlaps(padded)) {
             return;
         }
-        placed.push(padded);
+        self.frame_placed.push(padded);
         // Record this placement so later same-name pieces honour the repeat
         // distance (cross-tile dedup).
-        placed_line_text
+        self.frame_line_names
             .entry(label.text.clone())
             .or_default()
             .push(anchor);
 
         let color = label.color.to_linear_bytes();
         let halo_color = label.halo_color.to_linear_bytes();
-        let halo_width = label.halo_width * (128.0 / crate::text::SDF_PAD as f32) / 255.0;
-        for g in glyphs {
-            self.staged.push(TextInstance {
+        let halo_width = sdf_halo_width(label.halo_width);
+        // Halo pass first, then fills (see `prepare`).
+        let push = |staged: &mut Vec<TextInstance>, g: &crate::text::PathGlyph, mode: f32| {
+            staged.push(TextInstance {
                 screen_origin: [g.screen_x, g.screen_y],
                 screen_size: [g.width, g.height],
                 atlas_origin: [g.atlas_x / ATLAS_SIZE as f32, g.atlas_y / ATLAS_SIZE as f32],
@@ -591,7 +612,17 @@ impl TextPipeline {
                 halo_width,
                 angle: g.angle,
                 pivot: [g.pivot.0, g.pivot.1],
+                mode,
+                _pad: [0.0; 3],
             });
+        };
+        if halo_width > 0.0 && halo_color[3] > 0 {
+            for g in &glyphs {
+                push(&mut self.staged, g, 1.0);
+            }
+        }
+        for g in &glyphs {
+            push(&mut self.staged, g, 0.0);
         }
     }
 
@@ -687,6 +718,16 @@ fn rotate_about(p: (f32, f32), pivot: (f32, f32), angle: f32) -> (f32, f32) {
     let (s, c) = angle.sin_cos();
     let (rx, ry) = (p.0 - pivot.0, p.1 - pivot.1);
     (pivot.0 + rx * c - ry * s, pivot.1 + rx * s + ry * c)
+}
+
+/// Convert a halo width in glyph raster pixels to the normalized SDF
+/// threshold offset the shader uses — clamped to what the atlas can
+/// actually express. The SDF saturates `SDF_PAD` raster px outside the
+/// contour and the glyph quad ends there too, so wider halos would clip
+/// into square boxes around every glyph.
+fn sdf_halo_width(halo_px: f32) -> f32 {
+    let max_px = crate::text::SDF_PAD as f32 - 1.0;
+    halo_px.clamp(0.0, max_px) * (128.0 / crate::text::SDF_PAD as f32) / 255.0
 }
 
 fn sq_dist(a: (f32, f32), b: (f32, f32)) -> f32 {
