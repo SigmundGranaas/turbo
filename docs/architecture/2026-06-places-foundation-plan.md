@@ -43,6 +43,46 @@ the implementation that turns it green, then refactor. Concretely:
 
 ---
 
+## Status — 2026-06-09 (TDD, all on `claude/custom-search-geocoding-lzb9vo`)
+
+Done and tested (Places behaviour suite 41/41; `place-core` cargo
+test/clippy/fmt green across `cabi`,`embedded`):
+
+- **P0** — all four defects (ETag from `places.dataset`; cabi engine handle +
+  `OnceLock`; startup native probe; `/ruleset/{version}`).
+- **P1a** — UTM33→WGS84 (Krüger series, <0.5 m vs 4 Kartverket control points
+  incl. 30°E); GDAL-free GeoPackage reader (GPB→WKB→NTS); `Normalization`
+  (shared name rules); `GpkgPlaceIngestor` (GPKG→stage end-to-end).
+- **P1b** — `places_staging` + atomic `SwapAsync` (DELETE+INSERT under MVCC):
+  sweep, resume, and the **swap-under-load** durability gate (8 readers, zero
+  failures, complete-version reads, ETag flips once).
+- **P1 data front-door** — `GeonorgeClient` built against the **real** download
+  API (capabilities → codelists → `POST /order` → file URLs), unit-tested on a
+  captured order response.
+- **P3** — the embedded engine: `Bundle` (rusqlite R*Tree + polygon
+  containment, reusing `rank()`/`forward_search()`); the `/api/places/bundle`
+  builder; the **P3d server≡embedded equality gate** (a server-built bundle,
+  opened via FFI, reverse-geocodes byte-identically to `/reverse` across all
+  cascade paths); the standalone `bundle_cli` harness (P3e); icon-map fix.
+
+Remaining (need national data / large downloads — the M4 dry-run):
+
+- **P1 national run** — order+download the real GPKG/GeoJSON, per-format
+  readers (GeoJSON polygons for admin/Naturbase; GPKG points for SSR),
+  set-based enrichment, Matrikkel addresses + the dead address cascade step.
+- **P2** — the 2,000-point differential-parity harness vs. the live
+  composition; planner-assertion + k6 perf gates at national volume; relevance
+  fixture.
+- **P3 polish** — bundle FTS5 (LIKE today; fine at region scale); footprint
+  budgets (G6) at real scale.
+- **P4** — gateway rate limit, attribution surfacing, ingestion runbook.
+
+The hard, novel risks (geodesy, GDAL-free parsing, atomic-swap-under-load,
+shared-core across 4 runtimes, server≡embedded equality) are retired with
+tests. What's left is breadth (national data) + polish.
+
+---
+
 ## P0 — Foundation defects (prerequisite, ~small)
 
 Fixes for the four verified defects from the 2026-06-09 architecture review;
