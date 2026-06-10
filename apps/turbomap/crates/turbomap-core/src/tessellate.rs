@@ -180,8 +180,18 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     }
                 }
                 Paint::Line { color, width } => {
-                    if let Geometry::LineString(lines) = &feature.geometry {
-                        let path = build_lines_path(tile_id, extent, lines);
+                    // A line rule strokes line geometry *and* polygon rings
+                    // (the latter is the outline around fills).
+                    let path = match &feature.geometry {
+                        Geometry::LineString(lines) => {
+                            Some(build_lines_path(tile_id, extent, lines))
+                        }
+                        Geometry::Polygon(rings) => {
+                            Some(build_polygon_path(tile_id, extent, rings))
+                        }
+                        Geometry::Point(_) => None,
+                    };
+                    if let Some(path) = path {
                         // `width` is screen pixels. Tessellate at the
                         // equivalent width in tile units (one tile = 256 px
                         // at its native zoom) — that only sets arc density
@@ -479,6 +489,44 @@ mod tests {
             geometry: Geometry::LineString(lines),
             properties: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn polygon_matching_a_line_rule_strokes_its_outline() {
+        // A line rule on a polygon source-layer strokes the ring — the
+        // building/water/landuse outline. Must produce stroke geometry
+        // carrying the line's pixel width (fills carry width_px 0).
+        let tile = VectorTile {
+            layers: vec![crate::vector::Layer {
+                name: "building".into(),
+                version: 2,
+                extent: 4096,
+                features: vec![poly(vec![vec![
+                    (100, 100),
+                    (300, 100),
+                    (300, 300),
+                    (100, 300),
+                    (100, 100),
+                ]])],
+            }],
+        };
+        let style = VectorStyle {
+            background: Color::rgb(255, 255, 255),
+            rules: vec![Rule {
+                source_layer: "building".into(),
+                filter: Filter::Always,
+                paint: Paint::Line { color: Color::rgb(120, 110, 90), width: 1.5 },
+                min_zoom: 0,
+                max_zoom: 22,
+                interactive: false,
+            }],
+        };
+        let out = tessellate(TileId::new(14, 8434, 4722), &tile, &style);
+        assert!(out.mesh.indices.len() >= 6, "ring must stroke to triangles");
+        assert!(
+            out.mesh.vertices.iter().all(|v| (v.width_px - 1.5).abs() < 1e-4),
+            "outline vertices must carry the line width, not 0 (fill)"
+        );
     }
 
     #[test]

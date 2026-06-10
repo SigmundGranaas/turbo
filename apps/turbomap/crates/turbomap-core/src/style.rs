@@ -244,10 +244,13 @@ fn paint_matches_geom_type(paint: &Paint, gt: GeomType) -> bool {
     match (paint, gt) {
         (Paint::Fill { .. }, GeomType::Polygon) => true,
         (Paint::Line { .. }, GeomType::LineString) => true,
+        // A line rule also strokes polygon rings — the outline real maps
+        // draw around buildings, water and landuse to separate adjacent
+        // same-colour shapes.
+        (Paint::Line { .. }, GeomType::Polygon) => true,
         // Point labels match points; along-line labels match lines.
         (Paint::Text { along_line, .. }, GeomType::Point) => !*along_line,
         (Paint::Text { along_line, .. }, GeomType::LineString) => *along_line,
-        // Outline-as-line for polygons would be possible but skip for now.
         _ => false,
     }
 }

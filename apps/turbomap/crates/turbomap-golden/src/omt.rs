@@ -97,13 +97,24 @@ pub fn bergen_scene() -> Scene {
         color: Paint::Const(Color::rgb(163, 201, 224)),
         opacity: Paint::Const(1.0),
     });
+    // Buildings: a warm fill with a slightly darker outline so adjacent
+    // footprints read as separate shapes instead of one grey blob.
     scene.layers.push(Layer::Fill {
         id: "buildings".to_string(),
         source: "omt".to_string(),
         source_layer: Some("building".to_string()),
         filter: Filter::Always,
-        color: Paint::Const(Color::rgb(222, 218, 210)),
+        color: Paint::Const(Color::rgb(224, 217, 206)),
         opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Line {
+        id: "building-outline".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("building".to_string()),
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(198, 189, 174)),
+        width: Paint::Const(0.8),
+        dash_array: None,
     });
 
     // Streets: grey casing under, class-coloured inner over. `service`
