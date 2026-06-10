@@ -42,6 +42,36 @@ public static class PlaceCore
     [DllImport(Lib)]
     private static extern void place_core_string_free(IntPtr ptr);
 
+    [DllImport(Lib)]
+    private static extern IntPtr place_core_bundle_open(IntPtr pathUtf8);
+
+    [DllImport(Lib)]
+    private static extern void place_core_bundle_free(IntPtr bundle);
+
+    [DllImport(Lib)]
+    private static extern IntPtr place_core_bundle_reverse(IntPtr bundle, double lat, double lng);
+
+    /// <summary>Open an offline bundle file; returns a handle (zero on error)
+    /// to free with <see cref="BundleFree"/>. Requires the lib built with
+    /// <c>--features cabi,embedded</c>.</summary>
+    public static IntPtr BundleOpen(string path)
+    {
+        var p = Marshal.StringToCoTaskMemUTF8(path);
+        try { return place_core_bundle_open(p); }
+        finally { Marshal.FreeCoTaskMem(p); }
+    }
+
+    public static void BundleFree(IntPtr bundle) => place_core_bundle_free(bundle);
+
+    /// <summary>Reverse-geocode from an opened bundle → JSON
+    /// <c>LocationDescription</c> (or <c>null</c>).</summary>
+    public static string BundleReverseJson(IntPtr bundle, double lat, double lng)
+    {
+        var result = place_core_bundle_reverse(bundle, lat, lng);
+        try { return Marshal.PtrToStringUTF8(result) ?? "null"; }
+        finally { place_core_string_free(result); }
+    }
+
     /// <summary>The embedded ruleset artifact (verbatim JSON) — what the core
     /// runs, so the server serves exactly that.</summary>
     public static string RulesetJson()

@@ -32,6 +32,7 @@ public static class PlacesModule
         services.AddSingleton(sp => new DatasetVersionProvider(
             sp.GetRequiredService<IPlaceStore>(), ttl));
         services.AddSingleton<RulesetProvider>();
+        services.AddSingleton(_ => new BundleBuilder(connectionString));
 
         services.AddControllers().AddApplicationPart(typeof(PlacesController).Assembly);
 

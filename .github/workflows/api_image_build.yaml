@@ -61,7 +61,7 @@ jobs:
         # context (apps/api), so build it here and stage the cdylib into
         # the context for the Dockerfiles' COPY native/ step.
         run: |
-          cargo build --release --features cabi
+          cargo build --release --features cabi,embedded
           mkdir -p "$GITHUB_WORKSPACE/apps/api/native"
           cp target/release/libplace_core.so "$GITHUB_WORKSPACE/apps/api/native/"
         working-directory: packages/place-core

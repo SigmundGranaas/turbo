@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Turboapi.Places.controller.response;
@@ -24,16 +25,19 @@ public class PlacesController : ControllerBase
     private readonly IPlaceStore _store;
     private readonly DatasetVersionProvider _version;
     private readonly RulesetProvider _ruleset;
+    private readonly Turboapi.Places.Infrastructure.BundleBuilder _bundles;
 
     public PlacesController(
         ReverseGeocodeService reverse, SearchService search, IPlaceStore store,
-        DatasetVersionProvider version, RulesetProvider ruleset)
+        DatasetVersionProvider version, RulesetProvider ruleset,
+        Turboapi.Places.Infrastructure.BundleBuilder bundles)
     {
         _reverse = reverse;
         _search = search;
         _store = store;
         _version = version;
         _ruleset = ruleset;
+        _bundles = bundles;
     }
 
     /// <summary>GET /api/places/reverse?lat=&amp;lon= — describe a coordinate.
@@ -92,6 +96,46 @@ public class PlacesController : ControllerBase
         return json is null
             ? NotFound(new ErrorResponse("unknown_ruleset", $"No ruleset version '{version}'."))
             : Content(json, "application/json");
+    }
+
+    /// <summary>GET /api/places/bundle?bbox=minLng,minLat,maxLng,maxLat&amp;since=
+    /// — an offline SQLite region bundle (R*Tree + polygon containment + the
+    /// ruleset), so the on-device engine answers identically offline. 304 when
+    /// the client's <c>since</c> already matches the active dataset version.</summary>
+    [HttpGet("bundle")]
+    public async Task<IActionResult> Bundle(
+        [FromQuery] string bbox, [FromQuery] string? since, CancellationToken ct)
+    {
+        var parts = (bbox ?? "").Split(',');
+        if (parts.Length != 4 ||
+            !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var minLng) ||
+            !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var minLat) ||
+            !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var maxLng) ||
+            !double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var maxLat))
+        {
+            return BadRequest(new ErrorResponse("bad_bbox", "bbox must be minLng,minLat,maxLng,maxLat."));
+        }
+        if (!InNorway(minLat, minLng) || !InNorway(maxLat, maxLng))
+            return BadRequest(new ErrorResponse("out_of_coverage", "bbox is outside Norway."));
+
+        var version = await _version.GetActiveVersionAsync(ct);
+        if (version is null)
+            return NotFound(new ErrorResponse("no_dataset", "No active dataset published."));
+        if (since == version)
+            return StatusCode(StatusCodes.Status304NotModified);
+
+        var path = Path.Combine(Path.GetTempPath(), $"places-bundle-{Guid.NewGuid():n}.sqlite");
+        try
+        {
+            await _bundles.BuildAsync(minLng, minLat, maxLng, maxLat, _ruleset.Json, version, path, ct);
+            var bytes = await System.IO.File.ReadAllBytesAsync(path, ct);
+            Response.Headers.ETag = $"\"{version}\"";
+            return File(bytes, "application/octet-stream", $"places-{version}.sqlite");
+        }
+        finally
+        {
+            if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+        }
     }
 
     /// <summary>GET /api/places/health — dataset freshness for ops + clients.</summary>

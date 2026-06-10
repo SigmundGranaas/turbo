@@ -35,7 +35,7 @@ jobs:
         # The Places module P/Invokes the shared Rust ranking core; the
         # behaviour tests resolve target/debug/libplace_core.so from the
         # repo layout. ubuntu-latest ships a Rust toolchain.
-        run: cargo build --features cabi
+        run: cargo build --features cabi,embedded
         working-directory: packages/place-core
 
       - name: Restore
