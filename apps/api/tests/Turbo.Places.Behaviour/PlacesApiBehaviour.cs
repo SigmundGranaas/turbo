@@ -95,6 +95,21 @@ public class PlacesApiBehaviour : IClassFixture<PlacesHostFixture>
     }
 
     [Fact]
+    public async Task Search_with_a_typo_falls_back_to_trigram_fuzzy()
+    {
+        // "galdhopiggen" (no ø) has no prefix match against the folded
+        // "galdhøpiggen", so retrieval must fall through to the trigram fuzzy
+        // arm and still surface the summit.
+        var client = _fixture.CreateClient();
+        var body = await client.GetFromJsonAsync<JsonElement>(
+            "/api/places/search?q=galdhopiggen&lat=61.6363&lon=8.3120&limit=5");
+
+        var items = body.GetProperty("items");
+        items.GetArrayLength().Should().BeGreaterThan(0);
+        items[0].GetProperty("title").GetString().Should().Be("Galdhøpiggen");
+    }
+
+    [Fact]
     public async Task Search_without_query_returns_400()
     {
         var client = _fixture.CreateClient();

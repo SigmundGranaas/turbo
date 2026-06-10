@@ -15,6 +15,11 @@ public sealed class PgPlaceStore : IPlaceStore
     /// <summary>Upper bound for the national atomic swap (see <see cref="SwapAsync"/>).</summary>
     private const int SwapCommandTimeoutSeconds = 600;
 
+    /// <summary>Radius bounding the trigram fuzzy fallback when a map centre is
+    /// given (see <see cref="FuzzySearchAsync"/>) — generous for "near where I'm
+    /// looking", but tight enough to keep a common stem off a national scan.</summary>
+    private const double FuzzyNearRadiusM = 300_000;
+
     private readonly string _connectionString;
 
     public PgPlaceStore(string connectionString) => _connectionString = connectionString;
@@ -51,6 +56,11 @@ public sealed class PgPlaceStore : IPlaceStore
             CREATE INDEX IF NOT EXISTS places_centroid_gist ON places.places USING gist (centroid);
             CREATE INDEX IF NOT EXISTS places_geom_gist     ON places.places USING gist (geom);
             CREATE INDEX IF NOT EXISTS places_name_trgm     ON places.places USING gin (name_fold gin_trgm_ops);
+            -- Btree range scan for the autocomplete-dominant prefix path (a GIN
+            -- trigram % scan over-matches common stems — e.g. "storvatn" hits
+            -- thousands — so prefix gets its own cheap index; see SearchAsync).
+            CREATE INDEX IF NOT EXISTS places_name_prefix
+                ON places.places (name_fold text_pattern_ops);
             CREATE TABLE IF NOT EXISTS places.areas (
                 source          text NOT NULL,
                 source_id       text NOT NULL,
@@ -223,10 +233,32 @@ public sealed class PgPlaceStore : IPlaceStore
     {
         await using var conn = new NpgsqlConnection(_connectionString);
         await conn.OpenAsync(ct);
+
+        var fold = query.Trim().ToLowerInvariant();
+
+        // Prefix-first retrieval. place-core ranks exact > prefix > substring, so
+        // when there are already `limit` prefix matches no fuzzy match can reach
+        // the shown results — the trigram % arm would be pure waste. Prefix is a
+        // cheap btree range scan (vs. % scanning thousands of common-stem rows),
+        // proximity-ordered so "the Storvatnet near me" is among the slots.
+        var rows = await PrefixSearchAsync(conn, fold, nearLat, nearLng, limit, ct);
+
+        // Trigram fuzzy only to fill remaining slots (typo tolerance). Bounded by
+        // proximity when a centre is given so a generic stem can't scan nationally.
+        if (rows.Count < limit)
+            rows.AddRange(await FuzzySearchAsync(conn, fold, nearLat, nearLng, limit - rows.Count, ct));
+
+        rows.AddRange(await SearchAreasAsync(conn, fold, nearLat, nearLng, limit, ct));
+        return rows;
+    }
+
+    /// <summary>Prefix match (btree <c>text_pattern_ops</c>), proximity-ordered
+    /// when a centre is given; shorter names first otherwise (closer to the
+    /// query). Retrieval only — place-core re-ranks.</summary>
+    private async Task<List<SearchRow>> PrefixSearchAsync(
+        NpgsqlConnection conn, string fold, double? nearLat, double? nearLng, int limit, CancellationToken ct)
+    {
         await using var cmd = conn.CreateCommand();
-        // Trigram similarity for fuzz + prefix LIKE for short queries (trigram
-        // recall is weak under 3 chars). Retrieval ranking only — place-core
-        // applies the canonical match-class + proximity ordering on top.
         cmd.CommandText = """
             SELECT primary_name, feature_type,
                    ST_Y(geom) AS lat, ST_X(geom) AS lng,
@@ -235,37 +267,64 @@ public sealed class PgPlaceStore : IPlaceStore
                         THEN ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
                    END AS d
             FROM places.places
-            WHERE name_fold % @q OR name_fold LIKE @prefix
-            ORDER BY GREATEST(similarity(name_fold, @q),
-                              CASE WHEN name_fold LIKE @prefix THEN 0.95 ELSE 0 END) DESC,
-                     d ASC NULLS LAST
+            WHERE name_fold LIKE @prefix
+            ORDER BY d ASC NULLS LAST, length(name_fold) ASC
             LIMIT @limit;
             """;
-        var fold = query.Trim().ToLowerInvariant();
-        cmd.Parameters.AddWithValue("q", fold);
         cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
         cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
         cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
         cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
         cmd.Parameters.AddWithValue("limit", limit);
+        return await ReadPlaceRowsAsync(cmd, ct);
+    }
 
+    /// <summary>Trigram-similarity fallback for typos. When a centre is given the
+    /// candidate set is bounded to a generous radius so a common stem (with few
+    /// prefix matches but many trigram hits) still can't scan the whole country.</summary>
+    private async Task<List<SearchRow>> FuzzySearchAsync(
+        NpgsqlConnection conn, string fold, double? nearLat, double? nearLng, int limit, CancellationToken ct)
+    {
+        var hasNear = nearLat.HasValue && nearLng.HasValue;
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT primary_name, feature_type,
+                   ST_Y(geom) AS lat, ST_X(geom) AS lng,
+                   kommune_name, fylke_name,
+                   CASE WHEN @hasNear
+                        THEN ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
+                   END AS d
+            FROM places.places
+            WHERE name_fold % @q AND name_fold NOT LIKE @prefix
+              {(hasNear ? "AND ST_DWithin(centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography, @radius)" : "")}
+            ORDER BY similarity(name_fold, @q) DESC, d ASC NULLS LAST
+            LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("q", fold);
+        cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
+        cmd.Parameters.AddWithValue("hasNear", hasNear);
+        cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
+        cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
+        cmd.Parameters.AddWithValue("radius", FuzzyNearRadiusM);
+        cmd.Parameters.AddWithValue("limit", limit);
+        return await ReadPlaceRowsAsync(cmd, ct);
+    }
+
+    private static async Task<List<SearchRow>> ReadPlaceRowsAsync(NpgsqlCommand cmd, CancellationToken ct)
+    {
         var rows = new List<SearchRow>();
-        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
-            while (await reader.ReadAsync(ct))
-            {
-                rows.Add(new SearchRow(
-                    Name: reader.GetString(0),
-                    Kind: reader.GetString(1),
-                    Lat: reader.GetDouble(2),
-                    Lng: reader.GetDouble(3),
-                    KommuneName: reader.IsDBNull(4) ? null : reader.GetString(4),
-                    FylkeName: reader.IsDBNull(5) ? null : reader.GetString(5),
-                    DistanceM: reader.IsDBNull(6) ? null : reader.GetDouble(6)));
-            }
+            rows.Add(new SearchRow(
+                Name: reader.GetString(0),
+                Kind: reader.GetString(1),
+                Lat: reader.GetDouble(2),
+                Lng: reader.GetDouble(3),
+                KommuneName: reader.IsDBNull(4) ? null : reader.GetString(4),
+                FylkeName: reader.IsDBNull(5) ? null : reader.GetString(5),
+                DistanceM: reader.IsDBNull(6) ? null : reader.GetDouble(6)));
         }
-
-        rows.AddRange(await SearchAreasAsync(conn, fold, nearLat, nearLng, limit, ct));
         return rows;
     }
 
