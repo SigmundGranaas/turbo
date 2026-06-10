@@ -43,6 +43,20 @@ if (args is ["bulk-admin", var fylkeCode, var fylkeName])
     return await BulkAdminDemo.RunAsync(connectionString, fylkeCode, fylkeName);
 }
 
+// bulk-ssr [areaType code name]: the SSR (toponym) GML pipeline end to end —
+// order GML + download + extract + stream-read (reproject) + stage + swap.
+// Defaults to Nordland (fylke 18); pass "landsdekkende 0000 Hele-landet" to
+// run nationally.
+if (args is ["bulk-ssr", ..])
+{
+    var (atype, acode, aname) = args switch
+    {
+        ["bulk-ssr", var t, var c, var n] => (t, c, n),
+        _ => ("fylke", "18", "Nordland"),
+    };
+    return await BulkSsrDemo.RunAsync(connectionString, atype, acode, aname);
+}
+
 List<(string Name, double Lat, double Lng, int RadiusM)> runs = args switch
 {
     ["all"] => presets.Select(p => (p.Key, p.Value.Lat, p.Value.Lng, p.Value.RadiusM)).ToList(),
