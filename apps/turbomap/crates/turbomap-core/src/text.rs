@@ -195,7 +195,14 @@ impl FontAtlas {
     pub fn new() -> Self {
         Self {
             stack: FontStack::new(),
-            bitmap: vec![0; (ATLAS_SIZE * ATLAS_SIZE) as usize],
+            // Clear to the "fully outside the glyph" SDF value (255), NOT 0.
+            // In this field 0 = deep *inside* a glyph, so a zeroed atlas
+            // makes every glyph cell's edge ramp 255→0 under bilinear
+            // sampling, crossing the fill+halo thresholds and painting a
+            // rectangular box around each glyph. 255 in the gutter matches
+            // the cell-border texels (also ~255), so there is no ramp and
+            // no box. See the `atlas_gutter_is_outside_value` test.
+            bitmap: vec![255; (ATLAS_SIZE * ATLAS_SIZE) as usize],
             glyphs: HashMap::new(),
             cursor_x: 1,
             cursor_y: 1,
@@ -1147,5 +1154,19 @@ mod tests {
         for &v in &sdf {
             assert_eq!(v, 255, "no-target mask must encode as max outside");
         }
+    }
+
+    #[test]
+    fn atlas_gutter_is_outside_value() {
+        // The atlas must clear to 255 ("fully outside the glyph"), not 0
+        // ("deep inside"). A zeroed gutter makes the bilinear sampler ramp
+        // 255→0 at each glyph cell edge, crossing the fill+halo thresholds
+        // and drawing a box around every glyph. Sampling an untouched
+        // corner of a fresh atlas must read as outside.
+        let atlas = FontAtlas::new();
+        let bm = atlas.bitmap();
+        // Bottom-right corner is never written by the shelf packer.
+        let last = (ATLAS_SIZE * ATLAS_SIZE - 1) as usize;
+        assert_eq!(bm[last], 255, "unwritten atlas must read as outside");
     }
 }

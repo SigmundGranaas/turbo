@@ -18,6 +18,7 @@
 
 pub mod golden;
 pub mod gpu;
+pub mod omt;
 pub mod sources;
 pub mod trace;
 

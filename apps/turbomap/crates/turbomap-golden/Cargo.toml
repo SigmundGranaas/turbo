@@ -19,6 +19,7 @@ gpu-tests = []
 
 [dependencies]
 turbomap-core = { path = "../turbomap-core" }
+turbomap-scene = { path = "../turbomap-scene" }
 wgpu.workspace = true
 image.workspace = true
 pollster.workspace = true
