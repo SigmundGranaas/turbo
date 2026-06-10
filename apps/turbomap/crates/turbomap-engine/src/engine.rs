@@ -52,6 +52,10 @@ pub struct TurbomapEngine {
     /// Layer ids the current backend cannot render (recorded each apply).
     unsupported: Vec<String>,
     max_texture_size: u32,
+    /// Device pixel ratio from `MapOptions` — multiplies style-authored
+    /// sizes (line widths, fonts, dashes, icons, marker radii) at compile
+    /// time so the frame is crisp at the host's native DPI.
+    pixel_ratio: f32,
 }
 
 impl TurbomapEngine {
@@ -68,6 +72,7 @@ impl TurbomapEngine {
         resolver: Box<dyn SourceResolver>,
     ) -> Result<Self, MapError> {
         let max_texture_size = device.limits().max_texture_dimension_2d;
+        let pixel_ratio = options.pixel_ratio.max(0.5);
         let map = Map::new(device, queue, surface_format, size, to_core_camera(camera), options)?;
         Ok(Self {
             map,
@@ -79,6 +84,7 @@ impl TurbomapEngine {
             layer_colors: HashMap::new(),
             unsupported: Vec::new(),
             max_texture_size,
+            pixel_ratio,
         })
     }
 
@@ -180,11 +186,12 @@ impl TurbomapEngine {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
-                    let style = line_style(name, filter, color, width, zoom);
+                    let style = line_style(name, filter, color, width, zoom, self.pixel_ratio);
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     // A `[dash, gap]` array makes the layer dashed (pixels).
-                    if let Some(dash) = dash_to_pair(dash_array) {
-                        self.map.set_vector_layer_dash(id, Some(dash));
+                    if let Some((d, g)) = dash_to_pair(dash_array) {
+                        let r = self.pixel_ratio;
+                        self.map.set_vector_layer_dash(id, Some((d * r, g * r)));
                     }
                     self.vector_sources.insert(id.clone(), vsrc);
                     // Single-colour layers get a per-frame GPU override
@@ -236,6 +243,7 @@ impl TurbomapEngine {
                     let style = symbol_style(
                         name, filter, text_field, text_size, color, halo_color, halo_width,
                         sort_key, *placement, icon_image, icon_size, icon_color, zoom,
+                        self.pixel_ratio,
                     );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
@@ -263,7 +271,7 @@ impl TurbomapEngine {
             };
             if let Some(SourceDef::GeoJson { data }) = scene.sources.get(source) {
                 let c = color.at(zoom);
-                let r = radius.at(zoom);
+                let r = radius.at(zoom) * self.pixel_ratio;
                 for (lng, lat) in crate::geojson::parse_points(data) {
                     self.map.add_marker(Marker {
                         id: MarkerId(0),
@@ -690,16 +698,17 @@ fn symbol_style(
     icon_size: &Paint<f32>,
     icon_color: &Paint<Color>,
     zoom: f64,
+    pixel_ratio: f32,
 ) -> VectorStyle {
     let hc = halo_color.at(zoom);
     let core_halo = CoreColor::rgba(hc.r, hc.g, hc.b, hc.a);
-    let hw = halo_width.at(zoom);
-    let font = text_size.at(zoom);
+    let hw = halo_width.at(zoom) * pixel_ratio;
+    let font = text_size.at(zoom) * pixel_ratio;
     let along_line = matches!(placement, SymbolPlacement::Line);
     let ic = icon_color.at(zoom);
     let icon = icon_image.as_ref().map(|sprite| turbomap_core::IconSpec {
         sprite: sprite.clone(),
-        size_px: icon_size.at(zoom).max(1.0),
+        size_px: (icon_size.at(zoom) * pixel_ratio).max(1.0),
         color: CoreColor::rgba(ic.r, ic.g, ic.b, ic.a),
     });
     // Text colour is data-driven too (e.g. a different colour per place
@@ -745,10 +754,10 @@ fn as_match<T>(paint: &Paint<T>) -> Option<(&str, &[turbomap_scene::MatchCase<T>
     }
 }
 
-/// Core line width is now screen pixels (extruded GPU-side per frame), so
-/// this just clamps to a sane minimum.
-fn line_width_px(px: f32) -> f32 {
-    px.max(0.5)
+/// Style widths are logical px; scale by the device pixel ratio and clamp
+/// to a sane physical minimum (widths are extruded GPU-side per frame).
+fn line_width_px(px: f32, pixel_ratio: f32) -> f32 {
+    (px * pixel_ratio).max(0.5)
 }
 
 /// Reduce a scene `dash_array` to the `(dash, gap)` pixel pair the renderer
@@ -775,6 +784,7 @@ fn line_rules(
     color: &Paint<Color>,
     width: &Paint<f32>,
     zoom: f64,
+    pixel_ratio: f32,
 ) -> Vec<(CoreFilter, CoreColor, f32)> {
     let cm = as_match(color);
     let wm = as_match(width);
@@ -782,7 +792,7 @@ fn line_rules(
         return vec![(
             map_filter(layer_filter),
             to_core_color(color.at(zoom)),
-            line_width_px(width.at(zoom)),
+            line_width_px(width.at(zoom), pixel_ratio),
         )];
     }
 
@@ -837,8 +847,9 @@ fn line_rules(
                     .and_then(|v| cases.iter().find(|c| &c.value == v))
                     .map(|c| c.result)
                     .unwrap_or(*default),
+                pixel_ratio,
             ),
-            _ => line_width_px(width.at(zoom)),
+            _ => line_width_px(width.at(zoom), pixel_ratio),
         }
     };
 
@@ -862,8 +873,9 @@ fn line_style(
     color: &Paint<Color>,
     width: &Paint<f32>,
     zoom: f64,
+    pixel_ratio: f32,
 ) -> VectorStyle {
-    let rules = line_rules(filter, color, width, zoom)
+    let rules = line_rules(filter, color, width, zoom, pixel_ratio)
         .into_iter()
         .map(|(f, c, w)| CoreRule {
             source_layer: layer_name.clone(),

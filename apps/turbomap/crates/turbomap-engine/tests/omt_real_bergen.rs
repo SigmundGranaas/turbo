@@ -188,9 +188,9 @@ fn bergen_scene() -> Scene {
         source: "omt".to_string(),
         source_layer: Some("transportation".to_string()),
         filter: class_in(&["path", "track", "pedestrian"]),
-        color: Paint::Const(Color::rgb(172, 166, 158)),
-        width: Paint::Const(1.6),
-        dash_array: Some(vec![3.0, 2.6]),
+        color: Paint::Const(Color::rgb(196, 189, 180)),
+        width: Paint::Const(1.2),
+        dash_array: None,
     });
     scene.layers.push(Layer::Line {
         id: "rail".to_string(),
@@ -290,15 +290,21 @@ fn real_bergen_renders_like_a_basemap() {
         return;
     };
 
-    let (width, height) = (640, 440);
+    // Rendered at 2x device-pixel ratio — what a phone actually shows.
+    // Logical viewport 640x440, physical 1280x880.
+    let (width, height) = (1280, 880);
     let mut engine = TurbomapEngine::new(
         gpu.device.clone(),
         gpu.queue.clone(),
         TARGET_FORMAT,
         (width, height),
-        // Bergen sentrum — Torgallmenningen-ish.
-        CameraState::new(LatLng::new(60.3920, 5.3242), 14.0),
-        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        // Bergen sentrum — Torgallmenningen-ish. Camera zoom is in
+        // *logical* px scale: at 2x device-pixel ratio the same framing as
+        // a 640x440 z14 view is zoom 15 over 1280x880 physical px. The
+        // archive only holds z14, so the source bounds clamp tile requests
+        // to z14 — the data zoom — while the display densifies.
+        CameraState::new(LatLng::new(60.3920, 5.3242), 15.0),
+        MapOptions { fade_in_secs: 0.0, pixel_ratio: 2.0, ..Default::default() },
         Box::new(BergenResolver),
     )
     .expect("construct TurbomapEngine");
@@ -322,10 +328,10 @@ fn real_bergen_renders_like_a_basemap() {
     let white_roads = image.pixels().filter(|p| near(p, [255, 255, 255], 6)).count();
     let ink = image.pixels().filter(|p| near(p, [60, 64, 74], 35)).count();
     eprintln!("bergen: water={water} buildings={buildings} roads={white_roads} ink={ink}");
-    assert!(water > 3000, "Bergen's harbour should be visible, got {water}");
-    assert!(buildings > 2000, "building footprints should render, got {buildings}");
-    assert!(white_roads > 2000, "the street grid should render, got {white_roads}");
-    assert!(ink > 50, "labels should render, got {ink}");
+    assert!(water > 12000, "Bergen's harbour should be visible, got {water}");
+    assert!(buildings > 8000, "building footprints should render, got {buildings}");
+    assert!(white_roads > 8000, "the street grid should render, got {white_roads}");
+    assert!(ink > 200, "labels should render, got {ink}");
 
     assert_golden(
         "omt-real-bergen",

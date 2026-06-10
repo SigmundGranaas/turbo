@@ -133,6 +133,12 @@ pub struct MapOptions {
     pub cache_budget_bytes: usize,
     pub prefetch_margin_px: u32,
     pub fade_in_secs: f32,
+    /// Device pixel ratio: how many physical framebuffer pixels per
+    /// logical "style pixel". Style-authored sizes (line widths, font
+    /// sizes, dash lengths, icon sizes) are multiplied by this, so a map
+    /// on a 3× phone screen renders crisp instead of upscaled. 1.0 =
+    /// desktop/1:1.
+    pub pixel_ratio: f32,
 }
 
 impl Default for MapOptions {
@@ -140,6 +146,7 @@ impl Default for MapOptions {
         Self {
             cache_budget_bytes: 128 * 1024 * 1024,
             prefetch_margin_px: 256,
+            pixel_ratio: 1.0,
             // 0.4 s reads as a smooth fade. The earlier default (0.18)
             // popped — each per-layer tile arrival was over visually
             // before the next layer's matching tile could blend in,
