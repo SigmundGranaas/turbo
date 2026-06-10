@@ -247,7 +247,14 @@
         "text-size": 11,
         "text-font": [
           "DejaVu Sans"
-        ]
+        ],
+        "icon-image": "summit",
+        "icon-size": 0.8,
+        "text-offset": [
+          0,
+          0.9
+        ],
+        "text-anchor": "top"
       },
       "paint": {
         "text-color": "#6b4f2a"
@@ -271,11 +278,22 @@
         "text-size": 12,
         "text-font": [
           "DejaVu Sans"
-        ]
+        ],
+        "icon-image": [
+          "get",
+          "kind"
+        ],
+        "icon-size": 0.7,
+        "text-offset": [
+          0,
+          0.8
+        ],
+        "text-anchor": "top"
       },
       "paint": {
         "text-color": "#333333"
       }
     }
-  ]
+  ],
+  "sprite": "{BASE_URL}/sprite"
 }

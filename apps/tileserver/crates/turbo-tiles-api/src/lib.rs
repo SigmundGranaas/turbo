@@ -6,6 +6,7 @@
 pub mod crash_dump;
 pub mod error;
 pub mod fonts;
+pub mod sprite;
 pub mod state;
 pub mod v1;
 
@@ -22,6 +23,11 @@ pub fn router(state: ApiState) -> Router {
         .route("/readyz", get(ready))
         // Root-mounted SDF glyphs (the basemap style references {base}/fonts/…).
         .route("/fonts/:fontstack/:range", get(fonts::glyphs))
+        // Icon sprite sheet (json/png × 1x/2x) for the place layers.
+        .route("/sprite.json", get(sprite::json_1x))
+        .route("/sprite.png", get(sprite::png_1x))
+        .route("/sprite@2x.json", get(sprite::json_2x))
+        .route("/sprite@2x.png", get(sprite::png_2x))
         .nest("/v1", v1::router())
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
