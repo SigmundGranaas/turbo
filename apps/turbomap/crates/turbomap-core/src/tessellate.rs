@@ -76,6 +76,15 @@ pub struct LabelRequest {
     pub path: Option<Vec<(f32, f32)>>,
 }
 
+/// One sprite "intent" extracted from a tile: a named icon to draw at a
+/// world-space point (a POI marker or a route-shield background).
+#[derive(Debug, Clone)]
+pub struct IconRequest {
+    pub world_pos: (f32, f32),
+    pub sprite: String,
+    pub size_px: f32,
+}
+
 /// A feature retained verbatim alongside the mesh, so the host can hit-test
 /// it via `VectorMap::hit_test`. Only emitted for rules with
 /// `interactive = true`.
@@ -92,6 +101,7 @@ pub struct InteractiveFeature {
 pub struct TessellationOutput {
     pub mesh: Mesh,
     pub labels: Vec<LabelRequest>,
+    pub icons: Vec<IconRequest>,
     pub interactive: Vec<InteractiveFeature>,
 }
 
@@ -117,6 +127,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
     let mut stroke_tess = StrokeTessellator::new();
     let mut buffers: VertexBuffers<VectorVertex, u32> = VertexBuffers::new();
     let mut labels: Vec<LabelRequest> = Vec::new();
+    let mut icons: Vec<IconRequest> = Vec::new();
     let mut interactive: Vec<InteractiveFeature> = Vec::new();
     let tolerance = tolerance_for_zoom(tile_id.z);
 
@@ -205,10 +216,11 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     halo_width,
                     rank_field,
                     along_line,
+                    icon,
                 } => {
-                    let Some(text) = read_text_property(feature, text_field) else {
-                        continue;
-                    };
+                    // Text is optional: an icon-only layer (a bare POI
+                    // marker) has no `text_field` value, but still draws.
+                    let text = read_text_property(feature, text_field);
                     // Importance: the ranked property if present and
                     // numeric, else the font size (bigger ⇒ stronger).
                     let rank = rank_field
@@ -216,19 +228,20 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                         .and_then(|f| read_number_property(feature, f))
                         .map(|n| n as f32)
                         .unwrap_or(*font_size_px);
-                    let mut push = |world_pos: (f32, f32), path: Option<Vec<(f32, f32)>>| {
-                        labels.push(LabelRequest {
+                    let make_label = |world_pos: (f32, f32), path: Option<Vec<(f32, f32)>>| {
+                        text.as_ref().map(|t| LabelRequest {
                             world_pos,
-                            text: text.clone(),
+                            text: t.clone(),
                             font_size_px: *font_size_px,
                             color: *color,
                             halo_color: *halo_color,
                             halo_width: *halo_width,
                             rank,
                             path,
-                        });
+                        })
                     };
                     if *along_line {
+                        // Icons aren't placed along lines — only the name.
                         if let Geometry::LineString(lines) = &feature.geometry {
                             for line in lines {
                                 if line.len() < 2 {
@@ -245,13 +258,27 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 // halfway arc length, a stable representative
                                 // for collision sorting and culling.
                                 let anchor = path_midpoint(&path);
-                                push(anchor, Some(path));
+                                if let Some(l) = make_label(anchor, Some(path)) {
+                                    labels.push(l);
+                                }
                             }
                         }
                     } else if let Geometry::Point(points) = &feature.geometry {
                         for &p in points {
                             let (wx, wy) = tile_local_to_world(tile_id, extent, p);
-                            push((wx as f32, wy as f32), None);
+                            let world_pos = (wx as f32, wy as f32);
+                            // Icon behind, label on top — at the same anchor
+                            // they compose into a route shield.
+                            if let Some(spec) = icon {
+                                icons.push(IconRequest {
+                                    world_pos,
+                                    sprite: spec.sprite.clone(),
+                                    size_px: spec.size_px,
+                                });
+                            }
+                            if let Some(l) = make_label(world_pos, None) {
+                                labels.push(l);
+                            }
                         }
                     }
                 }
@@ -265,6 +292,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
             indices: buffers.indices,
         },
         labels,
+        icons,
         interactive,
     }
 }
@@ -568,6 +596,7 @@ mod tests {
                     halo_width: 0.0,
                     rank_field: None,
                     along_line: false,
+                    icon: None,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
@@ -616,6 +645,7 @@ mod tests {
                     halo_width: 0.0,
                     rank_field: None,
                     along_line: false,
+                    icon: None,
                 },
                 min_zoom: 0,
                 max_zoom: 22,

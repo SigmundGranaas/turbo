@@ -62,6 +62,16 @@ fn srgb_channel_to_linear(byte: u8) -> f32 {
     }
 }
 
+/// A sprite drawn at a point feature (a POI icon or a route-shield
+/// background). The named sprite is resolved against the renderer's
+/// built-in sprite atlas; `size_px` is its on-screen height in pixels
+/// (width follows the sprite's aspect ratio).
+#[derive(Debug, Clone, PartialEq)]
+pub struct IconSpec {
+    pub sprite: String,
+    pub size_px: f32,
+}
+
 /// What to do with a matching feature.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
@@ -94,6 +104,10 @@ pub enum Paint {
         /// centerline (glyphs follow the curve, like a road name) instead
         /// of at a Point. Such a rule matches LineString geometry, not Point.
         along_line: bool,
+        /// Optional sprite drawn at the feature's point, behind the label —
+        /// a POI icon, or (with centred text) a route shield. `None` ⇒
+        /// text only. Ignored for `along_line` rules.
+        icon: Option<IconSpec>,
     },
 }
 

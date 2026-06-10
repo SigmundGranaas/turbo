@@ -16,6 +16,7 @@ mod render;
 pub mod scene;
 pub mod source;
 pub mod spatial_index;
+pub mod sprite;
 pub mod style;
 pub mod tessellate;
 pub mod text;
@@ -32,8 +33,10 @@ pub use map::{
 };
 pub use scene::Scene;
 pub use source::{RasterFormat, RasterTile, TileSource};
-pub use style::{Color, Filter, HillshadeStyle, Paint, Rule, VectorStyle};
-pub use tessellate::{tessellate, InteractiveFeature, LabelRequest, Mesh, VectorVertex};
+pub use style::{Color, Filter, HillshadeStyle, IconSpec, Paint, Rule, VectorStyle};
+pub use tessellate::{
+    tessellate, IconRequest, InteractiveFeature, LabelRequest, Mesh, VectorVertex,
+};
 pub use tile::{SubUv, TileId};
 pub use vector::{
     tile_local_to_world, Feature, GeomType, Geometry, Layer as VectorTileLayer,

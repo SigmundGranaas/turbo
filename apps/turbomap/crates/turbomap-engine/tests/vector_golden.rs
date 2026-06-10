@@ -278,6 +278,8 @@ fn label_importance_ranking_wins_collisions() {
         halo_width: Paint::Const(0.0),
         sort_key: Some("rank".to_string()),
         placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -503,6 +505,8 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
         halo_width: Paint::Const(2.0),
         sort_key: None,
         placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -614,6 +618,8 @@ fn road_name_follows_the_centerline() {
         halo_width: Paint::Const(1.6),
         sort_key: None,
         placement: SymbolPlacement::Line,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -674,6 +680,124 @@ fn road_name_follows_the_centerline() {
 }
 
 #[test]
+fn icons_and_route_shields_render() {
+    // POIs and route shields from the sprite atlas: a "dot" sprite at a POI
+    // (icon, no text) and a "shield" sprite under a centred road ref (icon
+    // + text composing a shield). We prove each sprite is on screen by its
+    // signature colour, and that the shield's number sits on top of it.
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    // A bare POI (icon only, no label).
+    scene.sources.insert(
+        "pois".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[5.300,60.392]}}"#
+                .to_string(),
+        },
+    );
+    // A route shield: a point carrying the road ref.
+    scene.sources.insert(
+        "refs".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"Feature","properties":{"ref":"E16"},"geometry":{"type":"Point","coordinates":[5.345,60.392]}}"#
+                .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    // POI dot — icon, empty text field ⇒ no label.
+    scene.layers.push(Layer::Symbol {
+        id: "pois".to_string(),
+        source: "pois".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        text_field: String::new(),
+        text_size: Paint::Const(12.0),
+        color: Paint::Const(Color::rgb(20, 20, 30)),
+        halo_color: Paint::Const(Color::rgba(0, 0, 0, 0)),
+        halo_width: Paint::Const(0.0),
+        sort_key: None,
+        placement: SymbolPlacement::Point,
+        icon_image: Some("dot".to_string()),
+        icon_size: Paint::Const(26.0),
+    });
+    // Route shield — sprite background with the ref centred on top.
+    scene.layers.push(Layer::Symbol {
+        id: "shields".to_string(),
+        source: "refs".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        text_field: "ref".to_string(),
+        text_size: Paint::Const(16.0),
+        color: Paint::Const(Color::rgb(20, 24, 40)),
+        halo_color: Paint::Const(Color::rgba(0, 0, 0, 0)),
+        halo_width: Paint::Const(0.0),
+        sort_key: None,
+        placement: SymbolPlacement::Point,
+        icon_image: Some("shield".to_string()),
+        icon_size: Paint::Const(34.0),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.392, 5.3225), 12.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    assert!(engine.unsupported_layers().is_empty());
+
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
+        (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
+    };
+    // The POI dot's red ring.
+    let red_ring = image.pixels().filter(|p| near(p, [232, 64, 60], 40)).count();
+    // The shield's dark-blue border.
+    let shield_border = image.pixels().filter(|p| near(p, [40, 54, 110], 40)).count();
+    // The ref text drawn on top of the shield (dark ink).
+    let ink = image.pixels().filter(|p| near(p, [20, 24, 40], 40)).count();
+    assert!(red_ring > 30, "POI dot ring should render, red px = {red_ring}");
+    assert!(shield_border > 30, "shield border should render, blue px = {shield_border}");
+    assert!(ink > 10, "shield ref text should render on top, ink px = {ink}");
+
+    assert_golden(
+        "icons-and-shields",
+        &image,
+        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+    );
+}
+
+#[test]
 fn symbol_labels_render_over_raster() {
     let Some(gpu) = headless() else {
         if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
@@ -723,6 +847,8 @@ fn symbol_labels_render_over_raster() {
         halo_width: Paint::Const(0.0),
         sort_key: None,
         placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
     });
 
     let mut engine = TurbomapEngine::new(

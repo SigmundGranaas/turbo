@@ -76,6 +76,12 @@ fn default_max_zoom() -> u8 {
 
 /// One entry in the ordered, bottom-to-top layer stack. Every variant
 /// carries an `id` unique within the scene.
+///
+/// `Symbol` is the widest variant (text + halo + icon styling), so the enum
+/// carries some padding on the smaller variants. A scene holds only a
+/// handful of layers and is rebuilt rarely, so the few spare bytes per
+/// layer aren't worth boxing every variant's fields for.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Layer {
@@ -139,6 +145,14 @@ pub enum Layer {
         /// Anchor the text at each point (default) or along a line.
         #[serde(default)]
         placement: SymbolPlacement,
+        /// Optional sprite drawn at each point feature, behind the label:
+        /// a POI icon, or — with text — a route shield. Names a sprite in
+        /// the renderer's built-in atlas. `None` ⇒ text only.
+        #[serde(default)]
+        icon_image: Option<String>,
+        /// On-screen height of `icon_image` in pixels.
+        #[serde(default = "default_icon_size")]
+        icon_size: Paint<f32>,
     },
     Hillshade {
         id: String,
@@ -162,6 +176,9 @@ fn opaque() -> Paint<f32> {
 }
 fn default_exaggeration() -> f32 {
     1.5
+}
+fn default_icon_size() -> Paint<f32> {
+    Paint::Const(24.0)
 }
 
 impl Layer {

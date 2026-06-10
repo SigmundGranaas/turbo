@@ -26,6 +26,7 @@ use crate::{
         cache::CacheStats,
         gpu_timestamps::GpuTimestamps,
         hillshade::{HillshadePipeline, PreparedHillshade},
+        icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline, TerrainConfig},
         terrain::{TerrainCache, TerrainOptions, TerrainShared},
@@ -37,7 +38,7 @@ use crate::{
     scene::Scene,
     source::TileSource,
     style::{Color, HillshadeStyle, VectorStyle},
-    tessellate::{self, InteractiveFeature, LabelRequest, Mesh},
+    tessellate::{self, IconRequest, InteractiveFeature, LabelRequest, Mesh},
     tile::TileId,
     vector::{GeomType, Value as VectorValue, VectorTile, VectorTileSource},
 };
@@ -222,6 +223,8 @@ pub struct Map {
     layers: Vec<LayerEntry>,
     /// Single text pipeline, shared across all vector layers.
     text_pipeline: TextPipeline,
+    /// Single icon/sprite pipeline, shared across all vector layers.
+    icon_pipeline: IconPipeline,
     marker_pipeline: MarkerPipeline,
     markers: Vec<Marker>,
     next_marker_id: u64,
@@ -267,6 +270,7 @@ impl Map {
         options: MapOptions,
     ) -> Result<Self, MapError> {
         let text_pipeline = TextPipeline::new(device.clone(), queue.clone(), surface_format);
+        let icon_pipeline = IconPipeline::new(device.clone(), queue.clone(), surface_format);
         let marker_pipeline = MarkerPipeline::new(device.clone(), queue.clone(), surface_format);
         let gpu_timestamps = GpuTimestamps::new(&device, &queue);
         let depth_view = create_depth_view(&device, initial_size);
@@ -281,6 +285,7 @@ impl Map {
             options,
             layers: Vec::new(),
             text_pipeline,
+            icon_pipeline,
             marker_pipeline,
             markers: Vec::new(),
             next_marker_id: 0,
@@ -720,18 +725,20 @@ impl Map {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn ingest_vector_mesh(
         &mut self,
         layer_id: &str,
         tile: TileId,
         mesh: &Mesh,
         labels: Vec<LabelRequest>,
+        icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
     ) {
         for l in &mut self.layers {
             if let LayerEntry::Vector(v) = l {
                 if v.id == layer_id {
-                    v.cache.insert(tile, mesh, labels, interactive);
+                    v.cache.insert(tile, mesh, labels, icons, interactive);
                     v.scene.ingest(tile);
                     return;
                 }
@@ -753,7 +760,14 @@ impl Map {
             return;
         };
         let out = tessellate::tessellate(tile_id, tile, &style);
-        self.ingest_vector_mesh(layer_id, tile_id, &out.mesh, out.labels, out.interactive);
+        self.ingest_vector_mesh(
+            layer_id,
+            tile_id,
+            &out.mesh,
+            out.labels,
+            out.icons,
+            out.interactive,
+        );
     }
 
     // ---- layer visibility ---------------------------------------------
@@ -989,7 +1003,9 @@ impl Map {
         // order — preserving the old one-text-pass-per-vector-layer
         // semantics (per-layer label collision sets).
         let mut prepared_text: Vec<PreparedText> = Vec::new();
+        let mut prepared_icons: Vec<PreparedIcons> = Vec::new();
         self.text_pipeline.begin_frame();
+        self.icon_pipeline.begin_frame();
         for (i, layer) in self.layers.iter_mut().enumerate() {
             match layer {
                 LayerEntry::Raster(r) if r.visible => {
@@ -1013,6 +1029,9 @@ impl Map {
                     // Labels come from visible vector layers only —
                     // text on top of a hidden vector layer would look
                     // orphaned.
+                    // Icons first (they collect from the same cache), then
+                    // labels — both per visible vector layer.
+                    prepared_icons.push(self.icon_pipeline.prepare(&v.scene, &mut v.cache));
                     prepared_text.push(self.text_pipeline.prepare(&v.scene, &mut v.cache));
                 }
                 LayerEntry::Hillshade(h) if h.visible => {
@@ -1038,6 +1057,7 @@ impl Map {
             }
         }
         self.text_pipeline.finish_frame();
+        self.icon_pipeline.finish_frame();
 
         // Markers last. Pick any scene that's around — they all sync
         // from the same camera. Prefer the first raster/vector layer
@@ -1128,6 +1148,11 @@ impl Map {
                     // the phases.
                     _ => unreachable!("prepared layer kind mismatch"),
                 }
+            }
+
+            // Icons under labels, so a name centred on a shield reads on top.
+            for p in &prepared_icons {
+                self.icon_pipeline.draw(p, &mut pass);
             }
 
             for p in &prepared_text {

@@ -157,6 +157,8 @@ pub fn basemap_scene() -> Scene {
         halo_width: Paint::Const(1.5),
         sort_key: None,
         placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
     });
     scene
 }
