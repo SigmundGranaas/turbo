@@ -11,8 +11,8 @@ use bytemuck::{Pod, Zeroable};
 use lyon::math::point;
 use lyon::path::Path;
 use lyon::tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator,
-    StrokeVertex, VertexBuffers,
+    BuffersBuilder, FillOptions, FillTessellator, FillVertex, LineCap, LineJoin, StrokeOptions,
+    StrokeTessellator, StrokeVertex, VertexBuffers,
 };
 
 use crate::{
@@ -156,8 +156,14 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                         });
                         let _ = stroke_tess.tessellate_path(
                             &path,
+                            // Round joins + caps — the cartographic default.
+                            // Miter joins spike at sharp route bends and
+                            // butt caps leave hard line ends; rounding both
+                            // is what makes roads and routes read as roads.
                             &StrokeOptions::default()
                                 .with_line_width(world_width.max(1e-6))
+                                .with_line_join(LineJoin::Round)
+                                .with_line_cap(LineCap::Round)
                                 .with_tolerance(tolerance),
                             &mut builder,
                         );
