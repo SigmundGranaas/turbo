@@ -2,6 +2,7 @@ using System.Globalization;
 using Turboapi.Places;
 using Turboapi.Places.Core;
 using Turboapi.Places.Infrastructure;
+using Turboapi.Places.Ingestion;
 
 // API-based sample ingestion (pre-M4): batch-download real areas from
 // Kartverket's REST APIs, store canonical places + containment polygons in
@@ -28,6 +29,13 @@ var presets = new Dictionary<string, (double Lat, double Lng, int RadiusM)>
 
 var connectionString = Environment.GetEnvironmentVariable("PLACES_DB")
     ?? "Host=localhost;Port=55432;Database=places;Username=postgres;Password=places";
+
+// bulk-admin <fylke-code> <fylke-name>: the real Geonorge pipeline end to end —
+// order + download + extract + read (reproject) + stage + swap admin kommuner.
+if (args is ["bulk-admin", var fylkeCode, var fylkeName])
+{
+    return await BulkAdminDemo.RunAsync(connectionString, fylkeCode, fylkeName);
+}
 
 List<(string Name, double Lat, double Lng, int RadiusM)> runs = args switch
 {
