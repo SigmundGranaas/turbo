@@ -18,37 +18,35 @@ use turbo_tiles_elev::Dem;
 use crate::hillshade::sample_grid;
 use crate::style::Rgba;
 
-/// The continuous slope gradient: piecewise-linear stops as
-/// `(degrees, r, g, b, alpha)`, interpolated smoothly between, clamped at
-/// the ends. Transparent until ~25°, yellow established by 30°, red from
-/// 45° up. Alpha stays ≤ 50% so hillshade and contours read through.
-pub const GRADIENT: &[(f32, u8, u8, u8, u8)] = &[
-    (25.0, 0xE2, 0xC4, 0x4A, 0),   // fade starts: yellow, fully transparent
-    (30.0, 0xE2, 0xC4, 0x4A, 95),  // yellow established
-    (38.0, 0xD8, 0x80, 0x3C, 112), // amber midpoint
-    (45.0, 0xC4, 0x40, 0x30, 126), // red, full strength
-];
+/// Universal overlay transparency: every visible pixel is exactly 50%,
+/// so the steepness reads purely as hue and the basemap shows through
+/// uniformly.
+pub const ALPHA: u8 = 128;
 
-/// Overlay colour for a slope angle: the gradient above, `None` for nodata
-/// or fully-transparent ground.
+/// Where the overlay becomes visible (pure yellow)…
+const START_DEG: f32 = 25.0;
+/// …and where the curve reaches full red (clamped beyond).
+const RED_DEG: f32 = 45.0;
+
+const YELLOW: (u8, u8, u8) = (0xE2, 0xC4, 0x4A);
+const RED: (u8, u8, u8) = (0xC4, 0x40, 0x30);
+
+/// Overlay colour for a slope angle: transparent through `START_DEG`, then
+/// one smooth (smoothstep-eased) curve from yellow to red at `RED_DEG`,
+/// holding red beyond. Constant [`ALPHA`]. `None` for nodata/gentle ground.
 pub fn color_for_slope(slope_deg: f32) -> Option<Rgba> {
-    if slope_deg.is_nan() || slope_deg <= GRADIENT[0].0 {
+    if slope_deg.is_nan() || slope_deg <= START_DEG {
         return None;
     }
-    let last = GRADIENT[GRADIENT.len() - 1];
-    if slope_deg >= last.0 {
-        return Some(Rgba { r: last.1, g: last.2, b: last.3, a: last.4 });
-    }
-    for w in GRADIENT.windows(2) {
-        let (d0, r0, g0, b0, a0) = w[0];
-        let (d1, r1, g1, b1, a1) = w[1];
-        if slope_deg < d1 {
-            let t = (slope_deg - d0) / (d1 - d0);
-            let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-            return Some(Rgba { r: m(r0, r1), g: m(g0, g1), b: m(b0, b1), a: m(a0, a1) });
-        }
-    }
-    unreachable!("gradient covers the range")
+    let t = ((slope_deg - START_DEG) / (RED_DEG - START_DEG)).clamp(0.0, 1.0);
+    let t = t * t * (3.0 - 2.0 * t); // smoothstep: eases in and out
+    let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+    Some(Rgba {
+        r: m(YELLOW.0, RED.0),
+        g: m(YELLOW.1, RED.1),
+        b: m(YELLOW.2, RED.2),
+        a: ALPHA,
+    })
 }
 
 /// Per-pixel slope in degrees for the interior `size²` of a `(size+2)²`
@@ -132,52 +130,43 @@ mod tests {
     }
 
     #[test]
-    fn gradient_is_transparent_then_yellow_then_red() {
+    fn curve_is_transparent_then_yellow_then_red() {
         assert!(color_for_slope(10.0).is_none(), "gentle ground transparent");
-        assert!(color_for_slope(25.0).is_none(), "ramp start is still transparent");
+        assert!(color_for_slope(25.0).is_none(), "onset angle still transparent");
         assert!(color_for_slope(f32::NAN).is_none(), "nodata transparent");
 
-        let yellow = color_for_slope(30.0).unwrap();
-        assert!(yellow.r > 0xD0 && yellow.g > 0xB0, "30° is yellow: {yellow:?}");
+        let yellow = color_for_slope(25.5).unwrap();
+        assert!(yellow.r > 0xD8 && yellow.g > 0xB8, "onset is yellow: {yellow:?}");
 
-        let red = color_for_slope(50.0).unwrap();
-        assert!(red.r > 0xB0 && red.g < 0x60, "steep is red: {red:?}");
-        assert_eq!(
-            color_for_slope(45.0).unwrap(),
-            color_for_slope(80.0).unwrap(),
-            "clamps at the last stop"
-        );
+        let red = color_for_slope(45.0).unwrap();
+        assert!(red.r > 0xB0 && red.g < 0x60, "45° is red: {red:?}");
+        assert_eq!(red, color_for_slope(80.0).unwrap(), "holds red beyond 45°");
     }
 
     #[test]
-    fn gradient_is_continuous_and_monotonic() {
-        // No jumps anywhere: walk the ramp in 0.1° steps and bound the
-        // per-step colour delta. Alpha must never decrease (steeper is
-        // never *less* visible) and green must never increase (the hue
-        // only moves yellow → red).
+    fn curve_is_smooth_and_monotonic_with_constant_alpha() {
+        // Walk the ramp in 0.1° steps: no colour jumps, hue only ever moves
+        // yellow → red (green strictly non-increasing), and EVERY visible
+        // pixel carries exactly the universal 50% alpha.
         let mut prev = color_for_slope(25.05).unwrap();
         let mut deg = 25.1;
         while deg < 55.0 {
             let c = color_for_slope(deg).unwrap();
             assert!(
                 (c.r as i16 - prev.r as i16).abs() <= 2
-                    && (c.g as i16 - prev.g as i16).abs() <= 2
-                    && (c.a as i16 - prev.a as i16).abs() <= 2,
+                    && (c.g as i16 - prev.g as i16).abs() <= 2,
                 "jump at {deg}°: {prev:?} → {c:?}"
             );
-            assert!(c.a >= prev.a, "alpha dipped at {deg}°");
             assert!(c.g <= prev.g, "hue reversed at {deg}°");
+            assert_eq!(c.a, ALPHA, "alpha must be universal at {deg}°");
             prev = c;
             deg += 0.1;
         }
     }
 
     #[test]
-    fn overlay_alpha_stays_translucent() {
-        // The overlay tints, never paints: hard cap on every stop.
-        for (deg, _, _, _, a) in GRADIENT {
-            assert!(*a <= 130, "stop at {deg}° too opaque: alpha {a}");
-        }
+    fn universal_alpha_is_fifty_percent() {
+        assert_eq!(ALPHA, 128, "the overlay tints at exactly 50%");
     }
 
     #[test]

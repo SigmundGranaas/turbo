@@ -4,8 +4,8 @@ import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
 
 /// Slope-angle ("bratthet") overlay from our own tileserver
 /// (`/v1/slope/tiles/{z}/{x}/{y}.png`), derived from the Kartverket DEM.
-/// One continuous gradient: transparent on gentle ground, fading in as
-/// yellow around 30° and sliding to red from 45°. Self-hosted alternative
+/// One smooth curve: transparent on gentle ground, yellow from ~25°
+/// blending to red at 45°+, at a uniform 50% transparency. Self-hosted alternative
 /// to the NVE steepness WMTS — selecting it instead of the NVE layer
 /// removes the `gis3.nve.no` dependency. (NVE's "med utløp" runout zones
 /// are NOT included — this is pure slope angle.)
@@ -22,7 +22,7 @@ class TurboSlopeOverlayConfig extends TileProviderConfig {
   String name(BuildContext context) => 'Bratthet (Turbo)';
   @override
   String description(BuildContext context) =>
-      'Helning fra egen høydemodell: gul fra ~30°, rød fra 45°. Uten utløpssoner.';
+      'Helning fra egen høydemodell: gul mot rød (45°+). Uten utløpssoner.';
   @override
   String get attributions => '© Kartverket (DTM)';
   @override
