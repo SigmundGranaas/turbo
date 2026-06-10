@@ -81,12 +81,38 @@ pub fn bergen_scene() -> Scene {
         color: Paint::Const(Color::rgb(208, 229, 199)),
         opacity: Paint::Const(1.0),
     });
+    // Landuse zones, tinted by category the way real basemaps differentiate
+    // areas: education warm, hospital pink, sport/cemetery green, industrial
+    // cool grey. One Match layer keyed on class; everything else falls to a
+    // neutral residential tone.
     scene.layers.push(Layer::Fill {
-        id: "landuse-residential".to_string(),
+        id: "landuse".to_string(),
         source: "omt".to_string(),
         source_layer: Some("landuse".to_string()),
-        filter: class_in(&["residential", "suburbs", "neighbourhood"]),
-        color: Paint::Const(Color::rgb(236, 233, 227)),
+        filter: class_in(&[
+            "residential", "suburb", "neighbourhood", "school", "kindergarten",
+            "university", "college", "hospital", "pitch", "playground", "stadium",
+            "cemetery", "industrial", "military", "commercial", "retail",
+        ]),
+        color: Paint::Match {
+            property: "class".to_string(),
+            cases: vec![
+                MatchCase { value: s("school"), result: Color::rgb(241, 236, 221) },
+                MatchCase { value: s("kindergarten"), result: Color::rgb(241, 236, 221) },
+                MatchCase { value: s("university"), result: Color::rgb(241, 236, 221) },
+                MatchCase { value: s("college"), result: Color::rgb(241, 236, 221) },
+                MatchCase { value: s("hospital"), result: Color::rgb(244, 230, 230) },
+                MatchCase { value: s("pitch"), result: Color::rgb(206, 228, 200) },
+                MatchCase { value: s("playground"), result: Color::rgb(206, 228, 200) },
+                MatchCase { value: s("stadium"), result: Color::rgb(206, 228, 200) },
+                MatchCase { value: s("cemetery"), result: Color::rgb(216, 225, 209) },
+                MatchCase { value: s("industrial"), result: Color::rgb(232, 230, 227) },
+                MatchCase { value: s("military"), result: Color::rgb(232, 230, 227) },
+                MatchCase { value: s("commercial"), result: Color::rgb(243, 235, 226) },
+                MatchCase { value: s("retail"), result: Color::rgb(243, 235, 226) },
+            ],
+            default: Box::new(Color::rgb(237, 234, 228)),
+        },
         opacity: Paint::Const(1.0),
     });
     scene.layers.push(Layer::Fill {
