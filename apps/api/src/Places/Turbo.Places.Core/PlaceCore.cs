@@ -16,17 +16,21 @@ public static class PlaceCore
     static PlaceCore()
     {
         // Let an explicit PLACE_CORE_LIB dir win over the default loader search,
-        // so the service can ship the .so anywhere in its image.
+        // so the service can ship the lib anywhere in its image — and resolve
+        // the right filename per OS (Linux .so / macOS .dylib / Windows .dll).
         NativeLibrary.SetDllImportResolver(typeof(PlaceCore).Assembly, (name, asm, path) =>
         {
             if (name != Lib) return IntPtr.Zero;
             var dir = Environment.GetEnvironmentVariable("PLACE_CORE_LIB");
             if (!string.IsNullOrEmpty(dir))
             {
-                var full = Path.Combine(dir, "libplace_core.so");
-                if (File.Exists(full)) return NativeLibrary.Load(full);
+                foreach (var candidate in new[] { "libplace_core.so", "libplace_core.dylib", "place_core.dll" })
+                {
+                    var full = Path.Combine(dir, candidate);
+                    if (File.Exists(full)) return NativeLibrary.Load(full);
+                }
             }
-            return IntPtr.Zero; // fall back to the default search
+            return IntPtr.Zero; // fall back to the default OS search
         });
     }
 

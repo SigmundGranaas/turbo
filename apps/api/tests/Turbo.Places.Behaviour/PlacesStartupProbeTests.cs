@@ -45,14 +45,6 @@ public class PlacesStartupProbeTests
 /// real-core probe test (the behaviour fixture does the same for the host).</summary>
 internal static class PlacesHostFixtureLib
 {
-    public static void Ensure()
-    {
-        var repoRoot = PlacesHostFixture.FindRepoRoot();
-        var libDir = new[] { "release", "debug" }
-            .Select(c => Path.Combine(repoRoot, "packages", "place-core", "target", c))
-            .FirstOrDefault(d => File.Exists(Path.Combine(d, "libplace_core.so")))
-            ?? throw new InvalidOperationException(
-                "libplace_core.so not found — run `cargo build --features cabi`.");
-        Environment.SetEnvironmentVariable("PLACE_CORE_LIB", libDir);
-    }
+    public static void Ensure() =>
+        Environment.SetEnvironmentVariable("PLACE_CORE_LIB", PlacesHostFixture.FindPlaceCoreLibDir());
 }

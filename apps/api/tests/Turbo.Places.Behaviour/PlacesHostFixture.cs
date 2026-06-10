@@ -47,15 +47,10 @@ public sealed class PlacesHostFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         // place-core's cdylib must exist before the first P/Invoke. Resolve it
-        // from the repo layout so `cargo build --features cabi` is the only
-        // prerequisite, regardless of test working directory.
+        // from the repo layout so `cargo build` is the only prerequisite,
+        // regardless of test working directory.
         var repoRoot = FindRepoRoot();
-        var libDir = new[] { "release", "debug" }
-            .Select(c => Path.Combine(repoRoot, "packages", "place-core", "target", c))
-            .FirstOrDefault(d => File.Exists(Path.Combine(d, "libplace_core.so")))
-            ?? throw new InvalidOperationException(
-                "libplace_core.so not found — run `cargo build --features cabi` in packages/place-core first.");
-        Environment.SetEnvironmentVariable("PLACE_CORE_LIB", libDir);
+        Environment.SetEnvironmentVariable("PLACE_CORE_LIB", FindPlaceCoreLibDir());
 
         await _postgres.StartAsync();
 
@@ -147,5 +142,20 @@ public sealed class PlacesHostFixture : IAsyncLifetime
             dir = dir.Parent;
         }
         throw new InvalidOperationException("Repo root (containing packages/place-core) not found.");
+    }
+
+    /// <summary>The target dir holding the built place-core cdylib, resolving
+    /// the right filename per OS (Linux/macOS/Windows).</summary>
+    internal static string FindPlaceCoreLibDir()
+    {
+        var root = FindRepoRoot();
+        string[] names = ["libplace_core.so", "libplace_core.dylib", "place_core.dll"];
+        foreach (var cfg in new[] { "release", "debug" })
+        {
+            var dir = Path.Combine(root, "packages", "place-core", "target", cfg);
+            if (names.Any(n => File.Exists(Path.Combine(dir, n)))) return dir;
+        }
+        throw new InvalidOperationException(
+            "place-core native lib not found — run `cargo build --features cabi,embedded` in packages/place-core.");
     }
 }

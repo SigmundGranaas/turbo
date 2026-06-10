@@ -15,13 +15,7 @@ public class PlaceCoreGoldenParity
 {
     public PlaceCoreGoldenParity()
     {
-        var repoRoot = PlacesHostFixture.FindRepoRoot();
-        var libDir = new[] { "release", "debug" }
-            .Select(c => Path.Combine(repoRoot, "packages", "place-core", "target", c))
-            .FirstOrDefault(d => File.Exists(Path.Combine(d, "libplace_core.so")))
-            ?? throw new InvalidOperationException(
-                "libplace_core.so not found — run `cargo build --features cabi` in packages/place-core first.");
-        Environment.SetEnvironmentVariable("PLACE_CORE_LIB", libDir);
+        Environment.SetEnvironmentVariable("PLACE_CORE_LIB", PlacesHostFixture.FindPlaceCoreLibDir());
     }
 
     [Fact]

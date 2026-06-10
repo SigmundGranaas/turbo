@@ -30,6 +30,12 @@ var presets = new Dictionary<string, (double Lat, double Lng, int RadiusM)>
 var connectionString = Environment.GetEnvironmentVariable("PLACES_DB")
     ?? "Host=localhost;Port=55432;Database=places;Username=postgres;Password=places";
 
+// seed-samples: offline dev seed from the committed sample data (no network).
+if (args is ["seed-samples"])
+{
+    return await SeedSamples.RunAsync(connectionString);
+}
+
 // bulk-admin <fylke-code> <fylke-name>: the real Geonorge pipeline end to end —
 // order + download + extract + read (reproject) + stage + swap admin kommuner.
 if (args is ["bulk-admin", var fylkeCode, var fylkeName])
