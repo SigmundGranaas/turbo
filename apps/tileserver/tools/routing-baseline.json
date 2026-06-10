@@ -1,13 +1,13 @@
 {
   "corpus": "tools/terrain-corpus.toml",
   "counts": {
-    "failed": 1,
-    "ok": 59,
+    "failed": 0,
+    "ok": 60,
     "total": 60
   },
   "determinism_ok": true,
   "geometry": {
-    "corpus_hash": "dacbc6a33cfd408b",
+    "corpus_hash": "615b821425eb7475",
     "per_hike": {
       "finnmark-1819613": "e8feae1746a6fc87",
       "finnmark-1821255": "5be46fbd40e80e3f",
@@ -20,7 +20,7 @@
       "finnmark-4169259": "34a8f6f12850bd16",
       "finnmark-4297154": "2439c01a3288a253",
       "finnmark-4309497": "98b574f38602cd9a",
-      "finnmark-4348287": "none",
+      "finnmark-4348287": "0b803cc18215f5af",
       "midwest-1903626": "af26997d9f775b4c",
       "midwest-1915468": "c7294148755766bc",
       "midwest-1948121": "89baeb7995b9d943",
@@ -72,16 +72,16 @@
     }
   },
   "latency": {
-    "max_ms": 1601.1250420000001,
-    "mean_ms": 287.83222219999993,
-    "p50_ms": 179.22020799999999,
-    "p95_ms": 827.5395410000001
+    "max_ms": 1271.955375,
+    "mean_ms": 246.6881249666667,
+    "p50_ms": 167.467,
+    "p95_ms": 758.54
   },
   "memory": {
-    "peak_rss_mb": 1811.0625
+    "peak_rss_mb": 2327.140625
   },
   "quality": {
-    "avg_score": 94.49152542372882,
+    "avg_score": 94.50500000000001,
     "per_hike": {
       "finnmark-1819613": 96.3,
       "finnmark-1821255": 77.3,
@@ -94,6 +94,7 @@
       "finnmark-4169259": 93.0,
       "finnmark-4297154": 87.6,
       "finnmark-4309497": 99.0,
+      "finnmark-4348287": 95.3,
       "midwest-1903626": 90.3,
       "midwest-1915468": 100.0,
       "midwest-1948121": 99.9,
@@ -218,19 +219,19 @@
       }
     },
     "latency": {
-      "max_ms": 40.357041,
-      "mean_ms": 8.591508416666667,
-      "p50_ms": 5.95425,
-      "p95_ms": 36.394792
+      "max_ms": 21.872042,
+      "mean_ms": 2.358801416666666,
+      "p50_ms": 1.463042,
+      "p95_ms": 5.39375
     },
     "memory": {
-      "peak_rss_mb": 2102.875
+      "peak_rss_mb": 2061.15625
     },
     "work": {
       "dem_cache_lookups": 249141
     }
   },
   "work": {
-    "dem_cache_lookups": 22287699
+    "dem_cache_lookups": 22380161
   }
 }
