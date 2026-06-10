@@ -1,5 +1,7 @@
-// Icon/sprite rendering: instanced textured quads in screen space,
-// sampling the RGBA sprite atlas (sRGB → linear on read).
+// Icon/sprite rendering: instanced quads in screen space sampling the
+// single-channel SDF sprite atlas. The shape is monochrome and resolution-
+// independent; the fragment thresholds the distance field for a crisp,
+// antialiased edge at any scale and multiplies by the per-instance tint.
 
 struct Globals {
     viewport: vec2<f32>,
@@ -19,11 +21,13 @@ struct InstanceInput {
     @location(2) size_px: vec2<f32>,
     @location(3) atlas_origin: vec2<f32>, // normalised [0,1]
     @location(4) atlas_size: vec2<f32>,   // normalised [0,1]
+    @location(5) tint: vec4<f32>,         // linear rgba
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) tint: vec4<f32>,
 };
 
 @vertex
@@ -37,14 +41,19 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     var out: VertexOutput;
     out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
     out.uv = inst.atlas_origin + in.corner * inst.atlas_size;
+    out.tint = inst.tint;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let texel = textureSample(atlas_tex, atlas_samp, in.uv);
-    if (texel.a <= 0.0) {
+    // SDF: 0.5 = contour, < 0.5 inside the shape. Antialias over one screen
+    // pixel using the field's screen-space derivative.
+    let sdf = textureSample(atlas_tex, atlas_samp, in.uv).r;
+    let aa = fwidth(sdf) * 0.7;
+    let alpha = 1.0 - smoothstep(0.5 - aa, 0.5 + aa, sdf);
+    if (alpha <= 0.0) {
         discard;
     }
-    return texel;
+    return vec4<f32>(in.tint.rgb, in.tint.a * alpha);
 }

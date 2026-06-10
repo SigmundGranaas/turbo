@@ -36,6 +36,8 @@ struct IconInstance {
     size_px: [f32; 2],
     atlas_origin: [f32; 2],
     atlas_size: [f32; 2],
+    /// Linear-RGBA tint the monochrome SDF shape is coloured with.
+    tint: [u8; 4],
 }
 
 /// Half-open instance range one layer's icons occupy in the shared buffer.
@@ -143,6 +145,11 @@ impl IconPipeline {
                     offset: 24,
                     shader_location: 4,
                 },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Unorm8x4,
+                    offset: 32,
+                    shader_location: 5,
+                },
             ],
         };
 
@@ -219,7 +226,7 @@ impl IconPipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -233,7 +240,7 @@ impl IconPipeline {
             atlas.bitmap(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(SPRITE_ATLAS_W * 4),
+                bytes_per_row: Some(SPRITE_ATLAS_W),
                 rows_per_image: Some(SPRITE_ATLAS_H),
             },
             wgpu::Extent3d {
@@ -329,6 +336,8 @@ impl IconPipeline {
                         info.width as f32 / SPRITE_ATLAS_W as f32,
                         info.height as f32 / SPRITE_ATLAS_H as f32,
                     ],
+                    // sRGB-authored tint → linear (the target re-encodes).
+                    tint: icon.color.to_linear_bytes(),
                 });
             }
         }

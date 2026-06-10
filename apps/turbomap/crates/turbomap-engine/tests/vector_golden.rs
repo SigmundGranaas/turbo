@@ -382,6 +382,7 @@ fn label_importance_ranking_wins_collisions() {
         placement: SymbolPlacement::Point,
         icon_image: None,
         icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -611,6 +612,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
         placement: SymbolPlacement::Point,
         icon_image: None,
         icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -717,6 +719,7 @@ fn cjk_labels_render_via_fallback_font() {
         placement: SymbolPlacement::Point,
         icon_image: None,
         icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -813,6 +816,7 @@ fn complex_scripts_render_with_shaping_and_bidi() {
         placement: SymbolPlacement::Point,
         icon_image: None,
         icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -914,6 +918,7 @@ fn road_name_follows_the_centerline() {
         placement: SymbolPlacement::Line,
         icon_image: None,
         icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -1040,6 +1045,7 @@ fn icons_and_route_shields_render() {
         placement: SymbolPlacement::Point,
         icon_image: Some("dot".to_string()),
         icon_size: Paint::Const(26.0),
+        icon_color: Paint::Const(Color::rgb(220, 60, 60)),
     });
     // Route shield — sprite background with the ref centred on top.
     scene.layers.push(Layer::Symbol {
@@ -1049,13 +1055,15 @@ fn icons_and_route_shields_render() {
         filter: Filter::Always,
         text_field: "ref".to_string(),
         text_size: Paint::Const(16.0),
-        color: Paint::Const(Color::rgb(20, 24, 40)),
+        // White ref reads on the tinted shield.
+        color: Paint::Const(Color::rgb(248, 249, 252)),
         halo_color: Paint::Const(Color::rgba(0, 0, 0, 0)),
         halo_width: Paint::Const(0.0),
         sort_key: None,
         placement: SymbolPlacement::Point,
         icon_image: Some("shield".to_string()),
         icon_size: Paint::Const(34.0),
+        icon_color: Paint::Const(Color::rgb(40, 54, 110)),
     });
 
     let mut engine = TurbomapEngine::new(
@@ -1079,15 +1087,15 @@ fn icons_and_route_shields_render() {
     let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
         (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
     };
-    // The POI dot's red ring.
-    let red_ring = image.pixels().filter(|p| near(p, [232, 64, 60], 40)).count();
-    // The shield's dark-blue border.
-    let shield_border = image.pixels().filter(|p| near(p, [40, 54, 110], 40)).count();
-    // The ref text drawn on top of the shield (dark ink).
-    let ink = image.pixels().filter(|p| near(p, [20, 24, 40], 40)).count();
-    assert!(red_ring > 30, "POI dot ring should render, red px = {red_ring}");
-    assert!(shield_border > 30, "shield border should render, blue px = {shield_border}");
-    assert!(ink > 10, "shield ref text should render on top, ink px = {ink}");
+    // The POI dot — a red-tinted SDF disc.
+    let red_dot = image.pixels().filter(|p| near(p, [220, 60, 60], 45)).count();
+    // The shield — a blue-tinted SDF rounded rect.
+    let shield = image.pixels().filter(|p| near(p, [40, 54, 110], 40)).count();
+    // The white ref text composited on top of the shield (not paper, not blue).
+    let ref_text = image.pixels().filter(|p| near(p, [248, 249, 252], 12)).count();
+    assert!(red_dot > 30, "tinted POI dot should render, red px = {red_dot}");
+    assert!(shield > 30, "tinted shield should render, blue px = {shield}");
+    assert!(ref_text > 8, "white shield ref should render on top, px = {ref_text}");
 
     assert_golden(
         "icons-and-shields",
@@ -1148,6 +1156,7 @@ fn symbol_labels_render_over_raster() {
         placement: SymbolPlacement::Point,
         icon_image: None,
         icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
     });
 
     let mut engine = TurbomapEngine::new(

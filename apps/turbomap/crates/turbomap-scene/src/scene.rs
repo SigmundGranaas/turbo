@@ -158,6 +158,9 @@ pub enum Layer {
         /// On-screen height of `icon_image` in pixels.
         #[serde(default = "default_icon_size")]
         icon_size: Paint<f32>,
+        /// Tint for the monochrome SDF icon (and shield background).
+        #[serde(default = "default_icon_color")]
+        icon_color: Paint<Color>,
     },
     Hillshade {
         id: String,
@@ -184,6 +187,10 @@ fn default_exaggeration() -> f32 {
 }
 fn default_icon_size() -> Paint<f32> {
     Paint::Const(24.0)
+}
+fn default_icon_color() -> Paint<Color> {
+    // A neutral slate so an icon with no explicit colour is still visible.
+    Paint::Const(Color::rgb(70, 78, 92))
 }
 
 impl Layer {

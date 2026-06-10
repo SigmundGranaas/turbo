@@ -228,13 +228,14 @@ impl TurbomapEngine {
                 placement,
                 icon_image,
                 icon_size,
+                icon_color,
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
                     let style = symbol_style(
                         name, filter, text_field, text_size, color, halo_color, halo_width,
-                        sort_key, *placement, icon_image, icon_size, zoom,
+                        sort_key, *placement, icon_image, icon_size, icon_color, zoom,
                     );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
@@ -687,6 +688,7 @@ fn symbol_style(
     placement: SymbolPlacement,
     icon_image: &Option<String>,
     icon_size: &Paint<f32>,
+    icon_color: &Paint<Color>,
     zoom: f64,
 ) -> VectorStyle {
     let hc = halo_color.at(zoom);
@@ -694,9 +696,11 @@ fn symbol_style(
     let hw = halo_width.at(zoom);
     let font = text_size.at(zoom);
     let along_line = matches!(placement, SymbolPlacement::Line);
+    let ic = icon_color.at(zoom);
     let icon = icon_image.as_ref().map(|sprite| turbomap_core::IconSpec {
         sprite: sprite.clone(),
         size_px: icon_size.at(zoom).max(1.0),
+        color: CoreColor::rgba(ic.r, ic.g, ic.b, ic.a),
     });
     // Text colour is data-driven too (e.g. a different colour per place
     // class), so it expands to per-feature rules like lines/fills.

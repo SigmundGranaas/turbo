@@ -87,6 +87,7 @@ pub struct IconRequest {
     pub world_pos: (f32, f32),
     pub sprite: String,
     pub size_px: f32,
+    pub color: Color,
 }
 
 /// A feature retained verbatim alongside the mesh, so the host can hit-test
@@ -281,6 +282,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                     world_pos,
                                     sprite: spec.sprite.clone(),
                                     size_px: spec.size_px,
+                                    color: spec.color,
                                 });
                             }
                             if let Some(l) = make_label(world_pos, None) {

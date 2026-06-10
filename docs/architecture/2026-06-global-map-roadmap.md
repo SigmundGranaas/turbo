@@ -166,4 +166,13 @@ validation.
 - _Recovery note_: a container reset rewound the local clone to an old commit
   mid-session; all work was safe on origin and restored by fast-forward — the
   commit-and-push-each-increment discipline held.
-- _Next_: Workstream B (real data + tile-stack hardening), or C1 (SDF sprites).
+- _2026-06-10_: **C1 (SDF icons)** — sprite atlas is now a single-channel
+  SDF (8SSEDT) of monochrome shapes (dot/stop/marker/shield); the icon
+  pipeline thresholds the field for crisp edges at any size and multiplies by
+  a per-layer `icon-color` tint. `Symbol.icon_color` (Paint<Color>) threads
+  scene→engine→IconSpec→IconRequest→instance. `icons-and-shields` golden
+  regenerated (tinted SDF dot + blue shield with white ref); other goldens
+  unchanged. Remaining C1: load a real MapLibre sprite sheet (RGBA) for
+  multi-colour POIs, @2x, data-driven per-feature icon colour.
+- _Next_: Workstream B (real data + tile-stack hardening), or C3 line
+  gradients / pattern fills.

@@ -161,6 +161,7 @@ pub fn basemap_scene() -> Scene {
         placement: SymbolPlacement::Point,
         icon_image: None,
         icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
     });
     scene
 }

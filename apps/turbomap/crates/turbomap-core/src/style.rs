@@ -70,6 +70,8 @@ fn srgb_channel_to_linear(byte: u8) -> f32 {
 pub struct IconSpec {
     pub sprite: String,
     pub size_px: f32,
+    /// Tint applied to the monochrome SDF sprite.
+    pub color: Color,
 }
 
 /// What to do with a matching feature.
