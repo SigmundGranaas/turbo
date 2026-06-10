@@ -31,7 +31,7 @@ const WORLD_M: f64 = 20_037_508.342_789_244;
 /// don't visibly clip.
 const PAD_PX: f64 = 24.0;
 
-const FONT_BYTES: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
+pub(crate) const FONT_BYTES: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
 
 #[derive(Debug, thiserror::Error)]
 pub enum RasterError {

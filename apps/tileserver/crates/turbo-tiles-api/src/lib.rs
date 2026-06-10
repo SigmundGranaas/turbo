@@ -5,6 +5,7 @@
 
 pub mod crash_dump;
 pub mod error;
+pub mod fonts;
 pub mod state;
 pub mod v1;
 
@@ -19,6 +20,8 @@ pub fn router(state: ApiState) -> Router {
     Router::new()
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
+        // Root-mounted SDF glyphs (the basemap style references {base}/fonts/…).
+        .route("/fonts/:fontstack/:range", get(fonts::glyphs))
         .nest("/v1", v1::router())
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())

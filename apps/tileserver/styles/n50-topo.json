@@ -8,7 +8,9 @@
   "sources": {
     "n50": {
       "type": "vector",
-      "tiles": ["{BASE_URL}/v1/basemap/{z}/{x}/{y}.mvt"],
+      "tiles": [
+        "{BASE_URL}/v1/basemap/{z}/{x}/{y}.mvt"
+      ],
       "minzoom": 4,
       "maxzoom": 16,
       "attribution": "© Kartverket"
@@ -19,7 +21,9 @@
     {
       "id": "background",
       "type": "background",
-      "paint": { "background-color": "#f3f1ea" }
+      "paint": {
+        "background-color": "#f3f1ea"
+      }
     },
     {
       "id": "landcover-forest",
@@ -27,8 +31,14 @@
       "source": "n50",
       "source-layer": "landcover",
       "minzoom": 7,
-      "filter": ["==", "class", "forest"],
-      "paint": { "fill-color": "#cfe5bc" }
+      "filter": [
+        "==",
+        "class",
+        "forest"
+      ],
+      "paint": {
+        "fill-color": "#cfe5bc"
+      }
     },
     {
       "id": "landcover-wetland",
@@ -36,8 +46,14 @@
       "source": "n50",
       "source-layer": "landcover",
       "minzoom": 7,
-      "filter": ["==", "class", "wetland"],
-      "paint": { "fill-color": "#dfeadf" }
+      "filter": [
+        "==",
+        "class",
+        "wetland"
+      ],
+      "paint": {
+        "fill-color": "#dfeadf"
+      }
     },
     {
       "id": "glacier",
@@ -45,7 +61,9 @@
       "source": "n50",
       "source-layer": "glacier",
       "minzoom": 6,
-      "paint": { "fill-color": "#eef7ff" }
+      "paint": {
+        "fill-color": "#eef7ff"
+      }
     },
     {
       "id": "water",
@@ -53,7 +71,9 @@
       "source": "n50",
       "source-layer": "water",
       "minzoom": 4,
-      "paint": { "fill-color": "#b9d9f1" }
+      "paint": {
+        "fill-color": "#b9d9f1"
+      }
     },
     {
       "id": "coastline",
@@ -61,7 +81,10 @@
       "source": "n50",
       "source-layer": "coastline",
       "minzoom": 4,
-      "paint": { "line-color": "#7da7c9", "line-width": 1.0 }
+      "paint": {
+        "line-color": "#7da7c9",
+        "line-width": 1.0
+      }
     },
     {
       "id": "contour-index",
@@ -69,8 +92,15 @@
       "source": "n50",
       "source-layer": "contour",
       "minzoom": 11,
-      "filter": ["==", "is_index", true],
-      "paint": { "line-color": "#b08a5a", "line-width": 1.2 }
+      "filter": [
+        "==",
+        "is_index",
+        true
+      ],
+      "paint": {
+        "line-color": "#b08a5a",
+        "line-width": 1.2
+      }
     },
     {
       "id": "contour",
@@ -78,8 +108,15 @@
       "source": "n50",
       "source-layer": "contour",
       "minzoom": 12,
-      "filter": ["==", "is_index", false],
-      "paint": { "line-color": "#c9aa7e", "line-width": 0.6 }
+      "filter": [
+        "==",
+        "is_index",
+        false
+      ],
+      "paint": {
+        "line-color": "#c9aa7e",
+        "line-width": 0.6
+      }
     },
     {
       "id": "building",
@@ -87,7 +124,9 @@
       "source": "n50",
       "source-layer": "building",
       "minzoom": 14,
-      "paint": { "fill-color": "#d2bfae" }
+      "paint": {
+        "fill-color": "#d2bfae"
+      }
     },
     {
       "id": "road-vei",
@@ -95,10 +134,29 @@
       "source": "n50",
       "source-layer": "transportation",
       "minzoom": 9,
-      "filter": ["==", "class", "vei"],
+      "filter": [
+        "==",
+        "class",
+        "vei"
+      ],
       "paint": {
         "line-color": "#9b9b9b",
-        "line-width": { "stops": [[9, 0.8], [12, 1.6], [15, 3.0]] }
+        "line-width": {
+          "stops": [
+            [
+              9,
+              0.8
+            ],
+            [
+              12,
+              1.6
+            ],
+            [
+              15,
+              3.0
+            ]
+          ]
+        }
       }
     },
     {
@@ -107,10 +165,27 @@
       "source": "n50",
       "source-layer": "transportation",
       "minzoom": 10,
-      "filter": ["in", "class", "skogsvei", "traktorvei", "sykkelvei"],
+      "filter": [
+        "in",
+        "class",
+        "skogsvei",
+        "traktorvei",
+        "sykkelvei"
+      ],
       "paint": {
         "line-color": "#8a795d",
-        "line-width": { "stops": [[10, 0.8], [14, 2.0]] }
+        "line-width": {
+          "stops": [
+            [
+              10,
+              0.8
+            ],
+            [
+              14,
+              2.0
+            ]
+          ]
+        }
       }
     },
     {
@@ -119,10 +194,25 @@
       "source": "n50",
       "source-layer": "transportation",
       "minzoom": 11,
-      "filter": ["==", "class", "sti"],
+      "filter": [
+        "==",
+        "class",
+        "sti"
+      ],
       "paint": {
         "line-color": "#a0522d",
-        "line-width": { "stops": [[11, 0.7], [14, 1.4]] }
+        "line-width": {
+          "stops": [
+            [
+              11,
+              0.7
+            ],
+            [
+              14,
+              1.4
+            ]
+          ]
+        }
       }
     },
     {
@@ -131,8 +221,15 @@
       "source": "n50",
       "source-layer": "transportation",
       "minzoom": 10,
-      "filter": ["==", "class", "skiloype"],
-      "paint": { "line-color": "#3388cc", "line-width": 1.4 }
+      "filter": [
+        "==",
+        "class",
+        "skiloype"
+      ],
+      "paint": {
+        "line-color": "#3388cc",
+        "line-width": 1.4
+      }
     },
     {
       "id": "place-summit",
@@ -140,9 +237,21 @@
       "source": "n50",
       "source-layer": "place",
       "minzoom": 10,
-      "filter": ["==", "kind", "summit"],
-      "layout": { "text-field": "{name}", "text-size": 11 },
-      "paint": { "text-color": "#6b4f2a" }
+      "filter": [
+        "==",
+        "kind",
+        "summit"
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "text-size": 11,
+        "text-font": [
+          "DejaVu Sans"
+        ]
+      },
+      "paint": {
+        "text-color": "#6b4f2a"
+      }
     },
     {
       "id": "place-name",
@@ -150,9 +259,23 @@
       "source": "n50",
       "source-layer": "place",
       "minzoom": 8,
-      "filter": ["in", "kind", "named_place", "cabin", "waterfeature"],
-      "layout": { "text-field": "{name}", "text-size": 12 },
-      "paint": { "text-color": "#333333" }
+      "filter": [
+        "in",
+        "kind",
+        "named_place",
+        "cabin",
+        "waterfeature"
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "text-size": 12,
+        "text-font": [
+          "DejaVu Sans"
+        ]
+      },
+      "paint": {
+        "text-color": "#333333"
+      }
     }
   ]
 }
