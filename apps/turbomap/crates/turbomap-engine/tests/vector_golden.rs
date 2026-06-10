@@ -122,6 +122,101 @@ fn full_overlay_set_renders() {
 }
 
 #[test]
+fn label_importance_ranking_wins_collisions() {
+    // Two labels at the SAME spot (guaranteed collision). The high-rank
+    // CAPITAL (dark) must win over the low-rank HAMLET (red), regardless
+    // of placement order — so the frame shows dark ink and NO red.
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "places".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"name":"CAPITAL","rank":100},"geometry":{"type":"Point","coordinates":[5.32,60.39]}},
+                {"type":"Feature","properties":{"name":"HAMLET","rank":1},"geometry":{"type":"Point","coordinates":[5.32,60.39]}}
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Symbol {
+        id: "labels".to_string(),
+        source: "places".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        text_field: "name".to_string(),
+        text_size: Paint::Const(22.0),
+        // Per-feature colour so we can tell the winner from the loser.
+        color: Paint::Match {
+            property: "name".to_string(),
+            cases: vec![MatchCase {
+                value: FilterValue::String("HAMLET".into()),
+                result: Color::rgb(230, 30, 30),
+            }],
+            default: Box::new(Color::rgb(20, 20, 30)),
+        },
+        halo_color: Paint::Const(Color::rgba(0, 0, 0, 0)),
+        halo_width: Paint::Const(0.0),
+        sort_key: Some("rank".to_string()),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    let dark = image
+        .pixels()
+        .filter(|p| (0..3).all(|i| p.0[i].abs_diff([20, 20, 30][i]) <= 45))
+        .count();
+    let red = image
+        .pixels()
+        .filter(|p| p.0[0] > 170 && p.0[1] < 90 && p.0[2] < 90)
+        .count();
+    assert!(dark > 60, "the high-rank CAPITAL label should render, dark px = {dark}");
+    assert_eq!(red, 0, "the low-rank HAMLET label must be suppressed, red px = {red}");
+
+    assert_golden(
+        "label-importance",
+        &image,
+        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+    );
+}
+
+#[test]
 fn data_driven_match_width_builds_road_hierarchy() {
     // Three parallel lines tagged major/minor/local. A single layer with
     // Match colour AND Match width on `kind` must render them in three
@@ -308,6 +403,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
         color: Paint::Const(Color::rgb(20, 20, 30)),
         halo_color: Paint::Const(Color::rgb(250, 250, 252)),
         halo_width: Paint::Const(2.0),
+        sort_key: None,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -402,6 +498,7 @@ fn symbol_labels_render_over_raster() {
         color: Paint::Const(Color::rgb(20, 20, 30)),
         halo_color: Paint::Const(Color::rgba(0, 0, 0, 0)),
         halo_width: Paint::Const(0.0),
+        sort_key: None,
     });
 
     let mut engine = TurbomapEngine::new(

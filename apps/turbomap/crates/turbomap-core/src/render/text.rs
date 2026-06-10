@@ -335,10 +335,17 @@ impl TextPipeline {
                 candidates.extend(entry.labels.iter().cloned());
             }
         }
+        // Placement priority: higher rank first (important labels win
+        // collisions), then nearest-to-centre as the tiebreak among equals.
         candidates.sort_by(|a, b| {
-            let da = sq_dist(a.world_pos, (world_centre.x as f32, world_centre.y as f32));
-            let db = sq_dist(b.world_pos, (world_centre.x as f32, world_centre.y as f32));
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            b.rank
+                .partial_cmp(&a.rank)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    let da = sq_dist(a.world_pos, (world_centre.x as f32, world_centre.y as f32));
+                    let db = sq_dist(b.world_pos, (world_centre.x as f32, world_centre.y as f32));
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
         });
 
         let start = self.staged.len() as u32;

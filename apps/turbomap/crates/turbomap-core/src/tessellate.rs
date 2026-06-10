@@ -56,6 +56,9 @@ pub struct LabelRequest {
     /// Readability outline. `halo_width` in glyph pixels (0 = none).
     pub halo_color: Color,
     pub halo_width: f32,
+    /// Placement importance — higher wins collisions. Defaults to font
+    /// size when no rank property is configured.
+    pub rank: f32,
 }
 
 /// A feature retained verbatim alongside the mesh, so the host can hit-test
@@ -175,11 +178,19 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     color,
                     halo_color,
                     halo_width,
+                    rank_field,
                 } => {
                     if let Geometry::Point(points) = &feature.geometry {
                         let Some(text) = read_text_property(feature, text_field) else {
                             continue;
                         };
+                        // Importance: the ranked property if present and
+                        // numeric, else the font size (bigger ⇒ stronger).
+                        let rank = rank_field
+                            .as_deref()
+                            .and_then(|f| read_number_property(feature, f))
+                            .map(|n| n as f32)
+                            .unwrap_or(*font_size_px);
                         for &p in points {
                             let (wx, wy) = tile_local_to_world(tile_id, extent, p);
                             labels.push(LabelRequest {
@@ -189,6 +200,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 color: *color,
                                 halo_color: *halo_color,
                                 halo_width: *halo_width,
+                                rank,
                             });
                         }
                     }
@@ -204,6 +216,19 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
         },
         labels,
         interactive,
+    }
+}
+
+/// Read a numeric feature property for ranking. Strings that parse as
+/// numbers are accepted too (real data is inconsistent).
+fn read_number_property(feature: &crate::vector::Feature, field: &str) -> Option<f64> {
+    match feature.properties.get(field)? {
+        Value::Float(f) => Some(*f),
+        Value::Int(i) => Some(*i as f64),
+        Value::UInt(u) => Some(*u as f64),
+        Value::Bool(b) => Some(*b as i64 as f64),
+        Value::String(s) => s.parse().ok(),
+        Value::Null => None,
     }
 }
 
@@ -465,6 +490,7 @@ mod tests {
                     color: Color::rgb(0, 0, 0),
                     halo_color: Color::rgba(0, 0, 0, 0),
                     halo_width: 0.0,
+                    rank_field: None,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
@@ -511,6 +537,7 @@ mod tests {
                     color: Color::rgb(0, 0, 0),
                     halo_color: Color::rgba(0, 0, 0, 0),
                     halo_width: 0.0,
+                    rank_field: None,
                 },
                 min_zoom: 0,
                 max_zoom: 22,

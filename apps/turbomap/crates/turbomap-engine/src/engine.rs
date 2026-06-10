@@ -224,12 +224,13 @@ impl TurbomapEngine {
                 color,
                 halo_color,
                 halo_width,
+                sort_key,
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
                     let style = symbol_style(
-                        name, filter, text_field, text_size, color, halo_color, halo_width, zoom,
+                        name, filter, text_field, text_size, color, halo_color, halo_width, sort_key, zoom,
                     );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
@@ -670,26 +671,36 @@ fn symbol_style(
     color: &Paint<Color>,
     halo_color: &Paint<Color>,
     halo_width: &Paint<f32>,
+    sort_key: &Option<String>,
     zoom: f64,
 ) -> VectorStyle {
-    let c = color.at(zoom);
     let hc = halo_color.at(zoom);
-    VectorStyle {
-        background: CoreColor::rgba(0, 0, 0, 0),
-        rules: vec![CoreRule {
-            source_layer: layer_name,
-            filter: map_filter(filter),
+    let core_halo = CoreColor::rgba(hc.r, hc.g, hc.b, hc.a);
+    let hw = halo_width.at(zoom);
+    let font = text_size.at(zoom);
+    // Text colour is data-driven too (e.g. a different colour per place
+    // class), so it expands to per-feature rules like lines/fills.
+    let rules = color_rules(filter, color, zoom)
+        .into_iter()
+        .map(|(f, c)| CoreRule {
+            source_layer: layer_name.clone(),
+            filter: f,
             paint: CorePaint::Text {
                 text_field: text_field.to_string(),
-                font_size_px: text_size.at(zoom),
-                color: CoreColor::rgba(c.r, c.g, c.b, c.a),
-                halo_color: CoreColor::rgba(hc.r, hc.g, hc.b, hc.a),
-                halo_width: halo_width.at(zoom),
+                font_size_px: font,
+                color: c,
+                halo_color: core_halo,
+                halo_width: hw,
+                rank_field: sort_key.clone(),
             },
             min_zoom: 0,
             max_zoom: 22,
             interactive: false,
-        }],
+        })
+        .collect();
+    VectorStyle {
+        background: CoreColor::rgba(0, 0, 0, 0),
+        rules,
     }
 }
 

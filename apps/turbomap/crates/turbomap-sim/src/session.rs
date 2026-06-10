@@ -131,6 +131,7 @@ pub fn basemap_scene() -> Scene {
         // basemaps use so labels stay legible over roads and water.
         halo_color: Paint::Const(Color::rgb(HALO_SRGB[0], HALO_SRGB[1], HALO_SRGB[2])),
         halo_width: Paint::Const(1.5),
+        sort_key: None,
     });
     scene
 }

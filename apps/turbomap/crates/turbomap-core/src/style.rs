@@ -86,6 +86,10 @@ pub enum Paint {
         color: Color,
         halo_color: Color,
         halo_width: f32,
+        /// Numeric feature property ranking placement importance (higher
+        /// wins collisions). `None` falls back to font size, so larger
+        /// labels still beat smaller ones.
+        rank_field: Option<String>,
     },
 }
 

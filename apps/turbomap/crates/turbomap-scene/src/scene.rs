@@ -120,6 +120,10 @@ pub enum Layer {
         halo_color: Paint<Color>,
         #[serde(default = "no_halo_width")]
         halo_width: Paint<f32>,
+        /// Feature property to rank label placement by (higher wins
+        /// collisions). `None` falls back to font size.
+        #[serde(default)]
+        sort_key: Option<String>,
     },
     Hillshade {
         id: String,
