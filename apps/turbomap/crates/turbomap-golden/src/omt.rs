@@ -297,5 +297,31 @@ pub fn bergen_scene() -> Scene {
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
     });
+
+    // POIs: a curated set of food/drink, lodging and culture landmarks —
+    // the named places that make a map feel alive. Prepared last, so they
+    // never displace place/street/water labels, and the frame-wide
+    // collision thins the rest. Deliberately *not* the long tail
+    // (parking/waste_basket/gate/bench) which would be pure clutter.
+    scene.layers.push(Layer::Symbol {
+        id: "poi".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("poi".to_string()),
+        filter: class_in(&[
+            "restaurant", "cafe", "bar", "fast_food", "pub", "hotel", "hostel",
+            "museum", "theatre", "cinema", "hospital",
+            "pharmacy", "library", "place_of_worship", "supermarket",
+        ]),
+        text_field: "name".to_string(),
+        text_size: Paint::Const(10.5),
+        color: Paint::Const(Color::rgb(96, 88, 84)),
+        halo_color: Paint::Const(Color::rgb(248, 246, 243)),
+        halo_width: Paint::Const(1.3),
+        sort_key: None,
+        placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(120, 110, 100)),
+    });
     scene
 }
