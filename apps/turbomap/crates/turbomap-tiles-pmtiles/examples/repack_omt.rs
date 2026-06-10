@@ -35,6 +35,9 @@ fn keep_list() -> HashMap<&'static str, Vec<&'static str>> {
         ("place", vec!["class", "name", "rank"]),
         ("transportation_name", vec!["class", "name", "ref"]),
         ("water_name", vec!["class", "name"]),
+        // POIs: name + category so the style can pick what to show and
+        // (later) which icon to draw. `rank` orders collisions.
+        ("poi", vec!["class", "subclass", "name", "rank"]),
     ])
 }
 
