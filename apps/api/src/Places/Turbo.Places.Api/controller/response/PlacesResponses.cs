@@ -22,6 +22,6 @@ public sealed record SearchHitResponse(
 
 public sealed record SearchResponse(IReadOnlyList<SearchHitResponse> Items);
 
-public sealed record PlacesHealthResponse(long Places, long Areas, string? DatasetVersion);
+public sealed record PlacesHealthResponse(long Places, long Areas, string? DatasetVersion, string Attribution);
 
 public sealed record ErrorResponse(string Code, string Detail);

@@ -142,5 +142,6 @@ public class PlacesApiBehaviour : IClassFixture<PlacesHostFixture>
         h.GetProperty("places").GetInt64().Should().Be(_fixture.SeededPlaces);
         h.GetProperty("areas").GetInt64().Should().Be(2);
         h.GetProperty("datasetVersion").GetString().Should().Be("test-fixture");
+        h.GetProperty("attribution").GetString().Should().Contain("Kartverket");
     }
 }

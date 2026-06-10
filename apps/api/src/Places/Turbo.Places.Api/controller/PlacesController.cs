@@ -138,12 +138,15 @@ public class PlacesController : ControllerBase
         }
     }
 
-    /// <summary>GET /api/places/health — dataset freshness for ops + clients.</summary>
+    /// <summary>Data licence/attribution surfaced on /health and in bundles.</summary>
+    public const string Attribution = "© Kartverket / Miljødirektoratet (NLOD)";
+
+    /// <summary>GET /api/places/health — dataset freshness + attribution.</summary>
     [HttpGet("health")]
     public async Task<ActionResult<PlacesHealthResponse>> Health(CancellationToken ct)
     {
         var (places, areas, version) = await _store.StatsAsync(ct);
-        return Ok(new PlacesHealthResponse(places, areas, version));
+        return Ok(new PlacesHealthResponse(places, areas, version, Attribution));
     }
 
     private static bool InNorway(double lat, double lng) =>
