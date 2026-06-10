@@ -142,3 +142,84 @@ pub async fn along(
         took_us: start.elapsed().as_micros() as u64,
     }))
 }
+
+/// `GET /v1/slope/tiles/{z}/{x}/{y}.png` — the slope-angle ("bratthet")
+/// overlay tile: avalanche bands (27/30/35/40/45°) coloured Varsom-style,
+/// transparent below 27° and outside DEM coverage. Self-hosted replacement
+/// for the NVE steepness overlay. Cached hard (the DEM changes only when
+/// the artifact is rebuilt); the edge worker's allowlist covers the path.
+pub async fn tile(
+    State(state): State<ApiState>,
+    axum::extract::Path((z, x, y_ext)): axum::extract::Path<(u8, u32, String)>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::http::{header, HeaderValue, StatusCode};
+
+    let y_str = y_ext
+        .strip_suffix(".png")
+        .ok_or_else(|| ApiError::BadRequest("slope tile path must end in .png".into()))?;
+    let y: u32 = y_str
+        .parse()
+        .map_err(|_| ApiError::BadRequest(format!("invalid tile y `{y_str}`")))?;
+    let coord = turbo_tiles_core::tile::TileCoord::new(z, x, y)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let dem = state
+        .dem
+        .as_ref()
+        .ok_or(ApiError::PrimitiveUnavailable("dem"))?
+        .clone();
+
+    // CPU-bound (256² DEM samples + gradients) — off the runtime threads,
+    // same pattern as the Terrain-RGB endpoint.
+    let png = tokio::task::spawn_blocking(move || {
+        let env = turbo_tiles_raster::tile_envelope_3857(coord);
+        match turbo_tiles_raster::render_slope_tile(&dem, env, 256) {
+            Some(Ok(png)) => Ok(Some(png)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None), // entirely outside coverage
+        }
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("join: {e}")))?
+    .map_err(ApiError::Internal)?;
+
+    // Out-of-coverage: a 1×1 transparent PNG so clients tile seamlessly.
+    let bytes = match png {
+        Some(b) => b,
+        None => {
+            let pm = tiny_skia_blank();
+            pm
+        }
+    };
+
+    let mut resp = axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .body(axum::body::Body::from(bytes))
+        .unwrap();
+    let h = resp.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=604800"),
+    );
+    Ok(resp)
+}
+
+/// A 1×1 fully-transparent PNG, encoded once.
+fn tiny_skia_blank() -> Vec<u8> {
+    static BLANK: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    BLANK
+        .get_or_init(|| {
+            // Hand-assembled minimal transparent PNG (89 bytes) — avoids a
+            // tiny-skia dependency in the api crate for one constant.
+            const B: &[u8] = &[
+                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
+                0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06,
+                0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44,
+                0x41, 0x54, 0x78, 0x9C, 0x62, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D,
+                0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42,
+                0x60, 0x82,
+            ];
+            B.to_vec()
+        })
+        .clone()
+}

@@ -11,6 +11,7 @@ import 'package:turbo/features/tile_providers/data/providers/ocean_conditions_ov
 import 'package:turbo/features/tile_providers/data/providers/offline_region_provider_config.dart';
 import 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart';
 import 'package:turbo/features/tile_providers/data/providers/turbo_n50_topo.dart';
+import 'package:turbo/features/tile_providers/data/providers/turbo_slope_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/vector_path_overlays.dart';
 import 'package:turbo/features/tile_providers/models/custom_tile_provider.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
@@ -32,6 +33,8 @@ class TileRegistry extends Notifier<TileRegistryState> {
       // Self-hosted N50 raster basemap — selectable alternative to
       // Norgeskart; becomes the default once parity holds (M1 plan).
       TurboN50TopoConfig(ref.read(tileserverBaseUrlProvider)),
+      // Self-hosted slope-angle overlay (alternative to the NVE WMTS).
+      TurboSlopeOverlayConfig(ref.read(tileserverBaseUrlProvider)),
       OsmConfig(),
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),

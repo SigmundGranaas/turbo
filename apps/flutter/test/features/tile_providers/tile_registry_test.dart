@@ -70,6 +70,7 @@ void main() {
       expect(state.availableProviders.keys, {
         'topo',
         'turbo_n50_topo',
+        'turbo_slope',
         'osm',
         'gs',
         'avalanche_danger',

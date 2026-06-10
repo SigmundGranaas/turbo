@@ -54,6 +54,9 @@ pub fn router() -> Router<ApiState> {
         .route("/dem/rgb/:z/:x/:y_ext", get(dem::rgb))
         // Stage 2: slope + aspect (derived from DEM)
         .route("/slope/sample", post(slope::sample))
+        // Slope-angle (bratthet) overlay tiles from our own DEM — the
+        // self-hosted replacement for the NVE steepness WMTS.
+        .route("/slope/tiles/:z/:x/:y.png", get(slope::tile))
         .route("/slope/along", post(slope::along))
         // Stage 3: refusal mask
         .route("/mask/sample", post(mask::sample))

@@ -51,6 +51,7 @@ test("cacheable allowlist matches tiles, styles, fonts — not routing/admin", (
   assert.ok(isCacheable("GET", "/v1/basemap/12/2170/1189.mvt"));
   assert.ok(isCacheable("GET", "/v1/basemap/style.json"));
   assert.ok(isCacheable("GET", "/v1/dem/rgb/11/1085/594.png"));
+  assert.ok(isCacheable("GET", "/v1/slope/tiles/12/2170/1189.png"));
   assert.ok(isCacheable("GET", "/v1/hiking-trails/tiles/12/2170/1189.mvt"));
   assert.ok(isCacheable("GET", "/fonts/Noto Sans Regular/0-255.pbf"));
   assert.ok(!isCacheable("POST", "/v1/basemap/12/2170/1189.mvt"));

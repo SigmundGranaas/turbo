@@ -394,7 +394,7 @@ first external hostname.
 | `wfs.geonorge.no` (turogfriluftsruter) | curated MVT (`tileserver`) | 4 |
 | `overpass-api.de` (OSM paths) | curated MVT / N50 paths (`tileserver`) | 4 |
 | `ws.geonorge.no` (stedsnavn/hoydedata/adresser/kommuneinfo) | `turbo-tiles-search` + elevation endpoints | 4 |
-| `gis3.nve.no` (avalanche) | *kept as opt-in overlay* (no open self-host source) | — |
+| `gis3.nve.no` (avalanche) | slope-angle bands from our DEM (`/v1/slope/tiles`); NVE kept only for runout ("utløp") zones | 5 |
 | `mt0.google.com` (satellite) | *kept as opt-in overlay* | — |
 | `tile.openstreetmap.org` | *kept as opt-in global layer* | — |
 

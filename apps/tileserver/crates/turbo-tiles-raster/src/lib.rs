@@ -5,11 +5,13 @@
 pub mod glyphs;
 pub mod hillshade;
 pub mod render;
+pub mod slope;
 pub mod sprite;
 pub mod style;
 
 pub use glyphs::{render_range, FONT_STACK, GlyphError};
 pub use render::{render_tile, tile_envelope_3857, RasterError};
 pub use hillshade::HillshadeParams;
+pub use slope::render_slope_tile;
 pub use sprite::{build as build_sprite, SpriteError};
 pub use style::{RasterStyle, StyleError};

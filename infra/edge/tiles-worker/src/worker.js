@@ -25,6 +25,7 @@ const CACHEABLE = [
   /^\/v1\/basemap\/style\.json$/,
   /^\/v1\/basemap$/,
   /^\/v1\/dem\/rgb\/\d+\/\d+\/\d+\.png$/,
+  /^\/v1\/slope\/tiles\/\d+\/\d+\/\d+\.png$/,
   /^\/v1\/raster\/[a-z0-9-]+\/\d+\/\d+\/\d+\.(png|webp)$/,
   /^\/v1\/[a-z-]+\/tiles\/\d+\/\d+\/\d+\.mvt$/, // curated resources
   /^\/fonts\/[^/]+\/[0-9-]+\.pbf$/,
