@@ -22,7 +22,9 @@ use turbomap_core::{MapOptions, PendingTile, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_golden::{render_to_image, Gpu};
 use turbomap_scene::style::MatchCase;
-use turbomap_scene::{Color, Filter, FilterValue, Layer, LatLng, Paint, Scene, SourceDef};
+use turbomap_scene::{
+    Color, Filter, FilterValue, Layer, LatLng, Paint, Scene, SourceDef, SymbolPlacement,
+};
 
 use crate::world::world_tile;
 
@@ -154,6 +156,7 @@ pub fn basemap_scene() -> Scene {
         halo_color: Paint::Const(Color::rgb(HALO_SRGB[0], HALO_SRGB[1], HALO_SRGB[2])),
         halo_width: Paint::Const(1.5),
         sort_key: None,
+        placement: SymbolPlacement::Point,
     });
     scene
 }

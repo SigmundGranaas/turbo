@@ -18,7 +18,7 @@ use turbomap_core::{
 };
 use turbomap_scene::{
     diff, Capabilities, CameraState, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
-    Paint, Scene, SceneDelta, ScreenPoint, SourceDef,
+    Paint, Scene, SceneDelta, ScreenPoint, SourceDef, SymbolPlacement,
 };
 
 use crate::geojson::GEOJSON_LAYER;
@@ -220,12 +220,14 @@ impl TurbomapEngine {
                 halo_color,
                 halo_width,
                 sort_key,
+                placement,
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
                     let style = symbol_style(
-                        name, filter, text_field, text_size, color, halo_color, halo_width, sort_key, zoom,
+                        name, filter, text_field, text_size, color, halo_color, halo_width,
+                        sort_key, *placement, zoom,
                     );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
@@ -667,12 +669,14 @@ fn symbol_style(
     halo_color: &Paint<Color>,
     halo_width: &Paint<f32>,
     sort_key: &Option<String>,
+    placement: SymbolPlacement,
     zoom: f64,
 ) -> VectorStyle {
     let hc = halo_color.at(zoom);
     let core_halo = CoreColor::rgba(hc.r, hc.g, hc.b, hc.a);
     let hw = halo_width.at(zoom);
     let font = text_size.at(zoom);
+    let along_line = matches!(placement, SymbolPlacement::Line);
     // Text colour is data-driven too (e.g. a different colour per place
     // class), so it expands to per-feature rules like lines/fills.
     let rules = color_rules(filter, color, zoom)
@@ -687,6 +691,7 @@ fn symbol_style(
                 halo_color: core_halo,
                 halo_width: hw,
                 rank_field: sort_key.clone(),
+                along_line,
             },
             min_zoom: 0,
             max_zoom: 22,

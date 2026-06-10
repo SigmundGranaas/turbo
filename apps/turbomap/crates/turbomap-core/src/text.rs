@@ -227,6 +227,116 @@ pub struct LayoutGlyph {
     pub atlas_h: f32,
 }
 
+/// One glyph placed *along a path*: an axis-aligned quad (`screen_*`,
+/// `atlas_*` as in [`LayoutGlyph`]) plus the rotation that orients it to
+/// the local path tangent. The renderer rotates the quad about `pivot`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PathGlyph {
+    pub screen_x: f32,
+    pub screen_y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub atlas_x: f32,
+    pub atlas_y: f32,
+    pub atlas_w: f32,
+    pub atlas_h: f32,
+    /// Screen-space point the quad rotates about (the glyph's pen point).
+    pub pivot: (f32, f32),
+    /// Rotation in radians (the path tangent at the pen point).
+    pub angle: f32,
+}
+
+/// Lay `text` out following a screen-space polyline `path`, centred on the
+/// line's arc length, each glyph rotated to the local tangent. Returns
+/// `None` when the text is longer than the line (it can't fit) or the path
+/// is degenerate — the caller drops the label rather than overflow it.
+pub fn layout_along_path(
+    text: &str,
+    font_size_px: f32,
+    path: &[(f32, f32)],
+    atlas: &mut FontAtlas,
+) -> Option<Vec<PathGlyph>> {
+    if path.len() < 2 {
+        return None;
+    }
+    // Read the path left-to-right: reverse a net-westbound line so glyphs
+    // never come out upside down.
+    let mut pts: Vec<(f32, f32)> = path.to_vec();
+    if pts.last().unwrap().0 < pts.first().unwrap().0 {
+        pts.reverse();
+    }
+    // Cumulative arc length.
+    let mut cum = Vec::with_capacity(pts.len());
+    cum.push(0.0_f32);
+    for w in pts.windows(2) {
+        let d = ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt();
+        cum.push(cum.last().unwrap() + d);
+    }
+    let total = *cum.last().unwrap();
+    if total <= 1.0 {
+        return None;
+    }
+
+    let scale = font_size_px / RASTER_PX;
+    let text_width: f32 = text
+        .chars()
+        .filter_map(|c| atlas.ensure(c))
+        .map(|g| g.advance * scale)
+        .sum();
+    if text_width > total {
+        return None; // doesn't fit on this line
+    }
+
+    let mut pen = (total - text_width) * 0.5; // centre the run on the line
+    let mut out = Vec::with_capacity(text.chars().count());
+    for c in text.chars() {
+        let Some(g) = atlas.ensure(c) else { continue };
+        let advance = g.advance * scale;
+        if g.width > 0 && g.height > 0 {
+            let (pivot, angle) = point_and_angle_at(&pts, &cum, pen);
+            out.push(PathGlyph {
+                // Flat quad anchored at the pen point; the renderer rotates
+                // it about `pivot` (= the pen point) by `angle`.
+                screen_x: pivot.0 + g.bearing_x * scale,
+                screen_y: pivot.1 + g.bearing_y * scale,
+                width: g.width as f32 * scale,
+                height: g.height as f32 * scale,
+                atlas_x: g.atlas_x as f32,
+                atlas_y: g.atlas_y as f32,
+                atlas_w: g.width as f32,
+                atlas_h: g.height as f32,
+                pivot,
+                angle,
+            });
+        }
+        pen += advance;
+    }
+    if out.is_empty() {
+        return None;
+    }
+    Some(out)
+}
+
+/// Sample a polyline at arc-length `dist`: the interpolated point and the
+/// tangent angle (radians) of the segment it falls on. `cum` is the
+/// cumulative length per vertex (`cum[0] == 0`).
+fn point_and_angle_at(pts: &[(f32, f32)], cum: &[f32], dist: f32) -> ((f32, f32), f32) {
+    let total = *cum.last().unwrap();
+    let d = dist.clamp(0.0, total);
+    // Find the segment [i, i+1] containing `d`.
+    let mut i = 0;
+    while i + 2 < pts.len() && cum[i + 1] < d {
+        i += 1;
+    }
+    let seg = cum[i + 1] - cum[i];
+    let t = if seg > 1e-6 { (d - cum[i]) / seg } else { 0.0 };
+    let (ax, ay) = pts[i];
+    let (bx, by) = pts[i + 1];
+    let p = (ax + (bx - ax) * t, ay + (by - ay) * t);
+    let angle = (by - ay).atan2(bx - ax);
+    (p, angle)
+}
+
 /// A 2D axis-aligned bounding box in screen pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Aabb {
@@ -652,6 +762,68 @@ mod tests {
         let aabb = Aabb::from_glyphs(&glyphs).expect("glyphs present");
         let centre = (aabb.min_x + aabb.max_x) * 0.5;
         assert!(centre.abs() < 4.0, "expected ~0 centre, got {centre}");
+    }
+
+    // ---- along-path layout ---------------------------------------------
+
+    #[test]
+    fn along_path_straight_horizontal_line_has_no_rotation() {
+        // A long horizontal line: glyphs advance left-to-right, all angle 0,
+        // x strictly increasing.
+        let mut atlas = FontAtlas::new();
+        let path = [(0.0, 100.0), (400.0, 100.0)];
+        let glyphs = layout_along_path("MAIN ST", 16.0, &path, &mut atlas).expect("fits");
+        assert!(!glyphs.is_empty());
+        for g in &glyphs {
+            assert!(g.angle.abs() < 1e-4, "horizontal line ⇒ angle ~0, got {}", g.angle);
+        }
+        for w in glyphs.windows(2) {
+            assert!(
+                w[1].pivot.0 >= w[0].pivot.0,
+                "pen must advance along +x: {} then {}",
+                w[0].pivot.0,
+                w[1].pivot.0
+            );
+        }
+    }
+
+    #[test]
+    fn along_path_rejects_text_longer_than_line() {
+        // A 5px line can't hold a word — the label is dropped, not overflowed.
+        let mut atlas = FontAtlas::new();
+        let path = [(0.0, 0.0), (5.0, 0.0)];
+        assert!(layout_along_path("LONGROADNAME", 18.0, &path, &mut atlas).is_none());
+    }
+
+    #[test]
+    fn along_path_follows_a_bend_with_varying_angles() {
+        // An L-shaped path: glyphs on the vertical leg must be rotated
+        // roughly ±90°, proving they track the tangent, not a fixed axis.
+        let mut atlas = FontAtlas::new();
+        let path = [(0.0, 0.0), (300.0, 0.0), (300.0, 300.0)];
+        let glyphs = layout_along_path("CORNER ROAD", 16.0, &path, &mut atlas).expect("fits");
+        let max_angle = glyphs.iter().map(|g| g.angle.abs()).fold(0.0_f32, f32::max);
+        assert!(
+            max_angle > 1.0,
+            "glyphs past the bend should rotate towards vertical, max |angle| = {max_angle}"
+        );
+    }
+
+    #[test]
+    fn along_path_westbound_line_is_not_upside_down() {
+        // Same geometry, opposite winding. Reversing for readability means
+        // the first glyph still lands near the western (small-x) end.
+        let mut atlas = FontAtlas::new();
+        let eastbound = [(0.0, 50.0), (400.0, 50.0)];
+        let westbound = [(400.0, 50.0), (0.0, 50.0)];
+        let a = layout_along_path("ROUTE", 16.0, &eastbound, &mut atlas).unwrap();
+        let b = layout_along_path("ROUTE", 16.0, &westbound, &mut atlas).unwrap();
+        // First glyph pen x should be on the western half both times.
+        assert!(a[0].pivot.0 < 200.0);
+        assert!(b[0].pivot.0 < 200.0);
+        for g in a.iter().chain(b.iter()) {
+            assert!(g.angle.abs() < 1e-4, "both readings stay horizontal");
+        }
     }
 
     // ---- SDF generator -------------------------------------------------

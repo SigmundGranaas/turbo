@@ -24,6 +24,8 @@ struct InstanceInput {
     @location(5) color: vec4<f32>,        // text colour (unorm rgba)
     @location(6) halo_color: vec4<f32>,   // halo colour (unorm rgba)
     @location(7) halo_width: f32,         // SDF threshold offset, 0 = none
+    @location(8) angle: f32,              // glyph rotation about pivot (rad)
+    @location(9) pivot: vec2<f32>,        // screen-space rotation centre
 };
 
 struct VertexOutput {
@@ -36,7 +38,14 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
-    let pixel = inst.screen_origin + in.corner * inst.screen_size;
+    // Axis-aligned glyph quad in screen pixels, then rotated about `pivot`
+    // by `angle` (0 for point labels ⇒ identity, byte-for-byte unchanged).
+    let flat = inst.screen_origin + in.corner * inst.screen_size;
+    let rel = flat - inst.pivot;
+    let c = cos(inst.angle);
+    let s = sin(inst.angle);
+    let rotated = vec2<f32>(rel.x * c - rel.y * s, rel.x * s + rel.y * c);
+    let pixel = inst.pivot + rotated;
     let ndc = vec2<f32>(
         pixel.x / globals.viewport.x * 2.0 - 1.0,
         1.0 - pixel.y / globals.viewport.y * 2.0,

@@ -18,6 +18,18 @@ pub enum DemEncoding {
     Terrarium,
 }
 
+/// Where a `Symbol` layer's text is anchored.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SymbolPlacement {
+    /// At each feature's point (the default — place names, POIs).
+    #[default]
+    Point,
+    /// Along a LineString feature's centerline, glyphs following the curve
+    /// (road names, route labels).
+    Line,
+}
+
 /// A named data source layers draw from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -124,6 +136,9 @@ pub enum Layer {
         /// collisions). `None` falls back to font size.
         #[serde(default)]
         sort_key: Option<String>,
+        /// Anchor the text at each point (default) or along a line.
+        #[serde(default)]
+        placement: SymbolPlacement,
     },
     Hillshade {
         id: String,

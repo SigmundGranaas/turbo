@@ -90,6 +90,10 @@ pub enum Paint {
         /// wins collisions). `None` falls back to font size, so larger
         /// labels still beat smaller ones.
         rank_field: Option<String>,
+        /// When `true`, the label is placed *along* a LineString feature's
+        /// centerline (glyphs follow the curve, like a road name) instead
+        /// of at a Point. Such a rule matches LineString geometry, not Point.
+        along_line: bool,
     },
 }
 
@@ -224,7 +228,9 @@ fn paint_matches_geom_type(paint: &Paint, gt: GeomType) -> bool {
     match (paint, gt) {
         (Paint::Fill { .. }, GeomType::Polygon) => true,
         (Paint::Line { .. }, GeomType::LineString) => true,
-        (Paint::Text { .. }, GeomType::Point) => true,
+        // Point labels match points; along-line labels match lines.
+        (Paint::Text { along_line, .. }, GeomType::Point) => !*along_line,
+        (Paint::Text { along_line, .. }, GeomType::LineString) => *along_line,
         // Outline-as-line for polygons would be possible but skip for now.
         _ => false,
     }

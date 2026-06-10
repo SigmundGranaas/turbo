@@ -40,7 +40,13 @@ struct TextInstance {
     /// Halo half-width as a normalized SDF threshold offset beyond the
     /// glyph contour (0 = no halo). px → this is converted at stage time.
     halo_width: f32,
-    _pad: f32,
+    /// Rotation of the glyph quad about `pivot`, in radians (0 for
+    /// axis-aligned point labels). Line labels set this to the local path
+    /// tangent so glyphs follow the curve.
+    angle: f32,
+    /// Screen-space point the quad rotates about (the glyph's pen point on
+    /// the path). Ignored when `angle == 0`.
+    pivot: [f32; 2],
 }
 
 /// Output of one per-vector-layer [`TextPipeline::prepare`] call: the
@@ -174,6 +180,16 @@ impl TextPipeline {
                     format: wgpu::VertexFormat::Unorm8x4,
                     offset: 32,
                     shader_location: 5,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 44,
+                    shader_location: 8,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 48,
+                    shader_location: 9,
                 },
             ],
         };
@@ -351,6 +367,11 @@ impl TextPipeline {
         let start = self.staged.len() as u32;
         let mut placed: Vec<Aabb> = Vec::new();
         for label in candidates {
+            // Line-placed labels (road names) follow a projected centerline.
+            if let Some(path) = &label.path {
+                self.stage_line_label(&camera, viewport_px, &label, path, &mut placed);
+                continue;
+            }
             // Project world → screen.
             let screen = world_to_screen(&camera, label.world_pos, viewport_px);
             // Skip labels off-screen with a small margin so we don't pay to
@@ -422,7 +443,10 @@ impl TextPipeline {
                     color,
                     halo_color,
                     halo_width,
-                    _pad: 0.0,
+                    // Point labels are axis-aligned: zero rotation makes the
+                    // pivot irrelevant, so the shader path is unchanged.
+                    angle: 0.0,
+                    pivot: [g.screen_x, g.screen_y],
                 });
             }
         }
@@ -435,6 +459,96 @@ impl TextPipeline {
         PreparedText {
             start,
             end: self.staged.len() as u32,
+        }
+    }
+
+    /// Stage one line-placed label: project its world centerline to screen,
+    /// run the glyphs along the curve, collide as a single AABB, and emit
+    /// the rotated glyph instances.
+    fn stage_line_label(
+        &mut self,
+        camera: &Camera,
+        viewport_px: (f32, f32),
+        label: &LabelRequest,
+        path: &[(f32, f32)],
+        placed: &mut Vec<Aabb>,
+    ) {
+        // Cheap cull on the anchor (path midpoint) before any layout.
+        let anchor = world_to_screen(camera, label.world_pos, viewport_px);
+        if anchor.0 < -300.0
+            || anchor.0 > viewport_px.0 + 300.0
+            || anchor.1 < -120.0
+            || anchor.1 > viewport_px.1 + 120.0
+        {
+            return;
+        }
+        let screen_path: Vec<(f32, f32)> = path
+            .iter()
+            .map(|&p| world_to_screen(camera, p, viewport_px))
+            .collect();
+        // Behind-camera / non-finite projection → skip the whole label.
+        if screen_path
+            .iter()
+            .any(|p| !p.0.is_finite() || !p.1.is_finite())
+        {
+            return;
+        }
+        let Some(glyphs) = crate::text::layout_along_path(
+            &label.text,
+            label.font_size_px,
+            &screen_path,
+            &mut self.atlas,
+        ) else {
+            return;
+        };
+
+        // Collision AABB: the axis-aligned bound of every rotated glyph quad.
+        let mut bb = (
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        );
+        for g in &glyphs {
+            for (cx, cy) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
+                let (rx, ry) = rotate_about(
+                    (g.screen_x + cx * g.width, g.screen_y + cy * g.height),
+                    g.pivot,
+                    g.angle,
+                );
+                bb.0 = bb.0.min(rx);
+                bb.1 = bb.1.min(ry);
+                bb.2 = bb.2.max(rx);
+                bb.3 = bb.3.max(ry);
+            }
+        }
+        let padded = Aabb {
+            min_x: bb.0,
+            min_y: bb.1,
+            max_x: bb.2,
+            max_y: bb.3,
+        }
+        .pad(2.0);
+        if placed.iter().any(|p| p.overlaps(padded)) {
+            return;
+        }
+        placed.push(padded);
+
+        let color = label.color.to_linear_bytes();
+        let halo_color = label.halo_color.to_linear_bytes();
+        let halo_width = label.halo_width * (128.0 / crate::text::SDF_PAD as f32) / 255.0;
+        for g in glyphs {
+            self.staged.push(TextInstance {
+                screen_origin: [g.screen_x, g.screen_y],
+                screen_size: [g.width, g.height],
+                atlas_origin: [g.atlas_x / ATLAS_SIZE as f32, g.atlas_y / ATLAS_SIZE as f32],
+                atlas_size: [g.atlas_w / ATLAS_SIZE as f32, g.atlas_h / ATLAS_SIZE as f32],
+                color,
+                halo_color,
+                halo_width,
+                angle: g.angle,
+                pivot: [g.pivot.0, g.pivot.1],
+            });
         }
     }
 
@@ -522,6 +636,14 @@ fn world_to_screen(camera: &Camera, world: (f32, f32), viewport_px: (f32, f32)) 
         Some((x, y)) => (x as f32, y as f32),
         None => (f32::NEG_INFINITY, f32::NEG_INFINITY),
     }
+}
+
+/// Rotate `p` about `pivot` by `angle` radians (screen space). Mirrors the
+/// vertex shader so CPU-side collision boxes match what the GPU draws.
+fn rotate_about(p: (f32, f32), pivot: (f32, f32), angle: f32) -> (f32, f32) {
+    let (s, c) = angle.sin_cos();
+    let (rx, ry) = (p.0 - pivot.0, p.1 - pivot.1);
+    (pivot.0 + rx * c - ry * s, pivot.1 + rx * s + ry * c)
 }
 
 fn sq_dist(a: (f32, f32), b: (f32, f32)) -> f32 {

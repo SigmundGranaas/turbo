@@ -9,7 +9,9 @@ use common::SyntheticResolver;
 use turbomap_core::MapOptions;
 use turbomap_engine::{CameraState, LatLng, MapEngine, TurbomapEngine};
 use turbomap_golden::{assert_golden, headless, render_to_image, GoldenConfig, TARGET_FORMAT};
-use turbomap_scene::{Color, Filter, FilterValue, Layer, MatchCase, Paint, Scene, SourceDef};
+use turbomap_scene::{
+    Color, Filter, FilterValue, Layer, MatchCase, Paint, Scene, SourceDef, SymbolPlacement,
+};
 
 fn route_scene() -> Scene {
     let mut scene = Scene::new();
@@ -275,6 +277,7 @@ fn label_importance_ranking_wins_collisions() {
         halo_color: Paint::Const(Color::rgba(0, 0, 0, 0)),
         halo_width: Paint::Const(0.0),
         sort_key: Some("rank".to_string()),
+        placement: SymbolPlacement::Point,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -396,7 +399,7 @@ fn data_driven_match_width_builds_road_hierarchy() {
     // Scan the centre column top-to-bottom; the three horizontal lines are
     // three runs of road pixels. Their vertical thickness is the rendered
     // width, so top→bottom (major/minor/local) must be strictly decreasing.
-    let cx = (width / 2) as u32;
+    let cx = width / 2;
     let mut runs: Vec<u32> = Vec::new();
     let mut run = 0u32;
     for y in 0..height {
@@ -499,6 +502,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
         halo_color: Paint::Const(Color::rgb(250, 250, 252)),
         halo_width: Paint::Const(2.0),
         sort_key: None,
+        placement: SymbolPlacement::Point,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -542,6 +546,130 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
             max_channel_diff: 6,
             max_outlier_frac: 0.02,
         },
+    );
+}
+
+#[test]
+fn road_name_follows_the_centerline() {
+    // A curved road with a `name`, labelled with `placement: line`. The
+    // glyphs must run *along* the curve (rotated to the tangent), not sit
+    // in a horizontal block at a point. We prove placement two ways: the
+    // ink spans a wide band of the route, and the run is rotated (its
+    // bounding box is taller than a single horizontal line of text).
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    // A road that climbs and bends across the view.
+    scene.sources.insert(
+        "roads".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"Feature","properties":{"name":"RINGVEGEN"},
+                "geometry":{"type":"LineString","coordinates":[
+                    [5.12,60.33],[5.22,60.36],[5.32,60.40],[5.42,60.43],[5.52,60.45]
+                ]}}"#
+                .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    // Draw the road itself so the label has a casing to sit on.
+    scene.layers.push(Layer::Line {
+        id: "road".to_string(),
+        source: "roads".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(250, 220, 150)),
+        width: Paint::Const(11.0),
+    });
+    // The road name, placed along the centerline with a readable halo.
+    scene.layers.push(Layer::Symbol {
+        id: "road-labels".to_string(),
+        source: "roads".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        text_field: "name".to_string(),
+        text_size: Paint::Const(18.0),
+        color: Paint::Const(Color::rgb(40, 40, 50)),
+        halo_color: Paint::Const(Color::rgb(250, 248, 244)),
+        halo_width: Paint::Const(1.6),
+        sort_key: None,
+        placement: SymbolPlacement::Line,
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 10.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    assert!(engine.unsupported_layers().is_empty());
+
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    // Dark label ink — collect its bounding box.
+    let mut min_x = width;
+    let mut max_x = 0u32;
+    let mut min_y = height;
+    let mut max_y = 0u32;
+    let mut ink = 0u32;
+    for y in 0..height {
+        for x in 0..width {
+            let p = image.get_pixel(x, y);
+            if (0..3).all(|i| p.0[i].abs_diff([40, 40, 50][i]) <= 50) {
+                ink += 1;
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+    assert!(ink > 60, "road name ink should be visible, got {ink}");
+    let span_x = max_x.saturating_sub(min_x);
+    let span_y = max_y.saturating_sub(min_y);
+    // The route climbs, so along-line glyphs span a tall band — a flat
+    // point label of one line of 18px text would be only ~20px tall.
+    assert!(
+        span_x > 120,
+        "label should run across the route, x-span {span_x}"
+    );
+    assert!(
+        span_y > 40,
+        "along-line glyphs should climb with the route, y-span {span_y}"
+    );
+
+    assert_golden(
+        "road-name-along-line",
+        &image,
+        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
     );
 }
 
@@ -594,6 +722,7 @@ fn symbol_labels_render_over_raster() {
         halo_color: Paint::Const(Color::rgba(0, 0, 0, 0)),
         halo_width: Paint::Const(0.0),
         sort_key: None,
+        placement: SymbolPlacement::Point,
     });
 
     let mut engine = TurbomapEngine::new(

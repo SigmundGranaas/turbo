@@ -57,7 +57,9 @@ impl Mesh {
 /// drawn by the text pipeline.
 #[derive(Debug, Clone)]
 pub struct LabelRequest {
-    /// World-space anchor (normalised mercator).
+    /// World-space anchor (normalised mercator). For line-placed labels
+    /// this is the centerline's midpoint — used for collision sorting and
+    /// off-screen culling.
     pub world_pos: (f32, f32),
     pub text: String,
     pub font_size_px: f32,
@@ -68,6 +70,10 @@ pub struct LabelRequest {
     /// Placement importance — higher wins collisions. Defaults to font
     /// size when no rank property is configured.
     pub rank: f32,
+    /// World-space centerline for a label placed *along* a line (a road
+    /// name). `None` for ordinary point labels. The text pipeline projects
+    /// these to screen and runs each glyph along the curve.
+    pub path: Option<Vec<(f32, f32)>>,
 }
 
 /// A feature retained verbatim alongside the mesh, so the host can hit-test
@@ -198,29 +204,54 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     halo_color,
                     halo_width,
                     rank_field,
+                    along_line,
                 } => {
-                    if let Geometry::Point(points) = &feature.geometry {
-                        let Some(text) = read_text_property(feature, text_field) else {
-                            continue;
-                        };
-                        // Importance: the ranked property if present and
-                        // numeric, else the font size (bigger ⇒ stronger).
-                        let rank = rank_field
-                            .as_deref()
-                            .and_then(|f| read_number_property(feature, f))
-                            .map(|n| n as f32)
-                            .unwrap_or(*font_size_px);
+                    let Some(text) = read_text_property(feature, text_field) else {
+                        continue;
+                    };
+                    // Importance: the ranked property if present and
+                    // numeric, else the font size (bigger ⇒ stronger).
+                    let rank = rank_field
+                        .as_deref()
+                        .and_then(|f| read_number_property(feature, f))
+                        .map(|n| n as f32)
+                        .unwrap_or(*font_size_px);
+                    let mut push = |world_pos: (f32, f32), path: Option<Vec<(f32, f32)>>| {
+                        labels.push(LabelRequest {
+                            world_pos,
+                            text: text.clone(),
+                            font_size_px: *font_size_px,
+                            color: *color,
+                            halo_color: *halo_color,
+                            halo_width: *halo_width,
+                            rank,
+                            path,
+                        });
+                    };
+                    if *along_line {
+                        if let Geometry::LineString(lines) = &feature.geometry {
+                            for line in lines {
+                                if line.len() < 2 {
+                                    continue;
+                                }
+                                let path: Vec<(f32, f32)> = line
+                                    .iter()
+                                    .map(|&p| {
+                                        let (x, y) = tile_local_to_world(tile_id, extent, p);
+                                        (x as f32, y as f32)
+                                    })
+                                    .collect();
+                                // Anchor = the vertex nearest the path's
+                                // halfway arc length, a stable representative
+                                // for collision sorting and culling.
+                                let anchor = path_midpoint(&path);
+                                push(anchor, Some(path));
+                            }
+                        }
+                    } else if let Geometry::Point(points) = &feature.geometry {
                         for &p in points {
                             let (wx, wy) = tile_local_to_world(tile_id, extent, p);
-                            labels.push(LabelRequest {
-                                world_pos: (wx as f32, wy as f32),
-                                text: text.clone(),
-                                font_size_px: *font_size_px,
-                                color: *color,
-                                halo_color: *halo_color,
-                                halo_width: *halo_width,
-                                rank,
-                            });
+                            push((wx as f32, wy as f32), None);
                         }
                     }
                 }
@@ -236,6 +267,32 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
         labels,
         interactive,
     }
+}
+
+/// The point at half the total arc length of a world-space polyline — the
+/// stable anchor a line label is sorted and culled by.
+fn path_midpoint(path: &[(f32, f32)]) -> (f32, f32) {
+    let total: f32 = path
+        .windows(2)
+        .map(|w| {
+            let dx = w[1].0 - w[0].0;
+            let dy = w[1].1 - w[0].1;
+            (dx * dx + dy * dy).sqrt()
+        })
+        .sum();
+    let mut acc = 0.0;
+    let half = total * 0.5;
+    for w in path.windows(2) {
+        let dx = w[1].0 - w[0].0;
+        let dy = w[1].1 - w[0].1;
+        let seg = (dx * dx + dy * dy).sqrt();
+        if acc + seg >= half {
+            let t = if seg > 0.0 { (half - acc) / seg } else { 0.0 };
+            return (w[0].0 + dx * t, w[0].1 + dy * t);
+        }
+        acc += seg;
+    }
+    path.first().copied().unwrap_or((0.0, 0.0))
 }
 
 /// Read a numeric feature property for ranking. Strings that parse as
@@ -510,6 +567,7 @@ mod tests {
                     halo_color: Color::rgba(0, 0, 0, 0),
                     halo_width: 0.0,
                     rank_field: None,
+                    along_line: false,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
@@ -557,6 +615,7 @@ mod tests {
                     halo_color: Color::rgba(0, 0, 0, 0),
                     halo_width: 0.0,
                     rank_field: None,
+                    along_line: false,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
