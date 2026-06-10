@@ -894,9 +894,8 @@ fn line_style(
     }
 }
 
-/// Map the IR filter onto core's narrower matcher. Compound forms
-/// (`Not`/`All`/`Any`) have no core equivalent yet, so they degrade to
-/// `Always` rather than failing.
+/// Map the IR filter onto core's matcher, including the compound
+/// `Not`/`All`/`Any` forms (used for e.g. "roads that aren't tunnels").
 fn map_filter(filter: &Filter) -> CoreFilter {
     match filter {
         Filter::Always => CoreFilter::Always,
@@ -904,10 +903,9 @@ fn map_filter(filter: &Filter) -> CoreFilter {
         Filter::In(key, values) => {
             CoreFilter::In(key.clone(), values.iter().map(filter_value_to_string).collect())
         }
-        Filter::Not(_) | Filter::All(_) | Filter::Any(_) => {
-            log::warn!("compound filter unsupported by core style; treating as Always");
-            CoreFilter::Always
-        }
+        Filter::Not(inner) => CoreFilter::Not(Box::new(map_filter(inner))),
+        Filter::All(fs) => CoreFilter::All(fs.iter().map(map_filter).collect()),
+        Filter::Any(fs) => CoreFilter::Any(fs.iter().map(map_filter).collect()),
     }
 }
 

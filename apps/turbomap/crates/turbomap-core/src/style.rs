@@ -123,6 +123,12 @@ pub enum Filter {
     Eq(String, String),
     /// Match if property `key` is in any of the given values.
     In(String, Vec<String>),
+    /// Logical negation — match when the inner filter does not.
+    Not(Box<Filter>),
+    /// Match only when *every* sub-filter matches (AND). Empty ⇒ match.
+    All(Vec<Filter>),
+    /// Match when *any* sub-filter matches (OR). Empty ⇒ no match.
+    Any(Vec<Filter>),
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +243,9 @@ fn filter_matches(filter: &Filter, feature: &Feature) -> bool {
             .get(k)
             .map(|val| vs.iter().any(|v| value_eq_str(val, v)))
             .unwrap_or(false),
+        Filter::Not(inner) => !filter_matches(inner, feature),
+        Filter::All(fs) => fs.iter().all(|f| filter_matches(f, feature)),
+        Filter::Any(fs) => fs.iter().any(|f| filter_matches(f, feature)),
     }
 }
 
@@ -289,6 +298,32 @@ mod tests {
             geometry: Geometry::Polygon(vec![]),
             properties: p,
         }
+    }
+
+    #[test]
+    fn compound_filters_combine_eq_in_and_not() {
+        // "a surface road" = class in {trunk,primary} AND NOT brunnel=tunnel
+        // — the exact predicate the tunnel styling relies on.
+        let surface = Filter::All(vec![
+            Filter::In("class".into(), vec!["trunk".into(), "primary".into()]),
+            Filter::Not(Box::new(Filter::Eq("brunnel".into(), "tunnel".into()))),
+        ]);
+        let surface_trunk = poly_feature(&[("class", "trunk")]);
+        let tunnel_trunk = poly_feature(&[("class", "trunk"), ("brunnel", "tunnel")]);
+        let service = poly_feature(&[("class", "service")]);
+        assert!(filter_matches(&surface, &surface_trunk), "surface trunk matches");
+        assert!(!filter_matches(&surface, &tunnel_trunk), "tunnel excluded");
+        assert!(!filter_matches(&surface, &service), "wrong class excluded");
+
+        // Any = OR; empty All = match-all; empty Any = match-none.
+        let either = Filter::Any(vec![
+            Filter::Eq("brunnel".into(), "bridge".into()),
+            Filter::Eq("brunnel".into(), "tunnel".into()),
+        ]);
+        assert!(filter_matches(&either, &tunnel_trunk));
+        assert!(!filter_matches(&either, &surface_trunk));
+        assert!(filter_matches(&Filter::All(vec![]), &service), "empty All matches");
+        assert!(!filter_matches(&Filter::Any(vec![]), &service), "empty Any never matches");
     }
 
     fn line_feature(props: &[(&str, &str)]) -> Feature {

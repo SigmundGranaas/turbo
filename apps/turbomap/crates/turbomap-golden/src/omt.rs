@@ -124,11 +124,27 @@ pub fn bergen_scene() -> Scene {
     let street_classes = [
         "motorway", "trunk", "primary", "secondary", "tertiary", "minor",
     ];
+    // Tunnels (e.g. Fløyfjelltunnelen) read as "below ground": a dashed,
+    // dimmed casing drawn *under* the surface roads. Surface roads then
+    // exclude tunnels so the bright fill doesn't cover the dashes.
+    let is_tunnel = || Filter::Eq("brunnel".to_string(), s("tunnel"));
+    let not_tunnel = || Filter::Not(Box::new(is_tunnel()));
+    let surface_streets =
+        || Filter::All(vec![class_in(&street_classes), not_tunnel()]);
+    scene.layers.push(Layer::Line {
+        id: "tunnel".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("transportation".to_string()),
+        filter: Filter::All(vec![class_in(&street_classes), is_tunnel()]),
+        color: Paint::Const(Color::rgb(222, 216, 206)),
+        width: Paint::Const(5.0),
+        dash_array: Some(vec![5.0, 4.0]),
+    });
     scene.layers.push(Layer::Line {
         id: "road-casing".to_string(),
         source: "omt".to_string(),
         source_layer: Some("transportation".to_string()),
-        filter: class_in(&street_classes),
+        filter: surface_streets(),
         color: Paint::Const(Color::rgb(196, 192, 186)),
         width: Paint::Match {
             property: "class".to_string(),
@@ -148,7 +164,7 @@ pub fn bergen_scene() -> Scene {
         id: "road-inner".to_string(),
         source: "omt".to_string(),
         source_layer: Some("transportation".to_string()),
-        filter: class_in(&street_classes),
+        filter: surface_streets(),
         color: Paint::Match {
             property: "class".to_string(),
             cases: vec![
