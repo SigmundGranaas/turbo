@@ -211,6 +211,15 @@ validation.
   (a line rule now strokes polygon rings) so footprints read as distinct
   shapes. (4) **tunnels rendering as surface roads** — added core
   **Not/All/Any compound filters** (was degraded to Always) and used them
-  to dim `brunnel=tunnel` segments under the surface roads.
-- _Next_: B hardening (ETag/backoff/LRU/prefetch), POI labels + icons,
-  water coastline, or C3 gradients/pattern fills.
+  to dim `brunnel=tunnel` segments under the surface roads. Then richness:
+  **water coastline**, **POI labels** (re-packed the fixture with the OMT
+  `poi` layer; curated food/drink/culture, excluding the 14k long tail),
+  and **landuse category tints** (school/hospital/sport/cemetery/industrial).
+- _2026-06-10_: **B tile-stack hardening** (the robustness half). The HTTP
+  disk cache was unbounded → a **bounded LRU `DiskCache`** (mtime recency,
+  throttled oldest-first sweep, atomic writes; reused by the vector source).
+  Added **retry with exponential backoff + equal-jitter** for transient
+  fetch failures (network-only, not decode/zoom), wrapping both sources'
+  GET. Both are pure/unit-tested without a network mock.
+- _Next_: ETag/conditional revalidation + prefetch ring (finish B), POI
+  category icons (needs a text-offset IR field), or C3 gradients.
