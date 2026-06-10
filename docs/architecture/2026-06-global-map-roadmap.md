@@ -1,0 +1,144 @@
+# Global-Map Roadmap (turbomap)
+
+_Status: planning → in progress. Authored 2026-06-10._
+
+This document plans the work to take the wgpu/Rust renderer in `apps/turbomap`
+from "a well-architected 2D vector basemap that renders a synthetic world on
+software Vulkan" to a credible global map. It is grounded in the current code,
+not aspiration: each item names where it plugs into the existing architecture.
+
+## Standing prerequisite: real-device validation
+
+Nothing below is _validated_ until the engine runs on a real Android/iOS GPU.
+Today everything is exercised headless on Lavapipe (software Vulkan) via golden
+images + the `turbomap-sim` device-equivalent session harness. That proves
+**correctness**, not performance or driver behaviour. Device validation is a
+standing gate that should run in parallel with Phase 1.
+
+## Where things actually stand (corrected)
+
+A prior review under-counted the tile stack. The real state:
+
+- **Tile fetch + cache exist.** `turbomap-tiles-http` (`reqwest::blocking`,
+  URL templating, 15s timeout) and `turbomap-tiles-cache`
+  (`DiskCachedSource<S>`, on-disk `<root>/<z>/<x>/<y>`, atomic `.tmp` writes)
+  are real. `MapHost` prioritises by distance, caps in-flight per layer (16),
+  and has an 80s `recently_failed` retry window.
+- **Camera is full-perspective already.** `Camera::view_projection()`
+  (`turbomap-core/src/camera.rs`) builds a `glam` `Mat4` with tilt (0–60°),
+  bearing, and zoom; Web-Mercator world is normalised `[0,1]²` (`geo.rs`).
+- **Styling compiles per frame.** `Layer::{Fill,Line,Symbol}` → core
+  `VectorStyle` rules in `turbomap-engine/src/engine.rs`; colour/width are
+  re-evaluated per frame for live zoom curves without re-tessellation.
+- **Text** is `ab_glyph` + a single bundled Roboto, atlas keyed by `char`,
+  SDF (8SSEDT). Latin-only.
+- **Render** is a single pass: geometry (raster → hillshade → vector) → icons →
+  text → markers, `sample_count: 1` everywhere (`turbomap-core/src/map.rs`,
+  `render/`).
+
+So the gaps are schema/conditional-fetch/prefetch (not "no HTTP"), and text is
+the true disqualifier for a _global_ map.
+
+## Workstreams
+
+### A. Global text — the hardest blocker
+
+`text.rs` iterates `text.chars()` and keys the atlas by `char`: no shaping,
+bidi, or fallback. Plan (replace the layout front-end, keep the SDF atlas):
+
+1. **Shaping** via `rustybuzz` (pure-Rust HarfBuzz). Shape runs into positioned
+   `glyph_id`s; replace the `chars()` loop in `layout()` / `layout_along_path()`.
+2. **Font stack + fallback** via `fontdb` (or a hand-rolled `FontStack`).
+   Itemise a string into runs by script/coverage; shape each with the covering
+   face. Default faces bundled (Latin + Arabic + Devanagari); CJK and emoji are
+   large, so design fonts to be **host-providable** over the uniffi boundary
+   rather than all bundled.
+3. **Bidi** via `unicode-bidi` (reorder RTL before shaping) +
+   `unicode-script`/`unicode-segmentation` for itemisation and grapheme-safe
+   breaks.
+4. **Atlas rekey**: `FontAtlas` key `char` → `(font_id, glyph_id)`. This is the
+   load-bearing change; SDF generation, shelf packing, `LayoutGlyph`, the GPU
+   pipeline (`render/text.rs`, `text_shader.wgsl`) are unchanged.
+
+Effort: Large. Risk: Medium (shaping × along-line placement). Test: golden
+frames for Arabic (RTL), Devanagari (reordering), CJK (host font), mixed bidi.
+
+### B. Real data + tile-stack hardening
+
+**B1 — Schema & style spec.** Target **OpenMapTiles** schema as canonical
+(`water/landcover/landuse/transportation/transportation_name/building/
+boundary/place/poi/...`). Add **z-ordering + bridge/tunnel (`brunnel`)
+ordering** via an explicit sort key on `Rule`. Author a MapLibre-GL-style-JSON
+loader into the Scene IR (the IR's `Paint<T>` is already close to data/zoom
+expressions).
+
+**B2 — Tile-stack hardening** (`turbomap-tiles-http`, `-cache`, `MapHost`):
+conditional requests (ETag/Cache-Control), disk-cache LRU eviction, exponential
+backoff + jitter (replace the fixed 80s window, honour `Retry-After`),
+**PMTiles** (range requests) and/or **MBTiles** (sqlite) sources for offline,
+viewport+next-zoom **prefetch**, and a host-implementable `TileSource` over
+uniffi.
+
+Effort: Large. Risk: Medium. Test: real OpenMapTiles/PMTiles extract → golden;
+cache hit/miss/expiry + backoff unit tests; sim prefetch coverage.
+
+### C. Cartographic polish
+
+- **C1 SDF sprites + real icon set** — load a MapLibre sprite sheet (PNG+JSON)
+  and/or generate SDF icons (reuse 8SSEDT) for crisp scaling + tinting + @2x;
+  replace procedural `sprite.rs`. `IconPipeline` gains a tint uniform + SDF mode.
+- **C2 cross-tile label dedup** — dedup by feature id (text + approx world pos)
+  across visible tiles; repeat-distance for line labels. Lands in
+  `render/text.rs::prepare` + a stable id from `tessellate.rs`. (Fixes the
+  doubled "RINGVEGEN".)
+- **C3 line dashes / gradients / pattern & image fills** — add cumulative
+  arc-length to `VectorVertex`; `dash_pattern` on `Paint::Line`; ramp-texture
+  line gradients (`line-progress`); pattern atlas + tile/world UVs for fills.
+
+Effort: Medium/item, independent. Risk: Low–Medium.
+
+### D. Motion & anti-aliasing
+
+- **D1 label fade** — persistent label ids + per-label opacity state in
+  `TextPipeline`; ~150ms in/out transitions (needs C2's stable ids + per-frame
+  `dt`).
+- **D2 MSAA** — 4× multisampled colour target + resolve in the single pass;
+  flip `sample_count` 1→4. SDF text/icons composite over the resolve. FXAA/SMAA
+  fallback if mobile bandwidth hurts (decide after device numbers).
+
+### E. Camera & interaction
+
+- **E1 gestures** — recognizer for inertia/fling (velocity + decay via
+  `ease_to`), pinch-zoom (`zoom_around` exists), two-finger rotate (`bearing`),
+  vertical-drag tilt (`pitch`). Put it in a shared controller fed by both the
+  egui app and the uniffi device host. Camera already supports the DOF; nothing
+  drives them.
+- **E2 globe** — `ProjectionMode { Mercator, Globe }` branch in
+  `Camera::view_projection()`; MapLibre-style mercator→globe vertex transform in
+  the ground shaders with a zoom transition. Touches every ground/vertex shader.
+
+## Sequence & rationale
+
+| Phase | Items | Why |
+|------|-------|-----|
+| 0 (standing) | Real-device validation | Gates every quality claim. |
+| 1 | **A global text** + **B data/tiles** | The two true disqualifiers; parallelizable. |
+| 2 | **C2 dedup**, **C1 sprites**, **C3 dashes/gradients/fills** | Real data makes dedup urgent and exposes missing paint. |
+| 3 | **D1 fade**, **E1 gestures**, **D2 MSAA** | Polish + feel; gestures ride with device work. |
+| 4 | **E2 globe** | Largest surgery, least near-term value. |
+
+Top risks: shaping × along-line placement (A); schema z-ordering correctness at
+scale (B1); MSAA bandwidth on mobile (D2). All three de-risked by early device
+validation.
+
+## Execution notes
+
+- Keep the established discipline: every increment verified headless (golden +
+  sim), committed and pushed atomically (container resets lose uncommitted
+  work), goldens regenerated only for intentional, reviewed visual changes.
+- Prefer host-providable assets (fonts, sprites, tiles) over bundling large
+  binaries, exposed across the uniffi boundary.
+
+## Progress log
+
+- _2026-06-10_: Roadmap authored. Starting Workstream A (global text).
