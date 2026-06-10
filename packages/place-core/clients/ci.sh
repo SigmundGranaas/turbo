@@ -3,6 +3,7 @@
 #   1. pure Rust logic + golden fixtures (`cargo test`)
 #   2. the UniFFI Python binding (golden replay + round-trip + error path)
 #   3. the UniFFI Kotlin binding (when a Kotlin toolchain + JNA are available)
+#   4. the embedded engine: tests + the offline bundle demo
 #
 # Kotlin step needs `kotlinc` on PATH (override with $KOTLINC) and $JNA_JAR
 # pointing at a JNA 5.x jar; it is skipped (not failed) when those are absent.
@@ -31,5 +32,9 @@ if command -v "$KOTLINC" >/dev/null 2>&1 && [ -n "${JNA_JAR:-}" ] && [ -f "${JNA
 else
     echo "   skipped — set \$KOTLINC (or PATH) and \$JNA_JAR to run the Kotlin client"
 fi
+
+echo "== [4/4] embedded engine + offline bundle demo =="
+cargo test --features embedded --quiet
+cargo run --features embedded --quiet --example bundle_cli -- demo
 
 echo "All place-core checks passed."
