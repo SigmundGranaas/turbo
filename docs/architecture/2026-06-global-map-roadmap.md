@@ -153,5 +153,9 @@ validation.
   **Workstream A (global text) substantively complete** for shaped, fallback,
   bidi-correct rendering; remaining niceties: vertical CJK, emoji (colour),
   bundling default CJK/Arabic faces vs. host-provided.
-- _Next_: Workstream B (real data + tile-stack hardening) or C2 (cross-tile
-  label dedup).
+- _2026-06-10_: **C2** — cross-tile label dedup. Line labels honour a
+  same-name repeat distance (`LINE_LABEL_REPEAT_PX` = 250px), collapsing a
+  road clipped across tiles to one along-line label (fixes the doubled
+  "RINGVEGEN"); `road-name-along-line` golden regenerated to the single label.
+- _Next_: Workstream B (real data + tile-stack hardening), or C1 (SDF
+  sprites) / C3 (line dashes).

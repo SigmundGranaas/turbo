@@ -2,9 +2,17 @@
 //! vector-tile cache, lays them out per frame against a single GPU atlas,
 //! does AABB collision in screen space, and draws the surviving glyphs.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
+
+/// Minimum screen-space spacing between two line labels carrying the *same*
+/// text. A long road clipped across several tiles yields one along-line
+/// label per piece; without this they'd stack up (the doubled-name bug).
+/// It doubles as the repeat distance for genuinely long roads. MapLibre's
+/// `symbol-spacing` default is 250px; we match it.
+const LINE_LABEL_REPEAT_PX: f32 = 250.0;
 
 use crate::{
     camera::Camera,
@@ -374,10 +382,20 @@ impl TextPipeline {
 
         let start = self.staged.len() as u32;
         let mut placed: Vec<Aabb> = Vec::new();
+        // Screen anchors of already-placed line labels, keyed by text — the
+        // cross-tile dedup / repeat-spacing index for road names.
+        let mut placed_line_text: HashMap<String, Vec<(f32, f32)>> = HashMap::new();
         for label in candidates {
             // Line-placed labels (road names) follow a projected centerline.
             if let Some(path) = &label.path {
-                self.stage_line_label(&camera, viewport_px, &label, path, &mut placed);
+                self.stage_line_label(
+                    &camera,
+                    viewport_px,
+                    &label,
+                    path,
+                    &mut placed,
+                    &mut placed_line_text,
+                );
                 continue;
             }
             // Project world → screen.
@@ -480,6 +498,7 @@ impl TextPipeline {
         label: &LabelRequest,
         path: &[(f32, f32)],
         placed: &mut Vec<Aabb>,
+        placed_line_text: &mut HashMap<String, Vec<(f32, f32)>>,
     ) {
         // Cheap cull on the anchor (path midpoint) before any layout.
         let anchor = world_to_screen(camera, label.world_pos, viewport_px);
@@ -489,6 +508,16 @@ impl TextPipeline {
             || anchor.1 > viewport_px.1 + 120.0
         {
             return;
+        }
+        // Cross-tile dedup / repeat spacing: drop this label if the same
+        // road name was already placed within the repeat distance. Sorting
+        // put the piece nearest the camera centre first, so the survivor is
+        // the best-placed one.
+        if let Some(prev) = placed_line_text.get(&label.text) {
+            let min_sq = LINE_LABEL_REPEAT_PX * LINE_LABEL_REPEAT_PX;
+            if prev.iter().any(|&p| sq_dist(p, anchor) < min_sq) {
+                return;
+            }
         }
         let screen_path: Vec<(f32, f32)> = path
             .iter()
@@ -541,6 +570,12 @@ impl TextPipeline {
             return;
         }
         placed.push(padded);
+        // Record this placement so later same-name pieces honour the repeat
+        // distance (cross-tile dedup).
+        placed_line_text
+            .entry(label.text.clone())
+            .or_default()
+            .push(anchor);
 
         let color = label.color.to_linear_bytes();
         let halo_color = label.halo_color.to_linear_bytes();

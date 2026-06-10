@@ -847,17 +847,22 @@ fn road_name_follows_the_centerline() {
             }
         }
     }
-    assert!(ink > 60, "road name ink should be visible, got {ink}");
     let span_x = max_x.saturating_sub(min_x);
     let span_y = max_y.saturating_sub(min_y);
-    // The route climbs, so along-line glyphs span a tall band — a flat
-    // point label of one line of 18px text would be only ~20px tall.
+    eprintln!("road-name: ink={ink} span_x={span_x} span_y={span_y}");
+    assert!(ink > 60, "road name ink should be visible, got {ink}");
+    // Cross-tile dedup (LINE_LABEL_REPEAT_PX) collapses the road — clipped
+    // across several tiles — to a single along-line label, instead of the
+    // doubled name it used to draw. One "RINGVEGEN" at 18px is a compact
+    // run, not a route-spanning band.
     assert!(
-        span_x > 120,
-        "label should run across the route, x-span {span_x}"
+        (40..150).contains(&span_x),
+        "expected one deduplicated label (compact x-span), got {span_x}"
     );
+    // It still follows the climbing centerline: rotated glyphs span more
+    // vertically than a flat 18px line (~20px tall).
     assert!(
-        span_y > 40,
+        span_y > 24,
         "along-line glyphs should climb with the route, y-span {span_y}"
     );
 
