@@ -55,21 +55,32 @@ impl Bundle {
         Ok(Bundle { conn, ruleset })
     }
 
-    /// Reverse-geocode a coordinate from the bundle alone.
+    /// Reverse-geocode a coordinate from the bundle alone — mirroring the
+    /// server's cascade exactly: kommune from polygon containment (falling back
+    /// to the nearest feature's stored kommune), protected-area containment,
+    /// and elevation from the nearest feature.
     pub fn reverse(&self, lat: f64, lng: f64) -> Result<Option<LocationDescription>, BundleError> {
         let toponyms = self.nearest(lat, lng, REVERSE_RADIUS_M, REVERSE_LIMIT)?;
 
-        // Enrichment from the nearest feature, mirroring the server.
         let nearest = toponyms.first();
-        let kommune = nearest.and_then(|n| n.kommune.clone()).map(|name| Kommune {
-            name,
-            fylke: nearest.and_then(|n| n.fylke.clone()),
-        });
         let elevation_m = nearest.and_then(|n| n.elevation_m);
+        let nearest_kommune = nearest.and_then(|n| n.kommune.clone());
+        let nearest_fylke = nearest.and_then(|n| n.fylke.clone());
+
+        let kommune = match self.containing(lat, lng, "kommune")? {
+            Some((name, fylke)) => Some(Kommune { name, fylke }),
+            None => nearest_kommune.map(|name| Kommune {
+                name,
+                fylke: nearest_fylke,
+            }),
+        };
+        let protected_area = self
+            .containing(lat, lng, "protected_area")?
+            .map(|(name, kind)| ProtectedArea { name, kind });
 
         let input = ReverseInput {
             toponyms: toponyms.into_iter().map(|t| t.candidate).collect(),
-            protected_area: self.containing_park(lat, lng)?,
+            protected_area,
             address: None,
             kommune,
             elevation_m,
@@ -182,15 +193,21 @@ impl Bundle {
         Ok(out)
     }
 
-    /// The smallest containing protected area, by R*Tree bbox prefilter then
-    /// exact point-in-polygon.
-    fn containing_park(&self, lat: f64, lng: f64) -> Result<Option<ProtectedArea>, BundleError> {
+    /// The smallest polygon of `area_type` containing the point — R*Tree bbox
+    /// prefilter then exact point-in-polygon. Returns (name, kind): the
+    /// protected-area's verneform, or the kommune's fylke.
+    fn containing(
+        &self,
+        lat: f64,
+        lng: f64,
+        area_type: &str,
+    ) -> Result<Option<(String, Option<String>)>, BundleError> {
         let mut stmt = self.conn.prepare(
             "SELECT a.name, a.kind, a.rings_json FROM areas_rtree r JOIN areas a ON a.id = r.id \
-             WHERE a.area_type = 'protected_area' \
-             AND r.maxLat >= ?1 AND r.minLat <= ?1 AND r.maxLng >= ?2 AND r.minLng <= ?2",
+             WHERE a.area_type = ?1 \
+             AND r.maxLat >= ?2 AND r.minLat <= ?2 AND r.maxLng >= ?3 AND r.minLng <= ?3",
         )?;
-        let rows = stmt.query_map([lat, lng], |r| {
+        let rows = stmt.query_map(rusqlite::params![area_type, lat, lng], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, Option<String>>(1)?,
@@ -198,9 +215,8 @@ impl Bundle {
             ))
         })?;
 
-        let mut best: Option<(f64, ProtectedArea)> = None;
-        for row in rows.filter_map(Result::ok) {
-            let (name, kind, rings_json) = row;
+        let mut best: Option<(f64, (String, Option<String>))> = None;
+        for (name, kind, rings_json) in rows.filter_map(Result::ok) {
             let Ok(rings) = serde_json::from_str::<Vec<Vec<(f64, f64)>>>(&rings_json) else {
                 continue;
             };
@@ -210,10 +226,10 @@ impl Bundle {
             // Crude area proxy (outer-ring bbox) to pick the smallest container.
             let area = ring_bbox_area(rings.first());
             if best.as_ref().is_none_or(|(a, _)| area < *a) {
-                best = Some((area, ProtectedArea { name, kind }));
+                best = Some((area, (name, kind)));
             }
         }
-        Ok(best.map(|(_, pa)| pa))
+        Ok(best.map(|(_, v)| v))
     }
 }
 

@@ -164,6 +164,77 @@ pub unsafe extern "C" fn place_core_string_free(p: *mut c_char) {
     }
 }
 
+// ── Embedded bundle ABI (cabi + embedded) ────────────────────────────────────
+// Lets the server's equality test open a freshly-built bundle and prove offline
+// answers equal online ones through the exact same engine.
+#[cfg(feature = "embedded")]
+mod bundle_abi {
+    use super::{give, read};
+    use crate::Bundle;
+    use std::os::raw::c_char;
+
+    /// Open a bundle file read-only. Returns null on error.
+    ///
+    /// # Safety
+    /// `path` must be a valid NUL-terminated UTF-8 C string or null.
+    #[no_mangle]
+    pub unsafe extern "C" fn place_core_bundle_open(path: *const c_char) -> *mut Bundle {
+        match read(path).and_then(|p| Bundle::open(p).ok()) {
+            Some(b) => Box::into_raw(Box::new(b)),
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    /// # Safety
+    /// `bundle` must be a handle from [`place_core_bundle_open`], or null.
+    #[no_mangle]
+    pub unsafe extern "C" fn place_core_bundle_free(bundle: *mut Bundle) {
+        if !bundle.is_null() {
+            drop(Box::from_raw(bundle));
+        }
+    }
+
+    /// Reverse-geocode → JSON `LocationDescription` (or `null`).
+    ///
+    /// # Safety
+    /// `bundle` must be a valid handle or null.
+    #[no_mangle]
+    pub unsafe extern "C" fn place_core_bundle_reverse(
+        bundle: *mut Bundle,
+        lat: f64,
+        lng: f64,
+    ) -> *mut c_char {
+        if bundle.is_null() {
+            return give("null".to_string());
+        }
+        let out = (*bundle)
+            .reverse(lat, lng)
+            .ok()
+            .flatten()
+            .and_then(|d| serde_json::to_string(&d).ok())
+            .unwrap_or_else(|| "null".to_string());
+        give(out)
+    }
+
+    /// Forward-search → JSON array of `SearchHit`.
+    ///
+    /// # Safety
+    /// `bundle` must be a valid handle or null; `query` a valid C string or null.
+    #[no_mangle]
+    pub unsafe extern "C" fn place_core_bundle_search(
+        bundle: *mut Bundle,
+        query: *const c_char,
+        limit: u32,
+    ) -> *mut c_char {
+        if bundle.is_null() {
+            return give("[]".to_string());
+        }
+        let q = read(query).unwrap_or("");
+        let hits = (*bundle).search(q, limit as usize).unwrap_or_default();
+        give(serde_json::to_string(&hits).unwrap_or_else(|_| "[]".to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
