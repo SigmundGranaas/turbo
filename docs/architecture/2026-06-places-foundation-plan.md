@@ -83,6 +83,46 @@ tests. What's left is breadth (national data) + polish.
 
 ---
 
+## Status — 2026-06-10: SSR national run (P1 national + P2b/P3d at scale)
+
+The SSR (toponym) bulk path is built and proven on the **real national
+dataset**, end to end against the live Geonorge API.
+
+- **SSR GML reader** (`GmlPlaceReader`) — SSR ships GML-only. A GDAL-free,
+  forward-only `XmlReader` lifts one `app:Sted` at a time (memory flat on the
+  ~3 GB national file). Resolves `srsName` from the nearest ancestor (the
+  download GML carries it on the `gml:MultiPoint`/`Surface`, not the inner
+  `gml:Point` — caught as a real reprojection bug on live data), branching
+  25833→`Utm33` vs 4258/4326 pass-through; handles Point/MultiPoint/
+  LineString/Surface. Tested against a real WFS extract + the download
+  MultiPoint shape, plus a PostGIS end-to-end stage→swap test.
+- **National run** — `bulk-ssr landsdekkende 0000` ordered + streamed the
+  national GML: **1,058,735 places staged in 272 s (~3,900 rows/s)**, zero
+  un-reprojected coordinates. `BulkPlaceIngestor` streams in bounded batches;
+  `swap`/`bundle` resume modes added for the runbook.
+- **P1b finding (fixed)** — the atomic swap of 1.06 M rows takes **34 s**, past
+  Npgsql's 30 s default → it timed out. `SwapAsync` now sets a 600 s bound
+  (national swaps legitimately run minutes; not unlimited, so a stuck swap
+  still fails).
+- **P2b perf at national volume (1.06 M rows)** — reverse (KNN, the hot path):
+  **0.2 ms**, clean `places_centroid_gist` index scan (31 buffers, no seq
+  scan). Search (trigram+prefix): 58 ms for a selective stem (`galdh`, 266
+  matches) up to ~170 ms for a common one (`storvatn`, 3 681 matches) — scales
+  with trigram breadth; **P2 tuning lever**: raise `pg_trgm.similarity_threshold`
+  / prefer-prefix. Distribution sane (adressenavn 112 k, bruk 97 k, tjern 58 k…).
+- **P3d parity at scale** — sliced a Jotunheimen region bundle (5 847 places)
+  from the national DB; embedded reverse/search match the server on real
+  coords (Galdhøpiggen→"On Galdhøpiggen · Lom"; Besseggen-pt→"Close to
+  Veslfjellet · Vågå") — same rows, same `rank()`, same answer.
+
+Still open: SSR carries `kommunenavn`/`fylkesnavn` inline (no enrichment join
+needed for toponyms), but **admin/Naturbase polygons + Matrikkel addresses**
+remain to be loaded alongside for the full cascade at national scale; the
+2,000-point differential-parity harness (P2a) and footprint budgets (G6) are
+the remaining "works perfectly" gates.
+
+---
+
 ## P0 — Foundation defects (prerequisite, ~small)
 
 Fixes for the four verified defects from the 2026-06-09 architecture review;

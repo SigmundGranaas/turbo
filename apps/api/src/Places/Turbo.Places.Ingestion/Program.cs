@@ -36,6 +36,34 @@ if (args is ["seed-samples"])
     return await SeedSamples.RunAsync(connectionString);
 }
 
+// swap <version>: promote an already-staged version to live (resume after a
+// bulk load whose swap was interrupted — staging persists, so this is safe to
+// re-run).
+if (args is ["swap", var swapVersion])
+{
+    var swapStore = new PgPlaceStore(connectionString);
+    await swapStore.EnsureSchemaAsync();
+    await swapStore.SwapAsync(swapVersion);
+    var (p, a, v) = await swapStore.StatsAsync();
+    Console.WriteLine($"swapped to {v}: {p} places, {a} areas");
+    return 0;
+}
+
+// bundle <minLng> <minLat> <maxLng> <maxLat> <out>: slice an offline SQLite
+// region bundle from the live dataset (the offline-download job; same artifact
+// the /bundle endpoint serves on demand).
+if (args is ["bundle", var blng0, var blat0, var blng1, var blat1, var outPath])
+{
+    var bundleStore = new PgPlaceStore(connectionString);
+    var bundleVersion = await bundleStore.GetActiveDatasetVersionAsync() ?? "unknown";
+    var ruleset = new Turboapi.Places.Core.RulesetProvider();
+    double P(string s) => double.Parse(s, CultureInfo.InvariantCulture);
+    await new Turboapi.Places.Infrastructure.BundleBuilder(connectionString).BuildAsync(
+        P(blng0), P(blat0), P(blng1), P(blat1), ruleset.Json, bundleVersion, outPath);
+    Console.WriteLine($"wrote bundle {outPath} (dataset {bundleVersion})");
+    return 0;
+}
+
 // bulk-admin <fylke-code> <fylke-name>: the real Geonorge pipeline end to end —
 // order + download + extract + read (reproject) + stage + swap admin kommuner.
 if (args is ["bulk-admin", var fylkeCode, var fylkeName])

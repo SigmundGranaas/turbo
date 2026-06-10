@@ -12,6 +12,9 @@ namespace Turboapi.Places.Infrastructure;
 /// </summary>
 public sealed class PgPlaceStore : IPlaceStore
 {
+    /// <summary>Upper bound for the national atomic swap (see <see cref="SwapAsync"/>).</summary>
+    private const int SwapCommandTimeoutSeconds = 600;
+
     private readonly string _connectionString;
 
     public PgPlaceStore(string connectionString) => _connectionString = connectionString;
@@ -95,6 +98,11 @@ public sealed class PgPlaceStore : IPlaceStore
         await conn.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await using var cmd = conn.CreateCommand();
+        // The atomic DELETE+INSERT moves the whole dataset (1M+ rows nationally),
+        // which legitimately runs minutes — well past Npgsql's 30 s default. Give
+        // it a generous bound rather than 0 (unlimited), so a genuinely stuck
+        // swap still fails instead of hanging forever.
+        cmd.CommandTimeout = SwapCommandTimeoutSeconds;
         cmd.CommandText = """
             DELETE FROM places.places;
             INSERT INTO places.places
