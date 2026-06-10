@@ -201,4 +201,16 @@ validation.
   uniform — full precision at every zoom; all low-zoom goldens unchanged.
   New `omt-real-bergen` golden renders real Bergen with a designed style
   (casings, class hierarchy, dashed paths, along-line street names).
-- _Next_: B hardening, or C3 gradients/pattern fills, or E1 gestures.
+- _2026-06-10_: **Visual-quality push via the agent-driven loop.** Built
+  `visual_lab` (render → crop → measure → diagnose → fix; see
+  `2026-06-visual-iteration-loop.md`). It found and fixed, in order:
+  (1) **glyph boxes** — the SDF atlas cleared to 0 (= inside a glyph), so
+  every cell edge ramped 255→0 under bilinear sampling and drew a box;
+  cleared to 255. (2) **detail noise** — decluttered service roads +
+  hillside trail web. (3) **mushy buildings** — added **polygon outlines**
+  (a line rule now strokes polygon rings) so footprints read as distinct
+  shapes. (4) **tunnels rendering as surface roads** — added core
+  **Not/All/Any compound filters** (was degraded to Always) and used them
+  to dim `brunnel=tunnel` segments under the surface roads.
+- _Next_: B hardening (ETag/backoff/LRU/prefetch), POI labels + icons,
+  water coastline, or C3 gradients/pattern fills.
