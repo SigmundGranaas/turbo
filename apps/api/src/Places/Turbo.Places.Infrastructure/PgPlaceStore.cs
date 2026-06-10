@@ -15,10 +15,12 @@ public sealed class PgPlaceStore : IPlaceStore
     /// <summary>Upper bound for the national atomic swap (see <see cref="SwapAsync"/>).</summary>
     private const int SwapCommandTimeoutSeconds = 600;
 
-    /// <summary>Radius bounding the trigram fuzzy fallback when a map centre is
-    /// given (see <see cref="FuzzySearchAsync"/>) — generous for "near where I'm
-    /// looking", but tight enough to keep a common stem off a national scan.</summary>
-    private const double FuzzyNearRadiusM = 300_000;
+    /// <summary>Trigram threshold for the fuzzy fallback (see
+    /// <see cref="FuzzySearchAsync"/>). Raised from pg_trgm's 0.3 default so the
+    /// GIN index itself stays selective — at 0.3 a common stem returns ~40k index
+    /// hits and similarity() is computed on thousands; 0.45 still admits a 1–2
+    /// char typo (galdhopiggen→galdhøpiggen ≈ 0.47–0.63) while cutting that ~10×.</summary>
+    private const double FuzzySimilarityThreshold = 0.45;
 
     private readonly string _connectionString;
 
@@ -243,8 +245,8 @@ public sealed class PgPlaceStore : IPlaceStore
         // proximity-ordered so "the Storvatnet near me" is among the slots.
         var rows = await PrefixSearchAsync(conn, fold, nearLat, nearLng, limit, ct);
 
-        // Trigram fuzzy only to fill remaining slots (typo tolerance). Bounded by
-        // proximity when a centre is given so a generic stem can't scan nationally.
+        // Trigram fuzzy only to fill remaining slots (typo tolerance), with a
+        // raised similarity threshold so a generic stem can't scan thousands.
         if (rows.Count < limit)
             rows.AddRange(await FuzzySearchAsync(conn, fold, nearLat, nearLng, limit - rows.Count, ct));
 
@@ -279,15 +281,25 @@ public sealed class PgPlaceStore : IPlaceStore
         return await ReadPlaceRowsAsync(cmd, ct);
     }
 
-    /// <summary>Trigram-similarity fallback for typos. When a centre is given the
-    /// candidate set is bounded to a generous radius so a common stem (with few
-    /// prefix matches but many trigram hits) still can't scan the whole country.</summary>
+    /// <summary>Trigram-similarity fallback for typos. Raises the trigram
+    /// threshold (SET LOCAL, scoped to a transaction so it can't leak onto the
+    /// pooled connection) so the GIN index returns a tight candidate set instead
+    /// of every loose match; distance is only a tiebreak.</summary>
     private async Task<List<SearchRow>> FuzzySearchAsync(
         NpgsqlConnection conn, string fold, double? nearLat, double? nearLng, int limit, CancellationToken ct)
     {
-        var hasNear = nearLat.HasValue && nearLng.HasValue;
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using (var set = conn.CreateCommand())
+        {
+            set.Transaction = tx;
+            set.CommandText =
+                $"SET LOCAL pg_trgm.similarity_threshold = {FuzzySimilarityThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            await set.ExecuteNonQueryAsync(ct);
+        }
+
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"""
+        cmd.Transaction = tx;
+        cmd.CommandText = """
             SELECT primary_name, feature_type,
                    ST_Y(geom) AS lat, ST_X(geom) AS lng,
                    kommune_name, fylke_name,
@@ -296,18 +308,18 @@ public sealed class PgPlaceStore : IPlaceStore
                    END AS d
             FROM places.places
             WHERE name_fold % @q AND name_fold NOT LIKE @prefix
-              {(hasNear ? "AND ST_DWithin(centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography, @radius)" : "")}
             ORDER BY similarity(name_fold, @q) DESC, d ASC NULLS LAST
             LIMIT @limit;
             """;
         cmd.Parameters.AddWithValue("q", fold);
         cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
-        cmd.Parameters.AddWithValue("hasNear", hasNear);
+        cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
         cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
         cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
-        cmd.Parameters.AddWithValue("radius", FuzzyNearRadiusM);
         cmd.Parameters.AddWithValue("limit", limit);
-        return await ReadPlaceRowsAsync(cmd, ct);
+        var rows = await ReadPlaceRowsAsync(cmd, ct);
+        await tx.CommitAsync(ct);
+        return rows;
     }
 
     private static async Task<List<SearchRow>> ReadPlaceRowsAsync(NpgsqlCommand cmd, CancellationToken ct)

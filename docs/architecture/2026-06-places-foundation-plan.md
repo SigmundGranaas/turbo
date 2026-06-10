@@ -105,11 +105,19 @@ dataset**, end to end against the live Geonorge API.
   (national swaps legitimately run minutes; not unlimited, so a stuck swap
   still fails).
 - **P2b perf at national volume (1.06 M rows)** — reverse (KNN, the hot path):
-  **0.2 ms**, clean `places_centroid_gist` index scan (31 buffers, no seq
-  scan). Search (trigram+prefix): 58 ms for a selective stem (`galdh`, 266
-  matches) up to ~170 ms for a common one (`storvatn`, 3 681 matches) — scales
-  with trigram breadth; **P2 tuning lever**: raise `pg_trgm.similarity_threshold`
-  / prefer-prefix. Distribution sane (adressenavn 112 k, bruk 97 k, tjern 58 k…).
+  **0.2 ms**, clean `places_centroid_gist` index scan (31 buffers, no seq scan).
+  Search was the weak spot: the old single query OR-ed trigram `%` with prefix
+  `LIKE`, and a common stem (`storvatn`) matched ~41 k index hits → 3 681 rows
+  with `similarity()` computed on all of them → **~170–230 ms, CPU-bound even
+  warm**. **Fixed** (commit) with prefix-first retrieval: since place-core ranks
+  exact > prefix > substring, once there are `limit` prefix matches no fuzzy
+  match can surface — so prefix runs alone on a new `places_name_prefix` btree
+  (`text_pattern_ops`) range scan, and trigram fuzzy runs only to fill remaining
+  slots, at a raised `pg_trgm.similarity_threshold` (0.45, `SET LOCAL`-scoped)
+  so the index stays selective. Result: `storvatn` **232 ms → ~1.3 ms warm /
+  10.6 ms cold**; typo `galdhopiggen`→Galdhøpiggen via fuzzy **8.6 ms** (a short
+  generic stem with < `limit` prefix hits is the worst fuzzy case, ~90 ms).
+  Distribution sane (adressenavn 112 k, bruk 97 k, tjern 58 k…).
 - **P3d parity at scale** — sliced a Jotunheimen region bundle (5 847 places)
   from the national DB; embedded reverse/search match the server on real
   coords (Galdhøpiggen→"On Galdhøpiggen · Lom"; Besseggen-pt→"Close to
