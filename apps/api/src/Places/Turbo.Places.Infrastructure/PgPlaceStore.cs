@@ -242,6 +242,56 @@ public sealed class PgPlaceStore : IPlaceStore
         cmd.Parameters.AddWithValue("limit", limit);
 
         var rows = new List<SearchRow>();
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                rows.Add(new SearchRow(
+                    Name: reader.GetString(0),
+                    Kind: reader.GetString(1),
+                    Lat: reader.GetDouble(2),
+                    Lng: reader.GetDouble(3),
+                    KommuneName: reader.IsDBNull(4) ? null : reader.GetString(4),
+                    FylkeName: reader.IsDBNull(5) ? null : reader.GetString(5),
+                    DistanceM: reader.IsDBNull(6) ? null : reader.GetDouble(6)));
+            }
+        }
+
+        rows.AddRange(await SearchAreasAsync(conn, fold, nearLat, nearLng, limit, ct));
+        return rows;
+    }
+
+    /// <summary>Name matches over the (small) areas table so parks and kommuner
+    /// are searchable, not just toponyms. Result kind/description are shaped for
+    /// the icon + subtitle: protected areas carry their verneform; kommuner read
+    /// "Kommune" + fylke.</summary>
+    private static async Task<List<SearchRow>> SearchAreasAsync(
+        NpgsqlConnection conn, string fold, double? nearLat, double? nearLng, int limit, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT name,
+                   CASE WHEN area_type = 'kommune' THEN 'Kommune' ELSE COALESCE(kind, area_type) END AS kind,
+                   ST_Y(ST_PointOnSurface(geom)) AS lat, ST_X(ST_PointOnSurface(geom)) AS lng,
+                   CASE WHEN area_type = 'kommune' THEN kind END AS fylke,
+                   CASE WHEN @hasNear
+                        THEN ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
+                   END AS d
+            FROM places.areas
+            WHERE lower(name) % @q OR lower(name) LIKE @prefix
+            ORDER BY GREATEST(similarity(lower(name), @q),
+                              CASE WHEN lower(name) LIKE @prefix THEN 0.95 ELSE 0 END) DESC,
+                     d ASC NULLS LAST
+            LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("q", fold);
+        cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
+        cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
+        cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
+        cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var rows = new List<SearchRow>();
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
         {
@@ -250,9 +300,9 @@ public sealed class PgPlaceStore : IPlaceStore
                 Kind: reader.GetString(1),
                 Lat: reader.GetDouble(2),
                 Lng: reader.GetDouble(3),
-                KommuneName: reader.IsDBNull(4) ? null : reader.GetString(4),
-                FylkeName: reader.IsDBNull(5) ? null : reader.GetString(5),
-                DistanceM: reader.IsDBNull(6) ? null : reader.GetDouble(6)));
+                KommuneName: null,
+                FylkeName: reader.IsDBNull(4) ? null : reader.GetString(4),
+                DistanceM: reader.IsDBNull(5) ? null : reader.GetDouble(5)));
         }
         return rows;
     }

@@ -80,6 +80,20 @@
     ]
   },
   {
+    "name": "protected areas and kommuner get park/city icons (searchable areas)",
+    "query": "x",
+    "candidates": [
+      { "name": "Sjunkhatten", "kind": "Nasjonalpark" },
+      { "name": "Saltstraumen", "kind": "MarintVerneomraade" },
+      { "name": "Lom", "kind": "Kommune" }
+    ],
+    "expect": [
+      { "index": 0, "title": "Sjunkhatten", "icon": "park" },
+      { "index": 1, "title": "Saltstraumen", "icon": "park" },
+      { "index": 2, "title": "Lom", "icon": "city" }
+    ]
+  },
+  {
     "name": "icon mapping per navneobjekttype, input order preserved without proximity",
     "query": "x",
     "candidates": [

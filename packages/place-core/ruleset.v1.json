@@ -30,7 +30,14 @@
     "isbre": "mountain",
     "bre": "mountain",
     "innsjø": "water",
-    "vann": "water"
+    "vann": "water",
+    "nasjonalpark": "park",
+    "naturreservat": "park",
+    "landskapsvernomraade": "park",
+    "landskapsvernområde": "park",
+    "verneområde": "park",
+    "marintverneomraade": "park",
+    "kommune": "city"
   },
   "kind_groups": {
     "peak": ["fjelltopp", "topp", "fjell", "ås", "haug", "berg", "nut", "pigg"],

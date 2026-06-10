@@ -36,3 +36,9 @@ rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 [[bin]]
 name = "uniffi-bindgen"
 required-features = ["uniffi"]
+
+# The offline-bundle CLI uses rusqlite — only build it with the embedded
+# feature, so plain `cargo test` (pure logic) stays toolchain-free.
+[[example]]
+name = "bundle_cli"
+required-features = ["embedded"]
