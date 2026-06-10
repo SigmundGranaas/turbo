@@ -689,6 +689,25 @@ async fn serve(
         });
     }
 
+    // Hands-off freshness: when TILESERVER_PROVISION_REFRESH_SECS is set,
+    // periodically re-provision whatever area is currently loaded. The
+    // freshness skip makes each tick cheap (download + hash) when Kartverket
+    // hasn't republished, and a full refresh when it has. Off by default.
+    if let Ok(secs) = std::env::var("TILESERVER_PROVISION_REFRESH_SECS") {
+        match secs.parse::<u64>() {
+            Ok(s) if s >= 60 => {
+                let refresh_db = db.clone();
+                tokio::spawn(async move {
+                    refresh_loop(refresh_db, std::time::Duration::from_secs(s)).await;
+                });
+            }
+            _ => tracing::warn!(
+                value = %secs,
+                "TILESERVER_PROVISION_REFRESH_SECS must be an integer >= 60; refresh disabled"
+            ),
+        }
+    }
+
     let listener = tokio::net::TcpListener::bind(&bind)
         .await
         .with_context(|| format!("binding {bind}"))?;
@@ -746,6 +765,62 @@ async fn maybe_provision_on_boot(serving_db: turbo_tiles_db::DbPool, area: Strin
     {
         Ok(o) => tracing::info!(rows = o.rows_upserted, "boot-provision: complete"),
         Err(e) => tracing::error!(error = %e, "boot-provision: failed"),
+    }
+}
+
+/// Periodic refresh loop: every `interval`, re-provision the area currently
+/// recorded in `paths.provision_state`. Cheap when the source is unchanged
+/// (the freshness skip returns after download+hash); does a full refresh
+/// when Kartverket republished. Uses a dedicated batch pool (no statement
+/// timeout). Does nothing until something has been provisioned at least once.
+async fn refresh_loop(serving_db: turbo_tiles_db::DbPool, interval: std::time::Duration) {
+    tracing::info!(secs = interval.as_secs(), "provision-refresh: scheduler armed");
+    let mut tick = tokio::time::interval(interval);
+    tick.tick().await; // consume the immediate first tick; wait a full interval
+    loop {
+        tick.tick().await;
+        let area = match turbo_tiles_ingest::provisioned_area(&serving_db).await {
+            Ok(Some(a)) => a,
+            Ok(None) => {
+                tracing::debug!("provision-refresh: nothing provisioned yet, skipping tick");
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "provision-refresh: state read failed");
+                continue;
+            }
+        };
+        let mut cfg = match DbConfig::from_env() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "provision-refresh: DATABASE_URL missing");
+                continue;
+            }
+        };
+        cfg.statement_timeout_ms = 0;
+        cfg.max_connections = 2;
+        let pool = match cfg.connect().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(error = %e, "provision-refresh: pool connect failed");
+                continue;
+            }
+        };
+        tracing::info!(area = %area, "provision-refresh: checking for a newer N50 dump");
+        let opts = turbo_tiles_ingest::JobOptions {
+            area: Some(area),
+            force: false,
+            ..Default::default()
+        };
+        if let Err(e) = turbo_tiles_ingest::run_job_with_options(
+            pool,
+            turbo_tiles_ingest::JobName::ProvisionN50,
+            opts,
+        )
+        .await
+        {
+            tracing::error!(error = %e, "provision-refresh: failed");
+        }
     }
 }
 

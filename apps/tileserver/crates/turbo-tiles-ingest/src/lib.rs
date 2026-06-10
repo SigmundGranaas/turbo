@@ -31,3 +31,4 @@ pub use dtm_raster::{incoming_dir, list_incoming, resolve_under_incoming};
 
 pub use fkb_wfs::Bbox;
 pub use job::{run_job, run_job_with_options, JobError, JobName, JobOptions, JobOutcome};
+pub use provision::provisioned_area;

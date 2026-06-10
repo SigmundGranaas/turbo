@@ -115,6 +115,16 @@ records the provisioned area in `paths.provision_state` and **refuses a county
 provision when the DB holds national coverage** (pass `force=true` to
 override). So a stray `--area 03` can't wipe a national dataset.
 
+**Freshness (skip-when-unchanged):** the restored dump is content-hashed and
+the hash is stored in `paths.provision_state`. Re-provisioning the *same* area
+downloads + hashes, and when the hash is unchanged it **skips the restore +
+upserts + matview refresh** (Oslo: ~5 s vs ~20 s; the saving is far larger at
+national scale where restore is the bulk of the cost). `--force` bypasses the
+skip. Set `TILESERVER_PROVISION_REFRESH_SECS=<interval>` (≥60) for a boot-time
+scheduler that re-checks the currently-provisioned area on a cadence — cheap
+when Kartverket hasn't republished, a full refresh when it has, no human in
+the loop.
+
 **Low-zoom overviews:** provisioning also rebuilds five `basemap.*_overview`
 materialized views (water, landcover, coastline, transportation, contour) —
 pre-simplified, sub-pixel-dropped copies the basemap render reads at low zoom
