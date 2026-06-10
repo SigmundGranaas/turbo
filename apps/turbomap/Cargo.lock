@@ -3895,6 +3895,7 @@ dependencies = [
  "flate2",
  "log",
  "parking_lot",
+ "reqwest",
  "tempfile",
  "thiserror 1.0.69",
  "turbomap-core",
