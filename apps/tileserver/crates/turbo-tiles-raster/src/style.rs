@@ -134,6 +134,10 @@ impl RasterStyle {
                     continue;
                 }
                 "fill" | "line" | "symbol" => {}
+                // The raster path computes hillshade itself from the DEM and
+                // has no raster sources, so it ignores `hillshade`/`raster`
+                // layers in the shared style rather than rejecting them.
+                "hillshade" | "raster" => continue,
                 other => {
                     return Err(StyleError::Unsupported(id, format!("layer type `{other}`")))
                 }

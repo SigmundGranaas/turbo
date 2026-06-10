@@ -14,6 +14,17 @@
       "minzoom": 4,
       "maxzoom": 16,
       "attribution": "© Kartverket"
+    },
+    "dem": {
+      "type": "raster-dem",
+      "encoding": "mapbox",
+      "tileSize": 256,
+      "tiles": [
+        "{BASE_URL}/v1/dem/rgb/{z}/{x}/{y}.png"
+      ],
+      "minzoom": 0,
+      "maxzoom": 13,
+      "attribution": "© Kartverket"
     }
   },
   "glyphs": "{BASE_URL}/fonts/{fontstack}/{range}.pbf",
@@ -73,6 +84,19 @@
       "minzoom": 4,
       "paint": {
         "fill-color": "#b9d9f1"
+      }
+    },
+    {
+      "id": "hillshade",
+      "type": "hillshade",
+      "source": "dem",
+      "paint": {
+        "hillshade-exaggeration": 0.45,
+        "hillshade-shadow-color": "#5a4a36",
+        "hillshade-highlight-color": "#fffaf0",
+        "hillshade-accent-color": "#6b5a44",
+        "hillshade-illumination-direction": 315,
+        "hillshade-illumination-anchor": "map"
       }
     },
     {

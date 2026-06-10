@@ -80,6 +80,7 @@ pub async fn render_tile(
     style: &RasterStyle,
     coord: TileCoord,
     size_px: u32,
+    dem: Option<&turbo_tiles_elev::Dem>,
 ) -> Result<Vec<u8>, RasterError> {
     let env = tile_envelope_3857(coord);
     let proj = Proj::new(env, size_px);
@@ -99,6 +100,18 @@ pub async fn render_tile(
     // Labels draw after all geometry; collect while walking layers.
     let mut labels: Vec<(f32, f32, String, f32, Rgba)> = Vec::new();
 
+    // Hillshade is composited over the fills (and paper), under the lines, so
+    // contours/roads/labels stay crisp. Precompute the relief once when a DEM
+    // artifact is loaded; skip entirely otherwise (dev/no-artifact renders
+    // flat, same as before).
+    let hs = crate::hillshade::HillshadeParams::default();
+    let shade = dem.and_then(|d| {
+        let px_m = ((env.2 - env.0) / size_px as f64) as f32;
+        crate::hillshade::sample_grid(d, env, size_px)
+            .map(|grid| crate::hillshade::intensity(&grid, size_px, px_m, &hs))
+    });
+    let mut shade_applied = false;
+
     for layer in &style.layers {
         if coord.z < layer.min_zoom || coord.z > layer.max_zoom {
             continue;
@@ -106,6 +119,14 @@ pub async fn render_tile(
         let Some(def) = cfg.layer.iter().find(|l| l.name == layer.source_layer) else {
             continue; // style ahead of config — tolerated, basemap test guards it
         };
+        // First non-fill layer: composite the relief now, so it tints the
+        // fills below without dulling the lines/labels above.
+        if !shade_applied && !matches!(layer.paint, PaintKind::Fill { .. }) {
+            if let Some(s) = &shade {
+                crate::hillshade::composite(&mut pixmap, s, hs.strength);
+            }
+            shade_applied = true;
+        }
         let rows = fetch_layer(pool, def, fetch_env, simplify_tol_m).await?;
         for (wkb, attrs) in &rows {
             if !layer.filter.matches(attrs) {
@@ -130,6 +151,14 @@ pub async fn render_tile(
                     }
                 }
             }
+        }
+    }
+
+    // Styles with only fill layers (very low zoom) never hit the line branch
+    // above — composite before labels so the relief still shows.
+    if !shade_applied {
+        if let Some(s) = &shade {
+            crate::hillshade::composite(&mut pixmap, s, hs.strength);
         }
     }
 

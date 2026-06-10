@@ -44,6 +44,8 @@ pub async fn tile(
         &state.raster_style,
         coord,
         TILE_PX,
+        // Composite hillshade when the DEM artifact is loaded; flat otherwise.
+        state.dem.as_deref(),
     )
     .await
     .map_err(|e| ApiError::Db(e.to_string()))?;

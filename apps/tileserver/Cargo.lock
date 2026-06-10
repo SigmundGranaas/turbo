@@ -3752,6 +3752,7 @@ dependencies = [
  "tracing",
  "turbo-tiles-core",
  "turbo-tiles-db",
+ "turbo-tiles-elev",
  "turbo-tiles-mvt",
 ]
 

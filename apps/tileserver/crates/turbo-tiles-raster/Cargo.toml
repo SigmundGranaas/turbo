@@ -18,3 +18,4 @@ geozero.workspace = true
 # CPU rasteriser + glyph rendering for the raster fallback tiles.
 tiny-skia = { version = "0.11", features = ["png-format"] }
 ab_glyph = "0.2"
+turbo-tiles-elev.workspace = true
