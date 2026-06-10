@@ -818,9 +818,74 @@ fn solve_grade_limited_path(
                 .collect(),
         });
     };
+    // Snap a refused endpoint CELL to the nearest passable cell. The
+    // upstream endpoint refusal-snap works at point granularity with
+    // legacy layer semantics; the overlay's segment-based ocean veto
+    // can still refuse the 10 m cell containing a legitimate shoreline
+    // trailhead (the cell's synthetic centre edge clips the ocean
+    // polygon). A refused START is fatal without this: every forward
+    // move's chord includes the start cell itself (s = 0), so nothing
+    // expands beyond the 16 heading seeds and the solve dies with
+    // GoalUnreachable (the finnmark-4348287 corpus failure).
+    let snap_cell = |cell: (u32, u32)| -> (u32, u32) {
+        use turbo_tiles_fmm::CellOverlay;
+        if !cost.overlay.refused(cell.0, cell.1) {
+            return cell;
+        }
+        // Deterministic outward ring search; 15 cells ≈ 150 m at the
+        // 10 m grid — matches the spirit of `refusal_snap_m`.
+        for r in 1..=15i32 {
+            let mut best: Option<(u32, u32, i32)> = None;
+            for dj in -r..=r {
+                for di in -r..=r {
+                    if di.abs().max(dj.abs()) != r {
+                        continue;
+                    }
+                    let ni = cell.0 as i32 + di;
+                    let nj = cell.1 as i32 + dj;
+                    if ni < 0 || nj < 0 || ni >= shape2d.nx as i32 || nj >= shape2d.ny as i32 {
+                        continue;
+                    }
+                    if !cost.overlay.refused(ni as u32, nj as u32) {
+                        let d2 = di * di + dj * dj;
+                        if best.map_or(true, |(_, _, bd)| d2 < bd) {
+                            best = Some((ni as u32, nj as u32, d2));
+                        }
+                    }
+                }
+            }
+            if let Some((i, j, _)) = best {
+                return (i, j);
+            }
+        }
+        cell // nothing passable within reach; the solve fails honestly
+    };
+    let start_cell = snap_cell(start_cell);
+    let goal_cell = snap_cell(goal_cell);
+    if std::env::var("FMM_DEBUG").is_ok() {
+        use turbo_tiles_fmm::CellOverlay;
+        eprintln!(
+            "FMM_DEBUG GL: shape {}x{} cell={} start={:?} goal={:?} start_refused={} goal_refused={}",
+            shape2d.nx,
+            shape2d.ny,
+            shape2d.cell_m,
+            start_cell,
+            goal_cell,
+            cost.overlay.refused(start_cell.0, start_cell.1),
+            cost.overlay.refused(goal_cell.0, goal_cell.1),
+        );
+    }
     let t0 = std::time::Instant::now();
     let result = solve_lifted_grade_limited(shape3d, &cost, start_cell, goal_cell, Some(&mut emit));
     let solve_ms = t0.elapsed().as_millis() as u32;
+    if std::env::var("FMM_DEBUG").is_ok() {
+        eprintln!(
+            "FMM_DEBUG GL: cells_accepted={} goal_reached={} refused_labels={:?}",
+            result.cells_accepted,
+            result.goal_state.is_some(),
+            cost.overlay.refused_labels(),
+        );
+    }
 
     let goal_state = result.goal_state.ok_or(FmmAdapterError::GoalUnreachable)?;
     let raw_xy = extract_path_lifted(
