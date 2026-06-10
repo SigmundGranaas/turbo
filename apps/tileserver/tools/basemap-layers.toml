@@ -16,7 +16,9 @@
 # ----- Water (lakes / rivers / sea) ------------------------------
 [[layer]]
 name        = "water"
-table       = "terrain.water_polygon"
+table          = "terrain.water_polygon"
+overview_table = "basemap.water_overview"
+overview_max_zoom = 9
 kind        = "polygon"
 min_zoom    = 4
 simplify    = true
@@ -33,7 +35,9 @@ simplify    = true
 # ----- Landcover (forest / wetland / open) -----------------------
 [[layer]]
 name        = "landcover"
-table       = "terrain.landcover_patch"
+table          = "terrain.landcover_patch"
+overview_table = "basemap.landcover_overview"
+overview_max_zoom = 9
 kind        = "polygon"
 min_zoom    = 7
 simplify    = true
@@ -51,7 +55,9 @@ attrs       = [{ name = "building_type" }]
 # Drawn over the sea fill (water kind='sea') as the crisp coast edge.
 [[layer]]
 name        = "coastline"
-table       = "terrain.coastline"
+table          = "terrain.coastline"
+overview_table = "basemap.coastline_overview"
+overview_max_zoom = 9
 kind        = "line"
 min_zoom    = 4
 simplify    = true
@@ -59,7 +65,9 @@ simplify    = true
 # ----- Contour lines (20 m equidistance, index every 100 m) ------
 [[layer]]
 name        = "contour"
-table       = "terrain.contour"
+table          = "terrain.contour"
+overview_table = "basemap.contour_overview"
+overview_max_zoom = 12
 kind        = "line"
 min_zoom    = 11
 simplify    = true
@@ -74,7 +82,9 @@ attrs       = [
 # (sti / vei / traktorvei / skogsvei / sykkelvei / skiloype).
 [[layer]]
 name        = "transportation"
-table       = "paths.edge"
+table          = "paths.edge"
+overview_table = "basemap.transportation_overview"
+overview_max_zoom = 11
 kind        = "line"
 min_zoom    = 9
 simplify    = true

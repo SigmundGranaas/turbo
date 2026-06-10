@@ -56,6 +56,9 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
     step!("stedsnavn", n50::upsert_stedsnavn(pool));
     step!("vegnett", n50::upsert_vegnett(pool));
 
+    // 4. Rebuild the low-zoom overview matviews from the fresh base tables.
+    refresh_overviews(pool).await?;
+
     // Record what we just provisioned so the next run can guard against a
     // shrinking replacement.
     record_provision(pool, &area.0, total).await?;
@@ -64,6 +67,33 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
     Ok(JobOutcome {
         rows_in: total,
         rows_upserted: total,
+    })
+}
+
+/// The basemap low-zoom overview matviews, kept in lockstep with
+/// `migrations/20260603000006_basemap_overviews.sql` (and the
+/// `overview_table` entries in `tools/basemap-layers.toml`).
+const OVERVIEW_VIEWS: &[&str] = &[
+    "basemap.water_overview",
+    "basemap.landcover_overview",
+    "basemap.coastline_overview",
+    "basemap.transportation_overview",
+    "basemap.contour_overview",
+];
+
+/// Rebuild every basemap overview matview from its base table. Cheap relative
+/// to a full provision; run at the end of provisioning and exposed as the
+/// `refresh-basemap-overviews` job for ad-hoc refreshes.
+pub async fn refresh_overviews(pool: &DbPool) -> Result<JobOutcome, JobError> {
+    for v in OVERVIEW_VIEWS {
+        tracing::info!(view = v, "refresh: basemap overview matview");
+        sqlx::query(&format!("REFRESH MATERIALIZED VIEW {v}"))
+            .execute(pool)
+            .await?;
+    }
+    Ok(JobOutcome {
+        rows_in: OVERVIEW_VIEWS.len() as i64,
+        rows_upserted: OVERVIEW_VIEWS.len() as i64,
     })
 }
 

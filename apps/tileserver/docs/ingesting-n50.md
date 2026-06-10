@@ -109,6 +109,20 @@ proxies), so it works in every environment `curl` does.
 
 > Egress: `*.geonorge.no` must be on the environment's outbound allowlist.
 
+**Coverage guard:** because every upsert is `DELETE … WHERE source='n50'` +
+INSERT, provisioning a *county* replaces whatever was there. `provision-n50`
+records the provisioned area in `paths.provision_state` and **refuses a county
+provision when the DB holds national coverage** (pass `force=true` to
+override). So a stray `--area 03` can't wipe a national dataset.
+
+**Low-zoom overviews:** provisioning also rebuilds five `basemap.*_overview`
+materialized views (water, landcover, coastline, transportation, contour) —
+pre-simplified, sub-pixel-dropped copies the basemap render reads at low zoom
+(`overview_max_zoom` in `basemap-layers.toml`) instead of scanning the full
+base tables. On the Oslo sample the overviews carry 60–93% fewer features and
+~82% fewer vertices; the win grows with national data. Refresh them ad-hoc
+with `tileserver ingest --job refresh-basemap-overviews`.
+
 The manual `--file` path below still works for air-gapped imports or one-offs,
 but is no longer the happy path.
 

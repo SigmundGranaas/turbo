@@ -76,6 +76,27 @@ pub struct BasemapLayer {
     /// Apply zoom-scaled `ST_SimplifyPreserveTopology` + sub-pixel area drop.
     #[serde(default)]
     pub simplify: bool,
+    /// Pre-generalised materialized view (schema-qualified) used instead of
+    /// `table` at low zoom. It already exposes this layer's attrs and bakes
+    /// in its filters, so the render skips simplify + filter when reading it.
+    #[serde(default)]
+    pub overview_table: Option<String>,
+    /// Read `overview_table` when `z <= overview_max_zoom`. Ignored without
+    /// `overview_table`.
+    #[serde(default)]
+    pub overview_max_zoom: Option<u8>,
+}
+
+impl BasemapLayer {
+    /// The source table + whether the render must still simplify/filter,
+    /// given the tile zoom. At low zoom this is the pre-generalised overview
+    /// matview (no further work); otherwise the base table.
+    fn source_at(&self, z: u8) -> (&str, bool, Option<&str>) {
+        match (&self.overview_table, self.overview_max_zoom) {
+            (Some(ov), Some(max)) if z <= max => (ov.as_str(), false, None),
+            _ => (self.table.as_str(), self.simplify, self.filter.as_deref()),
+        }
+    }
 }
 
 fn default_geom() -> String {
@@ -136,9 +157,12 @@ pub async fn render_basemap_tile(
     for (i, layer) in active.iter().enumerate() {
         let cte = format!("l{i}");
         let geom = &layer.geom_column;
+        // Pick the base table or the pre-generalised low-zoom overview.
+        let (table, simplify, filter) = layer.source_at(coord.z);
 
         // Optionally simplify in metric space before projecting to 3857.
-        let src_geom = if layer.simplify && layer.kind != GeomKind::Point {
+        // The overview matview is already simplified, so `simplify` is false.
+        let src_geom = if simplify && layer.kind != GeomKind::Point {
             format!("ST_SimplifyPreserveTopology(g.{geom}, {simplify_tol_m})")
         } else {
             format!("g.{geom}")
@@ -160,11 +184,13 @@ pub async fn render_basemap_tile(
         };
 
         // WHERE: bbox hit + optional filter + sub-pixel drop for polygons.
+        // Overview matviews bake in the filter + area drop, so both are gated
+        // on the live source path (filter is None / simplify is false there).
         let mut wheres = vec![format!("g.{geom} && (SELECT env25833 FROM bounds)")];
-        if let Some(f) = &layer.filter {
+        if let Some(f) = filter {
             wheres.push(format!("({f})"));
         }
-        if layer.simplify && layer.kind == GeomKind::Polygon {
+        if simplify && layer.kind == GeomKind::Polygon {
             wheres.push(format!("ST_Area(g.{geom}) > {min_area_m2}"));
         }
         let where_clause = wheres.join(" AND ");
@@ -178,7 +204,6 @@ pub async fn render_basemap_tile(
                  WHERE {where_clause}\n  \
                ) t WHERE t.geom IS NOT NULL\n)",
             name = layer.name,
-            table = layer.table,
         ));
         concat_terms.push(format!("COALESCE((SELECT mvt FROM {cte}), ''::bytea)"));
     }
@@ -204,6 +229,58 @@ pub async fn render_basemap_tile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overview_routing_picks_matview_at_low_zoom_only() {
+        let layer = BasemapLayer {
+            name: "water".into(),
+            table: "terrain.water_polygon".into(),
+            geom_column: "geom".into(),
+            kind: GeomKind::Polygon,
+            min_zoom: 4,
+            max_zoom: 22,
+            attrs: vec![],
+            filter: Some("g.x".into()),
+            simplify: true,
+            overview_table: Some("basemap.water_overview".into()),
+            overview_max_zoom: Some(9),
+        };
+        // In the overview band: matview, no simplify, no filter (baked in).
+        assert_eq!(
+            layer.source_at(6),
+            ("basemap.water_overview", false, None)
+        );
+        assert_eq!(layer.source_at(9), ("basemap.water_overview", false, None));
+        // Above the band: base table, simplify on, filter applied.
+        let (t, s, f) = layer.source_at(10);
+        assert_eq!(t, "terrain.water_polygon");
+        assert!(s);
+        assert_eq!(f, Some("g.x"));
+    }
+
+    #[test]
+    fn layer_without_overview_always_uses_base_table() {
+        let cfg = BasemapConfig::load_or_default();
+        let glacier = cfg.layer.iter().find(|l| l.name == "glacier").unwrap();
+        assert!(glacier.overview_table.is_none());
+        assert_eq!(glacier.source_at(4).0, "terrain.glacier_polygon");
+    }
+
+    #[test]
+    fn house_config_overviews_are_wired() {
+        let cfg = BasemapConfig::load_or_default();
+        for (name, ov) in [
+            ("water", "basemap.water_overview"),
+            ("landcover", "basemap.landcover_overview"),
+            ("coastline", "basemap.coastline_overview"),
+            ("transportation", "basemap.transportation_overview"),
+            ("contour", "basemap.contour_overview"),
+        ] {
+            let l = cfg.layer.iter().find(|l| l.name == name).unwrap();
+            assert_eq!(l.overview_table.as_deref(), Some(ov), "{name} overview");
+            assert!(l.overview_max_zoom.is_some(), "{name} overview_max_zoom");
+        }
+    }
 
     #[test]
     fn embedded_config_parses_and_has_layers() {

@@ -53,6 +53,8 @@ pub enum JobName {
     /// Full hands-off N50 provisioning: download → restore → all upserts.
     /// Needs `--area`.
     ProvisionN50,
+    /// Rebuild the basemap low-zoom overview materialized views.
+    RefreshBasemapOverviews,
 }
 
 impl FromStr for JobName {
@@ -83,6 +85,7 @@ impl FromStr for JobName {
             "dnt-cabins-load" => Ok(JobName::DntCabinsLoad),
             "geonorge-fetch" => Ok(JobName::GeonorgeFetch),
             "provision-n50" => Ok(JobName::ProvisionN50),
+            "refresh-basemap-overviews" => Ok(JobName::RefreshBasemapOverviews),
             other => Err(format!("unknown job `{other}`")),
         }
     }
@@ -115,6 +118,7 @@ impl JobName {
             JobName::DntCabinsLoad => "dnt-cabins-load",
             JobName::GeonorgeFetch => "geonorge-fetch",
             JobName::ProvisionN50 => "provision-n50",
+            JobName::RefreshBasemapOverviews => "refresh-basemap-overviews",
         }
     }
 
@@ -157,6 +161,7 @@ impl JobName {
             JobName::DntCabinsLoad,
             JobName::GeonorgeFetch,
             JobName::ProvisionN50,
+            JobName::RefreshBasemapOverviews,
         ]
     }
 }
@@ -362,6 +367,10 @@ async fn run_job_with_options_owned(
                 let area = area.ok_or(JobError::MissingOption("area"))?;
                 crate::provision::provision_n50(&p, &area, force).await
             })
+        }
+        JobName::RefreshBasemapOverviews => {
+            let p = pool.clone();
+            Box::pin(async move { crate::provision::refresh_overviews(&p).await })
         }
         other => Box::pin(async move { Err(JobError::NotImplemented(other.as_str())) }),
     };
