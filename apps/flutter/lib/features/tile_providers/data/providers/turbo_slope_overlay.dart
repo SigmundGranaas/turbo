@@ -33,8 +33,8 @@ class TurboSlopeOverlayConfig extends TileProviderConfig {
   double get minZoom => 8.0;
   @override
   double get maxZoom => 15.0; // DTM10-scale data; overzoom beyond
-  @override
-  double get opacity => 0.8;
+  // No extra opacity: the band alpha is baked into the tile (~40–50%), so
+  // one knob controls the look and the server preview matches the app.
   @override
   Map<String, String>? get headers => {
     'User-Agent': kTurboUserAgent,
