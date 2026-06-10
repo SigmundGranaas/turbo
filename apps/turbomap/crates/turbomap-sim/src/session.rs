@@ -38,6 +38,22 @@ pub const ROAD_MAJOR_SRGB: [u8; 3] = [250, 220, 120];
 pub const LABEL_SRGB: [u8; 3] = [60, 60, 70];
 pub const HALO_SRGB: [u8; 3] = [248, 248, 250];
 
+/// A width-by-road-class paint: `cases` give (kind → px), `default` the
+/// fallback px. Drives the data-driven width hierarchy.
+fn road_width_by_class(cases: &[(&str, f32)], default: f32) -> Paint<f32> {
+    Paint::Match {
+        property: "kind".to_string(),
+        cases: cases
+            .iter()
+            .map(|&(kind, px)| MatchCase {
+                value: FilterValue::String(kind.to_string()),
+                result: px,
+            })
+            .collect(),
+        default: Box::new(default),
+    }
+}
+
 /// A Google-Maps-shaped basemap scene over the synthetic world: land
 /// raster, water fills, cased roads (inner colour data-driven by road
 /// kind), and place labels.
@@ -80,7 +96,7 @@ pub fn basemap_scene() -> Scene {
         source_layer: Some("roads".to_string()),
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(70, 70, 80)),
-        width: Paint::Const(6.5),
+        width: road_width_by_class(&[("major", 12.0), ("minor", 8.0), ("local", 5.5)], 4.0),
     });
     scene.layers.push(Layer::Line {
         id: "roads".to_string(),
@@ -99,7 +115,9 @@ pub fn basemap_scene() -> Scene {
                 ROAD_INNER_SRGB[2],
             )),
         },
-        width: Paint::Const(4.0),
+        // Inner fill, narrower than the casing — the road hierarchy a real
+        // basemap shows: arterials fat, side streets thin.
+        width: road_width_by_class(&[("major", 8.5), ("minor", 4.5), ("local", 3.0)], 2.0),
     });
     scene.layers.push(Layer::Symbol {
         id: "labels".to_string(),

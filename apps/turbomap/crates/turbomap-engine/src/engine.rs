@@ -696,6 +696,114 @@ fn symbol_style(
 /// Build a core `VectorStyle` from a Scene `Line` layer. Paints are
 /// resolved at the current zoom (data-driven/zoom GPU paint is Phase 3);
 /// line width is converted from pixels to core's extent units.
+/// View a paint as a data-driven `Match`, if it is one.
+fn as_match<T>(paint: &Paint<T>) -> Option<(&str, &[turbomap_scene::MatchCase<T>], &T)> {
+    match paint {
+        Paint::Match {
+            property,
+            cases,
+            default,
+        } => Some((property.as_str(), cases.as_slice(), &**default)),
+        _ => None,
+    }
+}
+
+fn width_to_extent(px: f32) -> f32 {
+    (px * PX_TO_EXTENT).max(1.0)
+}
+
+/// Compile a line layer's colour + width into `(filter, colour, width)`
+/// rules — the road hierarchy. When both colour and width are `Match` on
+/// the *same* feature property (e.g. road `kind`), their cases align into
+/// one rule per class: major roads get their colour *and* their (wider)
+/// width together. A single `Match` drives the cases while the other paint
+/// stays constant; neither `Match` collapses to one rule.
+fn line_rules(
+    layer_filter: &Filter,
+    color: &Paint<Color>,
+    width: &Paint<f32>,
+    zoom: f64,
+) -> Vec<(CoreFilter, CoreColor, f32)> {
+    let cm = as_match(color);
+    let wm = as_match(width);
+    if cm.is_none() && wm.is_none() {
+        return vec![(
+            map_filter(layer_filter),
+            to_core_color(color.at(zoom)),
+            width_to_extent(width.at(zoom)),
+        )];
+    }
+
+    // The property whose cases drive the rules (colour's if both exist).
+    let driving = cm.map(|(p, ..)| p).or(wm.map(|(p, ..)| p)).unwrap();
+    if let (Some((cp, ..)), Some((wp, ..))) = (cm, wm) {
+        if cp != wp {
+            log::warn!(
+                "line layer colour ({cp}) and width ({wp}) keyed on different properties; \
+                 width uses its default over colour's cases"
+            );
+        }
+    }
+
+    // Case values from whichever Match paints key on `driving` (colour and
+    // width have different `T`, so collect from each separately).
+    let mut values: Vec<&FilterValue> = Vec::new();
+    if let Some((p, cases, _)) = cm {
+        if p == driving {
+            for case in cases {
+                if !values.iter().any(|v| **v == case.value) {
+                    values.push(&case.value);
+                }
+            }
+        }
+    }
+    if let Some((p, cases, _)) = wm {
+        if p == driving {
+            for case in cases {
+                if !values.iter().any(|v| **v == case.value) {
+                    values.push(&case.value);
+                }
+            }
+        }
+    }
+
+    let resolve_color = |value: Option<&FilterValue>| -> CoreColor {
+        match cm {
+            Some((p, cases, default)) if p == driving => to_core_color(
+                value
+                    .and_then(|v| cases.iter().find(|c| &c.value == v))
+                    .map(|c| c.result)
+                    .unwrap_or(*default),
+            ),
+            _ => to_core_color(color.at(zoom)),
+        }
+    };
+    let resolve_width = |value: Option<&FilterValue>| -> f32 {
+        match wm {
+            Some((p, cases, default)) if p == driving => width_to_extent(
+                value
+                    .and_then(|v| cases.iter().find(|c| &c.value == v))
+                    .map(|c| c.result)
+                    .unwrap_or(*default),
+            ),
+            _ => width_to_extent(width.at(zoom)),
+        }
+    };
+
+    let mut rules: Vec<(CoreFilter, CoreColor, f32)> = values
+        .iter()
+        .map(|v| {
+            (
+                CoreFilter::Eq(driving.to_string(), filter_value_to_string(v)),
+                resolve_color(Some(v)),
+                resolve_width(Some(v)),
+            )
+        })
+        .collect();
+    rules.push((map_filter(layer_filter), resolve_color(None), resolve_width(None)));
+    rules
+}
+
 fn line_style(
     layer_name: String,
     filter: &Filter,
@@ -703,10 +811,9 @@ fn line_style(
     width: &Paint<f32>,
     zoom: f64,
 ) -> VectorStyle {
-    let w = (width.at(zoom) * PX_TO_EXTENT).max(1.0);
-    let rules = color_rules(filter, color, zoom)
+    let rules = line_rules(filter, color, width, zoom)
         .into_iter()
-        .map(|(f, c)| CoreRule {
+        .map(|(f, c, w)| CoreRule {
             source_layer: layer_name.clone(),
             filter: f,
             paint: CorePaint::Line { color: c, width: w },

@@ -122,6 +122,122 @@ fn full_overlay_set_renders() {
 }
 
 #[test]
+fn data_driven_match_width_builds_road_hierarchy() {
+    // Three parallel lines tagged major/minor/local. A single layer with
+    // Match colour AND Match width on `kind` must render them in three
+    // colours AND three widths — the road hierarchy.
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "roads".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"kind":"major"},"geometry":{"type":"LineString","coordinates":[[5.10,60.45],[5.55,60.45]]}},
+                {"type":"Feature","properties":{"kind":"minor"},"geometry":{"type":"LineString","coordinates":[[5.10,60.39],[5.55,60.39]]}},
+                {"type":"Feature","properties":{"kind":"local"},"geometry":{"type":"LineString","coordinates":[[5.10,60.33],[5.55,60.33]]}}
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    let by_kind_color = Paint::Match {
+        property: "kind".to_string(),
+        cases: vec![
+            MatchCase { value: FilterValue::String("major".into()), result: Color::rgb(230, 150, 30) },
+            MatchCase { value: FilterValue::String("minor".into()), result: Color::rgb(90, 90, 110) },
+        ],
+        default: Box::new(Color::rgb(150, 150, 160)),
+    };
+    let by_kind_width = Paint::Match {
+        property: "kind".to_string(),
+        cases: vec![
+            MatchCase { value: FilterValue::String("major".into()), result: 11.0f32 },
+            MatchCase { value: FilterValue::String("minor".into()), result: 6.0f32 },
+        ],
+        default: Box::new(3.0f32),
+    };
+    scene.layers.push(Layer::Line {
+        id: "roads".to_string(),
+        source: "roads".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: by_kind_color,
+        width: by_kind_width,
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    // Scan the centre column top-to-bottom; the three horizontal lines are
+    // three runs of road pixels. Their vertical thickness is the rendered
+    // width, so top→bottom (major/minor/local) must be strictly decreasing.
+    let cx = (width / 2) as u32;
+    let mut runs: Vec<u32> = Vec::new();
+    let mut run = 0u32;
+    for y in 0..height {
+        let p = image.get_pixel(cx, y);
+        let is_bg = (0..3).all(|i| p.0[i].abs_diff([226, 218, 198][i]) <= 30);
+        if is_bg {
+            if run > 0 {
+                runs.push(run);
+                run = 0;
+            }
+        } else {
+            run += 1;
+        }
+    }
+    if run > 0 {
+        runs.push(run);
+    }
+    assert_eq!(runs.len(), 3, "expected 3 road lines in the centre column, got {runs:?}");
+    assert!(
+        runs[0] > runs[1] && runs[1] > runs[2],
+        "width hierarchy must decrease major>minor>local top-to-bottom, got {runs:?}"
+    );
+
+    assert_golden(
+        "datadriven-width-hierarchy",
+        &image,
+        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+    );
+}
+
+#[test]
 fn symbol_halo_keeps_labels_readable_over_busy_lines() {
     // The readability test: dark labels with a white halo, sitting on top
     // of thick dark-blue lines. Without the halo the ink would blend into
