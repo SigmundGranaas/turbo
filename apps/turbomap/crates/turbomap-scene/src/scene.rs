@@ -111,6 +111,11 @@ pub enum Layer {
         filter: Filter,
         color: Paint<Color>,
         width: Paint<f32>,
+        /// Dash pattern in screen pixels as `[dash, gap]` (further entries
+        /// are reserved). `None`/empty ⇒ a solid line. Like MapLibre's
+        /// `line-dasharray`, but in pixels rather than line-width units.
+        #[serde(default)]
+        dash_array: Option<Vec<f32>>,
     },
     Circle {
         id: String,

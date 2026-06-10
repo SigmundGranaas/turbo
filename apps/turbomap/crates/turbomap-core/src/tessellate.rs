@@ -39,6 +39,10 @@ pub struct VectorVertex {
     /// single-byte format). Only the first byte is meaningful: 0 at one
     /// stroke edge, 255 at the other, 128 for fills (no AA fringe).
     pub edge_pos: [u8; 4],
+    /// Distance along the path in world units (lyon's `advancement`), 0 for
+    /// fills. The shader scales it to screen pixels for pixel-constant dash
+    /// patterns; ignored when the layer isn't dashed.
+    pub dist: f32,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -159,6 +163,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 width_px: 0.0,
                                 color: packed,
                                 edge_pos: [128, 0, 0, 0], // centre — no AA for fills
+                                dist: 0.0,
                             });
                         let _ = fill_tess.tessellate_path(
                             &path,
@@ -191,6 +196,8 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 width_px,
                                 color: packed,
                                 edge_pos: [edge_pos, 0, 0, 0],
+                                // World-space arc length for dash patterns.
+                                dist: v.advancement(),
                             }
                         });
                         let _ = stroke_tess.tessellate_path(

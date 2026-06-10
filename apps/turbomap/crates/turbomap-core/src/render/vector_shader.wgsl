@@ -14,8 +14,10 @@ struct TileUniform {
     // writes the result here. Vertex colour stays the fallback so the
     // baked multi-rule path is unchanged when no override is set.
     use_paint_color: f32,
-    // Padding to align the following vec4 to 16 bytes.
-    _pad: vec2<f32>,
+    // Dash pattern in screen pixels: dash length then gap length. Both 0 ⇒
+    // solid (no dashing). Occupies the 8..16 padding slot before paint_color.
+    dash_len: f32,
+    gap_len: f32,
     paint_color: vec4<f32>,
 };
 
@@ -30,12 +32,16 @@ struct VertexInput {
     // Cross-line position used for AA. .x: 0.0 at one stroke edge, 1.0 at
     // the other, ~0.5 for fills (no AA). Other components unused.
     @location(4) edge_pos: vec4<f32>,
+    @location(5) dist: f32,          // world-space arc length along the path
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) edge_pos: f32,
+    // Arc length in *screen pixels* (world dist × pixels-per-world), so the
+    // dash pattern stays a constant pixel size at every zoom.
+    @location(2) dist_px: f32,
 };
 
 @vertex
@@ -49,6 +55,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.clip_position = camera.view_proj * vec4<f32>(world, 0.0, 1.0);
     out.color = in.color;
     out.edge_pos = in.edge_pos.x;
+    out.dist_px = in.dist * camera.params.x;
     return out;
 }
 
@@ -65,5 +72,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (tile.use_paint_color > 0.5) {
         base = tile.paint_color;
     }
-    return vec4<f32>(base.rgb, base.a * edge_alpha * tile.tile_alpha);
+
+    // Dashing: drop fragments that fall in the gap of the dash period. The
+    // period is `dash_len + gap_len` screen px; phase within it past
+    // `dash_len` is a gap. An anti-aliased edge over one pixel keeps the
+    // dash ends from shimmering. `dash_len <= 0` ⇒ solid.
+    var dash_alpha = 1.0;
+    let period = tile.dash_len + tile.gap_len;
+    if (tile.dash_len > 0.0 && period > 0.0) {
+        let phase = in.dist_px - floor(in.dist_px / period) * period;
+        let aa = fwidth(in.dist_px);
+        // 1 inside the dash, 0 in the gap, smooth over one pixel at each end.
+        dash_alpha = smoothstep(-aa, aa, phase)
+            * (1.0 - smoothstep(tile.dash_len - aa, tile.dash_len + aa, phase));
+    }
+
+    return vec4<f32>(base.rgb, base.a * edge_alpha * dash_alpha * tile.tile_alpha);
 }

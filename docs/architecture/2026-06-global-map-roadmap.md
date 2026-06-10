@@ -157,5 +157,13 @@ validation.
   same-name repeat distance (`LINE_LABEL_REPEAT_PX` = 250px), collapsing a
   road clipped across tiles to one along-line label (fixes the doubled
   "RINGVEGEN"); `road-name-along-line` golden regenerated to the single label.
-- _Next_: Workstream B (real data + tile-stack hardening), or C1 (SDF
-  sprites) / C3 (line dashes).
+- _2026-06-10_: **C3 (dashes)** — `Layer::Line.dash_array` (`[dash, gap]` px).
+  `VectorVertex` carries world arc length (lyon `advancement`); the shader
+  scales it by pixels-per-world and drops gap fragments, so dashes are
+  pixel-constant across zoom. `dashed-line` golden (10 dashes); all solid-line
+  goldens byte-identical (dist unused when not dashed). Gradients + pattern
+  fills remain in C3.
+- _Recovery note_: a container reset rewound the local clone to an old commit
+  mid-session; all work was safe on origin and restored by fast-forward — the
+  commit-and-push-each-increment discipline held.
+- _Next_: Workstream B (real data + tile-stack hardening), or C1 (SDF sprites).

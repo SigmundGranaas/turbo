@@ -121,6 +121,7 @@ pub fn basemap_scene() -> Scene {
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(ROAD_CASING_SRGB[0], ROAD_CASING_SRGB[1], ROAD_CASING_SRGB[2])),
         width: road_width_by_class(&[("major", 12.0), ("minor", 8.0), ("local", 5.5)], 4.0),
+        dash_array: None,
     });
     scene.layers.push(Layer::Line {
         id: "roads".to_string(),
@@ -142,6 +143,7 @@ pub fn basemap_scene() -> Scene {
         // Inner fill, narrower than the casing — the road hierarchy a real
         // basemap shows: arterials fat, side streets thin.
         width: road_width_by_class(&[("major", 8.5), ("minor", 4.5), ("local", 3.0)], 2.0),
+        dash_array: None,
     });
     scene.layers.push(Layer::Symbol {
         id: "labels".to_string(),

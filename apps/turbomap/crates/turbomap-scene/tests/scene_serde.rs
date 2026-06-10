@@ -33,6 +33,7 @@ fn sample_scene() -> Scene {
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(4, 132, 255)),
         width: Paint::Const(5.0),
+        dash_array: None,
     });
     scene
 }

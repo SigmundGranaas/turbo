@@ -55,6 +55,7 @@ fn line_scene(color: Color) -> Scene {
         filter: Filter::Always,
         color: Paint::Const(color),
         width: Paint::Const(2.0),
+        dash_array: None,
     });
     scene
 }
@@ -74,6 +75,7 @@ fn geojson_scene(data: &str) -> Scene {
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(0, 0, 0)),
         width: Paint::Const(2.0),
+        dash_array: None,
     });
     scene
 }

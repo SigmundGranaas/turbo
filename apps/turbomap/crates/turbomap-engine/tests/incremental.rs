@@ -40,6 +40,7 @@ fn line_layer(color: Color) -> Layer {
         filter: Filter::Always,
         color: Paint::Const(color),
         width: Paint::Const(5.0),
+        dash_array: None,
     }
 }
 

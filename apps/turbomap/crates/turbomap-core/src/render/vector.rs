@@ -149,6 +149,12 @@ impl VectorPipeline {
                     offset: 24,
                     shader_location: 4,
                 },
+                // dist: f32 @ 28 — world arc length for dash patterns.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 28,
+                    shader_location: 5,
+                },
             ],
         };
 
@@ -236,6 +242,8 @@ impl VectorPipeline {
         // When set, the shader uses this colour for every fragment instead
         // of the baked vertex colour — the zoom/data-driven paint path.
         paint_override: Option<[f32; 4]>,
+        // `(dash_len_px, gap_len_px)` for a dashed line layer; `None` = solid.
+        dash: Option<(f32, f32)>,
     ) -> PreparedVector {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
@@ -292,11 +300,15 @@ impl VectorPipeline {
                 Some(c) => (1.0f32, c),
                 None => (0.0f32, [0.0; 4]),
             };
+            let (dash_len, gap_len) = dash.unwrap_or((0.0, 0.0));
             let mut bytes = vec![0u8; draw_count * TILE_UNIFORM_STRIDE as usize];
             for (i, (_, alpha)) in to_draw.iter().take(draw_count).enumerate() {
                 let off = i * TILE_UNIFORM_STRIDE as usize;
                 bytes[off..off + 4].copy_from_slice(&alpha.to_le_bytes());
                 bytes[off + 4..off + 8].copy_from_slice(&use_paint.to_le_bytes());
+                // dash_len / gap_len fill the 8..16 slot before paint_color.
+                bytes[off + 8..off + 12].copy_from_slice(&dash_len.to_le_bytes());
+                bytes[off + 12..off + 16].copy_from_slice(&gap_len.to_le_bytes());
                 // paint_color vec4 at the 16-byte-aligned slot.
                 for (k, comp) in paint.iter().enumerate() {
                     let c = off + 16 + k * 4;

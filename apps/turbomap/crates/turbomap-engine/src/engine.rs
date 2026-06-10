@@ -175,12 +175,17 @@ impl TurbomapEngine {
                 filter,
                 color,
                 width,
+                dash_array,
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
                     let style = line_style(name, filter, color, width, zoom);
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
+                    // A `[dash, gap]` array makes the layer dashed (pixels).
+                    if let Some(dash) = dash_to_pair(dash_array) {
+                        self.map.set_vector_layer_dash(id, Some(dash));
+                    }
                     self.vector_sources.insert(id.clone(), vsrc);
                     // Single-colour layers get a per-frame GPU override
                     // (zoom curves animate); data-driven Match colours are
@@ -740,6 +745,19 @@ fn as_match<T>(paint: &Paint<T>) -> Option<(&str, &[turbomap_scene::MatchCase<T>
 /// this just clamps to a sane minimum.
 fn line_width_px(px: f32) -> f32 {
     px.max(0.5)
+}
+
+/// Reduce a scene `dash_array` to the `(dash, gap)` pixel pair the renderer
+/// consumes. A single positive value means equal dash/gap; an empty or
+/// all-zero array (or `None`) means solid (`None`).
+fn dash_to_pair(dash_array: &Option<Vec<f32>>) -> Option<(f32, f32)> {
+    let a = dash_array.as_ref()?;
+    let dash = *a.first()?;
+    if dash <= 0.0 {
+        return None;
+    }
+    let gap = a.get(1).copied().unwrap_or(dash).max(0.0);
+    Some((dash, gap))
 }
 
 /// Compile a line layer's colour + width into `(filter, colour, width)`

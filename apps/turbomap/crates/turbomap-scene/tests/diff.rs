@@ -30,6 +30,7 @@ fn line(id: &str, color: Color) -> Layer {
         filter: Filter::Always,
         color: Paint::Const(color),
         width: Paint::Const(2.0),
+        dash_array: None,
     }
 }
 

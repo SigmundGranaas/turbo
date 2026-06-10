@@ -201,6 +201,8 @@ struct VectorLayer {
     /// zoom-interpolated / data-driven paint takes. `None` keeps the baked
     /// colour.
     paint_override: Option<[f32; 4]>,
+    /// `(dash_len_px, gap_len_px)` for a dashed line layer; `None` = solid.
+    dash: Option<(f32, f32)>,
 }
 
 struct HillshadeLayer {
@@ -463,7 +465,22 @@ impl Map {
             fade_in_secs: self.options.fade_in_secs,
             visible: true,
             paint_override: None,
+            dash: None,
         })));
+    }
+
+    /// Set (or clear) a vector layer's dash pattern, in screen pixels
+    /// `(dash_len, gap_len)`. Returns `false` if no vector layer matches.
+    pub fn set_vector_layer_dash(&mut self, id: &str, dash: Option<(f32, f32)>) -> bool {
+        for layer in &mut self.layers {
+            if let LayerEntry::Vector(v) = layer {
+                if v.id == id {
+                    v.dash = dash;
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Set (or clear) a vector layer's per-frame paint colour override.
@@ -1034,6 +1051,7 @@ impl Map {
                         &mut v.cache,
                         v.fade_in_secs,
                         v.paint_override,
+                        v.dash,
                     );
                     prepared_layers.push((i, PreparedLayer::Vector(p)));
                     // Labels come from visible vector layers only —

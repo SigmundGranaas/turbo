@@ -47,6 +47,7 @@ fn route_scene() -> Scene {
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(220, 30, 60)),
         width: Paint::Const(5.0),
+        dash_array: None,
     });
     scene
 }
@@ -166,6 +167,7 @@ fn line_width_is_pixel_constant_across_zoom() {
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(200, 40, 60)),
         width: Paint::Const(8.0),
+        dash_array: None,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -215,6 +217,106 @@ fn line_width_is_pixel_constant_across_zoom() {
     assert!(
         t0.abs_diff(t1) <= 2,
         "width must stay pixel-constant across zoom: {t0}px at z9.0 vs {t1}px at z9.6"
+    );
+}
+
+#[test]
+fn dashed_line_renders_with_gaps() {
+    // A dashed line layer must paint repeated dash/gap segments, not a solid
+    // stroke. Draw a horizontal line with dash_array [14, 10] px and scan
+    // its row: a solid line is one red run, a dashed line is many.
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (w, h) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "line".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"LineString","coordinates":[[5.0,60.39],[5.64,60.39]]}"#.to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Line {
+        id: "trail".to_string(),
+        source: "line".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(200, 40, 60)),
+        width: Paint::Const(6.0),
+        dash_array: Some(vec![14.0, 10.0]),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (w, h),
+        CameraState::new(LatLng::new(60.39, 5.32), 9.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("engine");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    let image = render_to_image(&gpu, w, h, |e, v| engine.render(e, v));
+    engine.after_submit();
+
+    // Find the line's row (most red pixels), then count red runs along it.
+    let is_red = |p: &image::Rgba<u8>| p.0[0] > 150 && p.0[1] < 100 && p.0[2] < 110;
+    let mut best_row = 0u32;
+    let mut best_red = 0u32;
+    for y in 0..h {
+        let red: u32 = (0..w).filter(|&x| is_red(image.get_pixel(x, y))).count() as u32;
+        if red > best_red {
+            best_red = red;
+            best_row = y;
+        }
+    }
+    let mut runs = 0u32;
+    let mut prev = false;
+    let mut red_px = 0u32;
+    for x in 0..w {
+        let r = is_red(image.get_pixel(x, best_row));
+        if r {
+            red_px += 1;
+        }
+        if r && !prev {
+            runs += 1;
+        }
+        prev = r;
+    }
+    eprintln!("dashed line: row={best_row} red_px={red_px} runs={runs}");
+    assert!(red_px > 40, "dashes should paint red ink, got {red_px}");
+    assert!(
+        runs >= 6,
+        "a dashed line should be many separate dashes, got {runs} runs"
+    );
+
+    assert_golden(
+        "dashed-line",
+        &image,
+        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
     );
 }
 
@@ -380,6 +482,7 @@ fn data_driven_match_width_builds_road_hierarchy() {
         filter: Filter::Always,
         color: by_kind_color,
         width: by_kind_width,
+        dash_array: None,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -492,6 +595,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(30, 40, 90)),
         width: Paint::Const(10.0),
+        dash_array: None,
     });
     scene.layers.push(Layer::Symbol {
         id: "labels".to_string(),
@@ -793,6 +897,7 @@ fn road_name_follows_the_centerline() {
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(250, 220, 150)),
         width: Paint::Const(11.0),
+        dash_array: None,
     });
     // The road name, placed along the centerline with a readable halo.
     scene.layers.push(Layer::Symbol {
@@ -1137,6 +1242,7 @@ fn data_driven_match_colour_styles_lines_by_property() {
             default: Box::new(Color::rgb(110, 110, 110)),
         },
         width: Paint::Const(5.0),
+        dash_array: None,
     });
 
     let mut engine = TurbomapEngine::new(

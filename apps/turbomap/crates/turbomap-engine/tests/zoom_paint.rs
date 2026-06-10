@@ -65,6 +65,7 @@ fn zoom_color_scene() -> Scene {
             ],
         },
         width: Paint::Const(6.0),
+        dash_array: None,
     });
     scene
 }
