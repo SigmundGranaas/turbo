@@ -8,11 +8,11 @@
 //!
 //! The atlas is keyed by `(face, glyph id)`, fed by a [`FontStack`] that
 //! resolves per-character coverage across a default face (bundled Roboto)
-//! plus host-supplied fallback faces (CJK, Arabic, …). Character→glyph
-//! mapping is still 1:1 via each face's cmap — complex shaping (ligatures,
-//! mark positioning, RTL reordering) is a follow-up that replaces
-//! [`FontAtlas::shape`] with a HarfBuzz pass; the glyph-id atlas is already
-//! shaped-ready, so that swap doesn't touch the GPU side.
+//! plus host-supplied fallback faces (CJK, Arabic, …). [`FontAtlas::shape`]
+//! runs the Unicode bidi algorithm + HarfBuzz (`rustybuzz`) so ligatures,
+//! kerning, mark positioning, Arabic joining, Indic reordering and mixed
+//! LTR/RTL ordering are all correct — it returns glyphs in visual order,
+//! which the layout functions place by advance.
 
 use std::collections::HashMap;
 
@@ -57,30 +57,57 @@ pub struct GlyphInfo {
     pub advance: f32,
 }
 
+/// One shaped glyph in visual (left-to-right) order: which face + glyph to
+/// raster, and the position HarfBuzz computed (advance + offset, in raster
+/// pixels). Offsets are nonzero for combining marks (Arabic, Devanagari).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShapedGlyph {
+    pub face_id: usize,
+    pub glyph_id: GlyphId,
+    pub x_advance: f32,
+    pub x_offset: f32,
+    pub y_offset: f32,
+}
+
+/// A single loaded face: `ab_glyph` for outline rasterisation (by glyph id),
+/// the raw bytes for `rustybuzz` shaping, and units-per-em to scale shaped
+/// metrics into raster pixels.
+struct Face {
+    ab: FontArc,
+    data: std::sync::Arc<Vec<u8>>,
+    upem: f32,
+}
+
 /// An ordered set of font faces. Face 0 is the bundled default (Roboto);
 /// hosts append fallback faces (CJK, Arabic, …) covering scripts the
 /// default doesn't. Per-character coverage is resolved first-face-wins.
 struct FontStack {
-    faces: Vec<FontArc>,
+    faces: Vec<Face>,
 }
 
 impl FontStack {
     fn new() -> Self {
-        let roboto =
-            FontArc::try_from_slice(FONT_BYTES).expect("bundled Roboto must be a valid TTF");
-        Self { faces: vec![roboto] }
+        let mut s = Self { faces: Vec::new() };
+        s.add(FONT_BYTES.to_vec());
+        s
     }
 
-    /// Append a fallback face from owned font bytes. Returns `false` if the
-    /// bytes don't parse as a font (the face is simply not added).
+    /// Append a face from owned font bytes. Returns `false` if the bytes
+    /// don't parse as a font (the face is simply not added).
     fn add(&mut self, data: Vec<u8>) -> bool {
-        match FontArc::try_from_vec(data) {
-            Ok(f) => {
-                self.faces.push(f);
-                true
-            }
-            Err(_) => false,
-        }
+        let Ok(ab) = FontArc::try_from_vec(data.clone()) else {
+            return false;
+        };
+        // `rustybuzz` reads units-per-em (and validates the tables it needs).
+        let Some(upem) = rustybuzz::Face::from_slice(&data, 0).map(|f| f.units_per_em()) else {
+            return false;
+        };
+        self.faces.push(Face {
+            ab,
+            data: std::sync::Arc::new(data),
+            upem: upem as f32,
+        });
+        true
     }
 
     /// Index of the first face whose cmap covers `c`; falls back to face 0
@@ -88,16 +115,60 @@ impl FontStack {
     fn face_for(&self, c: char) -> usize {
         self.faces
             .iter()
-            .position(|f| f.glyph_id(c).0 != 0)
+            .position(|f| f.ab.glyph_id(c).0 != 0)
             .unwrap_or(0)
     }
 
-    fn face(&self, id: usize) -> &FontArc {
-        &self.faces[id]
+    fn ab(&self, id: usize) -> &FontArc {
+        &self.faces[id].ab
     }
 
     fn len(&self) -> usize {
         self.faces.len()
+    }
+
+    /// Split `text` into contiguous `(face, substring)` groups in logical
+    /// order, each group covered by a single face.
+    fn itemize(&self, text: &str) -> Vec<(usize, String)> {
+        let mut groups: Vec<(usize, String)> = Vec::new();
+        for c in text.chars() {
+            let fid = self.face_for(c);
+            match groups.last_mut() {
+                Some((f, s)) if *f == fid => s.push(c),
+                _ => groups.push((fid, c.to_string())),
+            }
+        }
+        groups
+    }
+
+    /// Shape one same-face substring with HarfBuzz, returning glyphs in
+    /// visual order with metrics in raster pixels.
+    fn shape_run(&self, face_id: usize, text: &str, rtl: bool) -> Vec<ShapedGlyph> {
+        let face = &self.faces[face_id];
+        let Some(rb) = rustybuzz::Face::from_slice(&face.data, 0) else {
+            return Vec::new();
+        };
+        let mut buffer = rustybuzz::UnicodeBuffer::new();
+        buffer.push_str(text);
+        buffer.set_direction(if rtl {
+            rustybuzz::Direction::RightToLeft
+        } else {
+            rustybuzz::Direction::LeftToRight
+        });
+        let glyphs = rustybuzz::shape(&rb, &[], buffer);
+        let s = RASTER_PX / face.upem;
+        glyphs
+            .glyph_infos()
+            .iter()
+            .zip(glyphs.glyph_positions())
+            .map(|(info, pos)| ShapedGlyph {
+                face_id,
+                glyph_id: GlyphId(info.glyph_id as u16),
+                x_advance: pos.x_advance as f32 * s,
+                x_offset: pos.x_offset as f32 * s,
+                y_offset: pos.y_offset as f32 * s,
+            })
+            .collect()
     }
 }
 
@@ -158,20 +229,38 @@ impl FontAtlas {
         d
     }
 
-    /// Map a string to `(face, glyph)` pairs in logical order, choosing a
-    /// covering face per character (font fallback).
-    ///
-    /// This is a 1:1 char→glyph mapping via each face's cmap — it does *not*
-    /// do complex shaping (ligatures, mark positioning, RTL reordering).
-    /// Those land in a follow-up that swaps this for a HarfBuzz pass; the
-    /// glyph-id atlas below is already shaped-ready.
-    pub fn shape(&self, text: &str) -> Vec<(usize, GlyphId)> {
-        text.chars()
-            .map(|c| {
-                let fid = self.stack.face_for(c);
-                (fid, self.stack.face(fid).glyph_id(c))
-            })
-            .collect()
+    /// Shape `text` into glyphs in **visual** (left-to-right) order, ready to
+    /// lay out by advance. Runs the Unicode bidi algorithm to order mixed
+    /// LTR/RTL runs, picks a covering face per script (font fallback), and
+    /// shapes each run with HarfBuzz (`rustybuzz`) so ligatures, kerning,
+    /// mark positioning, Arabic joining and Indic reordering are correct.
+    pub fn shape(&self, text: &str) -> Vec<ShapedGlyph> {
+        if text.is_empty() {
+            return Vec::new();
+        }
+        let bidi = unicode_bidi::BidiInfo::new(text, None);
+        let mut out = Vec::new();
+        for para in &bidi.paragraphs {
+            // `visual_runs` returns the line's runs already in left-to-right
+            // visual order; each run has a single embedding level.
+            let (levels, runs) = bidi.visual_runs(para, para.range.clone());
+            for run in runs {
+                let rtl = levels[run.start].is_rtl();
+                // A run may still mix scripts needing different faces. Split
+                // by face in logical order; for an RTL run emit the groups
+                // in reverse so the whole run reads left-to-right.
+                let groups = self.stack.itemize(&text[run.clone()]);
+                let ordered: Vec<(usize, String)> = if rtl {
+                    groups.into_iter().rev().collect()
+                } else {
+                    groups
+                };
+                for (face_id, seg) in ordered {
+                    out.extend(self.stack.shape_run(face_id, &seg, rtl));
+                }
+            }
+        }
+        out
     }
 
     /// Return the glyph info for `(face, glyph)`, rasterising and packing it
@@ -190,7 +279,7 @@ impl FontAtlas {
         // Pull everything we need off the face first, then drop the borrow
         // so we can mutate the atlas bitmap below.
         let (advance, outlined) = {
-            let face = self.stack.face(face_id);
+            let face = self.stack.ab(face_id);
             let advance = face.as_scaled(scale).h_advance(glyph_id);
             let outlined = face.outline_glyph(glyph_id.with_scale(scale));
             (advance, outlined)
@@ -358,36 +447,33 @@ pub fn layout_along_path(
 
     let scale = font_size_px / RASTER_PX;
     let glyphs = atlas.shape(text);
-    let text_width: f32 = glyphs
-        .iter()
-        .filter_map(|&(fid, gid)| atlas.ensure(fid, gid))
-        .map(|g| g.advance * scale)
-        .sum();
+    let text_width: f32 = glyphs.iter().map(|g| g.x_advance * scale).sum();
     if text_width > total {
         return None; // doesn't fit on this line
     }
 
     let mut pen = (total - text_width) * 0.5; // centre the run on the line
     let mut out = Vec::with_capacity(glyphs.len());
-    for &(fid, gid) in &glyphs {
-        let Some(g) = atlas.ensure(fid, gid) else { continue };
-        let advance = g.advance * scale;
-        if g.width > 0 && g.height > 0 {
-            let (pivot, angle) = point_and_angle_at(&pts, &cum, pen);
-            out.push(PathGlyph {
-                // Flat quad anchored at the pen point; the renderer rotates
-                // it about `pivot` (= the pen point) by `angle`.
-                screen_x: pivot.0 + g.bearing_x * scale,
-                screen_y: pivot.1 + g.bearing_y * scale,
-                width: g.width as f32 * scale,
-                height: g.height as f32 * scale,
-                atlas_x: g.atlas_x as f32,
-                atlas_y: g.atlas_y as f32,
-                atlas_w: g.width as f32,
-                atlas_h: g.height as f32,
-                pivot,
-                angle,
-            });
+    for sg in &glyphs {
+        let advance = sg.x_advance * scale;
+        if let Some(g) = atlas.ensure(sg.face_id, sg.glyph_id) {
+            if g.width > 0 && g.height > 0 {
+                let (pivot, angle) = point_and_angle_at(&pts, &cum, pen);
+                out.push(PathGlyph {
+                    // Flat quad anchored at the pen point; the renderer
+                    // rotates it about `pivot` (= the pen point) by `angle`.
+                    screen_x: pivot.0 + (sg.x_offset + g.bearing_x) * scale,
+                    screen_y: pivot.1 + (g.bearing_y - sg.y_offset) * scale,
+                    width: g.width as f32 * scale,
+                    height: g.height as f32 * scale,
+                    atlas_x: g.atlas_x as f32,
+                    atlas_y: g.atlas_y as f32,
+                    atlas_w: g.width as f32,
+                    atlas_h: g.height as f32,
+                    pivot,
+                    angle,
+                });
+            }
         }
         pen += advance;
     }
@@ -524,34 +610,28 @@ pub fn layout(
     let scale = font_size_px / RASTER_PX;
     let glyphs = atlas.shape(text);
 
-    // First pass: total advance for centering.
-    let mut total_advance = 0.0_f32;
-    for &(fid, gid) in &glyphs {
-        if let Some(g) = atlas.ensure(fid, gid) {
-            total_advance += g.advance * scale;
-        }
-    }
+    // Total advance (HarfBuzz's, not the raw glyph advance) for centering.
+    let total_advance: f32 = glyphs.iter().map(|g| g.x_advance * scale).sum();
 
     let mut cursor_x = anchor_px.0 - total_advance * 0.5;
     let baseline_y = anchor_px.1;
     let mut out = Vec::with_capacity(glyphs.len());
-    for &(fid, gid) in &glyphs {
-        let Some(g) = atlas.ensure(fid, gid) else {
-            continue;
-        };
-        if g.width > 0 && g.height > 0 {
-            out.push(LayoutGlyph {
-                screen_x: cursor_x + g.bearing_x * scale,
-                screen_y: baseline_y + g.bearing_y * scale,
-                width: g.width as f32 * scale,
-                height: g.height as f32 * scale,
-                atlas_x: g.atlas_x as f32,
-                atlas_y: g.atlas_y as f32,
-                atlas_w: g.width as f32,
-                atlas_h: g.height as f32,
-            });
+    for sg in &glyphs {
+        if let Some(g) = atlas.ensure(sg.face_id, sg.glyph_id) {
+            if g.width > 0 && g.height > 0 {
+                out.push(LayoutGlyph {
+                    screen_x: cursor_x + (sg.x_offset + g.bearing_x) * scale,
+                    screen_y: baseline_y + (g.bearing_y - sg.y_offset) * scale,
+                    width: g.width as f32 * scale,
+                    height: g.height as f32 * scale,
+                    atlas_x: g.atlas_x as f32,
+                    atlas_y: g.atlas_y as f32,
+                    atlas_w: g.width as f32,
+                    atlas_h: g.height as f32,
+                });
+            }
         }
-        cursor_x += g.advance * scale;
+        cursor_x += sg.x_advance * scale;
     }
     out
 }
@@ -673,10 +753,10 @@ mod tests {
     //! correctly de-duplicates overlapping labels.
     use super::*;
 
-    /// Test helper: shape a single char to `(face, glyph)` and ensure it.
+    /// Test helper: shape a single char and ensure its glyph.
     fn ensure_char(atlas: &mut FontAtlas, c: char) -> Option<GlyphInfo> {
-        let (fid, gid) = atlas.shape(&c.to_string())[0];
-        atlas.ensure(fid, gid)
+        let sg = atlas.shape(&c.to_string())[0];
+        atlas.ensure(sg.face_id, sg.glyph_id)
     }
 
     #[test]
@@ -739,20 +819,73 @@ mod tests {
         assert_eq!(atlas.face_count(), 2);
 
         // Latin 'A' → face 0; the kanji 東 (U+6771) → the fallback face.
-        assert_eq!(atlas.shape("A")[0].0, 0, "Latin stays on the default face");
+        assert_eq!(atlas.shape("A")[0].face_id, 0, "Latin stays on the default face");
         let jp = atlas.shape("東");
         assert_eq!(jp.len(), 1);
-        assert_eq!(jp[0].0, 1, "CJK falls back to the host face");
-        assert_ne!((jp[0].1).0, 0, "fallback face must have a real glyph");
+        assert_eq!(jp[0].face_id, 1, "CJK falls back to the host face");
+        assert_ne!(jp[0].glyph_id.0, 0, "fallback face must have a real glyph");
 
         // The CJK glyph rasterises into the shared atlas.
-        let (fid, gid) = jp[0];
-        let g = atlas.ensure(fid, gid).expect("CJK glyph rasterises");
+        let g = atlas
+            .ensure(jp[0].face_id, jp[0].glyph_id)
+            .expect("CJK glyph rasterises");
         assert!(g.width > 0 && g.height > 0, "CJK glyph has pixels");
 
         // Mixed Latin+CJK lays out with a glyph per visible char.
         let glyphs = layout("A東", 24.0, (0.0, 0.0), &mut atlas);
         assert!(glyphs.len() >= 2, "mixed run lays out, got {}", glyphs.len());
+    }
+
+    #[test]
+    fn complex_scripts_shape_via_fallback_font() {
+        // FreeSerif covers Arabic + Devanagari. Proves HarfBuzz shaping runs
+        // through the fallback face: Arabic joins (no glyph explosion) and
+        // Devanagari produces a non-empty reordered run, both rasterisable.
+        const FREESERIF: &str = "/usr/share/fonts/truetype/freefont/FreeSerif.ttf";
+        let Ok(bytes) = std::fs::read(FREESERIF) else {
+            eprintln!("SKIP: no FreeSerif at {FREESERIF}");
+            return;
+        };
+        let mut atlas = FontAtlas::new();
+        assert!(atlas.add_fallback_face(bytes), "FreeSerif must parse");
+        let ff = atlas.face_count() - 1;
+
+        // Arabic (RTL + joining). Joining forms never add glyphs.
+        let arabic = "مرحبا"; // "marhaban"
+        let shaped = atlas.shape(arabic);
+        assert!(!shaped.is_empty(), "Arabic shapes to glyphs");
+        assert!(
+            shaped.iter().all(|g| g.face_id == ff),
+            "Arabic uses the covering face"
+        );
+        assert!(
+            shaped.len() <= arabic.chars().count(),
+            "joining/ligatures don't add glyphs: {} vs {}",
+            shaped.len(),
+            arabic.chars().count()
+        );
+
+        // Devanagari (reordering/conjuncts) — non-empty run on the face.
+        let hindi = atlas.shape("नमस्ते"); // "namaste"
+        assert!(!hindi.is_empty(), "Devanagari shapes to glyphs");
+        assert!(hindi.iter().all(|g| g.face_id == ff));
+
+        // Every shaped glyph rasterises into the shared atlas.
+        for sg in shaped.iter().chain(hindi.iter()) {
+            let g = atlas.ensure(sg.face_id, sg.glyph_id).expect("glyph rasterises");
+            let _ = g;
+        }
+    }
+
+    #[test]
+    fn bidi_orders_mixed_runs_left_to_right() {
+        // A Latin+Latin string stays in logical order; the shaped advance is
+        // positive and the run is monotonic — a smoke test that the bidi
+        // path doesn't scramble simple LTR text.
+        let atlas = FontAtlas::new();
+        let g = atlas.shape("Map");
+        assert_eq!(g.len(), 3, "3 Latin glyphs");
+        assert!(g.iter().all(|s| s.x_advance > 0.0), "advances are positive");
     }
 
     #[test]

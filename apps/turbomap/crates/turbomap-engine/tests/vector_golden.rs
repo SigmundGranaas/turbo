@@ -649,6 +649,100 @@ fn cjk_labels_render_via_fallback_font() {
 }
 
 #[test]
+fn complex_scripts_render_with_shaping_and_bidi() {
+    // Arabic (RTL + joining), Devanagari (reordering), and a mixed
+    // Latin+Arabic label, all shaped by HarfBuzz and bidi-ordered, drawn
+    // through the full engine via a registered FreeSerif face (covers both
+    // scripts). Skips where there's no GPU or no FreeSerif.
+    const FREESERIF: &str = "/usr/share/fonts/truetype/freefont/FreeSerif.ttf";
+    let Ok(font_bytes) = std::fs::read(FREESERIF) else {
+        eprintln!("SKIP: no FreeSerif at {FREESERIF}");
+        return;
+    };
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "places".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"name":"مرحبا"},"geometry":{"type":"Point","coordinates":[5.32,60.44]}},
+                {"type":"Feature","properties":{"name":"नमस्ते"},"geometry":{"type":"Point","coordinates":[5.32,60.39]}},
+                {"type":"Feature","properties":{"name":"Bergen مرحبا"},"geometry":{"type":"Point","coordinates":[5.32,60.34]}}
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Symbol {
+        id: "labels".to_string(),
+        source: "places".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        text_field: "name".to_string(),
+        text_size: Paint::Const(30.0),
+        color: Paint::Const(Color::rgb(25, 25, 35)),
+        halo_color: Paint::Const(Color::rgb(250, 250, 252)),
+        halo_width: Paint::Const(1.6),
+        sort_key: None,
+        placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 11.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    assert!(engine.add_fallback_font(font_bytes), "FreeSerif must parse");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    let dark = image
+        .pixels()
+        .filter(|p| (0..3).all(|i| p.0[i].abs_diff([25, 25, 35][i]) <= 50))
+        .count();
+    assert!(dark > 150, "shaped multi-script ink should render, dark px = {dark}");
+
+    assert_golden(
+        "complex-scripts-shaping",
+        &image,
+        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+    );
+}
+
+#[test]
 fn road_name_follows_the_centerline() {
     // A curved road with a `name`, labelled with `placement: line`. The
     // glyphs must run *along* the curve (rotated to the tangent), not sit

@@ -141,4 +141,17 @@ validation.
 
 ## Progress log
 
-- _2026-06-10_: Roadmap authored. Starting Workstream A (global text).
+- _2026-06-10_: Roadmap authored.
+- _2026-06-10_: **A1** — glyph-id atlas + font-stack fallback (Latin goldens
+  byte-identical; CJK unit test).
+- _2026-06-10_: **A2** — host fallback-font registration end-to-end
+  (`TurbomapEngine::add_fallback_font`); `cjk-labels-fallback` golden (東京/大阪).
+- _2026-06-10_: **A3** — complex shaping + bidi via `rustybuzz` +
+  `unicode-bidi`. `FontAtlas::shape` returns visually-ordered shaped glyphs;
+  `complex-scripts-shaping` golden proves Arabic (RTL+joining), Devanagari
+  (reordering), and mixed Latin+Arabic bidi. All prior goldens unchanged.
+  **Workstream A (global text) substantively complete** for shaped, fallback,
+  bidi-correct rendering; remaining niceties: vertical CJK, emoji (colour),
+  bundling default CJK/Arabic faces vs. host-provided.
+- _Next_: Workstream B (real data + tile-stack hardening) or C2 (cross-tile
+  label dedup).

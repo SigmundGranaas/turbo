@@ -19,3 +19,5 @@ thiserror.workspace = true
 turbomap-mvt = { path = "../turbomap-mvt" }
 lyon.workspace = true
 ab_glyph.workspace = true
+rustybuzz.workspace = true
+unicode-bidi.workspace = true
