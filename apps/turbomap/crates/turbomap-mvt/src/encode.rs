@@ -75,14 +75,49 @@ impl LayerEncoder {
         self.push(proto::tile::GeomType::Point, geometry, props)
     }
 
+    /// A multipoint feature.
+    pub fn points(self, points: &[(i32, i32)], props: &[(&str, Value)]) -> Self {
+        let geometry = encode_points(points);
+        self.push(proto::tile::GeomType::Point, geometry, props)
+    }
+
     pub fn line(self, vertices: &[(i32, i32)], props: &[(&str, Value)]) -> Self {
         let geometry = encode_path(vertices, false);
+        self.push(proto::tile::GeomType::Linestring, geometry, props)
+    }
+
+    /// A multi-linestring feature: several paths in one feature, the way
+    /// real tiles carry a road split by clipping.
+    pub fn lines(self, lines: &[Vec<(i32, i32)>], props: &[(&str, Value)]) -> Self {
+        let paths: Vec<&[(i32, i32)]> = lines.iter().map(|l| l.as_slice()).collect();
+        let geometry = encode_multi_path(&paths, false);
         self.push(proto::tile::GeomType::Linestring, geometry, props)
     }
 
     /// One closed ring (don't repeat the first vertex; ClosePath is added).
     pub fn polygon(self, ring: &[(i32, i32)], props: &[(&str, Value)]) -> Self {
         let geometry = encode_path(ring, true);
+        self.push(proto::tile::GeomType::Polygon, geometry, props)
+    }
+
+    /// A polygon of several rings in one feature — exterior(s) plus holes
+    /// (winding distinguishes them), as real coastline/building data is
+    /// encoded. Rings may arrive closed (last vertex repeating the first,
+    /// the decoder's shape) or open; the trailing duplicate is stripped
+    /// because ClosePath is emitted.
+    pub fn polygon_rings(self, rings: &[Vec<(i32, i32)>], props: &[(&str, Value)]) -> Self {
+        let trimmed: Vec<&[(i32, i32)]> = rings
+            .iter()
+            .map(|r| {
+                if r.len() >= 2 && r.first() == r.last() {
+                    &r[..r.len() - 1]
+                } else {
+                    r.as_slice()
+                }
+            })
+            .filter(|r| r.len() >= 3)
+            .collect();
+        let geometry = encode_multi_path(&trimmed, true);
         self.push(proto::tile::GeomType::Polygon, geometry, props)
     }
 
@@ -174,22 +209,30 @@ fn encode_points(points: &[(i32, i32)]) -> Vec<u32> {
 }
 
 fn encode_path(vertices: &[(i32, i32)], close: bool) -> Vec<u32> {
-    assert!(vertices.len() >= 2, "a path needs at least two vertices");
-    let mut out = Vec::with_capacity(vertices.len() * 2 + 3);
-    // MoveTo the first vertex.
-    out.push(command(1, 1));
-    out.push(zigzag_encode(vertices[0].0));
-    out.push(zigzag_encode(vertices[0].1));
-    // LineTo the rest.
-    out.push(command(2, vertices.len() as u32 - 1));
-    let mut cursor = vertices[0];
-    for &(x, y) in &vertices[1..] {
-        out.push(zigzag_encode(x - cursor.0));
-        out.push(zigzag_encode(y - cursor.1));
-        cursor = (x, y);
-    }
-    if close {
-        out.push(command(7, 1));
+    encode_multi_path(&[vertices], close)
+}
+
+/// Encode several MoveTo/LineTo paths into one feature geometry. The MVT
+/// cursor is continuous across the whole geometry, so each path's MoveTo
+/// is delta-encoded from the previous path's last vertex.
+fn encode_multi_path(paths: &[&[(i32, i32)]], close: bool) -> Vec<u32> {
+    let mut out = Vec::new();
+    let mut cursor = (0, 0);
+    for vertices in paths {
+        assert!(vertices.len() >= 2, "a path needs at least two vertices");
+        out.push(command(1, 1));
+        out.push(zigzag_encode(vertices[0].0 - cursor.0));
+        out.push(zigzag_encode(vertices[0].1 - cursor.1));
+        out.push(command(2, vertices.len() as u32 - 1));
+        cursor = vertices[0];
+        for &(x, y) in &vertices[1..] {
+            out.push(zigzag_encode(x - cursor.0));
+            out.push(zigzag_encode(y - cursor.1));
+            cursor = (x, y);
+        }
+        if close {
+            out.push(command(7, 1));
+        }
     }
     out
 }
@@ -250,6 +293,68 @@ mod tests {
             }
             other => panic!("expected polygon, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn multi_ring_polygon_round_trips_with_holes_intact() {
+        // An exterior ring with a hole — the shape real coastline/building
+        // data ships. Both rings must come back in one feature.
+        let outer = vec![(0, 0), (4000, 0), (4000, 4000), (0, 4000)];
+        let hole = vec![(1000, 1000), (1000, 2000), (2000, 2000), (2000, 1000)];
+        let bytes = TileEncoder::new()
+            .layer("water", 4096)
+            .polygon_rings(&[outer.clone(), hole.clone()], &[])
+            .finish()
+            .finish();
+        let tile = decode(&bytes).expect("decode");
+        match &tile.layers[0].features[0].geometry {
+            Geometry::Polygon(rings) => {
+                assert_eq!(rings.len(), 2, "exterior + hole");
+                assert_eq!(rings[0].first(), Some(&(0, 0)));
+                assert_eq!(rings[1].first(), Some(&(1000, 1000)));
+            }
+            other => panic!("expected polygon, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn already_closed_rings_do_not_double_the_first_vertex() {
+        // Decoded rings repeat the first vertex at the end; re-encoding
+        // them must not produce a doubled vertex (decode → encode → decode
+        // is how the tile repacker works).
+        let closed = vec![(10, 10), (20, 10), (20, 20), (10, 20), (10, 10)];
+        let bytes = TileEncoder::new()
+            .layer("water", 4096)
+            .polygon_rings(&[closed], &[])
+            .finish()
+            .finish();
+        let tile = decode(&bytes).expect("decode");
+        match &tile.layers[0].features[0].geometry {
+            Geometry::Polygon(rings) => {
+                // 4 distinct vertices + the decoder's closing repeat.
+                assert_eq!(rings[0].len(), 5);
+                assert_eq!(rings[0][0], (10, 10));
+                assert_eq!(rings[0][4], (10, 10));
+                assert_eq!(rings[0][1], (20, 10));
+            }
+            other => panic!("expected polygon, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multi_linestring_round_trips_as_one_feature() {
+        let a = vec![(0, 0), (100, 100)];
+        let b = vec![(3000, 50), (3200, 80), (3500, 60)];
+        let bytes = TileEncoder::new()
+            .layer("roads", 4096)
+            .lines(&[a.clone(), b.clone()], &[("class", Value::String("primary".into()))])
+            .finish()
+            .finish();
+        let tile = decode(&bytes).expect("decode");
+        assert_eq!(
+            tile.layers[0].features[0].geometry,
+            Geometry::LineString(vec![a, b])
+        );
     }
 
     #[test]
