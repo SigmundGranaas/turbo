@@ -191,4 +191,14 @@ validation.
   a PMTiles archive and rendered through the engine (`omt-pmtiles-bergen`).
   Remaining in B: tile-stack hardening (ETag/backoff/LRU/prefetch), z-order +
   brunnel, host source over uniffi, GL style-JSON loader (later).
+- _2026-06-10_: **Real-data milestone + foundational precision fix.** The
+  user's visual critique of the synthetic golden led to fetching real OMT
+  tiles (OpenFreeMap, central Bergen, slimmed to a 1.2 MiB committed
+  PMTiles fixture) — which exposed that absolute-world-coordinate f32
+  tessellation collapses z14 street geometry into ULPs. **Meshes are now
+  tessellated tile-locally** ([0,1] across the tile, constant half-pixel
+  tolerance) and placed on the GPU via per-tile origin/span in the tile
+  uniform — full precision at every zoom; all low-zoom goldens unchanged.
+  New `omt-real-bergen` golden renders real Bergen with a designed style
+  (casings, class hierarchy, dashed paths, along-line street names).
 - _Next_: B hardening, or C3 gradients/pattern fills, or E1 gestures.

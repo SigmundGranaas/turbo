@@ -93,13 +93,16 @@ impl VectorPipeline {
         // TILE_UNIFORM_STRIDE (256) intervals to satisfy
         // `min_uniform_buffer_offset_alignment`, but the shader's binding
         // *view* is 16 bytes wide.
-        // tile_alpha(4) + use_paint_color(4) + pad(8) + paint_color vec4(16).
-        const WGSL_TILE_UNIFORM_BYTES: u64 = 32;
+        // tile_alpha(4) + use_paint_color(4) + dash(8) + paint_color vec4(16)
+        // + origin vec2(8) + span(4) + pad(4).
+        const WGSL_TILE_UNIFORM_BYTES: u64 = 48;
         let tile_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("turbomap-vector-tile-bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
+                // The vertex stage reads the tile origin/span placement;
+                // the fragment stage reads alpha/paint/dash.
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -302,7 +305,7 @@ impl VectorPipeline {
             };
             let (dash_len, gap_len) = dash.unwrap_or((0.0, 0.0));
             let mut bytes = vec![0u8; draw_count * TILE_UNIFORM_STRIDE as usize];
-            for (i, (_, alpha)) in to_draw.iter().take(draw_count).enumerate() {
+            for (i, (tile, alpha)) in to_draw.iter().take(draw_count).enumerate() {
                 let off = i * TILE_UNIFORM_STRIDE as usize;
                 bytes[off..off + 4].copy_from_slice(&alpha.to_le_bytes());
                 bytes[off + 4..off + 8].copy_from_slice(&use_paint.to_le_bytes());
@@ -314,6 +317,15 @@ impl VectorPipeline {
                     let c = off + 16 + k * 4;
                     bytes[c..c + 4].copy_from_slice(&comp.to_le_bytes());
                 }
+                // Tile placement: world origin + span for the tile-local
+                // mesh ([0,1] across the tile). f64 keeps the origin exact
+                // until the GPU; the span is exactly representable.
+                let span = 1.0f64 / (1u64 << tile.z) as f64;
+                let ox = (tile.x as f64 * span) as f32;
+                let oy = (tile.y as f64 * span) as f32;
+                bytes[off + 32..off + 36].copy_from_slice(&ox.to_le_bytes());
+                bytes[off + 36..off + 40].copy_from_slice(&oy.to_le_bytes());
+                bytes[off + 40..off + 44].copy_from_slice(&(span as f32).to_le_bytes());
             }
             self.queue
                 .write_buffer(&self.tile_uniform_buffer, 0, &bytes);

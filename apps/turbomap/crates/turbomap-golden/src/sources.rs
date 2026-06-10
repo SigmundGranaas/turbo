@@ -49,6 +49,30 @@ impl TileSource for ParchmentBasemap {
     }
 }
 
+/// Uniform single-colour basemap with a chosen sRGB colour — the "land"
+/// ground a vector basemap style paints on top of.
+pub struct FlatBasemap(pub [u8; 3]);
+
+impl TileSource for FlatBasemap {
+    fn request(&self, _tile: TileId) -> Result<RasterTile, TileError> {
+        let mut img = RgbaImage::new(TILE_PX, TILE_PX);
+        for px in img.pixels_mut() {
+            *px = image::Rgba([self.0[0], self.0[1], self.0[2], 255]);
+        }
+        Ok(RasterTile {
+            bytes: encode_png(&img),
+            format: RasterFormat::Png,
+        })
+    }
+
+    fn min_zoom(&self) -> u8 {
+        0
+    }
+    fn max_zoom(&self) -> u8 {
+        20
+    }
+}
+
 /// Synthetic Mapbox-Terrain-RGB DEM: a Gaussian peak (~1500 m) centred
 /// on Bergen gives the hillshade pipeline a real gradient to shade.
 pub struct GaussianTerrainSource {

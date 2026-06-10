@@ -19,14 +19,20 @@ struct TileUniform {
     dash_len: f32,
     gap_len: f32,
     paint_color: vec4<f32>,
+    // Tile placement: meshes are tessellated in tile-local units ([0,1]
+    // across the tile) so f32 keeps full precision at any zoom; the vertex
+    // shader places them with `origin + base * span`.
+    origin: vec2<f32>,
+    span: f32,
+    _pad2: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> tile: TileUniform;
 
 struct VertexInput {
-    @location(0) base: vec2<f32>,    // world centerline
-    @location(1) normal: vec2<f32>,  // unit world normal (0 for fills)
+    @location(0) base: vec2<f32>,    // tile-local centerline ([0,1] across the tile)
+    @location(1) normal: vec2<f32>,  // unit normal (0 for fills)
     @location(2) width_px: f32,      // screen px (0 for fills)
     @location(3) color: vec4<f32>,   // 8-bit sRGB, fed as Unorm
     // Cross-line position used for AA. .x: 0.0 at one stroke edge, 1.0 at
@@ -47,15 +53,17 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    // Extrude the centerline by the normal to a half-width that is a
-    // constant number of *screen* pixels — so a road stays N px wide at
-    // every zoom. width_px 0 (fills) leaves the position untouched.
+    // Place the tile-local mesh in world space, then extrude the
+    // centerline by the normal to a half-width that is a constant number
+    // of *screen* pixels — so a road stays N px wide at every zoom.
+    // width_px 0 (fills) leaves the position untouched.
     let half_width_world = (in.width_px * 0.5) / camera.params.x;
-    let world = in.base + in.normal * half_width_world;
+    let world = tile.origin + in.base * tile.span + in.normal * half_width_world;
     out.clip_position = camera.view_proj * vec4<f32>(world, 0.0, 1.0);
     out.color = in.color;
     out.edge_pos = in.edge_pos.x;
-    out.dist_px = in.dist * camera.params.x;
+    // Tile-unit arc length → screen px (span × pixels-per-world).
+    out.dist_px = in.dist * tile.span * camera.params.x;
     return out;
 }
 

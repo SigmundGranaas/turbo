@@ -24,11 +24,14 @@ use crate::{
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct VectorVertex {
-    /// World-space centerline position (the point on the path, *not* the
-    /// stroke edge). The vertex shader extrudes this along `normal`.
+    /// **Tile-local** centerline position (the point on the path, *not*
+    /// the stroke edge), `[0, 1]` across the tile. The vertex shader
+    /// places it in world space via the per-tile origin/span uniform and
+    /// extrudes along `normal`.
     pub base: [f32; 2],
-    /// Unit normal in world space (0,0 for fills). lyon defines it so
-    /// `edge = base + normal * half_width`.
+    /// Unit normal in tile space (0,0 for fills) — the tile→world
+    /// transform is a uniform scale, so the direction is also the world
+    /// normal. lyon defines it so `edge = base + normal * half_width`.
     pub normal: [f32; 2],
     /// Line width in screen pixels (0 for fills). The shader converts to
     /// world half-width per frame, giving pixel-constant, smoothly-zooming
@@ -110,23 +113,26 @@ pub struct TessellationOutput {
     pub interactive: Vec<InteractiveFeature>,
 }
 
-/// Tessellate a tile through `style` into a single mesh. Errors out of
-/// individual features (e.g. a degenerate polygon) are skipped silently —
-/// it's better to render a slightly-incomplete tile than to drop the whole
-/// tile because of one bad feature.
-/// World-space tessellation tolerance for a given tile zoom. We target
-/// roughly half-a-screen-pixel of curve approximation error, which is the
-/// sweet spot between triangle count and visible faceting.
+/// Tessellation tolerance in **tile units** (one tile = 1.0). One tile is
+/// 256 px at its native zoom, so half a screen pixel of curve error is
+/// `0.5 / 256` — and because meshes are built in tile-local space, this is
+/// the same at every zoom.
 ///
-/// Pixels-per-world at zoom `z` = `256 * 2^z`. Half a pixel in world units
-/// is `0.5 / (256 * 2^z)`. Clamped to a sane floor so deep zoom doesn't
-/// pin lyon with vanishingly tight tolerances.
-pub fn tolerance_for_zoom(z: u8) -> f32 {
-    let ppw = 256.0_f64 * (1u64 << z) as f64;
-    let raw = 0.5 / ppw;
-    raw.max(1e-6) as f32
+/// Tile-local tessellation is what makes city zooms work at all: in
+/// absolute world coordinates a z14+ street segment is ~1e-6 world units,
+/// inside f32 ULP territory around x≈0.5, and lyon collapses the geometry.
+/// In tile units the same segment is ~2e-2 — full precision everywhere.
+/// The GPU places each mesh with the per-tile `origin + base * span`
+/// transform carried in the tile uniform.
+pub fn tile_tolerance() -> f32 {
+    0.5 / 256.0
 }
 
+/// Tessellate a tile through `style` into a single mesh in **tile-local
+/// units** (`[0, 1]` across the tile, buffer geometry slightly outside).
+/// Errors out of individual features (e.g. a degenerate polygon) are
+/// skipped silently — it's better to render a slightly-incomplete tile
+/// than to drop the whole tile because of one bad feature.
 pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> TessellationOutput {
     let mut fill_tess = FillTessellator::new();
     let mut stroke_tess = StrokeTessellator::new();
@@ -134,7 +140,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
     let mut labels: Vec<LabelRequest> = Vec::new();
     let mut icons: Vec<IconRequest> = Vec::new();
     let mut interactive: Vec<InteractiveFeature> = Vec::new();
-    let tolerance = tolerance_for_zoom(tile_id.z);
+    let tolerance = tile_tolerance();
 
     for layer in &tile.layers {
         let extent = layer.extent;
@@ -176,13 +182,13 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                 Paint::Line { color, width } => {
                     if let Geometry::LineString(lines) = &feature.geometry {
                         let path = build_lines_path(tile_id, extent, lines);
-                        // `width` is now screen pixels. Tessellate at the
-                        // pixel-constant world width for *this tile's* zoom —
-                        // that only sets arc density for round joins/caps;
-                        // the shader re-extrudes to the camera's exact px.
+                        // `width` is screen pixels. Tessellate at the
+                        // equivalent width in tile units (one tile = 256 px
+                        // at its native zoom) — that only sets arc density
+                        // for round joins/caps; the shader re-extrudes to
+                        // the camera's exact px.
                         let width_px = *width;
-                        let world_width =
-                            width_px / (256.0 * (1u64 << tile_id.z) as f32);
+                        let tile_width = width_px / 256.0;
                         let packed = pack_color(*color);
                         let mut builder = BuffersBuilder::new(&mut buffers, |v: StrokeVertex| {
                             use lyon::tessellation::Side;
@@ -197,7 +203,8 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 width_px,
                                 color: packed,
                                 edge_pos: [edge_pos, 0, 0, 0],
-                                // World-space arc length for dash patterns.
+                                // Tile-unit arc length for dash patterns
+                                // (the shader scales by span × ppw).
                                 dist: v.advancement(),
                             }
                         });
@@ -208,7 +215,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             // butt caps leave hard line ends; rounding both
                             // is what makes roads and routes read as roads.
                             &StrokeOptions::default()
-                                .with_line_width(world_width.max(1e-6))
+                                .with_line_width(tile_width.max(1e-4))
                                 .with_line_join(LineJoin::Round)
                                 .with_line_cap(LineCap::Round)
                                 .with_tolerance(tolerance),
@@ -387,9 +394,13 @@ fn build_lines_path(tile_id: TileId, extent: u32, lines: &[Vec<(i32, i32)>]) -> 
     builder.build()
 }
 
-fn project(tile_id: TileId, extent: u32, local: (i32, i32)) -> lyon::math::Point {
-    let (x, y) = tile_local_to_world(tile_id, extent, local);
-    point(x as f32, y as f32)
+/// Project MVT integer coordinates into tile-local units: `[0, 1]` across
+/// the tile, buffer geometry slightly outside. Mesh placement into world
+/// space happens on the GPU via the per-tile `origin + base * span`
+/// transform, so f32 keeps full precision at every zoom.
+fn project(_tile_id: TileId, extent: u32, local: (i32, i32)) -> lyon::math::Point {
+    let e = extent as f32;
+    point(local.0 as f32 / e, local.1 as f32 / e)
 }
 
 /// Vertex colours are consumed by shaders writing to an sRGB target, so
@@ -411,32 +422,45 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn tolerance_for_zoom_is_strictly_decreasing_in_zoom() {
-        // Higher zoom = smaller world units = tighter tolerance.
-        let mut last = f32::INFINITY;
-        for z in 0..=20u8 {
-            let t = tolerance_for_zoom(z);
-            assert!(t > 0.0 && t.is_finite(), "tolerance @ z={z} = {t}");
-            assert!(t <= last, "non-monotonic: z={z} got {t}, prev {last}");
-            last = t;
-        }
+    fn tile_tolerance_is_half_a_native_pixel() {
+        // One tile = 256 px at its native zoom; tolerance is half a pixel
+        // of curve error in tile units — and zoom-independent, because
+        // meshes are tile-local.
+        let t = tile_tolerance();
+        assert!((t - 0.5 / 256.0).abs() < 1e-9, "expected 0.5/256, got {t}");
     }
 
     #[test]
-    fn tolerance_at_zoom_zero_is_about_half_a_pixel_world_unit() {
-        // ppw at z=0 = 256, so tolerance ≈ 0.5/256 = 0.001953125.
-        let t = tolerance_for_zoom(0);
+    fn high_zoom_geometry_keeps_full_precision() {
+        // The regression behind tile-local tessellation: a short z14
+        // street segment must produce a real stroke mesh, not collapse
+        // into f32 ULPs as it did in absolute world coordinates.
+        let tile = VectorTile {
+            layers: vec![crate::vector::Layer {
+                name: "transportation".into(),
+                version: 2,
+                extent: 4096,
+                // ~100 extent units ≈ 30 m at z14 — a short city block.
+                features: vec![line(vec![vec![(2000, 2000), (2100, 2030)]])],
+            }],
+        };
+        let style = VectorStyle {
+            background: Color::rgb(255, 255, 255),
+            rules: vec![Rule {
+                source_layer: "transportation".into(),
+                filter: Filter::Always,
+                paint: Paint::Line { color: Color::rgb(255, 0, 0), width: 4.0 },
+                min_zoom: 0,
+                max_zoom: 22,
+                interactive: false,
+            }],
+        };
+        let out = tessellate(TileId::new(14, 8434, 4722), &tile, &style);
         assert!(
-            (t - (0.5 / 256.0_f32)).abs() < 1e-6,
-            "expected ~0.00195, got {t}",
+            out.mesh.indices.len() >= 6,
+            "a z14 street segment must tessellate ({} indices)",
+            out.mesh.indices.len()
         );
-    }
-
-    #[test]
-    fn tolerance_clamps_above_a_floor_at_deep_zoom() {
-        // At z=22, raw tolerance is ~1e-10 — well below our 1e-6 floor.
-        let t = tolerance_for_zoom(22);
-        assert!(t >= 1e-6, "got {t}");
     }
 
     fn poly(rings: Vec<Vec<(i32, i32)>>) -> Feature {
