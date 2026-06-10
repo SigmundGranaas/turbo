@@ -182,5 +182,13 @@ validation.
   One switch flips it for device-perf tuning.
 - _Recovery note_: a SECOND container reset rewound local mid-session; again
   recovered by fast-forward from origin with zero loss.
-- _Next_: Workstream B (real data + tile-stack hardening), or C3 line
-  gradients / pattern fills.
+- _2026-06-10_: **B decided + first slice shipped.** Decision (after the
+  tile-data analysis doc): **OpenMapTiles schema**, PMTiles packaging.
+  Landed: PMTiles `RangeReader` (file / in-memory / **HTTP-range** backends —
+  one archive serves offline and serverless-online), a minimal v3 archive
+  **writer**, and the first **real-data golden**: an OMT-schema fixture
+  (water/landuse/transportation/boundary/place with class+rank) packed into
+  a PMTiles archive and rendered through the engine (`omt-pmtiles-bergen`).
+  Remaining in B: tile-stack hardening (ETag/backoff/LRU/prefetch), z-order +
+  brunnel, host source over uniffi, GL style-JSON loader (later).
+- _Next_: B hardening, or C3 gradients/pattern fills, or E1 gestures.

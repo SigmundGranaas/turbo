@@ -3802,7 +3802,9 @@ dependencies = [
  "serde_json",
  "turbomap-core",
  "turbomap-golden",
+ "turbomap-mvt",
  "turbomap-scene",
+ "turbomap-tiles-pmtiles",
  "wgpu",
 ]
 
