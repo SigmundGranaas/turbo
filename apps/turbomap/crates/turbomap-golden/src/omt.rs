@@ -97,6 +97,17 @@ pub fn bergen_scene() -> Scene {
         color: Paint::Const(Color::rgb(163, 201, 224)),
         opacity: Paint::Const(1.0),
     });
+    // Coastline: a slightly darker stroke on the water polygon so the
+    // land/water boundary crisps up (the outline feature on a fill).
+    scene.layers.push(Layer::Line {
+        id: "coastline".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("water".to_string()),
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(132, 174, 201)),
+        width: Paint::Const(0.8),
+        dash_array: None,
+    });
     // Buildings: a warm fill with a slightly darker outline so adjacent
     // footprints read as separate shapes instead of one grey blob.
     scene.layers.push(Layer::Fill {
