@@ -12,6 +12,23 @@ use turbomap_core::{
 
 pub mod cache;
 pub use cache::DiskCache;
+pub mod retry;
+pub use retry::RetryPolicy;
+
+/// One HTTP GET → validated body bytes. The unit the retry loop wraps:
+/// any transport error or non-2xx status is a (retryable) `TileError::Network`.
+fn fetch_bytes(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8>, TileError> {
+    let resp = client
+        .get(url)
+        .send()
+        .map_err(|e| TileError::Network(e.to_string()))?;
+    if !resp.status().is_success() {
+        return Err(TileError::Network(format!("HTTP {} for {}", resp.status(), url)));
+    }
+    resp.bytes()
+        .map(|b| b.to_vec())
+        .map_err(|e| TileError::Network(e.to_string()))
+}
 
 /// A configured HTTP raster tile source.
 #[derive(Debug, Clone)]
@@ -28,6 +45,7 @@ pub struct HttpRasterSource {
     /// to map the displayed quad to the texture interior, killing
     /// edge seams.
     dem_halo_px: u32,
+    retry: RetryPolicy,
 }
 
 impl HttpRasterSource {
@@ -52,11 +70,19 @@ impl HttpRasterSource {
             format,
             attribution: None,
             dem_halo_px: 0,
+            retry: RetryPolicy::default(),
         })
     }
 
     pub fn with_attribution(mut self, attribution: impl Into<String>) -> Self {
         self.attribution = Some(attribution.into());
+        self
+    }
+
+    /// Override the transient-failure retry policy (default
+    /// [`RetryPolicy::default`]; pass [`RetryPolicy::none`] to disable).
+    pub fn with_retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.retry = policy;
         self
     }
 
@@ -158,22 +184,7 @@ impl TileSource for HttpRasterSource {
             return Err(TileError::ZoomOutOfRange(tile.z));
         }
         let url = self.url_for(tile);
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .map_err(|e| TileError::Network(e.to_string()))?;
-        if !resp.status().is_success() {
-            return Err(TileError::Network(format!(
-                "HTTP {} for {}",
-                resp.status(),
-                url
-            )));
-        }
-        let bytes = resp
-            .bytes()
-            .map_err(|e| TileError::Network(e.to_string()))?
-            .to_vec();
+        let bytes = retry::retry(&self.retry, || fetch_bytes(&self.client, &url))?;
         Ok(RasterTile {
             bytes,
             format: self.format,
@@ -212,6 +223,7 @@ pub struct HttpVectorTileSource {
     max_zoom: u8,
     attribution: Option<String>,
     cache: Option<DiskCache>,
+    retry: RetryPolicy,
 }
 
 /// Default on-disk cache budget when a cache dir is set without an explicit
@@ -238,11 +250,19 @@ impl HttpVectorTileSource {
             max_zoom,
             attribution: None,
             cache: None,
+            retry: RetryPolicy::default(),
         })
     }
 
     pub fn with_attribution(mut self, attribution: impl Into<String>) -> Self {
         self.attribution = Some(attribution.into());
+        self
+    }
+
+    /// Override the transient-failure retry policy (default
+    /// [`RetryPolicy::default`]; pass [`RetryPolicy::none`] to disable).
+    pub fn with_retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.retry = policy;
         self
     }
 
@@ -316,24 +336,9 @@ impl VectorTileSource for HttpVectorTileSource {
             }
         }
 
-        // 2. Network fetch.
+        // 2. Network fetch, with transient-failure retry/backoff.
         let url = self.url_for(tile);
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .map_err(|e| TileError::Network(e.to_string()))?;
-        if !resp.status().is_success() {
-            return Err(TileError::Network(format!(
-                "HTTP {} for {}",
-                resp.status(),
-                url
-            )));
-        }
-        let bytes = resp
-            .bytes()
-            .map_err(|e| TileError::Network(e.to_string()))?
-            .to_vec();
+        let bytes = retry::retry(&self.retry, || fetch_bytes(&self.client, &url))?;
 
         // 3. Persist before decoding so a malformed tile still ends up on
         // disk (it'll be eligible for retry on the next launch). The write
