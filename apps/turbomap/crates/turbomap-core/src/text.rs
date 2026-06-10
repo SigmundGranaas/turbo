@@ -6,15 +6,21 @@
 //! the GPU side. Reject any label whose AABB overlaps an already-placed
 //! label.
 //!
-//! This is intentionally simpler than production text rendering — no SDF, no
-//! kerning beyond `ab_glyph`'s advance, no shaping (Latin only really
-//! works). The trade-offs are documented in `LIMITATIONS` below.
+//! The atlas is keyed by `(face, glyph id)`, fed by a [`FontStack`] that
+//! resolves per-character coverage across a default face (bundled Roboto)
+//! plus host-supplied fallback faces (CJK, Arabic, …). Character→glyph
+//! mapping is still 1:1 via each face's cmap — complex shaping (ligatures,
+//! mark positioning, RTL reordering) is a follow-up that replaces
+//! [`FontAtlas::shape`] with a HarfBuzz pass; the glyph-id atlas is already
+//! shaped-ready, so that swap doesn't touch the GPU side.
 
 use std::collections::HashMap;
 
-use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
+use ab_glyph::{Font, FontArc, GlyphId, PxScale, ScaleFont};
 
-/// Bundled font — Roboto Regular, Apache 2.0. See `assets/LICENSE-fonts.md`.
+/// Bundled default font — Roboto Regular, Apache 2.0. See
+/// `assets/LICENSE-fonts.md`. Covers Latin; hosts append fallback faces for
+/// other scripts (CJK, Arabic, …) via [`FontAtlas::add_fallback_face`].
 const FONT_BYTES: &[u8] = include_bytes!("../assets/Roboto-Regular.ttf");
 
 /// Atlas side in pixels. 1024² × 1 byte = 1 MiB host-side bitmap, fits an
@@ -51,11 +57,57 @@ pub struct GlyphInfo {
     pub advance: f32,
 }
 
+/// An ordered set of font faces. Face 0 is the bundled default (Roboto);
+/// hosts append fallback faces (CJK, Arabic, …) covering scripts the
+/// default doesn't. Per-character coverage is resolved first-face-wins.
+struct FontStack {
+    faces: Vec<FontArc>,
+}
+
+impl FontStack {
+    fn new() -> Self {
+        let roboto =
+            FontArc::try_from_slice(FONT_BYTES).expect("bundled Roboto must be a valid TTF");
+        Self { faces: vec![roboto] }
+    }
+
+    /// Append a fallback face from owned font bytes. Returns `false` if the
+    /// bytes don't parse as a font (the face is simply not added).
+    fn add(&mut self, data: Vec<u8>) -> bool {
+        match FontArc::try_from_vec(data) {
+            Ok(f) => {
+                self.faces.push(f);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Index of the first face whose cmap covers `c`; falls back to face 0
+    /// (which renders `.notdef`) when no face covers it.
+    fn face_for(&self, c: char) -> usize {
+        self.faces
+            .iter()
+            .position(|f| f.glyph_id(c).0 != 0)
+            .unwrap_or(0)
+    }
+
+    fn face(&self, id: usize) -> &FontArc {
+        &self.faces[id]
+    }
+
+    fn len(&self) -> usize {
+        self.faces.len()
+    }
+}
+
 pub struct FontAtlas {
-    font: FontRef<'static>,
+    stack: FontStack,
     /// `ATLAS_SIZE * ATLAS_SIZE` greyscale-alpha pixels.
     bitmap: Vec<u8>,
-    glyphs: HashMap<char, GlyphInfo>,
+    /// Keyed by `(face index, glyph id)` so the same glyph id in different
+    /// faces (and fallbacks) never collide.
+    glyphs: HashMap<(usize, u16), GlyphInfo>,
     cursor_x: u32,
     cursor_y: u32,
     row_height: u32,
@@ -70,9 +122,8 @@ impl Default for FontAtlas {
 
 impl FontAtlas {
     pub fn new() -> Self {
-        let font = FontRef::try_from_slice(FONT_BYTES).expect("bundled Roboto must be a valid TTF");
         Self {
-            font,
+            stack: FontStack::new(),
             bitmap: vec![0; (ATLAS_SIZE * ATLAS_SIZE) as usize],
             glyphs: HashMap::new(),
             cursor_x: 1,
@@ -86,6 +137,19 @@ impl FontAtlas {
         &self.bitmap
     }
 
+    /// Append a fallback font face (e.g. a CJK or Arabic face supplied by
+    /// the host). Returns `false` if the bytes don't parse. Faces added
+    /// later have lower priority — face 0 (Roboto) always wins where it has
+    /// coverage.
+    pub fn add_fallback_face(&mut self, data: Vec<u8>) -> bool {
+        self.stack.add(data)
+    }
+
+    /// Number of loaded faces (default + fallbacks).
+    pub fn face_count(&self) -> usize {
+        self.stack.len()
+    }
+
     /// Read & clear the dirty flag — used by the GPU upload to know whether
     /// the atlas texture needs re-uploading this frame.
     pub fn take_dirty(&mut self) -> bool {
@@ -94,28 +158,43 @@ impl FontAtlas {
         d
     }
 
-    pub fn get(&self, c: char) -> Option<&GlyphInfo> {
-        self.glyphs.get(&c)
+    /// Map a string to `(face, glyph)` pairs in logical order, choosing a
+    /// covering face per character (font fallback).
+    ///
+    /// This is a 1:1 char→glyph mapping via each face's cmap — it does *not*
+    /// do complex shaping (ligatures, mark positioning, RTL reordering).
+    /// Those land in a follow-up that swaps this for a HarfBuzz pass; the
+    /// glyph-id atlas below is already shaped-ready.
+    pub fn shape(&self, text: &str) -> Vec<(usize, GlyphId)> {
+        text.chars()
+            .map(|c| {
+                let fid = self.stack.face_for(c);
+                (fid, self.stack.face(fid).glyph_id(c))
+            })
+            .collect()
     }
 
-    /// Return the glyph info for `c`, rasterising and packing it on first
-    /// sight. Returns `None` only if the atlas is full and the glyph
-    /// genuinely cannot be added.
-    pub fn ensure(&mut self, c: char) -> Option<GlyphInfo> {
-        if let Some(g) = self.glyphs.get(&c) {
+    /// Return the glyph info for `(face, glyph)`, rasterising and packing it
+    /// on first sight. Returns `None` only if the atlas is full and the
+    /// glyph genuinely cannot be added.
+    pub fn ensure(&mut self, face_id: usize, glyph_id: GlyphId) -> Option<GlyphInfo> {
+        let key = (face_id, glyph_id.0);
+        if let Some(g) = self.glyphs.get(&key) {
             return Some(*g);
         }
-        self.insert(c)
+        self.insert(face_id, glyph_id)
     }
 
-    fn insert(&mut self, c: char) -> Option<GlyphInfo> {
+    fn insert(&mut self, face_id: usize, glyph_id: GlyphId) -> Option<GlyphInfo> {
         let scale = PxScale::from(RASTER_PX);
-        let scaled = self.font.as_scaled(scale);
-        let glyph_id = self.font.glyph_id(c);
-        let advance = scaled.h_advance(glyph_id);
-
-        let glyph = glyph_id.with_scale(scale);
-        let outlined = self.font.outline_glyph(glyph);
+        // Pull everything we need off the face first, then drop the borrow
+        // so we can mutate the atlas bitmap below.
+        let (advance, outlined) = {
+            let face = self.stack.face(face_id);
+            let advance = face.as_scaled(scale).h_advance(glyph_id);
+            let outlined = face.outline_glyph(glyph_id.with_scale(scale));
+            (advance, outlined)
+        };
         let (tight_w, tight_h, tight_bearing_x, tight_bearing_y) = match outlined.as_ref() {
             Some(o) => {
                 let b = o.px_bounds();
@@ -196,7 +275,7 @@ impl FontAtlas {
             }
         }
 
-        self.glyphs.insert(c, info);
+        self.glyphs.insert((face_id, glyph_id.0), info);
         self.cursor_x += width.max(1) + 1;
         self.row_height = self.row_height.max(height);
         self.dirty = true;
@@ -278,9 +357,10 @@ pub fn layout_along_path(
     }
 
     let scale = font_size_px / RASTER_PX;
-    let text_width: f32 = text
-        .chars()
-        .filter_map(|c| atlas.ensure(c))
+    let glyphs = atlas.shape(text);
+    let text_width: f32 = glyphs
+        .iter()
+        .filter_map(|&(fid, gid)| atlas.ensure(fid, gid))
         .map(|g| g.advance * scale)
         .sum();
     if text_width > total {
@@ -288,9 +368,9 @@ pub fn layout_along_path(
     }
 
     let mut pen = (total - text_width) * 0.5; // centre the run on the line
-    let mut out = Vec::with_capacity(text.chars().count());
-    for c in text.chars() {
-        let Some(g) = atlas.ensure(c) else { continue };
+    let mut out = Vec::with_capacity(glyphs.len());
+    for &(fid, gid) in &glyphs {
+        let Some(g) = atlas.ensure(fid, gid) else { continue };
         let advance = g.advance * scale;
         if g.width > 0 && g.height > 0 {
             let (pivot, angle) = point_and_angle_at(&pts, &cum, pen);
@@ -442,20 +522,21 @@ pub fn layout(
     atlas: &mut FontAtlas,
 ) -> Vec<LayoutGlyph> {
     let scale = font_size_px / RASTER_PX;
+    let glyphs = atlas.shape(text);
 
     // First pass: total advance for centering.
     let mut total_advance = 0.0_f32;
-    for c in text.chars() {
-        if let Some(g) = atlas.ensure(c) {
+    for &(fid, gid) in &glyphs {
+        if let Some(g) = atlas.ensure(fid, gid) {
             total_advance += g.advance * scale;
         }
     }
 
     let mut cursor_x = anchor_px.0 - total_advance * 0.5;
     let baseline_y = anchor_px.1;
-    let mut out = Vec::with_capacity(text.chars().count());
-    for c in text.chars() {
-        let Some(g) = atlas.ensure(c) else {
+    let mut out = Vec::with_capacity(glyphs.len());
+    for &(fid, gid) in &glyphs {
+        let Some(g) = atlas.ensure(fid, gid) else {
             continue;
         };
         if g.width > 0 && g.height > 0 {
@@ -592,11 +673,17 @@ mod tests {
     //! correctly de-duplicates overlapping labels.
     use super::*;
 
+    /// Test helper: shape a single char to `(face, glyph)` and ensure it.
+    fn ensure_char(atlas: &mut FontAtlas, c: char) -> Option<GlyphInfo> {
+        let (fid, gid) = atlas.shape(&c.to_string())[0];
+        atlas.ensure(fid, gid)
+    }
+
     #[test]
     fn ensure_memoises_glyphs() {
         let mut atlas = FontAtlas::new();
-        let a1 = atlas.ensure('A').unwrap();
-        let a2 = atlas.ensure('A').unwrap();
+        let a1 = ensure_char(&mut atlas, 'A').unwrap();
+        let a2 = ensure_char(&mut atlas, 'A').unwrap();
         // Same glyph cached at the same atlas coords.
         assert_eq!(a1.atlas_x, a2.atlas_x);
         assert_eq!(a1.atlas_y, a2.atlas_y);
@@ -608,7 +695,7 @@ mod tests {
         let mut atlas = FontAtlas::new();
         let entries: Vec<GlyphInfo> = "ABCDEFG"
             .chars()
-            .map(|c| atlas.ensure(c).expect("atlas should not be full"))
+            .map(|c| ensure_char(&mut atlas, c).expect("atlas should not be full"))
             .collect();
         // Pairwise: no rect overlaps another. Width 0 (invisible glyphs)
         // aren't tested as they don't get a real slot.
@@ -633,6 +720,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn fallback_face_covers_cjk_when_default_does_not() {
+        // Roboto (face 0) has no CJK glyphs. A host-supplied CJK fallback
+        // face must be picked for a Japanese character, while Latin still
+        // resolves to face 0 — and the CJK glyph rasterises into the shared
+        // atlas. Skips cleanly where no system CJK font is installed.
+        const CJK_FONT: &str = "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf";
+        let Ok(bytes) = std::fs::read(CJK_FONT) else {
+            eprintln!("SKIP: no system CJK font at {CJK_FONT}");
+            return;
+        };
+        let mut atlas = FontAtlas::new();
+        assert_eq!(atlas.face_count(), 1, "starts with the bundled default");
+        assert!(atlas.add_fallback_face(bytes), "CJK font must parse");
+        assert_eq!(atlas.face_count(), 2);
+
+        // Latin 'A' → face 0; the kanji 東 (U+6771) → the fallback face.
+        assert_eq!(atlas.shape("A")[0].0, 0, "Latin stays on the default face");
+        let jp = atlas.shape("東");
+        assert_eq!(jp.len(), 1);
+        assert_eq!(jp[0].0, 1, "CJK falls back to the host face");
+        assert_ne!((jp[0].1).0, 0, "fallback face must have a real glyph");
+
+        // The CJK glyph rasterises into the shared atlas.
+        let (fid, gid) = jp[0];
+        let g = atlas.ensure(fid, gid).expect("CJK glyph rasterises");
+        assert!(g.width > 0 && g.height > 0, "CJK glyph has pixels");
+
+        // Mixed Latin+CJK lays out with a glyph per visible char.
+        let glyphs = layout("A東", 24.0, (0.0, 0.0), &mut atlas);
+        assert!(glyphs.len() >= 2, "mixed run lays out, got {}", glyphs.len());
     }
 
     #[test]
