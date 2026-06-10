@@ -18,6 +18,7 @@
 mod directory;
 mod header;
 mod hilbert;
+pub mod writer;
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
