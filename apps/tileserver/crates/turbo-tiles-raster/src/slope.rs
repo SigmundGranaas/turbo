@@ -3,12 +3,13 @@
 //! `gis3.nve.no` today.
 //!
 //! Per pixel: slope = atan(|∇z|) from central differences over the same
-//! haloed elevation grid the hillshade uses, classified into the avalanche
-//! bands ski tourers read (27–30–35–40–45°), rendered as a semi-transparent
-//! PNG meant to sit over the basemap. Below 27° is fully transparent, so the
-//! overlay only paints where steepness matters.
+//! haloed elevation grid the hillshade uses, mapped through one continuous
+//! gradient — transparent on gentle ground, fading in as yellow around the
+//! avalanche-relevant angles and sliding smoothly to red on the steepest
+//! faces. No discrete bands: a single calm heat ramp that tints the
+//! terrain instead of painting zones over it.
 //!
-//! The math is pure (`slope_degrees`, `classify`) so it's unit- and
+//! The math is pure (`slope_degrees`, `color_for_slope`) so it's unit- and
 //! visually-testable on synthetic surfaces without a DEM artifact.
 
 use tiny_skia::Pixmap;
@@ -17,27 +18,38 @@ use turbo_tiles_elev::Dem;
 use crate::hillshade::sample_grid;
 use crate::style::Rgba;
 
-/// Avalanche-angle bands and their overlay colours (straight alpha).
-/// Hue semantics follow the NVE/Varsom convention ski tourers already read
-/// (yellow → orange → red → purple with rising angle), but the values are
-/// **muted and lightness-equalised**, and the alpha is deliberately low
-/// (~40–50%) so hillshade and contours stay legible underneath — the
-/// overlay should tint the terrain, not paint over it.
-pub const BANDS: &[(f32, Rgba)] = &[
-    (27.0, Rgba { r: 0xDD, g: 0xC4, b: 0x5E, a: 100 }), // 27–30° straw
-    (30.0, Rgba { r: 0xD9, g: 0x9A, b: 0x46, a: 110 }), // 30–35° ochre
-    (35.0, Rgba { r: 0xC9, g: 0x60, b: 0x4C, a: 118 }), // 35–40° terracotta
-    (40.0, Rgba { r: 0xA8, g: 0x5E, b: 0x96, a: 124 }), // 40–45° plum
-    (45.0, Rgba { r: 0x6E, g: 0x4D, b: 0x7E, a: 130 }), // 45°+   muted violet
+/// The continuous slope gradient: piecewise-linear stops as
+/// `(degrees, r, g, b, alpha)`, interpolated smoothly between, clamped at
+/// the ends. Transparent until ~25°, yellow established by 30°, red from
+/// 45° up. Alpha stays ≤ 50% so hillshade and contours read through.
+pub const GRADIENT: &[(f32, u8, u8, u8, u8)] = &[
+    (25.0, 0xE2, 0xC4, 0x4A, 0),   // fade starts: yellow, fully transparent
+    (30.0, 0xE2, 0xC4, 0x4A, 95),  // yellow established
+    (38.0, 0xD8, 0x80, 0x3C, 112), // amber midpoint
+    (45.0, 0xC4, 0x40, 0x30, 126), // red, full strength
 ];
 
-/// Width of the crossfade between adjacent bands, in degrees. Hard band
-/// edges between different hues read as psychedelic rings on smooth
-/// terrain; a small feather keeps the bands readable while letting the
-/// colour glide across the boundary. The fade is centred on each
-/// threshold, so the *midpoint* of every boundary still sits exactly at
-/// the conventional angle.
-const FEATHER_DEG: f32 = 1.5;
+/// Overlay colour for a slope angle: the gradient above, `None` for nodata
+/// or fully-transparent ground.
+pub fn color_for_slope(slope_deg: f32) -> Option<Rgba> {
+    if slope_deg.is_nan() || slope_deg <= GRADIENT[0].0 {
+        return None;
+    }
+    let last = GRADIENT[GRADIENT.len() - 1];
+    if slope_deg >= last.0 {
+        return Some(Rgba { r: last.1, g: last.2, b: last.3, a: last.4 });
+    }
+    for w in GRADIENT.windows(2) {
+        let (d0, r0, g0, b0, a0) = w[0];
+        let (d1, r1, g1, b1, a1) = w[1];
+        if slope_deg < d1 {
+            let t = (slope_deg - d0) / (d1 - d0);
+            let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+            return Some(Rgba { r: m(r0, r1), g: m(g0, g1), b: m(b0, b1), a: m(a0, a1) });
+        }
+    }
+    unreachable!("gradient covers the range")
+}
 
 /// Per-pixel slope in degrees for the interior `size²` of a `(size+2)²`
 /// haloed elevation grid (`f32::NAN` cells → `NAN` slope).
@@ -63,52 +75,6 @@ pub fn slope_degrees(grid: &[f32], size: u32, px_size_m: f32) -> Vec<f32> {
     out
 }
 
-/// Overlay colour for a slope angle, with a ±`FEATHER_DEG`/2 crossfade
-/// around every band threshold (including a fade-in from transparent at
-/// 27°). `None` for nodata or well below the first band.
-pub fn classify(slope_deg: f32) -> Option<Rgba> {
-    if slope_deg.is_nan() {
-        return None;
-    }
-    let half = FEATHER_DEG / 2.0;
-    let first = BANDS[0].0;
-    if slope_deg < first - half {
-        return None;
-    }
-
-    // The band whose range contains this angle (by threshold midpoints).
-    let idx = BANDS
-        .iter()
-        .rposition(|(min, _)| slope_deg >= *min)
-        // Below the first threshold but inside its fade-in.
-        .unwrap_or(0);
-    let cur = BANDS[idx].1;
-
-    // Fade-in from transparent across the first threshold.
-    if idx == 0 && slope_deg < first + half {
-        let t = ((slope_deg - (first - half)) / FEATHER_DEG).clamp(0.0, 1.0);
-        return Some(Rgba { a: (cur.a as f32 * t).round() as u8, ..cur });
-    }
-    // Crossfade with the *previous* band just above its threshold…
-    let near_lower = idx > 0 && slope_deg < BANDS[idx].0 + half;
-    // …or with the *next* band just below the next threshold.
-    let near_upper = idx + 1 < BANDS.len() && slope_deg >= BANDS[idx + 1].0 - half;
-    if near_lower {
-        let t = ((slope_deg - (BANDS[idx].0 - half)) / FEATHER_DEG).clamp(0.0, 1.0);
-        return Some(lerp(BANDS[idx - 1].1, cur, t));
-    }
-    if near_upper {
-        let t = ((slope_deg - (BANDS[idx + 1].0 - half)) / FEATHER_DEG).clamp(0.0, 1.0);
-        return Some(lerp(cur, BANDS[idx + 1].1, t));
-    }
-    Some(cur)
-}
-
-fn lerp(a: Rgba, b: Rgba, t: f32) -> Rgba {
-    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Rgba { r: m(a.r, b.r), g: m(a.g, b.g), b: m(a.b, b.b), a: m(a.a, b.a) }
-}
-
 /// Render one slope-overlay tile as PNG bytes. `None` when the whole tile is
 /// outside DEM coverage (caller serves a transparent/empty tile).
 pub fn render_slope_tile(
@@ -126,7 +92,7 @@ pub fn render_slope_tile(
     };
     let px = pm.pixels_mut();
     for (i, &s) in slopes.iter().enumerate() {
-        if let Some(c) = classify(s) {
+        if let Some(c) = color_for_slope(s) {
             // Premultiply straight alpha for tiny-skia's pixel format.
             let mul = |v: u8| ((v as u16 * c.a as u16) / 255) as u8;
             if let Some(p) =
@@ -166,45 +132,51 @@ mod tests {
     }
 
     #[test]
-    fn band_centres_match_the_varsom_convention_hues() {
-        assert!(classify(10.0).is_none(), "gentle ground is transparent");
-        assert!(classify(26.0).is_none(), "below the fade-in is transparent");
-        // Band centres (away from any feather) are the pure band colours.
-        assert_eq!(classify(28.5).unwrap(), BANDS[0].1, "27–30 straw");
-        assert_eq!(classify(32.5).unwrap(), BANDS[1].1, "30–35 ochre");
-        assert_eq!(classify(37.5).unwrap(), BANDS[2].1, "35–40 terracotta");
-        assert_eq!(classify(42.5).unwrap(), BANDS[3].1, "40–45 plum");
-        assert_eq!(classify(60.0).unwrap(), BANDS[4].1, "45+ violet");
-        assert!(classify(f32::NAN).is_none(), "nodata transparent");
+    fn gradient_is_transparent_then_yellow_then_red() {
+        assert!(color_for_slope(10.0).is_none(), "gentle ground transparent");
+        assert!(color_for_slope(25.0).is_none(), "ramp start is still transparent");
+        assert!(color_for_slope(f32::NAN).is_none(), "nodata transparent");
+
+        let yellow = color_for_slope(30.0).unwrap();
+        assert!(yellow.r > 0xD0 && yellow.g > 0xB0, "30° is yellow: {yellow:?}");
+
+        let red = color_for_slope(50.0).unwrap();
+        assert!(red.r > 0xB0 && red.g < 0x60, "steep is red: {red:?}");
+        assert_eq!(
+            color_for_slope(45.0).unwrap(),
+            color_for_slope(80.0).unwrap(),
+            "clamps at the last stop"
+        );
     }
 
     #[test]
-    fn band_edges_feather_instead_of_jumping() {
-        // The 30° boundary: just below and just above must be close in
-        // colour (no hard hue jump), and the exact threshold is the 50/50
-        // blend of straw and ochre.
-        let below = classify(29.9).unwrap();
-        let above = classify(30.1).unwrap();
-        assert!(
-            (below.r as i16 - above.r as i16).abs() < 12
-                && (below.g as i16 - above.g as i16).abs() < 12,
-            "boundary must be continuous: {below:?} vs {above:?}"
-        );
-        let mid = classify(30.0).unwrap();
-        let expect_r = (BANDS[0].1.r as f32 + BANDS[1].1.r as f32) / 2.0;
-        assert!((mid.r as f32 - expect_r).abs() <= 1.0, "50/50 at the threshold");
-
-        // Fade-in: alpha ramps from 0 below 27° to the full band alpha.
-        let lo = classify(26.4).unwrap();
-        let hi = classify(27.7).unwrap();
-        assert!(lo.a < hi.a && hi.a <= BANDS[0].1.a, "alpha ramps in: {lo:?} {hi:?}");
+    fn gradient_is_continuous_and_monotonic() {
+        // No jumps anywhere: walk the ramp in 0.1° steps and bound the
+        // per-step colour delta. Alpha must never decrease (steeper is
+        // never *less* visible) and green must never increase (the hue
+        // only moves yellow → red).
+        let mut prev = color_for_slope(25.05).unwrap();
+        let mut deg = 25.1;
+        while deg < 55.0 {
+            let c = color_for_slope(deg).unwrap();
+            assert!(
+                (c.r as i16 - prev.r as i16).abs() <= 2
+                    && (c.g as i16 - prev.g as i16).abs() <= 2
+                    && (c.a as i16 - prev.a as i16).abs() <= 2,
+                "jump at {deg}°: {prev:?} → {c:?}"
+            );
+            assert!(c.a >= prev.a, "alpha dipped at {deg}°");
+            assert!(c.g <= prev.g, "hue reversed at {deg}°");
+            prev = c;
+            deg += 0.1;
+        }
     }
 
     #[test]
     fn overlay_alpha_stays_translucent() {
-        // The whole point of the rework: the overlay tints, never paints.
-        for (deg, c) in BANDS {
-            assert!(c.a <= 135, "band at {deg}° too opaque: alpha {}", c.a);
+        // The overlay tints, never paints: hard cap on every stop.
+        for (deg, _, _, _, a) in GRADIENT {
+            assert!(*a <= 130, "stop at {deg}° too opaque: alpha {a}");
         }
     }
 
