@@ -819,6 +819,16 @@ impl Map {
         false
     }
 
+    // ---- fonts ---------------------------------------------------------
+
+    /// Register a fallback font face (owned bytes) for scripts the bundled
+    /// default doesn't cover (CJK, Arabic, …). Returns `false` if the bytes
+    /// don't parse. Faces added earlier win where they have coverage, so
+    /// the bundled Latin face is always preferred for Latin text.
+    pub fn add_fallback_font(&mut self, bytes: Vec<u8>) -> bool {
+        self.text_pipeline.add_fallback_face(bytes)
+    }
+
     // ---- markers -------------------------------------------------------
 
     pub fn add_marker(&mut self, mut marker: Marker) -> MarkerId {

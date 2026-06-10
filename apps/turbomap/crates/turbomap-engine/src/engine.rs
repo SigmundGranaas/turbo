@@ -426,6 +426,14 @@ impl TurbomapEngine {
     pub fn map(&self) -> &Map {
         &self.map
     }
+
+    /// Register a fallback font face for scripts the bundled Latin default
+    /// doesn't cover (CJK, Arabic, …). The host supplies the font bytes
+    /// (bundled asset or platform font). Returns `false` if they don't
+    /// parse. Glyphs pack into the shared atlas on first use.
+    pub fn add_fallback_font(&mut self, bytes: Vec<u8>) -> bool {
+        self.map.add_fallback_font(bytes)
+    }
 }
 
 impl MapEngine for TurbomapEngine {

@@ -318,6 +318,14 @@ impl TextPipeline {
         }
     }
 
+    /// Register a fallback font face for scripts the bundled default
+    /// doesn't cover (CJK, Arabic, …). New glyphs pack into the existing
+    /// atlas and are re-uploaded on the next dirty frame. Returns `false`
+    /// if the bytes don't parse as a font.
+    pub(crate) fn add_fallback_face(&mut self, bytes: Vec<u8>) -> bool {
+        self.atlas.add_fallback_face(bytes)
+    }
+
     /// Reset the frame-local staging list. Call once per `Map::render`
     /// before the per-layer `prepare` calls.
     pub(crate) fn begin_frame(&mut self) {

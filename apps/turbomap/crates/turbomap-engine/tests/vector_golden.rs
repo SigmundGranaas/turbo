@@ -554,6 +554,101 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
 }
 
 #[test]
+fn cjk_labels_render_via_fallback_font() {
+    // A non-Latin label only renders if the host registers a covering font
+    // and the glyph-id atlas falls back to it. Register a system CJK face,
+    // label two places in Japanese, and prove dark glyph ink appears.
+    // Skips cleanly where there's no GPU or no system CJK font.
+    const CJK_FONT: &str = "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf";
+    let Ok(font_bytes) = std::fs::read(CJK_FONT) else {
+        eprintln!("SKIP: no system CJK font at {CJK_FONT}");
+        return;
+    };
+    let Some(gpu) = headless() else {
+        if std::env::var("REQUIRE_GPU").as_deref() == Ok("1") {
+            panic!("REQUIRE_GPU=1 but no wgpu adapter available");
+        }
+        eprintln!("SKIP: no wgpu adapter available");
+        return;
+    };
+
+    let (width, height) = (512, 384);
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "places".to_string(),
+        SourceDef::GeoJson {
+            data: r#"{"type":"FeatureCollection","features":[
+                {"type":"Feature","properties":{"name":"東京"},"geometry":{"type":"Point","coordinates":[5.32,60.42]}},
+                {"type":"Feature","properties":{"name":"大阪"},"geometry":{"type":"Point","coordinates":[5.32,60.36]}}
+            ]}"#
+            .to_string(),
+        },
+    );
+    scene.layers.push(Layer::Raster {
+        id: "basemap".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Symbol {
+        id: "labels".to_string(),
+        source: "places".to_string(),
+        source_layer: None,
+        filter: Filter::Always,
+        text_field: "name".to_string(),
+        text_size: Paint::Const(28.0),
+        color: Paint::Const(Color::rgb(25, 25, 35)),
+        halo_color: Paint::Const(Color::rgb(250, 250, 252)),
+        halo_width: Paint::Const(1.6),
+        sort_key: None,
+        placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
+    });
+
+    let mut engine = TurbomapEngine::new(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        TARGET_FORMAT,
+        (width, height),
+        CameraState::new(LatLng::new(60.39, 5.32), 11.0),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+        Box::new(SyntheticResolver),
+    )
+    .expect("construct TurbomapEngine");
+
+    // The host supplies the CJK face; without it these labels would be
+    // empty (.notdef) boxes.
+    assert!(engine.add_fallback_font(font_bytes), "CJK font must parse");
+
+    engine.apply(scene);
+    engine.pump_tiles();
+    let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
+    engine.after_submit();
+
+    let dark = image
+        .pixels()
+        .filter(|p| (0..3).all(|i| p.0[i].abs_diff([25, 25, 35][i]) <= 50))
+        .count();
+    assert!(dark > 120, "CJK label ink should render, dark px = {dark}");
+
+    assert_golden(
+        "cjk-labels-fallback",
+        &image,
+        GoldenConfig { max_channel_diff: 6, max_outlier_frac: 0.02 },
+    );
+}
+
+#[test]
 fn road_name_follows_the_centerline() {
     // A curved road with a `name`, labelled with `placement: line`. The
     // glyphs must run *along* the curve (rotated to the tangent), not sit
