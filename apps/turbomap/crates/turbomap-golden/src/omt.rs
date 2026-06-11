@@ -294,6 +294,7 @@ pub fn bergen_scene() -> Scene {
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
+        letter_spacing: 0.10, // districts / place names tracked, Google-style
     });
     scene.layers.push(Layer::Symbol {
         id: "water-names".to_string(),
@@ -311,6 +312,7 @@ pub fn bergen_scene() -> Scene {
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
+        letter_spacing: 0.18, // water bodies strongly tracked
     });
     scene.layers.push(Layer::Symbol {
         id: "street-names".to_string(),
@@ -329,6 +331,7 @@ pub fn bergen_scene() -> Scene {
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
+        letter_spacing: 0.0,
     });
 
     // POIs: a curated set of landmarks, each a colour-coded dot with the
@@ -354,6 +357,7 @@ pub fn bergen_scene() -> Scene {
             icon_size: Paint::Const(12.0),
             icon_color: Paint::Const(dot),
             text_anchor: TextAnchor::Left,
+            letter_spacing: 0.0,
         });
     };
     // Food & drink — a fork, warm orange.

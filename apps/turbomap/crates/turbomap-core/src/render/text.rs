@@ -439,7 +439,12 @@ impl TextPipeline {
             // origin). Translate by `screen` to get this frame's positions.
             let cached: Vec<crate::text::LayoutGlyph> = self
                 .layout_cache
-                .get_or_compute(&label.text, label.font_size_px, &mut self.atlas)
+                .get_or_compute(
+                    &label.text,
+                    label.font_size_px,
+                    label.letter_spacing,
+                    &mut self.atlas,
+                )
                 .to_vec();
             // Horizontal placement: centred on the anchor by default, or —
             // for a left-anchored POI label — shifted so the text's left

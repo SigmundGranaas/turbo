@@ -90,6 +90,9 @@ pub struct LabelRequest {
     /// `pad` screen-pixels right of the projected anchor (clearing an icon).
     /// `None` ⇒ centred on the anchor (the default). Ignored for line labels.
     pub left_pad_px: Option<f32>,
+    /// Extra tracking between glyphs, in em (0 = none). Point/area labels
+    /// (water, districts) space out the way real basemaps track them.
+    pub letter_spacing: f32,
 }
 
 /// One sprite "intent" extracted from a tile: a named icon to draw at a
@@ -338,6 +341,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     along_line,
                     icon,
                     left_anchor,
+                    letter_spacing,
                 } => {
                     // Text is optional: an icon-only layer (a bare POI
                     // marker) has no `text_field` value, but still draws.
@@ -365,6 +369,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             rank,
                             path,
                             left_pad_px,
+                            letter_spacing: *letter_spacing,
                         })
                     };
                     if *along_line {
@@ -916,6 +921,7 @@ mod tests {
             along_line: false,
             icon,
             left_anchor,
+            letter_spacing: 0.0,
         };
         let rule = |paint| Rule {
             source_layer: "poi".into(),
@@ -988,6 +994,7 @@ mod tests {
                     along_line: false,
                     icon: None,
                     left_anchor: false,
+                    letter_spacing: 0.0,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
@@ -1038,6 +1045,7 @@ mod tests {
                     along_line: false,
                     icon: None,
                     left_anchor: false,
+                    letter_spacing: 0.0,
                 },
                 min_zoom: 0,
                 max_zoom: 22,

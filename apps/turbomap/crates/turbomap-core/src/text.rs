@@ -576,6 +576,8 @@ struct LayoutKey {
     text: String,
     /// font size in tenths of a pixel — quantises to avoid float-key issues.
     font_size_tenths: u32,
+    /// letter spacing in thousandths of an em — quantised for the key.
+    spacing_milli: u32,
 }
 
 impl LayoutCache {
@@ -589,15 +591,17 @@ impl LayoutCache {
         &mut self,
         text: &str,
         font_size_px: f32,
+        letter_spacing_em: f32,
         atlas: &mut FontAtlas,
     ) -> &[LayoutGlyph] {
         let key = LayoutKey {
             text: text.to_owned(),
             font_size_tenths: (font_size_px * 10.0).round() as u32,
+            spacing_milli: (letter_spacing_em * 1000.0).round() as u32,
         };
-        self.entries
-            .entry(key)
-            .or_insert_with(|| layout(text, font_size_px, (0.0, 0.0), atlas))
+        self.entries.entry(key).or_insert_with(|| {
+            layout(text, font_size_px, (0.0, 0.0), atlas, letter_spacing_em)
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -621,16 +625,23 @@ pub fn layout(
     font_size_px: f32,
     anchor_px: (f32, f32),
     atlas: &mut FontAtlas,
+    letter_spacing_em: f32,
 ) -> Vec<LayoutGlyph> {
     let scale = font_size_px / RASTER_PX;
+    // Extra tracking between glyphs, in pixels (em × font size). Area labels
+    // (water, districts) are spaced out the way Google tracks them.
+    let spacing = letter_spacing_em * font_size_px;
     let glyphs = atlas.shape(text);
+    let n = glyphs.len();
 
-    // Total advance (HarfBuzz's, not the raw glyph advance) for centering.
-    let total_advance: f32 = glyphs.iter().map(|g| g.x_advance * scale).sum();
+    // Total advance (HarfBuzz's, not the raw glyph advance) for centering,
+    // plus tracking between the n glyphs.
+    let total_advance: f32 = glyphs.iter().map(|g| g.x_advance * scale).sum::<f32>()
+        + spacing * n.saturating_sub(1) as f32;
 
     let mut cursor_x = anchor_px.0 - total_advance * 0.5;
     let baseline_y = anchor_px.1;
-    let mut out = Vec::with_capacity(glyphs.len());
+    let mut out = Vec::with_capacity(n);
     for sg in &glyphs {
         if let Some(g) = atlas.ensure(sg.face_id, sg.glyph_id) {
             if g.width > 0 && g.height > 0 {
@@ -646,7 +657,7 @@ pub fn layout(
                 });
             }
         }
-        cursor_x += sg.x_advance * scale;
+        cursor_x += sg.x_advance * scale + spacing;
     }
     out
 }
@@ -847,7 +858,7 @@ mod tests {
         assert!(g.width > 0 && g.height > 0, "CJK glyph has pixels");
 
         // Mixed Latin+CJK lays out with a glyph per visible char.
-        let glyphs = layout("A東", 24.0, (0.0, 0.0), &mut atlas);
+        let glyphs = layout("A東", 24.0, (0.0, 0.0), &mut atlas, 0.0);
         assert!(glyphs.len() >= 2, "mixed run lays out, got {}", glyphs.len());
     }
 
@@ -907,7 +918,7 @@ mod tests {
     fn layout_emits_glyphs_in_reading_order_with_monotonic_x() {
         // "Hello" — five visible glyphs, each placed left-to-right.
         let mut atlas = FontAtlas::new();
-        let glyphs = layout("Hello", 16.0, (500.0, 300.0), &mut atlas);
+        let glyphs = layout("Hello", 16.0, (500.0, 300.0), &mut atlas, 0.0);
         assert_eq!(
             glyphs.len(),
             5,
@@ -928,7 +939,7 @@ mod tests {
     fn layout_centres_text_horizontally_around_anchor() {
         let mut atlas = FontAtlas::new();
         let anchor = (1000.0_f32, 500.0_f32);
-        let glyphs = layout("Oslo", 20.0, anchor, &mut atlas);
+        let glyphs = layout("Oslo", 20.0, anchor, &mut atlas, 0.0);
         let aabb = Aabb::from_glyphs(&glyphs).unwrap();
         let centre = (aabb.min_x + aabb.max_x) * 0.5;
         // Within one pixel of the anchor — exact equality depends on per-
@@ -937,6 +948,32 @@ mod tests {
             (centre - anchor.0).abs() < 4.0,
             "expected centred around {}, got centre {centre} (aabb {aabb:?})",
             anchor.0,
+        );
+    }
+
+    #[test]
+    fn layout_letter_spacing_widens_the_run_proportionally() {
+        // Tracking pushes glyphs apart: the same string laid out with a
+        // positive `letter_spacing_em` must span a wider box than with none,
+        // while keeping the same number of glyphs and reading order.
+        let mut atlas = FontAtlas::new();
+        let anchor = (1000.0_f32, 500.0_f32);
+        let tight = layout("Vagen", 20.0, anchor, &mut atlas, 0.0);
+        let spaced = layout("Vagen", 20.0, anchor, &mut atlas, 0.2);
+        assert_eq!(tight.len(), spaced.len(), "glyph count must not change");
+        let tight_w = {
+            let a = Aabb::from_glyphs(&tight).unwrap();
+            a.max_x - a.min_x
+        };
+        let spaced_w = {
+            let a = Aabb::from_glyphs(&spaced).unwrap();
+            a.max_x - a.min_x
+        };
+        // Four gaps between five glyphs, each widened by 0.2 * 20px = 4px,
+        // so the spaced run is ~16px wider. Allow slack for AABB bearings.
+        assert!(
+            spaced_w > tight_w + 8.0,
+            "letter-spacing must widen the run: tight {tight_w} vs spaced {spaced_w}",
         );
     }
 
@@ -980,9 +1017,9 @@ mod tests {
     fn layout_cache_hit_returns_the_same_glyphs_as_a_miss() {
         let mut atlas = FontAtlas::new();
         let mut cache = LayoutCache::new();
-        let first = cache.get_or_compute("Bergen", 14.0, &mut atlas).to_vec();
+        let first = cache.get_or_compute("Bergen", 14.0, 0.0, &mut atlas).to_vec();
         assert_eq!(cache.len(), 1);
-        let second = cache.get_or_compute("Bergen", 14.0, &mut atlas).to_vec();
+        let second = cache.get_or_compute("Bergen", 14.0, 0.0, &mut atlas).to_vec();
         // Cache size unchanged on the second call.
         assert_eq!(cache.len(), 1);
         assert_eq!(first, second);
@@ -992,8 +1029,8 @@ mod tests {
     fn layout_cache_distinct_keys_for_distinct_text() {
         let mut atlas = FontAtlas::new();
         let mut cache = LayoutCache::new();
-        cache.get_or_compute("Bergen", 14.0, &mut atlas);
-        cache.get_or_compute("Oslo", 14.0, &mut atlas);
+        cache.get_or_compute("Bergen", 14.0, 0.0, &mut atlas);
+        cache.get_or_compute("Oslo", 14.0, 0.0, &mut atlas);
         assert_eq!(cache.len(), 2);
     }
 
@@ -1001,8 +1038,8 @@ mod tests {
     fn layout_cache_distinct_keys_for_distinct_sizes() {
         let mut atlas = FontAtlas::new();
         let mut cache = LayoutCache::new();
-        cache.get_or_compute("Bergen", 14.0, &mut atlas);
-        cache.get_or_compute("Bergen", 16.0, &mut atlas);
+        cache.get_or_compute("Bergen", 14.0, 0.0, &mut atlas);
+        cache.get_or_compute("Bergen", 16.0, 0.0, &mut atlas);
         assert_eq!(cache.len(), 2);
     }
 
@@ -1012,10 +1049,10 @@ mod tests {
         // a cache entry. 14.05 rounds to 14.1, separate entry.
         let mut atlas = FontAtlas::new();
         let mut cache = LayoutCache::new();
-        cache.get_or_compute("Bergen", 14.00, &mut atlas);
-        cache.get_or_compute("Bergen", 14.04, &mut atlas);
+        cache.get_or_compute("Bergen", 14.00, 0.0, &mut atlas);
+        cache.get_or_compute("Bergen", 14.04, 0.0, &mut atlas);
         assert_eq!(cache.len(), 1, "same tenth ⇒ same entry");
-        cache.get_or_compute("Bergen", 14.10, &mut atlas);
+        cache.get_or_compute("Bergen", 14.10, 0.0, &mut atlas);
         assert_eq!(cache.len(), 2, "different tenth ⇒ new entry");
     }
 
@@ -1026,7 +1063,7 @@ mod tests {
         // re-running layout.
         let mut atlas = FontAtlas::new();
         let mut cache = LayoutCache::new();
-        let glyphs = cache.get_or_compute("Hi", 16.0, &mut atlas).to_vec();
+        let glyphs = cache.get_or_compute("Hi", 16.0, 0.0, &mut atlas).to_vec();
         let aabb = Aabb::from_glyphs(&glyphs).expect("glyphs present");
         let centre = (aabb.min_x + aabb.max_x) * 0.5;
         assert!(centre.abs() < 4.0, "expected ~0 centre, got {centre}");

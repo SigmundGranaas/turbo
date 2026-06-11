@@ -163,6 +163,7 @@ pub fn basemap_scene() -> Scene {
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
+        letter_spacing: 0.0,
     });
     scene
 }

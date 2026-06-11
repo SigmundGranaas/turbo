@@ -201,6 +201,11 @@ pub enum Layer {
         /// to the right of the icon (POI markers).
         #[serde(default)]
         text_anchor: TextAnchor,
+        /// Extra tracking between glyphs in em (0 = none) — area labels
+        /// (water bodies, districts) are spaced out, the convention that
+        /// signals a place's spatial extent. Point labels only.
+        #[serde(default)]
+        letter_spacing: f32,
     },
     Hillshade {
         id: String,
