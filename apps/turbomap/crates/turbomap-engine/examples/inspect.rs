@@ -148,6 +148,7 @@ fn layer_type(layer: &Layer) -> &'static str {
     match layer {
         Layer::Raster { .. } => "raster",
         Layer::Fill { .. } => "fill",
+        Layer::FillExtrusion { .. } => "fill-extrusion",
         Layer::Line { .. } => "line",
         Layer::Circle { .. } => "circle",
         Layer::Symbol { .. } => "symbol",

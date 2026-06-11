@@ -187,10 +187,14 @@ impl VectorPipeline {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            // The Map's single frame pass always carries a depth
-            // attachment. Vector geometry is a screen-space overlay —
-            // always in front, never writing z.
-            depth_stencil: Some(super::overlay_depth_state()),
+            // Depth-tested (LessEqual + write), like the ground raster. Flat
+            // geometry sits at z=0 == the ground depth, so equal-depth fills
+            // still composite in painter (layer) order — byte-identical to
+            // the old no-depth path. Extruded geometry (3D buildings, z>0)
+            // then self-occludes correctly: near roofs/walls over far ones,
+            // and the building hides the ground beneath it. Text/markers
+            // stay on `overlay_depth_state` (Always) so labels ride on top.
+            depth_stencil: Some(super::ground_depth_state()),
             multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,

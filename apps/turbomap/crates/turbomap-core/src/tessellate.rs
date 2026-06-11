@@ -195,6 +195,63 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                         );
                     }
                 }
+                Paint::FillExtrusion { color, height_m } => {
+                    if let Geometry::Polygon(rings) = &feature.geometry {
+                        let h = meters_to_world_z(tile_id, *height_m);
+                        let roof = pack_color(*color);
+                        // Walls a touch darker so the form reads when tilted.
+                        let wall = pack_color(shade(*color, 0.72));
+                        // Roof: the polygon fill, lifted to z = h.
+                        let path = build_polygon_path(tile_id, extent, rings);
+                        let mut builder =
+                            BuffersBuilder::new(&mut buffers, |v: FillVertex| VectorVertex {
+                                base: v.position().to_array(),
+                                normal: [0.0, 0.0],
+                                width_px: 0.0,
+                                color: roof,
+                                edge_pos: [128, 0, 0, 0],
+                                dist: 0.0,
+                                z: h,
+                            });
+                        let _ = fill_tess.tessellate_path(
+                            &path,
+                            &FillOptions::default().with_tolerance(tolerance),
+                            &mut builder,
+                        );
+                        // Walls: a vertical quad per ring edge, ground → roof.
+                        for ring in rings {
+                            let pts: Vec<[f32; 2]> = ring
+                                .iter()
+                                .map(|&p| project(tile_id, extent, p).to_array())
+                                .collect();
+                            for seg in pts.windows(2) {
+                                let (a, b) = (seg[0], seg[1]);
+                                let v = |xy: [f32; 2], z: f32| VectorVertex {
+                                    base: xy,
+                                    normal: [0.0, 0.0],
+                                    width_px: 0.0,
+                                    color: wall,
+                                    edge_pos: [128, 0, 0, 0],
+                                    dist: 0.0,
+                                    z,
+                                };
+                                let base_i = buffers.vertices.len() as u32;
+                                buffers.vertices.push(v(a, 0.0));
+                                buffers.vertices.push(v(b, 0.0));
+                                buffers.vertices.push(v(b, h));
+                                buffers.vertices.push(v(a, h));
+                                buffers.indices.extend_from_slice(&[
+                                    base_i,
+                                    base_i + 1,
+                                    base_i + 2,
+                                    base_i,
+                                    base_i + 2,
+                                    base_i + 3,
+                                ]);
+                            }
+                        }
+                    }
+                }
                 Paint::Line { color, width } => {
                     // A line rule strokes line geometry *and* polygon rings
                     // (the latter is the outline around fills).
@@ -446,6 +503,26 @@ fn pack_color(c: Color) -> [u8; 4] {
     c.to_linear_bytes()
 }
 
+/// Multiply a colour's RGB by `f` (alpha unchanged) for cheap wall shading.
+fn shade(c: Color, f: f32) -> Color {
+    let s = |v: u8| (v as f32 * f).clamp(0.0, 255.0) as u8;
+    Color::rgba(s(c.r), s(c.g), s(c.b), c.a)
+}
+
+/// Convert a height in metres to world-Z (the same units as the tile-local
+/// mesh once placed by `origin + base * span`). Web Mercator stretches with
+/// latitude, so 1 world unit = `EQUATOR_M · cos(lat)` ground metres at the
+/// tile's centre latitude — heights then read proportional to the streets
+/// around them.
+fn meters_to_world_z(tile_id: TileId, height_m: f32) -> f32 {
+    const EQUATOR_M: f64 = 40_075_016.7;
+    let n = (1u64 << tile_id.z) as f64;
+    let world_y = (tile_id.y as f64 + 0.5) / n;
+    let lat = crate::geo::WorldPoint::new(0.5, world_y).to_lat_lng().lat;
+    let m_per_world = EQUATOR_M * lat.to_radians().cos();
+    (height_m as f64 / m_per_world) as f32
+}
+
 #[cfg(test)]
 mod tests {
     //! The tessellator is the bridge between vector data and the GPU. The
@@ -516,6 +593,46 @@ mod tests {
             geometry: Geometry::LineString(lines),
             properties: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn fill_extrusion_emits_a_raised_roof_and_walls() {
+        // A square building extruded: the mesh must contain roof vertices at
+        // z = height and wall vertices spanning ground (z=0) to roof — a flat
+        // fill would be entirely z=0.
+        let tile = VectorTile {
+            layers: vec![crate::vector::Layer {
+                name: "building".into(),
+                version: 2,
+                extent: 4096,
+                features: vec![poly(vec![vec![
+                    (1000, 1000),
+                    (1200, 1000),
+                    (1200, 1200),
+                    (1000, 1200),
+                    (1000, 1000),
+                ]])],
+            }],
+        };
+        let style = VectorStyle {
+            background: Color::rgb(255, 255, 255),
+            rules: vec![Rule {
+                source_layer: "building".into(),
+                filter: Filter::Always,
+                paint: Paint::FillExtrusion { color: Color::rgb(200, 190, 180), height_m: 20.0 },
+                min_zoom: 0,
+                max_zoom: 22,
+                interactive: false,
+            }],
+        };
+        let out = tessellate(TileId::new(14, 8434, 4722), &tile, &style);
+        let zs: Vec<f32> = out.mesh.vertices.iter().map(|v| v.z).collect();
+        let h = zs.iter().cloned().fold(0.0f32, f32::max);
+        assert!(h > 0.0, "extrusion has a non-zero height");
+        assert!(zs.contains(&0.0), "walls reach the ground (z=0)");
+        assert!(zs.iter().any(|&z| (z - h).abs() < 1e-9), "roof + wall tops at z=h");
+        // Roof (≥1 tri) + 4 wall quads (2 tris each) ⇒ well over a flat fill.
+        assert!(out.mesh.indices.len() >= 3 + 4 * 6, "roof + four walls");
     }
 
     #[test]

@@ -221,6 +221,22 @@ impl TurbomapEngine {
                     }
                 }
             }
+            Layer::FillExtrusion {
+                id,
+                source,
+                source_layer,
+                filter,
+                color,
+                height_m,
+            } => {
+                if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
+                    let zoom = self.map.camera().zoom;
+                    let name = geojson_or_declared(scene, source, source_layer);
+                    let style = fill_extrusion_style(name, filter, color, height_m, zoom);
+                    self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
+                    self.vector_sources.insert(id.clone(), vsrc);
+                }
+            }
             Layer::Symbol {
                 id,
                 source,
@@ -629,6 +645,7 @@ fn positional_layers(scene: &Scene) -> Vec<Layer> {
                 Layer::Raster { .. }
                     | Layer::Line { .. }
                     | Layer::Fill { .. }
+                    | Layer::FillExtrusion { .. }
                     | Layer::Symbol { .. }
                     | Layer::Hillshade { .. }
             )
@@ -664,7 +681,10 @@ fn is_supportable(layer: &Layer, scene: &Scene) -> bool {
     match layer {
         Layer::Raster { .. } => source_is(|d| matches!(d, SourceDef::RasterXyz { .. })),
         Layer::Hillshade { .. } => source_is(|d| matches!(d, SourceDef::DemXyz { .. })),
-        Layer::Line { .. } | Layer::Fill { .. } | Layer::Symbol { .. } => {
+        Layer::Line { .. }
+        | Layer::Fill { .. }
+        | Layer::FillExtrusion { .. }
+        | Layer::Symbol { .. } => {
             source_is(|d| matches!(d, SourceDef::GeoJson { .. } | SourceDef::VectorXyz { .. }))
         }
         Layer::Circle { .. } => source_is(|d| matches!(d, SourceDef::GeoJson { .. })),
@@ -738,6 +758,35 @@ fn fill_style(
                 max_zoom: 22,
                 interactive: false,
             }
+        })
+        .collect();
+    VectorStyle {
+        background: CoreColor::rgba(0, 0, 0, 0),
+        rules,
+    }
+}
+
+/// Build a core `VectorStyle` for a Scene `FillExtrusion` layer — extrude
+/// matching polygons to 3D prisms. Colour can be data-driven (per class);
+/// `height_m` is evaluated at the current zoom (height curves are rare, so
+/// a single value per build is fine).
+fn fill_extrusion_style(
+    layer_name: String,
+    filter: &Filter,
+    color: &Paint<Color>,
+    height_m: &Paint<f32>,
+    zoom: f64,
+) -> VectorStyle {
+    let h = height_m.at(zoom);
+    let rules = color_rules(filter, color, zoom)
+        .into_iter()
+        .map(|(f, c)| CoreRule {
+            source_layer: layer_name.clone(),
+            filter: f,
+            paint: CorePaint::FillExtrusion { color: c, height_m: h },
+            min_zoom: 0,
+            max_zoom: 22,
+            interactive: false,
         })
         .collect();
     VectorStyle {

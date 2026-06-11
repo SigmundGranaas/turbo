@@ -114,6 +114,19 @@ pub enum Layer {
         #[serde(default = "opaque")]
         opacity: Paint<f32>,
     },
+    /// Extrude matching polygons to 3D prisms `height_m` metres tall — the
+    /// building-extrusion layer. Reads as flat from straight down; the form
+    /// appears as the camera pitches.
+    FillExtrusion {
+        id: String,
+        source: String,
+        #[serde(default)]
+        source_layer: Option<String>,
+        #[serde(default)]
+        filter: Filter,
+        color: Paint<Color>,
+        height_m: Paint<f32>,
+    },
     Line {
         id: String,
         source: String,
@@ -216,6 +229,7 @@ impl Layer {
         match self {
             Layer::Raster { id, .. }
             | Layer::Fill { id, .. }
+            | Layer::FillExtrusion { id, .. }
             | Layer::Line { id, .. }
             | Layer::Circle { id, .. }
             | Layer::Symbol { id, .. }
@@ -229,6 +243,7 @@ impl Layer {
         match self {
             Layer::Raster { source, .. }
             | Layer::Fill { source, .. }
+            | Layer::FillExtrusion { source, .. }
             | Layer::Line { source, .. }
             | Layer::Circle { source, .. }
             | Layer::Symbol { source, .. }

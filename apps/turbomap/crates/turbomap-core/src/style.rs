@@ -86,6 +86,14 @@ pub enum Paint {
         color: Color,
         width: f32,
     },
+    /// Extrude a polygon to a 3D prism: a flat roof at `height_m` metres
+    /// plus vertical walls down to the ground. Walls are shaded darker than
+    /// the roof so the form reads under a tilted camera. Only meaningful
+    /// with pitch > 0.
+    FillExtrusion {
+        color: Color,
+        height_m: f32,
+    },
     /// Render the feature's value at `text_field` as a text label at the
     /// feature's point. `font_size_px` is the rasterised line height.
     ///
@@ -256,6 +264,7 @@ fn filter_matches(filter: &Filter, feature: &Feature) -> bool {
 fn paint_matches_geom_type(paint: &Paint, gt: GeomType) -> bool {
     match (paint, gt) {
         (Paint::Fill { .. }, GeomType::Polygon) => true,
+        (Paint::FillExtrusion { .. }, GeomType::Polygon) => true,
         (Paint::Line { .. }, GeomType::LineString) => true,
         // A line rule also strokes polygon rings — the outline real maps
         // draw around buildings, water and landuse to separate adjacent
