@@ -370,3 +370,24 @@ impl RoutingBudget { pub fn low_end() -> Self; pub fn server() -> Self; }
 ## 10. Summary
 
 The router doesn't need new algorithms — it needs the **build → solve → extract** separation the FMM crate already demonstrates, lifted into the live path and wrapped in a resource-owning service. Four seams (`RouteGrid`, `CostField`, `StepMetric`, `Solver`) + one executor turn every profiled bottleneck from a patch into a structural impossibility, make the engine unit-testable for the first time, and reduce per-request memory ~3× while collapsing the dominant DEM-sampling CPU cost. Start with **Phase 0** — it is cheap, reversible, and unlocks everything after it.
+
+---
+
+## Status (2026-06-11)
+
+Executed via the autonomous routing dev loop (`tools/ROUTING_DEV_LOOP.md`);
+every step gated on the corpus (geometry hash / quality / determinism /
+DEM-work axes).
+
+| Phase | Status | Notes |
+|---|---|---|
+| P0 — seam extraction | **DONE** (`a02f862`) | One `cost_field::LazyCostField` (impl `fmm::CellOverlay`) replaced both per-router overlays; `unified::Corridor` deleted in favour of the canonical `GridShape` via `corridor_shape()`. Loop-proven pure: DEM lookups unchanged to the digit on both lanes, geometry identical. |
+| P1 — `EagerField` | **CLOSED, WON'T DO** | Premise invalidated by measurement. The eager tile-ordered bake was justified by scattered random DEM access (~80 lookups/cell). The `EdgeElevProbe` + per-cell memos + single-tile-resolve work cut that to ~5 lookups/cell (~96% total reduction), and the lazy field only pays for *explored* cells — an eager bake would evaluate the full corridor (2–4× more cells) for no remaining locality benefit. |
+| P2 — `FieldPool` | **CLOSED, WON'T DO** | dhat profiling: per-solve heap churn is diffuse (rstar query internals, polygon math, small probe vectors — no dominant site) at ~0.5 GB/1.6 M blocks per off-trail solve, with solves at ~250 ms mean. Pooling would save allocator traffic nobody can measure end-to-end. Revisit only if solve concurrency × corridor size grows an order of magnitude. |
+| P3 — executor / resource bounds | **DONE in substance** (`7b736fb`, `4a66e0d`) | Routing-solve `Semaphore` (`TILESERVER_ROUTING_CONCURRENCY`) gates all five API solve sites; inline solves moved off async workers; `TILESERVER_DEM_CACHE_BYTES` wired (and set in the k8s manifest). The full `RoutingExecutor` abstraction was not needed once these landed — `routing_setup::build_pathfinder()` is the construction seam shared by serve + eval. |
+| P4 — delete legacy | **OPEN** | Theta\* remnants, `mesh_inputs_for_bbox`, the legacy multiplicative `CostLayer`/`compose_*` machinery (every production layer has a native contributor; `contributor.rs`'s own migration plan step 5). Pure maintenance-surface reduction; loop-gated whenever taken. |
+
+Related outcomes the plan didn't anticipate: O(1) LRU for the tile cache
+measured as unnecessary (entry counts are small; zstd dominates misses);
+a thread-local last-tile memo was rejected for moving geometry on tile
+overlaps (perf changes must stay bit-exact).

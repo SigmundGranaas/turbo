@@ -38,7 +38,15 @@ pub(crate) struct LazyCostField<'a> {
     mul: std::cell::RefCell<Vec<f32>>,
     /// Per-cell cell-centre elevation memo. The mesh solvers query each
     /// cell's elevation up to ~16× (once per incident move); memoising
-    /// collapses that to one `Dem::sample()` per cell.
+    /// collapses that to one `Dem::sample()` per cell. Sized lazily on
+    /// first use: the grade-limited path never calls `elevation()` (its
+    /// solver reads elevation through `fmm_adapter::DemElevation`, which
+    /// carries its own per-cell memo), so eager allocation would zero
+    /// ~0.5 MB per GL solve for nothing. Full unification of the two
+    /// memos was considered and rejected: `fmm::Elevation` requires
+    /// `Send + Sync` (this type is `!Sync` via `RefCell`), and since
+    /// each path touches exactly one of the memos, no double-sampling
+    /// actually occurs — the only waste was this allocation.
     elev: std::cell::RefCell<Vec<f32>>,
     refused_by: std::cell::RefCell<std::collections::BTreeSet<String>>,
 }
@@ -60,7 +68,7 @@ impl<'a> LazyCostField<'a> {
             contributors,
             state: std::cell::RefCell::new(vec![0u8; n]),
             mul: std::cell::RefCell::new(vec![1.0f32; n]),
-            elev: std::cell::RefCell::new(vec![f32::INFINITY; n]),
+            elev: std::cell::RefCell::new(Vec::new()),
             refused_by: std::cell::RefCell::new(std::collections::BTreeSet::new()),
         }
     }
@@ -143,6 +151,15 @@ impl<'a> LazyCostField<'a> {
     /// `None` = no DEM coverage. Does NOT run the contributor stack.
     pub(crate) fn elevation(&self, i: u32, j: u32) -> Option<f32> {
         let idx = self.idx(i, j);
+        {
+            let mut m = self.elev.borrow_mut();
+            if m.is_empty() {
+                m.resize(
+                    (self.shape.nx as usize) * (self.shape.ny as usize),
+                    f32::INFINITY,
+                );
+            }
+        }
         let cached = self.elev.borrow()[idx];
         if cached != f32::INFINITY {
             return if cached.is_nan() { None } else { Some(cached) };
