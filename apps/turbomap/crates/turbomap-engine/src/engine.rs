@@ -412,6 +412,13 @@ impl TurbomapEngine {
         self.map.zoom_around(factor, focus_px);
     }
 
+    /// Start a zoom fling (pinch-release momentum) at `zoom_velocity`
+    /// (zoom-levels/s) about `focus_px`. Drive with
+    /// [`tick_now`](Self::tick_now); a new pan/zoom cancels it.
+    pub fn zoom_fling(&mut self, zoom_velocity: f64, focus_px: (f64, f64)) {
+        self.map.zoom_fling(zoom_velocity, focus_px);
+    }
+
     /// Rotate the compass bearing by `delta_deg` — the two-finger rotate
     /// gesture (wraps to [0, 360)).
     pub fn rotate_by(&mut self, delta_deg: f64) {

@@ -450,6 +450,77 @@ impl FlingAnimation {
     }
 }
 
+/// Momentum on *zoom* after a pinch is released with zoom velocity — the
+/// map keeps zooming and eases to a stop, about the pinch centroid.
+///
+/// Same exponential decay as the pan fling, in zoom-level units: the zoom
+/// glides by `v0 · τ · (1 − e^(−t/τ))` levels while keeping `focus_px` over
+/// the same world point (via [`Camera::zoomed_around`], so zoom stays
+/// clamped). Ends once the zoom speed drops below a small threshold.
+#[derive(Debug, Clone, Copy)]
+pub struct ZoomFlingAnimation {
+    start: Camera,
+    /// Release zoom velocity in zoom-levels/second (positive = zooming in).
+    zoom_velocity: f64,
+    focus_px: (f64, f64),
+    viewport_px: (f64, f64),
+    started_at: Instant,
+    tau: f64,
+}
+
+/// Below this zoom speed (levels/s) the glide is imperceptible; stop.
+const ZOOM_FLING_STOP_SPEED: f64 = 0.05;
+
+impl ZoomFlingAnimation {
+    /// A zoom fling from `start` released at `zoom_velocity` (levels/s) about
+    /// `focus_px`. Default `tau` (0.25 s) gives a crisp settle.
+    pub fn new(
+        start: Camera,
+        zoom_velocity: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) -> Self {
+        Self::new_at(start, zoom_velocity, focus_px, viewport_px, Instant::now(), 0.25)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_at(
+        start: Camera,
+        zoom_velocity: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+        started_at: Instant,
+        tau: f64,
+    ) -> Self {
+        Self { start, zoom_velocity, focus_px, viewport_px, started_at, tau }
+    }
+
+    fn elapsed(&self, now: Instant) -> f64 {
+        now.saturating_duration_since(self.started_at).as_secs_f64()
+    }
+
+    /// Accumulated zoom-level change from the release point at `now`.
+    fn delta_levels(&self, now: Instant) -> f64 {
+        let decay = 1.0 - (-self.elapsed(now) / self.tau).exp();
+        self.zoom_velocity * self.tau * decay
+    }
+
+    fn speed(&self, now: Instant) -> f64 {
+        self.zoom_velocity.abs() * (-self.elapsed(now) / self.tau).exp()
+    }
+
+    pub fn sample(&self, now: Instant) -> Camera {
+        // A delta of `d` levels is a multiplicative factor of 2^d; zooming
+        // about the fixed focus keeps the pinch centroid stable.
+        let factor = 2f64.powf(self.delta_levels(now));
+        self.start.zoomed_around(factor, self.focus_px, self.viewport_px)
+    }
+
+    pub fn is_finished(&self, now: Instant) -> bool {
+        self.speed(now) < ZOOM_FLING_STOP_SPEED
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Value boundary: developers translate platform input events into camera
@@ -506,6 +577,36 @@ mod tests {
         assert!(dead.is_finished(t0));
         let s = dead.sample(t0 + Duration::from_secs_f64(0.1));
         assert!((s.center.to_world().x - start.center.to_world().x).abs() < 1e-12);
+    }
+
+    #[test]
+    fn zoom_fling_glides_zoom_keeping_the_pinch_focus_fixed() {
+        let viewport = (1024.0, 768.0);
+        let focus = (300.0, 250.0);
+        let start = Camera::new(LatLng::new(60.39, 5.32), 12.0);
+        let t0 = Instant::now();
+        let tau = 0.25;
+        let fling = ZoomFlingAnimation::new_at(start, 4.0, focus, viewport, t0, tau);
+
+        // The focus world point stays under the focus pixel throughout the
+        // glide (that's what makes pinch-to-zoom feel anchored).
+        let focus_world = start.pixel_to_world(focus, viewport);
+        let zoom_at = |dt: f64| fling.sample(t0 + Duration::from_secs_f64(dt));
+        for dt in [0.05, 0.15, 0.4] {
+            let cam = zoom_at(dt);
+            assert_world_close(cam.pixel_to_world(focus, viewport), focus_world, 1e-9);
+        }
+        // Zoom increases (zooming in) and decelerates: first 100 ms gains
+        // more levels than the second.
+        let (z0, z1, z2) = (zoom_at(0.0).zoom, zoom_at(0.1).zoom, zoom_at(0.2).zoom);
+        assert!(z1 > z0 && z2 > z1, "zoom climbs");
+        assert!((z1 - z0) > (z2 - z1), "zoom fling decelerates");
+        // Total gain converges to v0*tau levels.
+        let far = zoom_at(5.0).zoom;
+        assert!((far - (z0 + 4.0 * tau)).abs() < 1e-4, "{far}");
+
+        assert!(!fling.is_finished(t0), "fresh pinch is animating");
+        assert!(fling.is_finished(t0 + Duration::from_secs(2)), "settles");
     }
 
     #[test]
