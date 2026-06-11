@@ -56,6 +56,9 @@ pub struct GeoPoint {
 pub struct Hit {
     pub layer_id: String,
     pub feature_id: Option<String>,
+    /// Struck feature's stringified properties (name/class/…), for a
+    /// "tap a place → info" popup. Empty for hits with no attributes.
+    pub properties: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, uniffi::Record)]
@@ -233,6 +236,7 @@ impl TurboMap {
             .map(|h| Hit {
                 layer_id: h.layer_id,
                 feature_id: h.feature_id,
+                properties: h.properties,
             })
             .collect()
     }

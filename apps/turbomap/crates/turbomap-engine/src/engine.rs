@@ -532,6 +532,11 @@ impl MapEngine for TurbomapEngine {
                 HitResult::Feature(f) => Hit {
                     layer_id: f.layer_id,
                     feature_id: Some(f.feature_id.to_string()),
+                    properties: f
+                        .properties
+                        .iter()
+                        .map(|(k, v)| (k.clone(), vector_value_to_string(v)))
+                        .collect(),
                 },
                 HitResult::Marker(m) => Hit {
                     // Circle layers stash their id in marker data so a hit
@@ -542,6 +547,7 @@ impl MapEngine for TurbomapEngine {
                         .cloned()
                         .unwrap_or_else(|| "<marker>".to_string()),
                     feature_id: Some(m.id.0.to_string()),
+                    properties: m.data,
                 },
             })
             .collect()
@@ -765,7 +771,10 @@ fn symbol_style(
             },
             min_zoom: 0,
             max_zoom: 22,
-            interactive: false,
+            // Symbol layers carrying an icon are POI markers — retain their
+            // features so a tap can report the place. Plain text labels
+            // (place/street names) aren't tappable, so they stay light.
+            interactive: icon.is_some(),
         })
         .collect();
     VectorStyle {
@@ -947,6 +956,20 @@ fn filter_value_to_string(value: &FilterValue) -> String {
         FilterValue::Bool(b) => b.to_string(),
         FilterValue::Number(n) => n.to_string(),
         FilterValue::String(s) => s.clone(),
+    }
+}
+
+/// Stringify an MVT feature value for a hit-test result's property map —
+/// what a host shows when a place is tapped.
+fn vector_value_to_string(value: &turbomap_core::VectorValue) -> String {
+    use turbomap_core::VectorValue as V;
+    match value {
+        V::String(s) => s.clone(),
+        V::Float(f) => f.to_string(),
+        V::Int(i) => i.to_string(),
+        V::UInt(u) => u.to_string(),
+        V::Bool(b) => b.to_string(),
+        V::Null => String::new(),
     }
 }
 

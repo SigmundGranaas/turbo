@@ -37,10 +37,14 @@ impl CameraState {
 }
 
 /// A feature struck by a hit test, top-most first.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct Hit {
     pub layer_id: String,
     pub feature_id: Option<String>,
+    /// The struck feature's properties (POI name/class, etc.), stringified
+    /// — what a host shows in a "tap a place → info" popup. Empty for hits
+    /// that carry no attributes (e.g. a bare marker).
+    pub properties: std::collections::HashMap<String, String>,
 }
 
 /// What a backend can actually do. Hosts read this to degrade gracefully
