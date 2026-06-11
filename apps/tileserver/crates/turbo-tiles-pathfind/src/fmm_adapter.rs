@@ -89,7 +89,6 @@ pub(crate) fn with_off_trail(
     v
 }
 
-
 /// Inputs to `solve_fmm_corridor`. Mirrors the off-trail-solve API
 /// shape used by the existing `Pathfinder::build_off_trail_segment`
 /// so the phase 6 dispatch swap is a near-drop-in.
@@ -850,7 +849,7 @@ fn solve_grade_limited_path(
                     }
                     if !cost.overlay.refused(ni as u32, nj as u32) {
                         let d2 = di * di + dj * dj;
-                        if best.map_or(true, |(_, _, bd)| d2 < bd) {
+                        if best.is_none_or(|(_, _, bd)| d2 < bd) {
                             best = Some((ni as u32, nj as u32, d2));
                         }
                     }

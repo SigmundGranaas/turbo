@@ -268,8 +268,9 @@ pub fn build_pathfinder(
                             coll.clone(),
                             "ocean",
                         );
-                        let native =
-                            turbo_tiles_pathfind::PolygonRefusalContributor::new("ocean", coll, "ocean");
+                        let native = turbo_tiles_pathfind::PolygonRefusalContributor::new(
+                            "ocean", coll, "ocean",
+                        );
                         pf.push_with_native(Arc::new(legacy), Arc::new(native));
                         taken_layer_names.insert("ocean");
                     }

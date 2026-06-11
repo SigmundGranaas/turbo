@@ -830,7 +830,10 @@ mod ring_index_tests {
     struct Lcg(u64);
     impl Lcg {
         fn next_f(&mut self) -> f32 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((self.0 >> 33) as f32) / (u32::MAX >> 1) as f32
         }
     }
@@ -864,7 +867,10 @@ mod ring_index_tests {
                 // long segments.
                 let b = match (rng.next_f() * 3.0) as u32 {
                     0 => Point::new(a.x + 25.0, a.y),
-                    1 => Point::new(a.x + 60.0 * (rng.next_f() - 0.5), a.y + 60.0 * (rng.next_f() - 0.5)),
+                    1 => Point::new(
+                        a.x + 60.0 * (rng.next_f() - 0.5),
+                        a.y + 60.0 * (rng.next_f() - 0.5),
+                    ),
                     _ => Point::new(
                         cx + 2400.0 * (rng.next_f() - 0.5),
                         cy + 2400.0 * (rng.next_f() - 0.5),
@@ -876,7 +882,10 @@ mod ring_index_tests {
                     brute.to_bits(),
                     fast.to_bits(),
                     "mismatch nv={nv} a=({},{}) b=({},{}) brute={brute} fast={fast}",
-                    a.x, a.y, b.x, b.y
+                    a.x,
+                    a.y,
+                    b.x,
+                    b.y
                 );
             }
         }

@@ -145,6 +145,7 @@ impl std::str::FromStr for EvalMode {
 }
 
 /// Entry point for the `eval-terrain` subcommand.
+#[allow(clippy::too_many_arguments)] // CLI subcommand entry — args mirror flags, no value in bundling
 pub fn run(
     corpus_path: PathBuf,
     artifacts_dir: Option<PathBuf>,
@@ -215,7 +216,11 @@ pub fn run(
         determinism_ok = Some(mismatches.is_empty());
         eprintln!(
             "eval-terrain: determinism {} ({} mismatches)",
-            if mismatches.is_empty() { "OK" } else { "FAILED" },
+            if mismatches.is_empty() {
+                "OK"
+            } else {
+                "FAILED"
+            },
             mismatches.len()
         );
     }
@@ -257,7 +262,10 @@ pub fn run(
         summary.dem_cache_lookups,
         summary.corpus_geometry_hash,
     );
-    eprintln!("eval-terrain: wrote {} + per-hike JSON", summary_path.display());
+    eprintln!(
+        "eval-terrain: wrote {} + per-hike JSON",
+        summary_path.display()
+    );
     Ok(())
 }
 

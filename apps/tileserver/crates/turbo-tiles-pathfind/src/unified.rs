@@ -234,8 +234,13 @@ pub(crate) fn solve_unified(
     mesh_contribs.push(Arc::new(OffTrailRoughnessContributor::new(
         off_trail_factor,
     )));
-    let overlay =
-        crate::cost_field::LazyCostField::new(corr, dem.clone(), base_pace_s_per_m, profile, &mesh_contribs);
+    let overlay = crate::cost_field::LazyCostField::new(
+        corr,
+        dem.clone(),
+        base_pace_s_per_m,
+        profile,
+        &mesh_contribs,
+    );
 
     // ---- Splice the trail network over a GENEROUS region ----
     // Trails are NOT clipped to the mesh corridor: a long route swinging
