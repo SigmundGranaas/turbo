@@ -312,6 +312,7 @@ impl IconPipeline {
         &mut self,
         scene: &Scene,
         cache: &mut VectorMeshCache,
+        marker_anchors: &std::collections::HashSet<(u32, u32)>,
     ) -> PreparedIcons {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
@@ -322,6 +323,13 @@ impl IconPipeline {
         for tile in scene.visible_tiles() {
             let Some(entry) = cache.get(tile) else { continue };
             for icon in &entry.icons {
+                // A POI marker's dot only draws if its label survived — dot
+                // and label cull as one unit (no orphan dots).
+                if icon.requires_label
+                    && !marker_anchors.contains(&crate::text::anchor_key(icon.world_pos))
+                {
+                    continue;
+                }
                 let Some(info) = self.atlas.get(&icon.sprite) else {
                     continue;
                 };

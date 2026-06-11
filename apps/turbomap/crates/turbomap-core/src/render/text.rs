@@ -100,6 +100,11 @@ pub(crate) struct TextPipeline {
     /// Screen anchors of placed line labels keyed by text (frame-wide):
     /// cross-tile dedup + repeat spacing for road names.
     frame_line_names: HashMap<String, Vec<(f32, f32)>>,
+    /// World-position bit-keys of left-anchored (POI) labels placed this
+    /// frame. The icon pass consults this so a POI dot only draws when its
+    /// name survived collision — dot and label cull as a unit. Bit-keys
+    /// because the icon and label share an identical `world_pos`.
+    frame_marker_anchors: std::collections::HashSet<(u32, u32)>,
 }
 
 impl TextPipeline {
@@ -342,7 +347,14 @@ impl TextPipeline {
             frame_viewport: [0.0; 2],
             frame_placed: Vec::new(),
             frame_line_names: HashMap::new(),
+            frame_marker_anchors: std::collections::HashSet::new(),
         }
+    }
+
+    /// World-position keys of the POI labels placed this frame — the icon
+    /// pass uses this to gate left-anchored markers' dots.
+    pub(crate) fn placed_marker_anchors(&self) -> &std::collections::HashSet<(u32, u32)> {
+        &self.frame_marker_anchors
     }
 
     /// Register a fallback font face for scripts the bundled default
@@ -359,6 +371,7 @@ impl TextPipeline {
         self.staged.clear();
         self.frame_placed.clear();
         self.frame_line_names.clear();
+        self.frame_marker_anchors.clear();
     }
 
     /// Lay out labels for one vector layer's currently visible tiles and
@@ -477,6 +490,12 @@ impl TextPipeline {
                 continue;
             }
             self.frame_placed.push(padded);
+            // A left-anchored (POI) label placed → record its anchor so the
+            // icon pass knows this marker's dot may draw.
+            if label.left_pad_px.is_some() {
+                self.frame_marker_anchors
+                    .insert(crate::text::anchor_key(label.world_pos));
+            }
             // sRGB-authored → linear, since the target re-encodes on write.
             let color = label.color.to_linear_bytes();
             let halo_color = label.halo_color.to_linear_bytes();

@@ -554,6 +554,14 @@ impl Aabb {
     }
 }
 
+/// Bit-key for a world position so it can live in a `HashSet`. A POI icon
+/// and its label come from the same feature point, so their `world_pos`
+/// bits match exactly — that's how the icon pass identifies which markers
+/// the text pass placed.
+pub fn anchor_key(world_pos: (f32, f32)) -> (u32, u32) {
+    (world_pos.0.to_bits(), world_pos.1.to_bits())
+}
+
 /// Cache of laid-out glyph runs, keyed by `(text, quantised font size)`.
 /// Stores anchor-relative layouts (centred around `(0, 0)`); callers
 /// translate by the actual screen anchor at draw time, so the same text +

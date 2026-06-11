@@ -95,6 +95,12 @@ pub struct IconRequest {
     pub sprite: String,
     pub size_px: f32,
     pub color: Color,
+    /// When `true`, this icon is the marker for a left-anchored label (a
+    /// POI dot) and must only draw if that label survives collision — so a
+    /// dot never appears orphaned without its name. The icon and its label
+    /// share an identical `world_pos`, which is how the text pass tells the
+    /// icon pass which markers were placed.
+    pub requires_label: bool,
 }
 
 /// A feature retained verbatim alongside the mesh, so the host can hit-test
@@ -304,13 +310,16 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             let (wx, wy) = tile_local_to_world(tile_id, extent, p);
                             let world_pos = (wx as f32, wy as f32);
                             // Icon behind, label on top — at the same anchor
-                            // they compose into a route shield.
+                            // they compose into a route shield (centred) or a
+                            // POI marker (left-anchored). A left-anchored
+                            // marker's dot is gated on its label surviving.
                             if let Some(spec) = icon {
                                 icons.push(IconRequest {
                                     world_pos,
                                     sprite: spec.sprite.clone(),
                                     size_px: spec.size_px,
                                     color: spec.color,
+                                    requires_label: *left_anchor,
                                 });
                             }
                             if let Some(l) = make_label(world_pos, None) {
@@ -705,6 +714,11 @@ mod tests {
         let out = tessellate(TileId::new(14, 0, 0), &tile, &left);
         // pad = icon half (4.0) + 3.0 gap.
         assert_eq!(out.labels[0].left_pad_px, Some(7.0));
+        // The dot is gated on its label and shares the label's world_pos —
+        // that pairing is what makes them cull as a unit.
+        assert_eq!(out.icons.len(), 1);
+        assert!(out.icons[0].requires_label, "POI dot waits for its label");
+        assert_eq!(out.icons[0].world_pos, out.labels[0].world_pos);
 
         let centred = VectorStyle {
             background: Color::rgb(255, 255, 255),

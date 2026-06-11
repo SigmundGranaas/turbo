@@ -1095,14 +1095,18 @@ impl Map {
                     prepared_layers.push((i, PreparedLayer::Vector(p)));
                     // Labels come from visible vector layers only —
                     // text on top of a hidden vector layer would look
-                    // orphaned.
-                    // Icons first (they collect from the same cache), then
-                    // labels — both per visible vector layer.
-                    prepared_icons.push(self.icon_pipeline.prepare(&v.scene, &mut v.cache));
+                    // orphaned. Text runs *before* icons so a POI marker's
+                    // dot can be gated on its label surviving collision (dot
+                    // + label cull as a unit).
                     prepared_text.push(self.text_pipeline.prepare(
                         &v.scene,
                         &mut v.cache,
                         self.options.pixel_ratio,
+                    ));
+                    prepared_icons.push(self.icon_pipeline.prepare(
+                        &v.scene,
+                        &mut v.cache,
+                        self.text_pipeline.placed_marker_anchors(),
                     ));
                 }
                 LayerEntry::Hillshade(h) if h.visible => {
