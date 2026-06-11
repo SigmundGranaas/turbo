@@ -131,6 +131,53 @@ the remaining "works perfectly" gates.
 
 ---
 
+## Status — 2026-06-11: k8s deployment + pre-prod security hardening (P4)
+
+Made Places actually deployable in the cluster (it runs **inside the modulith**
+— the prod pattern — already wired in code) and closed the security gaps a
+reference-data service faces before taking traffic.
+
+Security/robustness (tested):
+- **FFI panic guard** — the place-core C ABI wraps its compute paths
+  (reverse/search + bundle reverse/search) in `catch_unwind`, so a panic in the
+  pure core can't unwind across `extern "C"` and abort the host; it degrades to
+  `null`/`[]`. Unit-tested.
+- **`/bundle` DoS cap** — the bbox is capped to a region (≤ 2.5° lat × 6° lng)
+  and the file is streamed with `DeleteOnClose` instead of `ReadAllBytes`; a
+  whole-country bbox would otherwise build ~1 M rows into SQLite and load it
+  fully into RAM per request. Behaviour-tested.
+- **Rate limit owned by the module** — `AddPlacesModule` registers a per-client
+  fixed-window policy keyed on the real client IP from `X-Forwarded-For` (behind
+  ingress `RemoteIpAddress` is the proxy → one shared bucket). It travels into
+  the modulith (no gateway there) via `[EnableRateLimiting]` + `UseRateLimiter`;
+  only Places endpoints are affected. The standalone host gains `/readyz`
+  (DB + active dataset) distinct from `/healthz`.
+- Already-good: parameterized SQL throughout; XXE-safe XML defaults (and only in
+  the offline ingester); Norway-envelope input validation; anonymous-by-design.
+
+Deployment (matches repo conventions — chiseled non-root, CNPG per-module DBs,
+sealed `db-secrets`, ghcr images):
+- `modulith.yaml` gains `ConnectionStrings__Places` (the module fails fast at
+  boot without it — this was the actual deploy-blocker).
+- `db.yaml` gains the `places` CNPG `Database` (postgis + pg_trgm, created as
+  superuser so the app role's `CREATE EXTENSION IF NOT EXISTS` is a no-op).
+- `places-ingest.yaml` — a weekly **CronJob** (the only writer) that runs the
+  SSR bulk load → swap; defaults to one fylke (fits the 3 Gi shared cluster),
+  documented to scale to national with more storage. Its Dockerfile + a
+  `places-ingest` image are added to the CI matrix.
+- **One manual prerequisite** (needs the cluster's kubeseal cert, by design not
+  in-repo): re-run `scripts/seal-prod-secrets.sh` (now emits
+  `connectionstring-places`) and commit the refreshed `sealed-secrets-db.yaml`.
+
+Resource note: a **national** SSR load is ~1 M rows (~400 MB w/ indexes) + a
+~3 GB GML extract during ingest — beyond the current single-node 3 Gi cluster;
+bump `turbo-db` storage + the CronJob's `/work` volume/memory before going
+landsdekkende. The standalone `Turbo.Host.Places` + its Dockerfile remain the
+scale-out path (separate Deployment) but are not wired into the prod overlay to
+avoid double-serving `/api/places`.
+
+---
+
 ## P0 — Foundation defects (prerequisite, ~small)
 
 Fixes for the four verified defects from the 2026-06-09 architecture review;

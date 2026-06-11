@@ -45,7 +45,8 @@ seal() { kubeseal --controller-name "$CONTROLLER_NAME" --controller-namespace "$
     --from-literal=connectionstring-geo="$(conn geo)" \
     --from-literal=connectionstring-tracks="$(conn tracks)" \
     --from-literal=connectionstring-collections="$(conn collections)" \
-    --from-literal=connectionstring-activities="$(conn activities)" | seal
+    --from-literal=connectionstring-activities="$(conn activities)" \
+    --from-literal=connectionstring-places="$(conn places)" | seal
   echo "---"
   # auth-secrets: JWT signing key
   kubectl create secret generic auth-secrets -n "$NS" --dry-run=client -o yaml \

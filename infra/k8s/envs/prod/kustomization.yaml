@@ -31,6 +31,9 @@ images:
   - name: turbo-modulith
     newName: ghcr.io/sigmundgranaas/turbo-modulith
     newTag: latest
+  - name: turbo-places-ingest
+    newName: ghcr.io/sigmundgranaas/turbo-places-ingest
+    newTag: latest
   - name: turbo-web
     newName: ghcr.io/sigmundgranaas/turbo-web
     newTag: latest

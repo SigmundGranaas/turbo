@@ -7,6 +7,7 @@ resources:
   - config.yaml
   - db.yaml          # CNPG-managed Postgres (turbo-db) — primary datastore
   - modulith.yaml
+  - places-ingest.yaml  # CronJob: writes the Places (SSR) dataset the modulith serves
   - web.yaml
   - ingress.yaml
   - pdb.yaml

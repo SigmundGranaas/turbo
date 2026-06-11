@@ -135,3 +135,24 @@ spec:
   extensions:
     - name: postgis
       ensure: present
+---
+# Places (search + reverse geocoding). Raw-SQL spatial reads need postgis;
+# the autocomplete prefix/fuzzy search needs pg_trgm. CNPG creates these as
+# superuser so the app role's `CREATE EXTENSION IF NOT EXISTS` is a no-op.
+# NOTE: a national SSR load is ~1M rows (~400MB w/ indexes); bump the cluster
+# storage.size above before ingesting landsdekkende. A per-fylke load (the
+# CronJob default) is tens of MB and fits the current 3Gi.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: turbo-db-places
+spec:
+  cluster:
+    name: turbo-db
+  name: places
+  owner: app
+  extensions:
+    - name: postgis
+      ensure: present
+    - name: pg_trgm
+      ensure: present
