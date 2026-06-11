@@ -195,9 +195,20 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                         );
                     }
                 }
-                Paint::FillExtrusion { color, height_m } => {
+                Paint::FillExtrusion {
+                    color,
+                    height_m,
+                    height_property,
+                } => {
                     if let Geometry::Polygon(rings) = &feature.geometry {
-                        let h = meters_to_world_z(tile_id, *height_m);
+                        // Per-feature height (OMT `render_height`) when the
+                        // property is present and numeric, else the default.
+                        let height_m = height_property
+                            .as_deref()
+                            .and_then(|f| read_number_property(feature, f))
+                            .map(|n| n as f32)
+                            .unwrap_or(*height_m);
+                        let h = meters_to_world_z(tile_id, height_m);
                         let roof = pack_color(*color);
                         // Walls a touch darker so the form reads when tilted.
                         let wall = pack_color(shade(*color, 0.72));
@@ -619,7 +630,11 @@ mod tests {
             rules: vec![Rule {
                 source_layer: "building".into(),
                 filter: Filter::Always,
-                paint: Paint::FillExtrusion { color: Color::rgb(200, 190, 180), height_m: 20.0 },
+                paint: Paint::FillExtrusion {
+                    color: Color::rgb(200, 190, 180),
+                    height_m: 20.0,
+                    height_property: None,
+                },
                 min_zoom: 0,
                 max_zoom: 22,
                 interactive: false,

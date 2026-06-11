@@ -40,8 +40,8 @@ fn buildings_extrude_under_a_tilted_camera() {
         return;
     };
 
-    // The flat city style, plus a 3D building layer. The fixture's building
-    // footprints carry no height, so a uniform 14 m reads as a low-rise city.
+    // The flat city style, plus a 3D building layer. Each footprint extrudes
+    // to its own OMT `render_height`, with a low fallback for any missing it.
     let mut scene = bergen_scene();
     scene.layers.push(Layer::FillExtrusion {
         id: "buildings-3d".to_string(),
@@ -49,7 +49,8 @@ fn buildings_extrude_under_a_tilted_camera() {
         source_layer: Some("building".to_string()),
         filter: Filter::Always,
         color: Paint::Const(Color::rgb(223, 214, 200)),
-        height_m: Paint::Const(14.0),
+        height_m: Paint::Const(6.0),
+        height_property: Some("render_height".to_string()),
     });
 
     let (width, height) = (1280, 880);

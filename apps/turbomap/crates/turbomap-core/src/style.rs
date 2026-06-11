@@ -90,9 +90,14 @@ pub enum Paint {
     /// plus vertical walls down to the ground. Walls are shaded darker than
     /// the roof so the form reads under a tilted camera. Only meaningful
     /// with pitch > 0.
+    ///
+    /// When `height_property` names a numeric feature property (e.g. OMT's
+    /// `render_height`), each polygon extrudes to *its own* height; features
+    /// missing that property fall back to `height_m`.
     FillExtrusion {
         color: Color,
         height_m: f32,
+        height_property: Option<String>,
     },
     /// Render the feature's value at `text_field` as a text label at the
     /// feature's point. `font_size_px` is the rasterised line height.

@@ -30,7 +30,7 @@ fn keep_list() -> HashMap<&'static str, Vec<&'static str>> {
         ("landuse", vec!["class"]),
         ("park", vec!["class"]),
         ("transportation", vec!["class", "subclass", "brunnel", "ramp"]),
-        ("building", vec![]),
+        ("building", vec!["render_height", "render_min_height"]),
         ("boundary", vec!["admin_level", "maritime"]),
         ("place", vec!["class", "name", "rank"]),
         ("transportation_name", vec!["class", "name", "ref"]),

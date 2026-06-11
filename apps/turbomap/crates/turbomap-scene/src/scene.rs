@@ -125,7 +125,12 @@ pub enum Layer {
         #[serde(default)]
         filter: Filter,
         color: Paint<Color>,
+        /// Default / fallback height in metres.
         height_m: Paint<f32>,
+        /// Numeric feature property giving each polygon's own height (e.g.
+        /// OMT `render_height`). `None` ⇒ every feature uses `height_m`.
+        #[serde(default)]
+        height_property: Option<String>,
     },
     Line {
         id: String,
