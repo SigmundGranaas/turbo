@@ -153,7 +153,13 @@ pub fn run(
     limit: Option<usize>,
     check_determinism: bool,
     mode: EvalMode,
+    override_json: Option<String>,
 ) -> Result<()> {
+    let cost_override: Option<turbo_tiles_pathfind::CostConfigPatch> = override_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .context("parsing --override-json as a CostConfigPatch")?;
     let corpus_text = std::fs::read_to_string(&corpus_path)
         .with_context(|| format!("reading corpus {}", corpus_path.display()))?;
     let corpus: Corpus = toml::from_str(&corpus_text)
@@ -191,7 +197,7 @@ pub fn run(
     // Capture DEM cache lookups across exactly the first solve pass
     // (the determinism re-run below would otherwise double-count).
     let cache_before = dem.cache_stats();
-    let results = solve_corpus(&pf, &dem, &hikes, mode);
+    let results = solve_corpus(&pf, &dem, &hikes, mode, &cost_override);
     let cache_after = dem.cache_stats();
     let dem_cache_lookups = (cache_after.hits + cache_after.misses)
         .saturating_sub(cache_before.hits + cache_before.misses);
@@ -200,7 +206,7 @@ pub fn run(
     let mut determinism_ok = None;
     let mut mismatches = Vec::new();
     if check_determinism {
-        let second = solve_corpus(&pf, &dem, &hikes, mode);
+        let second = solve_corpus(&pf, &dem, &hikes, mode, &cost_override);
         for (a, b) in results.iter().zip(second.iter()) {
             if a.geometry_hash != b.geometry_hash {
                 mismatches.push(a.id);
@@ -255,11 +261,26 @@ pub fn run(
     Ok(())
 }
 
-fn solve_corpus(pf: &Pathfinder, dem: &Dem, hikes: &[Hike], mode: EvalMode) -> Vec<HikeResult> {
-    hikes.iter().map(|h| solve_one(pf, dem, h, mode)).collect()
+fn solve_corpus(
+    pf: &Pathfinder,
+    dem: &Dem,
+    hikes: &[Hike],
+    mode: EvalMode,
+    cost_override: &Option<turbo_tiles_pathfind::CostConfigPatch>,
+) -> Vec<HikeResult> {
+    hikes
+        .iter()
+        .map(|h| solve_one(pf, dem, h, mode, cost_override))
+        .collect()
 }
 
-fn solve_one(pf: &Pathfinder, dem: &Dem, h: &Hike, mode: EvalMode) -> HikeResult {
+fn solve_one(
+    pf: &Pathfinder,
+    dem: &Dem,
+    h: &Hike,
+    mode: EvalMode,
+    cost_override: &Option<turbo_tiles_pathfind::CostConfigPatch>,
+) -> HikeResult {
     let prefs = match mode {
         // Force the off-trail solver so the route is re-derived from
         // terrain, not retraced from the corpus trail. Mirrors
@@ -277,6 +298,10 @@ fn solve_one(pf: &Pathfinder, dem: &Dem, h: &Hike, mode: EvalMode) -> HikeResult
         // router users actually hit.
         EvalMode::Unified => Prefs::default(),
     };
+    // Per-run cost-config patch (knob sweeps): same channel the HTTP
+    // API's prefs.cost_config_override uses.
+    let mut prefs = prefs;
+    prefs.cost_config_override = cost_override.clone();
 
     let truth = profile_line(dem, &h.polyline);
 

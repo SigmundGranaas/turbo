@@ -147,8 +147,23 @@ shore_band_m = 30.0
 # a shoreline.
 [grade_limited]
 enabled = true
-max_grade_deg = 27.0
-turn_penalty_s = 8.0
+# Comfort grade: the soft steep-penalty threshold (NOT a hard refusal —
+# only CLIFF_DEG refuses). 2026-06-11 corpus sweep over {27, 22, 18,
+# 15, 12, 10}°: quality improves monotonically down to 12° (avg
+# 94.5 → 96.3; slope component 85.1 → 92.2, gain 90.8 → 92.5, length/
+# Fréchet held) because real trails contour around pitches the old 27°
+# treated as free; at 10° gain and length start PAYING for further
+# slope wins (excessive detours) — 12° is the knee. Ground-truth trail
+# max slopes in the corpus are 8–23°, so 12° matches how Norwegian
+# trail-builders actually grade paths.
+max_grade_deg = 12.0
+# 12 s/45° (was 8): at the 12° comfort grade the solver switchbacks
+# more; a higher turn price widens the hairpins back toward trail-like
+# spacing. Swept {8, 12, 16} at grade 12: t=12 lifts the corpus avg
+# 96.3 → 96.6 (slope 92.2 → 92.8, gain 92.5 → 93.0); t=16 is flat.
+# (total_gain_amplifier swept {1.5, 2.0} here too: trades slope for
+# gain ~1:1, net noise — stays 1.0/off.)
+turn_penalty_s = 12.0
 
 # ============================================================
 # Surface multipliers (graph edges) — currently baked into the

@@ -136,6 +136,10 @@ enum Command {
         /// geometry/latency/DEM-work regression lane).
         #[arg(long, default_value = "off-trail")]
         mode: eval_terrain::EvalMode,
+        /// JSON CostConfigPatch applied to every solve (knob sweeps),
+        /// e.g. '{"grade_limited_max_grade_deg": 18.0}'.
+        #[arg(long)]
+        override_json: Option<String>,
     },
 }
 
@@ -178,6 +182,7 @@ async fn main() -> Result<()> {
             limit,
             check_determinism,
             mode,
+            override_json,
         } => eval_terrain::run(
             corpus,
             artifacts_dir,
@@ -186,6 +191,7 @@ async fn main() -> Result<()> {
             limit,
             check_determinism,
             mode,
+            override_json,
         ),
     }
 }

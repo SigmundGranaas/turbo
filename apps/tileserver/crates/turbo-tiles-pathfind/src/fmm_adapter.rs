@@ -801,6 +801,9 @@ fn solve_grade_limited_path(
         off_trail_factor: inputs.off_trail_factor,
         max_grade_deg: inputs.max_grade_deg,
         turn_penalty_s: inputs.turn_penalty_s,
+        // k·(amplifier−1) walk-seconds per gain-metre, same channel the
+        // unified mesh and the aniso metric use (0 at amplifier=1.0).
+        gain_k: inputs.gain_factor_k,
         overlay,
     };
     // Stream the route reaching toward the goal as the A* runs: each
