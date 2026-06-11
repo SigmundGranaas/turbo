@@ -206,6 +206,11 @@ pub enum Layer {
         /// signals a place's spatial extent. Point labels only.
         #[serde(default)]
         letter_spacing: f32,
+        /// Faux-bold weight in glyph raster pixels (0 = the font's natural
+        /// weight). Lets the style express a weight hierarchy — heavy city
+        /// names, medium area labels, light street names.
+        #[serde(default)]
+        font_weight: f32,
     },
     Hillshade {
         id: String,

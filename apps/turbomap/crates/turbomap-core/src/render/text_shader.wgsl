@@ -27,6 +27,7 @@ struct InstanceInput {
     @location(8) angle: f32,              // glyph rotation about pivot (rad)
     @location(9) pivot: vec2<f32>,        // screen-space rotation centre
     @location(10) mode: f32,              // 1 = halo pass, 0 = fill pass
+    @location(11) weight: f32,            // faux-bold: SDF fill dilation, 0 = none
 };
 
 struct VertexOutput {
@@ -36,6 +37,7 @@ struct VertexOutput {
     @location(2) halo_color: vec4<f32>,
     @location(3) @interpolate(flat) halo_width: f32,
     @location(4) @interpolate(flat) mode: f32,
+    @location(5) @interpolate(flat) weight: f32,
 };
 
 @vertex
@@ -59,6 +61,7 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     out.halo_color = inst.halo_color;
     out.halo_width = inst.halo_width;
     out.mode = inst.mode;
+    out.weight = inst.weight;
     return out;
 }
 
@@ -72,11 +75,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // `fwidth(sdf) * 0.7` is the conventional "half a pixel" smooth band.
     let aa = fwidth(sdf) * 0.7;
 
+    // Faux-bold dilates the glyph by pushing the fill cutoff outside the
+    // contour by `weight` (in SDF units). The halo then sits a further
+    // `halo_width` beyond the thickened stroke, so heavier text keeps its
+    // casing instead of swallowing it.
+    let fill_cutoff = 0.5 + in.weight;
+
     if (in.mode > 0.5) {
-        // Halo pass: the full disc out to `halo_width` beyond the contour.
-        // The fill pass covers its centre afterwards, and the fill's AA
-        // edge blends onto halo colour — the correct fringe.
-        let halo_outer = 0.5 + in.halo_width;
+        // Halo pass: the full disc out to `halo_width` beyond the (dilated)
+        // contour. The fill pass covers its centre afterwards, and the
+        // fill's AA edge blends onto halo colour — the correct fringe.
+        let halo_outer = fill_cutoff + in.halo_width;
         let alpha = (1.0 - smoothstep(halo_outer - aa, halo_outer + aa, sdf)) * in.halo_color.a;
         if (alpha <= 0.0) {
             discard;
@@ -84,9 +93,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(in.halo_color.rgb, alpha);
     }
 
-    // Fill pass: alpha = 1 inside contour (sdf < 0.5), 0 outside, smooth
-    // band of `2*aa` straddling the contour.
-    let fill_alpha = 1.0 - smoothstep(0.5 - aa, 0.5 + aa, sdf);
+    // Fill pass: alpha = 1 inside the dilated contour, 0 outside, smooth
+    // band of `2*aa` straddling the cutoff.
+    let fill_alpha = 1.0 - smoothstep(fill_cutoff - aa, fill_cutoff + aa, sdf);
     if (fill_alpha <= 0.0) {
         discard;
     }

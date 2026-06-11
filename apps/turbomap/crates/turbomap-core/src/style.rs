@@ -135,6 +135,9 @@ pub enum Paint {
         /// Extra tracking between glyphs in em (0 = none) — area-label
         /// spacing. Applies to point labels only.
         letter_spacing: f32,
+        /// Faux-bold weight in glyph raster pixels (0 = the font's natural
+        /// weight). The label-weight hierarchy lever.
+        weight: f32,
     },
 }
 

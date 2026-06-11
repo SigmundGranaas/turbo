@@ -59,7 +59,11 @@ struct TextInstance {
     /// are staged *before* its fills (the MapLibre two-pass), so a glyph's
     /// halo can never paint over a neighbouring glyph's body.
     mode: f32,
-    _pad: [f32; 3],
+    /// Faux-bold: how far (normalized SDF units) to push the fill cutoff
+    /// outside the glyph contour. 0 = the font's natural weight. Drives the
+    /// label-weight hierarchy (heavy place names, light street names).
+    weight: f32,
+    _pad: [f32; 2],
 }
 
 /// Output of one per-vector-layer [`TextPipeline::prepare`] call: the
@@ -220,6 +224,11 @@ impl TextPipeline {
                     format: wgpu::VertexFormat::Float32,
                     offset: 56,
                     shader_location: 10,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 60,
+                    shader_location: 11,
                 },
             ],
         };
@@ -505,6 +514,7 @@ impl TextPipeline {
             let color = label.color.to_linear_bytes();
             let halo_color = label.halo_color.to_linear_bytes();
             let halo_width = sdf_halo_width(label.halo_width);
+            let weight = sdf_weight(label.weight);
             // Two passes per label (the MapLibre order): every glyph's halo
             // first, then every fill — so no halo paints over a neighbouring
             // glyph's body.
@@ -522,7 +532,8 @@ impl TextPipeline {
                     angle: 0.0,
                     pivot: [g.screen_x, g.screen_y],
                     mode,
-                    _pad: [0.0; 3],
+                    weight,
+                    _pad: [0.0; 2],
                 });
             };
             if halo_width > 0.0 && halo_color[3] > 0 {
@@ -637,6 +648,7 @@ impl TextPipeline {
         let color = label.color.to_linear_bytes();
         let halo_color = label.halo_color.to_linear_bytes();
         let halo_width = sdf_halo_width(label.halo_width);
+        let weight = sdf_weight(label.weight);
         // Halo pass first, then fills (see `prepare`).
         let push = |staged: &mut Vec<TextInstance>, g: &crate::text::PathGlyph, mode: f32| {
             staged.push(TextInstance {
@@ -650,7 +662,8 @@ impl TextPipeline {
                 angle: g.angle,
                 pivot: [g.pivot.0, g.pivot.1],
                 mode,
-                _pad: [0.0; 3],
+                weight,
+                _pad: [0.0; 2],
             });
         };
         if halo_width > 0.0 && halo_color[3] > 0 {
@@ -765,6 +778,15 @@ fn rotate_about(p: (f32, f32), pivot: (f32, f32), angle: f32) -> (f32, f32) {
 fn sdf_halo_width(halo_px: f32) -> f32 {
     let max_px = crate::text::SDF_PAD as f32 - 1.0;
     halo_px.clamp(0.0, max_px) * (128.0 / crate::text::SDF_PAD as f32) / 255.0
+}
+
+/// Convert a faux-bold weight in glyph raster pixels to the normalized SDF
+/// dilation the shader adds to the fill cutoff. Like the halo it's capped to
+/// what the SDF can express; here we leave headroom (half the pad) so the
+/// halo still has room to sit outside a thickened stroke.
+fn sdf_weight(weight_px: f32) -> f32 {
+    let max_px = (crate::text::SDF_PAD as f32 - 1.0) * 0.5;
+    weight_px.clamp(0.0, max_px) * (128.0 / crate::text::SDF_PAD as f32) / 255.0
 }
 
 fn sq_dist(a: (f32, f32), b: (f32, f32)) -> f32 {

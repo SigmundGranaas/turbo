@@ -476,6 +476,7 @@ fn label_importance_ranking_wins_collisions() {
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
         letter_spacing: 0.0,
+        font_weight: 0.0,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -708,6 +709,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
         letter_spacing: 0.0,
+        font_weight: 0.0,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -817,6 +819,7 @@ fn cjk_labels_render_via_fallback_font() {
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
         letter_spacing: 0.0,
+        font_weight: 0.0,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -916,6 +919,7 @@ fn complex_scripts_render_with_shaping_and_bidi() {
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
         letter_spacing: 0.0,
+        font_weight: 0.0,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -1020,6 +1024,7 @@ fn road_name_follows_the_centerline() {
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
         letter_spacing: 0.0,
+        font_weight: 0.0,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -1149,6 +1154,7 @@ fn icons_and_route_shields_render() {
         icon_color: Paint::Const(Color::rgb(220, 60, 60)),
         text_anchor: TextAnchor::Center,
         letter_spacing: 0.0,
+        font_weight: 0.0,
     });
     // Route shield — sprite background with the ref centred on top.
     scene.layers.push(Layer::Symbol {
@@ -1169,6 +1175,7 @@ fn icons_and_route_shields_render() {
         icon_color: Paint::Const(Color::rgb(40, 54, 110)),
         text_anchor: TextAnchor::Center,
         letter_spacing: 0.0,
+        font_weight: 0.0,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -1264,6 +1271,7 @@ fn symbol_labels_render_over_raster() {
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
         text_anchor: TextAnchor::Center,
         letter_spacing: 0.0,
+        font_weight: 0.0,
     });
 
     let mut engine = TurbomapEngine::new(

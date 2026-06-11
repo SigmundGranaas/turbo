@@ -264,6 +264,7 @@ impl TurbomapEngine {
                 icon_color,
                 text_anchor,
                 letter_spacing,
+                font_weight,
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
@@ -271,7 +272,7 @@ impl TurbomapEngine {
                     let style = symbol_style(
                         name, filter, text_field, text_size, color, halo_color, halo_width,
                         sort_key, *placement, icon_image, icon_size, icon_color, zoom,
-                        self.pixel_ratio, *text_anchor, *letter_spacing,
+                        self.pixel_ratio, *text_anchor, *letter_spacing, *font_weight,
                     );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
@@ -835,6 +836,7 @@ fn symbol_style(
     pixel_ratio: f32,
     text_anchor: TextAnchor,
     letter_spacing: f32,
+    font_weight: f32,
 ) -> VectorStyle {
     let hc = halo_color.at(zoom);
     let core_halo = CoreColor::rgba(hc.r, hc.g, hc.b, hc.a);
@@ -868,6 +870,7 @@ fn symbol_style(
                 icon: icon.clone(),
                 left_anchor,
                 letter_spacing,
+                weight: font_weight,
             },
             min_zoom: 0,
             max_zoom: 22,

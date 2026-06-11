@@ -93,6 +93,10 @@ pub struct LabelRequest {
     /// Extra tracking between glyphs, in em (0 = none). Point/area labels
     /// (water, districts) space out the way real basemaps track them.
     pub letter_spacing: f32,
+    /// Faux-bold weight in glyph raster pixels (0 = the font's natural
+    /// weight). Drives the label-weight hierarchy: heavy place names, medium
+    /// area labels, light street names.
+    pub weight: f32,
 }
 
 /// One sprite "intent" extracted from a tile: a named icon to draw at a
@@ -342,6 +346,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     icon,
                     left_anchor,
                     letter_spacing,
+                    weight,
                 } => {
                     // Text is optional: an icon-only layer (a bare POI
                     // marker) has no `text_field` value, but still draws.
@@ -370,6 +375,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             path,
                             left_pad_px,
                             letter_spacing: *letter_spacing,
+                            weight: *weight,
                         })
                     };
                     if *along_line {
@@ -922,6 +928,7 @@ mod tests {
             icon,
             left_anchor,
             letter_spacing: 0.0,
+            weight: 0.0,
         };
         let rule = |paint| Rule {
             source_layer: "poi".into(),
@@ -995,6 +1002,7 @@ mod tests {
                     icon: None,
                     left_anchor: false,
                     letter_spacing: 0.0,
+                    weight: 0.0,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
@@ -1046,6 +1054,7 @@ mod tests {
                     icon: None,
                     left_anchor: false,
                     letter_spacing: 0.0,
+                    weight: 0.0,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
