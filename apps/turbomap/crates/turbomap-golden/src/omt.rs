@@ -6,6 +6,7 @@
 
 use turbomap_scene::{
     Color, Filter, FilterValue, Layer, MatchCase, Paint, Scene, SourceDef, SymbolPlacement,
+    TextAnchor,
 };
 
 /// The flat "land" ground colour the raster base paints under the vector
@@ -289,6 +290,7 @@ pub fn bergen_scene() -> Scene {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
     scene.layers.push(Layer::Symbol {
         id: "water-names".to_string(),
@@ -305,6 +307,7 @@ pub fn bergen_scene() -> Scene {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
     scene.layers.push(Layer::Symbol {
         id: "street-names".to_string(),
@@ -322,32 +325,51 @@ pub fn bergen_scene() -> Scene {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
 
-    // POIs: a curated set of food/drink, lodging and culture landmarks —
-    // the named places that make a map feel alive. Prepared last, so they
-    // never displace place/street/water labels, and the frame-wide
-    // collision thins the rest. Deliberately *not* the long tail
-    // (parking/waste_basket/gate/bench) which would be pure clutter.
-    scene.layers.push(Layer::Symbol {
-        id: "poi".to_string(),
-        source: "omt".to_string(),
-        source_layer: Some("poi".to_string()),
-        filter: class_in(&[
-            "restaurant", "cafe", "bar", "fast_food", "pub", "hotel", "hostel",
-            "museum", "theatre", "cinema", "hospital",
-            "pharmacy", "library", "place_of_worship", "supermarket",
-        ]),
-        text_field: "name".to_string(),
-        text_size: Paint::Const(10.5),
-        color: Paint::Const(Color::rgb(96, 88, 84)),
-        halo_color: Paint::Const(Color::rgb(248, 246, 243)),
-        halo_width: Paint::Const(1.3),
-        sort_key: None,
-        placement: SymbolPlacement::Point,
-        icon_image: None,
-        icon_size: Paint::Const(24.0),
-        icon_color: Paint::Const(Color::rgb(120, 110, 100)),
-    });
+    // POIs: a curated set of landmarks, each a colour-coded dot with the
+    // name to its right (left-anchored text). Grouped into a few category
+    // colours the way real basemaps cue what a place is. Prepared last, so
+    // they never displace place/street/water labels, and the frame-wide
+    // collision thins the rest — the long tail (parking/waste_basket/gate)
+    // is deliberately excluded as pure clutter.
+    let mut poi_layer = |id: &str, classes: &[&str], dot: Color| {
+        scene.layers.push(Layer::Symbol {
+            id: id.to_string(),
+            source: "omt".to_string(),
+            source_layer: Some("poi".to_string()),
+            filter: class_in(classes),
+            text_field: "name".to_string(),
+            text_size: Paint::Const(10.5),
+            color: Paint::Const(Color::rgb(90, 84, 80)),
+            halo_color: Paint::Const(Color::rgb(248, 246, 243)),
+            halo_width: Paint::Const(1.2),
+            sort_key: None,
+            placement: SymbolPlacement::Point,
+            icon_image: Some("dot".to_string()),
+            icon_size: Paint::Const(7.0),
+            icon_color: Paint::Const(dot),
+            text_anchor: TextAnchor::Left,
+        });
+    };
+    // Food & drink — warm orange.
+    poi_layer(
+        "poi-food",
+        &["restaurant", "cafe", "bar", "fast_food", "pub"],
+        Color::rgb(224, 138, 72),
+    );
+    // Lodging & culture — muted violet.
+    poi_layer(
+        "poi-culture",
+        &["hotel", "hostel", "museum", "theatre", "cinema", "library", "place_of_worship"],
+        Color::rgb(150, 122, 186),
+    );
+    // Health & shops — teal-green.
+    poi_layer(
+        "poi-service",
+        &["hospital", "pharmacy", "supermarket"],
+        Color::rgb(72, 158, 132),
+    );
     scene
 }

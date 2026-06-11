@@ -24,6 +24,7 @@ use turbomap_mvt::encode::TileEncoder;
 use turbomap_mvt::Value;
 use turbomap_scene::{
     Color, Filter, FilterValue, Layer, MatchCase, Paint, Scene, SourceDef, SymbolPlacement,
+    TextAnchor,
 };
 use turbomap_tiles_pmtiles::{writer::write_archive, PMTilesSource, TileType};
 
@@ -322,6 +323,7 @@ fn omt_scene() -> Scene {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
     scene
 }

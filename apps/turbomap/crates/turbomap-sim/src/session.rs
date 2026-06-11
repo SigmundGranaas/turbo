@@ -23,7 +23,7 @@ use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine
 use turbomap_golden::{render_to_image, Gpu};
 use turbomap_scene::style::MatchCase;
 use turbomap_scene::{
-    Color, Filter, FilterValue, Layer, LatLng, Paint, Scene, SourceDef, SymbolPlacement,
+    Color, Filter, FilterValue, Layer, LatLng, Paint, Scene, SourceDef, SymbolPlacement, TextAnchor,
 };
 
 use crate::world::world_tile;
@@ -162,6 +162,7 @@ pub fn basemap_scene() -> Scene {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
     scene
 }

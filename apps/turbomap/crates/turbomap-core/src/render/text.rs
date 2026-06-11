@@ -428,6 +428,19 @@ impl TextPipeline {
                 .layout_cache
                 .get_or_compute(&label.text, label.font_size_px, &mut self.atlas)
                 .to_vec();
+            // Horizontal placement: centred on the anchor by default, or —
+            // for a left-anchored POI label — shifted so the text's left
+            // edge lands `pad` px right of the anchor (clearing the icon).
+            let shift_x = match label.left_pad_px {
+                Some(pad) => {
+                    let cached_min = cached
+                        .iter()
+                        .map(|g| g.screen_x)
+                        .fold(f32::INFINITY, f32::min);
+                    screen.0 + pad - cached_min
+                }
+                None => screen.0,
+            };
             let mut aabb_xy = (
                 f32::INFINITY,
                 f32::INFINITY,
@@ -437,7 +450,7 @@ impl TextPipeline {
             let translated: Vec<crate::text::LayoutGlyph> = cached
                 .into_iter()
                 .map(|g| {
-                    let x = g.screen_x + screen.0;
+                    let x = g.screen_x + shift_x;
                     let y = g.screen_y + screen.1;
                     aabb_xy.0 = aabb_xy.0.min(x);
                     aabb_xy.1 = aabb_xy.1.min(y);

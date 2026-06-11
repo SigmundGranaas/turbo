@@ -110,6 +110,10 @@ pub enum Paint {
         /// a POI icon, or (with centred text) a route shield. `None` ⇒
         /// text only. Ignored for `along_line` rules.
         icon: Option<IconSpec>,
+        /// When `true`, a point label is placed to the *right* of its anchor
+        /// (left-aligned, clearing any icon) instead of centred — the POI
+        /// marker layout. Ignored for `along_line` rules.
+        left_anchor: bool,
     },
 }
 

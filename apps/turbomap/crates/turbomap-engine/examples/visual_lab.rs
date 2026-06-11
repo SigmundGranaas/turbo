@@ -36,6 +36,7 @@ use turbomap_golden::sources::FlatBasemap;
 use turbomap_golden::{headless, render_to_image, TARGET_FORMAT};
 use turbomap_scene::{
     Color, Filter, Layer, Paint, Scene, SourceDef, SymbolPlacement,
+    TextAnchor,
 };
 use turbomap_tiles_pmtiles::PMTilesSource;
 
@@ -181,6 +182,7 @@ fn probe_scene(word: &str) -> Scene {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
     scene
 }

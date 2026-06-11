@@ -81,6 +81,10 @@ pub struct LabelRequest {
     /// name). `None` for ordinary point labels. The text pipeline projects
     /// these to screen and runs each glyph along the curve.
     pub path: Option<Vec<(f32, f32)>>,
+    /// When `Some(pad)`, a point label is left-anchored: its left edge sits
+    /// `pad` screen-pixels right of the projected anchor (clearing an icon).
+    /// `None` ⇒ centred on the anchor (the default). Ignored for line labels.
+    pub left_pad_px: Option<f32>,
 }
 
 /// One sprite "intent" extracted from a tile: a named icon to draw at a
@@ -242,6 +246,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     rank_field,
                     along_line,
                     icon,
+                    left_anchor,
                 } => {
                     // Text is optional: an icon-only layer (a bare POI
                     // marker) has no `text_field` value, but still draws.
@@ -253,6 +258,11 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                         .and_then(|f| read_number_property(feature, f))
                         .map(|n| n as f32)
                         .unwrap_or(*font_size_px);
+                    // Left-anchored labels sit to the right of their anchor,
+                    // clearing the icon (half its width) plus a small gap.
+                    let left_pad_px = left_anchor.then(|| {
+                        icon.as_ref().map(|i| i.size_px * 0.5).unwrap_or(0.0) + 3.0
+                    });
                     let make_label = |world_pos: (f32, f32), path: Option<Vec<(f32, f32)>>| {
                         text.as_ref().map(|t| LabelRequest {
                             world_pos,
@@ -263,6 +273,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             halo_width: *halo_width,
                             rank,
                             path,
+                            left_pad_px,
                         })
                     };
                     if *along_line {
@@ -643,6 +654,67 @@ mod tests {
     }
 
     #[test]
+    fn left_anchored_text_with_an_icon_sets_a_clearing_pad() {
+        // A POI marker: dot icon + left-anchored name. The label must carry
+        // a left pad of (icon half-width + gap) so the text clears the dot;
+        // a centred label carries None.
+        let mut props = HashMap::new();
+        props.insert("name".to_owned(), crate::vector::Value::String("Cafe".into()));
+        let feat = Feature {
+            id: 0,
+            geom_type: GeomType::Point,
+            geometry: Geometry::Point(vec![(2048, 2048)]),
+            properties: props,
+        };
+        let tile = VectorTile {
+            layers: vec![crate::vector::Layer {
+                name: "poi".into(),
+                version: 2,
+                extent: 4096,
+                features: vec![feat],
+            }],
+        };
+        let text = |left_anchor, icon| Paint::Text {
+            text_field: "name".into(),
+            font_size_px: 11.0,
+            color: Color::rgb(0, 0, 0),
+            halo_color: Color::rgba(0, 0, 0, 0),
+            halo_width: 0.0,
+            rank_field: None,
+            along_line: false,
+            icon,
+            left_anchor,
+        };
+        let rule = |paint| Rule {
+            source_layer: "poi".into(),
+            filter: Filter::Always,
+            paint,
+            min_zoom: 0,
+            max_zoom: 22,
+            interactive: false,
+        };
+        let icon = crate::style::IconSpec {
+            sprite: "dot".into(),
+            size_px: 8.0,
+            color: Color::rgb(255, 128, 0),
+        };
+        let left = VectorStyle {
+            background: Color::rgb(255, 255, 255),
+            rules: vec![rule(text(true, Some(icon)))],
+        };
+        let out = tessellate(TileId::new(14, 0, 0), &tile, &left);
+        // pad = icon half (4.0) + 3.0 gap.
+        assert_eq!(out.labels[0].left_pad_px, Some(7.0));
+
+        let centred = VectorStyle {
+            background: Color::rgb(255, 255, 255),
+            rules: vec![rule(text(false, None))],
+        };
+        let out = tessellate(TileId::new(14, 0, 0), &tile, &centred);
+        assert_eq!(out.labels[0].left_pad_px, None, "centred label has no pad");
+    }
+
+    #[test]
     fn point_feature_matching_a_text_rule_produces_a_label_request() {
         let mut props = HashMap::new();
         props.insert(
@@ -678,6 +750,7 @@ mod tests {
                     rank_field: None,
                     along_line: false,
                     icon: None,
+                    left_anchor: false,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
@@ -727,6 +800,7 @@ mod tests {
                     rank_field: None,
                     along_line: false,
                     icon: None,
+                    left_anchor: false,
                 },
                 min_zoom: 0,
                 max_zoom: 22,

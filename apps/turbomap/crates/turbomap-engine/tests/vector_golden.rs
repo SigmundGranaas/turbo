@@ -11,6 +11,7 @@ use turbomap_engine::{CameraState, LatLng, MapEngine, TurbomapEngine};
 use turbomap_golden::{assert_golden, headless, render_to_image, GoldenConfig, TARGET_FORMAT};
 use turbomap_scene::{
     Color, Filter, FilterValue, Layer, MatchCase, Paint, Scene, SourceDef, SymbolPlacement,
+    TextAnchor,
 };
 
 fn route_scene() -> Scene {
@@ -473,6 +474,7 @@ fn label_importance_ranking_wins_collisions() {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -703,6 +705,7 @@ fn symbol_halo_keeps_labels_readable_over_busy_lines() {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -810,6 +813,7 @@ fn cjk_labels_render_via_fallback_font() {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -907,6 +911,7 @@ fn complex_scripts_render_with_shaping_and_bidi() {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -1009,6 +1014,7 @@ fn road_name_follows_the_centerline() {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -1136,6 +1142,7 @@ fn icons_and_route_shields_render() {
         icon_image: Some("dot".to_string()),
         icon_size: Paint::Const(26.0),
         icon_color: Paint::Const(Color::rgb(220, 60, 60)),
+        text_anchor: TextAnchor::Center,
     });
     // Route shield — sprite background with the ref centred on top.
     scene.layers.push(Layer::Symbol {
@@ -1154,6 +1161,7 @@ fn icons_and_route_shields_render() {
         icon_image: Some("shield".to_string()),
         icon_size: Paint::Const(34.0),
         icon_color: Paint::Const(Color::rgb(40, 54, 110)),
+        text_anchor: TextAnchor::Center,
     });
 
     let mut engine = TurbomapEngine::new(
@@ -1247,6 +1255,7 @@ fn symbol_labels_render_over_raster() {
         icon_image: None,
         icon_size: Paint::Const(24.0),
         icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
     });
 
     let mut engine = TurbomapEngine::new(

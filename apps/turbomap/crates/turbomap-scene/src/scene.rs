@@ -30,6 +30,18 @@ pub enum SymbolPlacement {
     Line,
 }
 
+/// Horizontal placement of a point label relative to its anchor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAnchor {
+    /// Centred on the point (the default — place names, route shields).
+    #[default]
+    Center,
+    /// Left edge at the point (+ any icon width), so the text reads to the
+    /// right of an icon — the POI-marker layout.
+    Left,
+}
+
 /// A named data source layers draw from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -161,6 +173,11 @@ pub enum Layer {
         /// Tint for the monochrome SDF icon (and shield background).
         #[serde(default = "default_icon_color")]
         icon_color: Paint<Color>,
+        /// Horizontal placement of the text. `Center` (default) keeps the
+        /// current behaviour (place names, shields); `Left` puts the text
+        /// to the right of the icon (POI markers).
+        #[serde(default)]
+        text_anchor: TextAnchor,
     },
     Hillshade {
         id: String,

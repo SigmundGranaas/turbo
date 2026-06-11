@@ -18,7 +18,7 @@ use turbomap_core::{
 };
 use turbomap_scene::{
     diff, Capabilities, CameraState, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
-    Paint, Scene, SceneDelta, ScreenPoint, SourceDef, SymbolPlacement,
+    Paint, Scene, SceneDelta, ScreenPoint, SourceDef, SymbolPlacement, TextAnchor,
 };
 
 use crate::geojson::GEOJSON_LAYER;
@@ -236,6 +236,7 @@ impl TurbomapEngine {
                 icon_image,
                 icon_size,
                 icon_color,
+                text_anchor,
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
@@ -243,7 +244,7 @@ impl TurbomapEngine {
                     let style = symbol_style(
                         name, filter, text_field, text_size, color, halo_color, halo_width,
                         sort_key, *placement, icon_image, icon_size, icon_color, zoom,
-                        self.pixel_ratio,
+                        self.pixel_ratio, *text_anchor,
                     );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
@@ -699,6 +700,7 @@ fn symbol_style(
     icon_color: &Paint<Color>,
     zoom: f64,
     pixel_ratio: f32,
+    text_anchor: TextAnchor,
 ) -> VectorStyle {
     let hc = halo_color.at(zoom);
     let core_halo = CoreColor::rgba(hc.r, hc.g, hc.b, hc.a);
@@ -707,6 +709,7 @@ fn symbol_style(
     let hw = halo_width.at(zoom);
     let font = text_size.at(zoom) * pixel_ratio;
     let along_line = matches!(placement, SymbolPlacement::Line);
+    let left_anchor = matches!(text_anchor, TextAnchor::Left);
     let ic = icon_color.at(zoom);
     let icon = icon_image.as_ref().map(|sprite| turbomap_core::IconSpec {
         sprite: sprite.clone(),
@@ -729,6 +732,7 @@ fn symbol_style(
                 rank_field: sort_key.clone(),
                 along_line,
                 icon: icon.clone(),
+                left_anchor,
             },
             min_zoom: 0,
             max_zoom: 22,

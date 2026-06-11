@@ -59,6 +59,10 @@ pub(crate) struct IconPipeline {
     atlas: SpriteAtlas,
     staged: Vec<IconInstance>,
     frame_viewport: [f32; 2],
+    /// Screen boxes of icons placed this frame — shared across all vector
+    /// layers (reset in `begin_frame`), so POI dots don't pile on top of
+    /// each other in dense areas. Earlier layers win the space.
+    frame_placed: Vec<crate::text::Aabb>,
 }
 
 impl IconPipeline {
@@ -292,11 +296,13 @@ impl IconPipeline {
             atlas,
             staged: Vec::new(),
             frame_viewport: [0.0; 2],
+            frame_placed: Vec::new(),
         }
     }
 
     pub(crate) fn begin_frame(&mut self) {
         self.staged.clear();
+        self.frame_placed.clear();
     }
 
     /// Stage one vector layer's icons: project each request to screen, look
@@ -325,6 +331,20 @@ impl IconPipeline {
                 if sx < -w || sx > viewport_px.0 + w || sy < -h || sy > viewport_px.1 + h {
                     continue;
                 }
+                // Frame-wide de-cluttering: drop an icon that would crowd an
+                // already-placed one. The positive pad enforces a gap so
+                // dense POI areas read as spaced markers, not a smear.
+                let bbox = crate::text::Aabb {
+                    min_x: sx - w * 0.5,
+                    min_y: sy - h * 0.5,
+                    max_x: sx + w * 0.5,
+                    max_y: sy + h * 0.5,
+                }
+                .pad(3.0);
+                if self.frame_placed.iter().any(|p| p.overlaps(bbox)) {
+                    continue;
+                }
+                self.frame_placed.push(bbox);
                 self.staged.push(IconInstance {
                     screen_centre: [sx, sy],
                     size_px: [w, h],
