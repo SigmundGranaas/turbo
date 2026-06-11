@@ -35,7 +35,7 @@ pub const RASTER_PX: f32 = 36.0;
 /// Pixels of padding around each glyph in the atlas, used to hold the
 /// signed-distance field's "outside" band. The fragment shader can render
 /// a halo up to roughly this many raster pixels wide.
-pub const SDF_PAD: u32 = 4;
+pub const SDF_PAD: u32 = 8;
 
 /// Atlas SDF center is 128 (signed distance 0). Each unit-of-u8 corresponds
 /// to roughly 1/8 of a raster pixel; the band of meaningful values is
