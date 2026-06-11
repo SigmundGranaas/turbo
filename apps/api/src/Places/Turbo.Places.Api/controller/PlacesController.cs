@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Turboapi.Places.controller.response;
 using Turboapi.Places.Core;
 
@@ -14,6 +15,7 @@ namespace Turboapi.Places.controller;
 [ApiController]
 [Route("api/places")]
 [AllowAnonymous]
+[EnableRateLimiting(PlacesModule.RateLimitPolicy)]
 public class PlacesController : ControllerBase
 {
     // Mainland Norway envelope (generous): reject obviously out-of-scope
@@ -117,6 +119,15 @@ public class PlacesController : ControllerBase
         }
         if (!InNorway(minLat, minLng) || !InNorway(maxLat, maxLng))
             return BadRequest(new ErrorResponse("out_of_coverage", "bbox is outside Norway."));
+        if (maxLat <= minLat || maxLng <= minLng)
+            return BadRequest(new ErrorResponse("bad_bbox", "max must be greater than min."));
+        // Cap the on-demand bundle to a region: a whole-country slice would
+        // build ~1M rows into SQLite + stream it on every request (a DoS lever).
+        // Larger areas are produced offline by the `bundle` ingestion job.
+        if (maxLat - minLat > MaxBundleLatSpan || maxLng - minLng > MaxBundleLngSpan)
+            return BadRequest(new ErrorResponse("bbox_too_large",
+                $"bbox spans at most {MaxBundleLatSpan}° lat × {MaxBundleLngSpan}° lng; " +
+                "use the offline bundle job for larger areas."));
 
         var version = await _version.GetActiveVersionAsync(ct);
         if (version is null)
@@ -128,15 +139,26 @@ public class PlacesController : ControllerBase
         try
         {
             await _bundles.BuildAsync(minLng, minLat, maxLng, maxLat, _ruleset.Json, version, path, ct);
-            var bytes = await System.IO.File.ReadAllBytesAsync(path, ct);
-            Response.Headers.ETag = $"\"{version}\"";
-            return File(bytes, "application/octet-stream", $"places-{version}.sqlite");
         }
-        finally
+        catch
         {
             if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+            throw;
         }
+
+        // Stream the file (never load it fully into memory) and have the OS
+        // unlink it once the response finishes (DeleteOnClose).
+        var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.None,
+            bufferSize: 64 * 1024, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+        Response.Headers.ETag = $"\"{version}\"";
+        return File(stream, "application/octet-stream", $"places-{version}.sqlite");
     }
+
+    // Region cap for the on-demand bundle endpoint (≈ a large fylke). Bigger
+    // areas go through the offline `bundle` job, not a request thread.
+    private const double MaxBundleLatSpan = 2.5;
+    private const double MaxBundleLngSpan = 6.0;
 
     /// <summary>Data licence/attribution surfaced on /health and in bundles.</summary>
     public const string Attribution = "© Kartverket / Miljødirektoratet (NLOD)";

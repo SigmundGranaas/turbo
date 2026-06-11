@@ -1,44 +1,43 @@
-using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.RateLimiting;
 using Turboapi.Places;
+using Turboapi.Places.Core;
 
 // Standalone Places host: anonymous reference-data service (search + reverse
-// geocoding) behind the YARP gateway. No auth scheme, no NATS — the module is
-// the pure query side; ingestion runs as a separate job.
+// geocoding). No auth scheme, no NATS — the module is the pure query side;
+// ingestion runs as a separate job. The per-client rate limit + 429s are owned
+// by the module (AddPlacesModule), so this host just activates the middleware.
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddPlacesModule(builder.Configuration);
 
-// Defense-in-depth rate limit (the gateway is the primary guard). A per-IP
-// fixed window; disabled when Places:RateLimitPermitPerWindow <= 0.
-var permit = builder.Configuration.GetValue("Places:RateLimitPermitPerWindow", 600);
-var windowSeconds = builder.Configuration.GetValue("Places:RateLimitWindowSeconds", 60);
-if (permit > 0)
-{
-    builder.Services.AddRateLimiter(options =>
-    {
-        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                ctx.Connection.RemoteIpAddress?.ToString() ?? "anon",
-                _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = permit,
-                    Window = TimeSpan.FromSeconds(windowSeconds),
-                    QueueLimit = 0,
-                }));
-    });
-}
-
 var app = builder.Build();
 await app.Services.InitializePlacesModuleAsync(
     PlacesModule.ResolveConnectionString(builder.Configuration));
 
-if (permit > 0) app.UseRateLimiter();
+app.UseRateLimiter();
 app.MapControllers();
+
+// Liveness: process is up.
 app.MapGet("/healthz", () => Results.Ok("ok"));
+
+// Readiness: only serve traffic once the DB is reachable AND a dataset is
+// published (an empty DB would otherwise look "ready" and 404 every query).
+app.MapGet("/readyz", async (IPlaceStore store, CancellationToken ct) =>
+{
+    try
+    {
+        var (places, _, version) = await store.StatsAsync(ct);
+        return version is null || places == 0
+            ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable)
+            : Results.Ok(new { status = "ready", datasetVersion = version, places });
+    }
+    catch
+    {
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+});
+
 app.Run();
 
 namespace Turbo.Host.Places

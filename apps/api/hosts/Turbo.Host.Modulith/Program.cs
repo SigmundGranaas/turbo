@@ -94,6 +94,10 @@ await app.Services.BackfillSharingResourcesAsync(builder.Configuration);
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+// Honours the Places module's per-client rate-limit policy. Only endpoints
+// that opt in via [EnableRateLimiting] are affected (no global limiter), so
+// the other modules are untouched.
+app.UseRateLimiter();
 app.MapControllers();
 app.MapGet("/healthz", () => Results.Ok("ok")).AllowAnonymous();
 app.Run();

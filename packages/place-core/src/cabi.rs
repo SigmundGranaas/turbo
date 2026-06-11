@@ -17,6 +17,7 @@
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::OnceLock;
 
 use crate::{forward_search, reverse_geocode, ReverseInput, Ruleset, SearchCandidate};
@@ -45,13 +46,24 @@ fn give(s: String) -> *mut c_char {
     CString::new(s).unwrap_or_default().into_raw()
 }
 
-fn reverse_with(ruleset: &Ruleset, input_json: *const c_char) -> *mut c_char {
-    let out = unsafe { read(input_json) }
-        .and_then(|s| serde_json::from_str::<ReverseInput>(s).ok())
-        .and_then(|input| reverse_geocode(ruleset, &input))
-        .and_then(|d| serde_json::to_string(&d).ok())
-        .unwrap_or_else(|| "null".to_string());
+/// Run the compute closure under `catch_unwind` so a panic in the pure core
+/// (a future edge case in ranking/geometry) can never unwind across the C ABI
+/// boundary and abort the host process — it degrades to `fallback` instead.
+/// The unsafe pointer reads happen *before* this; the closure owns its data.
+fn guard(fallback: &str, f: impl FnOnce() -> String) -> *mut c_char {
+    let out = catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| fallback.to_string());
     give(out)
+}
+
+fn reverse_with(ruleset: &Ruleset, input_json: *const c_char) -> *mut c_char {
+    let input = unsafe { read(input_json) }.map(str::to_owned);
+    guard("null", || {
+        input
+            .and_then(|s| serde_json::from_str::<ReverseInput>(&s).ok())
+            .and_then(|input| reverse_geocode(ruleset, &input))
+            .and_then(|d| serde_json::to_string(&d).ok())
+            .unwrap_or_else(|| "null".to_string())
+    })
 }
 
 fn search_with(
@@ -59,12 +71,14 @@ fn search_with(
     query: *const c_char,
     candidates_json: *const c_char,
 ) -> *mut c_char {
-    let query = unsafe { read(query) }.unwrap_or("");
+    let query = unsafe { read(query) }.unwrap_or("").to_owned();
     let candidates: Vec<SearchCandidate> = unsafe { read(candidates_json) }
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
-    let hits = forward_search(ruleset, query, &candidates);
-    give(serde_json::to_string(&hits).unwrap_or_else(|_| "[]".to_string()))
+    guard("[]", || {
+        let hits = forward_search(ruleset, &query, &candidates);
+        serde_json::to_string(&hits).unwrap_or_else(|_| "[]".to_string())
+    })
 }
 
 // ── Engine handle API ───────────────────────────────────────────────────────
@@ -207,13 +221,15 @@ mod bundle_abi {
         if bundle.is_null() {
             return give("null".to_string());
         }
-        let out = (*bundle)
-            .reverse(lat, lng)
-            .ok()
-            .flatten()
-            .and_then(|d| serde_json::to_string(&d).ok())
-            .unwrap_or_else(|| "null".to_string());
-        give(out)
+        let bundle = &*bundle;
+        super::guard("null", || {
+            bundle
+                .reverse(lat, lng)
+                .ok()
+                .flatten()
+                .and_then(|d| serde_json::to_string(&d).ok())
+                .unwrap_or_else(|| "null".to_string())
+        })
     }
 
     /// Forward-search → JSON array of `SearchHit`.
@@ -229,15 +245,29 @@ mod bundle_abi {
         if bundle.is_null() {
             return give("[]".to_string());
         }
-        let q = read(query).unwrap_or("");
-        let hits = (*bundle).search(q, limit as usize).unwrap_or_default();
-        give(serde_json::to_string(&hits).unwrap_or_else(|_| "[]".to_string()))
+        let bundle = &*bundle;
+        let q = read(query).unwrap_or("").to_owned();
+        super::guard("[]", || {
+            let hits = bundle.search(&q, limit as usize).unwrap_or_default();
+            serde_json::to_string(&hits).unwrap_or_else(|_| "[]".to_string())
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A panic inside the compute closure must be caught and degraded to the
+    /// fallback, never unwound across the (extern "C") boundary — that would
+    /// abort the host process.
+    #[test]
+    fn guard_catches_a_panic_and_returns_the_fallback() {
+        let p = guard("null", || panic!("boom"));
+        let s = unsafe { CStr::from_ptr(p).to_str().unwrap().to_owned() };
+        unsafe { place_core_string_free(p) };
+        assert_eq!(s, "null");
+    }
 
     unsafe fn reverse(engine: *mut Engine, input: &str) -> String {
         let c = CString::new(input).unwrap();

@@ -110,6 +110,19 @@ public class PlacesApiBehaviour : IClassFixture<PlacesHostFixture>
     }
 
     [Fact]
+    public async Task Bundle_for_an_oversized_bbox_is_rejected_with_400()
+    {
+        // A whole-country bbox would build ~1M rows into SQLite per request —
+        // the endpoint caps to a region and points larger areas at the job.
+        var client = _fixture.CreateClient();
+        var resp = await client.GetAsync("/api/places/bundle?bbox=4.0,57.0,32.0,72.0");
+
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("bbox_too_large");
+    }
+
+    [Fact]
     public async Task Search_without_query_returns_400()
     {
         var client = _fixture.CreateClient();
