@@ -64,6 +64,19 @@ impl Camera {
         self
     }
 
+    /// Rotate the compass bearing by `delta_deg` (clockwise positive), the
+    /// two-finger rotate gesture. Wraps to `[0, 360)` so repeated spins
+    /// never drift the value out of range. Pivots about the screen centre.
+    pub fn rotate_by(&mut self, delta_deg: f64) {
+        self.bearing_deg = (self.bearing_deg + delta_deg).rem_euclid(360.0);
+    }
+
+    /// Tilt by `delta_deg` (two-finger vertical drag), clamped to
+    /// `[0, MAX_PITCH_DEG]`. Pivots about the screen centre.
+    pub fn pitch_by(&mut self, delta_deg: f64) {
+        self.pitch_deg = (self.pitch_deg + delta_deg).clamp(0.0, MAX_PITCH_DEG);
+    }
+
     /// Pixels per world unit at the current zoom (one world unit = the full
     /// Mercator extent, i.e. one root tile). This is the value at the
     /// camera's centre on the ground plane — perspective makes the
@@ -557,6 +570,23 @@ mod tests {
         let after_world = cam.center.to_world();
         assert_world_close(before_world, after_world, 1e-12);
         assert!((cam.zoom - 12.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rotate_wraps_and_pitch_clamps() {
+        let mut cam = Camera::new(LatLng::new(0.0, 0.0), 10.0);
+        // Bearing wraps across the 0/360 seam in both directions.
+        cam.rotate_by(350.0);
+        cam.rotate_by(20.0); // 370 → 10
+        assert!((cam.bearing_deg - 10.0).abs() < 1e-9, "{}", cam.bearing_deg);
+        cam.rotate_by(-30.0); // 10 → -20 → 340
+        assert!((cam.bearing_deg - 340.0).abs() < 1e-9, "{}", cam.bearing_deg);
+
+        // Pitch clamps to [0, MAX_PITCH_DEG] and never tilts past the limit.
+        cam.pitch_by(80.0);
+        assert!((cam.pitch_deg - MAX_PITCH_DEG).abs() < 1e-9, "{}", cam.pitch_deg);
+        cam.pitch_by(-200.0);
+        assert!(cam.pitch_deg.abs() < 1e-9, "{}", cam.pitch_deg);
     }
 
     #[test]

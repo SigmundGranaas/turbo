@@ -412,6 +412,18 @@ impl TurbomapEngine {
         self.map.zoom_around(factor, focus_px);
     }
 
+    /// Rotate the compass bearing by `delta_deg` — the two-finger rotate
+    /// gesture (wraps to [0, 360)).
+    pub fn rotate_by(&mut self, delta_deg: f64) {
+        self.map.rotate_by(delta_deg);
+    }
+
+    /// Tilt by `delta_deg` — the two-finger vertical-drag gesture (clamped
+    /// to the pitch limit).
+    pub fn pitch_by(&mut self, delta_deg: f64) {
+        self.map.pitch_by(delta_deg);
+    }
+
     /// Animated focus-invariant zoom over `duration` — the smooth double-tap
     /// zoom. Drive with [`tick_now`](Self::tick_now).
     pub fn zoom_around_animated(

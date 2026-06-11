@@ -653,6 +653,20 @@ impl Map {
         self.set_camera(c);
     }
 
+    /// Rotate the bearing by `delta_deg` (two-finger rotate).
+    pub fn rotate_by(&mut self, delta_deg: f64) {
+        let mut c = self.camera;
+        c.rotate_by(delta_deg);
+        self.set_camera(c);
+    }
+
+    /// Tilt by `delta_deg` (two-finger drag), clamped to the pitch limit.
+    pub fn pitch_by(&mut self, delta_deg: f64) {
+        let mut c = self.camera;
+        c.pitch_by(delta_deg);
+        self.set_camera(c);
+    }
+
     /// Animate a focus-invariant zoom by `factor` about `focus_px` over
     /// `duration` — the smooth double-tap / scroll-wheel zoom. Eases to the
     /// same target [`Camera::zoom_around`] would snap to.
