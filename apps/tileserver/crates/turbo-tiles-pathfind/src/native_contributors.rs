@@ -1165,12 +1165,15 @@ pub struct TrailProximityContributor {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct TrailSegment {
-    a: [f64; 2],
-    b: [f64; 2],
+    /// f32: at UTM33N magnitudes (~7e6 m) f32 resolves to <1 m — noise
+    /// against the 30 m influence radius — and HALVES the rtree, which
+    /// holds millions of decimated polyline segments.
+    a: [f32; 2],
+    b: [f32; 2],
 }
 
 impl RTreeObject for TrailSegment {
-    type Envelope = AABB<[f64; 2]>;
+    type Envelope = AABB<[f32; 2]>;
     fn envelope(&self) -> Self::Envelope {
         AABB::from_corners(
             [self.a[0].min(self.b[0]), self.a[1].min(self.b[1])],
@@ -1180,20 +1183,22 @@ impl RTreeObject for TrailSegment {
 }
 
 impl PointDistance for TrailSegment {
-    fn distance_2(&self, point: &[f64; 2]) -> f64 {
-        let px = point[0];
-        let py = point[1];
-        let ax = self.a[0];
-        let ay = self.a[1];
-        let bx = self.b[0];
-        let by = self.b[1];
+    fn distance_2(&self, point: &[f32; 2]) -> f32 {
+        // Promote to f64 for the projection math (f32 cross-products at
+        // 7e6 magnitudes lose metre-scale precision), return f32.
+        let px = point[0] as f64;
+        let py = point[1] as f64;
+        let ax = self.a[0] as f64;
+        let ay = self.a[1] as f64;
+        let bx = self.b[0] as f64;
+        let by = self.b[1] as f64;
         let dx = bx - ax;
         let dy = by - ay;
         let len_sq = dx * dx + dy * dy;
         if len_sq < 1e-12 {
             let ex = px - ax;
             let ey = py - ay;
-            return ex * ex + ey * ey;
+            return (ex * ex + ey * ey) as f32;
         }
         let t = ((px - ax) * dx + (py - ay) * dy) / len_sq;
         let t = t.clamp(0.0, 1.0);
@@ -1201,27 +1206,33 @@ impl PointDistance for TrailSegment {
         let qy = ay + t * dy;
         let ex = px - qx;
         let ey = py - qy;
-        ex * ex + ey * ey
+        (ex * ex + ey * ey) as f32
     }
 }
 
 impl TrailProximityContributor {
     pub fn new(graph: &Graph, influence_radius_m: f64, bonus_at_zero: f32) -> Self {
-        let build = |fkb_type: u8| -> RTree<TrailSegment> {
-            let segs: Vec<TrailSegment> = graph
-                .collect_segments_with_fkb_types(&[fkb_type])
-                .into_iter()
-                .map(|(a, b)| TrailSegment {
-                    a: [a.0 as f64, a.1 as f64],
-                    b: [b.0 as f64, b.1 as f64],
-                })
-                .collect();
-            RTree::bulk_load(segs)
+        // sti (foot): polyline-following segments at ~50 m — endpoint
+        // chords misplace twisty mountain paths by hundreds of metres
+        // and attract routes to phantom lines (measured: corpus Fréchet
+        // 67 -> 76 from this change alone). vei/skiloype (bicycle/ski
+        // profiles): endpoint chords as before — engineered, near-
+        // straight networks where the chord error is small, and their
+        // polyline trees would cost ~1 GB of boot RSS for no benefit.
+        let to_tree = |raw: Vec<((f32, f32), (f32, f32))>| -> RTree<TrailSegment> {
+            RTree::bulk_load(
+                raw.into_iter()
+                    .map(|(a, b)| TrailSegment {
+                        a: [a.0, a.1],
+                        b: [b.0, b.1],
+                    })
+                    .collect(),
+            )
         };
         Self {
-            sti: build(1),
-            vei: build(2),
-            skiloype: build(3),
+            sti: to_tree(graph.collect_polyline_segments_with_fkb_types(&[1], 100.0)),
+            vei: to_tree(graph.collect_segments_with_fkb_types(&[2])),
+            skiloype: to_tree(graph.collect_segments_with_fkb_types(&[3])),
             influence_radius_m,
             bonus_at_zero,
         }
@@ -1237,10 +1248,22 @@ impl TrailProximityContributor {
 
     fn delta_at(&self, x: f64, y: f64, profile: Profile) -> f64 {
         let rt = self.rtree_for(profile);
-        let Some(seg) = rt.nearest_neighbor(&[x, y]) else {
+        // Bounded query: only the distance WITHIN the influence radius
+        // matters, so a radius-limited scan beats a global nearest-
+        // neighbor proof (which must visit far more of the tree).
+        let p = [x as f32, y as f32];
+        let r2 = (self.influence_radius_m * self.influence_radius_m) as f32;
+        let mut best: f32 = f32::INFINITY;
+        for seg in rt.locate_within_distance(p, r2) {
+            let d2 = seg.distance_2(&p);
+            if d2 < best {
+                best = d2;
+            }
+        }
+        if !best.is_finite() {
             return 0.0;
-        };
-        let d = seg.distance_2(&[x, y]).sqrt();
+        }
+        let d = (best as f64).sqrt();
         if d >= self.influence_radius_m {
             return 0.0;
         }

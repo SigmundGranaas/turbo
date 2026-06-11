@@ -524,6 +524,11 @@ impl TrailProximityLayer {
     pub fn new(graph: &Graph, influence_radius_m: f64, bonus_at_zero: f32) -> Self {
         let build = |fkb_type: u8| -> RTree<TrailSegment> {
             let segs: Vec<TrailSegment> = graph
+                // Endpoint chords are fine here: this LEGACY layer only
+                // backs the cell-inspect debug endpoint (routing uses the
+                // native TrailProximityContributor, whose sti tree follows
+                // polylines); a polyline tree per class would cost ~1 GB
+                // of boot heap for debug-only precision.
                 .collect_segments_with_fkb_types(&[fkb_type])
                 .into_iter()
                 .map(|(a, b)| TrailSegment {
