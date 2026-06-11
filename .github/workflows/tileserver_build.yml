@@ -57,10 +57,15 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Needed so the deploy-pin step can push the SHA back to main. Falls
+          # back to GITHUB_TOKEN; set a DEPLOY_PAT secret if branch protection
+          # blocks the Actions bot from pushing to main.
+          token: ${{ secrets.DEPLOY_PAT || github.token }}
 
       - name: Lowercase owner
         id: owner
@@ -87,3 +92,48 @@ jobs:
             ghcr.io/${{ steps.owner.outputs.lc }}/turbo-tileserver:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # GitOps deploy: pin the prod overlay to this immutable build SHA and
+      # commit it back to main. ArgoCD (auto-sync) then rolls prod — a real
+      # manifest change, unlike the mutable `:latest` which never triggered a
+      # sync. The commit touches only the kustomization (outside this workflow's
+      # path filter) and carries [skip ci], so it does not re-trigger a build.
+      - name: Pin prod deploy to this build
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          f=infra/k8s/envs/prod/kustomization.yaml
+          yq -i '(.images[] | select(.name == "turbo-tileserver")).newTag = strenv(SHA)' "$f"
+          if git diff --quiet -- "$f"; then
+            echo "tileserver tag already at $SHA — nothing to commit"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "deploy(tileserver): roll prod to ${SHA} [skip ci]" -- "$f"
+          git push origin HEAD:main
+
+  # Make a red tileserver build loud instead of rotting silently: open (or
+  # comment on) a tracking issue when the build/test or image job fails on main.
+  notify-failure:
+    needs: [build-and-test, build-image]
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the CI-failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          title="🚨 tileserver build failing on main"
+          body=$(printf 'The tileserver image did not ship — prod will keep running the last good image.\n\nRun: %s\nCommit: %s\n\nFix the failing step and re-push to main.' "$RUN_URL" "$SHA")
+          num=$(gh issue list --repo "$REPO" --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          fi
