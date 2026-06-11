@@ -688,7 +688,8 @@ impl Map {
         self.set_camera(c);
     }
 
-    /// Rotate the bearing by `delta_deg` (two-finger rotate).
+    /// Rotate the bearing by `delta_deg` (two-finger rotate), pivoting on
+    /// the screen centre.
     pub fn rotate_by(&mut self, delta_deg: f64) {
         let mut c = self.camera;
         c.rotate_by(delta_deg);
@@ -699,6 +700,21 @@ impl Map {
     pub fn pitch_by(&mut self, delta_deg: f64) {
         let mut c = self.camera;
         c.pitch_by(delta_deg);
+        self.set_camera(c);
+    }
+
+    /// Rotate the bearing by `delta_deg` about `focus_px` (the gesture
+    /// centroid), keeping that pixel anchored.
+    pub fn rotate_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
+        let (w, h) = self.viewport_px;
+        let c = self.camera.rotated_around(delta_deg, focus_px, (w as f64, h as f64));
+        self.set_camera(c);
+    }
+
+    /// Tilt by `delta_deg` about `focus_px`, keeping that pixel anchored.
+    pub fn pitch_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
+        let (w, h) = self.viewport_px;
+        let c = self.camera.pitched_around(delta_deg, focus_px, (w as f64, h as f64));
         self.set_camera(c);
     }
 

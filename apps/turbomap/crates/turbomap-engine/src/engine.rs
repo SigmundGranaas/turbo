@@ -431,6 +431,17 @@ impl TurbomapEngine {
         self.map.pitch_by(delta_deg);
     }
 
+    /// Rotate by `delta_deg` about `focus_px` (the two-finger centroid),
+    /// keeping that pixel anchored — the natural pivot for the gesture.
+    pub fn rotate_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
+        self.map.rotate_around(delta_deg, focus_px);
+    }
+
+    /// Tilt by `delta_deg` about `focus_px`, keeping that pixel anchored.
+    pub fn pitch_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
+        self.map.pitch_around(delta_deg, focus_px);
+    }
+
     /// Animated focus-invariant zoom over `duration` — the smooth double-tap
     /// zoom. Drive with [`tick_now`](Self::tick_now).
     pub fn zoom_around_animated(

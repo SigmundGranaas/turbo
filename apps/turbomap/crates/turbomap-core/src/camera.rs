@@ -77,6 +77,51 @@ impl Camera {
         self.pitch_deg = (self.pitch_deg + delta_deg).clamp(0.0, MAX_PITCH_DEG);
     }
 
+    /// Rotate the bearing by `delta_deg` about `focus_px` (the two-finger
+    /// rotate centroid), keeping that pixel over the same world point —
+    /// the natural pivot for a two-finger gesture. `rotate_by` is this with
+    /// the focus at the screen centre.
+    pub fn rotated_around(
+        mut self,
+        delta_deg: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) -> Camera {
+        let before = self.pixel_to_world(focus_px, viewport_px);
+        self.bearing_deg = (self.bearing_deg + delta_deg).rem_euclid(360.0);
+        self.recenter_on_focus(before, focus_px, viewport_px);
+        self
+    }
+
+    /// Tilt by `delta_deg` (clamped) about `focus_px`, keeping that pixel
+    /// over the same world point.
+    pub fn pitched_around(
+        mut self,
+        delta_deg: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) -> Camera {
+        let before = self.pixel_to_world(focus_px, viewport_px);
+        self.pitch_deg = (self.pitch_deg + delta_deg).clamp(0.0, MAX_PITCH_DEG);
+        self.recenter_on_focus(before, focus_px, viewport_px);
+        self
+    }
+
+    /// Shift the centre so `focus_world` lands back under `focus_px` after a
+    /// projection-changing edit (rotate/tilt). Shared focus-invariance step.
+    fn recenter_on_focus(
+        &mut self,
+        focus_world: WorldPoint,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) {
+        let after = self.pixel_to_world(focus_px, viewport_px);
+        let c = self.center.to_world();
+        self.center =
+            WorldPoint::new(c.x - (after.x - focus_world.x), c.y - (after.y - focus_world.y))
+                .to_lat_lng();
+    }
+
     /// Pixels per world unit at the current zoom (one world unit = the full
     /// Mercator extent, i.e. one root tile). This is the value at the
     /// camera's centre on the ground plane — perspective makes the
@@ -688,6 +733,46 @@ mod tests {
         assert!((cam.pitch_deg - MAX_PITCH_DEG).abs() < 1e-9, "{}", cam.pitch_deg);
         cam.pitch_by(-200.0);
         assert!(cam.pitch_deg.abs() < 1e-9, "{}", cam.pitch_deg);
+    }
+
+    #[test]
+    fn rotate_around_keeps_the_focus_world_point_anchored() {
+        // Two-finger rotate about an off-centre pixel must keep that pixel
+        // over the same place — the gesture pivots on the centroid.
+        let viewport = (1024.0, 768.0);
+        let focus = (760.0, 240.0);
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 12.0);
+        let focus_world = cam.pixel_to_world(focus, viewport);
+        let rotated = cam.rotated_around(37.0, focus, viewport);
+        assert!((rotated.bearing_deg - 37.0).abs() < 1e-9);
+        assert_world_close(rotated.pixel_to_world(focus, viewport), focus_world, 1e-5);
+    }
+
+    #[test]
+    fn rotate_around_screen_centre_matches_rotate_by() {
+        // Pivoting on the screen centre is exactly the simple bearing spin.
+        let viewport = (1024.0, 768.0);
+        let centre = (viewport.0 * 0.5, viewport.1 * 0.5);
+        let mut spun = Camera::new(LatLng::new(60.39, 5.32), 11.0);
+        spun.rotate_by(48.0);
+        let around = Camera::new(LatLng::new(60.39, 5.32), 11.0)
+            .rotated_around(48.0, centre, viewport);
+        assert!((spun.bearing_deg - around.bearing_deg).abs() < 1e-9);
+        assert_world_close(spun.center.to_world(), around.center.to_world(), 1e-5);
+    }
+
+    #[test]
+    fn pitch_around_anchors_focus_and_clamps() {
+        let viewport = (1024.0, 768.0);
+        let focus = (300.0, 600.0);
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 13.0);
+        let focus_world = cam.pixel_to_world(focus, viewport);
+        let tilted = cam.pitched_around(45.0, focus, viewport);
+        assert!((tilted.pitch_deg - 45.0).abs() < 1e-9);
+        assert_world_close(tilted.pixel_to_world(focus, viewport), focus_world, 1e-5);
+        // Over-tilt clamps at the limit.
+        let maxed = tilted.pitched_around(90.0, focus, viewport);
+        assert!((maxed.pitch_deg - 60.0).abs() < 1e-9);
     }
 
     #[test]
