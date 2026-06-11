@@ -170,19 +170,39 @@ def elev_gain_loss(distances, elev):
     return gain, loss
 
 
+SUSTAINED_WINDOW_M = 60.0
+
+
 def slope_stats(distances, elev):
-    """Return (max_slope_deg, length_weighted_mean_slope_deg)."""
+    """Return (max_sustained_slope_deg, length_weighted_mean_slope_deg).
+
+    Max slope is measured over a rolling ~60 m arc window (3 segments at
+    the 20 m profile spacing), not per ~20 m segment: single-segment max
+    is hypersensitive to sampling phase and to switchback hairpins /
+    smoothing artifacts (a hairpin tighter than the sampling reads as
+    one near-fall-line segment), while the sustained pitch over 60 m is
+    what a hiker actually experiences. Truth and solver polylines get
+    the identical treatment."""
     max_s = 0.0
     sum_w = 0.0
     sum_ws = 0.0
-    for i in range(1, len(elev)):
+    n = len(elev)
+    for i in range(1, n):
         ds = max(0.1, distances[i] - distances[i - 1])
         de = abs(elev[i] - elev[i - 1])
         slope_deg = math.degrees(math.atan2(de, ds))
-        max_s = max(max_s, slope_deg)
         sum_w += ds
         sum_ws += ds * slope_deg
     mean_s = sum_ws / max(1.0, sum_w)
+    j = 0
+    for i in range(1, n):
+        # Smallest window ending at i that spans >= SUSTAINED_WINDOW_M
+        # (falls back to a single segment when sampling is coarser).
+        while j < i - 1 and distances[i] - distances[j + 1] >= SUSTAINED_WINDOW_M:
+            j += 1
+        ds = max(0.1, distances[i] - distances[j])
+        de = abs(elev[i] - elev[j])
+        max_s = max(max_s, math.degrees(math.atan2(de, ds)))
     return max_s, mean_s
 
 
@@ -223,8 +243,13 @@ def discrete_frechet(p, q):
     # ends at p[i], q[j]. Iterative DP.
     ca = [[-1.0] * m for _ in range(n)]
     def d(a, b):
-        dx = (a[0] - b[0]) * 55.0
-        dy = (a[1] - b[1]) * 111.0
+        # Degrees -> METRES at ~60N (1 deg lat = 111 km, 1 deg lon = 55 km).
+        # Was *55.0/*111.0 (kilometres) while the caller stores the result
+        # as frechet_m and normalises by truth length in METRES — a 1000x
+        # unit bug that left the frechet component pinned at ~100 (inert)
+        # for every hike since the harness was written.
+        dx = (a[0] - b[0]) * 55_000.0
+        dy = (a[1] - b[1]) * 111_000.0
         return math.hypot(dx, dy)
     ca[0][0] = d(p[0], q[0])
     for i in range(1, n):
