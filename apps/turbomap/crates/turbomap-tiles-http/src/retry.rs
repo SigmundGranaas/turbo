@@ -70,25 +70,38 @@ impl RetryPolicy {
 
 /// Whether an error is worth retrying. Transport/network failures are
 /// transient; a decode error (the bytes are bad) or an out-of-range zoom
-/// (a permanent caller mistake) are not.
+/// Whether a `TileError` is worth retrying. Transport/network failures are
+/// transient; a decode error (the bytes are bad) or an out-of-range zoom
+/// (a permanent caller mistake) are not. Convenience classifier for callers
+/// that retry directly on `TileError`.
 pub fn is_retryable(err: &TileError) -> bool {
     matches!(err, TileError::Network(_))
 }
 
-/// Run `op`, retrying retryable failures per `policy` with a real sleep
-/// between attempts. Non-retryable errors and successes return immediately.
-pub fn retry<T, F>(policy: &RetryPolicy, mut op: F) -> Result<T, TileError>
+/// Run `op`, retrying failures the `is_retryable` classifier accepts, per
+/// `policy`, with a real sleep between attempts. Generic over the error so
+/// callers can classify richly (e.g. a permanent 404 vs a transient 503).
+pub fn retry<T, E, F>(
+    policy: &RetryPolicy,
+    is_retryable: impl Fn(&E) -> bool,
+    mut op: F,
+) -> Result<T, E>
 where
-    F: FnMut() -> Result<T, TileError>,
+    F: FnMut() -> Result<T, E>,
 {
-    retry_with_sleep(policy, &mut op, std::thread::sleep)
+    retry_with_sleep(policy, &mut op, &is_retryable, std::thread::sleep)
 }
 
 /// Test seam: `retry` with an injectable sleep so unit tests can assert the
 /// attempt/backoff behaviour without real delays.
-fn retry_with_sleep<T, F, S>(policy: &RetryPolicy, op: &mut F, mut sleep: S) -> Result<T, TileError>
+fn retry_with_sleep<T, E, F, S>(
+    policy: &RetryPolicy,
+    op: &mut F,
+    is_retryable: &dyn Fn(&E) -> bool,
+    mut sleep: S,
+) -> Result<T, E>
 where
-    F: FnMut() -> Result<T, TileError>,
+    F: FnMut() -> Result<T, E>,
     S: FnMut(Duration),
 {
     let mut attempt = 0u32;
@@ -183,7 +196,7 @@ mod tests {
 
     fn run<F: FnMut() -> Result<u32, TileError>>(p: &RetryPolicy, mut op: F) -> (Result<u32, TileError>, u32) {
         let slept = Cell::new(0u32);
-        let r = retry_with_sleep(p, &mut op, |_| slept.set(slept.get() + 1));
+        let r = retry_with_sleep(p, &mut op, &is_retryable, |_| slept.set(slept.get() + 1));
         (r, slept.get())
     }
 

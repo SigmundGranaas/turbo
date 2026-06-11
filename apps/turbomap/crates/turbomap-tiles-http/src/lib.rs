@@ -15,19 +15,62 @@ pub use cache::DiskCache;
 pub mod retry;
 pub use retry::RetryPolicy;
 
-/// One HTTP GET → validated body bytes. The unit the retry loop wraps:
-/// any transport error or non-2xx status is a (retryable) `TileError::Network`.
-fn fetch_bytes(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8>, TileError> {
+/// A fetch failure classified by whether retrying could help. `Transient`
+/// covers transport errors (dropped connection, timeout) and the server-side
+/// / rate-limit statuses (5xx, 408, 429); `Permanent` covers the rest (a
+/// 404 for a tile that doesn't exist, a 403 auth failure) — retrying those
+/// just wastes requests and backoff.
+#[derive(Debug)]
+enum FetchError {
+    Transient(String),
+    Permanent(String),
+}
+
+impl FetchError {
+    fn is_transient(&self) -> bool {
+        matches!(self, FetchError::Transient(_))
+    }
+
+    /// Collapse to the public error after retries are exhausted. Both map to
+    /// `Network` (the host sees "this tile didn't load"); the distinction
+    /// only mattered for the retry decision.
+    fn into_tile_error(self) -> TileError {
+        match self {
+            FetchError::Transient(m) | FetchError::Permanent(m) => TileError::Network(m),
+        }
+    }
+}
+
+/// One HTTP GET → validated body bytes, classified for the retry loop. A
+/// transport error is always transient; a non-2xx status is transient only
+/// for 5xx / 408 / 429.
+fn fetch_bytes(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8>, FetchError> {
     let resp = client
         .get(url)
         .send()
-        .map_err(|e| TileError::Network(e.to_string()))?;
-    if !resp.status().is_success() {
-        return Err(TileError::Network(format!("HTTP {} for {}", resp.status(), url)));
+        // A send() failure is a transport problem (DNS, connect, timeout) —
+        // always worth a retry.
+        .map_err(|e| FetchError::Transient(e.to_string()))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let msg = format!("HTTP {status} for {url}");
+        return Err(if status_is_transient(status.as_u16()) {
+            FetchError::Transient(msg)
+        } else {
+            FetchError::Permanent(msg)
+        });
     }
     resp.bytes()
         .map(|b| b.to_vec())
-        .map_err(|e| TileError::Network(e.to_string()))
+        // A body-read failure mid-stream is a transport hiccup → transient.
+        .map_err(|e| FetchError::Transient(e.to_string()))
+}
+
+/// Is a non-2xx HTTP status worth retrying? Server errors (5xx), request
+/// timeout (408) and rate-limit (429) are transient; every other 4xx (a
+/// missing tile, bad auth) is permanent — retrying just wastes requests.
+fn status_is_transient(code: u16) -> bool {
+    code >= 500 || code == 408 || code == 429
 }
 
 /// A configured HTTP raster tile source.
@@ -184,7 +227,10 @@ impl TileSource for HttpRasterSource {
             return Err(TileError::ZoomOutOfRange(tile.z));
         }
         let url = self.url_for(tile);
-        let bytes = retry::retry(&self.retry, || fetch_bytes(&self.client, &url))?;
+        let bytes = retry::retry(&self.retry, FetchError::is_transient, || {
+            fetch_bytes(&self.client, &url)
+        })
+        .map_err(FetchError::into_tile_error)?;
         Ok(RasterTile {
             bytes,
             format: self.format,
@@ -338,7 +384,10 @@ impl VectorTileSource for HttpVectorTileSource {
 
         // 2. Network fetch, with transient-failure retry/backoff.
         let url = self.url_for(tile);
-        let bytes = retry::retry(&self.retry, || fetch_bytes(&self.client, &url))?;
+        let bytes = retry::retry(&self.retry, FetchError::is_transient, || {
+            fetch_bytes(&self.client, &url)
+        })
+        .map_err(FetchError::into_tile_error)?;
 
         // 3. Persist before decoding so a malformed tile still ends up on
         // disk (it'll be eligible for retry on the next launch). The write
@@ -369,6 +418,18 @@ mod tests {
     //! here — the smoke test validates the network path end-to-end.
 
     use super::*;
+
+    #[test]
+    fn http_status_retry_classification() {
+        // Transient: server errors + request-timeout + rate-limit.
+        for code in [500, 502, 503, 504, 408, 429] {
+            assert!(status_is_transient(code), "{code} should be retryable");
+        }
+        // Permanent: client errors that won't change on retry.
+        for code in [400, 401, 403, 404, 410, 451] {
+            assert!(!status_is_transient(code), "{code} should NOT be retried");
+        }
+    }
 
     #[test]
     fn xyz_placeholders_are_substituted() {
