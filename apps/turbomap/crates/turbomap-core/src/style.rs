@@ -98,6 +98,11 @@ pub enum Paint {
         color: Color,
         height_m: f32,
         height_property: Option<String>,
+        /// Numeric feature property giving each polygon's *base* height in
+        /// metres (e.g. OMT `render_min_height`) — walls start here instead
+        /// of the ground, so rooftop structures and bridges float at their
+        /// real elevation. `None`/absent ⇒ base 0 (extrude from ground).
+        min_height_property: Option<String>,
     },
     /// Render the feature's value at `text_field` as a text label at the
     /// feature's point. `font_size_px` is the rasterised line height.

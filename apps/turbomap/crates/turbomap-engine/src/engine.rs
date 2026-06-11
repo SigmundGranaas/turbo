@@ -229,12 +229,20 @@ impl TurbomapEngine {
                 color,
                 height_m,
                 height_property,
+                min_height_property,
             } => {
                 if let Some(ResolvedSource::Vector(vsrc)) = self.resolve(scene, source) {
                     let zoom = self.map.camera().zoom;
                     let name = geojson_or_declared(scene, source, source_layer);
-                    let style =
-                        fill_extrusion_style(name, filter, color, height_m, height_property, zoom);
+                    let style = fill_extrusion_style(
+                        name,
+                        filter,
+                        color,
+                        height_m,
+                        height_property,
+                        min_height_property,
+                        zoom,
+                    );
                     self.map.add_vector_layer(id.clone(), vsrc.clone(), style);
                     self.vector_sources.insert(id.clone(), vsrc);
                 }
@@ -772,12 +780,14 @@ fn fill_style(
 /// matching polygons to 3D prisms. Colour can be data-driven (per class);
 /// `height_m` is evaluated at the current zoom (height curves are rare, so
 /// a single value per build is fine).
+#[allow(clippy::too_many_arguments)]
 fn fill_extrusion_style(
     layer_name: String,
     filter: &Filter,
     color: &Paint<Color>,
     height_m: &Paint<f32>,
     height_property: &Option<String>,
+    min_height_property: &Option<String>,
     zoom: f64,
 ) -> VectorStyle {
     let h = height_m.at(zoom);
@@ -790,6 +800,7 @@ fn fill_extrusion_style(
                 color: c,
                 height_m: h,
                 height_property: height_property.clone(),
+                min_height_property: min_height_property.clone(),
             },
             min_zoom: 0,
             max_zoom: 22,

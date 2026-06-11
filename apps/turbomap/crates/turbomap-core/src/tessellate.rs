@@ -199,6 +199,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     color,
                     height_m,
                     height_property,
+                    min_height_property,
                 } => {
                     if let Geometry::Polygon(rings) = &feature.geometry {
                         // Per-feature height (OMT `render_height`) when the
@@ -208,7 +209,15 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             .and_then(|f| read_number_property(feature, f))
                             .map(|n| n as f32)
                             .unwrap_or(*height_m);
+                        // Base height (OMT `render_min_height`) — walls start
+                        // here so rooftop structures float; default 0.
+                        let min_m = min_height_property
+                            .as_deref()
+                            .and_then(|f| read_number_property(feature, f))
+                            .map(|n| n as f32)
+                            .unwrap_or(0.0);
                         let h = meters_to_world_z(tile_id, height_m);
+                        let base_z = meters_to_world_z(tile_id, min_m);
                         let roof = pack_color(*color);
                         // Roof: the polygon fill, lifted to z = h.
                         let path = build_polygon_path(tile_id, extent, rings);
@@ -248,8 +257,8 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                     z,
                                 };
                                 let base_i = buffers.vertices.len() as u32;
-                                buffers.vertices.push(v(a, 0.0));
-                                buffers.vertices.push(v(b, 0.0));
+                                buffers.vertices.push(v(a, base_z));
+                                buffers.vertices.push(v(b, base_z));
                                 buffers.vertices.push(v(b, h));
                                 buffers.vertices.push(v(a, h));
                                 buffers.indices.extend_from_slice(&[
@@ -656,6 +665,7 @@ mod tests {
                     color: Color::rgb(200, 190, 180),
                     height_m: 20.0,
                     height_property: None,
+                    min_height_property: None,
                 },
                 min_zoom: 0,
                 max_zoom: 22,
@@ -670,6 +680,58 @@ mod tests {
         assert!(zs.iter().any(|&z| (z - h).abs() < 1e-9), "roof + wall tops at z=h");
         // Roof (≥1 tri) + 4 wall quads (2 tris each) ⇒ well over a flat fill.
         assert!(out.mesh.indices.len() >= 3 + 4 * 6, "roof + four walls");
+    }
+
+    #[test]
+    fn fill_extrusion_floats_on_a_min_height_base() {
+        // A rooftop structure with render_min_height must extrude between its
+        // base and top — no vertex touches the ground (z=0).
+        let mut props = HashMap::new();
+        props.insert("h".to_owned(), crate::vector::Value::Int(30));
+        props.insert("base".to_owned(), crate::vector::Value::Int(20));
+        let feat = Feature {
+            id: 0,
+            geom_type: GeomType::Polygon,
+            geometry: Geometry::Polygon(vec![vec![
+                (1000, 1000),
+                (1200, 1000),
+                (1200, 1200),
+                (1000, 1200),
+                (1000, 1000),
+            ]]),
+            properties: props,
+        };
+        let tile = VectorTile {
+            layers: vec![crate::vector::Layer {
+                name: "building".into(),
+                version: 2,
+                extent: 4096,
+                features: vec![feat],
+            }],
+        };
+        let style = VectorStyle {
+            background: Color::rgb(255, 255, 255),
+            rules: vec![Rule {
+                source_layer: "building".into(),
+                filter: Filter::Always,
+                paint: Paint::FillExtrusion {
+                    color: Color::rgb(200, 190, 180),
+                    height_m: 5.0,
+                    height_property: Some("h".into()),
+                    min_height_property: Some("base".into()),
+                },
+                min_zoom: 0,
+                max_zoom: 22,
+                interactive: false,
+            }],
+        };
+        let out = tessellate(TileId::new(14, 8434, 4722), &tile, &style);
+        let lo = out.mesh.vertices.iter().map(|v| v.z).fold(f32::MAX, f32::min);
+        let hi = out.mesh.vertices.iter().map(|v| v.z).fold(0.0f32, f32::max);
+        assert!(lo > 0.0, "floating base sits above the ground, got {lo}");
+        assert!(hi > lo, "top is above the base");
+        // base 20 m : top 30 m ⇒ base is ~2/3 of the top height.
+        assert!((lo / hi - 20.0 / 30.0).abs() < 1e-3, "base/top ratio");
     }
 
     #[test]

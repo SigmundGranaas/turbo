@@ -131,6 +131,11 @@ pub enum Layer {
         /// OMT `render_height`). `None` ⇒ every feature uses `height_m`.
         #[serde(default)]
         height_property: Option<String>,
+        /// Numeric feature property giving each polygon's *base* height (e.g.
+        /// OMT `render_min_height`), so rooftop structures float. `None` ⇒
+        /// extrude from the ground.
+        #[serde(default)]
+        min_height_property: Option<String>,
     },
     Line {
         id: String,

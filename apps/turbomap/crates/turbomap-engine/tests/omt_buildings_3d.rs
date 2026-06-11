@@ -51,6 +51,7 @@ fn buildings_extrude_under_a_tilted_camera() {
         color: Paint::Const(Color::rgb(223, 214, 200)),
         height_m: Paint::Const(6.0),
         height_property: Some("render_height".to_string()),
+        min_height_property: Some("render_min_height".to_string()),
     });
 
     let (width, height) = (1280, 880);
