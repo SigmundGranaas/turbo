@@ -401,6 +401,28 @@ impl TurbomapEngine {
         self.map.fling(velocity_px);
     }
 
+    /// Pan the map by a screen-pixel drag delta (the per-move gesture step).
+    pub fn pan_by_pixels(&mut self, dx: f64, dy: f64) {
+        self.map.pan_by_pixels(dx, dy);
+    }
+
+    /// Zoom by `factor` (2.0 = one level in) about `focus_px`, keeping that
+    /// pixel over the same place — the immediate scroll/pinch step.
+    pub fn zoom_around(&mut self, factor: f64, focus_px: (f64, f64)) {
+        self.map.zoom_around(factor, focus_px);
+    }
+
+    /// Animated focus-invariant zoom over `duration` — the smooth double-tap
+    /// zoom. Drive with [`tick_now`](Self::tick_now).
+    pub fn zoom_around_animated(
+        &mut self,
+        factor: f64,
+        focus_px: (f64, f64),
+        duration: std::time::Duration,
+    ) {
+        self.map.zoom_around_animated(factor, focus_px, duration);
+    }
+
     /// Advance any running camera animation. Returns `true` while the
     /// animation is still in flight (i.e. keep rendering frames).
     pub fn tick_now(&mut self) -> bool {

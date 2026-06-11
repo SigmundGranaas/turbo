@@ -653,6 +653,15 @@ impl Map {
         self.set_camera(c);
     }
 
+    /// Animate a focus-invariant zoom by `factor` about `focus_px` over
+    /// `duration` — the smooth double-tap / scroll-wheel zoom. Eases to the
+    /// same target [`Camera::zoom_around`] would snap to.
+    pub fn zoom_around_animated(&mut self, factor: f64, focus_px: (f64, f64), duration: Duration) {
+        let (w, h) = self.viewport_px;
+        let target = self.camera.zoomed_around(factor, focus_px, (w as f64, h as f64));
+        self.ease_to(target, duration);
+    }
+
     pub fn ease_to(&mut self, target: Camera, duration: Duration) {
         self.fling = None;
         self.animation = Some(CameraAnimation::new(self.camera, target, duration));

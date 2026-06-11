@@ -26,6 +26,11 @@ pub const TILE_SIZE_PX: f64 = 256.0;
 const FOV_Y: f32 = 0.6435; // ~36.87°
 const MAX_PITCH_DEG: f64 = 60.0;
 
+/// Zoom bounds. z0 is the whole world in one root tile; z24 is deeper than
+/// any tile source serves but lets the camera glide smoothly to the limit.
+pub const MIN_ZOOM: f64 = 0.0;
+pub const MAX_ZOOM: f64 = 24.0;
+
 /// Camera state. `f64` zoom is continuous.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
@@ -258,23 +263,37 @@ impl Camera {
     /// while keeping `focus_px` over the same world point. `viewport_px` is
     /// the viewport size in pixels.
     pub fn zoom_around(&mut self, factor: f64, focus_px: (f64, f64), viewport_px: (f64, f64)) {
+        *self = self.zoomed_around(factor, focus_px, viewport_px);
+    }
+
+    /// Pure form of [`zoom_around`]: the camera after zooming by `factor`
+    /// (multiplicative — 2.0 = one level in) about `focus_px`, with the
+    /// focus pixel kept over the same world point. Zoom is clamped to
+    /// `[MIN_ZOOM, MAX_ZOOM]`. Used both for the immediate setter and to
+    /// compute the *target* of an animated double-tap / scroll zoom.
+    pub fn zoomed_around(
+        mut self,
+        factor: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) -> Camera {
         if factor <= 0.0 {
-            return;
+            return self;
         }
         let focus_world_before = self.pixel_to_world(focus_px, viewport_px);
-        self.zoom += factor.log2();
-        // After zoom change, the same focus pixel maps to a different
-        // world point. Shift the centre so the focus world point lands
-        // back under the focus pixel. With tilt we re-unproject through
-        // the updated camera; without tilt the legacy direct math is
-        // pixel-equivalent.
+        self.zoom = (self.zoom + factor.log2()).clamp(MIN_ZOOM, MAX_ZOOM);
+        // After the (clamped) zoom change, the same focus pixel maps to a
+        // different world point. Shift the centre so the focus world point
+        // lands back under the focus pixel. With tilt we re-unproject
+        // through the updated camera; without tilt the legacy direct math
+        // is pixel-equivalent.
         if self.pitch_deg == 0.0 && self.bearing_deg == 0.0 {
             let ppw = self.pixels_per_world_unit();
-            let new_center = WorldPoint::new(
+            self.center = WorldPoint::new(
                 focus_world_before.x - (focus_px.0 - viewport_px.0 * 0.5) / ppw,
                 focus_world_before.y - (focus_px.1 - viewport_px.1 * 0.5) / ppw,
-            );
-            self.center = new_center.to_lat_lng();
+            )
+            .to_lat_lng();
         } else {
             let focus_world_after = self.pixel_to_world(focus_px, viewport_px);
             let centre = self.center.to_world();
@@ -282,6 +301,7 @@ impl Camera {
             let dy = focus_world_after.y - focus_world_before.y;
             self.center = WorldPoint::new(centre.x - dx, centre.y - dy).to_lat_lng();
         }
+        self
     }
 }
 
@@ -537,6 +557,33 @@ mod tests {
         let after_world = cam.center.to_world();
         assert_world_close(before_world, after_world, 1e-12);
         assert!((cam.zoom - 12.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn zoom_clamps_to_the_zoom_bounds() {
+        let viewport = (1024.0, 768.0);
+        let focus = (200.0, 200.0);
+        // Zooming in hard from near the ceiling can't exceed MAX_ZOOM.
+        let mut cam = Camera::new(LatLng::new(60.39, 5.32), MAX_ZOOM - 0.5);
+        cam.zoom_around(64.0, focus, viewport); // +6 levels requested
+        assert!((cam.zoom - MAX_ZOOM).abs() < 1e-12, "clamped at max: {}", cam.zoom);
+        // Zooming out hard from the floor can't go below MIN_ZOOM.
+        let mut cam = Camera::new(LatLng::new(0.0, 0.0), MIN_ZOOM + 0.5);
+        cam.zoom_around(0.25, focus, viewport); // -2 levels requested
+        assert!((cam.zoom - MIN_ZOOM).abs() < 1e-12, "clamped at min: {}", cam.zoom);
+    }
+
+    #[test]
+    fn animated_zoom_target_equals_the_immediate_zoom_result() {
+        // The double-tap animation must ease toward exactly where an
+        // immediate focus zoom would land — same target, just over time.
+        let viewport = (1024.0, 768.0);
+        let focus = (700.0, 300.0);
+        let start = Camera::new(LatLng::new(60.39, 5.32), 12.0);
+        let mut immediate = start;
+        immediate.zoom_around(2.0, focus, viewport);
+        let target = start.zoomed_around(2.0, focus, viewport);
+        assert_eq!(immediate, target, "pure form matches the mutating setter");
     }
 
     #[test]
