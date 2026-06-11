@@ -11,6 +11,8 @@ on:
     paths:
       - 'apps/tileserver/**'
       - '.github/workflows/tileserver_build.yml'
+  # Manual re-run (e.g. to rebuild + re-pin prod after an infra change).
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
