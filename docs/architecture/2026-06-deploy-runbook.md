@@ -122,11 +122,14 @@ The `norway.dem` (+ routing artifacts) are read from the hostPath PV at
 vector basemap still works.
 
 ### Step C — Provision the data (national)
-Set on the tileserver Deployment (not in the routing-only manifest yet — add):
+These are already set on the tileserver Deployment in
+`infra/k8s/base/tileserver.yaml` (with a writable 30Gi `incoming` emptyDir
+mounted at the dir below — `readOnlyRootFilesystem` is on, so it must be a
+real volume):
 ```yaml
 - { name: TILESERVER_PROVISION_ON_BOOT,    value: "national" }
 - { name: TILESERVER_PROVISION_REFRESH_SECS, value: "86400" }   # daily freshness
-- { name: TILESERVER_INCOMING_DIR,         value: "/tmp/incoming" }
+- { name: TILESERVER_INCOMING_DIR,         value: "/var/lib/tileserver/incoming" }
 ```
 On a fresh (empty) DB the server provisions itself in the background at boot
 (~30–45 min national, see §4). Watch the `provision-n50` job:
