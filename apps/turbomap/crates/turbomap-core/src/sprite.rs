@@ -90,6 +90,27 @@ impl SpriteAtlas {
         atlas.add_sdf("shield", 152, 0, 48, 30, |x, y, w, h| {
             rounded_box(x, y, w, h, h * 0.32) <= 0.0
         });
+        // POI category markers (second atlas row, y≥60). Bold geometric
+        // shapes that stay legible at ~12 px where pictographs blur.
+        // A plus/cross — health & services.
+        atlas.add_sdf("cross", 0, 60, 28, 28, |x, y, w, h| {
+            let (t, ins) = (0.22, 0.08);
+            let hbar = (y - h * 0.5).abs() <= h * t && x >= w * ins && x <= w * (1.0 - ins);
+            let vbar = (x - w * 0.5).abs() <= w * t && y >= h * ins && y <= h * (1.0 - ins);
+            hbar || vbar
+        });
+        // A diamond — culture, lodging & landmarks.
+        atlas.add_sdf("diamond", 44, 60, 28, 28, |x, y, w, h| {
+            (x - w * 0.5).abs() / (w * 0.46) + (y - h * 0.5).abs() / (h * 0.46) <= 1.0
+        });
+        // A fork — food & drink.
+        atlas.add_sdf("fork", 88, 60, 24, 30, |x, y, w, h| {
+            let cx = w * 0.5;
+            let stem = (x - cx).abs() <= w * 0.13 && (h * 0.42..=h * 0.95).contains(&y);
+            let neck = (h * 0.38..=h * 0.50).contains(&y) && (w * 0.26..=w * 0.74).contains(&x);
+            let tine = |px: f32| (x - px).abs() <= w * 0.11 && (h * 0.06..=h * 0.45).contains(&y);
+            stem || neck || tine(w * 0.30) || tine(w * 0.5) || tine(w * 0.70)
+        });
         atlas
     }
 
@@ -167,7 +188,7 @@ mod tests {
     #[test]
     fn built_in_atlas_has_named_sprites() {
         let atlas = SpriteAtlas::new();
-        for name in ["dot", "stop", "marker", "shield"] {
+        for name in ["dot", "stop", "marker", "shield", "cross", "diamond", "fork"] {
             assert!(atlas.get(name).is_some(), "missing {name}");
         }
         assert!(atlas.get("nonexistent").is_none());
@@ -176,7 +197,7 @@ mod tests {
     #[test]
     fn sprite_rects_stay_inside_the_atlas() {
         let atlas = SpriteAtlas::new();
-        for name in ["dot", "stop", "marker", "shield"] {
+        for name in ["dot", "stop", "marker", "shield", "cross", "diamond", "fork"] {
             let s = atlas.get(name).unwrap();
             assert!(s.atlas_x + s.width <= SPRITE_ATLAS_W, "{name} overflows width");
             assert!(s.atlas_y + s.height <= SPRITE_ATLAS_H, "{name} overflows height");

@@ -334,7 +334,7 @@ pub fn bergen_scene() -> Scene {
     // they never displace place/street/water labels, and the frame-wide
     // collision thins the rest — the long tail (parking/waste_basket/gate)
     // is deliberately excluded as pure clutter.
-    let mut poi_layer = |id: &str, classes: &[&str], dot: Color| {
+    let mut poi_layer = |id: &str, classes: &[&str], sprite: &str, dot: Color| {
         scene.layers.push(Layer::Symbol {
             id: id.to_string(),
             source: "omt".to_string(),
@@ -347,28 +347,31 @@ pub fn bergen_scene() -> Scene {
             halo_width: Paint::Const(1.2),
             sort_key: None,
             placement: SymbolPlacement::Point,
-            icon_image: Some("dot".to_string()),
-            icon_size: Paint::Const(7.0),
+            icon_image: Some(sprite.to_string()),
+            icon_size: Paint::Const(12.0),
             icon_color: Paint::Const(dot),
             text_anchor: TextAnchor::Left,
         });
     };
-    // Food & drink — warm orange.
+    // Food & drink — a fork, warm orange.
     poi_layer(
         "poi-food",
         &["restaurant", "cafe", "bar", "fast_food", "pub"],
+        "fork",
         Color::rgb(224, 138, 72),
     );
-    // Lodging & culture — muted violet.
+    // Lodging & culture — a diamond, muted violet.
     poi_layer(
         "poi-culture",
         &["hotel", "hostel", "museum", "theatre", "cinema", "library", "place_of_worship"],
+        "diamond",
         Color::rgb(150, 122, 186),
     );
-    // Health & shops — teal-green.
+    // Health & shops — a cross, teal-green.
     poi_layer(
         "poi-service",
         &["hospital", "pharmacy", "supermarket"],
+        "cross",
         Color::rgb(72, 158, 132),
     );
     scene
