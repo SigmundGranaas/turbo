@@ -232,6 +232,19 @@ impl Camera {
     /// when pitched far enough that the world point is past the horizon).
     /// Used by the text + marker pipelines to position screen-aligned
     /// labels and circles at world anchors.
+    /// NDC depth of a world point on the ground plane (z=0) — exactly the
+    /// value the rasteriser writes for ground geometry there. Screen-space
+    /// overlays (labels, icons) use it as their quad depth so they sort
+    /// against 3D buildings and hide behind ones standing in front.
+    pub fn world_ndc_depth(self, world: WorldPoint, viewport_px: (f64, f64)) -> f32 {
+        let vp = self.view_projection((viewport_px.0 as u32, viewport_px.1 as u32));
+        let clip = vp * glam::Vec4::new(world.x as f32, world.y as f32, 0.0, 1.0);
+        if clip.w.abs() < 1e-9 {
+            return 0.0;
+        }
+        (clip.z / clip.w).clamp(0.0, 1.0)
+    }
+
     pub fn world_to_screen(
         self,
         world: WorldPoint,

@@ -38,6 +38,10 @@ struct IconInstance {
     atlas_size: [f32; 2],
     /// Linear-RGBA tint the monochrome SDF shape is coloured with.
     tint: [u8; 4],
+    /// NDC depth of the icon's ground anchor, so a building in front of it
+    /// occludes the marker (3D coherence). At pitch 0 this equals the ground
+    /// depth, so flat maps composite the icon on top exactly as before.
+    depth: f32,
 }
 
 /// Half-open instance range one layer's icons occupy in the shared buffer.
@@ -154,6 +158,12 @@ impl IconPipeline {
                     offset: 32,
                     shader_location: 5,
                 },
+                // depth: f32 @ 36 — NDC depth of the ground anchor.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 36,
+                    shader_location: 6,
+                },
             ],
         };
 
@@ -177,7 +187,7 @@ impl IconPipeline {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(super::overlay_depth_state()),
+            depth_stencil: Some(super::overlay_occluded_depth_state()),
             multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,
@@ -353,6 +363,10 @@ impl IconPipeline {
                     continue;
                 }
                 self.frame_placed.push(bbox);
+                let depth = camera.world_ndc_depth(
+                    crate::geo::WorldPoint::new(icon.world_pos.0 as f64, icon.world_pos.1 as f64),
+                    (viewport_px.0 as f64, viewport_px.1 as f64),
+                );
                 self.staged.push(IconInstance {
                     screen_centre: [sx, sy],
                     size_px: [w, h],
@@ -366,6 +380,7 @@ impl IconPipeline {
                     ],
                     // sRGB-authored tint → linear (the target re-encodes).
                     tint: icon.color.to_linear_bytes(),
+                    depth,
                 });
             }
         }

@@ -27,6 +27,7 @@ struct InstanceInput {
     @location(8) angle: f32,              // glyph rotation about pivot (rad)
     @location(9) pivot: vec2<f32>,        // screen-space rotation centre
     @location(10) mode: f32,              // 1 = halo pass, 0 = fill pass
+    @location(11) depth: f32,             // NDC depth of the ground anchor
 };
 
 struct VertexOutput {
@@ -53,7 +54,9 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
         1.0 - pixel.y / globals.viewport.y * 2.0,
     );
     var out: VertexOutput;
-    out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
+    // Quad depth = the label's ground-anchor depth, so a building in front
+    // occludes it. w=1, so the GPU depth is `inst.depth` directly.
+    out.clip_position = vec4<f32>(ndc, inst.depth, 1.0);
     out.uv = inst.atlas_origin + in.corner * inst.atlas_size;
     out.color = inst.color;
     out.halo_color = inst.halo_color;

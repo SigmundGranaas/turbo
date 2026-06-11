@@ -59,7 +59,11 @@ struct TextInstance {
     /// are staged *before* its fills (the MapLibre two-pass), so a glyph's
     /// halo can never paint over a neighbouring glyph's body.
     mode: f32,
-    _pad: [f32; 3],
+    /// NDC depth of the label's ground anchor, so a building in front of it
+    /// occludes the label (3D coherence). At pitch 0 this equals the ground
+    /// depth, so flat maps composite labels on top exactly as before.
+    depth: f32,
+    _pad: [f32; 2],
 }
 
 /// Output of one per-vector-layer [`TextPipeline::prepare`] call: the
@@ -221,6 +225,12 @@ impl TextPipeline {
                     offset: 56,
                     shader_location: 10,
                 },
+                // depth: f32 @ 60 — NDC depth of the ground anchor.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 60,
+                    shader_location: 11,
+                },
             ],
         };
 
@@ -247,7 +257,7 @@ impl TextPipeline {
             // The Map's single frame pass always carries a depth
             // attachment. Text is a screen-space overlay — always in
             // front, never writing z.
-            depth_stencil: Some(super::overlay_depth_state()),
+            depth_stencil: Some(super::overlay_occluded_depth_state()),
             multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,
@@ -500,6 +510,10 @@ impl TextPipeline {
             let color = label.color.to_linear_bytes();
             let halo_color = label.halo_color.to_linear_bytes();
             let halo_width = sdf_halo_width(label.halo_width);
+            let depth = camera.world_ndc_depth(
+                crate::geo::WorldPoint::new(label.world_pos.0 as f64, label.world_pos.1 as f64),
+                (viewport_px.0 as f64, viewport_px.1 as f64),
+            );
             // Two passes per label (the MapLibre order): every glyph's halo
             // first, then every fill — so no halo paints over a neighbouring
             // glyph's body.
@@ -517,7 +531,8 @@ impl TextPipeline {
                     angle: 0.0,
                     pivot: [g.screen_x, g.screen_y],
                     mode,
-                    _pad: [0.0; 3],
+                    depth,
+                    _pad: [0.0; 2],
                 });
             };
             if halo_width > 0.0 && halo_color[3] > 0 {
@@ -632,6 +647,12 @@ impl TextPipeline {
         let color = label.color.to_linear_bytes();
         let halo_color = label.halo_color.to_linear_bytes();
         let halo_width = sdf_halo_width(label.halo_width);
+        // Road labels lie on the ground; use the centerline-midpoint anchor's
+        // depth for the whole label (a building over the street hides it).
+        let depth = camera.world_ndc_depth(
+            crate::geo::WorldPoint::new(label.world_pos.0 as f64, label.world_pos.1 as f64),
+            (viewport_px.0 as f64, viewport_px.1 as f64),
+        );
         // Halo pass first, then fills (see `prepare`).
         let push = |staged: &mut Vec<TextInstance>, g: &crate::text::PathGlyph, mode: f32| {
             staged.push(TextInstance {
@@ -645,7 +666,8 @@ impl TextPipeline {
                 angle: g.angle,
                 pivot: [g.pivot.0, g.pivot.1],
                 mode,
-                _pad: [0.0; 3],
+                depth,
+                _pad: [0.0; 2],
             });
         };
         if halo_width > 0.0 && halo_color[3] > 0 {

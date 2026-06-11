@@ -22,6 +22,7 @@ struct InstanceInput {
     @location(3) atlas_origin: vec2<f32>, // normalised [0,1]
     @location(4) atlas_size: vec2<f32>,   // normalised [0,1]
     @location(5) tint: vec4<f32>,         // linear rgba
+    @location(6) depth: f32,              // NDC depth of the ground anchor
 };
 
 struct VertexOutput {
@@ -39,7 +40,9 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
         1.0 - pixel.y / globals.viewport.y * 2.0,
     );
     var out: VertexOutput;
-    out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
+    // Quad depth = the ground anchor's depth, so buildings in front occlude
+    // the marker. w=1, so the GPU depth is `inst.depth` directly.
+    out.clip_position = vec4<f32>(ndc, inst.depth, 1.0);
     out.uv = inst.atlas_origin + in.corner * inst.atlas_size;
     out.tint = inst.tint;
     return out;

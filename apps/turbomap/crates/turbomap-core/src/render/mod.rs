@@ -82,3 +82,17 @@ pub(crate) fn overlay_depth_state() -> wgpu::DepthStencilState {
         bias: wgpu::DepthBiasState::default(),
     }
 }
+
+/// Depth-stencil for overlays that *carry* a depth (labels, POI icons): they
+/// test `LessEqual` against the scene but never write, so a building standing
+/// in front hides them, while flat 2D (overlay depth == ground depth) still
+/// composites on top exactly as the always-in-front path did.
+pub(crate) fn overlay_occluded_depth_state() -> wgpu::DepthStencilState {
+    wgpu::DepthStencilState {
+        format: DEPTH_FORMAT,
+        depth_write_enabled: Some(false),
+        depth_compare: Some(wgpu::CompareFunction::LessEqual),
+        stencil: wgpu::StencilState::default(),
+        bias: wgpu::DepthBiasState::default(),
+    }
+}
