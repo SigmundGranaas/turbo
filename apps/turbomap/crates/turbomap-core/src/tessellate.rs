@@ -246,9 +246,13 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             &FillOptions::default().with_tolerance(tolerance),
                             &mut builder,
                         );
-                        // Walls: a vertical quad per ring edge, ground → roof,
-                        // each face flat-shaded by its compass orientation so
-                        // sunlit and shadowed sides read distinctly.
+                        // Walls: a vertical quad per ring edge, ground → roof.
+                        // Each face is flat-shaded by its compass orientation
+                        // (sunlit vs shadowed), then a vertical ambient-
+                        // occlusion gradient darkens the base — the GPU
+                        // interpolates it up the wall, giving the soft contact
+                        // shadow that grounds the building instead of leaving
+                        // it a floating box.
                         for ring in rings {
                             let pts: Vec<[f32; 2]> = ring
                                 .iter()
@@ -256,21 +260,25 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 .collect();
                             for seg in pts.windows(2) {
                                 let (a, b) = (seg[0], seg[1]);
-                                let wall = pack_color(shade(*color, wall_shade(a, b)));
-                                let v = |xy: [f32; 2], z: f32| VectorVertex {
+                                let face = wall_shade(a, b);
+                                // Top carries the face shade; the base is the
+                                // same face darkened by the AO factor.
+                                let wall_top = pack_color(shade(*color, face));
+                                let wall_base = pack_color(shade(*color, face * WALL_AO_GROUND));
+                                let v = |xy: [f32; 2], z: f32, color: [u8; 4]| VectorVertex {
                                     base: xy,
                                     normal: [0.0, 0.0],
                                     width_px: 0.0,
-                                    color: wall,
+                                    color,
                                     edge_pos: [128, 0, 0, 0],
                                     dist: 0.0,
                                     z,
                                 };
                                 let base_i = buffers.vertices.len() as u32;
-                                buffers.vertices.push(v(a, base_z));
-                                buffers.vertices.push(v(b, base_z));
-                                buffers.vertices.push(v(b, h));
-                                buffers.vertices.push(v(a, h));
+                                buffers.vertices.push(v(a, base_z, wall_base));
+                                buffers.vertices.push(v(b, base_z, wall_base));
+                                buffers.vertices.push(v(b, h, wall_top));
+                                buffers.vertices.push(v(a, h, wall_top));
                                 buffers.indices.extend_from_slice(&[
                                     base_i,
                                     base_i + 1,
@@ -543,6 +551,11 @@ fn pack_color(c: Color) -> [u8; 4] {
     c.to_linear_bytes()
 }
 
+/// Fraction of a wall face's brightness retained at ground level. The base
+/// vertices are shaded this much darker than the top, and the GPU interpolates
+/// the gradient up the wall — a cheap ambient-occlusion contact shadow.
+const WALL_AO_GROUND: f32 = 0.62;
+
 /// Multiply a colour's RGB by `f` (alpha unchanged) for cheap wall shading.
 fn shade(c: Color, f: f32) -> Color {
     let s = |v: u8| (v as f32 * f).clamp(0.0, 255.0) as u8;
@@ -699,6 +712,32 @@ mod tests {
         assert!(zs.iter().any(|&z| (z - h).abs() < 1e-9), "roof + wall tops at z=h");
         // Roof (≥1 tri) + 4 wall quads (2 tris each) ⇒ well over a flat fill.
         assert!(out.mesh.indices.len() >= 3 + 4 * 6, "roof + four walls");
+
+        // Ambient-occlusion gradient: every wall vertex at the ground (z=0)
+        // must be darker than the brightest wall vertex at the top of the
+        // same wall, so the contact shadow reads. Compare luminance of the
+        // darkest base vertex against the brightest top vertex.
+        let lum = |c: [u8; 4]| c[0] as u32 + c[1] as u32 + c[2] as u32;
+        let wall_verts: Vec<_> = out
+            .mesh
+            .vertices
+            .iter()
+            .filter(|v| v.z == 0.0) // base vertices (roof is at z=h, not 0)
+            .collect();
+        assert!(!wall_verts.is_empty(), "walls have ground vertices");
+        let darkest_base = wall_verts.iter().map(|v| lum(v.color)).min().unwrap();
+        let top_lum = out
+            .mesh
+            .vertices
+            .iter()
+            .filter(|v| (v.z - h).abs() < 1e-9)
+            .map(|v| lum(v.color))
+            .max()
+            .unwrap();
+        assert!(
+            darkest_base < top_lum,
+            "wall base must be AO-darkened below the top: base {darkest_base} vs top {top_lum}",
+        );
     }
 
     #[test]
