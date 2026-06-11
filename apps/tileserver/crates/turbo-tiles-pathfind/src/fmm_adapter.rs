@@ -831,7 +831,6 @@ fn solve_grade_limited_path(
     // expands beyond the 16 heading seeds and the solve dies with
     // GoalUnreachable (the finnmark-4348287 corpus failure).
     let snap_cell = |cell: (u32, u32)| -> (u32, u32) {
-        use turbo_tiles_fmm::CellOverlay;
         if !cost.overlay.refused(cell.0, cell.1) {
             return cell;
         }
@@ -866,7 +865,6 @@ fn solve_grade_limited_path(
     let start_cell = snap_cell(start_cell);
     let goal_cell = snap_cell(goal_cell);
     if std::env::var("FMM_DEBUG").is_ok() {
-        use turbo_tiles_fmm::CellOverlay;
         eprintln!(
             "FMM_DEBUG GL: shape {}x{} cell={} start={:?} goal={:?} start_refused={} goal_refused={}",
             shape2d.nx,
