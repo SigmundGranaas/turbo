@@ -394,6 +394,13 @@ impl TurbomapEngine {
         self.map.ease_to(to_core_camera(target), duration);
     }
 
+    /// Start an inertial fling (momentum pan) from the current camera at the
+    /// drag-release velocity `velocity_px` (screen px/s). Drive it with
+    /// [`tick_now`](Self::tick_now) each frame; a new pan/zoom cancels it.
+    pub fn fling(&mut self, velocity_px: (f64, f64)) {
+        self.map.fling(velocity_px);
+    }
+
     /// Advance any running camera animation. Returns `true` while the
     /// animation is still in flight (i.e. keep rendering frames).
     pub fn tick_now(&mut self) -> bool {

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::{
-    camera::{Camera, CameraAnimation},
+    camera::{Camera, CameraAnimation, FlingAnimation},
     error::MapError,
     geo::LatLng,
     hit::geometry_hit,
@@ -253,6 +253,10 @@ pub struct Map {
     /// Shared camera. Layers' `Scene` is synced from this each render.
     camera: Camera,
     animation: Option<CameraAnimation>,
+    /// Active inertial fling (momentum after a drag release), sampled in
+    /// `tick`. Mutually exclusive with `animation` — starting either clears
+    /// the other.
+    fling: Option<FlingAnimation>,
     options: MapOptions,
     layers: Vec<LayerEntry>,
     /// Single text pipeline, shared across all vector layers.
@@ -320,6 +324,7 @@ impl Map {
             viewport_px: initial_size,
             camera: initial_camera,
             animation: None,
+            fling: None,
             options,
             layers: Vec::new(),
             text_pipeline,
@@ -605,7 +610,20 @@ impl Map {
     pub fn set_camera(&mut self, camera: Camera) {
         self.camera = camera;
         self.animation = None;
+        self.fling = None;
         self.sync_scenes();
+    }
+
+    /// Start an inertial fling from the current camera at `velocity_px`
+    /// (screen px/s, the drag-release velocity). The map glides and
+    /// decelerates as `tick` is pumped. A near-zero velocity is a no-op.
+    pub fn fling(&mut self, velocity_px: (f64, f64)) {
+        let f = FlingAnimation::new(self.camera, velocity_px);
+        if f.is_finished(Instant::now()) {
+            return;
+        }
+        self.animation = None;
+        self.fling = Some(f);
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -636,6 +654,7 @@ impl Map {
     }
 
     pub fn ease_to(&mut self, target: Camera, duration: Duration) {
+        self.fling = None;
         self.animation = Some(CameraAnimation::new(self.camera, target, duration));
     }
 
@@ -649,11 +668,20 @@ impl Map {
             }
             return true;
         }
+        if let Some(fling) = self.fling {
+            self.camera = fling.sample(now);
+            self.sync_scenes();
+            if fling.is_finished(now) {
+                self.fling = None;
+                return false;
+            }
+            return true;
+        }
         false
     }
 
     pub fn is_animating(&self) -> bool {
-        if self.animation.is_some() {
+        if self.animation.is_some() || self.fling.is_some() {
             return true;
         }
         // Any layer with a fading tile keeps the animation flag set.

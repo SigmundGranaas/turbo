@@ -350,6 +350,73 @@ impl CameraAnimation {
     }
 }
 
+/// Momentum (inertial fling) after a drag is released with velocity. The
+/// map keeps gliding and decelerates, the way every touch map feels.
+///
+/// The velocity decays exponentially with time constant `tau`:
+/// `v(t) = v0 · e^(−t/τ)`, so the pixel displacement from the release point
+/// is `d(t) = v0 · τ · (1 − e^(−t/τ))` — frame-rate independent (sampling at
+/// any cadence lands on the same curve), with a finite total throw of
+/// `v0 · τ`. Sampling pans `start` by `d(t)`; the fling ends once the speed
+/// drops below a small threshold.
+#[derive(Debug, Clone, Copy)]
+pub struct FlingAnimation {
+    start: Camera,
+    /// Release velocity in screen px/s (same sign convention as
+    /// `pan_by_pixels`' drag delta).
+    velocity_px: (f64, f64),
+    started_at: Instant,
+    /// Decay time constant in seconds — larger = longer glide.
+    tau: f64,
+}
+
+/// Below this speed (px/s) the glide is imperceptible; stop the fling.
+const FLING_STOP_SPEED: f64 = 4.0;
+
+impl FlingAnimation {
+    /// A fling from `start` released at `velocity_px` (screen px/s). The
+    /// default `tau` (0.32 s) matches the gentle deceleration touch maps use.
+    pub fn new(start: Camera, velocity_px: (f64, f64)) -> Self {
+        Self::new_at(start, velocity_px, Instant::now(), 0.32)
+    }
+
+    /// Construct with an explicit start time + `tau` — used by tests so they
+    /// can pin behaviour without sleeping.
+    pub fn new_at(start: Camera, velocity_px: (f64, f64), started_at: Instant, tau: f64) -> Self {
+        Self { start, velocity_px, started_at, tau }
+    }
+
+    fn elapsed(&self, now: Instant) -> f64 {
+        now.saturating_duration_since(self.started_at).as_secs_f64()
+    }
+
+    /// Pixel displacement from the release point at `now`.
+    fn displacement(&self, now: Instant) -> (f64, f64) {
+        let decay = 1.0 - (-self.elapsed(now) / self.tau).exp();
+        (
+            self.velocity_px.0 * self.tau * decay,
+            self.velocity_px.1 * self.tau * decay,
+        )
+    }
+
+    /// Speed (px/s) remaining at `now`.
+    fn speed(&self, now: Instant) -> f64 {
+        let v = (-self.elapsed(now) / self.tau).exp();
+        self.velocity_px.0.hypot(self.velocity_px.1) * v
+    }
+
+    pub fn sample(&self, now: Instant) -> Camera {
+        let (dx, dy) = self.displacement(now);
+        let mut c = self.start;
+        c.pan_by_pixels(dx, dy);
+        c
+    }
+
+    pub fn is_finished(&self, now: Instant) -> bool {
+        self.speed(now) < FLING_STOP_SPEED
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Value boundary: developers translate platform input events into camera
@@ -367,6 +434,45 @@ mod tests {
             a,
             b,
         );
+    }
+
+    #[test]
+    fn fling_decelerates_and_converges_to_a_finite_throw() {
+        // A horizontal flick: displacement grows but each interval moves
+        // less (deceleration), converging on the finite total throw v0·τ.
+        let start = Camera::new(LatLng::new(0.0, 0.0), 4.0);
+        let t0 = Instant::now();
+        let tau = 0.3;
+        let fling = FlingAnimation::new_at(start, (1000.0, 0.0), t0, tau);
+
+        let cam_at = |dt: f64| fling.sample(t0 + Duration::from_secs_f64(dt));
+        let x = |c: Camera| c.center.to_world().x;
+        let (x0, x1, x2) = (x(cam_at(0.0)), x(cam_at(0.1)), x(cam_at(0.2)));
+        // Moves in the pan direction, and the first 100 ms covers more world
+        // than the second 100 ms (it's slowing down).
+        assert!(x1 < x0, "fling moves the camera");
+        assert!((x0 - x1) > (x1 - x2), "fling decelerates");
+
+        // Total throw at t→∞ is v0·τ pixels; at zoom 4 that's px/(256·2^4) world.
+        let total_px = 1000.0 * tau;
+        let expected_world = x0 - total_px / (256.0 * 16.0);
+        let far = x(cam_at(5.0));
+        assert!((far - expected_world).abs() < 1e-4, "{far} vs {expected_world}");
+    }
+
+    #[test]
+    fn fling_finishes_once_it_slows_below_threshold_and_zero_is_inert() {
+        let start = Camera::new(LatLng::new(0.0, 0.0), 4.0);
+        let t0 = Instant::now();
+        let fling = FlingAnimation::new_at(start, (1200.0, -800.0), t0, 0.3);
+        assert!(!fling.is_finished(t0), "a fresh flick is animating");
+        assert!(fling.is_finished(t0 + Duration::from_secs(3)), "glide ends");
+
+        // A release with no velocity neither moves nor animates.
+        let dead = FlingAnimation::new_at(start, (0.0, 0.0), t0, 0.3);
+        assert!(dead.is_finished(t0));
+        let s = dead.sample(t0 + Duration::from_secs_f64(0.1));
+        assert!((s.center.to_world().x - start.center.to_world().x).abs() < 1e-12);
     }
 
     #[test]
