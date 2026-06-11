@@ -39,6 +39,7 @@ struct VertexInput {
     // the other, ~0.5 for fills (no AA). Other components unused.
     @location(4) edge_pos: vec4<f32>,
     @location(5) dist: f32,          // world-space arc length along the path
+    @location(6) z: f32,             // world height above ground (0 = flat)
 };
 
 struct VertexOutput {
@@ -59,7 +60,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // width_px 0 (fills) leaves the position untouched.
     let half_width_world = (in.width_px * 0.5) / camera.params.x;
     let world = tile.origin + in.base * tile.span + in.normal * half_width_world;
-    out.clip_position = camera.view_proj * vec4<f32>(world, 0.0, 1.0);
+    // `z` is the world height for extruded geometry; 0 for flat features,
+    // so they sit on the ground plane exactly as before.
+    out.clip_position = camera.view_proj * vec4<f32>(world, in.z, 1.0);
     out.color = in.color;
     out.edge_pos = in.edge_pos.x;
     // Tile-unit arc length → screen px (span × pixels-per-world).

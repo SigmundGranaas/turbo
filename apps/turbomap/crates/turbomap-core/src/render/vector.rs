@@ -158,6 +158,12 @@ impl VectorPipeline {
                     offset: 28,
                     shader_location: 5,
                 },
+                // z: f32 @ 32 — world height (0 for flat features).
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 32,
+                    shader_location: 6,
+                },
             ],
         };
 

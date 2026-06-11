@@ -46,6 +46,11 @@ pub struct VectorVertex {
     /// fills. The shader scales it to screen pixels for pixel-constant dash
     /// patterns; ignored when the layer isn't dashed.
     pub dist: f32,
+    /// World-space height above the ground plane. 0 for all flat features
+    /// (roads, ordinary fills) — the vertex shader places those at z=0
+    /// exactly as before. Non-zero only for extruded geometry (3D building
+    /// roofs/walls), where the perspective camera renders the height.
+    pub z: f32,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -181,6 +186,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 color: packed,
                                 edge_pos: [128, 0, 0, 0], // centre — no AA for fills
                                 dist: 0.0,
+                                z: 0.0,
                             });
                         let _ = fill_tess.tessellate_path(
                             &path,
@@ -226,6 +232,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 // Tile-unit arc length for dash patterns
                                 // (the shader scales by span × ppw).
                                 dist: v.advancement(),
+                                z: 0.0, // lines are flat on the ground plane
                             }
                         });
                         let _ = stroke_tess.tessellate_path(
