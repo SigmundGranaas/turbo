@@ -76,25 +76,20 @@ fn buildings_extrude_under_a_tilted_camera() {
     let image = render_to_image(&gpu, width, height, |enc, view| engine.render(enc, view));
     engine.after_submit();
 
-    // Walls are the roof colour shaded to ~0.72; count those pixels to prove
-    // 3D sides are actually drawn (a flat fill would have none).
+    // Roofs are the full colour; walls are directionally shaded, so both a
+    // dark (shadowed, ~0.52) and a light (sunlit, ~0.82) band must appear —
+    // that's the proof the shading is *directional*, not a flat darken.
     let near = |p: &image::Rgba<u8>, rgb: [u8; 3], tol: u8| {
         (0..3).all(|i| p.0[i].abs_diff(rgb[i]) <= tol)
     };
+    let band = |f: f32| [(223.0 * f) as u8, (214.0 * f) as u8, (200.0 * f) as u8];
     let roof = image.pixels().filter(|p| near(p, [223, 214, 200], 8)).count();
-    let wall = image
-        .pixels()
-        .filter(|p| {
-            near(
-                p,
-                [(223.0 * 0.72) as u8, (214.0 * 0.72) as u8, (200.0 * 0.72) as u8],
-                14,
-            )
-        })
-        .count();
-    eprintln!("3d buildings: roof={roof} wall={wall}");
+    let shadow_wall = image.pixels().filter(|p| near(p, band(0.52), 12)).count();
+    let lit_wall = image.pixels().filter(|p| near(p, band(0.82), 12)).count();
+    eprintln!("3d buildings: roof={roof} shadow_wall={shadow_wall} lit_wall={lit_wall}");
     assert!(roof > 3000, "building roofs should render, got {roof}");
-    assert!(wall > 800, "building walls (3D sides) should render, got {wall}");
+    assert!(shadow_wall > 400, "shadowed wall faces should render, got {shadow_wall}");
+    assert!(lit_wall > 400, "sunlit wall faces should render, got {lit_wall}");
 
     assert_golden(
         "omt-bergen-3d",

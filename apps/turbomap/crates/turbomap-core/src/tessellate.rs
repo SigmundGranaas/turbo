@@ -210,8 +210,6 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             .unwrap_or(*height_m);
                         let h = meters_to_world_z(tile_id, height_m);
                         let roof = pack_color(*color);
-                        // Walls a touch darker so the form reads when tilted.
-                        let wall = pack_color(shade(*color, 0.72));
                         // Roof: the polygon fill, lifted to z = h.
                         let path = build_polygon_path(tile_id, extent, rings);
                         let mut builder =
@@ -229,7 +227,9 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             &FillOptions::default().with_tolerance(tolerance),
                             &mut builder,
                         );
-                        // Walls: a vertical quad per ring edge, ground → roof.
+                        // Walls: a vertical quad per ring edge, ground → roof,
+                        // each face flat-shaded by its compass orientation so
+                        // sunlit and shadowed sides read distinctly.
                         for ring in rings {
                             let pts: Vec<[f32; 2]> = ring
                                 .iter()
@@ -237,6 +237,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 .collect();
                             for seg in pts.windows(2) {
                                 let (a, b) = (seg[0], seg[1]);
+                                let wall = pack_color(shade(*color, wall_shade(a, b)));
                                 let v = |xy: [f32; 2], z: f32| VectorVertex {
                                     base: xy,
                                     normal: [0.0, 0.0],
@@ -518,6 +519,27 @@ fn pack_color(c: Color) -> [u8; 4] {
 fn shade(c: Color, f: f32) -> Color {
     let s = |v: u8| (v as f32 * f).clamp(0.0, 255.0) as u8;
     Color::rgba(s(c.r), s(c.g), s(c.b), c.a)
+}
+
+/// Diffuse-light brightness for a wall face running from tile-local point
+/// `a` to `b`. The face's outward normal (perpendicular to the edge) is
+/// dotted with a fixed light from the north-west — the cartographic
+/// convention shared with the hillshade. Result in `[0.5, 0.85]`: shadowed
+/// sides stay dark, lit sides brighten, all below the roof's full colour.
+fn wall_shade(a: [f32; 2], b: [f32; 2]) -> f32 {
+    // Tile-local axes: +x east, +y south. Light *coming from* the NW means
+    // the vector toward the light is (west, north) = (-x, -y).
+    const TO_LIGHT: [f32; 2] = [-std::f32::consts::FRAC_1_SQRT_2, -std::f32::consts::FRAC_1_SQRT_2];
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 1e-9 {
+        return 0.7;
+    }
+    // Outward normal of the edge (one of the two perpendiculars). Building
+    // rings share a winding, so the choice is consistent across the city.
+    let (nx, ny) = (dy / len, -dx / len);
+    let lambert = (nx * TO_LIGHT[0] + ny * TO_LIGHT[1]).max(0.0);
+    0.5 + 0.35 * lambert
 }
 
 /// Convert a height in metres to world-Z (the same units as the tile-local
