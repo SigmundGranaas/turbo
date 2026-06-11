@@ -439,9 +439,11 @@ fn label_importance_ranking_wins_collisions() {
     scene.sources.insert(
         "places".to_string(),
         SourceDef::GeoJson {
+            // OMT/MapLibre sort-key convention: LOWER rank = more important.
+            // CAPITAL (rank 1) must win the collision over HAMLET (rank 100).
             data: r#"{"type":"FeatureCollection","features":[
-                {"type":"Feature","properties":{"name":"CAPITAL","rank":100},"geometry":{"type":"Point","coordinates":[5.32,60.39]}},
-                {"type":"Feature","properties":{"name":"HAMLET","rank":1},"geometry":{"type":"Point","coordinates":[5.32,60.39]}}
+                {"type":"Feature","properties":{"name":"CAPITAL","rank":1},"geometry":{"type":"Point","coordinates":[5.32,60.39]}},
+                {"type":"Feature","properties":{"name":"HAMLET","rank":100},"geometry":{"type":"Point","coordinates":[5.32,60.39]}}
             ]}"#
             .to_string(),
         },
@@ -503,8 +505,8 @@ fn label_importance_ranking_wins_collisions() {
         .pixels()
         .filter(|p| p.0[0] > 170 && p.0[1] < 90 && p.0[2] < 90)
         .count();
-    assert!(dark > 60, "the high-rank CAPITAL label should render, dark px = {dark}");
-    assert_eq!(red, 0, "the low-rank HAMLET label must be suppressed, red px = {red}");
+    assert!(dark > 60, "the low-rank (important) CAPITAL label should render, dark px = {dark}");
+    assert_eq!(red, 0, "the high-rank (minor) HAMLET label must be suppressed, red px = {red}");
 
     assert_golden(
         "label-importance",

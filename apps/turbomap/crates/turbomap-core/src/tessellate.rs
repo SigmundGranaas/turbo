@@ -79,9 +79,12 @@ pub struct LabelRequest {
     /// Readability outline. `halo_width` in glyph pixels (0 = none).
     pub halo_color: Color,
     pub halo_width: f32,
-    /// Placement importance — higher wins collisions. Defaults to font
-    /// size when no rank property is configured.
-    pub rank: f32,
+    /// Placement priority — **lower wins** collisions, matching MapLibre's
+    /// `symbol-sort-key`. This is what makes OMT `rank` (1 = most important
+    /// place) Just Work: rank 1 is placed before rank 10. When no rank
+    /// property is configured it defaults to `-font_size_px`, so a bigger
+    /// label still beats a smaller one (more negative ⇒ placed first).
+    pub sort_key: f32,
     /// World-space centerline for a label placed *along* a line (a road
     /// name). `None` for ordinary point labels. The text pipeline projects
     /// these to screen and runs each glyph along the curve.
@@ -351,13 +354,18 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     // Text is optional: an icon-only layer (a bare POI
                     // marker) has no `text_field` value, but still draws.
                     let text = read_text_property(feature, text_field);
-                    // Importance: the ranked property if present and
-                    // numeric, else the font size (bigger ⇒ stronger).
-                    let rank = rank_field
-                        .as_deref()
-                        .and_then(|f| read_number_property(feature, f))
-                        .map(|n| n as f32)
-                        .unwrap_or(*font_size_px);
+                    // Placement priority (lower wins, MapLibre sort-key). A
+                    // configured rank property is used directly so OMT's
+                    // `rank` (1 = most important) orders collisions by true
+                    // importance. Unranked features in a ranked layer sort
+                    // last (f32::MAX). With no rank property at all, fall back
+                    // to `-font_size` so the bigger label wins.
+                    let sort_key = match rank_field.as_deref() {
+                        Some(field) => read_number_property(feature, field)
+                            .map(|n| n as f32)
+                            .unwrap_or(f32::MAX),
+                        None => -*font_size_px,
+                    };
                     // Left-anchored labels sit to the right of their anchor,
                     // clearing the icon (half its width) plus a small gap.
                     let left_pad_px = left_anchor.then(|| {
@@ -371,7 +379,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                             color: *color,
                             halo_color: *halo_color,
                             halo_width: *halo_width,
-                            rank,
+                            sort_key,
                             path,
                             left_pad_px,
                             letter_spacing: *letter_spacing,
@@ -1015,9 +1023,70 @@ mod tests {
         let label = &out.labels[0];
         assert_eq!(label.text, "Bergen");
         assert!((label.font_size_px - 14.0).abs() < 1e-6);
+        // No rank property configured ⇒ sort-key falls back to -font_size, so
+        // a bigger label still wins collisions (lower sort-key = placed first).
+        assert!(
+            (label.sort_key + 14.0).abs() < 1e-6,
+            "unranked sort-key should be -font_size, got {}",
+            label.sort_key,
+        );
         // Middle of tile (512, 512) at z=10: world centre = (512.5/1024, 512.5/1024).
         assert!((label.world_pos.0 as f64 - 512.5 / 1024.0).abs() < 1e-6);
         assert!((label.world_pos.1 as f64 - 512.5 / 1024.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn rank_property_becomes_the_sort_key_with_lower_winning() {
+        // A configured `rank_field` is read straight into `sort_key` so OMT's
+        // convention (rank 1 = most important) drives collisions: rank 3 here
+        // must surface as sort_key 3, *below* a default-font label's -size.
+        let mut props = HashMap::new();
+        props.insert("name".to_owned(), crate::vector::Value::String("Oslo".into()));
+        props.insert("rank".to_owned(), crate::vector::Value::Int(3));
+        let feat = Feature {
+            id: 0,
+            geom_type: GeomType::Point,
+            geometry: Geometry::Point(vec![(2048, 2048)]),
+            properties: props,
+        };
+        let tile = VectorTile {
+            layers: vec![crate::vector::Layer {
+                name: "place".into(),
+                version: 2,
+                extent: 4096,
+                features: vec![feat],
+            }],
+        };
+        let style = VectorStyle {
+            background: Color::rgb(255, 255, 255),
+            rules: vec![Rule {
+                source_layer: "place".into(),
+                filter: Filter::Always,
+                paint: Paint::Text {
+                    text_field: "name".into(),
+                    font_size_px: 14.0,
+                    color: Color::rgb(0, 0, 0),
+                    halo_color: Color::rgba(0, 0, 0, 0),
+                    halo_width: 0.0,
+                    rank_field: Some("rank".into()),
+                    along_line: false,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 0.0,
+                },
+                min_zoom: 0,
+                max_zoom: 22,
+                interactive: false,
+            }],
+        };
+        let out = tessellate(TileId::new(10, 512, 512), &tile, &style);
+        assert_eq!(out.labels.len(), 1);
+        assert!(
+            (out.labels[0].sort_key - 3.0).abs() < 1e-6,
+            "rank 3 should become sort_key 3, got {}",
+            out.labels[0].sort_key,
+        );
     }
 
     #[test]

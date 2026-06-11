@@ -288,7 +288,10 @@ pub fn bergen_scene() -> Scene {
         color: Paint::Const(Color::rgb(30, 32, 38)),
         halo_color: Paint::Const(Color::rgb(255, 255, 255)),
         halo_width: Paint::Const(3.8),
-        sort_key: None,
+        // OMT `rank` (1 = most important place) drives collision priority,
+        // so the dominant place in a cluster survives — not whichever
+        // happens to sit nearest the screen centre.
+        sort_key: Some("rank".to_string()),
         placement: SymbolPlacement::Point,
         icon_image: None,
         icon_size: Paint::Const(24.0),
@@ -354,7 +357,9 @@ pub fn bergen_scene() -> Scene {
             color: Paint::Const(Color::rgb(48, 44, 40)),
             halo_color: Paint::Const(Color::rgb(255, 255, 255)),
             halo_width: Paint::Const(3.0),
-            sort_key: None,
+            // POI `rank` (lower = more prominent) so the landmark wins the
+            // collision over an incidental neighbour.
+            sort_key: Some("rank".to_string()),
             placement: SymbolPlacement::Point,
             icon_image: Some(sprite.to_string()),
             icon_size: Paint::Const(12.0),

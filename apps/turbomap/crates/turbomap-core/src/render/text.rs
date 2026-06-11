@@ -413,11 +413,12 @@ impl TextPipeline {
                 candidates.extend(entry.labels.iter().cloned());
             }
         }
-        // Placement priority: higher rank first (important labels win
-        // collisions), then nearest-to-centre as the tiebreak among equals.
+        // Placement priority: lowest sort-key first (MapLibre semantics —
+        // OMT `rank` 1 is the most important place and wins collisions),
+        // then nearest-to-centre as the tiebreak among equals.
         candidates.sort_by(|a, b| {
-            b.rank
-                .partial_cmp(&a.rank)
+            a.sort_key
+                .partial_cmp(&b.sort_key)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| {
                     let da = sq_dist(a.world_pos, (world_centre.x as f32, world_centre.y as f32));
