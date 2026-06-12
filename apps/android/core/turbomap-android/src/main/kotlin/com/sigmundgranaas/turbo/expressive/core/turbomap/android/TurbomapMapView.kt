@@ -44,6 +44,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -202,6 +203,15 @@ internal class TurbomapSurfaceController {
     private val http = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        // All tiles share one host; OkHttp caps at 5/host by default, which would
+        // throttle below our own concurrency cap. Align them so our reconciler is
+        // the only limiter.
+        .dispatcher(
+            Dispatcher().apply {
+                maxRequests = MAX_CONCURRENT_FETCHES
+                maxRequestsPerHost = MAX_CONCURRENT_FETCHES
+            },
+        )
         .build()
 
     // ── Render thread ──────────────────────────────────────────────────────
@@ -383,8 +393,10 @@ internal class TurbomapSurfaceController {
         return TileFetch(layer, z, x, y, "$layer/$z/$x/$y", url)
     }
 
-    private fun launchTileFetch(t: TileFetch): Job = scope.launch {
-        try {
+    private fun launchTileFetch(t: TileFetch): Job {
+        lateinit var self: Job
+        self = scope.launch {
+            try {
             // Read-through disk cache: serve an already-fetched tile offline, else
             // fetch (cancelable OkHttp Call, pooled/HTTP2) + persist.
             val cached = withContext(Dispatchers.IO) { tileCache?.get(t.layer, t.z, t.x, t.y) }
@@ -411,10 +423,18 @@ internal class TurbomapSurfaceController {
                     android.util.Log.w("TurbomapTiles", "tile ${t.key} did not decode (${bytes.size}B); evicted + backing off")
                 }
             }
-        } finally {
-            inFlight.remove(t.key)
-            requestReconcile() // a slot freed — fill it with the next-nearest tile
+            } finally {
+                // Only clear the slot if it's still *ours*. Under rapid zoom a key can be
+                // cancelled and a fresh fetch started for it before this one finalises;
+                // removing by key alone would drop that new job from the map (orphaning it
+                // — still running, untracked) and, repeated over zoom cycles, those orphans
+                // flood the HTTP pool until real tiles starve. That was the persistent
+                // checkerboard stall.
+                if (inFlight[t.key] === self) inFlight.remove(t.key)
+                requestReconcile() // a slot freed — fill it with the next-nearest tile
+            }
         }
+        return self
     }
 
     fun detach() {
