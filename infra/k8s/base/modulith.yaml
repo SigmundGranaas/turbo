@@ -62,12 +62,9 @@ spec:
               valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-collections } }
             - name: ConnectionStrings__Activities
               valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-activities } }
-            # Places (search + reverse geocoding). Raw-SQL spatial reads, no EF;
-            # the writer is the turbo-places-ingest CronJob. The module fails
-            # fast at boot if this is unset, so the db-secrets sealed secret MUST
-            # carry connectionstring-places (pointing at the `places` database).
-            - name: ConnectionStrings__Places
-              valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-places } }
+            # NB: Places is NOT in the modulith — it runs as the standalone
+            # turbo-places Deployment (base/places.yaml), reached via the
+            # /api/places ingress rule.
             # CORS / frontend
             - name: AllowedOrigins
               valueFrom: { configMapKeyRef: { name: app-config, key: CORS__AllowedOrigins } }

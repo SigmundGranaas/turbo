@@ -21,16 +21,16 @@ app.MapControllers();
 // Liveness: process is up.
 app.MapGet("/healthz", () => Results.Ok("ok"));
 
-// Readiness: only serve traffic once the DB is reachable AND a dataset is
-// published (an empty DB would otherwise look "ready" and 404 every query).
+// Readiness: the DB is reachable and the schema is queryable. Deliberately
+// does NOT require a published dataset — a fresh deploy must roll out before
+// its first ingest, and an empty dataset 404s per request rather than failing
+// readiness. 503 only when the store can't be queried at all.
 app.MapGet("/readyz", async (IPlaceStore store, CancellationToken ct) =>
 {
     try
     {
         var (places, _, version) = await store.StatsAsync(ct);
-        return version is null || places == 0
-            ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable)
-            : Results.Ok(new { status = "ready", datasetVersion = version, places });
+        return Results.Ok(new { status = "ready", datasetVersion = version, places });
     }
     catch
     {

@@ -20,21 +20,24 @@ spec:
       owner: app
 
   storage:
-    size: 3Gi                 # local-path is thin-provisioned; module data is ~50MB total
+    size: 12Gi                # bumped for the national Places (SSR) dataset: ~1M
+                              # rows ≈ 400MB w/ GiST+GIN+trigram indexes, plus the
+                              # other modules (~50MB) and churn headroom.
   walStorage:
-    size: 2Gi                 # separate WAL volume (CNPG best practice); WAL also archived to R2
+    size: 4Gi                 # separate WAL volume; the 1M-row atomic swap bursts
+                              # a lot of WAL before it's archived to R2.
 
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
-      memory: 640Mi
+      memory: 1Gi            # larger index working set for the national Places data
 
-  # Tuned small for the shared node.
+  # Tuned for the shared node + the Places dataset.
   postgresql:
     parameters:
-      shared_buffers: "128MB"
+      shared_buffers: "256MB"
       max_connections: "100"
 
   backup:
@@ -139,9 +142,7 @@ spec:
 # Places (search + reverse geocoding). Raw-SQL spatial reads need postgis;
 # the autocomplete prefix/fuzzy search needs pg_trgm. CNPG creates these as
 # superuser so the app role's `CREATE EXTENSION IF NOT EXISTS` is a no-op.
-# NOTE: a national SSR load is ~1M rows (~400MB w/ indexes); bump the cluster
-# storage.size above before ingesting landsdekkende. A per-fylke load (the
-# CronJob default) is tens of MB and fits the current 3Gi.
+# The national SSR load (~1M rows) is accounted for in storage.size above.
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

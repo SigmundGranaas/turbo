@@ -155,26 +155,29 @@ Security/robustness (tested):
 - Already-good: parameterized SQL throughout; XXE-safe XML defaults (and only in
   the offline ingester); Norway-envelope input validation; anonymous-by-design.
 
-Deployment (matches repo conventions — chiseled non-root, CNPG per-module DBs,
-sealed `db-secrets`, ghcr images):
-- `modulith.yaml` gains `ConnectionStrings__Places` (the module fails fast at
-  boot without it — this was the actual deploy-blocker).
-- `db.yaml` gains the `places` CNPG `Database` (postgis + pg_trgm, created as
-  superuser so the app role's `CREATE EXTENSION IF NOT EXISTS` is a no-op).
-- `places-ingest.yaml` — a weekly **CronJob** (the only writer) that runs the
-  SSR bulk load → swap; defaults to one fylke (fits the 3 Gi shared cluster),
-  documented to scale to national with more storage. Its Dockerfile + a
-  `places-ingest` image are added to the CI matrix.
+Deployment — Places runs as its **own service** `turbo-places` (not in the
+modulith), matching repo conventions (chiseled non-root, CNPG DBs, sealed
+`db-secrets`, ghcr images):
+- Pulled **out of the modulith** (csproj/Program/Dockerfile/`modulith.yaml` all
+  cleaned of Places + its native lib) so the two don't co-deploy.
+- `places.yaml` — `turbo-places` Deployment + Service (the `Turbo.Host.Places`
+  image, which bundles the place-core cdylib), `/healthz` liveness + `/readyz`
+  readiness (DB reachable, not "has data", so a fresh deploy rolls out before
+  its first ingest), PDB.
+- `ingress.yaml` — a more-specific `/api/places` rule routes to `turbo-places`;
+  the modulith keeps the `/` catch-all (Traefik orders by rule length).
+- `db.yaml` — the `places` CNPG `Database` (postgis + pg_trgm); **storage bumped
+  to 12 Gi (+ WAL 4 Gi, mem 1 Gi, shared_buffers 256 MB)** for the national
+  dataset.
+- `places-ingest.yaml` — a weekly **CronJob** (the sole writer) running the
+  **national** `bulk-ssr landsdekkende` → swap, with a 6 Gi `/work` emptyDir for
+  the ~3 GB GML extract and a 1 h deadline.
+- CI builds `turbo-places` + `turbo-places-ingest` images (matrix + Dockerfiles).
 - **One manual prerequisite** (needs the cluster's kubeseal cert, by design not
   in-repo): re-run `scripts/seal-prod-secrets.sh` (now emits
   `connectionstring-places`) and commit the refreshed `sealed-secrets-db.yaml`.
-
-Resource note: a **national** SSR load is ~1 M rows (~400 MB w/ indexes) + a
-~3 GB GML extract during ingest — beyond the current single-node 3 Gi cluster;
-bump `turbo-db` storage + the CronJob's `/work` volume/memory before going
-landsdekkende. The standalone `Turbo.Host.Places` + its Dockerfile remain the
-scale-out path (separate Deployment) but are not wired into the prod overlay to
-avoid double-serving `/api/places`.
+  On first deploy, kick the ingest once (`kubectl create job --from=cronjob/
+  turbo-places-ingest places-ingest-init`) rather than waiting for the schedule.
 
 ---
 

@@ -21,10 +21,6 @@ COPY ["src/Geo/Turbo.Geo.Api/Turbo.Geo.Api.csproj", "src/Geo/Turbo.Geo.Api/"]
 COPY ["src/Geo/Turbo.Geo.Core/Turbo.Geo.Core.csproj", "src/Geo/Turbo.Geo.Core/"]
 COPY ["src/Geo/Turbo.Geo.Contracts/Turbo.Geo.Contracts.csproj", "src/Geo/Turbo.Geo.Contracts/"]
 COPY ["src/Geo/Turbo.Geo.Infrastructure/Turbo.Geo.Infrastructure.csproj", "src/Geo/Turbo.Geo.Infrastructure/"]
-COPY ["src/Places/Turbo.Places.Api/Turbo.Places.Api.csproj", "src/Places/Turbo.Places.Api/"]
-COPY ["src/Places/Turbo.Places.Core/Turbo.Places.Core.csproj", "src/Places/Turbo.Places.Core/"]
-COPY ["src/Places/Turbo.Places.Contracts/Turbo.Places.Contracts.csproj", "src/Places/Turbo.Places.Contracts/"]
-COPY ["src/Places/Turbo.Places.Infrastructure/Turbo.Places.Infrastructure.csproj", "src/Places/Turbo.Places.Infrastructure/"]
 COPY ["TurboAuthentication/TurboAuthentication.csproj", "TurboAuthentication/"]
 COPY ["src/Shared/Turbo.Messaging.Abstractions/Turbo.Messaging.Abstractions.csproj", "src/Shared/Turbo.Messaging.Abstractions/"]
 COPY ["src/Shared/Turbo.Messaging.InProcess/Turbo.Messaging.InProcess.csproj", "src/Shared/Turbo.Messaging.InProcess/"]
@@ -41,8 +37,4 @@ RUN dotnet publish "Turbo.Host.Modulith.csproj" -c $BUILD_CONFIGURATION -o /app/
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-# place-core cdylib for the Places module (staged into the context by
-# api_image_build.yaml; native/.gitkeep keeps the COPY valid locally).
-COPY native/ /app/native/
-ENV PLACE_CORE_LIB=/app/native
 ENTRYPOINT ["dotnet", "Turbo.Host.Modulith.dll"]
