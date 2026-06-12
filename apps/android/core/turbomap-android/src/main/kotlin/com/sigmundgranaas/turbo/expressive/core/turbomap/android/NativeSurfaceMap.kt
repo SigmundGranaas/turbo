@@ -39,6 +39,9 @@ internal object NativeSurfaceMap {
     /** True while a camera animation or tile fade-in is running (keep drawing). */
     external fun nativeIsAnimating(handle: Long): Boolean
 
+    /** Compact JSON of last-frame cache telemetry: tiles/bytes/budget/evictions/hits/misses. */
+    external fun nativeStats(handle: Long): String
+
     external fun nativeResize(handle: Long, width: Int, height: Int)
 
     /** Reserve [bottomPx] at the bottom of the viewport (projection + render shift up). */

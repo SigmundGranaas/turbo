@@ -198,6 +198,7 @@ internal class TurbomapSurfaceController {
     private val retryAt = HashMap<String, Long>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var reconcileLoop: Job? = null
+    private var lastStatsLogMs = 0L
     private val http = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
@@ -336,9 +337,19 @@ internal class TurbomapSurfaceController {
         reconcileLoop = scope.launch {
             while (isActive && handle != 0L) {
                 reconcile()
+                logStatsThrottled()
                 withTimeoutOrNull(SAFETY_TICK_MS) { wake.receive() }
             }
         }
+    }
+
+    /** While tiles are loading, log GPU-texture memory + eviction telemetry (throttled). */
+    private fun logStatsThrottled() {
+        if (handle == 0L || inFlight.isEmpty()) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastStatsLogMs < STATS_LOG_INTERVAL_MS) return
+        lastStatsLogMs = now
+        android.util.Log.d("TurbomapTiles", "inflight=${inFlight.size} stats=${NativeSurfaceMap.nativeStats(handle)}")
     }
 
     private fun reconcile() {
@@ -490,5 +501,6 @@ internal class TurbomapSurfaceController {
         const val RETRY_BACKOFF_MS = 1500L
         // Bounded wait for the render thread to release the surface on detach.
         const val DETACH_JOIN_MS = 350L
+        const val STATS_LOG_INTERVAL_MS = 3000L
     }
 }

@@ -340,6 +340,33 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// Compact JSON of the last frame's cache telemetry, summed across layers:
+/// `{"tiles":N,"bytes":N,"budget":N,"evictions":N,"hits":N,"misses":N}`. The
+/// host logs this to watch GPU-texture memory + eviction pressure.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeStats(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jstring {
+    let json = unsafe {
+        with_map(handle, |map| {
+            let m = map.engine.last_frame_metrics();
+            let tiles: usize = m.layers.iter().map(|l| l.cache.entries).sum();
+            let bytes: usize = m.layers.iter().map(|l| l.cache.bytes_used).sum();
+            let budget: usize = m.layers.iter().map(|l| l.cache.budget_bytes).max().unwrap_or(0);
+            let evictions: u64 = m.layers.iter().map(|l| l.cache.evictions).sum();
+            let hits: u64 = m.layers.iter().map(|l| l.cache.hits).sum();
+            let misses: u64 = m.layers.iter().map(|l| l.cache.misses).sum();
+            format!(
+                "{{\"tiles\":{tiles},\"bytes\":{bytes},\"budget\":{budget},\"evictions\":{evictions},\"hits\":{hits},\"misses\":{misses}}}"
+            )
+        })
+    }
+    .unwrap_or_else(|| "{}".to_string());
+    env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
 /// Reserve `bottom_px` at the bottom of the viewport (e.g. the live sheet) so the
 /// projection + rendered frame shift up into the visible band.
 #[no_mangle]
