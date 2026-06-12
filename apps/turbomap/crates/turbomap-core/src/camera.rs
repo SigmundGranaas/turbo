@@ -42,6 +42,12 @@ pub struct Camera {
     /// Compass bearing of the up direction on screen, degrees.
     /// 0 = north up, 90 = east up, ... Wraps to [0, 360).
     pub bearing_deg: f64,
+    /// Bottom viewport inset in pixels (e.g. a sheet over the lower map). Shifts
+    /// the projection's principal point up by `inset/2`, so the camera centre and
+    /// everything projected/rendered sits in the visible band above the inset.
+    /// Default 0 (no inset) — the offscreen/golden path never sets it, so its
+    /// projection + matrix are unchanged.
+    pub viewport_inset_px: f64,
 }
 
 impl Camera {
@@ -51,11 +57,18 @@ impl Camera {
             zoom,
             pitch_deg: 0.0,
             bearing_deg: 0.0,
+            viewport_inset_px: 0.0,
         }
     }
 
     pub fn with_pitch(mut self, deg: f64) -> Self {
         self.pitch_deg = deg;
+        self
+    }
+
+    /// Set the bottom viewport inset (px). See [`Camera::viewport_inset_px`].
+    pub fn with_viewport_inset(mut self, bottom_px: f64) -> Self {
+        self.viewport_inset_px = bottom_px.max(0.0);
         self
     }
 
@@ -201,7 +214,16 @@ impl Camera {
         let far = altitude * 100.0;
         let proj = Mat4::perspective_lh(FOV_Y, aspect, near, far);
 
-        proj * view
+        // Bottom inset: shift content up by inset/2 px. In NDC (height 2 over vh
+        // px), that's +inset/vh on y. Left-multiplying a clip-space translation
+        // adds `t·w` to clip.y, i.e. ndc.y += t after the perspective divide.
+        // inset=0 → identity translation → matrix byte-identical (goldens hold).
+        if self.viewport_inset_px == 0.0 {
+            proj * view
+        } else {
+            let ndc_shift = (self.viewport_inset_px / vh as f64) as f32;
+            Mat4::from_translation(Vec3::new(0.0, ndc_shift, 0.0)) * proj * view
+        }
     }
 
     /// Shift the camera by a pixel delta. Positive `dx` moves the *map*
@@ -237,12 +259,15 @@ impl Camera {
         world: WorldPoint,
         viewport_px: (f64, f64),
     ) -> Option<(f64, f64)> {
+        // Bottom inset shifts the principal point up by inset/2 px (so the camera
+        // centre lands in the visible band above the inset). Default 0 = no shift.
+        let inset_y = self.viewport_inset_px * 0.5;
         if self.pitch_deg == 0.0 && self.bearing_deg == 0.0 {
             let ppw = self.pixels_per_world_unit();
             let centre = self.center.to_world();
             return Some((
                 (world.x - centre.x) * ppw + viewport_px.0 * 0.5,
-                (world.y - centre.y) * ppw + viewport_px.1 * 0.5,
+                (world.y - centre.y) * ppw + viewport_px.1 * 0.5 - inset_y,
             ));
         }
         let vp = self.view_projection((viewport_px.0 as u32, viewport_px.1 as u32));
@@ -252,6 +277,7 @@ impl Camera {
             return None;
         }
         let ndc = clip.truncate() / clip.w;
+        // The matrix already applied the inset (NDC shift), so map NDC→px straight.
         Some((
             ((ndc.x + 1.0) * 0.5) as f64 * viewport_px.0,
             ((1.0 - ndc.y) * 0.5) as f64 * viewport_px.1,
@@ -274,9 +300,12 @@ impl Camera {
         if self.pitch_deg == 0.0 && self.bearing_deg == 0.0 {
             let ppw = self.pixels_per_world_unit();
             let center = self.center.to_world();
+            // Inverse of the inset-shifted forward projection (principal point up
+            // by inset/2). The matrix path below inherits the inset for free via
+            // the inset-aware `view_projection` it inverts.
             return WorldPoint::new(
                 center.x + (pixel.0 - viewport_px.0 * 0.5) / ppw,
-                center.y + (pixel.1 - viewport_px.1 * 0.5) / ppw,
+                center.y + (pixel.1 - viewport_px.1 * 0.5 + self.viewport_inset_px * 0.5) / ppw,
             );
         }
         let vp = self.view_projection((viewport_px.0 as u32, viewport_px.1 as u32));
@@ -314,6 +343,8 @@ impl Camera {
             zoom: self.zoom + (target.zoom - self.zoom) * t,
             pitch_deg: self.pitch_deg + (target.pitch_deg - self.pitch_deg) * t,
             bearing_deg: (self.bearing_deg + delta_bearing * t).rem_euclid(360.0),
+            // The inset is a viewport property, not a pose — keep it, don't interpolate.
+            viewport_inset_px: self.viewport_inset_px,
         }
     }
 
@@ -846,6 +877,36 @@ mod tests {
                 back
             );
         }
+    }
+
+    #[test]
+    fn viewport_inset_lifts_the_centre_above_the_reserved_band() {
+        // A bottom inset (the live sheet) reserves `inset` px at the bottom, so
+        // the map centre should render in the middle of the *visible* band —
+        // half the inset above the geometric centre — and projection must stay
+        // invertible so overlays still land truthfully.
+        let viewport = (1024.0, 768.0);
+        let inset = 240.0;
+        let centre = LatLng::new(60.39, 5.32);
+        let plain = Camera::new(centre, 11.0);
+        let inset_cam = Camera::new(centre, 11.0).with_viewport_inset(inset);
+
+        let world = centre.to_world();
+        let plain_y = plain.world_to_screen(world, viewport).expect("on-screen").1;
+        let inset_y = inset_cam.world_to_screen(world, viewport).expect("on-screen").1;
+
+        // The centre lifts up (smaller y) by ~inset/2.
+        assert!(inset_y < plain_y, "{inset_y} should sit above {plain_y}");
+        assert!(
+            ((plain_y - inset_y) as f64 - inset / 2.0).abs() < 1.0,
+            "lift {} ≈ {}",
+            plain_y - inset_y,
+            inset / 2.0
+        );
+
+        // Round-trip still holds with the inset applied.
+        let back = inset_cam.pixel_to_world((512.0, inset_y as f64), viewport);
+        assert_world_close(back, world, 1e-3);
     }
 
     #[test]

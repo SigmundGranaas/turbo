@@ -35,6 +35,9 @@ internal object NativeSurfaceMap {
 
     external fun nativeResize(handle: Long, width: Int, height: Int)
 
+    /** Reserve [bottomPx] at the bottom of the viewport (projection + render shift up). */
+    external fun nativeSetViewportInset(handle: Long, bottomPx: Double)
+
     external fun nativeDestroy(handle: Long)
 
     // ── Control plane (the MapEngine contract) ──────────────────────────────

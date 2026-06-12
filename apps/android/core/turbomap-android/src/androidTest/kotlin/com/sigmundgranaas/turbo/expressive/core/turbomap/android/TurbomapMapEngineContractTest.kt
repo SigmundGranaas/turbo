@@ -68,11 +68,16 @@ class TurbomapMapEngineContractTest {
         val target = LatLng(61.0, 6.0)
         engine.flyTo(target, 11.0)
         val (_, yNoInset) = engine.toScreen(target)
-        // Reserve the bottom half for a sheet; re-centring must lift the target upward.
+        // Reserve the bottom half for a sheet. This is engine-side padding: the
+        // projection itself shifts the principal point up, so the *already-centred*
+        // target lifts into the visible band with no re-centring (overlays follow).
         engine.setBottomInset(size / 2)
-        engine.flyTo(target, 11.0)
         val (_, yInset) = engine.toScreen(target)
         assertTrue("inset should move the centred target up the screen ($yInset !< $yNoInset)", yInset < yNoInset)
+        // The lift is ~half the reserved band, and projection stays invertible.
+        val back = engine.fromScreen(size / 2f, yInset)
+        assertEquals("lat round-trip under inset", target.lat, back.lat, 1e-3)
+        assertEquals("lng round-trip under inset", target.lng, back.lng, 1e-3)
     }
 
     @Test

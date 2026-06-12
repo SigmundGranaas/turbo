@@ -256,6 +256,20 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// Reserve `bottom_px` at the bottom of the viewport (e.g. the live sheet) so the
+/// projection + rendered frame shift up into the visible band.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetViewportInset(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    bottom_px: jdouble,
+) {
+    unsafe {
+        with_map(handle, |map| map.engine.set_viewport_inset(bottom_px.max(0.0)));
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeResize(
     _env: JNIEnv,

@@ -20,8 +20,6 @@ class TurbomapMapEngine(
     private var heightPx: Int,
 ) : MapEngine {
 
-    private var bottomInsetPx = 0
-
     /** The host calls this when the surface is resized so [visibleBounds] stays correct. */
     fun onResized(width: Int, height: Int) {
         widthPx = width
@@ -39,21 +37,7 @@ class TurbomapMapEngine(
     override fun zoomOut() = camera().let { if (it.size >= 4) setCamera(it[0], it[1], it[2] - 1.0, it[3]) }
 
     override fun flyTo(target: LatLng, zoom: Double) {
-        recenter(target.lat, target.lng, zoom, camera().getOrElse(3) { 0.0 })
-    }
-
-    /**
-     * Centre on (lat,lng) at [zoom], honouring [setBottomInset]: when a bottom inset is
-     * set (the live sheet), shift the camera so the target sits in the visible band above
-     * the sheet instead of behind it. Adapter-side framing only — the engine projection is
-     * untouched (overlays still project truthfully), which is enough for "centre on me".
-     */
-    private fun recenter(lat: Double, lng: Double, zoom: Double, bearing: Double) {
-        setCamera(lat, lng, zoom, bearing)
-        if (bottomInsetPx > 0 && heightPx > 0) {
-            val r = NativeSurfaceMap.nativeUnproject(handle, widthPx / 2.0, heightPx / 2.0 + bottomInsetPx / 2.0)
-            if (r.size >= 3 && r[2] == 1.0) setCamera(r[0], r[1], zoom, bearing)
-        }
+        setCamera(target.lat, target.lng, zoom, camera().getOrElse(3) { 0.0 })
     }
 
     override fun center(): LatLng = camera().let { if (it.size >= 2) LatLng(it[0], it[1]) else LatLng(0.0, 0.0) }
@@ -94,9 +78,14 @@ class TurbomapMapEngine(
         )
     }
 
-    /** Reserve [bottomPx] for an overlay (the live sheet); honoured by [flyTo]/[frameTo]. */
+    /**
+     * Reserve [bottomPx] at the bottom of the viewport (the live sheet). Handled
+     * engine-side: the projection and the GPU view-matrix shift the principal point
+     * up by half the inset, so framing *and* overlay projection stay consistent —
+     * `flyTo`/`frameTo` centre into the visible band above the sheet for free.
+     */
     override fun setBottomInset(bottomPx: Int) {
-        bottomInsetPx = bottomPx.coerceAtLeast(0)
+        NativeSurfaceMap.nativeSetViewportInset(handle, bottomPx.coerceAtLeast(0).toDouble())
     }
 
     override fun frameTo(points: List<LatLng>, paddingPx: Int) {
@@ -107,7 +96,7 @@ class TurbomapMapEngine(
                 // Approximate fit: centre on the centroid at the current zoom. A
                 // precise bounds-fit lands with the on-screen host (Stage E remainder).
                 val cam = camera()
-                recenter(
+                setCamera(
                     points.map { it.lat }.average(),
                     points.map { it.lng }.average(),
                     cam.getOrElse(2) { DEFAULT_POINT_ZOOM },

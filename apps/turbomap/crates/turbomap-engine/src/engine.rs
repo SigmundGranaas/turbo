@@ -441,6 +441,12 @@ impl TurbomapEngine {
         self.map.pan_by_pixels(dx, dy);
     }
 
+    /// Reserve `bottom_px` at the bottom of the viewport (e.g. a sheet over the
+    /// map) — shifts projection + rendering up by `bottom_px/2`. 0 = none.
+    pub fn set_viewport_inset(&mut self, bottom_px: f64) {
+        self.map.set_viewport_inset(bottom_px);
+    }
+
     /// Zoom by `factor` (2.0 = one level in) about `focus_px`, keeping that
     /// pixel over the same place — the immediate scroll/pinch step.
     pub fn zoom_around(&mut self, factor: f64, focus_px: (f64, f64)) {

@@ -287,6 +287,9 @@ pub struct Map {
     /// a pan fling, or a zoom fling). Sampled in `tick`; starting any one
     /// replaces whatever was running.
     active: Option<ActiveAnim>,
+    /// Bottom viewport inset (px) — kept on `self.camera` across every camera
+    /// update so the projection + render matrix stay inset-aware. 0 = none.
+    viewport_inset_px: f64,
     options: MapOptions,
     layers: Vec<LayerEntry>,
     /// Single text pipeline, shared across all vector layers.
@@ -354,6 +357,7 @@ impl Map {
             viewport_px: initial_size,
             camera: initial_camera,
             active: None,
+            viewport_inset_px: initial_camera.viewport_inset_px,
             options,
             layers: Vec::new(),
             text_pipeline,
@@ -654,7 +658,18 @@ impl Map {
 
     pub fn set_camera(&mut self, camera: Camera) {
         self.camera = camera;
+        // The host sets a pose without an inset; keep the viewport inset sticky.
+        self.camera.viewport_inset_px = self.viewport_inset_px;
         self.active = None;
+        self.sync_scenes();
+    }
+
+    /// Reserve `bottom_px` at the bottom of the viewport (e.g. a sheet). Shifts
+    /// the projection's principal point up by `bottom_px/2` for projection,
+    /// unprojection, and rendering alike. Persisted across camera changes.
+    pub fn set_viewport_inset(&mut self, bottom_px: f64) {
+        self.viewport_inset_px = bottom_px.max(0.0);
+        self.camera.viewport_inset_px = self.viewport_inset_px;
         self.sync_scenes();
     }
 
@@ -758,6 +773,7 @@ impl Map {
     pub fn tick(&mut self, now: Instant) -> bool {
         if let Some(anim) = self.active {
             self.camera = anim.sample(now);
+            self.camera.viewport_inset_px = self.viewport_inset_px;
             self.sync_scenes();
             if anim.is_finished(now) {
                 self.active = None;
