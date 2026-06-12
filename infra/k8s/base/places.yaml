@@ -1,0 +1,99 @@
+# Places: the search + reverse-geocoding reference-data service, deployed as its
+# own Deployment (not in the modulith). Read-only over the `places` database;
+# the turbo-places-ingest CronJob is the sole writer. The image bundles the
+# place-core native ranking lib (P/Invoke) and sets PLACE_CORE_LIB.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turbo-places
+  labels:
+    app: turbo-places
+spec:
+  replicas: 1                       # stateless read service; bump freely (data is in PG)
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0             # zero-downtime: new pod ready before old terminates
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: turbo-places
+  template:
+    metadata:
+      labels:
+        app: turbo-places
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654             # matches the .NET image's app user
+        runAsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ghcr-auth
+      containers:
+        - name: turbo-places
+          image: turbo-places       # registry/tag set per-env via kustomize images:
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            # readOnlyRootFilesystem deferred: .NET writes temp (bundle builds).
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: ASPNETCORE_ENVIRONMENT
+            - name: ConnectionStrings__Places
+              valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-places } }
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://alloy.observability.svc:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "turbo-places"
+          startupProbe:             # covers boot: native-lib probe + schema DDL
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24    # up to ~2m
+          readinessProbe:           # DB reachable + schema queryable (not "has data")
+            httpGet:
+              path: /readyz
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turbo-places
+  labels:
+    app: turbo-places
+spec:
+  selector:
+    app: turbo-places
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP

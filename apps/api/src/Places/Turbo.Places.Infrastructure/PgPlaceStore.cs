@@ -1,0 +1,553 @@
+using Npgsql;
+using Turboapi.Places.Core;
+
+namespace Turboapi.Places.Infrastructure;
+
+/// <summary>
+/// PostGIS-backed <see cref="IPlaceStore"/> using Npgsql directly (raw SQL is
+/// the robust choice for the spatial read path; the eventual HTTP module uses
+/// EF Core for the rest). Schema matches
+/// docs/architecture/2026-06-places-backend-plan.md §2, trimmed to the columns
+/// the M1 slice exercises.
+/// </summary>
+public sealed class PgPlaceStore : IPlaceStore
+{
+    /// <summary>Upper bound for the national atomic swap (see <see cref="SwapAsync"/>).</summary>
+    private const int SwapCommandTimeoutSeconds = 600;
+
+    /// <summary>Trigram threshold for the fuzzy fallback (see
+    /// <see cref="FuzzySearchAsync"/>). Raised from pg_trgm's 0.3 default so the
+    /// GIN index itself stays selective — at 0.3 a common stem returns ~40k index
+    /// hits and similarity() is computed on thousands; 0.45 still admits a 1–2
+    /// char typo (galdhopiggen→galdhøpiggen ≈ 0.47–0.63) while cutting that ~10×.</summary>
+    private const double FuzzySimilarityThreshold = 0.45;
+
+    private readonly string _connectionString;
+
+    public PgPlaceStore(string connectionString) => _connectionString = connectionString;
+
+    public async Task EnsureSchemaAsync(CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS pg_trgm;
+            CREATE SCHEMA IF NOT EXISTS places;
+            CREATE TABLE IF NOT EXISTS places.places (
+                source          text NOT NULL,
+                source_id       text NOT NULL,
+                feature_type    text NOT NULL,
+                primary_name    text NOT NULL,
+                name_fold       text NOT NULL,
+                status          text NOT NULL DEFAULT 'aktiv',
+                geom            geometry(Point,4326) NOT NULL,
+                centroid        geography(Point,4326) NOT NULL,
+                elevation_m     double precision,
+                kommune_name    text,
+                fylke_name      text,
+                dataset_version text NOT NULL,
+                updated_at      timestamptz NOT NULL DEFAULT now(),
+                PRIMARY KEY (source, source_id)
+            );
+            -- Idempotent column adds for a table created by an earlier slice.
+            ALTER TABLE places.places ADD COLUMN IF NOT EXISTS elevation_m  double precision;
+            ALTER TABLE places.places ADD COLUMN IF NOT EXISTS kommune_name text;
+            ALTER TABLE places.places ADD COLUMN IF NOT EXISTS fylke_name   text;
+            CREATE INDEX IF NOT EXISTS places_centroid_gist ON places.places USING gist (centroid);
+            CREATE INDEX IF NOT EXISTS places_geom_gist     ON places.places USING gist (geom);
+            CREATE INDEX IF NOT EXISTS places_name_trgm     ON places.places USING gin (name_fold gin_trgm_ops);
+            -- Btree range scan for the autocomplete-dominant prefix path (a GIN
+            -- trigram % scan over-matches common stems — e.g. "storvatn" hits
+            -- thousands — so prefix gets its own cheap index; see SearchAsync).
+            CREATE INDEX IF NOT EXISTS places_name_prefix
+                ON places.places (name_fold text_pattern_ops);
+            CREATE TABLE IF NOT EXISTS places.areas (
+                source          text NOT NULL,
+                source_id       text NOT NULL,
+                area_type       text NOT NULL,   -- 'protected_area' | 'kommune'
+                name            text NOT NULL,
+                kind            text,            -- verneform | fylke name
+                geom            geometry(Geometry,4326) NOT NULL,
+                dataset_version text NOT NULL,
+                updated_at      timestamptz NOT NULL DEFAULT now(),
+                PRIMARY KEY (source, source_id)
+            );
+            CREATE INDEX IF NOT EXISTS areas_geom_gist ON places.areas USING gist (geom);
+            CREATE INDEX IF NOT EXISTS areas_type      ON places.areas (area_type);
+            CREATE TABLE IF NOT EXISTS places.dataset (
+                version      text PRIMARY KEY,
+                status       text NOT NULL,           -- 'active' | 'superseded'
+                published_at timestamptz NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS dataset_active ON places.dataset (status, published_at DESC);
+            -- Staging mirrors live columns; only a unique index for ON CONFLICT
+            -- (no GIST/GIN — they'd just slow the bulk load). A national dataset
+            -- lands here, then SwapAsync replaces live atomically (sweeping
+            -- features absent from the new version).
+            CREATE TABLE IF NOT EXISTS places.places_staging (LIKE places.places INCLUDING DEFAULTS);
+            CREATE UNIQUE INDEX IF NOT EXISTS places_staging_pk
+                ON places.places_staging (source, source_id);
+            CREATE TABLE IF NOT EXISTS places.areas_staging (LIKE places.areas INCLUDING DEFAULTS);
+            CREATE UNIQUE INDEX IF NOT EXISTS areas_staging_pk
+                ON places.areas_staging (source, source_id);
+            """;
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    /// Atomically promote a staged dataset version to live: replace all live
+    /// places + areas from staging (sweeping features absent in the new
+    /// version), clear staging, and mark the version active — all in one
+    /// transaction. DELETE+INSERT (not TRUNCATE) so concurrent readers keep
+    /// serving the prior version under MVCC, with no blocking and no partial
+    /// reads, until the commit flips everything at once.
+    /// </summary>
+    public async Task SwapAsync(string version, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // The atomic DELETE+INSERT moves the whole dataset (1M+ rows nationally),
+        // which legitimately runs minutes — well past Npgsql's 30 s default. Give
+        // it a generous bound rather than 0 (unlimited), so a genuinely stuck
+        // swap still fails instead of hanging forever.
+        cmd.CommandTimeout = SwapCommandTimeoutSeconds;
+        cmd.CommandText = """
+            DELETE FROM places.places;
+            INSERT INTO places.places
+                SELECT * FROM places.places_staging WHERE dataset_version = @v;
+            DELETE FROM places.areas;
+            INSERT INTO places.areas
+                SELECT * FROM places.areas_staging WHERE dataset_version = @v;
+            DELETE FROM places.places_staging WHERE dataset_version = @v;
+            DELETE FROM places.areas_staging  WHERE dataset_version = @v;
+            UPDATE places.dataset SET status = 'superseded' WHERE status = 'active';
+            INSERT INTO places.dataset (version, status, published_at)
+            VALUES (@v, 'active', now())
+            ON CONFLICT (version) DO UPDATE SET status = 'active', published_at = now();
+            """;
+        cmd.Parameters.AddWithValue("v", version);
+        await cmd.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    public Task<int> UpsertAreasAsync(
+        IReadOnlyCollection<Area> areas, string datasetVersion, CancellationToken ct = default)
+        => UpsertAreasIntoAsync("places.areas", areas, datasetVersion, ct);
+
+    /// <summary>Stage areas ahead of an atomic <see cref="SwapAsync"/>.</summary>
+    public Task<int> StageAreasAsync(
+        IReadOnlyCollection<Area> areas, string datasetVersion, CancellationToken ct = default)
+        => UpsertAreasIntoAsync("places.areas_staging", areas, datasetVersion, ct);
+
+    private async Task<int> UpsertAreasIntoAsync(
+        string table, IReadOnlyCollection<Area> areas, string datasetVersion, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        // ST_MakeValid: real-world coastline/boundary polygons routinely carry
+        // self-intersections that would otherwise poison ST_Contains.
+        cmd.CommandText = $"""
+            INSERT INTO {table} (source, source_id, area_type, name, kind, geom, dataset_version)
+            VALUES (@source, @sid, @type, @name, @kind,
+                    ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(@geojson), 4326)),
+                    @ver)
+            ON CONFLICT (source, source_id) DO UPDATE SET
+                area_type       = EXCLUDED.area_type,
+                name            = EXCLUDED.name,
+                kind            = EXCLUDED.kind,
+                geom            = EXCLUDED.geom,
+                dataset_version = EXCLUDED.dataset_version,
+                updated_at      = now();
+            """;
+        var pSource = cmd.Parameters.Add("source", NpgsqlTypes.NpgsqlDbType.Text);
+        var pSid = cmd.Parameters.Add("sid", NpgsqlTypes.NpgsqlDbType.Text);
+        var pType = cmd.Parameters.Add("type", NpgsqlTypes.NpgsqlDbType.Text);
+        var pName = cmd.Parameters.Add("name", NpgsqlTypes.NpgsqlDbType.Text);
+        var pKind = cmd.Parameters.Add("kind", NpgsqlTypes.NpgsqlDbType.Text);
+        var pGeo = cmd.Parameters.Add("geojson", NpgsqlTypes.NpgsqlDbType.Text);
+        var pVer = cmd.Parameters.Add("ver", NpgsqlTypes.NpgsqlDbType.Text);
+        await cmd.PrepareAsync(ct);
+
+        var n = 0;
+        foreach (var a in areas)
+        {
+            pSource.Value = a.Source;
+            pSid.Value = a.SourceId;
+            pType.Value = a.AreaType;
+            pName.Value = a.Name;
+            pKind.Value = (object?)a.Kind ?? DBNull.Value;
+            pGeo.Value = a.GeoJsonGeometry;
+            pVer.Value = datasetVersion;
+            n += await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+        return n;
+    }
+
+    public async Task<Containment> ContainingAsync(double lat, double lng, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // One pass over the GIST index; smallest containing polygon per type
+        // (a nature reserve inside a national park should win the title).
+        cmd.CommandText = """
+            SELECT DISTINCT ON (area_type) area_type, name, kind
+            FROM places.areas
+            WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint(@lng, @lat), 4326))
+            ORDER BY area_type, ST_Area(geom) ASC;
+            """;
+        cmd.Parameters.AddWithValue("lng", lng);
+        cmd.Parameters.AddWithValue("lat", lat);
+
+        string? parkName = null, parkKind = null, kommune = null, fylke = null;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var type = reader.GetString(0);
+            var name = reader.GetString(1);
+            var kind = reader.IsDBNull(2) ? null : reader.GetString(2);
+            switch (type)
+            {
+                case "protected_area":
+                    parkName = name;
+                    parkKind = kind;
+                    break;
+                case "kommune":
+                    kommune = name;
+                    fylke = kind;
+                    break;
+            }
+        }
+        return new Containment(parkName, parkKind, kommune, fylke);
+    }
+
+    public async Task<IReadOnlyList<SearchRow>> SearchAsync(
+        string query, double? nearLat, double? nearLng, int limit, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        var fold = query.Trim().ToLowerInvariant();
+
+        // Prefix-first retrieval. place-core ranks exact > prefix > substring, so
+        // when there are already `limit` prefix matches no fuzzy match can reach
+        // the shown results — the trigram % arm would be pure waste. Prefix is a
+        // cheap btree range scan (vs. % scanning thousands of common-stem rows),
+        // proximity-ordered so "the Storvatnet near me" is among the slots.
+        var rows = await PrefixSearchAsync(conn, fold, nearLat, nearLng, limit, ct);
+
+        // Trigram fuzzy only to fill remaining slots (typo tolerance), with a
+        // raised similarity threshold so a generic stem can't scan thousands.
+        if (rows.Count < limit)
+            rows.AddRange(await FuzzySearchAsync(conn, fold, nearLat, nearLng, limit - rows.Count, ct));
+
+        rows.AddRange(await SearchAreasAsync(conn, fold, nearLat, nearLng, limit, ct));
+        return rows;
+    }
+
+    /// <summary>Prefix match (btree <c>text_pattern_ops</c>), proximity-ordered
+    /// when a centre is given; shorter names first otherwise (closer to the
+    /// query). Retrieval only — place-core re-ranks.</summary>
+    private async Task<List<SearchRow>> PrefixSearchAsync(
+        NpgsqlConnection conn, string fold, double? nearLat, double? nearLng, int limit, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT primary_name, feature_type,
+                   ST_Y(geom) AS lat, ST_X(geom) AS lng,
+                   kommune_name, fylke_name,
+                   CASE WHEN @hasNear
+                        THEN ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
+                   END AS d
+            FROM places.places
+            WHERE name_fold LIKE @prefix
+            ORDER BY d ASC NULLS LAST, length(name_fold) ASC
+            LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
+        cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
+        cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
+        cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
+        cmd.Parameters.AddWithValue("limit", limit);
+        return await ReadPlaceRowsAsync(cmd, ct);
+    }
+
+    /// <summary>Trigram-similarity fallback for typos. Raises the trigram
+    /// threshold (SET LOCAL, scoped to a transaction so it can't leak onto the
+    /// pooled connection) so the GIN index returns a tight candidate set instead
+    /// of every loose match; distance is only a tiebreak.</summary>
+    private async Task<List<SearchRow>> FuzzySearchAsync(
+        NpgsqlConnection conn, string fold, double? nearLat, double? nearLng, int limit, CancellationToken ct)
+    {
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using (var set = conn.CreateCommand())
+        {
+            set.Transaction = tx;
+            set.CommandText =
+                $"SET LOCAL pg_trgm.similarity_threshold = {FuzzySimilarityThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            await set.ExecuteNonQueryAsync(ct);
+        }
+
+        await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            SELECT primary_name, feature_type,
+                   ST_Y(geom) AS lat, ST_X(geom) AS lng,
+                   kommune_name, fylke_name,
+                   CASE WHEN @hasNear
+                        THEN ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
+                   END AS d
+            FROM places.places
+            WHERE name_fold % @q AND name_fold NOT LIKE @prefix
+            ORDER BY similarity(name_fold, @q) DESC, d ASC NULLS LAST
+            LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("q", fold);
+        cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
+        cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
+        cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
+        cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
+        cmd.Parameters.AddWithValue("limit", limit);
+        var rows = await ReadPlaceRowsAsync(cmd, ct);
+        await tx.CommitAsync(ct);
+        return rows;
+    }
+
+    private static async Task<List<SearchRow>> ReadPlaceRowsAsync(NpgsqlCommand cmd, CancellationToken ct)
+    {
+        var rows = new List<SearchRow>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new SearchRow(
+                Name: reader.GetString(0),
+                Kind: reader.GetString(1),
+                Lat: reader.GetDouble(2),
+                Lng: reader.GetDouble(3),
+                KommuneName: reader.IsDBNull(4) ? null : reader.GetString(4),
+                FylkeName: reader.IsDBNull(5) ? null : reader.GetString(5),
+                DistanceM: reader.IsDBNull(6) ? null : reader.GetDouble(6)));
+        }
+        return rows;
+    }
+
+    /// <summary>Name matches over the (small) areas table so parks and kommuner
+    /// are searchable, not just toponyms. Result kind/description are shaped for
+    /// the icon + subtitle: protected areas carry their verneform; kommuner read
+    /// "Kommune" + fylke.</summary>
+    private static async Task<List<SearchRow>> SearchAreasAsync(
+        NpgsqlConnection conn, string fold, double? nearLat, double? nearLng, int limit, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT name,
+                   CASE WHEN area_type = 'kommune' THEN 'Kommune' ELSE COALESCE(kind, area_type) END AS kind,
+                   ST_Y(ST_PointOnSurface(geom)) AS lat, ST_X(ST_PointOnSurface(geom)) AS lng,
+                   CASE WHEN area_type = 'kommune' THEN kind END AS fylke,
+                   CASE WHEN @hasNear
+                        THEN ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(@nlng, @nlat), 4326)::geography)
+                   END AS d
+            FROM places.areas
+            WHERE lower(name) % @q OR lower(name) LIKE @prefix
+            ORDER BY GREATEST(similarity(lower(name), @q),
+                              CASE WHEN lower(name) LIKE @prefix THEN 0.95 ELSE 0 END) DESC,
+                     d ASC NULLS LAST
+            LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("q", fold);
+        cmd.Parameters.AddWithValue("prefix", EscapeLike(fold) + "%");
+        cmd.Parameters.AddWithValue("hasNear", nearLat.HasValue && nearLng.HasValue);
+        cmd.Parameters.AddWithValue("nlat", nearLat ?? 0.0);
+        cmd.Parameters.AddWithValue("nlng", nearLng ?? 0.0);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var rows = new List<SearchRow>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new SearchRow(
+                Name: reader.GetString(0),
+                Kind: reader.GetString(1),
+                Lat: reader.GetDouble(2),
+                Lng: reader.GetDouble(3),
+                KommuneName: null,
+                FylkeName: reader.IsDBNull(4) ? null : reader.GetString(4),
+                DistanceM: reader.IsDBNull(5) ? null : reader.GetDouble(5)));
+        }
+        return rows;
+    }
+
+    public async Task<(long Places, long Areas, string? DatasetVersion)> StatsAsync(
+        CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        // Counts are real (ops endpoint, low traffic); the version is the
+        // authoritative active publication from places.dataset, NOT a scan of
+        // row versions — so /health and the ETag always agree.
+        cmd.CommandText = """
+            SELECT (SELECT count(*) FROM places.places),
+                   (SELECT count(*) FROM places.areas),
+                   (SELECT version FROM places.dataset WHERE status = 'active'
+                    ORDER BY published_at DESC LIMIT 1);
+            """;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+        return (reader.GetInt64(0), reader.GetInt64(1),
+                reader.IsDBNull(2) ? null : reader.GetString(2));
+    }
+
+    public async Task<string?> GetActiveDatasetVersionAsync(CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT version FROM places.dataset WHERE status = 'active'
+            ORDER BY published_at DESC LIMIT 1;
+            """;
+        return await cmd.ExecuteScalarAsync(ct) as string;
+    }
+
+    public async Task PublishDatasetVersionAsync(string version, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE places.dataset SET status = 'superseded' WHERE status = 'active';
+            INSERT INTO places.dataset (version, status, published_at)
+            VALUES (@v, 'active', now())
+            ON CONFLICT (version) DO UPDATE SET status = 'active', published_at = now();
+            """;
+        cmd.Parameters.AddWithValue("v", version);
+        await cmd.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    private static string EscapeLike(string s) =>
+        s.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
+
+    public Task<int> UpsertAsync(
+        IReadOnlyCollection<Place> places, string datasetVersion, CancellationToken ct = default)
+        => UpsertPlacesIntoAsync("places.places", places, datasetVersion, ct);
+
+    /// <summary>Load places into the staging table (idempotent upsert) ahead of
+    /// an atomic <see cref="SwapAsync"/>. Re-running is safe (resume).</summary>
+    public Task<int> StagePlacesAsync(
+        IReadOnlyCollection<Place> places, string datasetVersion, CancellationToken ct = default)
+        => UpsertPlacesIntoAsync("places.places_staging", places, datasetVersion, ct);
+
+    private async Task<int> UpsertPlacesIntoAsync(
+        string table, IReadOnlyCollection<Place> places, string datasetVersion, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            INSERT INTO {table}
+                (source, source_id, feature_type, primary_name, name_fold, status, geom, centroid,
+                 elevation_m, kommune_name, fylke_name, dataset_version)
+            VALUES
+                (@source, @sid, @ft, @name, @fold, @status,
+                 ST_SetSRID(ST_MakePoint(@lng, @lat), 4326),
+                 ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography,
+                 @elev, @kommune, @fylke, @ver)
+            ON CONFLICT (source, source_id) DO UPDATE SET
+                feature_type    = EXCLUDED.feature_type,
+                primary_name    = EXCLUDED.primary_name,
+                name_fold       = EXCLUDED.name_fold,
+                status          = EXCLUDED.status,
+                geom            = EXCLUDED.geom,
+                centroid        = EXCLUDED.centroid,
+                elevation_m     = EXCLUDED.elevation_m,
+                kommune_name    = EXCLUDED.kommune_name,
+                fylke_name      = EXCLUDED.fylke_name,
+                dataset_version = EXCLUDED.dataset_version,
+                updated_at      = now();
+            """;
+        var pSource = cmd.Parameters.Add("source", NpgsqlTypes.NpgsqlDbType.Text);
+        var pSid = cmd.Parameters.Add("sid", NpgsqlTypes.NpgsqlDbType.Text);
+        var pFt = cmd.Parameters.Add("ft", NpgsqlTypes.NpgsqlDbType.Text);
+        var pName = cmd.Parameters.Add("name", NpgsqlTypes.NpgsqlDbType.Text);
+        var pFold = cmd.Parameters.Add("fold", NpgsqlTypes.NpgsqlDbType.Text);
+        var pStatus = cmd.Parameters.Add("status", NpgsqlTypes.NpgsqlDbType.Text);
+        var pLng = cmd.Parameters.Add("lng", NpgsqlTypes.NpgsqlDbType.Double);
+        var pLat = cmd.Parameters.Add("lat", NpgsqlTypes.NpgsqlDbType.Double);
+        var pElev = cmd.Parameters.Add("elev", NpgsqlTypes.NpgsqlDbType.Double);
+        var pKommune = cmd.Parameters.Add("kommune", NpgsqlTypes.NpgsqlDbType.Text);
+        var pFylke = cmd.Parameters.Add("fylke", NpgsqlTypes.NpgsqlDbType.Text);
+        var pVer = cmd.Parameters.Add("ver", NpgsqlTypes.NpgsqlDbType.Text);
+        await cmd.PrepareAsync(ct);
+
+        var n = 0;
+        foreach (var p in places)
+        {
+            pSource.Value = p.Source;
+            pSid.Value = p.SourceId;
+            pFt.Value = p.FeatureType;
+            pName.Value = p.PrimaryName;
+            pFold.Value = p.PrimaryName.ToLowerInvariant();
+            pStatus.Value = p.Status;
+            pLng.Value = p.Lng;
+            pLat.Value = p.Lat;
+            pElev.Value = (object?)p.ElevationM ?? DBNull.Value;
+            pKommune.Value = (object?)p.KommuneName ?? DBNull.Value;
+            pFylke.Value = (object?)p.FylkeName ?? DBNull.Value;
+            pVer.Value = datasetVersion;
+            n += await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+        return n;
+    }
+
+    public async Task<IReadOnlyList<ReverseCandidate>> NearestAsync(
+        double lat, double lng, double radiusM, int limit, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT primary_name, feature_type, status,
+                   ST_Distance(centroid, ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography) AS d,
+                   elevation_m, kommune_name, fylke_name
+            FROM places.places
+            WHERE ST_DWithin(centroid, ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography, @radius)
+            ORDER BY centroid <-> ST_SetSRID(ST_MakePoint(@lng, @lat), 4326)::geography
+            LIMIT @limit;
+            """;
+        cmd.Parameters.AddWithValue("lng", lng);
+        cmd.Parameters.AddWithValue("lat", lat);
+        cmd.Parameters.AddWithValue("radius", radiusM);
+        cmd.Parameters.AddWithValue("limit", limit);
+
+        var results = new List<ReverseCandidate>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new ReverseCandidate(
+                Name: reader.GetString(0),
+                Kind: reader.GetString(1),
+                Status: reader.GetString(2),
+                DistanceM: reader.GetDouble(3),
+                ElevationM: reader.IsDBNull(4) ? null : reader.GetDouble(4),
+                KommuneName: reader.IsDBNull(5) ? null : reader.GetString(5),
+                FylkeName: reader.IsDBNull(6) ? null : reader.GetString(6)));
+        }
+        return results;
+    }
+}
