@@ -35,6 +35,8 @@ data class MapUiState(
     /** True while we've started locating but no fix has arrived yet (drives a "locating…" hint). */
     val locating: Boolean = false,
     val locationNotice: LocationNotice? = null,
+    /** Experimental: render with the wgpu engine instead of MapLibre (Settings toggle). */
+    val experimentalWgpuMap: Boolean = false,
 )
 
 /** Holds the map home's UI state; markers + live location come from repositories. */
@@ -65,7 +67,9 @@ class MapViewModel @Inject constructor(
         // Restore (and keep in sync with) the persisted base map so the choice
         // survives relaunch instead of resetting to Norgeskart every time.
         viewModelScope.launch {
-            settings.settings.collect { s -> _state.update { it.copy(baseLayer = s.baseLayer) } }
+            settings.settings.collect { s ->
+                _state.update { it.copy(baseLayer = s.baseLayer, experimentalWgpuMap = s.experimentalWgpuMap) }
+            }
         }
     }
 

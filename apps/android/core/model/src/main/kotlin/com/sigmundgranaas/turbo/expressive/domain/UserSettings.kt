@@ -15,4 +15,6 @@ data class UserSettings(
     val downloadOverWifiOnly: Boolean = false,
     /** The last-selected base map, restored on launch. */
     val baseLayer: BaseLayer = BaseLayer.Norgeskart,
+    /** Experimental: render the map with the wgpu/Rust engine instead of MapLibre. */
+    val experimentalWgpuMap: Boolean = false,
 )

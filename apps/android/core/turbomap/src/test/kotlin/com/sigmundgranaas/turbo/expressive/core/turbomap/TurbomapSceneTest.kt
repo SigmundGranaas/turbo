@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.core.turbomap
 
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.TurbomapScene
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

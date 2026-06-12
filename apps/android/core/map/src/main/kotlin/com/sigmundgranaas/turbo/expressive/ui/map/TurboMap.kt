@@ -56,7 +56,8 @@ import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.Marker
-import com.sigmundgranaas.turbo.expressive.ui.components.MarkerPin
+import com.sigmundgranaas.turbo.expressive.ui.components.MapOverlay
+import com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -290,192 +291,26 @@ fun TurboMap(
                     }
                 }
             }
-            // Geotagged photo pins — white-framed thumbnails with a count badge for
-            // clusters, projected on the same camera tick as the markers (no drift).
-            photoPins.forEach { pin ->
-                val boxPx = with(density) { 56.dp.toPx() }
-                Box(
-                    Modifier
-                        .offset {
-                            @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
-                            val pt = ml.projection.toScreenLocation(MlLatLng(pin.lat, pin.lng))
-                            IntOffset((pt.x - boxPx / 2f).roundToInt(), (pt.y - boxPx / 2f).roundToInt())
-                        }
-                        .testTag("photoPin"),
-                ) {
-                    PhotoPinView(pin = pin, onClick = { onPhotoPinClick(pin) })
-                }
-            }
-            markers.forEach { m ->
-                val selected = m.id == selectedMarkerId
-                val boxPx = with(density) { (if (selected) 42.dp else 33.dp).toPx() }
-                MarkerPin(
-                    icon = m.kind.icon,
-                    selected = selected,
-                    color = m.colorArgb?.let { Color(it) } ?: routeColor,
-                    modifier = Modifier
-                        .offset {
-                            @Suppress("UNUSED_EXPRESSION") cameraTick.intValue
-                            val pt = ml.projection.toScreenLocation(MlLatLng(m.position.lat, m.position.lng))
-                            IntOffset((pt.x - boxPx / 2f).roundToInt(), (pt.y - boxPx).roundToInt())
-                        }
-                        .clickable { onMarkerClick(m) },
-                )
-            }
-            // Editable route waypoints (A/B/C… + flag), reprojected on every camera tick.
-            // Drawn last so they sit above markers; each handles tap/long-press/drag itself.
-            waypoints.forEachIndexed { index, wp ->
-                WaypointMarkerView(
-                    index = index,
-                    last = waypoints.lastIndex,
-                    selected = index == selectedWaypoint,
-                    cameraTick = cameraTick.intValue,
-                    project = { ml.projection.toScreenLocation(MlLatLng(wp.lat, wp.lng)).let { Offset(it.x, it.y) } },
-                    toLatLng = { o ->
-                        ml.projection.fromScreenLocation(android.graphics.PointF(o.x, o.y))
-                            .let { LatLng(it.latitude, it.longitude) }
-                    },
-                    onTap = { onWaypointTap(index) },
-                    onLongPress = { onWaypointLongPress(index) },
-                    onMoved = { onWaypointMoved(index, it) },
-                )
-            }
-        }
-    }
-}
-
-/** Stop-kind marker colours (match the design's WP_START / WP_END). */
-private val WpStart = Color(0xFF2E7D32)
-private val WpEnd = Color(0xFFC0392B)
-
-/**
- * An on-map route waypoint: an A/B/C… letter badge (flag for the destination), start green /
- * end red / via primary, with a selected ring. Tap selects, long-press removes, and dragging
- * any stop moves it directly ([onMoved] fires once on drop with the new position).
- */
-@Composable
-internal fun WaypointMarkerView(
-    index: Int,
-    last: Int,
-    selected: Boolean,
-    cameraTick: Int,
-    project: () -> Offset,
-    toLatLng: (Offset) -> LatLng,
-    onTap: () -> Unit,
-    onLongPress: () -> Unit,
-    onMoved: (LatLng) -> Unit,
-) {
-    val cs = MaterialTheme.colorScheme
-    val density = LocalDensity.current
-    val sizeDp = if (selected) 40.dp else 32.dp
-    val boxPx = with(density) { sizeDp.toPx() }
-    var drag by remember { mutableStateOf(Offset.Zero) }
-    val color = when (index) {
-        0 -> WpStart
-        last -> WpEnd
-        else -> cs.primary
-    }
-    Box(
-        Modifier
-            .offset {
-                @Suppress("UNUSED_EXPRESSION") cameraTick
-                val p = project()
-                IntOffset((p.x - boxPx / 2f + drag.x).roundToInt(), (p.y - boxPx / 2f + drag.y).roundToInt())
-            }
-            .size(sizeDp)
-            .testTag("waypoint_$index")
-            // Any stop is directly draggable — no select-first. Drag commits once on
-            // drop; a quick tap still selects and a long-press still removes (the tap
-            // detector only fires below touch-slop, so it never steals a drag).
-            .pointerInput(index) {
-                detectDragGestures(
-                    onDrag = { change, amount -> change.consume(); drag += amount },
-                    onDragEnd = { onMoved(toLatLng(project() + drag)); drag = Offset.Zero },
-                    onDragCancel = { drag = Offset.Zero },
-                )
-            }
-            .pointerInput(index) {
-                detectTapGestures(onTap = { onTap() }, onLongPress = { onLongPress() })
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (selected) {
-            Box(
-                Modifier.size(sizeDp + 18.dp).clip(CircleShape).background(color.copy(alpha = 0.20f)),
+            // Markers, photo pins, and editable waypoints — the shared overlay layer,
+            // projected through the MapEngine seam (pixel-identical on the wgpu host).
+            val overlayEngine = remember(ml) { MapLibreEngine(ml) }
+            MapOverlay(
+                engine = overlayEngine,
+                cameraTick = cameraTick.intValue,
+                markers = markers,
+                selectedMarkerId = selectedMarkerId,
+                markerFallbackColor = routeColor,
+                onMarkerClick = onMarkerClick,
+                photoPins = photoPins,
+                onPhotoPinClick = onPhotoPinClick,
+                waypoints = waypoints,
+                selectedWaypoint = selectedWaypoint,
+                onWaypointTap = onWaypointTap,
+                onWaypointLongPress = onWaypointLongPress,
+                onWaypointMoved = onWaypointMoved,
             )
         }
-        Box(
-            Modifier.size(sizeDp).clip(CircleShape).background(color)
-                .border(3.dp, cs.surface, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (index == last) {
-                Icon(Icons.Rounded.Flag, null, tint = Color.White, modifier = Modifier.size(if (selected) 20.dp else 16.dp))
-            } else {
-                Text(
-                    ('A' + index).toString(),
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W800),
-                    color = Color.White,
-                )
-            }
-        }
     }
-}
-
-/** A geotagged photo (or photo cluster) to render on the map as a framed thumbnail. */
-data class PhotoPin(val id: String, val lat: Double, val lng: Double, val count: Int, val coverPath: String?)
-
-/** White-framed rounded thumbnail with a count badge for clusters (the design's PhotoMarker). */
-@Composable
-private fun PhotoPinView(pin: PhotoPin, onClick: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    Box(Modifier.size(56.dp)) {
-        Surface(
-            onClick = onClick,
-            shape = RoundedCornerShape(16.dp),
-            color = cs.surface,
-            shadowElevation = 6.dp,
-            modifier = Modifier.size(56.dp),
-        ) {
-            Box(Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(13.dp)).background(cs.surfaceContainerHighest)) {
-                val bmp = pin.coverPath?.let { rememberThumb(it) }
-                if (bmp != null) Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            }
-        }
-        if (pin.count > 1) {
-            Surface(
-                shape = CircleShape,
-                color = cs.primary,
-                shadowElevation = 2.dp,
-                modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp),
-            ) {
-                Box(Modifier.size(22.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    Text(
-                        "${pin.count}",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.W700),
-                        color = cs.onPrimary,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Decodes [path] off the main thread, downsampled for an on-map thumbnail. */
-@Composable
-private fun rememberThumb(path: String): ImageBitmap? {
-    val state by produceState<ImageBitmap?>(initialValue = null, path) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(path, bounds)
-                var sample = 1
-                while (bounds.outWidth / sample > 160 || bounds.outHeight / sample > 160) sample *= 2
-                BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
-            }.getOrNull()
-        }
-    }
-    return state
 }
 
 private const val SRC_TRACK = "turbo-track-src"

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.CloudSync
@@ -152,6 +153,18 @@ fun SettingsScreen(
                     Icons.Rounded.Wifi, stringResource(R.string.settings_wifi_only),
                     subtitle = stringResource(R.string.settings_wifi_only_sub),
                     trailing = { Switch(settings.downloadOverWifiOnly, { haptics.toggle(it); viewModel.setWifiOnly(it) }, modifier = Modifier.testTag("wifiOnlySwitch")) },
+                )
+                HorizontalDivider(color = cs.outlineVariant)
+                ListRowItem(
+                    Icons.Rounded.Map, stringResource(R.string.settings_wgpu_map),
+                    subtitle = stringResource(R.string.settings_wgpu_map_sub),
+                    trailing = {
+                        Switch(
+                            settings.experimentalWgpuMap,
+                            { haptics.toggle(it); viewModel.setExperimentalWgpuMap(it) },
+                            modifier = Modifier.testTag("wgpuMapSwitch"),
+                        )
+                    },
                 )
             }
             SettingsGroup {

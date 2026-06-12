@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.ui.map
 
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
+import com.sigmundgranaas.turbo.expressive.domain.TurbomapScene
 
 /**
  * MapLibre raster style JSON for each base map. Norgeskart is the official
@@ -30,6 +31,32 @@ object MapStyles {
 
     /** The overlays that actually have a tile source today (drives the layer sheet). */
     val renderableOverlays: List<OverlayId> = OverlayId.entries.filter { overlayTiles(it) != null }
+
+    // Base tile sources, shared between the MapLibre style JSON and the turbomap
+    // Scene specs so the two renderers fetch identical tiles.
+    private const val NORGESKART_URL = "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png"
+    private const val OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    private const val SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+
+    private fun baseTiles(base: BaseLayer): Pair<String, String> = when (base) {
+        BaseLayer.Norgeskart -> "norgeskart" to NORGESKART_URL
+        BaseLayer.Osm -> "osm" to OSM_URL
+        BaseLayer.Satellite -> "satellite" to SATELLITE_URL
+    }
+
+    /**
+     * The same base + overlay tile sources as [styleJson], but as turbomap
+     * [TurbomapScene.RasterSpec]s (bottom→top). Lets the wgpu host fetch the
+     * identical tiles without reimplementing the URL knowledge.
+     */
+    fun turbomapRasterSpecs(base: BaseLayer, overlays: Set<OverlayId> = emptySet()): List<TurbomapScene.RasterSpec> {
+        val (id, url) = baseTiles(base)
+        val baseSpec = TurbomapScene.RasterSpec(id, url)
+        val overlaySpecs = overlays.mapNotNull { ov ->
+            overlayTiles(ov)?.let { TurbomapScene.RasterSpec("ov_${ov.name}", it.first) }
+        }
+        return listOf(baseSpec) + overlaySpecs
+    }
 
     private fun raster(id: String, url: String, attribution: String, bg: String, overlays: Set<OverlayId>): String {
         val sourced = overlays.mapNotNull { ov -> overlayTiles(ov)?.let { ov to it } }
@@ -61,21 +88,21 @@ object MapStyles {
     fun styleJson(base: BaseLayer, overlays: Set<OverlayId> = emptySet()): String = when (base) {
         BaseLayer.Norgeskart -> raster(
             id = "norgeskart",
-            url = "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
+            url = NORGESKART_URL,
             attribution = "© Kartverket",
             bg = "#EAF1F4",
             overlays = overlays,
         )
         BaseLayer.Osm -> raster(
             id = "osm",
-            url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+            url = OSM_URL,
             attribution = "© OpenStreetMap contributors",
             bg = "#AAD3DF",
             overlays = overlays,
         )
         BaseLayer.Satellite -> raster(
             id = "satellite",
-            url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            url = SATELLITE_URL,
             attribution = "© Esri",
             bg = "#0B1A2B",
             overlays = overlays,

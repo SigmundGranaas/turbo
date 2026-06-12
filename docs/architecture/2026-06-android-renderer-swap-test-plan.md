@@ -230,7 +230,27 @@ fiddly device piece, then parity, then real wiring, then rollout.
   **none unsupported**, the geojson drains in-process, only the basemap raster stays pending,
   and the frame renders (3 host tests green). Renderer-agnostic — takes raster URL specs (the
   `BaseLayer`/`OverlayId`→URL mapping stays in `MapStyles`).
-- **Remaining (the UX-affecting cutover, behind a flag):** a turbomap Compose host
+- **Cutover host + flag shipped (experimental, default OFF) — 2026-06-12:** `TurbomapMapView`
+  (`:core:turbomap-android`) is the on-screen Compose host — `SurfaceView` + `Choreographer`
+  render loop + **host-driven raster tile fetch** (`pendingTilesJson`→HTTP→`ingestRaster`, all
+  native calls marshalled to main) + `detectTransformGestures` pan/zoom → camera, handing a
+  `TurbomapMapEngine` up via `onMapReady`. `MapStyles.turbomapRasterSpecs` reuses the MapLibre
+  tile URLs. A DataStore-backed **Settings toggle** ("Experimental wgpu map") drives
+  `MapUiState.experimentalWgpuMap`; `MapScreen` swaps `TurboMap` ↔ `TurbomapMapView` on it.
+  Builds green (full host gate + detekt + `assembleDebug`); the `.so` ships in the APK
+  (arm64-v8a + x86_64); app smoke-launches healthy with the flag off.
+- **Overlay parity via a shared seam (2026-06-12):** the projected overlays (markers, editable
+  waypoints, photo pins) are extracted into one renderer-agnostic `MapOverlay`
+  (`:core:designsystem`) that projects through `MapEngine.toScreen`/`fromScreen` — **both**
+  `TurboMap` (MapLibre) and `TurbomapMapView` (wgpu) draw their pins with it, so the on-map UI
+  is identical. `MapScreen`'s marker-selection + map-tap logic is hoisted into shared lambdas
+  used by both branches. The turbomap path now also has tap, long-press-to-add-marker, and the
+  bearing readout (Compose `detectTapGestures` → `MapEngine.fromScreen`; per-frame camera tick).
+  The MapLibre path is behaviour-preserving (it projects via `MapLibreEngine`, same projection);
+  verified by the unchanged `:core:map`/`:feature:map` suites + a healthy smoke-launch.
+  Only the live-sheet camera inset (`setBottomInset`) is still a no-op on the turbomap path.
+  On-screen visual fidelity (tile alignment, colours, gesture feel) is the user's device test.
+- **Remaining (full parity + rollout):** a turbomap Compose host with marker/waypoint/photo
   (`SurfaceView`/`Choreographer`) that authors the app's live track/route/measure/markers as
   **Scene layers** (replacing `setGeoJson`/`installTurboLayers`/`LocalStyleServer` on the
   turbomap path); host-driven offline behind the existing `OfflineTileManager`; tap→`hitTest`;

@@ -79,6 +79,8 @@ import com.sigmundgranaas.turbo.expressive.ui.components.rememberTurboHaptics
 import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
+import com.sigmundgranaas.turbo.expressive.core.turbomap.android.TurbomapMapView
+import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
@@ -413,7 +415,114 @@ fun MapScreen(
             )
         },
     ) {
+        // Marker selection + map-tap behaviour, shared by both renderer hosts so the two
+        // paths behave identically (one selection model, one tap state machine).
+        val markerSelection: (com.sigmundgranaas.turbo.expressive.domain.Marker) -> MapSelection = { marker ->
+            MapSelection(
+                id = marker.id,
+                title = marker.name,
+                subtitle = "${context.getString(marker.kind.labelRes)} · ${formatCoords(marker.position)}",
+                icon = marker.kind.icon,
+                point = marker.position,
+                onNavigate = {
+                    // Navigate-to-marker opens the unified Create track tool in Route mode.
+                    // If a route is already being built, drop this marker in as a stop.
+                    if (ui.trackMode == TrackMode.Route && routeViewModel.waypoints.value.size >= 2) {
+                        routeViewModel.addStop(marker.position)
+                    } else {
+                        val from = state.userLocation ?: ui.controller?.center() ?: MapDefaults.fallbackCamera
+                        openTrackTool(TrackMode.Route)
+                        routeViewModel.planRoute(from, marker.position)
+                    }
+                },
+                onShare = { shareMarkerGeoJson(context, marker) },
+                onEdit = { ui.editingMarker = marker },
+                onDelete = { ui.pendingDelete = marker },
+                extraActions = listOf(
+                    com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
+                        id = "add_photo",
+                        label = context.getString(R.string.marker_add_photo),
+                        icon = androidx.compose.material.icons.Icons.Rounded.AddAPhoto,
+                        onInvoke = { ui.addPhotoForMarker = marker },
+                    ),
+                    com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
+                        id = "add_to_collection",
+                        label = context.getString(R.string.marker_add_to_collection),
+                        icon = androidx.compose.material.icons.Icons.Rounded.Folder,
+                        onInvoke = { ui.addToCollection = marker },
+                    ),
+                ),
+                body = {
+                    Column {
+                        if (!marker.notes.isNullOrBlank()) {
+                            Text(marker.notes!!, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface)
+                            Spacer(Modifier.height(14.dp))
+                        }
+                        ConditionsBody(marker.position)
+                        Spacer(Modifier.height(14.dp))
+                        com.sigmundgranaas.turbo.expressive.feature.photos.MarkerPhotos(markerId = marker.id)
+                    }
+                },
+            )
+        }
+        val onMapTapForMode: (LatLng) -> Unit = { p ->
+            when (ui.trackMode) {
+                TrackMode.Route -> when {
+                    // A selected stop → an empty-map tap deselects it (stop taps are consumed by their marker).
+                    ui.selectedWaypoint != null -> ui.selectedWaypoint = null
+                    // Route exists → each further tap EXTENDS it, in tap order.
+                    routeViewModel.waypoints.value.size >= 2 -> { haptics.toggle(true); routeViewModel.appendWaypoint(p) }
+                    // First tap = start, second = destination.
+                    ui.routeOrigin == null -> { haptics.toggle(true); ui.routeOrigin = p }
+                    else -> { haptics.toggle(true); routeViewModel.planRoute(ui.routeOrigin!!, p); ui.routeOrigin = null }
+                }
+                TrackMode.Line -> { haptics.toggle(true); ui.linePoints.add(p) }
+                TrackMode.Draw -> Unit // handled by the drag overlay
+                null -> ui.selectionState.clear()
+            }
+        }
         Box(Modifier.fillMaxSize()) {
+            // Experimental wgpu renderer (Settings toggle). Renders the basemap +
+            // overlays + live track/route/measure/user as a turbomap Scene with
+            // pan/zoom; markers / editable waypoints / photo pins / long-press are
+            // MapLibre-only for now (see the renderer-swap test plan, Stage E).
+            if (state.experimentalWgpuMap) {
+                TurbomapMapView(
+                    rasters = MapStyles.turbomapRasterSpecs(state.baseLayer, ui.activeOverlays),
+                    initialCamera = MapDefaults.fallbackCamera,
+                    initialZoom = MapDefaults.fallbackZoom,
+                    track = when {
+                        recState.recording -> recState.points.takeIf { it.size > 1 }
+                        ui.trackMode == TrackMode.Line -> ui.linePoints.takeIf { it.size > 1 }?.toList()
+                        ui.trackMode == TrackMode.Draw -> ui.drawPoints.takeIf { it.size > 1 }?.toList()
+                        else -> ui.displayedTrack
+                    },
+                    route = routeState.polyline.takeIf { it.isNotEmpty() },
+                    measure = when (ui.trackMode) {
+                        TrackMode.Line -> ui.linePoints
+                        TrackMode.Route -> listOfNotNull(ui.routeOrigin)
+                        else -> emptyList()
+                    },
+                    userLocation = state.userLocation,
+                    markers = state.markers,
+                    selectedMarkerId = ui.selectionState.selection?.id,
+                    photoPins = photoClusters.map {
+                        com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
+                    },
+                    onPhotoPinClick = { pin -> ui.openCluster = photoClusters.firstOrNull { it.id == pin.id } },
+                    waypoints = if (ui.trackMode == TrackMode.Route) toolWaypoints else emptyList(),
+                    selectedWaypoint = ui.selectedWaypoint,
+                    onWaypointTap = { ui.selectedWaypoint = if (ui.selectedWaypoint == it) null else it },
+                    onWaypointLongPress = { haptics.reject(); routeViewModel.removeWaypoint(it); ui.selectedWaypoint = null },
+                    onWaypointMoved = { i, p -> ui.selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
+                    onMarkerClick = { marker -> ui.selectionState.select(markerSelection(marker)) },
+                    onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
+                    onMapTap = { p -> onMapTapForMode(p) },
+                    onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
+                    onMapReady = { ui.controller = it },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
             TurboMap(
                 base = state.baseLayer,
                 overlays = ui.activeOverlays,
@@ -442,66 +551,10 @@ fun MapScreen(
                 selectedMarkerId = ui.selectionState.selection?.id,
                 userLocation = state.userLocation,
                 photoPins = photoClusters.map {
-                    com.sigmundgranaas.turbo.expressive.ui.map.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
+                    com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
                 },
                 onPhotoPinClick = { pin -> ui.openCluster = photoClusters.firstOrNull { it.id == pin.id } },
-                onMarkerClick = { marker ->
-                    ui.selectionState.select(
-                        MapSelection(
-                            id = marker.id,
-                            title = marker.name,
-                            subtitle = "${context.getString(marker.kind.labelRes)} · ${formatCoords(marker.position)}",
-                            icon = marker.kind.icon,
-                            point = marker.position,
-                            onNavigate = {
-                                // Navigate-to-marker opens the unified Create track tool in
-                                // Route mode. If a route is already being built, drop this
-                                // marker in as a stop instead of starting over.
-                                if (ui.trackMode == TrackMode.Route && routeViewModel.waypoints.value.size >= 2) {
-                                    routeViewModel.addStop(marker.position)
-                                } else {
-                                    val from = state.userLocation ?: ui.controller?.center() ?: MapDefaults.fallbackCamera
-                                    openTrackTool(TrackMode.Route)
-                                    routeViewModel.planRoute(from, marker.position)
-                                }
-                            },
-                            onShare = { shareMarkerGeoJson(context, marker) },
-                            onEdit = { ui.editingMarker = marker },
-                            onDelete = { ui.pendingDelete = marker },
-                            extraActions = listOf(
-                                com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
-                                    id = "add_photo",
-                                    label = context.getString(R.string.marker_add_photo),
-                                    icon = androidx.compose.material.icons.Icons.Rounded.AddAPhoto,
-                                    onInvoke = { ui.addPhotoForMarker = marker },
-                                ),
-                                com.sigmundgranaas.turbo.expressive.core.map.MapEntityAction(
-                                    id = "add_to_collection",
-                                    label = context.getString(R.string.marker_add_to_collection),
-                                    icon = androidx.compose.material.icons.Icons.Rounded.Folder,
-                                    onInvoke = { ui.addToCollection = marker },
-                                ),
-                            ),
-                            body = {
-                                Column {
-                                    if (!marker.notes.isNullOrBlank()) {
-                                        Text(
-                                            marker.notes!!,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = cs.onSurface,
-                                        )
-                                        Spacer(Modifier.height(14.dp))
-                                    }
-                                    ConditionsBody(marker.position)
-                                    Spacer(Modifier.height(14.dp))
-                                    com.sigmundgranaas.turbo.expressive.feature.photos.MarkerPhotos(
-                                        markerId = marker.id,
-                                    )
-                                }
-                            },
-                        ),
-                    )
-                },
+                onMarkerClick = { marker -> ui.selectionState.select(markerSelection(marker)) },
                 // Dot overlay marks Line vertices, and the pending Route start (the first
                 // tap before a destination exists) so it doesn't look like nothing happened.
                 measurePoints = when (ui.trackMode) {
@@ -510,38 +563,14 @@ fun MapScreen(
                     else -> emptyList()
                 },
                 onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
-                onMapTap = { p ->
-                    when (ui.trackMode) {
-                        TrackMode.Route -> {
-                            when {
-                                // A stop is selected → an empty-map tap just deselects it
-                                // (taps that land on a stop are consumed by its marker).
-                                ui.selectedWaypoint != null -> ui.selectedWaypoint = null
-                                // Route exists → each further tap EXTENDS it (appends a new
-                                // destination), so points land in the order you tap them.
-                                routeViewModel.waypoints.value.size >= 2 -> {
-                                    haptics.toggle(true); routeViewModel.appendWaypoint(p)
-                                }
-                                // First tap = start, second tap = destination. (Routing from
-                                // the current location is the long-press "Route to here".)
-                                ui.routeOrigin == null -> { haptics.toggle(true); ui.routeOrigin = p }
-                                else -> {
-                                    haptics.toggle(true)
-                                    routeViewModel.planRoute(ui.routeOrigin!!, p); ui.routeOrigin = null
-                                }
-                            }
-                        }
-                        TrackMode.Line -> { haptics.toggle(true); ui.linePoints.add(p) }
-                        TrackMode.Draw -> Unit // handled by the drag overlay
-                        null -> ui.selectionState.clear()
-                    }
-                },
+                onMapTap = onMapTapForMode,
                 onMapReady = { ui.controller = it },
                 // Fired on every camera-idle; also bump the idle tick so camera-reading
                 // chrome (the offline-coverage chip) recomposes after a pan, not only rotation.
                 onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
                 modifier = Modifier.fillMaxSize(),
             )
+            }
 
             // Freehand Draw capture: a transparent layer that turns finger drags into
             // track points (and consumes the gesture so the map doesn't pan).

@@ -25,6 +25,7 @@ private class MutableSettingsRepository : SettingsRepository {
     override suspend fun setCloudSyncEnabled(enabled: Boolean) = state.update { it.copy(cloudSyncEnabled = enabled) }
     override suspend fun setDownloadOverWifiOnly(enabled: Boolean) = state.update { it.copy(downloadOverWifiOnly = enabled) }
     override suspend fun setBaseLayer(layer: com.sigmundgranaas.turbo.expressive.domain.BaseLayer) = state.update { it.copy(baseLayer = layer) }
+    override suspend fun setExperimentalWgpuMap(enabled: Boolean) = state.update { it.copy(experimentalWgpuMap = enabled) }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

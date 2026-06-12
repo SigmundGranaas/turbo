@@ -68,6 +68,7 @@ private class FakeSettings : SettingsRepository {
     override suspend fun setCloudSyncEnabled(enabled: Boolean) = Unit
     override suspend fun setDownloadOverWifiOnly(enabled: Boolean) = Unit
     override suspend fun setBaseLayer(layer: BaseLayer) { state.value = state.value.copy(baseLayer = layer) }
+    override suspend fun setExperimentalWgpuMap(enabled: Boolean) = Unit
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

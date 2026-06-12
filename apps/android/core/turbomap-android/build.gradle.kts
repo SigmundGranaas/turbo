@@ -23,6 +23,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
  */
 plugins {
     id("turbo.android.library")
+    id("turbo.android.compose")
 }
 
 android {
@@ -104,9 +105,15 @@ tasks.named("preBuild") { dependsOn(generateFfiBindings, buildRustFfiAndroid) }
 dependencies {
     // The renderer-agnostic MapEngine contract + LatLng/GeoBounds (no MapLibre).
     implementation(project(":core:model"))
+    // Re-exports the Compose deps (ui/foundation) for the on-screen host.
+    implementation(project(":core:designsystem"))
 
     // JNA for Android (@aar bundles libjnidispatch.so for each ABI).
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
+
+    // The on-screen Compose host (SurfaceView + Choreographer + host-driven tiles).
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.kotlinx.coroutines.android)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)

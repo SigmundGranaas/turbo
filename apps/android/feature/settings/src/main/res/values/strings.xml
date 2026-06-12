@@ -33,4 +33,6 @@
     <string name="settings_cloud_sync_sub">Back up tracks, markers and collections to your account</string>
     <string name="settings_wifi_only">Download over Wi-Fi only</string>
     <string name="settings_wifi_only_sub">Pause offline map downloads on mobile data</string>
+    <string name="settings_wgpu_map">Experimental wgpu map</string>
+    <string name="settings_wgpu_map_sub">Render the map with the new GPU engine (preview)</string>
 </resources>

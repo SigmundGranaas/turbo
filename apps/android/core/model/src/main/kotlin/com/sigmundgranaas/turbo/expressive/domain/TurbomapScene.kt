@@ -1,6 +1,4 @@
-package com.sigmundgranaas.turbo.expressive.core.turbomap
-
-import com.sigmundgranaas.turbo.expressive.domain.LatLng
+package com.sigmundgranaas.turbo.expressive.domain
 
 /**
  * Authors the app's live-map state as a turbomap **Scene-IR JSON** document —

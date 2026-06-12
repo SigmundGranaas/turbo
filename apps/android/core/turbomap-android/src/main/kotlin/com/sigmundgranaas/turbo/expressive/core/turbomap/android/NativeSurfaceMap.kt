@@ -48,4 +48,11 @@ internal object NativeSurfaceMap {
 
     /** `[lat, lng, valid]`. */
     external fun nativeUnproject(handle: Long, xPx: Double, yPx: Double): DoubleArray
+
+    // ── Host-driven tile IO ─────────────────────────────────────────────────
+    /** Tiles the engine awaits, as JSON `[{"kind","layer","z","x","y"}, ...]`. */
+    external fun nativePendingTilesJson(handle: Long): String
+
+    /** Push a fetched raster tile (encoded image bytes); false if it didn't decode. */
+    external fun nativeIngestRaster(handle: Long, layerId: String, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
 }

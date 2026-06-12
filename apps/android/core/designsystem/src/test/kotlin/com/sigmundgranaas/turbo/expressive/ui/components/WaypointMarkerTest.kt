@@ -1,4 +1,4 @@
-package com.sigmundgranaas.turbo.expressive.ui.map
+package com.sigmundgranaas.turbo.expressive.ui.components
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Offset

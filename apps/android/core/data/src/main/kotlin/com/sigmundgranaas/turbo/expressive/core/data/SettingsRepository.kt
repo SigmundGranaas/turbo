@@ -26,6 +26,7 @@ interface SettingsRepository {
     suspend fun setCloudSyncEnabled(enabled: Boolean)
     suspend fun setDownloadOverWifiOnly(enabled: Boolean)
     suspend fun setBaseLayer(layer: BaseLayer)
+    suspend fun setExperimentalWgpuMap(enabled: Boolean)
 }
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_settings")
@@ -43,6 +44,7 @@ class DataStoreSettingsRepository @Inject constructor(
         val CLOUD_SYNC = booleanPreferencesKey("cloud_sync_enabled")
         val WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
         val BASE_LAYER = stringPreferencesKey("base_layer")
+        val WGPU_MAP = booleanPreferencesKey("experimental_wgpu_map")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -58,6 +60,7 @@ class DataStoreSettingsRepository @Inject constructor(
             baseLayer = prefs[Keys.BASE_LAYER]
                 ?.let { id -> BaseLayer.entries.firstOrNull { it.id == id } }
                 ?: BaseLayer.Norgeskart,
+            experimentalWgpuMap = prefs[Keys.WGPU_MAP] ?: false,
         )
     }
 
@@ -87,5 +90,9 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setBaseLayer(layer: BaseLayer) {
         context.settingsDataStore.edit { it[Keys.BASE_LAYER] = layer.id }
+    }
+
+    override suspend fun setExperimentalWgpuMap(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.WGPU_MAP] = enabled }
     }
 }

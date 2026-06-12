@@ -23,7 +23,7 @@ use ndk::native_window::NativeWindow;
 use raw_window_handle::{
     AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
-use turbomap_core::MapOptions;
+use turbomap_core::{MapOptions, PendingTile, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
@@ -350,6 +350,71 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Some(ll) => double_array(&mut env, &[ll.lat, ll.lng, 1.0]),
         None => double_array(&mut env, &[0.0, 0.0, 0.0]),
     }
+}
+
+/// Tiles the engine is waiting on, as a JSON array
+/// `[{"kind":"raster","layer":"basemap","z":..,"x":..,"y":..}, ...]` — the host
+/// fetches each (it owns the URL templates + offline) and pushes bytes back.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativePendingTilesJson(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jni::sys::jstring {
+    let json = unsafe {
+        with_map(handle, |map| {
+            let items: Vec<String> = map
+                .engine
+                .pending_tiles()
+                .into_iter()
+                .filter_map(|p| {
+                    let (kind, layer, t) = match p {
+                        PendingTile::Raster { layer_id, tile } => ("raster", layer_id, tile),
+                        PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id, tile),
+                        PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
+                        PendingTile::Terrain { .. } => return None,
+                    };
+                    Some(format!(
+                        "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
+                        t.z, t.x, t.y
+                    ))
+                })
+                .collect();
+            format!("[{}]", items.join(","))
+        })
+    }
+    .unwrap_or_else(|| "[]".to_string());
+    env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
+/// Push a fetched raster tile (encoded PNG/JPEG/WebP). Returns false if it
+/// doesn't decode or the handle is gone.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeIngestRaster(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    layer_id: JString,
+    z: jint,
+    x: jint,
+    y: jint,
+    bytes: jni::objects::JByteArray,
+) -> jboolean {
+    let layer: String = match env.get_string(&layer_id) {
+        Ok(s) => s.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let data = match env.convert_byte_array(&bytes) {
+        Ok(d) => d,
+        Err(_) => return JNI_FALSE,
+    };
+    let ok = unsafe {
+        with_map(handle, |map| {
+            map.engine
+                .ingest_raster_encoded(&layer, TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32), &data)
+        })
+    };
+    if ok == Some(true) { JNI_TRUE } else { JNI_FALSE }
 }
 
 #[no_mangle]
