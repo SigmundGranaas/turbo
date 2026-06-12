@@ -51,9 +51,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // pixel using the field's screen-space derivative.
     let sdf = textureSample(atlas_tex, atlas_samp, in.uv).r;
     let aa = fwidth(sdf) * 0.7;
-    let alpha = 1.0 - smoothstep(0.5 - aa, 0.5 + aa, sdf);
-    if (alpha <= 0.0) {
+    // The tinted shape itself.
+    let fill_alpha = 1.0 - smoothstep(0.5 - aa, 0.5 + aa, sdf);
+    // A white casing just outside the contour so the marker reads as a
+    // distinct pin against busy ground — the Google/Apple POI treatment.
+    // ICON_HALO is in SDF units (the field saturates over the sprite's pad
+    // band); the fill paints over its centre, leaving a crisp white ring.
+    let ICON_HALO = 0.18;
+    let halo_outer = 0.5 + ICON_HALO;
+    let halo_alpha = 1.0 - smoothstep(halo_outer - aa, halo_outer + aa, sdf);
+    if (halo_alpha <= 0.0) {
         discard;
     }
-    return vec4<f32>(in.tint.rgb, in.tint.a * alpha);
+    // Composite: white ring under, tinted shape over. Where the fill covers,
+    // the tint wins; the surrounding band stays white.
+    let rgb = mix(vec3<f32>(1.0, 1.0, 1.0), in.tint.rgb, fill_alpha);
+    let alpha = max(fill_alpha * in.tint.a, halo_alpha);
+    return vec4<f32>(rgb, alpha);
 }

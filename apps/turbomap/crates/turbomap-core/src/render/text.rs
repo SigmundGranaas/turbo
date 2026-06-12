@@ -398,6 +398,11 @@ impl TextPipeline {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
         let viewport_px = (vw as f32, vh as f32);
+        // Labels grow gently as you zoom past city-detail level — the subtle
+        // size lift Google applies up close, paired with the road-width curve
+        // so the whole frame scales coherently. Flat (1.0) at and below the
+        // reference zoom, so low-zoom maps are untouched.
+        let text_scale = text_size_scale(camera.zoom);
 
         // 1. Collect all labels from visible tiles, sort by distance from
         // camera centre (closest wins on collision), and reject any that
@@ -431,7 +436,7 @@ impl TextPipeline {
         for label in candidates {
             // Line-placed labels (road names) follow a projected centerline.
             if let Some(path) = &label.path {
-                self.stage_line_label(&camera, viewport_px, &label, path, pixel_ratio);
+                self.stage_line_label(&camera, viewport_px, &label, path, pixel_ratio, text_scale);
                 continue;
             }
             // Project world → screen.
@@ -451,7 +456,7 @@ impl TextPipeline {
                 .layout_cache
                 .get_or_compute(
                     &label.text,
-                    label.font_size_px,
+                    label.font_size_px * text_scale,
                     label.letter_spacing,
                     &mut self.atlas,
                 )
@@ -568,6 +573,7 @@ impl TextPipeline {
         label: &LabelRequest,
         path: &[(f32, f32)],
         pixel_ratio: f32,
+        text_scale: f32,
     ) {
         // Cheap cull on the anchor (path midpoint) before any layout.
         let anchor = world_to_screen(camera, label.world_pos, viewport_px);
@@ -601,7 +607,7 @@ impl TextPipeline {
         }
         let Some(glyphs) = crate::text::layout_along_path(
             &label.text,
-            label.font_size_px,
+            label.font_size_px * text_scale,
             &screen_path,
             &mut self.atlas,
         ) else {
@@ -790,8 +796,45 @@ fn sdf_weight(weight_px: f32) -> f32 {
     weight_px.clamp(0.0, max_px) * (128.0 / crate::text::SDF_PAD as f32) / 255.0
 }
 
+/// Per-frame label-size multiplier as a function of camera zoom. Flat at 1.0
+/// up to the reference zoom — so low-zoom maps and the single-zoom goldens at
+/// or below it are untouched — then a gentle lift as you push in, capped, so
+/// labels grow only subtly (Google keeps text near-constant; the variation is
+/// small) rather than ballooning. Quantised so a continuous zoom doesn't force
+/// a fresh layout every frame: the value snaps to coarse steps the layout
+/// cache can hit across small zoom deltas.
+fn text_size_scale(zoom: f64) -> f32 {
+    const REF_ZOOM: f64 = 15.0;
+    const PER_ZOOM_GROWTH: f64 = 1.05;
+    const MAX_SCALE: f64 = 1.35;
+    if zoom <= REF_ZOOM {
+        return 1.0;
+    }
+    let raw = PER_ZOOM_GROWTH.powf(zoom - REF_ZOOM).min(MAX_SCALE);
+    // Snap to 5% steps → at most a handful of distinct laid-out sizes.
+    ((raw * 20.0).round() / 20.0) as f32
+}
+
 fn sq_dist(a: (f32, f32), b: (f32, f32)) -> f32 {
     let dx = a.0 - b.0;
     let dy = a.1 - b.1;
     dx * dx + dy * dy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::text_size_scale;
+
+    #[test]
+    fn text_size_scale_is_flat_below_reference_and_lifts_gently_above() {
+        // At/below the reference the multiplier is exactly 1.0, so low-zoom
+        // maps and the single-zoom goldens there are untouched.
+        assert_eq!(text_size_scale(9.0), 1.0);
+        assert_eq!(text_size_scale(15.0), 1.0);
+        // Past the reference labels lift, monotonically, but stay capped so
+        // text never balloons (Google keeps it near-constant).
+        assert!(text_size_scale(16.0) >= 1.0);
+        assert!(text_size_scale(20.0) > text_size_scale(16.0), "monotonic lift");
+        assert!(text_size_scale(40.0) <= 1.35, "capped");
+    }
 }
