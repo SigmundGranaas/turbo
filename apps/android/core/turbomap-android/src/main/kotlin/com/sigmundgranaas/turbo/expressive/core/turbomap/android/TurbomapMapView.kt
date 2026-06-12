@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
@@ -33,6 +34,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.abs
@@ -79,10 +81,12 @@ fun TurbomapMapView(
     onBearingChange: (Double) -> Unit = {},
     onMapReady: (MapEngine) -> Unit = {},
 ) {
+    val context = LocalContext.current
     val cameraTick = remember { mutableIntStateOf(0) }
     val controller = remember { TurbomapSurfaceController() }
     controller.cameraTick = cameraTick
     controller.onBearingChange = onBearingChange
+    controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles") }
     fun scene() = TurbomapScene.build(rasters, track, route, measure, userLocation)
 
     Box(modifier.fillMaxSize()) {
@@ -151,6 +155,9 @@ internal class TurbomapSurfaceController {
         private set
     var cameraTick: MutableIntState? = null
     var onBearingChange: (Double) -> Unit = {}
+    var cacheDir: File? = null
+
+    private val tileCache: TurbomapTileCache? by lazy { cacheDir?.let { TurbomapTileCache(it) } }
 
     private var handle = 0L
     private var width = 0
@@ -261,7 +268,12 @@ internal class TurbomapSurfaceController {
                 }
             }
             for (t in toFetch) {
-                val bytes = withContext(Dispatchers.IO) { fetchBytes(t.url) }
+                // Read-through disk cache: serve a previously-fetched tile offline, else
+                // fetch and persist it (the host owns caching, per the pull/push contract).
+                val bytes = withContext(Dispatchers.IO) {
+                    tileCache?.get(t.layer, t.z, t.x, t.y)
+                        ?: fetchBytes(t.url)?.also { tileCache?.put(t.layer, t.z, t.x, t.y, it) }
+                }
                 if (bytes != null && handle != 0L) {
                     NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes)
                 } else {
