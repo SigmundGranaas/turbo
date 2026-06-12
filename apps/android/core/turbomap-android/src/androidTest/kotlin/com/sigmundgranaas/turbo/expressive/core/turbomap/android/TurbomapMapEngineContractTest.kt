@@ -23,7 +23,7 @@ class TurbomapMapEngineContractTest {
 
     private val size = 256
 
-    private inline fun withEngine(block: (MapEngine) -> Unit) {
+    private inline fun withEngine(block: (engine: MapEngine, pump: () -> Unit) -> Unit) {
         val reader = ImageReader.newInstance(
             size, size, PixelFormat.RGBA_8888, 2,
             HardwareBuffer.USAGE_GPU_COLOR_OUTPUT or HardwareBuffer.USAGE_CPU_READ_OFTEN,
@@ -32,7 +32,17 @@ class TurbomapMapEngineContractTest {
         try {
             handle = NativeSurfaceMap.nativeCreate(reader.surface, size, size, 60.39, 5.32, 9.0)
             assertNotEquals("surface map should be created", 0L, handle)
-            block(TurbomapMapEngine(handle, size, size))
+            // Programmatic moves (flyTo/zoom/...) now EASE; render frames to settle the
+            // animation so the contract's final-state assertions hold.
+            val pump: () -> Unit = {
+                var i = 0
+                while (i < 80 && NativeSurfaceMap.nativeIsAnimating(handle)) {
+                    NativeSurfaceMap.nativeRender(handle)
+                    Thread.sleep(16)
+                    i++
+                }
+            }
+            block(TurbomapMapEngine(handle, size, size), pump)
         } finally {
             if (handle != 0L) NativeSurfaceMap.nativeDestroy(handle)
             reader.close()
@@ -40,22 +50,26 @@ class TurbomapMapEngineContractTest {
     }
 
     @Test
-    fun camera_moves_are_observable() = withEngine { engine ->
+    fun camera_moves_are_observable() = withEngine { engine, pump ->
         engine.flyTo(LatLng(61.0, 6.0), 11.0)
-        assertEquals(61.0, engine.center().lat, 1e-9)
-        assertEquals(6.0, engine.center().lng, 1e-9)
-        assertEquals(11.0, engine.zoom(), 1e-9)
+        pump()
+        assertEquals(61.0, engine.center().lat, 1e-3)
+        assertEquals(6.0, engine.center().lng, 1e-3)
+        assertEquals(11.0, engine.zoom(), 1e-3)
         assertEquals(0.0, engine.bearing(), 1e-9)
 
         engine.zoomIn()
-        assertEquals(12.0, engine.zoom(), 1e-9)
+        pump()
+        assertEquals(12.0, engine.zoom(), 1e-3)
         engine.zoomOut()
-        assertEquals(11.0, engine.zoom(), 1e-9)
+        pump()
+        assertEquals(11.0, engine.zoom(), 1e-3)
     }
 
     @Test
-    fun project_then_unproject_is_identity() = withEngine { engine ->
+    fun project_then_unproject_is_identity() = withEngine { engine, pump ->
         engine.flyTo(LatLng(61.0, 6.0), 11.0)
+        pump()
         val geo = LatLng(61.01, 6.02)
         val (x, y) = engine.toScreen(geo)
         val back = engine.fromScreen(x, y)
@@ -64,9 +78,10 @@ class TurbomapMapEngineContractTest {
     }
 
     @Test
-    fun bottom_inset_lifts_the_centred_target_into_the_visible_band() = withEngine { engine ->
+    fun bottom_inset_lifts_the_centred_target_into_the_visible_band() = withEngine { engine, pump ->
         val target = LatLng(61.0, 6.0)
         engine.flyTo(target, 11.0)
+        pump()
         val (_, yNoInset) = engine.toScreen(target)
         // Reserve the bottom half for a sheet. This is engine-side padding: the
         // projection itself shifts the principal point up, so the *already-centred*
@@ -81,8 +96,9 @@ class TurbomapMapEngineContractTest {
     }
 
     @Test
-    fun visible_bounds_contain_the_centre() = withEngine { engine ->
+    fun visible_bounds_contain_the_centre() = withEngine { engine, pump ->
         engine.flyTo(LatLng(61.0, 6.0), 11.0)
+        pump()
         val b = engine.visibleBounds()
         assertTrue("south<north: $b", b.south < b.north)
         assertTrue("west<east: $b", b.west < b.east)

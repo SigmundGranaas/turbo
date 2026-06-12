@@ -35,17 +35,23 @@ class TurbomapMapEngine(
     /** `[lat, lng, zoom, bearingDeg]`, or empty if the handle is gone. */
     private fun camera(): DoubleArray = NativeSurfaceMap.nativeCamera(handle)
 
-    private fun setCamera(lat: Double, lng: Double, zoom: Double, bearingDeg: Double) {
-        NativeSurfaceMap.nativeSetCamera(handle, lat, lng, zoom, bearingDeg)
+    /** Ease (accel/decel) to a pose — every programmatic move animates, never jumps. */
+    private fun easeTo(lat: Double, lng: Double, zoom: Double, bearingDeg: Double) {
+        NativeSurfaceMap.nativeEaseTo(handle, lat, lng, zoom, bearingDeg, EASE_DURATION_MS)
         onMutated()
     }
 
-    override fun zoomIn() = camera().let { if (it.size >= 4) setCamera(it[0], it[1], it[2] + 1.0, it[3]) }
+    private fun zoomBy(factor: Double) {
+        NativeSurfaceMap.nativeZoomAroundAnimated(handle, factor, widthPx / 2.0, heightPx / 2.0, ZOOM_DURATION_MS)
+        onMutated()
+    }
 
-    override fun zoomOut() = camera().let { if (it.size >= 4) setCamera(it[0], it[1], it[2] - 1.0, it[3]) }
+    override fun zoomIn() = zoomBy(2.0) // +1 zoom level, eased about the centre
+
+    override fun zoomOut() = zoomBy(0.5) // −1 zoom level
 
     override fun flyTo(target: LatLng, zoom: Double) {
-        setCamera(target.lat, target.lng, zoom, camera().getOrElse(3) { 0.0 })
+        easeTo(target.lat, target.lng, zoom, camera().getOrElse(3) { 0.0 })
     }
 
     override fun center(): LatLng = camera().let { if (it.size >= 2) LatLng(it[0], it[1]) else LatLng(0.0, 0.0) }
@@ -54,7 +60,7 @@ class TurbomapMapEngine(
 
     override fun bearing(): Double = camera().getOrElse(3) { 0.0 }
 
-    override fun resetNorth() = camera().let { if (it.size >= 4) setCamera(it[0], it[1], it[2], 0.0) }
+    override fun resetNorth() = camera().let { if (it.size >= 4) easeTo(it[0], it[1], it[2], 0.0) }
 
     override fun fromScreen(xPx: Float, yPx: Float): LatLng {
         val r = NativeSurfaceMap.nativeUnproject(handle, xPx.toDouble(), yPx.toDouble())
@@ -105,7 +111,7 @@ class TurbomapMapEngine(
                 // Approximate fit: centre on the centroid at the current zoom. A
                 // precise bounds-fit lands with the on-screen host (Stage E remainder).
                 val cam = camera()
-                setCamera(
+                easeTo(
                     points.map { it.lat }.average(),
                     points.map { it.lng }.average(),
                     cam.getOrElse(2) { DEFAULT_POINT_ZOOM },
@@ -117,5 +123,7 @@ class TurbomapMapEngine(
 
     private companion object {
         const val DEFAULT_POINT_ZOOM = 14.0
+        const val EASE_DURATION_MS = 450 // fly-to / locate / frame-to
+        const val ZOOM_DURATION_MS = 250 // rail zoom step
     }
 }
