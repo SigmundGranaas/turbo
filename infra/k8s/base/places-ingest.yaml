@@ -1,0 +1,70 @@
+# Writer for turbo-places: orders the SSR (Sentralt stedsnavnregister) GML from
+# Geonorge, streams it into the `places` database (reproject → stage), and
+# atomically swaps it live. turbo-places serves the query side read-only; this
+# CronJob is the only writer.
+#
+# Runs the national load (landsdekkende): ~1M rows, a ~3GB GML extract on /work
+# (turbo-db storage was bumped to match). For a quick first fill or a smaller
+# footprint, swap args to a single fylke, e.g. ["bulk-ssr","fylke","18","Nordland"].
+#
+# Requires: egress to nedlasting.geonorge.no (no NetworkPolicy denies it today)
+# and the db-secrets `connectionstring-places` key (same value turbo-places uses).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: turbo-places-ingest
+  labels:
+    app: turbo-places-ingest
+spec:
+  schedule: "0 4 * * 0"          # 04:00 every Sunday — SSR changes slowly
+  concurrencyPolicy: Forbid       # never overlap; the atomic swap is exclusive
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3600  # 1h: order + download (~150MB) + stage (~1M rows) + swap
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: turbo-places-ingest
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1654
+            runAsGroup: 1654
+            seccompProfile:
+              type: RuntimeDefault
+          imagePullSecrets:
+            - name: ghcr-auth
+          containers:
+            - name: ingest
+              image: turbo-places-ingest    # tag set per-env via kustomize images:
+              args: ["bulk-ssr", "landsdekkende", "0000", "Hele landet"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              env:
+                # The ingester reads PLACES_DB (not ConnectionStrings__Places).
+                - name: PLACES_DB
+                  valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-places } }
+                # GML download + extract land here (Path.GetTempPath honours TMPDIR).
+                - name: TMPDIR
+                  value: /work
+              volumeMounts:
+                - name: work
+                  mountPath: /work
+              resources:
+                requests:
+                  memory: "512Mi"
+                  cpu: "250m"
+                limits:
+                  memory: "2Gi"     # streaming 1M rows + Npgsql batch buffers
+                  cpu: "1000m"
+          volumes:
+            - name: work
+              emptyDir:
+                sizeLimit: 6Gi      # national GML extract (~3GB) + zip + headroom

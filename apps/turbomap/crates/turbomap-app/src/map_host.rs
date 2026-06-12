@@ -134,12 +134,19 @@ impl MapHost {
                     id,
                     mesh,
                     labels,
+                    icons,
                     interactive,
                 } => {
                     self.inflight.remove(&(VECTOR_LAYER_ID, id));
                     self.recently_failed.remove(&id);
-                    self.map
-                        .ingest_vector_mesh(VECTOR_LAYER_ID, id, &mesh, labels, interactive);
+                    self.map.ingest_vector_mesh(
+                        VECTOR_LAYER_ID,
+                        id,
+                        &mesh,
+                        labels,
+                        icons,
+                        interactive,
+                    );
                 }
                 VectorOutcome::Failed(id) => {
                     self.inflight.remove(&(VECTOR_LAYER_ID, id));

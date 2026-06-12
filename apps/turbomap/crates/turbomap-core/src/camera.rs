@@ -26,6 +26,11 @@ pub const TILE_SIZE_PX: f64 = 256.0;
 const FOV_Y: f32 = 0.6435; // ~36.87°
 const MAX_PITCH_DEG: f64 = 60.0;
 
+/// Zoom bounds. z0 is the whole world in one root tile; z24 is deeper than
+/// any tile source serves but lets the camera glide smoothly to the limit.
+pub const MIN_ZOOM: f64 = 0.0;
+pub const MAX_ZOOM: f64 = 24.0;
+
 /// Camera state. `f64` zoom is continuous.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
@@ -57,6 +62,64 @@ impl Camera {
     pub fn with_bearing(mut self, deg: f64) -> Self {
         self.bearing_deg = deg;
         self
+    }
+
+    /// Rotate the compass bearing by `delta_deg` (clockwise positive), the
+    /// two-finger rotate gesture. Wraps to `[0, 360)` so repeated spins
+    /// never drift the value out of range. Pivots about the screen centre.
+    pub fn rotate_by(&mut self, delta_deg: f64) {
+        self.bearing_deg = (self.bearing_deg + delta_deg).rem_euclid(360.0);
+    }
+
+    /// Tilt by `delta_deg` (two-finger vertical drag), clamped to
+    /// `[0, MAX_PITCH_DEG]`. Pivots about the screen centre.
+    pub fn pitch_by(&mut self, delta_deg: f64) {
+        self.pitch_deg = (self.pitch_deg + delta_deg).clamp(0.0, MAX_PITCH_DEG);
+    }
+
+    /// Rotate the bearing by `delta_deg` about `focus_px` (the two-finger
+    /// rotate centroid), keeping that pixel over the same world point —
+    /// the natural pivot for a two-finger gesture. `rotate_by` is this with
+    /// the focus at the screen centre.
+    pub fn rotated_around(
+        mut self,
+        delta_deg: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) -> Camera {
+        let before = self.pixel_to_world(focus_px, viewport_px);
+        self.bearing_deg = (self.bearing_deg + delta_deg).rem_euclid(360.0);
+        self.recenter_on_focus(before, focus_px, viewport_px);
+        self
+    }
+
+    /// Tilt by `delta_deg` (clamped) about `focus_px`, keeping that pixel
+    /// over the same world point.
+    pub fn pitched_around(
+        mut self,
+        delta_deg: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) -> Camera {
+        let before = self.pixel_to_world(focus_px, viewport_px);
+        self.pitch_deg = (self.pitch_deg + delta_deg).clamp(0.0, MAX_PITCH_DEG);
+        self.recenter_on_focus(before, focus_px, viewport_px);
+        self
+    }
+
+    /// Shift the centre so `focus_world` lands back under `focus_px` after a
+    /// projection-changing edit (rotate/tilt). Shared focus-invariance step.
+    fn recenter_on_focus(
+        &mut self,
+        focus_world: WorldPoint,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) {
+        let after = self.pixel_to_world(focus_px, viewport_px);
+        let c = self.center.to_world();
+        self.center =
+            WorldPoint::new(c.x - (after.x - focus_world.x), c.y - (after.y - focus_world.y))
+                .to_lat_lng();
     }
 
     /// Pixels per world unit at the current zoom (one world unit = the full
@@ -258,23 +321,37 @@ impl Camera {
     /// while keeping `focus_px` over the same world point. `viewport_px` is
     /// the viewport size in pixels.
     pub fn zoom_around(&mut self, factor: f64, focus_px: (f64, f64), viewport_px: (f64, f64)) {
+        *self = self.zoomed_around(factor, focus_px, viewport_px);
+    }
+
+    /// Pure form of [`zoom_around`]: the camera after zooming by `factor`
+    /// (multiplicative — 2.0 = one level in) about `focus_px`, with the
+    /// focus pixel kept over the same world point. Zoom is clamped to
+    /// `[MIN_ZOOM, MAX_ZOOM]`. Used both for the immediate setter and to
+    /// compute the *target* of an animated double-tap / scroll zoom.
+    pub fn zoomed_around(
+        mut self,
+        factor: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) -> Camera {
         if factor <= 0.0 {
-            return;
+            return self;
         }
         let focus_world_before = self.pixel_to_world(focus_px, viewport_px);
-        self.zoom += factor.log2();
-        // After zoom change, the same focus pixel maps to a different
-        // world point. Shift the centre so the focus world point lands
-        // back under the focus pixel. With tilt we re-unproject through
-        // the updated camera; without tilt the legacy direct math is
-        // pixel-equivalent.
+        self.zoom = (self.zoom + factor.log2()).clamp(MIN_ZOOM, MAX_ZOOM);
+        // After the (clamped) zoom change, the same focus pixel maps to a
+        // different world point. Shift the centre so the focus world point
+        // lands back under the focus pixel. With tilt we re-unproject
+        // through the updated camera; without tilt the legacy direct math
+        // is pixel-equivalent.
         if self.pitch_deg == 0.0 && self.bearing_deg == 0.0 {
             let ppw = self.pixels_per_world_unit();
-            let new_center = WorldPoint::new(
+            self.center = WorldPoint::new(
                 focus_world_before.x - (focus_px.0 - viewport_px.0 * 0.5) / ppw,
                 focus_world_before.y - (focus_px.1 - viewport_px.1 * 0.5) / ppw,
-            );
-            self.center = new_center.to_lat_lng();
+            )
+            .to_lat_lng();
         } else {
             let focus_world_after = self.pixel_to_world(focus_px, viewport_px);
             let centre = self.center.to_world();
@@ -282,6 +359,7 @@ impl Camera {
             let dy = focus_world_after.y - focus_world_before.y;
             self.center = WorldPoint::new(centre.x - dx, centre.y - dy).to_lat_lng();
         }
+        self
     }
 }
 
@@ -350,6 +428,144 @@ impl CameraAnimation {
     }
 }
 
+/// Momentum (inertial fling) after a drag is released with velocity. The
+/// map keeps gliding and decelerates, the way every touch map feels.
+///
+/// The velocity decays exponentially with time constant `tau`:
+/// `v(t) = v0 · e^(−t/τ)`, so the pixel displacement from the release point
+/// is `d(t) = v0 · τ · (1 − e^(−t/τ))` — frame-rate independent (sampling at
+/// any cadence lands on the same curve), with a finite total throw of
+/// `v0 · τ`. Sampling pans `start` by `d(t)`; the fling ends once the speed
+/// drops below a small threshold.
+#[derive(Debug, Clone, Copy)]
+pub struct FlingAnimation {
+    start: Camera,
+    /// Release velocity in screen px/s (same sign convention as
+    /// `pan_by_pixels`' drag delta).
+    velocity_px: (f64, f64),
+    started_at: Instant,
+    /// Decay time constant in seconds — larger = longer glide.
+    tau: f64,
+}
+
+/// Below this speed (px/s) the glide is imperceptible; stop the fling.
+const FLING_STOP_SPEED: f64 = 4.0;
+
+impl FlingAnimation {
+    /// A fling from `start` released at `velocity_px` (screen px/s). The
+    /// default `tau` (0.32 s) matches the gentle deceleration touch maps use.
+    pub fn new(start: Camera, velocity_px: (f64, f64)) -> Self {
+        Self::new_at(start, velocity_px, Instant::now(), 0.32)
+    }
+
+    /// Construct with an explicit start time + `tau` — used by tests so they
+    /// can pin behaviour without sleeping.
+    pub fn new_at(start: Camera, velocity_px: (f64, f64), started_at: Instant, tau: f64) -> Self {
+        Self { start, velocity_px, started_at, tau }
+    }
+
+    fn elapsed(&self, now: Instant) -> f64 {
+        now.saturating_duration_since(self.started_at).as_secs_f64()
+    }
+
+    /// Pixel displacement from the release point at `now`.
+    fn displacement(&self, now: Instant) -> (f64, f64) {
+        let decay = 1.0 - (-self.elapsed(now) / self.tau).exp();
+        (
+            self.velocity_px.0 * self.tau * decay,
+            self.velocity_px.1 * self.tau * decay,
+        )
+    }
+
+    /// Speed (px/s) remaining at `now`.
+    fn speed(&self, now: Instant) -> f64 {
+        let v = (-self.elapsed(now) / self.tau).exp();
+        self.velocity_px.0.hypot(self.velocity_px.1) * v
+    }
+
+    pub fn sample(&self, now: Instant) -> Camera {
+        let (dx, dy) = self.displacement(now);
+        let mut c = self.start;
+        c.pan_by_pixels(dx, dy);
+        c
+    }
+
+    pub fn is_finished(&self, now: Instant) -> bool {
+        self.speed(now) < FLING_STOP_SPEED
+    }
+}
+
+/// Momentum on *zoom* after a pinch is released with zoom velocity — the
+/// map keeps zooming and eases to a stop, about the pinch centroid.
+///
+/// Same exponential decay as the pan fling, in zoom-level units: the zoom
+/// glides by `v0 · τ · (1 − e^(−t/τ))` levels while keeping `focus_px` over
+/// the same world point (via [`Camera::zoomed_around`], so zoom stays
+/// clamped). Ends once the zoom speed drops below a small threshold.
+#[derive(Debug, Clone, Copy)]
+pub struct ZoomFlingAnimation {
+    start: Camera,
+    /// Release zoom velocity in zoom-levels/second (positive = zooming in).
+    zoom_velocity: f64,
+    focus_px: (f64, f64),
+    viewport_px: (f64, f64),
+    started_at: Instant,
+    tau: f64,
+}
+
+/// Below this zoom speed (levels/s) the glide is imperceptible; stop.
+const ZOOM_FLING_STOP_SPEED: f64 = 0.05;
+
+impl ZoomFlingAnimation {
+    /// A zoom fling from `start` released at `zoom_velocity` (levels/s) about
+    /// `focus_px`. Default `tau` (0.25 s) gives a crisp settle.
+    pub fn new(
+        start: Camera,
+        zoom_velocity: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+    ) -> Self {
+        Self::new_at(start, zoom_velocity, focus_px, viewport_px, Instant::now(), 0.25)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_at(
+        start: Camera,
+        zoom_velocity: f64,
+        focus_px: (f64, f64),
+        viewport_px: (f64, f64),
+        started_at: Instant,
+        tau: f64,
+    ) -> Self {
+        Self { start, zoom_velocity, focus_px, viewport_px, started_at, tau }
+    }
+
+    fn elapsed(&self, now: Instant) -> f64 {
+        now.saturating_duration_since(self.started_at).as_secs_f64()
+    }
+
+    /// Accumulated zoom-level change from the release point at `now`.
+    fn delta_levels(&self, now: Instant) -> f64 {
+        let decay = 1.0 - (-self.elapsed(now) / self.tau).exp();
+        self.zoom_velocity * self.tau * decay
+    }
+
+    fn speed(&self, now: Instant) -> f64 {
+        self.zoom_velocity.abs() * (-self.elapsed(now) / self.tau).exp()
+    }
+
+    pub fn sample(&self, now: Instant) -> Camera {
+        // A delta of `d` levels is a multiplicative factor of 2^d; zooming
+        // about the fixed focus keeps the pinch centroid stable.
+        let factor = 2f64.powf(self.delta_levels(now));
+        self.start.zoomed_around(factor, self.focus_px, self.viewport_px)
+    }
+
+    pub fn is_finished(&self, now: Instant) -> bool {
+        self.speed(now) < ZOOM_FLING_STOP_SPEED
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Value boundary: developers translate platform input events into camera
@@ -367,6 +583,75 @@ mod tests {
             a,
             b,
         );
+    }
+
+    #[test]
+    fn fling_decelerates_and_converges_to_a_finite_throw() {
+        // A horizontal flick: displacement grows but each interval moves
+        // less (deceleration), converging on the finite total throw v0·τ.
+        let start = Camera::new(LatLng::new(0.0, 0.0), 4.0);
+        let t0 = Instant::now();
+        let tau = 0.3;
+        let fling = FlingAnimation::new_at(start, (1000.0, 0.0), t0, tau);
+
+        let cam_at = |dt: f64| fling.sample(t0 + Duration::from_secs_f64(dt));
+        let x = |c: Camera| c.center.to_world().x;
+        let (x0, x1, x2) = (x(cam_at(0.0)), x(cam_at(0.1)), x(cam_at(0.2)));
+        // Moves in the pan direction, and the first 100 ms covers more world
+        // than the second 100 ms (it's slowing down).
+        assert!(x1 < x0, "fling moves the camera");
+        assert!((x0 - x1) > (x1 - x2), "fling decelerates");
+
+        // Total throw at t→∞ is v0·τ pixels; at zoom 4 that's px/(256·2^4) world.
+        let total_px = 1000.0 * tau;
+        let expected_world = x0 - total_px / (256.0 * 16.0);
+        let far = x(cam_at(5.0));
+        assert!((far - expected_world).abs() < 1e-4, "{far} vs {expected_world}");
+    }
+
+    #[test]
+    fn fling_finishes_once_it_slows_below_threshold_and_zero_is_inert() {
+        let start = Camera::new(LatLng::new(0.0, 0.0), 4.0);
+        let t0 = Instant::now();
+        let fling = FlingAnimation::new_at(start, (1200.0, -800.0), t0, 0.3);
+        assert!(!fling.is_finished(t0), "a fresh flick is animating");
+        assert!(fling.is_finished(t0 + Duration::from_secs(3)), "glide ends");
+
+        // A release with no velocity neither moves nor animates.
+        let dead = FlingAnimation::new_at(start, (0.0, 0.0), t0, 0.3);
+        assert!(dead.is_finished(t0));
+        let s = dead.sample(t0 + Duration::from_secs_f64(0.1));
+        assert!((s.center.to_world().x - start.center.to_world().x).abs() < 1e-12);
+    }
+
+    #[test]
+    fn zoom_fling_glides_zoom_keeping_the_pinch_focus_fixed() {
+        let viewport = (1024.0, 768.0);
+        let focus = (300.0, 250.0);
+        let start = Camera::new(LatLng::new(60.39, 5.32), 12.0);
+        let t0 = Instant::now();
+        let tau = 0.25;
+        let fling = ZoomFlingAnimation::new_at(start, 4.0, focus, viewport, t0, tau);
+
+        // The focus world point stays under the focus pixel throughout the
+        // glide (that's what makes pinch-to-zoom feel anchored).
+        let focus_world = start.pixel_to_world(focus, viewport);
+        let zoom_at = |dt: f64| fling.sample(t0 + Duration::from_secs_f64(dt));
+        for dt in [0.05, 0.15, 0.4] {
+            let cam = zoom_at(dt);
+            assert_world_close(cam.pixel_to_world(focus, viewport), focus_world, 1e-9);
+        }
+        // Zoom increases (zooming in) and decelerates: first 100 ms gains
+        // more levels than the second.
+        let (z0, z1, z2) = (zoom_at(0.0).zoom, zoom_at(0.1).zoom, zoom_at(0.2).zoom);
+        assert!(z1 > z0 && z2 > z1, "zoom climbs");
+        assert!((z1 - z0) > (z2 - z1), "zoom fling decelerates");
+        // Total gain converges to v0*tau levels.
+        let far = zoom_at(5.0).zoom;
+        assert!((far - (z0 + 4.0 * tau)).abs() < 1e-4, "{far}");
+
+        assert!(!fling.is_finished(t0), "fresh pinch is animating");
+        assert!(fling.is_finished(t0 + Duration::from_secs(2)), "settles");
     }
 
     #[test]
@@ -431,6 +716,90 @@ mod tests {
         let after_world = cam.center.to_world();
         assert_world_close(before_world, after_world, 1e-12);
         assert!((cam.zoom - 12.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn rotate_wraps_and_pitch_clamps() {
+        let mut cam = Camera::new(LatLng::new(0.0, 0.0), 10.0);
+        // Bearing wraps across the 0/360 seam in both directions.
+        cam.rotate_by(350.0);
+        cam.rotate_by(20.0); // 370 → 10
+        assert!((cam.bearing_deg - 10.0).abs() < 1e-9, "{}", cam.bearing_deg);
+        cam.rotate_by(-30.0); // 10 → -20 → 340
+        assert!((cam.bearing_deg - 340.0).abs() < 1e-9, "{}", cam.bearing_deg);
+
+        // Pitch clamps to [0, MAX_PITCH_DEG] and never tilts past the limit.
+        cam.pitch_by(80.0);
+        assert!((cam.pitch_deg - MAX_PITCH_DEG).abs() < 1e-9, "{}", cam.pitch_deg);
+        cam.pitch_by(-200.0);
+        assert!(cam.pitch_deg.abs() < 1e-9, "{}", cam.pitch_deg);
+    }
+
+    #[test]
+    fn rotate_around_keeps_the_focus_world_point_anchored() {
+        // Two-finger rotate about an off-centre pixel must keep that pixel
+        // over the same place — the gesture pivots on the centroid.
+        let viewport = (1024.0, 768.0);
+        let focus = (760.0, 240.0);
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 12.0);
+        let focus_world = cam.pixel_to_world(focus, viewport);
+        let rotated = cam.rotated_around(37.0, focus, viewport);
+        assert!((rotated.bearing_deg - 37.0).abs() < 1e-9);
+        assert_world_close(rotated.pixel_to_world(focus, viewport), focus_world, 1e-5);
+    }
+
+    #[test]
+    fn rotate_around_screen_centre_matches_rotate_by() {
+        // Pivoting on the screen centre is exactly the simple bearing spin.
+        let viewport = (1024.0, 768.0);
+        let centre = (viewport.0 * 0.5, viewport.1 * 0.5);
+        let mut spun = Camera::new(LatLng::new(60.39, 5.32), 11.0);
+        spun.rotate_by(48.0);
+        let around = Camera::new(LatLng::new(60.39, 5.32), 11.0)
+            .rotated_around(48.0, centre, viewport);
+        assert!((spun.bearing_deg - around.bearing_deg).abs() < 1e-9);
+        assert_world_close(spun.center.to_world(), around.center.to_world(), 1e-5);
+    }
+
+    #[test]
+    fn pitch_around_anchors_focus_and_clamps() {
+        let viewport = (1024.0, 768.0);
+        let focus = (300.0, 600.0);
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 13.0);
+        let focus_world = cam.pixel_to_world(focus, viewport);
+        let tilted = cam.pitched_around(45.0, focus, viewport);
+        assert!((tilted.pitch_deg - 45.0).abs() < 1e-9);
+        assert_world_close(tilted.pixel_to_world(focus, viewport), focus_world, 1e-5);
+        // Over-tilt clamps at the limit.
+        let maxed = tilted.pitched_around(90.0, focus, viewport);
+        assert!((maxed.pitch_deg - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn zoom_clamps_to_the_zoom_bounds() {
+        let viewport = (1024.0, 768.0);
+        let focus = (200.0, 200.0);
+        // Zooming in hard from near the ceiling can't exceed MAX_ZOOM.
+        let mut cam = Camera::new(LatLng::new(60.39, 5.32), MAX_ZOOM - 0.5);
+        cam.zoom_around(64.0, focus, viewport); // +6 levels requested
+        assert!((cam.zoom - MAX_ZOOM).abs() < 1e-12, "clamped at max: {}", cam.zoom);
+        // Zooming out hard from the floor can't go below MIN_ZOOM.
+        let mut cam = Camera::new(LatLng::new(0.0, 0.0), MIN_ZOOM + 0.5);
+        cam.zoom_around(0.25, focus, viewport); // -2 levels requested
+        assert!((cam.zoom - MIN_ZOOM).abs() < 1e-12, "clamped at min: {}", cam.zoom);
+    }
+
+    #[test]
+    fn animated_zoom_target_equals_the_immediate_zoom_result() {
+        // The double-tap animation must ease toward exactly where an
+        // immediate focus zoom would land — same target, just over time.
+        let viewport = (1024.0, 768.0);
+        let focus = (700.0, 300.0);
+        let start = Camera::new(LatLng::new(60.39, 5.32), 12.0);
+        let mut immediate = start;
+        immediate.zoom_around(2.0, focus, viewport);
+        let target = start.zoomed_around(2.0, focus, viewport);
+        assert_eq!(immediate, target, "pure form matches the mutating setter");
     }
 
     #[test]

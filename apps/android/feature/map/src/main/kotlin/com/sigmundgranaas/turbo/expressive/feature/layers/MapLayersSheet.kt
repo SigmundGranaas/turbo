@@ -19,12 +19,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Air
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Hiking
 import androidx.compose.material.icons.rounded.Satellite
 import androidx.compose.material.icons.rounded.Terrain
+import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -125,7 +127,8 @@ fun MapLayersSheet(
 private fun overlayRow(overlay: OverlayId): Triple<ImageVector, Int, Int> = when (overlay) {
     OverlayId.Trails -> Triple(Icons.Rounded.Hiking, R.string.layers_trails, R.string.layers_trails_sub)
     OverlayId.Avalanche -> Triple(Icons.Rounded.Terrain, R.string.layers_avalanche, R.string.layers_avalanche_sub)
-    OverlayId.Waves, OverlayId.Wind -> Triple(Icons.Rounded.Map, R.string.layers_trails, R.string.layers_trails_sub)
+    OverlayId.Waves -> Triple(Icons.Rounded.Waves, R.string.layers_waves, R.string.layers_waves_sub)
+    OverlayId.Wind -> Triple(Icons.Rounded.Air, R.string.layers_wind, R.string.layers_wind_sub)
 }
 
 @Composable

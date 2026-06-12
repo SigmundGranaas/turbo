@@ -7,6 +7,8 @@ resources:
   - config.yaml
   - db.yaml          # CNPG-managed Postgres (turbo-db) — primary datastore
   - modulith.yaml
+  - places.yaml         # turbo-places: standalone search + reverse-geocoding service
+  - places-ingest.yaml  # CronJob: the sole writer of the Places (SSR) dataset
   - web.yaml
   - ingress.yaml
   - pdb.yaml

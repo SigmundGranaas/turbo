@@ -5,8 +5,9 @@
 //!   and every graph edge. Adding a new data source — marsh layer,
 //!   ridge bonus, preferred-track set — means implementing the
 //!   trait and registering an instance at boot.
-//! - Theta\* + local mesh builder live in `core::off_trail*`. Pure;
-//!   no I/O.
+//! - The off-trail solver is the FMM grade-limited path (see
+//!   `fmm_adapter`); `core::off_trail_mesh` keeps only the inspect-
+//!   surface geometry types.
 
 // Design-level clippy lints we deliberately accept crate-wide:
 //  - type_complexity: the cost layers store boxed closures
@@ -26,6 +27,7 @@ pub mod config;
 pub mod contributor;
 pub mod core;
 pub mod cost;
+pub(crate) mod cost_field;
 pub mod fmm_adapter;
 pub mod layers;
 pub mod native_contributors;
@@ -40,14 +42,10 @@ pub use config::{
     ProfileSurface, SlopeConfig, SurfaceMultipliers, TotalGainConfig, TrailProximityConfig,
 };
 pub use contributor::{
-    compose_edge_walk_seconds, ContributorKind, CostContributor, EdgeContext, EdgeKind,
-    EdgeWalkCost, LegacyLayerAdapter, NamedContribution, BASE_PACE_S_PER_M,
+    compose_edge_walk_seconds, ContributorKind, CostContributor, EdgeContext, EdgeElevProbe,
+    EdgeKind, EdgeWalkCost, LegacyLayerAdapter, NamedContribution, BASE_PACE_S_PER_M,
 };
-pub use core::off_trail::{theta_star, Mesh, MeshNode, MeshNodeId, PathResult, Point2};
-pub use core::off_trail_connector::{nearest_exit_via_mesh, OffTrailConnector};
-pub use core::off_trail_mesh::{
-    build_local_mesh, BuiltMesh, CostSample, ExitNode, MeshBbox, MeshBuildInput, RefusedPolygon,
-};
+pub use core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 pub use cost::{compose_cell, compose_edge, CellCost, CostLayer};
 pub use layers::{
     AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, LandcoverLayer, MarkingLayer,

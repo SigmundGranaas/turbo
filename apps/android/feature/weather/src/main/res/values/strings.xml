@@ -18,6 +18,7 @@
     <string name="route_cond_avalanche">Avalanche L%1$d</string>
     <string name="cond_forecast_title">Forecast · yr.no</string>
     <string name="cond_forecast_error_body">Couldn\'t reach yr.no — try again with a connection.</string>
+    <string name="cond_tab_weather">Weather</string>
     <!-- Ocean section -->
     <string name="cond_ocean_title">Ocean</string>
     <string name="cond_waves">Waves</string>

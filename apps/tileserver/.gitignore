@@ -5,3 +5,5 @@
 .sqlx/
 /data
 /raw
+# dhat heap-profile output (from `eval-terrain --features dhat-heap`)
+dhat-heap.json

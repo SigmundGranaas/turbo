@@ -26,6 +26,11 @@ turbo-tiles-search.workspace = true
 turbo-tiles-pathfind.workspace = true
 turbo-tiles-vector.workspace = true
 toml = "0.8"
+libc = "0.2"
+# Heap allocation profiler, opt-in via the `dhat-heap` feature. Off by
+# default (a global-allocator shim that taxes every alloc); built only
+# for `eval-terrain` profiling runs of the architecture perf work.
+dhat = { version = "0.3", optional = true }
 
 axum.workspace = true
 tower-http.workspace = true
@@ -37,3 +42,9 @@ tracing-subscriber.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[features]
+# Build with `--features dhat-heap` to capture a per-allocation heap
+# profile of a run (writes dhat-heap.json + prints peak/total bytes).
+# See tools/ROUTING_DEV_LOOP.md.
+dhat-heap = ["dep:dhat"]

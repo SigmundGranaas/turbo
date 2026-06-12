@@ -104,9 +104,17 @@ pub async fn plan(
     apply_preset(&state, &preset, &mut prefs).map_err(ApiError::BadRequest)?;
 
     let points = req.points.clone();
-    let path = pf
-        .solve_route(&points, prefs)
-        .map_err(|e| map_pathfind_err(&state, e))?;
+    // Concurrency-gated + off the async worker: the solve holds MBs of
+    // corridor/trail scratch for seconds, so it runs on the blocking
+    // pool under a routing permit (excess requests queue, not allocate).
+    let permit = state.acquire_routing_permit().await;
+    let path = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        pf.solve_route(&points, prefs)
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("solve task failed: {e}")))?
+    .map_err(|e| map_pathfind_err(&state, e))?;
 
     Ok(Json(build_resp(&state, &path, profile)))
 }
@@ -154,7 +162,12 @@ pub async fn plan_stream(
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<SolverEvent>(2048);
     let (terminal_tx, mut terminal_rx) = tokio::sync::mpsc::channel::<Terminal>(2);
 
+    // Routing permit rides into the closure so the global solve-
+    // concurrency cap covers SSE solves too (the stream starts only
+    // once a permit is free).
+    let permit = state.acquire_routing_permit().await;
     tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         let recorder = Arc::new(Recorder::new_streaming(record_cap, event_tx.clone()));
         let result = turbo_tiles_pathfind::solver_trace::with_installed(recorder, || {
             pf.solve_route(&points, prefs)

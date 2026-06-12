@@ -103,6 +103,13 @@ impl TextureCache {
         }
     }
 
+    /// Read-only lookup — does *not* bump the LRU or the hit/miss
+    /// counters. Used at draw time inside a render pass, where every
+    /// referenced tile was already touched by the prepare phase.
+    pub(crate) fn peek(&self, id: TileId) -> Option<&CacheEntry> {
+        self.entries.get(&id)
+    }
+
     /// Walk up the pyramid looking for the nearest ancestor in the cache.
     pub(crate) fn nearest_ancestor(&mut self, id: TileId) -> Option<TileId> {
         for k in 1..=id.z {
@@ -174,14 +181,14 @@ impl TextureCache {
             let lw = (width >> level).max(1);
             let lh = (height >> level).max(1);
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: level as u32,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 data,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * lw),
                     rows_per_image: Some(lh),

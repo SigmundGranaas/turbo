@@ -31,4 +31,6 @@
     <string name="about_terms">Vilkår for bruk</string>
     <string name="settings_cloud_sync">Skysynk</string>
     <string name="settings_cloud_sync_sub">Sikkerhetskopier spor, markører og samlinger til kontoen din</string>
+    <string name="settings_wifi_only">Last bare ned over Wi-Fi</string>
+    <string name="settings_wifi_only_sub">Sett nedlasting av frakoblede kart på pause på mobildata</string>
 </resources>

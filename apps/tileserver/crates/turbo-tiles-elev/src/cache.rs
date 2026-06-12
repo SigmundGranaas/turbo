@@ -10,6 +10,20 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
+thread_local! {
+    /// Per-thread tile-cache lookup counter. Lets any layer attribute
+    /// DEM work to a code region (snapshot before/after) without
+    /// plumbing a `&Dem` handle — the routing solvers are
+    /// single-threaded, so the per-thread count is exact for a solve.
+    static THREAD_LOOKUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Tile-cache lookups performed by THIS thread since it started.
+/// Monotonic; diff two snapshots to attribute DEM work to a region.
+pub fn thread_lookups() -> u64 {
+    THREAD_LOOKUPS.with(|c| c.get())
+}
+
 /// One-shot identifier for a tile within a DEM (`tile_col`, `tile_row`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId(pub u32, pub u32);
@@ -75,6 +89,7 @@ impl TileCache {
     /// us release the lock during decompression and lets the caller
     /// surface decompression I/O errors directly.
     pub fn get(&self, id: TileId) -> Option<TilePayload> {
+        THREAD_LOOKUPS.with(|c| c.set(c.get() + 1));
         let mut inner = self.map.lock();
         inner.tick = inner.tick.wrapping_add(1);
         let tick = inner.tick;

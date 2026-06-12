@@ -8,13 +8,15 @@ struct RouteCard: View {
     @Environment(\.turbo) private var t
     @Bindable var viewModel: RouteViewModel
     let onClose: () -> Void
+    var onFollow: (() -> Void)? = nil
     @State private var showSave = false
+    @State private var showStops = false
     @State private var name = ""
 
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("Plan a Route").font(.turboHeadline).foregroundStyle(t.label)
+                Text("Plan a Track").font(.turboHeadline).foregroundStyle(t.label)
                 Spacer()
                 Button { onClose() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(t.label3)
@@ -37,16 +39,32 @@ struct RouteCard: View {
             } else if viewModel.isSolving {
                 HStack(spacing: 8) { ProgressView(); Text("Solving…").font(.turboFootnote).foregroundStyle(t.label2); Spacer() }
             } else {
-                Text("Tap the map to add points.").font(.turboFootnote).foregroundStyle(t.label2)
+                Text(viewModel.mode == .draw ? "Draw on the map to trace a path." : "Tap the map to add points.")
+                    .font(.turboFootnote).foregroundStyle(t.label2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: 10) {
-                Button { viewModel.removeLast() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+            HStack(spacing: 16) {
+                Button { showStops = true } label: { Label("\(viewModel.waypoints.count)", systemImage: "list.bullet") }
                     .disabled(viewModel.waypoints.isEmpty)
-                Button { viewModel.clear() } label: { Label("Clear", systemImage: "trash") }
+                    .accessibilityIdentifier("route.stops")
+                    .accessibilityLabel("Edit stops")
+                Button { viewModel.undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                    .disabled(!viewModel.canUndo)
+                    .accessibilityLabel("Undo")
+                Button { viewModel.clear() } label: { Image(systemName: "trash") }
                     .disabled(viewModel.waypoints.isEmpty)
+                    .accessibilityLabel("Clear route")
                 Spacer()
+                if let onFollow {
+                    Button(action: onFollow) {
+                        Label("Go", systemImage: "location.north.fill").font(.turboHeadline).foregroundStyle(.white)
+                            .padding(.horizontal, 14).frame(height: 38)
+                            .background(t.green, in: Capsule())
+                    }
+                    .disabled(viewModel.plan == nil)
+                    .accessibilityIdentifier("route.follow")
+                }
                 Button { name = ""; showSave = true } label: {
                     Text("Save").font(.turboHeadline).foregroundStyle(.white)
                         .padding(.horizontal, 16).frame(height: 38)
@@ -63,6 +81,10 @@ struct RouteCard: View {
             TextField("Name", text: $name)
             Button("Save") { viewModel.saveAsPath(name: name); onClose() }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showStops) {
+            WaypointsEditor(viewModel: viewModel)
+                .presentationDetents([.medium, .large])
         }
     }
 

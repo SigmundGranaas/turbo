@@ -1,7 +1,8 @@
-# Traefik ingress. The modulith serves every module under /api/{module}, so
-# a single catch-all rule to turbo-modulith:8080 is all that's needed — no
-# per-service routing and no strip-prefix middleware. The host is patched
-# per environment (envs/<env>/kustomization.yaml).
+# Traefik ingress. The modulith serves every module under /api/{module} via the
+# catch-all `/` rule. Places is the exception: it runs as its own service, so a
+# more-specific `/api/places` prefix routes to turbo-places (Traefik orders
+# routers by descending rule length, so the longer prefix wins over `/`). The
+# host is patched per environment (envs/<env>/kustomization.yaml).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -13,6 +14,13 @@ spec:
     - host: kart-api.sandring.no
       http:
         paths:
+          - path: /api/places
+            pathType: Prefix
+            backend:
+              service:
+                name: turbo-places
+                port:
+                  number: 8080
           - path: /
             pathType: Prefix
             backend:

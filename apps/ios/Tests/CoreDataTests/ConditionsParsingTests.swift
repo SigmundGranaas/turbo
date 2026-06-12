@@ -9,7 +9,7 @@ struct MetNoParsingTests {
     private let fixture = """
     { "properties": { "timeseries": [
         { "time": "2026-06-08T12:00:00Z", "data": {
-            "instant": { "details": { "air_temperature": -3.4 } },
+            "instant": { "details": { "air_temperature": -3.4, "wind_speed": 6.2, "wind_from_direction": 270.0 } },
             "next_1_hours": { "summary": { "symbol_code": "lightsnow" } },
             "next_6_hours": { "summary": { "symbol_code": "snow" } } } },
         { "time": "2026-06-08T13:00:00Z", "data": {
@@ -31,6 +31,8 @@ struct MetNoParsingTests {
         #expect(s?.hourly.count == 3)
         #expect(s?.daily.count == 2)             // two distinct days
         #expect(s?.daily.first?.weekday == "Today")
+        #expect(s?.windSpeedMps == 6.2)          // real wind from instant details
+        #expect(s?.windFromDegrees == 270.0)
     }
 
     @Test("symbol codes map to kinds")

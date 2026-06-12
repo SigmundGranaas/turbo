@@ -15,6 +15,8 @@ mod proto {
     include!(concat!(env!("OUT_DIR"), "/vector_tile.rs"));
 }
 
+pub mod encode;
+
 #[derive(Debug, Error)]
 pub enum DecodeError {
     #[error("protobuf decode: {0}")]

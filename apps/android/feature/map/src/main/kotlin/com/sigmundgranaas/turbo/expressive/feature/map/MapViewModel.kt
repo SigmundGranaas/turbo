@@ -7,6 +7,7 @@ import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -43,6 +44,7 @@ class MapViewModel @Inject constructor(
     private val location: LocationRepository,
     private val reverseGeocode: ReverseGeocodeRepository,
     private val strings: StringProvider,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MapUiState())
     val state: StateFlow<MapUiState> = _state.asStateFlow()
@@ -59,6 +61,11 @@ class MapViewModel @Inject constructor(
             markerRepository.observeAll().collect { markers ->
                 _state.update { it.copy(markers = markers) }
             }
+        }
+        // Restore (and keep in sync with) the persisted base map so the choice
+        // survives relaunch instead of resetting to Norgeskart every time.
+        viewModelScope.launch {
+            settings.settings.collect { s -> _state.update { it.copy(baseLayer = s.baseLayer) } }
         }
     }
 
@@ -98,7 +105,10 @@ class MapViewModel @Inject constructor(
 
     fun dismissLocationNotice() = _state.update { it.copy(locationNotice = null) }
 
-    fun setBaseLayer(layer: BaseLayer) = _state.update { it.copy(baseLayer = layer) }
+    // Persist the choice; the settings collector above reflects it back into state.
+    fun setBaseLayer(layer: BaseLayer) {
+        viewModelScope.launch { settings.setBaseLayer(layer) }
+    }
     fun setFollowing(value: Boolean) = _state.update { it.copy(following = value) }
 
     /** Resolve a human label for [point] (used to pre-fill a new marker's name). */

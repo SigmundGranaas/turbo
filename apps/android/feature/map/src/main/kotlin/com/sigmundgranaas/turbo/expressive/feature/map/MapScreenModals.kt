@@ -21,6 +21,7 @@ import com.sigmundgranaas.turbo.expressive.feature.layers.MapLayersSheet
 import com.sigmundgranaas.turbo.expressive.feature.markers.MarkerEditorSheet
 import com.sigmundgranaas.turbo.expressive.feature.recording.RecordingViewModel
 import com.sigmundgranaas.turbo.expressive.feature.recording.TrackSaveDialog
+import com.sigmundgranaas.turbo.expressive.feature.offline.DownloadAreaDialog
 import com.sigmundgranaas.turbo.expressive.feature.offline.OfflineViewModel
 import com.sigmundgranaas.turbo.expressive.ui.components.DeleteMarkerDialog
 import com.sigmundgranaas.turbo.expressive.ui.components.NameInputDialog
@@ -57,6 +58,15 @@ internal fun MapScreenModals(
     // Full weather/ocean forecast for a long-pressed point (its weather readout was tapped).
     ui.forecastAt?.let { point ->
         WeatherForecastSheet(point = point, onDismiss = { ui.forecastAt = null })
+    }
+
+    // "Add photo" from a marker's action options → camera/gallery chooser.
+    ui.addPhotoForMarker?.let { marker ->
+        com.sigmundgranaas.turbo.expressive.feature.photos.AddMarkerPhotoSheet(
+            markerId = marker.id,
+            position = marker.position,
+            onDismiss = { ui.addPhotoForMarker = null },
+        )
     }
 
     // Stopping a follow: keep it (→ Saved Tracks) or discard. Mirrors recording's
@@ -97,14 +107,29 @@ internal fun MapScreenModals(
                 ui.controller?.let { ctrl ->
                     val bounds = ctrl.visibleBounds()
                     val centre = LatLng((bounds.north + bounds.south) / 2, (bounds.east + bounds.west) / 2)
-                    offlineViewModel.download(centre, baseLayer, bounds, ctrl.zoom())
+                    // Capture the viewport and confirm the size before committing (see below).
+                    ui.pendingDownloadArea = PendingDownloadArea(bounds, centre, ctrl.zoom())
                 }
                 ui.showLayers = false
-                onOpenOffline()
             },
             activeOverlays = ui.activeOverlays,
             onToggleOverlay = { id, on -> ui.activeOverlays = if (on) ui.activeOverlays + id else ui.activeOverlays - id },
             onDismiss = { ui.showLayers = false },
+        )
+    }
+    // Pre-flight size confirm for "Download this area": shows the estimate and blocks
+    // areas too large to download (zoom in instead). Confirm commits + opens Offline.
+    ui.pendingDownloadArea?.let { area ->
+        // Cache the overlays toggled on now, so the estimate and the download agree.
+        val overlays = ui.activeOverlays
+        DownloadAreaDialog(
+            estimateFor = { detail -> offlineViewModel.estimate(baseLayer, area.bounds, area.zoom, overlays, detail) },
+            onConfirm = { detail ->
+                offlineViewModel.download(area.centre, baseLayer, area.bounds, area.zoom, overlays, detail)
+                ui.pendingDownloadArea = null
+                onOpenOffline()
+            },
+            onDismiss = { ui.pendingDownloadArea = null },
         )
     }
     // Add-to-collection picker for the selected marker.

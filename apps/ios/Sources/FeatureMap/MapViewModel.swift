@@ -17,6 +17,9 @@ public final class MapViewModel {
     /// The user's live position + heading (from ``LocationProvider``).
     public private(set) var userLocation: LatLng?
     public private(set) var heading: Double?
+    /// The map's current visible bounds — lets "download offline maps" grab the
+    /// area you're actually looking at instead of a fixed demo region.
+    public private(set) var visibleBounds: GeoBounds?
     /// The place the map is centered on after a search pick (drives the camera +
     /// a "save this place" banner). `nil` when no search result is active.
     public private(set) var focusedPlace: FocusedPlace?
@@ -88,6 +91,9 @@ public final class MapViewModel {
         following.toggle()
         if following { enableLocation() }
     }
+
+    /// Record the map's current visible rectangle (from the map view's region).
+    public func updateVisibleBounds(_ bounds: GeoBounds) { visibleBounds = bounds }
 
     /// Drop a new marker (long-press the map, or the FAB). Offline-first; the map
     /// updates from the repository stream.

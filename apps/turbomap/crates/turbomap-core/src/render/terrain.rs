@@ -90,7 +90,7 @@ impl TerrainShared {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         }));
         let placeholder_tex = device.create_texture(&wgpu::TextureDescriptor {
@@ -109,14 +109,14 @@ impl TerrainShared {
         });
         // Mapbox Terrain-RGB encoding of 0 m elevation: (1, 134, 160).
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &placeholder_tex,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &[1, 134, 160, 255],
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
                 rows_per_image: Some(1),
@@ -212,6 +212,13 @@ impl TerrainCache {
         self.cache.get(id)
     }
 
+    /// Read-only lookup — no LRU bump. Draw-time counterpart of
+    /// [`TerrainCache::get_entry`]; the prepare phase already touched
+    /// every tile a draw will reference.
+    pub(crate) fn peek_entry(&self, id: TileId) -> Option<&crate::render::cache::CacheEntry> {
+        self.cache.peek(id)
+    }
+
     pub(crate) fn stats(&self) -> crate::render::cache::CacheStats {
         self.cache.stats()
     }
@@ -241,6 +248,7 @@ impl TerrainCache {
     /// Decoded elevation at world-space `(x, y)` on the ground plane,
     /// using whatever DEM tile currently covers that point. Used by
     /// the CPU side for hit-testing + label anchoring.
+    #[allow(dead_code)] // Phase 6 stub — see body; wired with CPU heightmap later.
     pub(crate) fn elevation_at_world(
         &self,
         _world: (f64, f64),

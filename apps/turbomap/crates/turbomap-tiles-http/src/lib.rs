@@ -10,6 +10,69 @@ use turbomap_core::{
     RasterFormat, RasterTile, TileError, TileId, TileSource, VectorTile, VectorTileSource,
 };
 
+pub mod cache;
+pub use cache::DiskCache;
+pub mod retry;
+pub use retry::RetryPolicy;
+
+/// A fetch failure classified by whether retrying could help. `Transient`
+/// covers transport errors (dropped connection, timeout) and the server-side
+/// / rate-limit statuses (5xx, 408, 429); `Permanent` covers the rest (a
+/// 404 for a tile that doesn't exist, a 403 auth failure) — retrying those
+/// just wastes requests and backoff.
+#[derive(Debug)]
+enum FetchError {
+    Transient(String),
+    Permanent(String),
+}
+
+impl FetchError {
+    fn is_transient(&self) -> bool {
+        matches!(self, FetchError::Transient(_))
+    }
+
+    /// Collapse to the public error after retries are exhausted. Both map to
+    /// `Network` (the host sees "this tile didn't load"); the distinction
+    /// only mattered for the retry decision.
+    fn into_tile_error(self) -> TileError {
+        match self {
+            FetchError::Transient(m) | FetchError::Permanent(m) => TileError::Network(m),
+        }
+    }
+}
+
+/// One HTTP GET → validated body bytes, classified for the retry loop. A
+/// transport error is always transient; a non-2xx status is transient only
+/// for 5xx / 408 / 429.
+fn fetch_bytes(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8>, FetchError> {
+    let resp = client
+        .get(url)
+        .send()
+        // A send() failure is a transport problem (DNS, connect, timeout) —
+        // always worth a retry.
+        .map_err(|e| FetchError::Transient(e.to_string()))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let msg = format!("HTTP {status} for {url}");
+        return Err(if status_is_transient(status.as_u16()) {
+            FetchError::Transient(msg)
+        } else {
+            FetchError::Permanent(msg)
+        });
+    }
+    resp.bytes()
+        .map(|b| b.to_vec())
+        // A body-read failure mid-stream is a transport hiccup → transient.
+        .map_err(|e| FetchError::Transient(e.to_string()))
+}
+
+/// Is a non-2xx HTTP status worth retrying? Server errors (5xx), request
+/// timeout (408) and rate-limit (429) are transient; every other 4xx (a
+/// missing tile, bad auth) is permanent — retrying just wastes requests.
+fn status_is_transient(code: u16) -> bool {
+    code >= 500 || code == 408 || code == 429
+}
+
 /// A configured HTTP raster tile source.
 #[derive(Debug, Clone)]
 pub struct HttpRasterSource {
@@ -25,6 +88,7 @@ pub struct HttpRasterSource {
     /// to map the displayed quad to the texture interior, killing
     /// edge seams.
     dem_halo_px: u32,
+    retry: RetryPolicy,
 }
 
 impl HttpRasterSource {
@@ -49,11 +113,19 @@ impl HttpRasterSource {
             format,
             attribution: None,
             dem_halo_px: 0,
+            retry: RetryPolicy::default(),
         })
     }
 
     pub fn with_attribution(mut self, attribution: impl Into<String>) -> Self {
         self.attribution = Some(attribution.into());
+        self
+    }
+
+    /// Override the transient-failure retry policy (default
+    /// [`RetryPolicy::default`]; pass [`RetryPolicy::none`] to disable).
+    pub fn with_retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.retry = policy;
         self
     }
 
@@ -155,22 +227,10 @@ impl TileSource for HttpRasterSource {
             return Err(TileError::ZoomOutOfRange(tile.z));
         }
         let url = self.url_for(tile);
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .map_err(|e| TileError::Network(e.to_string()))?;
-        if !resp.status().is_success() {
-            return Err(TileError::Network(format!(
-                "HTTP {} for {}",
-                resp.status(),
-                url
-            )));
-        }
-        let bytes = resp
-            .bytes()
-            .map_err(|e| TileError::Network(e.to_string()))?
-            .to_vec();
+        let bytes = retry::retry(&self.retry, FetchError::is_transient, || {
+            fetch_bytes(&self.client, &url)
+        })
+        .map_err(FetchError::into_tile_error)?;
         Ok(RasterTile {
             bytes,
             format: self.format,
@@ -208,8 +268,13 @@ pub struct HttpVectorTileSource {
     min_zoom: u8,
     max_zoom: u8,
     attribution: Option<String>,
-    cache_dir: Option<std::path::PathBuf>,
+    cache: Option<DiskCache>,
+    retry: RetryPolicy,
 }
+
+/// Default on-disk cache budget when a cache dir is set without an explicit
+/// size: 256 MiB ≈ a city's worth of vector tiles.
+pub const DEFAULT_CACHE_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
 
 impl HttpVectorTileSource {
     pub fn new(
@@ -230,7 +295,8 @@ impl HttpVectorTileSource {
             min_zoom,
             max_zoom,
             attribution: None,
-            cache_dir: None,
+            cache: None,
+            retry: RetryPolicy::default(),
         })
     }
 
@@ -239,11 +305,26 @@ impl HttpVectorTileSource {
         self
     }
 
-    /// Enable on-disk caching of raw MVT bytes. The directory is created on
-    /// first write; lookups are best-effort (any I/O error simply falls
-    /// through to the network).
+    /// Override the transient-failure retry policy (default
+    /// [`RetryPolicy::default`]; pass [`RetryPolicy::none`] to disable).
+    pub fn with_retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.retry = policy;
+        self
+    }
+
+    /// Enable a bounded on-disk cache of raw MVT bytes (default budget
+    /// [`DEFAULT_CACHE_BUDGET_BYTES`]). The directory is created on first
+    /// write; lookups are best-effort (any I/O error falls through to the
+    /// network), and least-recently-used tiles are evicted once the budget
+    /// is exceeded.
     pub fn with_cache_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
-        self.cache_dir = Some(dir.into());
+        self.cache = Some(DiskCache::new(dir.into(), DEFAULT_CACHE_BUDGET_BYTES));
+        self
+    }
+
+    /// Enable a bounded on-disk cache with an explicit byte budget.
+    pub fn with_cache(mut self, dir: impl Into<std::path::PathBuf>, budget_bytes: u64) -> Self {
+        self.cache = Some(DiskCache::new(dir.into(), budget_bytes));
         self
     }
 
@@ -252,31 +333,15 @@ impl HttpVectorTileSource {
     }
 
     pub fn cache_dir(&self) -> Option<&std::path::Path> {
-        self.cache_dir.as_deref()
+        self.cache.as_ref().map(|c| c.root())
     }
 
-    /// `<cache_dir>/<z>/<x>/<y>` — used by both the read and write paths.
-    fn tile_cache_path(&self, tile: TileId) -> Option<std::path::PathBuf> {
-        let root = self.cache_dir.as_ref()?;
-        let mut p = root.clone();
-        p.push(tile.z.to_string());
+    /// Tile path relative to the cache root: `<z>/<x>/<y>`.
+    fn tile_rel_path(tile: TileId) -> std::path::PathBuf {
+        let mut p = std::path::PathBuf::from(tile.z.to_string());
         p.push(tile.x.to_string());
         p.push(tile.y.to_string());
-        Some(p)
-    }
-
-    fn try_save_bytes(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-        use std::io::Write;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        // Same atomic write-then-rename dance as the raster cache.
-        let tmp = path.with_extension("tmp");
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, path)?;
-        Ok(())
+        p
     }
 
     /// VersaTiles OSM (OpenStreetMap-based, OpenMapTiles schema). Free,
@@ -326,41 +391,31 @@ impl VectorTileSource for HttpVectorTileSource {
             return Err(TileError::ZoomOutOfRange(tile.z));
         }
 
-        // 1. Disk cache — fast path. Read failures (missing / corrupt) drop
-        // through to the network; nothing the user sees should change.
-        let cache_path = self.tile_cache_path(tile);
-        if let Some(ref p) = cache_path {
-            if let Ok(bytes) = std::fs::read(p) {
+        // 1. Disk cache — fast path. A hit refreshes the entry's recency so
+        // it survives LRU eviction. Read/decode failures drop through to the
+        // network; nothing the user sees should change.
+        let rel = Self::tile_rel_path(tile);
+        if let Some(ref cache) = self.cache {
+            if let Some(bytes) = cache.read(&rel) {
                 if let Ok(decoded) = turbomap_mvt::decode(&bytes) {
                     return Ok(decoded);
                 }
-                log::warn!("corrupt vector cache entry at {p:?}; refetching");
+                log::warn!("corrupt vector cache entry for {tile:?}; refetching");
             }
         }
 
-        // 2. Network fetch.
+        // 2. Network fetch, with transient-failure retry/backoff.
         let url = self.url_for(tile);
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .map_err(|e| TileError::Network(e.to_string()))?;
-        if !resp.status().is_success() {
-            return Err(TileError::Network(format!(
-                "HTTP {} for {}",
-                resp.status(),
-                url
-            )));
-        }
-        let bytes = resp
-            .bytes()
-            .map_err(|e| TileError::Network(e.to_string()))?
-            .to_vec();
+        let bytes = retry::retry(&self.retry, FetchError::is_transient, || {
+            fetch_bytes(&self.client, &url)
+        })
+        .map_err(FetchError::into_tile_error)?;
 
         // 3. Persist before decoding so a malformed tile still ends up on
-        // disk (it'll be eligible for retry on the next launch).
-        if let Some(p) = cache_path {
-            if let Err(e) = Self::try_save_bytes(&p, &bytes) {
+        // disk (it'll be eligible for retry on the next launch). The write
+        // also triggers periodic LRU eviction to keep the cache bounded.
+        if let Some(ref cache) = self.cache {
+            if let Err(e) = cache.write(&rel, &bytes) {
                 log::warn!("vector cache write failed for {tile:?}: {e}");
             }
         }
@@ -385,6 +440,18 @@ mod tests {
     //! here — the smoke test validates the network path end-to-end.
 
     use super::*;
+
+    #[test]
+    fn http_status_retry_classification() {
+        // Transient: server errors + request-timeout + rate-limit.
+        for code in [500, 502, 503, 504, 408, 429] {
+            assert!(status_is_transient(code), "{code} should be retryable");
+        }
+        // Permanent: client errors that won't change on retry.
+        for code in [400, 401, 403, 404, 410, 451] {
+            assert!(!status_is_transient(code), "{code} should NOT be retried");
+        }
+    }
 
     #[test]
     fn xyz_placeholders_are_substituted() {
@@ -496,40 +563,38 @@ mod tests {
 
     #[test]
     fn vector_cache_writes_back_after_a_network_fetch_completes() {
-        // We can't exercise this end-to-end without mocking HTTP. What we
-        // *can* test is that `try_save_bytes` actually creates the file at
-        // the expected path with the expected contents — the same code
-        // path the `request` writeback uses.
+        // We can't exercise the network end-to-end without mocking HTTP, but
+        // the writeback path is `DiskCache::write` at the source's `<z>/<x>/<y>`
+        // relative path — assert that lands a readable entry at the expected
+        // absolute location.
         let dir = TempDir::new().unwrap();
         let tile = TileId::new(7, 64, 32);
-        let path = dir
-            .path()
-            .join(tile.z.to_string())
-            .join(tile.x.to_string())
-            .join(tile.y.to_string());
-        HttpVectorTileSource::try_save_bytes(&path, b"hello").unwrap();
-        let read_back = std::fs::read(&path).unwrap();
+        let cache = DiskCache::new(dir.path(), DEFAULT_CACHE_BUDGET_BYTES);
+        cache
+            .write(&HttpVectorTileSource::tile_rel_path(tile), b"hello")
+            .unwrap();
+        let read_back = std::fs::read(
+            dir.path().join("7").join("64").join("32"),
+        )
+        .unwrap();
         assert_eq!(&read_back, b"hello");
     }
 
     #[test]
     fn vector_cache_path_layout_is_z_x_y() {
-        let dir = TempDir::new().unwrap();
-        let source = HttpVectorTileSource::new("u", "a", 0, 22)
-            .unwrap()
-            .with_cache_dir(dir.path());
-        let p = source.tile_cache_path(TileId::new(7, 64, 32)).unwrap();
-        let suffix = p
-            .strip_prefix(dir.path())
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        assert_eq!(suffix, format!("7{0}64{0}32", std::path::MAIN_SEPARATOR));
+        let rel = HttpVectorTileSource::tile_rel_path(TileId::new(7, 64, 32));
+        assert_eq!(
+            rel.to_string_lossy(),
+            format!("7{0}64{0}32", std::path::MAIN_SEPARATOR)
+        );
     }
 
     #[test]
-    fn vector_cache_path_is_none_when_no_cache_dir() {
+    fn cache_dir_is_none_until_configured() {
         let source = HttpVectorTileSource::new("u", "a", 0, 22).unwrap();
-        assert!(source.tile_cache_path(TileId::new(5, 0, 0)).is_none());
+        assert!(source.cache_dir().is_none());
+        let dir = TempDir::new().unwrap();
+        let cached = source.with_cache_dir(dir.path());
+        assert_eq!(cached.cache_dir(), Some(dir.path()));
     }
 }

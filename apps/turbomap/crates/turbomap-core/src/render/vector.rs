@@ -23,6 +23,12 @@ const MAX_TILES_PER_FRAME: u64 = 256;
 struct CameraUniform {
     /// World → clip 4×4 — see raster `shader.wgsl` for the rationale.
     view_proj: [[f32; 4]; 4],
+    /// `.x` = screen pixels per world unit at the current zoom
+    /// (`256 * 2^zoom`); the vertex shader divides a vertex's `width_px`
+    /// by it to get the world half-width, so strokes stay a constant pixel
+    /// width as the camera zooms — without re-tessellating. Packed as a
+    /// vec4 to keep the Rust + WGSL layouts both exactly 80 bytes.
+    params: [f32; 4],
 }
 
 /// The only data the GPU reads per draw — 4 bytes. We bind 256-byte
@@ -33,6 +39,15 @@ struct CameraUniform {
 struct TileUniform {
     /// 0.0 → tile is invisible, 1.0 → fully faded in.
     tile_alpha: f32,
+}
+
+/// Output of [`VectorPipeline::prepare`]: the ordered tile draw list.
+/// Index `i` in `tiles` was assigned the per-tile uniform slot at
+/// dynamic offset `i * TILE_UNIFORM_STRIDE` — `draw` replays the same
+/// offsets. No references into the cache; `draw` re-looks tiles up
+/// immutably via `peek`.
+pub(crate) struct PreparedVector {
+    tiles: Vec<TileId>,
 }
 
 pub(crate) struct VectorPipeline {
@@ -78,12 +93,16 @@ impl VectorPipeline {
         // TILE_UNIFORM_STRIDE (256) intervals to satisfy
         // `min_uniform_buffer_offset_alignment`, but the shader's binding
         // *view* is 16 bytes wide.
-        const WGSL_TILE_UNIFORM_BYTES: u64 = 16;
+        // tile_alpha(4) + use_paint_color(4) + dash(8) + paint_color vec4(16)
+        // + origin vec2(8) + span(4) + pad(4).
+        const WGSL_TILE_UNIFORM_BYTES: u64 = 48;
         let tile_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("turbomap-vector-tile-bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
+                // The vertex stage reads the tile origin/span placement;
+                // the fragment stage reads alpha/paint/dash.
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -95,31 +114,55 @@ impl VectorPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("turbomap-vector-layout"),
-            bind_group_layouts: &[&camera_bgl, &tile_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&camera_bgl), Some(&tile_bgl)],
+            immediate_size: 0,
         });
 
         let vertex_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<VectorVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
-                // position: [f32; 2] @ offset 0
+                // base: [f32; 2] @ 0 — world centerline.
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: 0,
                     shader_location: 0,
                 },
-                // color: [u8; 4] Unorm @ offset 8
+                // normal: [f32; 2] @ 8 — unit world normal.
                 wgpu::VertexAttribute {
-                    format: wgpu::VertexFormat::Unorm8x4,
+                    format: wgpu::VertexFormat::Float32x2,
                     offset: 8,
                     shader_location: 1,
                 },
-                // edge_pos: [u8; 4] Unorm @ offset 12 — shader reads .x.
+                // width_px: f32 @ 16.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 16,
+                    shader_location: 2,
+                },
+                // color: [u8; 4] Unorm @ 20.
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Unorm8x4,
-                    offset: 12,
-                    shader_location: 2,
+                    offset: 20,
+                    shader_location: 3,
+                },
+                // edge_pos: [u8; 4] Unorm @ 24 — shader reads .x.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Unorm8x4,
+                    offset: 24,
+                    shader_location: 4,
+                },
+                // dist: f32 @ 28 — world arc length for dash patterns.
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 28,
+                    shader_location: 5,
+                },
+                // z: f32 @ 32 — world height (0 for flat features).
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 32,
+                    shader_location: 6,
                 },
             ],
         };
@@ -129,13 +172,13 @@ impl VectorPipeline {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[vertex_layout],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -144,9 +187,16 @@ impl VectorPipeline {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            // Depth-tested (LessEqual + write), like the ground raster. Flat
+            // geometry sits at z=0 == the ground depth, so equal-depth fills
+            // still composite in painter (layer) order — byte-identical to
+            // the old no-depth path. Extruded geometry (3D buildings, z>0)
+            // then self-occludes correctly: near roofs/walls over far ones,
+            // and the building hides the ground beneath it. Text/markers
+            // stay on `overlay_depth_state` (Always) so labels ride on top.
+            depth_stencil: Some(super::ground_depth_state()),
+            multisample: super::multisample_state(),
+            multiview_mask: None,
             cache: None,
         });
 
@@ -194,21 +244,27 @@ impl VectorPipeline {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render(
+    /// CPU half of a frame: camera + per-tile uniform writes (fade
+    /// alpha, paint override at the same dynamic offsets `draw` will
+    /// bind) and LRU touches for every tile in the draw list.
+    pub(crate) fn prepare(
         &mut self,
         scene: &Scene,
         cache: &mut VectorMeshCache,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        clear_color: [f32; 4],
         fade_in_secs: f32,
-        is_first_layer: bool,
-    ) {
+        // When set, the shader uses this colour for every fragment instead
+        // of the baked vertex colour — the zoom/data-driven paint path.
+        paint_override: Option<[f32; 4]>,
+        // `(dash_len_px, gap_len_px)` for a dashed line layer; `None` = solid.
+        dash: Option<(f32, f32)>,
+        // Per-frame multiplier on baked line widths (zoom curve); 1.0 = baked.
+        width_scale: f32,
+    ) -> PreparedVector {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
         let uniform = CameraUniform {
             view_proj: camera.view_projection_matrix((vw, vh)),
+            params: [(256.0 * 2f64.powf(camera.zoom)) as f32, 0.0, 0.0, 0.0],
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
@@ -255,43 +311,71 @@ impl VectorPipeline {
         // Only the first 4 bytes of each 256-byte slot carry data (the
         // rest is just alignment padding); one big write covers them all.
         if draw_count > 0 {
+            let (use_paint, paint) = match paint_override {
+                Some(c) => (1.0f32, c),
+                None => (0.0f32, [0.0; 4]),
+            };
+            let (dash_len, gap_len) = dash.unwrap_or((0.0, 0.0));
             let mut bytes = vec![0u8; draw_count * TILE_UNIFORM_STRIDE as usize];
-            for (i, (_, alpha)) in to_draw.iter().take(draw_count).enumerate() {
+            for (i, (tile, alpha)) in to_draw.iter().take(draw_count).enumerate() {
                 let off = i * TILE_UNIFORM_STRIDE as usize;
                 bytes[off..off + 4].copy_from_slice(&alpha.to_le_bytes());
+                bytes[off + 4..off + 8].copy_from_slice(&use_paint.to_le_bytes());
+                // dash_len / gap_len fill the 8..16 slot before paint_color.
+                bytes[off + 8..off + 12].copy_from_slice(&dash_len.to_le_bytes());
+                bytes[off + 12..off + 16].copy_from_slice(&gap_len.to_le_bytes());
+                // paint_color vec4 at the 16-byte-aligned slot.
+                for (k, comp) in paint.iter().enumerate() {
+                    let c = off + 16 + k * 4;
+                    bytes[c..c + 4].copy_from_slice(&comp.to_le_bytes());
+                }
+                // Tile placement: world origin + span for the tile-local
+                // mesh ([0,1] across the tile). f64 keeps the origin exact
+                // until the GPU; the span is exactly representable.
+                let span = 1.0f64 / (1u64 << tile.z) as f64;
+                let ox = (tile.x as f64 * span) as f32;
+                let oy = (tile.y as f64 * span) as f32;
+                bytes[off + 32..off + 36].copy_from_slice(&ox.to_le_bytes());
+                bytes[off + 36..off + 40].copy_from_slice(&oy.to_le_bytes());
+                bytes[off + 40..off + 44].copy_from_slice(&(span as f32).to_le_bytes());
+                // Per-frame line-width zoom multiplier (same for every tile of
+                // this layer); 1.0 leaves baked widths untouched.
+                bytes[off + 44..off + 48].copy_from_slice(&width_scale.to_le_bytes());
             }
             self.queue
                 .write_buffer(&self.tile_uniform_buffer, 0, &bytes);
         }
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("turbomap-vector-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: if is_first_layer {
-                        wgpu::LoadOp::Clear(wgpu::Color {
-                            r: clear_color[0] as f64,
-                            g: clear_color[1] as f64,
-                            b: clear_color[2] as f64,
-                            a: clear_color[3] as f64,
-                        })
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+        // Touch every drawn tile so the LRU can't evict it before the
+        // draw phase; `draw` then uses read-only `peek` lookups.
+        let tiles: Vec<TileId> = to_draw
+            .iter()
+            .take(draw_count)
+            .map(|(tile, _)| {
+                let _ = cache.get(*tile).expect("just verified above");
+                *tile
+            })
+            .collect();
+        PreparedVector { tiles }
+    }
+
+    /// GPU half of the frame: replay the prepared tile list inside the
+    /// Map's single render pass, binding the per-tile uniforms written
+    /// by `prepare` at the same dynamic offsets.
+    pub(crate) fn draw(
+        &self,
+        prepared: &PreparedVector,
+        cache: &VectorMeshCache,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        if prepared.tiles.is_empty() {
+            return;
+        }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-        for (idx, (tile, _)) in to_draw.iter().take(draw_count).enumerate() {
-            let entry = cache.get(*tile).expect("just verified above");
+        for (idx, tile) in prepared.tiles.iter().enumerate() {
+            let entry = cache.peek(*tile).expect("prepare touched this tile");
             if entry.index_count == 0 {
                 continue;
             }

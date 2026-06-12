@@ -142,9 +142,18 @@ pub async fn pathfind(
         "prefs": serde_json::to_value(PrefsEcho::from(&prefs)).unwrap_or_default(),
     });
     let points_for_solve = points.clone();
-    let solve_result = run_or_dump("/v1/pathfind", req_json, move || {
-        pf.solve_route(&points_for_solve, prefs)
-    });
+    // Concurrency-gated + off the async worker: the solve holds MBs of
+    // corridor/trail scratch for seconds, so it runs on the blocking
+    // pool under a routing permit (excess requests queue, not allocate).
+    let permit = state.acquire_routing_permit().await;
+    let solve_result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        run_or_dump("/v1/pathfind", req_json, move || {
+            pf.solve_route(&points_for_solve, prefs)
+        })
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("solve task failed: {e}")))?;
     let path = match solve_result {
         Ok(Ok(p)) => p,
         Ok(Err(e)) => return Err(map_pathfind_err(&state, e)),
@@ -369,8 +378,12 @@ pub async fn pathfind_stream(
     // Run the synchronous solver on a blocking thread. The
     // streaming recorder fans every record() call into event_tx
     // via try_send. When solve returns we ship the terminal frame
-    // through terminal_tx.
+    // through terminal_tx. The routing permit rides into the
+    // closure so the global solve-concurrency cap covers SSE solves
+    // too (the stream starts only once a permit is free).
+    let permit = state.acquire_routing_permit().await;
     tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         let recorder = std::sync::Arc::new(turbo_tiles_pathfind::Recorder::new_streaming(
             prefs.record_cap,
             event_tx.clone(),

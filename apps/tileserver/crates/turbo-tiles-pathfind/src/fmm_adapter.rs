@@ -30,21 +30,47 @@ use crate::contributor::{CostContributor, EdgeContext, EdgeKind};
 /// the `Arc` so it can outlive the corridor solve.
 pub struct DemElevation {
     pub dem: Arc<Dem>,
+    /// Per-cell elevation memo (m), sized `nx*ny` lazily on first use.
+    /// `+∞` = not yet sampled, `NaN` = sampled-but-nodata, else the
+    /// value. The grade-limited lifted solver queries each cell's
+    /// elevation ~16-30× (once per incident move across all headings);
+    /// memoising collapses that to one `Dem::sample()` per cell — the
+    /// dominant per-solve DEM cost. `Mutex` (not `RefCell`) because
+    /// `Elevation: Send + Sync`; the solver is single-threaded so the
+    /// lock is always uncontended and far cheaper than a DEM sample.
+    memo: std::sync::Mutex<Vec<f32>>,
+}
+
+impl DemElevation {
+    pub fn new(dem: Arc<Dem>) -> Self {
+        Self {
+            dem,
+            memo: std::sync::Mutex::new(Vec::new()),
+        }
+    }
 }
 
 impl Elevation for DemElevation {
     fn at(&self, shape: &GridShape, i: u32, j: u32) -> Option<f32> {
+        let nx = shape.nx as usize;
+        let idx = (j as usize) * nx + (i as usize);
+        {
+            let mut m = self.memo.lock().unwrap();
+            if m.is_empty() {
+                m.resize(nx * (shape.ny as usize), f32::INFINITY);
+            }
+            let cached = m[idx];
+            if cached != f32::INFINITY {
+                return if cached.is_nan() { None } else { Some(cached) };
+            }
+        }
         let (x, y) = shape.cell_centre(i, j);
-        self.dem.sample(PointXY { x, y }).ok().flatten()
+        let v = self.dem.sample(PointXY { x, y }).ok().flatten();
+        self.memo.lock().unwrap()[idx] = v.unwrap_or(f32::NAN);
+        v
     }
 }
 
-/// Lazy `CellOverlay`: evaluates the project's `CostContributor` stack
-/// (water/glacier refusal + trail-proximity/slope pace) for a cell ONLY when
-/// the lifted A* first asks about it, memoising the result. On a long route
-/// the search touches a fraction of the corridor, so this avoids the eager
-/// whole-corridor bake — speeding the solve and letting progress snapshots
-/// stream from the first step instead of after a silent bake.
 /// Append the off-trail roughness contributor (a multiplicative pace
 /// factor on mesh edges) to a per-request contributor stack. Off-trail
 /// roughness is per-request/profile (`inputs.off_trail_factor`), so it
@@ -61,110 +87,6 @@ pub(crate) fn with_off_trail(
         crate::native_contributors::OffTrailRoughnessContributor::new(off_trail_factor),
     ));
     v
-}
-
-pub(crate) struct LazyContributorOverlay<'a> {
-    shape: GridShape,
-    base_pace: f32,
-    profile: turbo_tiles_graph::Profile,
-    contributors: &'a [Arc<dyn CostContributor>],
-    // 0 = uncomputed, 1 = passable, 2 = refused.
-    state: std::cell::RefCell<Vec<u8>>,
-    mul: std::cell::RefCell<Vec<f32>>,
-    refused_by: std::cell::RefCell<std::collections::BTreeSet<String>>,
-}
-
-impl<'a> LazyContributorOverlay<'a> {
-    pub(crate) fn new(
-        shape: GridShape,
-        base_pace: f32,
-        profile: turbo_tiles_graph::Profile,
-        contributors: &'a [Arc<dyn CostContributor>],
-    ) -> Self {
-        let n = (shape.nx as usize) * (shape.ny as usize);
-        Self {
-            shape,
-            base_pace,
-            profile,
-            contributors,
-            state: std::cell::RefCell::new(vec![0u8; n]),
-            mul: std::cell::RefCell::new(vec![1.0f32; n]),
-            refused_by: std::cell::RefCell::new(std::collections::BTreeSet::new()),
-        }
-    }
-
-    #[inline]
-    fn idx(&self, i: u32, j: u32) -> usize {
-        (j as usize) * (self.shape.nx as usize) + (i as usize)
-    }
-
-    fn ensure(&self, i: u32, j: u32) {
-        let idx = self.idx(i, j);
-        if self.state.borrow()[idx] != 0 {
-            return;
-        }
-        let cell_m = self.shape.cell_m;
-        let (cx, cy) = self.shape.cell_centre(i, j);
-        let ctx = EdgeContext {
-            fx: cx - 0.5 * cell_m,
-            fy: cy,
-            tx: cx + 0.5 * cell_m,
-            ty: cy,
-            length_m: cell_m,
-            profile: self.profile,
-            kind: EdgeKind::Mesh,
-        };
-        for c in self.contributors {
-            if let Some(label) = c.veto(&ctx) {
-                self.state.borrow_mut()[idx] = 2;
-                self.refused_by.borrow_mut().insert(label.to_string());
-                return;
-            }
-        }
-        let mut extra_s: f64 = 0.0;
-        let mut factor: f64 = 1.0;
-        for c in self.contributors {
-            let dv = c.contribute(&ctx);
-            if dv.is_finite() {
-                extra_s += dv;
-            }
-            let f = c.pace_factor(&ctx);
-            if f.is_finite() && f > 0.0 {
-                factor *= f;
-            }
-        }
-        let extra_pace = (extra_s / cell_m) as f32;
-        // Additive deltas scale the base pace; multiplicative pace
-        // factors (off-trail roughness, …) scale the whole composed
-        // pace — matching the solver's former `tobler × off × mul`.
-        let mul = ((self.base_pace + extra_pace) / self.base_pace) as f64 * factor;
-        self.mul.borrow_mut()[idx] = (mul as f32).clamp(0.1, 20.0);
-        self.state.borrow_mut()[idx] = 1;
-    }
-
-    fn refused_count(&self) -> u32 {
-        self.state.borrow().iter().filter(|&&s| s == 2).count() as u32
-    }
-
-    pub(crate) fn refused_labels(&self) -> Vec<String> {
-        self.refused_by.borrow().iter().cloned().collect()
-    }
-}
-
-impl<'a> turbo_tiles_fmm::CellOverlay for LazyContributorOverlay<'a> {
-    fn refused(&self, i: u32, j: u32) -> bool {
-        self.ensure(i, j);
-        self.state.borrow()[self.idx(i, j)] == 2
-    }
-    fn pace_mul(&self, i: u32, j: u32) -> f32 {
-        self.ensure(i, j);
-        let idx = self.idx(i, j);
-        if self.state.borrow()[idx] == 2 {
-            1.0
-        } else {
-            self.mul.borrow()[idx]
-        }
-    }
 }
 
 /// Inputs to `solve_fmm_corridor`. Mirrors the off-trail-solve API
@@ -402,6 +324,7 @@ fn bake_contributor_pace(
                 length_m: cell_m,
                 profile,
                 kind: EdgeKind::Mesh,
+                elev_probe: None,
             };
             // Sum walk-seconds contributions; skip Inf (vetoes). Also
             // accumulate the multiplicative pace factors (off-trail
@@ -455,6 +378,7 @@ fn bake_vetoes(
                 length_m: cell_m,
                 profile,
                 kind: EdgeKind::Mesh,
+                elev_probe: None,
             };
             for c in contributors {
                 if let Some(label) = c.veto(&ctx) {
@@ -503,6 +427,7 @@ fn apply_contributor_factors_aniso(
                 length_m: cell_m,
                 profile,
                 kind: EdgeKind::Mesh,
+                elev_probe: None,
             };
             let mut extra_s: f64 = 0.0;
             let mut factor: f64 = 1.0;
@@ -556,6 +481,7 @@ fn bake_vetoes_aniso(
                 length_m: cell_m,
                 profile,
                 kind: EdgeKind::Mesh,
+                elev_probe: None,
             };
             for c in contributors {
                 if let Some(label) = c.veto(&ctx) {
@@ -592,7 +518,7 @@ fn solve_fmm_corridor_aniso(
         .world_to_cell(inputs.to.x, inputs.to.y)
         .ok_or(FmmAdapterError::GoalOutsideGrid)?;
 
-    let elev = DemElevation { dem: dem.clone() };
+    let elev = DemElevation::new(dem.clone());
     let metric = ToblerAnisotropic {
         elev,
         refuse_above_deg: inputs.refuse_above_deg,
@@ -676,7 +602,7 @@ pub fn solve_fmm_corridor(
     // 1) Bake the per-cell pace from the Tobler metric. This is
     //    the slope-aware baseline; non-slope contributors are
     //    folded in below.
-    let elev = DemElevation { dem: dem.clone() };
+    let elev = DemElevation::new(dem.clone());
     let metric = ToblerIsotropic {
         elev,
         refuse_above_deg: inputs.refuse_above_deg,
@@ -860,15 +786,23 @@ fn solve_grade_limited_path(
     // `off_trail_factor` in `forward_cost`. It survives on
     // `GradeLimitedCost` purely as the A* heuristic's pace floor.
     let augmented = with_off_trail(contributors, inputs.off_trail_factor);
-    let overlay =
-        LazyContributorOverlay::new(shape2d, inputs.base_pace_s_per_m, profile, &augmented);
+    let overlay = crate::cost_field::LazyCostField::new(
+        shape2d,
+        dem.clone(),
+        inputs.base_pace_s_per_m,
+        profile,
+        &augmented,
+    );
 
     let cost = GradeLimitedCost {
-        elev: DemElevation { dem: dem.clone() },
+        elev: DemElevation::new(dem.clone()),
         base_pace_s_per_m: inputs.base_pace_s_per_m,
         off_trail_factor: inputs.off_trail_factor,
         max_grade_deg: inputs.max_grade_deg,
         turn_penalty_s: inputs.turn_penalty_s,
+        // k·(amplifier−1) walk-seconds per gain-metre, same channel the
+        // unified mesh and the aniso metric use (0 at amplifier=1.0).
+        gain_k: inputs.gain_factor_k,
         overlay,
     };
     // Stream the route reaching toward the goal as the A* runs: each
@@ -886,9 +820,72 @@ fn solve_grade_limited_path(
                 .collect(),
         });
     };
+    // Snap a refused endpoint CELL to the nearest passable cell. The
+    // upstream endpoint refusal-snap works at point granularity with
+    // legacy layer semantics; the overlay's segment-based ocean veto
+    // can still refuse the 10 m cell containing a legitimate shoreline
+    // trailhead (the cell's synthetic centre edge clips the ocean
+    // polygon). A refused START is fatal without this: every forward
+    // move's chord includes the start cell itself (s = 0), so nothing
+    // expands beyond the 16 heading seeds and the solve dies with
+    // GoalUnreachable (the finnmark-4348287 corpus failure).
+    let snap_cell = |cell: (u32, u32)| -> (u32, u32) {
+        if !cost.overlay.refused(cell.0, cell.1) {
+            return cell;
+        }
+        // Deterministic outward ring search; 15 cells ≈ 150 m at the
+        // 10 m grid — matches the spirit of `refusal_snap_m`.
+        for r in 1..=15i32 {
+            let mut best: Option<(u32, u32, i32)> = None;
+            for dj in -r..=r {
+                for di in -r..=r {
+                    if di.abs().max(dj.abs()) != r {
+                        continue;
+                    }
+                    let ni = cell.0 as i32 + di;
+                    let nj = cell.1 as i32 + dj;
+                    if ni < 0 || nj < 0 || ni >= shape2d.nx as i32 || nj >= shape2d.ny as i32 {
+                        continue;
+                    }
+                    if !cost.overlay.refused(ni as u32, nj as u32) {
+                        let d2 = di * di + dj * dj;
+                        if best.is_none_or(|(_, _, bd)| d2 < bd) {
+                            best = Some((ni as u32, nj as u32, d2));
+                        }
+                    }
+                }
+            }
+            if let Some((i, j, _)) = best {
+                return (i, j);
+            }
+        }
+        cell // nothing passable within reach; the solve fails honestly
+    };
+    let start_cell = snap_cell(start_cell);
+    let goal_cell = snap_cell(goal_cell);
+    if std::env::var("FMM_DEBUG").is_ok() {
+        eprintln!(
+            "FMM_DEBUG GL: shape {}x{} cell={} start={:?} goal={:?} start_refused={} goal_refused={}",
+            shape2d.nx,
+            shape2d.ny,
+            shape2d.cell_m,
+            start_cell,
+            goal_cell,
+            cost.overlay.refused(start_cell.0, start_cell.1),
+            cost.overlay.refused(goal_cell.0, goal_cell.1),
+        );
+    }
     let t0 = std::time::Instant::now();
     let result = solve_lifted_grade_limited(shape3d, &cost, start_cell, goal_cell, Some(&mut emit));
     let solve_ms = t0.elapsed().as_millis() as u32;
+    if std::env::var("FMM_DEBUG").is_ok() {
+        eprintln!(
+            "FMM_DEBUG GL: cells_accepted={} goal_reached={} refused_labels={:?}",
+            result.cells_accepted,
+            result.goal_state.is_some(),
+            cost.overlay.refused_labels(),
+        );
+    }
 
     let goal_state = result.goal_state.ok_or(FmmAdapterError::GoalUnreachable)?;
     let raw_xy = extract_path_lifted(
@@ -926,7 +923,6 @@ fn solve_grade_limited_path(
     // dropping iterations and finally falling back to raw if a clip remains.
     let cell_m_f = shape2d.cell_m;
     let seg_clear = |poly: &[PathPoint]| -> bool {
-        use turbo_tiles_fmm::CellOverlay;
         for w in poly.windows(2) {
             let d = ((w[1].x - w[0].x).powi(2) + (w[1].y - w[0].y).powi(2)).sqrt();
             let steps = ((d / (0.4 * cell_m_f)).ceil() as i32).max(1);

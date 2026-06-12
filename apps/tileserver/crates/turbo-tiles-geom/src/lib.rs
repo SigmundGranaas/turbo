@@ -634,3 +634,282 @@ mod tests {
         assert!((l - 7.0).abs() < 1e-6);
     }
 }
+
+// ---------------------------------------------------------------------------
+// RingIndex — y-banded edge index for big polygon rings
+// ---------------------------------------------------------------------------
+
+/// Y-banded edge index over one polygon ring, for accelerating
+/// [`segment_polygon_intersection_length`] on big rings (Norway lake
+/// rings reach tens of thousands of vertices, and the off-trail cost
+/// field evaluates a tiny cell-spanning segment against them once per
+/// mesh cell — O(ring) per cell without an index).
+///
+/// Both halves of the kernel admit a CONSERVATIVE y-band prefilter
+/// that leaves results bit-identical to the brute-force scan:
+///
+///   - intersection collection: a ring edge can only intersect the
+///     query segment if their y-ranges overlap. Visiting an edge from
+///     more than one band pushes a duplicate `t`, which produces a
+///     zero-length span that the interval walk already skips.
+///   - point-in-polygon parity: the ray-cast predicate starts with
+///     `(piy > py) != (pjy > py)`, so only edges whose y-range
+///     contains `py` can toggle parity — and a single band's edge
+///     list contains each edge at most once, preserving parity.
+///
+/// Build is O(n); memory ~one u32 per edge-band entry (≈ n entries).
+pub struct RingIndex {
+    y_min: f64,
+    inv_band_h: f64,
+    nbands: u32,
+    /// `bands[b]` = indices `k` of edges `ring[k] → ring[(k+1)%n]`
+    /// whose y-range intersects band `b`.
+    bands: Vec<Vec<u32>>,
+}
+
+impl RingIndex {
+    /// Below this ring size the brute scan is cheaper than indexing.
+    pub const MIN_RING_LEN: usize = 512;
+
+    pub fn build(ring: &[Point]) -> Self {
+        let n = ring.len();
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        for p in ring {
+            y_min = y_min.min(p.y as f64);
+            y_max = y_max.max(p.y as f64);
+        }
+        if !y_min.is_finite() {
+            y_min = 0.0;
+            y_max = 1.0;
+        }
+        let nbands = (n / 32).clamp(8, 512) as u32;
+        let span = (y_max - y_min).max(1e-9);
+        let inv_band_h = nbands as f64 / span;
+        let mut bands = vec![Vec::new(); nbands as usize];
+        for k in 0..n {
+            let j = (k + 1) % n;
+            let ya = ring[k].y as f64;
+            let yb = ring[j].y as f64;
+            let (lo, hi) = if ya <= yb { (ya, yb) } else { (yb, ya) };
+            let b0 = band_index(lo, y_min, inv_band_h, nbands);
+            let b1 = band_index(hi, y_min, inv_band_h, nbands);
+            for band in bands.iter_mut().take(b1 + 1).skip(b0) {
+                band.push(k as u32);
+            }
+        }
+        Self {
+            y_min,
+            inv_band_h,
+            nbands,
+            bands,
+        }
+    }
+
+    #[inline]
+    fn band_of(&self, y: f64) -> usize {
+        band_index(y, self.y_min, self.inv_band_h, self.nbands)
+    }
+}
+
+#[inline]
+fn band_index(y: f64, y_min: f64, inv_band_h: f64, nbands: u32) -> usize {
+    let b = ((y - y_min) * inv_band_h) as i64;
+    b.clamp(0, nbands as i64 - 1) as usize
+}
+
+/// [`segment_polygon_intersection_length`] accelerated by a
+/// [`RingIndex`]. Bit-identical results (see the index docs for why
+/// the band prefilter is conservative for both kernel halves).
+pub fn segment_polygon_intersection_length_indexed(
+    a: Point,
+    b: Point,
+    ring: &[Point],
+    idx: &RingIndex,
+) -> f64 {
+    if ring.len() < 3 {
+        return 0.0;
+    }
+    let dx = (b.x - a.x) as f64;
+    let dy = (b.y - a.y) as f64;
+    let seg_len = (dx * dx + dy * dy).sqrt();
+    if seg_len < 1e-9 {
+        return 0.0;
+    }
+    let n = ring.len();
+    let ax = a.x as f64;
+    let ay = a.y as f64;
+    let bx = b.x as f64;
+    let by = b.y as f64;
+    let rx = bx - ax;
+    let ry = by - ay;
+    let (qy_lo, qy_hi) = if ay <= by { (ay, by) } else { (by, ay) };
+    let b0 = idx.band_of(qy_lo);
+    let b1 = idx.band_of(qy_hi);
+    let mut params: Vec<f64> = Vec::with_capacity(8);
+    params.push(0.0);
+    for band in idx.bands.iter().take(b1 + 1).skip(b0) {
+        for &k in band {
+            let i = k as usize;
+            let j = (i + 1) % n;
+            let px = ring[i].x as f64;
+            let py = ring[i].y as f64;
+            let qx = ring[j].x as f64;
+            let qy = ring[j].y as f64;
+            let sx = qx - px;
+            let sy = qy - py;
+            let denom = rx * sy - ry * sx;
+            if denom.abs() < 1e-12 {
+                continue;
+            }
+            let t = ((px - ax) * sy - (py - ay) * sx) / denom;
+            let u = ((px - ax) * ry - (py - ay) * rx) / denom;
+            if (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) {
+                params.push(t);
+            }
+        }
+    }
+    params.push(1.0);
+    params.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    let mut inside_len: f64 = 0.0;
+    for w in params.windows(2) {
+        let (t0, t1) = (w[0], w[1]);
+        if (t1 - t0) < 1e-9 {
+            continue;
+        }
+        let mid_t = 0.5 * (t0 + t1);
+        if point_in_polygon_banded(ring, idx, ax, ay, rx, ry, mid_t) {
+            inside_len += (t1 - t0) * seg_len;
+        }
+    }
+    inside_len
+}
+
+/// Band-filtered twin of `point_in_polygon_f64`: identical per-edge
+/// arithmetic and tie rules over the single band containing the test
+/// point's `y` (the only edges whose straddle test can pass).
+fn point_in_polygon_banded(
+    ring: &[Point],
+    idx: &RingIndex,
+    ax: f64,
+    ay: f64,
+    rx: f64,
+    ry: f64,
+    t: f64,
+) -> bool {
+    if ring.len() < 3 {
+        return false;
+    }
+    let px = ax + t * rx;
+    let py = ay + t * ry;
+    let n = ring.len();
+    let mut inside = false;
+    for &k in &idx.bands[idx.band_of(py)] {
+        let jdx = k as usize;
+        let inext = (jdx + 1) % n;
+        let pix = ring[inext].x as f64;
+        let piy = ring[inext].y as f64;
+        let pjx = ring[jdx].x as f64;
+        let pjy = ring[jdx].y as f64;
+        if (piy > py) != (pjy > py) {
+            let denom = pjy - piy;
+            let x_at = (pjx - pix) * (py - piy) / denom + pix;
+            if px < x_at {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+#[cfg(test)]
+mod ring_index_tests {
+    use super::*;
+
+    /// Tiny deterministic LCG so the property test needs no rand dep.
+    struct Lcg(u64);
+    impl Lcg {
+        fn next_f(&mut self) -> f32 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((self.0 >> 33) as f32) / (u32::MAX >> 1) as f32
+        }
+    }
+
+    /// Star-shaped pseudo-random polygon around a centre — guaranteed
+    /// simple (non-self-intersecting) so PIP semantics are sane.
+    fn star_polygon(rng: &mut Lcg, cx: f32, cy: f32, nv: usize) -> Vec<Point> {
+        (0..nv)
+            .map(|i| {
+                let ang = (i as f32 / nv as f32) * std::f32::consts::TAU;
+                let r = 200.0 + 800.0 * rng.next_f();
+                Point::new(cx + r * ang.cos(), cy + r * ang.sin())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn indexed_matches_brute_bit_exactly() {
+        let mut rng = Lcg(0x5eed);
+        // UTM33N-magnitude coordinates to exercise the precision path.
+        let (cx, cy) = (262_000.0f32, 6_649_000.0f32);
+        for nv in [16usize, 100, 700, 2500] {
+            let ring = star_polygon(&mut rng, cx, cy, nv);
+            let idx = RingIndex::build(&ring);
+            for _ in 0..200 {
+                let a = Point::new(
+                    cx + 2400.0 * (rng.next_f() - 0.5),
+                    cy + 2400.0 * (rng.next_f() - 0.5),
+                );
+                // Mix of horizontal (the cost-field case), short and
+                // long segments.
+                let b = match (rng.next_f() * 3.0) as u32 {
+                    0 => Point::new(a.x + 25.0, a.y),
+                    1 => Point::new(
+                        a.x + 60.0 * (rng.next_f() - 0.5),
+                        a.y + 60.0 * (rng.next_f() - 0.5),
+                    ),
+                    _ => Point::new(
+                        cx + 2400.0 * (rng.next_f() - 0.5),
+                        cy + 2400.0 * (rng.next_f() - 0.5),
+                    ),
+                };
+                let brute = segment_polygon_intersection_length(a, b, &ring);
+                let fast = segment_polygon_intersection_length_indexed(a, b, &ring, &idx);
+                assert_eq!(
+                    brute.to_bits(),
+                    fast.to_bits(),
+                    "mismatch nv={nv} a=({},{}) b=({},{}) brute={brute} fast={fast}",
+                    a.x,
+                    a.y,
+                    b.x,
+                    b.y
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn degenerate_rings_are_safe() {
+        let idx = RingIndex::build(&[]);
+        assert_eq!(
+            segment_polygon_intersection_length_indexed(
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 0.0),
+                &[],
+                &idx
+            ),
+            0.0
+        );
+        // All-collinear (zero y-span) ring.
+        let flat: Vec<Point> = (0..8).map(|i| Point::new(i as f32, 5.0)).collect();
+        let idx = RingIndex::build(&flat);
+        let a = Point::new(-1.0, 5.0);
+        let b = Point::new(9.0, 5.0);
+        let brute = segment_polygon_intersection_length(a, b, &flat);
+        let fast = segment_polygon_intersection_length_indexed(a, b, &flat, &idx);
+        assert_eq!(brute.to_bits(), fast.to_bits());
+    }
+}

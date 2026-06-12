@@ -102,3 +102,11 @@ criterion = { version = "0.5", features = ["html_reports"] }
 codegen-units = 1
 lto = "thin"
 strip = "symbols"
+
+# Release-speed build with line debuginfo kept, for profilers (dhat,
+# samply, Instruments) that need symbolized backtraces:
+#   cargo build --profile profiling -p turbo-tiles-bin --features dhat-heap
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = "none"

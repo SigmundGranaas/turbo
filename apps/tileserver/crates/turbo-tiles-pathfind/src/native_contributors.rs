@@ -103,16 +103,23 @@ impl ToblerSlopeContributor {
     /// neighbours so a single-pixel gap doesn't kill the integration.
     fn sample_elevations(&self, ctx: &EdgeContext<'_>) -> Option<Vec<f32>> {
         let n = self.sample_count(ctx.length_m);
-        let mut zs: Vec<Option<f32>> = Vec::with_capacity(n + 1);
-        let dx = ctx.tx - ctx.fx;
-        let dy = ctx.ty - ctx.fy;
-        for i in 0..=n {
-            let t = i as f64 / n as f64;
-            let x = ctx.fx + dx * t;
-            let y = ctx.fy + dy * t;
-            let z = self.dem.sample(PointXY { x, y }).ok().flatten();
-            zs.push(z);
-        }
+        // Shared probe when present (one DEM pass for the whole
+        // contributor stack); direct sampling otherwise.
+        let mut zs: Vec<Option<f32>> = match ctx.elev_probe {
+            Some(p) => p.elevations(n).as_ref().clone(),
+            None => {
+                let mut v = Vec::with_capacity(n + 1);
+                let dx = ctx.tx - ctx.fx;
+                let dy = ctx.ty - ctx.fy;
+                for i in 0..=n {
+                    let t = i as f64 / n as f64;
+                    let x = ctx.fx + dx * t;
+                    let y = ctx.fy + dy * t;
+                    v.push(self.dem.sample(PointXY { x, y }).ok().flatten());
+                }
+                v
+            }
+        };
         if zs.iter().all(Option::is_none) {
             return None;
         }
@@ -145,6 +152,11 @@ impl ToblerSlopeContributor {
     /// to charge edges that route through terrain we can't see.
     pub fn sample_missing_fraction(&self, ctx: &EdgeContext<'_>) -> f64 {
         let n = self.sample_count(ctx.length_m);
+        if let Some(p) = ctx.elev_probe {
+            let zs = p.elevations(n);
+            let missing = zs.iter().filter(|z| z.is_none()).count();
+            return missing as f64 / zs.len() as f64;
+        }
         let dx = ctx.tx - ctx.fx;
         let dy = ctx.ty - ctx.fy;
         let mut missing = 0usize;
@@ -541,15 +553,24 @@ impl CostContributor for ContourCrossingContributor {
             return 0.0;
         }
         let n = ((ctx.length_m / self.sample_step_m).round() as usize).clamp(4, 64);
-        let dx = ctx.tx - ctx.fx;
-        let dy = ctx.ty - ctx.fy;
-        let mut zs: Vec<Option<f32>> = Vec::with_capacity(n + 1);
-        for i in 0..=n {
-            let t = i as f64 / n as f64;
-            let x = ctx.fx + dx * t;
-            let y = ctx.fy + dy * t;
-            zs.push(self.dem.sample(PointXY { x, y }).ok().flatten());
-        }
+        let probe_zs = ctx.elev_probe.map(|p| p.elevations(n));
+        let direct_zs: Vec<Option<f32>>;
+        let zs: &[Option<f32>] = match &probe_zs {
+            Some(rc) => rc.as_ref(),
+            None => {
+                let dx = ctx.tx - ctx.fx;
+                let dy = ctx.ty - ctx.fy;
+                let mut v: Vec<Option<f32>> = Vec::with_capacity(n + 1);
+                for i in 0..=n {
+                    let t = i as f64 / n as f64;
+                    let x = ctx.fx + dx * t;
+                    let y = ctx.fy + dy * t;
+                    v.push(self.dem.sample(PointXY { x, y }).ok().flatten());
+                }
+                direct_zs = v;
+                &direct_zs
+            }
+        };
         // Need endpoint elevations to define the linear interp.
         let (Some(z0), Some(z_n)) = (zs.first().and_then(|z| *z), zs.last().and_then(|z| *z))
         else {
@@ -622,16 +643,17 @@ impl CostContributor for DemCoveragePenaltyContributor {
             return 0.0;
         }
         // Reuse Tobler's sampler so we share the same step density
-        // and lookup cost across the slope-side contributors. The
-        // returned fraction scales the per-metre penalty linearly:
-        // an edge that's 30% nodata pays 30% of the full penalty
-        // across its full length.
-        let probe = ToblerSlopeContributor {
+        // and lookup cost across the slope-side contributors (and the
+        // shared `ctx.elev_probe` when present — one DEM pass for the
+        // whole stack). The returned fraction scales the per-metre
+        // penalty linearly: an edge that's 30% nodata pays 30% of the
+        // full penalty across its full length.
+        let sampler = ToblerSlopeContributor {
             dem: self.dem.clone(),
             refuse_above_deg: 90.0,
             sample_step_m: self.sample_step_m,
         };
-        let missing_frac = probe.sample_missing_fraction(ctx);
+        let missing_frac = sampler.sample_missing_fraction(ctx);
         if missing_frac <= 0.0 {
             return 0.0;
         }
@@ -685,27 +707,34 @@ impl NaismithGainContributor {
 
     fn sample_gain(&self, ctx: &EdgeContext<'_>) -> f64 {
         let n = self.sample_count(ctx.length_m);
+        // Positive-gain integral over the sample sequence; `None`
+        // (nodata) samples are skipped without breaking the chain.
+        let integrate = |samples: &mut dyn Iterator<Item = Option<f32>>| -> f64 {
+            let mut last_z: Option<f32> = None;
+            let mut gain: f64 = 0.0;
+            for z in samples {
+                let Some(z) = z else { continue };
+                if let Some(prev) = last_z {
+                    let dz = z - prev;
+                    if dz > 0.0 {
+                        gain += dz as f64;
+                    }
+                }
+                last_z = Some(z);
+            }
+            gain
+        };
+        if let Some(p) = ctx.elev_probe {
+            return integrate(&mut p.elevations(n).iter().copied());
+        }
         let dx = ctx.tx - ctx.fx;
         let dy = ctx.ty - ctx.fy;
-        let mut last_z: Option<f32> = None;
-        let mut gain: f64 = 0.0;
-        for i in 0..=n {
+        integrate(&mut (0..=n).map(|i| {
             let t = i as f64 / n as f64;
             let x = ctx.fx + dx * t;
             let y = ctx.fy + dy * t;
-            let z = match self.dem.sample(PointXY { x, y }).ok().flatten() {
-                Some(v) => v,
-                None => continue,
-            };
-            if let Some(prev) = last_z {
-                let dz = z - prev;
-                if dz > 0.0 {
-                    gain += dz as f64;
-                }
-            }
-            last_z = Some(z);
-        }
-        gain
+            self.dem.sample(PointXY { x, y }).ok().flatten()
+        }))
     }
 
     fn k_for(profile: Profile) -> f64 {
@@ -1136,12 +1165,15 @@ pub struct TrailProximityContributor {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct TrailSegment {
-    a: [f64; 2],
-    b: [f64; 2],
+    /// f32: at UTM33N magnitudes (~7e6 m) f32 resolves to <1 m — noise
+    /// against the 30 m influence radius — and HALVES the rtree, which
+    /// holds millions of decimated polyline segments.
+    a: [f32; 2],
+    b: [f32; 2],
 }
 
 impl RTreeObject for TrailSegment {
-    type Envelope = AABB<[f64; 2]>;
+    type Envelope = AABB<[f32; 2]>;
     fn envelope(&self) -> Self::Envelope {
         AABB::from_corners(
             [self.a[0].min(self.b[0]), self.a[1].min(self.b[1])],
@@ -1151,20 +1183,22 @@ impl RTreeObject for TrailSegment {
 }
 
 impl PointDistance for TrailSegment {
-    fn distance_2(&self, point: &[f64; 2]) -> f64 {
-        let px = point[0];
-        let py = point[1];
-        let ax = self.a[0];
-        let ay = self.a[1];
-        let bx = self.b[0];
-        let by = self.b[1];
+    fn distance_2(&self, point: &[f32; 2]) -> f32 {
+        // Promote to f64 for the projection math (f32 cross-products at
+        // 7e6 magnitudes lose metre-scale precision), return f32.
+        let px = point[0] as f64;
+        let py = point[1] as f64;
+        let ax = self.a[0] as f64;
+        let ay = self.a[1] as f64;
+        let bx = self.b[0] as f64;
+        let by = self.b[1] as f64;
         let dx = bx - ax;
         let dy = by - ay;
         let len_sq = dx * dx + dy * dy;
         if len_sq < 1e-12 {
             let ex = px - ax;
             let ey = py - ay;
-            return ex * ex + ey * ey;
+            return (ex * ex + ey * ey) as f32;
         }
         let t = ((px - ax) * dx + (py - ay) * dy) / len_sq;
         let t = t.clamp(0.0, 1.0);
@@ -1172,27 +1206,33 @@ impl PointDistance for TrailSegment {
         let qy = ay + t * dy;
         let ex = px - qx;
         let ey = py - qy;
-        ex * ex + ey * ey
+        (ex * ex + ey * ey) as f32
     }
 }
 
 impl TrailProximityContributor {
     pub fn new(graph: &Graph, influence_radius_m: f64, bonus_at_zero: f32) -> Self {
-        let build = |fkb_type: u8| -> RTree<TrailSegment> {
-            let segs: Vec<TrailSegment> = graph
-                .collect_segments_with_fkb_types(&[fkb_type])
-                .into_iter()
-                .map(|(a, b)| TrailSegment {
-                    a: [a.0 as f64, a.1 as f64],
-                    b: [b.0 as f64, b.1 as f64],
-                })
-                .collect();
-            RTree::bulk_load(segs)
+        // sti (foot): polyline-following segments at ~50 m — endpoint
+        // chords misplace twisty mountain paths by hundreds of metres
+        // and attract routes to phantom lines (measured: corpus Fréchet
+        // 67 -> 76 from this change alone). vei/skiloype (bicycle/ski
+        // profiles): endpoint chords as before — engineered, near-
+        // straight networks where the chord error is small, and their
+        // polyline trees would cost ~1 GB of boot RSS for no benefit.
+        let to_tree = |raw: Vec<((f32, f32), (f32, f32))>| -> RTree<TrailSegment> {
+            RTree::bulk_load(
+                raw.into_iter()
+                    .map(|(a, b)| TrailSegment {
+                        a: [a.0, a.1],
+                        b: [b.0, b.1],
+                    })
+                    .collect(),
+            )
         };
         Self {
-            sti: build(1),
-            vei: build(2),
-            skiloype: build(3),
+            sti: to_tree(graph.collect_polyline_segments_with_fkb_types(&[1], 100.0)),
+            vei: to_tree(graph.collect_segments_with_fkb_types(&[2])),
+            skiloype: to_tree(graph.collect_segments_with_fkb_types(&[3])),
             influence_radius_m,
             bonus_at_zero,
         }
@@ -1208,10 +1248,22 @@ impl TrailProximityContributor {
 
     fn delta_at(&self, x: f64, y: f64, profile: Profile) -> f64 {
         let rt = self.rtree_for(profile);
-        let Some(seg) = rt.nearest_neighbor(&[x, y]) else {
+        // Bounded query: only the distance WITHIN the influence radius
+        // matters, so a radius-limited scan beats a global nearest-
+        // neighbor proof (which must visit far more of the tree).
+        let p = [x as f32, y as f32];
+        let r2 = (self.influence_radius_m * self.influence_radius_m) as f32;
+        let mut best: f32 = f32::INFINITY;
+        for seg in rt.locate_within_distance(p, r2) {
+            let d2 = seg.distance_2(&p);
+            if d2 < best {
+                best = d2;
+            }
+        }
+        if !best.is_finite() {
             return 0.0;
-        };
-        let d = seg.distance_2(&[x, y]).sqrt();
+        }
+        let d = (best as f64).sqrt();
         if d >= self.influence_radius_m {
             return 0.0;
         }
@@ -1251,6 +1303,15 @@ pub struct PolygonIntegralContributor {
     pub collection: Arc<VectorCollection>,
     pub cost_fn: Box<dyn Fn(f64, &AttrView<'_>, Profile) -> f64 + Send + Sync + 'static>,
     pub aabb_pad_m: f32,
+    /// One-slot memo of the last `extra_metres` evaluation, keyed on
+    /// the exact edge geometry + profile. Every composer calls
+    /// `veto()` then `contribute()` back-to-back with the SAME edge,
+    /// so the polygon integral — the single hottest computation on
+    /// water-heavy corridors (~2× the entire remaining solve time) —
+    /// was evaluated twice per edge. `Mutex` because the trait is
+    /// `Send + Sync`; uncontended in the single-threaded solvers, and
+    /// a key mismatch under concurrent solves just recomputes.
+    memo: std::sync::Mutex<Option<([u64; 5], f64)>>,
 }
 
 impl PolygonIntegralContributor {
@@ -1264,21 +1325,49 @@ impl PolygonIntegralContributor {
             collection,
             cost_fn: Box::new(cost_fn),
             aabb_pad_m: 0.0,
+            memo: std::sync::Mutex::new(None),
         }
+    }
+
+    /// `extra_metres` through the one-slot memo (see `memo` field).
+    fn memoized_extra_metres(&self, ctx: &EdgeContext<'_>) -> f64 {
+        let key = [
+            ctx.fx.to_bits(),
+            ctx.fy.to_bits(),
+            ctx.tx.to_bits(),
+            ctx.ty.to_bits(),
+            ctx.profile as u64,
+        ];
+        if let Some((k, v)) = *self.memo.lock().unwrap() {
+            if k == key {
+                return v;
+            }
+        }
+        let v = self.extra_metres(ctx);
+        *self.memo.lock().unwrap() = Some((key, v));
+        v
     }
     pub fn with_aabb_pad(mut self, m: f32) -> Self {
         self.aabb_pad_m = m;
         self
     }
     fn extra_metres(&self, ctx: &EdgeContext<'_>) -> f64 {
-        use turbo_tiles_geom::segment_polygon_intersection_length;
         use turbo_tiles_geom::Point;
+        use turbo_tiles_geom::{
+            segment_polygon_intersection_length, segment_polygon_intersection_length_indexed,
+        };
         let a = Point::new(ctx.fx as f32, ctx.fy as f32);
         let b = Point::new(ctx.tx as f32, ctx.ty as f32);
         let mut extra: f64 = 0.0;
         for fid in self.collection.query_segment(a, b, self.aabb_pad_m) {
             let coords = self.collection.feature_coords(fid);
-            let len_in = segment_polygon_intersection_length(a, b, coords);
+            // Big rings (huge lakes) go through the y-banded edge
+            // index — bit-identical result, O(band) instead of
+            // O(ring) per evaluated cell.
+            let len_in = match self.collection.ring_index(fid) {
+                Some(idx) => segment_polygon_intersection_length_indexed(a, b, coords, &idx),
+                None => segment_polygon_intersection_length(a, b, coords),
+            };
             if len_in < 1e-6 {
                 continue;
             }
@@ -1301,14 +1390,14 @@ impl CostContributor for PolygonIntegralContributor {
         ContributorKind::Vegetation
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
-        let extra = self.extra_metres(ctx);
+        let extra = self.memoized_extra_metres(ctx);
         if !extra.is_finite() {
             return 0.0;
         }
         extra * BASE_PACE_S_PER_M
     }
     fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
-        if !self.extra_metres(ctx).is_finite() {
+        if !self.memoized_extra_metres(ctx).is_finite() {
             Some(self.name)
         } else {
             None
@@ -1324,6 +1413,10 @@ pub struct LineCrossingContributor {
     pub collection: Arc<VectorCollection>,
     pub cost_fn: Box<dyn Fn(usize, &AttrView<'_>, Profile) -> f64 + Send + Sync + 'static>,
     pub aabb_pad_m: f32,
+    /// One-slot memo of the last `extra_metres` evaluation — same
+    /// rationale as [`PolygonIntegralContributor::memo`]: `veto()` and
+    /// `contribute()` are called back-to-back with the same edge.
+    memo: std::sync::Mutex<Option<([u64; 5], f64)>>,
 }
 
 impl LineCrossingContributor {
@@ -1337,7 +1430,27 @@ impl LineCrossingContributor {
             collection,
             cost_fn: Box::new(cost_fn),
             aabb_pad_m: 0.0,
+            memo: std::sync::Mutex::new(None),
         }
+    }
+
+    /// `extra_metres` through the one-slot memo (see `memo` field).
+    fn memoized_extra_metres(&self, ctx: &EdgeContext<'_>) -> f64 {
+        let key = [
+            ctx.fx.to_bits(),
+            ctx.fy.to_bits(),
+            ctx.tx.to_bits(),
+            ctx.ty.to_bits(),
+            ctx.profile as u64,
+        ];
+        if let Some((k, v)) = *self.memo.lock().unwrap() {
+            if k == key {
+                return v;
+            }
+        }
+        let v = self.extra_metres(ctx);
+        *self.memo.lock().unwrap() = Some((key, v));
+        v
     }
     pub fn with_aabb_pad(mut self, m: f32) -> Self {
         self.aabb_pad_m = m;
@@ -1374,14 +1487,14 @@ impl CostContributor for LineCrossingContributor {
         ContributorKind::Vegetation
     }
     fn contribute(&self, ctx: &EdgeContext<'_>) -> f64 {
-        let extra = self.extra_metres(ctx);
+        let extra = self.memoized_extra_metres(ctx);
         if !extra.is_finite() {
             return 0.0;
         }
         extra * BASE_PACE_S_PER_M
     }
     fn veto(&self, ctx: &EdgeContext<'_>) -> Option<&'static str> {
-        if !self.extra_metres(ctx).is_finite() {
+        if !self.memoized_extra_metres(ctx).is_finite() {
             Some(self.name)
         } else {
             None
@@ -1582,6 +1695,7 @@ mod tests {
             length_m,
             profile: Profile::Foot,
             kind: EdgeKind::Mesh,
+            elev_probe: None,
         }
     }
 
@@ -1628,6 +1742,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         let c = layer.contribute(&ctx);
         assert!(c < 0.0, "red-T should be a bonus, got {c}");
@@ -1649,6 +1764,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         let c = layer.contribute(&ctx);
         assert!(c > 0.0);
@@ -1685,6 +1801,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         let c = layer.contribute(&ctx);
         assert!(c < 0.0, "dnt should be a bonus, got {c}");
@@ -1704,6 +1821,7 @@ mod tests {
             length_m: 100.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         assert_eq!(layer.veto(&ctx), Some("slope_too_steep"));
     }
@@ -1722,6 +1840,7 @@ mod tests {
             length_m: 100.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         // (15/15)² × 0.714 × 100 ≈ 71 s.
         let c = layer.contribute(&ctx);
@@ -1746,6 +1865,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         // k × gain × (amp-1) = 8 × 50 × 1 = 400 "extra metres".
         // In walk-seconds: 400 × 0.714 ≈ 286 s.
@@ -1761,6 +1881,7 @@ mod tests {
             length_m: 1000.0,
             profile: Profile::Foot,
             kind: EdgeKind::Graph(&er),
+            elev_probe: None,
         };
         assert_eq!(layer.contribute(&ctx2), 0.0);
     }

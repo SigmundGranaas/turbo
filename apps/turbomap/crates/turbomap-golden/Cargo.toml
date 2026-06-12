@@ -1,0 +1,28 @@
+[package]
+name = "turbomap-golden"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Headless golden-image + record/replay test harness for turbomap."
+
+[lints]
+workspace = true
+
+[features]
+# GPU-backed golden tests are opt-in: they need a working wgpu adapter
+# (a software adapter such as Lavapipe is fine). The default `cargo test
+# --workspace` lane compiles this crate but runs zero golden tests, so a
+# GPU-less runner stays green. The dedicated golden CI lane enables this.
+gpu-tests = []
+
+[dependencies]
+turbomap-core = { path = "../turbomap-core" }
+turbomap-scene = { path = "../turbomap-scene" }
+wgpu.workspace = true
+image.workspace = true
+pollster.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true

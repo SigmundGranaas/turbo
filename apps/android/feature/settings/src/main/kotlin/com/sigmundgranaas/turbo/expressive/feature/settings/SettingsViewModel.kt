@@ -29,4 +29,5 @@ class SettingsViewModel @Inject constructor(
     fun setMetric(metric: Boolean) = viewModelScope.launch { repository.setMetricUnits(metric) }
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { repository.setThemeMode(mode) }
     fun setCloudSync(enabled: Boolean) = viewModelScope.launch { repository.setCloudSyncEnabled(enabled) }
+    fun setWifiOnly(enabled: Boolean) = viewModelScope.launch { repository.setDownloadOverWifiOnly(enabled) }
 }

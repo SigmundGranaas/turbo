@@ -122,11 +122,13 @@ final class TurboUserFlowsUITests: XCTestCase {
         app.buttons["menu.offline"].tap()
 
         XCTAssertTrue(app.navigationBars["Offline Maps"].waitForExistence(timeout: 5))
-        app.buttons["Download New Region"].tap()
+        app.buttons["Download This Area"].tap()
 
-        // The region the hiker asked for is now in their offline maps.
-        XCTAssertTrue(app.staticTexts["Lyngen Alps"].waitForExistence(timeout: 10),
-                      "the requested region was not added to offline maps")
+        // The area the hiker was viewing is now in their offline maps (named by
+        // its coordinates when no place name resolves).
+        let region = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Area ")).firstMatch
+        XCTAssertTrue(region.waitForExistence(timeout: 10),
+                      "the viewed area was not added to offline maps")
     }
 
     // MARK: Goal — set a preference and have the app remember it
@@ -221,6 +223,61 @@ final class TurboUserFlowsUITests: XCTestCase {
         // Session ended — the pill is gone and the start control is back.
         XCTAssertTrue(app.buttons["map.record"].waitForExistence(timeout: 5),
                       "the record control should return once the session ends")
+    }
+
+    // MARK: Goal — plan a track on the map and move a point
+
+    func test_hiker_can_plan_a_track_and_move_a_point() {
+        let app = launch()
+
+        // Open the track tool from the control rail (no flaky long-press needed).
+        XCTAssertTrue(app.buttons["map.track"].waitForExistence(timeout: 10))
+        app.buttons["map.track"].tap()
+        XCTAssertTrue(app.staticTexts["Plan a Track"].waitForExistence(timeout: 5))
+
+        // Line mode: straight legs, no solver — deterministic.
+        app.buttons["Line"].tap()
+
+        // Add two points by tapping the open map.
+        let p1 = app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.30))
+        let p2 = app.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.42))
+        p1.tap()
+        p2.tap()
+
+        // Two points → a saveable track.
+        let save = app.buttons["route.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        XCTAssertTrue(save.isEnabled, "two points should produce a saveable track")
+
+        // Tap the first point to select it, then tap a new spot to move it.
+        p1.tap()
+        XCTAssertTrue(app.staticTexts["Moving point 1 — tap a new spot"].waitForExistence(timeout: 5),
+                      "tapping a waypoint should arm move mode")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.55)).tap()
+        XCTAssertFalse(app.staticTexts["Moving point 1 — tap a new spot"].waitForExistence(timeout: 2),
+                       "placing the point should clear move mode")
+    }
+
+    // MARK: Goal — follow a saved track with live navigation
+
+    func test_hiker_can_follow_a_saved_track() {
+        let app = launch()
+        openMenu(app)
+        app.buttons["menu.paths"].tap()
+        XCTAssertTrue(app.navigationBars["Paths"].waitForExistence(timeout: 5))
+
+        // Open a saved track and start following it.
+        app.cells.containing(.staticText, identifier: "Storheia Loop").firstMatch.tap()
+        let follow = app.buttons["hike.follow"]
+        XCTAssertTrue(follow.waitForExistence(timeout: 5))
+        follow.tap()
+
+        // Back on the map, live follow is running; the Stop control is there.
+        XCTAssertTrue(app.buttons["follow.stop"].waitForExistence(timeout: 5),
+                      "the follow card did not appear on the map")
+        app.buttons["follow.stop"].tap()
+        XCTAssertFalse(app.buttons["follow.stop"].waitForExistence(timeout: 2),
+                       "following did not stop")
     }
 
     // MARK: Goal — record a hike and save it

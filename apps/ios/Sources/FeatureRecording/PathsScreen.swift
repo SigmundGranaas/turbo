@@ -9,13 +9,16 @@ public struct PathsScreen: View {
     @State private var viewModel: PathsViewModel
     private let onStartRecording: (() -> Void)?
     private let shareResource: ((String) async -> URL?)?
+    private let onFollow: ((SavedPath) -> Void)?
 
     public init(viewModel: PathsViewModel,
                 onStartRecording: (() -> Void)? = nil,
-                shareResource: ((String) async -> URL?)? = nil) {
+                shareResource: ((String) async -> URL?)? = nil,
+                onFollow: ((SavedPath) -> Void)? = nil) {
         _viewModel = State(initialValue: viewModel)
         self.onStartRecording = onStartRecording
         self.shareResource = shareResource
+        self.onFollow = onFollow
     }
 
     public var body: some View {
@@ -49,7 +52,10 @@ public struct PathsScreen: View {
             }
         }
         .navigationTitle("Paths")
-        .navigationDestination(for: SavedPath.self) { HikeDetailScreen(path: $0, shareResource: shareResource) }
+        .navigationDestination(for: SavedPath.self) { savedPath in
+            HikeDetailScreen(path: savedPath, shareResource: shareResource,
+                             onFollow: onFollow.map { f in { f(savedPath) } })
+        }
         .task { viewModel.start() }
     }
 

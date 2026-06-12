@@ -9,4 +9,7 @@ android {
 
 dependencies {
     implementation(project(":core:data"))
+    // yr.no weather symbols are SVG assets (matching the Flutter app); Coil renders them.
+    implementation(libs.coil.compose)
+    implementation(libs.coil.svg)
 }

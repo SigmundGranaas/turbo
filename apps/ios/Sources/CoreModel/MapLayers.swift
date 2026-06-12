@@ -26,17 +26,14 @@ public enum BaseLayer: String, CaseIterable, Sendable, Codable {
 }
 
 /// Toggleable data overlays painted over the map. Mirrors `domain.OverlayId`.
+/// Only overlays with a real raster source ship — no dead toggles.
 public enum OverlayId: String, CaseIterable, Sendable, Codable {
     case trails
-    case waves
-    case wind
     case avalanche
 
     public var title: String {
         switch self {
         case .trails: "Hiking trails"
-        case .waves: "Wave height"
-        case .wind: "Wind"
         case .avalanche: "Avalanche danger"
         }
     }
@@ -44,9 +41,7 @@ public enum OverlayId: String, CaseIterable, Sendable, Codable {
     public var subtitle: String {
         switch self {
         case .trails: "Marked routes · Waymarked Trails"
-        case .waves: "Marine swell heatmap"
-        case .wind: "Animated flow field"
-        case .avalanche: "Varsom / NVE slopes"
+        case .avalanche: "Steepness · NVE Bratthet"
         }
     }
 }

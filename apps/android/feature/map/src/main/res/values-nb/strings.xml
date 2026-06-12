@@ -121,6 +121,7 @@
     <string name="marker_save">Lagre markør</string>
     <string name="marker_update">Oppdater markør</string>
     <string name="marker_add_to_collection">Legg til i samling</string>
+    <string name="marker_add_photo">Legg til bilde</string>
 
     <!-- Layers sheet -->
     <string name="layers_title">Kartlag</string>
@@ -130,6 +131,10 @@
     <string name="layers_trails_sub">Merkede ruter · Waymarked Trails</string>
     <string name="layers_avalanche">Skredterreng</string>
     <string name="layers_avalanche_sub">Brattheit ≥27° · NVE</string>
+    <string name="layers_waves">Bølgehøyde</string>
+    <string name="layers_waves_sub">Varmekart for dønninger</string>
+    <string name="layers_wind">Vind</string>
+    <string name="layers_wind_sub">Animert strømningsfelt</string>
     <string name="layers_offline">Frakoblet</string>
     <string name="layers_download_area">Last ned dette området</string>
 
@@ -146,7 +151,36 @@
     <string name="offline_region_desc">frakoblet område %1$s</string>
     <string name="offline_downloaded">Lastet ned · %1$s</string>
     <string name="offline_downloading">Laster ned … %1$d %%</string>
+    <string name="offline_paused">Pauset · %1$d %%</string>
+    <string name="offline_failed">Nedlasting mislyktes</string>
+    <string name="offline_failed_reason">Nedlasting mislyktes · %1$s</string>
+    <string name="offline_retry">Prøv igjen</string>
+    <string name="offline_pause">Sett %1$s på pause</string>
+    <string name="offline_resume">Fortsett %1$s</string>
     <string name="offline_delete">Slett %1$s</string>
+    <string name="offline_notif_channel">Nedlasting av frakoblede kart</string>
+    <string name="offline_notif_channel_desc">Fremdrift mens kartområder lastes ned</string>
+    <string name="offline_notif_title">Laster ned kart</string>
+    <string name="offline_notif_content">%1$d områder · %2$d %%</string>
+    <string name="offline_notif_pause">Pause</string>
+    <string name="offline_notif_resume">Fortsett</string>
+    <string name="offline_download_title">Last ned dette området?</string>
+    <string name="offline_download_estimate">Omtrent %1$s · %2$d fliser lagres for frakoblet bruk.</string>
+    <string name="offline_download_too_large">Dette området er for stort (omtrent %1$s). Zoom inn og prøv igjen.</string>
+    <string name="offline_download_confirm">Last ned</string>
+    <string name="offline_download_cancel">Avbryt</string>
+    <string name="offline_detail_standard">Standard</string>
+    <string name="offline_detail_detailed">Detaljert</string>
+    <string name="offline_deleted_snackbar">Slettet %1$s</string>
+    <string name="offline_undo">Angre</string>
+    <string name="offline_rename_title">Gi området nytt navn</string>
+    <string name="offline_rename_confirm">Gi nytt navn</string>
+    <string name="offline_clear_cache">Tøm kartbufferen</string>
+    <string name="offline_clear_cache_title">Tømme kartbufferen?</string>
+    <string name="offline_clear_cache_body">Fjerner midlertidig bufrede kartfliser fra utforsking. Nedlastede frakoblede områder beholdes.</string>
+    <string name="offline_clear_cache_confirm">Tøm</string>
+    <string name="offline_chip">Du er frakoblet — viser lagrede kart</string>
+    <string name="offline_chip_uncovered">Frakoblet — utenfor nedlastede områder</string>
     <plurals name="offline_summary">
         <item quantity="one">%1$d område · %2$s</item>
         <item quantity="other">%1$d områder · %2$s</item>

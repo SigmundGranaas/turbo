@@ -64,9 +64,11 @@ public struct MetNoWeatherProvider: WeatherProvider {
                         lowC: d.temps.min() ?? 0, highC: d.temps.max() ?? 0, symbol: d.symbol)
         }
 
+        let nowDetails = series.first?.data?.instant?.details
         return WeatherSummary(
             placeName: placeName, temperatureC: nowTemp, symbol: nowSymbol,
-            summary: phrase(nowSymbol), hourly: hourly, daily: daily
+            summary: phrase(nowSymbol), hourly: hourly, daily: daily,
+            windSpeedMps: nowDetails?.windSpeed, windFromDegrees: nowDetails?.windFromDirection
         )
     }
 
@@ -134,7 +136,13 @@ public struct MetNoWeatherProvider: WeatherProvider {
     private struct Instant: Decodable { let details: Details? }
     private struct Details: Decodable {
         let airTemperature: Double?
-        enum CodingKeys: String, CodingKey { case airTemperature = "air_temperature" }
+        let windSpeed: Double?
+        let windFromDirection: Double?
+        enum CodingKeys: String, CodingKey {
+            case airTemperature = "air_temperature"
+            case windSpeed = "wind_speed"
+            case windFromDirection = "wind_from_direction"
+        }
     }
     private struct Hours: Decodable { let summary: Summary? }
     private struct Summary: Decodable {

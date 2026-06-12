@@ -17,21 +17,29 @@ public struct MarkerDetailScreen: View {
     private let onDelete: () -> Void
     @State private var confirmingDelete = false
     @State private var photos: MarkerPhotosViewModel?
+    @State private var weather: WeatherViewModel?
+    @State private var showWeather = false
     private let makePhotos: (() -> MarkerPhotosViewModel)?
     private let shareResource: ((String) async -> URL?)?
+    private let makeWeather: ((LatLng) -> WeatherViewModel)?
+    private let makeAvalanche: ((LatLng) -> AvalancheViewModel)?
 
     public init(
         marker: Marker,
         onEdit: (() -> Void)? = nil,
         onDelete: @escaping () -> Void,
         makePhotos: (() -> MarkerPhotosViewModel)? = nil,
-        shareResource: ((String) async -> URL?)? = nil
+        shareResource: ((String) async -> URL?)? = nil,
+        makeWeather: ((LatLng) -> WeatherViewModel)? = nil,
+        makeAvalanche: ((LatLng) -> AvalancheViewModel)? = nil
     ) {
         self.marker = marker
         self.onEdit = onEdit
         self.onDelete = onDelete
         self.makePhotos = makePhotos
         self.shareResource = shareResource
+        self.makeWeather = makeWeather
+        self.makeAvalanche = makeAvalanche
     }
 
     public var body: some View {
@@ -63,6 +71,7 @@ public struct MarkerDetailScreen: View {
                     action("Delete", "trash", role: .destructive) { confirmingDelete = true }
                 }
 
+                if makeWeather != nil { weatherCard }
                 infoRow("Coordinate", Geo.formatCoords(marker.position))
                 if let notes = marker.notes, !notes.isEmpty {
                     infoRow("Notes", notes)
@@ -74,6 +83,7 @@ public struct MarkerDetailScreen: View {
         .task {
             if photos == nil { photos = makePhotos?() }
             await photos?.load()
+            if weather == nil, let makeWeather { weather = makeWeather(marker.position); await weather?.load() }
         }
         .background(t.grouped)
         .navigationTitle(marker.name)
@@ -84,6 +94,39 @@ public struct MarkerDetailScreen: View {
         } message: {
             Text("This action is permanent and cannot be undone.")
         }
+        .sheet(isPresented: $showWeather) {
+            if let makeWeather, let makeAvalanche {
+                WeatherDetailScreen(weather: makeWeather(marker.position), avalanche: makeAvalanche(marker.position))
+            }
+        }
+    }
+
+    /// A compact forecast for the marker's location; taps through to the full sheet.
+    @ViewBuilder
+    private var weatherCard: some View {
+        Button { showWeather = true } label: {
+            HStack(spacing: 12) {
+                if let s = weather?.state.value {
+                    Image(systemName: s.symbol.sfSymbol).font(.title2).foregroundStyle(t.blue).frame(width: 30)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(WeatherSummary.formatTemperature(s.temperatureC)).font(.turboHeadline).foregroundStyle(t.label)
+                        Text(s.summary).font(.turboFootnote).foregroundStyle(t.label2).lineLimit(1)
+                    }
+                } else if weather?.state.isLoading ?? true {
+                    ProgressView().frame(width: 30)
+                    Text("Loading weather…").font(.turboSubhead).foregroundStyle(t.label2)
+                } else {
+                    Image(systemName: "cloud.slash").foregroundStyle(t.label3).frame(width: 30)
+                    Text("Weather unavailable").font(.turboSubhead).foregroundStyle(t.label2)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(t.label3)
+            }
+            .padding(14)
+            .background(t.groupedCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("marker.weather")
     }
 
     @ViewBuilder

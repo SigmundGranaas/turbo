@@ -45,6 +45,8 @@ public final class AppContainer {
     /// The app-lifetime recording session — owned here, not by any screen, so a
     /// track survives the recording sheet being dismissed (ambient recording).
     public let recordingController: RecordingController
+    /// The app-lifetime route-following session (live navigation).
+    public let followController: FollowController
     /// Whether the live API (auth + cloud sync) is configured for this build.
     public let isOnline: Bool
 
@@ -80,6 +82,7 @@ public final class AppContainer {
         recordingController = RecordingController(
             location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
         )
+        followController = FollowController(location: locationProvider)
         isOnline = config.isOnline
 
         let syncStatus = SyncStatus()
@@ -155,6 +158,7 @@ public final class AppContainer {
         self.recordingController = RecordingController(
             location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
         )
+        self.followController = FollowController(location: locationProvider)
         self.isOnline = isOnline
         let syncStatus = SyncStatus()
         self.syncStatus = syncStatus

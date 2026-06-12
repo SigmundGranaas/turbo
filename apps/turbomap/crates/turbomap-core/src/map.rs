@@ -5,37 +5,72 @@
 //! carries its own source, scene-state (zoom bounds + ingested set +
 //! prefetch margin), and layer-specific pipeline + cache.
 //!
-//! Layers are drawn back-to-front in insertion order:
-//! 1. First layer's geometry clears the target.
-//! 2. Subsequent layers' geometry use `LoadOp::Load` to composite on top.
-//! 3. After all layer geometry, one text pass aggregates labels from
-//!    *all* vector layers.
+//! Layers are drawn back-to-front in insertion order, all inside ONE
+//! render pass per frame (tile-based mobile GPUs pay a full
+//! framebuffer load/store per pass):
+//! 1. The pass clears to the first visible layer's background (vector
+//!    layers' style background; otherwise the shared backdrop).
+//! 2. Each visible layer's geometry draws in order, compositing on top.
+//! 3. After all layer geometry, labels draw per visible vector layer.
 //! 4. Finally, markers paint on top.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::{
-    camera::{Camera, CameraAnimation},
+    camera::{Camera, CameraAnimation, FlingAnimation, ZoomFlingAnimation},
     error::MapError,
     geo::LatLng,
     hit::geometry_hit,
     render::{
-        cache::CacheStats, gpu_timestamps::GpuTimestamps, hillshade::HillshadePipeline,
+        cache::CacheStats,
+        gpu_timestamps::GpuTimestamps,
+        hillshade::{HillshadePipeline, PreparedHillshade},
+        icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
-        raster::{RasterPipeline, TerrainConfig},
+        raster::{PreparedRaster, RasterPipeline, TerrainConfig},
         terrain::{TerrainCache, TerrainOptions, TerrainShared},
-        text::TextPipeline, vector::VectorPipeline, vector_cache::VectorMeshCache, TextureCache,
+        text::{PreparedText, TextPipeline},
+        vector::{PreparedVector, VectorPipeline},
+        vector_cache::VectorMeshCache,
+        TextureCache, BACKGROUND_CLEAR,
     },
     scene::Scene,
     source::TileSource,
     style::{Color, HillshadeStyle, VectorStyle},
-    tessellate::{self, InteractiveFeature, LabelRequest, Mesh},
+    tessellate::{self, IconRequest, InteractiveFeature, LabelRequest, Mesh},
     tile::TileId,
     vector::{GeomType, Value as VectorValue, VectorTile, VectorTileSource},
 };
 
 pub use crate::render::terrain::TerrainOptions as PublicTerrainOptions;
+
+/// The one camera animation in flight. `Map` samples whichever is active in
+/// `tick`; they are mutually exclusive — starting any one replaces the rest.
+#[derive(Clone, Copy)]
+enum ActiveAnim {
+    Ease(CameraAnimation),
+    PanFling(FlingAnimation),
+    ZoomFling(ZoomFlingAnimation),
+}
+
+impl ActiveAnim {
+    fn sample(&self, now: Instant) -> Camera {
+        match self {
+            ActiveAnim::Ease(a) => a.sample(now),
+            ActiveAnim::PanFling(f) => f.sample(now),
+            ActiveAnim::ZoomFling(z) => z.sample(now),
+        }
+    }
+
+    fn is_finished(&self, now: Instant) -> bool {
+        match self {
+            ActiveAnim::Ease(a) => a.is_finished(now),
+            ActiveAnim::PanFling(f) => f.is_finished(now),
+            ActiveAnim::ZoomFling(z) => z.is_finished(now),
+        }
+    }
+}
 
 /// Build the depth attachment matching the surface size. Re-created
 /// on resize.
@@ -48,9 +83,34 @@ fn create_depth_view(device: &wgpu::Device, size: (u32, u32)) -> wgpu::TextureVi
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count: crate::render::MSAA_SAMPLES,
         dimension: wgpu::TextureDimension::D2,
         format: crate::render::DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+/// Build the multisampled colour attachment the frame pass renders into,
+/// before resolving down to the (single-sample) surface. Re-created on
+/// resize; its format matches the surface so the resolve is valid.
+fn create_msaa_color_view(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    size: (u32, u32),
+) -> wgpu::TextureView {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("turbomap-msaa-color"),
+        size: wgpu::Extent3d {
+            width: size.0.max(1),
+            height: size.1.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: crate::render::MSAA_SAMPLES,
+        dimension: wgpu::TextureDimension::D2,
+        format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
@@ -100,6 +160,12 @@ pub struct MapOptions {
     pub cache_budget_bytes: usize,
     pub prefetch_margin_px: u32,
     pub fade_in_secs: f32,
+    /// Device pixel ratio: how many physical framebuffer pixels per
+    /// logical "style pixel". Style-authored sizes (line widths, font
+    /// sizes, dash lengths, icon sizes) are multiplied by this, so a map
+    /// on a 3× phone screen renders crisp instead of upscaled. 1.0 =
+    /// desktop/1:1.
+    pub pixel_ratio: f32,
 }
 
 impl Default for MapOptions {
@@ -107,6 +173,7 @@ impl Default for MapOptions {
         Self {
             cache_budget_bytes: 128 * 1024 * 1024,
             prefetch_margin_px: 256,
+            pixel_ratio: 1.0,
             // Fade-in is currently DISABLED (0 = tiles snap to fully
             // opaque on ingest) while the per-frame-alpha flicker
             // diagnosis is open. History: 0.18 popped (per-layer
@@ -161,6 +228,15 @@ enum LayerEntry {
     Hillshade(Box<HillshadeLayer>),
 }
 
+/// Per-layer output of the render prep phase (Phase A). Tagged with
+/// the layer's index in `Map::layers` so the draw phase can pair each
+/// prepared item back up with an *immutable* borrow of its layer.
+enum PreparedLayer {
+    Raster(PreparedRaster),
+    Vector(PreparedVector),
+    Hillshade(PreparedHillshade),
+}
+
 struct RasterLayer {
     id: String,
     source: Arc<dyn TileSource>,
@@ -180,6 +256,16 @@ struct VectorLayer {
     cache: VectorMeshCache,
     fade_in_secs: f32,
     visible: bool,
+    /// Per-frame paint colour override (linear RGBA in `[0,1]`). When set,
+    /// the shader uses it instead of the baked vertex colour — the path
+    /// zoom-interpolated / data-driven paint takes. `None` keeps the baked
+    /// colour.
+    paint_override: Option<[f32; 4]>,
+    /// `(dash_len_px, gap_len_px)` for a dashed line layer; `None` = solid.
+    dash: Option<(f32, f32)>,
+    /// Per-frame multiplier on baked line widths — the zoom curve that lets
+    /// roads thicken as you zoom in without re-tessellating. 1.0 = baked.
+    width_scale: f32,
 }
 
 struct HillshadeLayer {
@@ -197,11 +283,16 @@ pub struct Map {
     viewport_px: (u32, u32),
     /// Shared camera. Layers' `Scene` is synced from this each render.
     camera: Camera,
-    animation: Option<CameraAnimation>,
+    /// The single in-flight camera animation, if any (an eased transition,
+    /// a pan fling, or a zoom fling). Sampled in `tick`; starting any one
+    /// replaces whatever was running.
+    active: Option<ActiveAnim>,
     options: MapOptions,
     layers: Vec<LayerEntry>,
     /// Single text pipeline, shared across all vector layers.
     text_pipeline: TextPipeline,
+    /// Single icon/sprite pipeline, shared across all vector layers.
+    icon_pipeline: IconPipeline,
     marker_pipeline: MarkerPipeline,
     markers: Vec<Marker>,
     next_marker_id: u64,
@@ -225,6 +316,9 @@ pub struct Map {
     /// front. All render passes share this texture.
     depth_view: wgpu::TextureView,
     depth_size: (u32, u32),
+    /// Multisampled colour target the frame pass renders into; resolved to
+    /// the surface at pass end. Recreated alongside the depth view.
+    msaa_color_view: wgpu::TextureView,
 }
 
 struct Terrain {
@@ -247,9 +341,11 @@ impl Map {
         options: MapOptions,
     ) -> Result<Self, MapError> {
         let text_pipeline = TextPipeline::new(device.clone(), queue.clone(), surface_format);
+        let icon_pipeline = IconPipeline::new(device.clone(), queue.clone(), surface_format);
         let marker_pipeline = MarkerPipeline::new(device.clone(), queue.clone(), surface_format);
         let gpu_timestamps = GpuTimestamps::new(&device, &queue);
         let depth_view = create_depth_view(&device, initial_size);
+        let msaa_color_view = create_msaa_color_view(&device, surface_format, initial_size);
         let terrain_shared = TerrainShared::new(&device, &queue);
         Ok(Self {
             device,
@@ -257,10 +353,11 @@ impl Map {
             surface_format,
             viewport_px: initial_size,
             camera: initial_camera,
-            animation: None,
+            active: None,
             options,
             layers: Vec::new(),
             text_pipeline,
+            icon_pipeline,
             marker_pipeline,
             markers: Vec::new(),
             next_marker_id: 0,
@@ -269,6 +366,7 @@ impl Map {
             terrain: None,
             terrain_shared,
             depth_view,
+            msaa_color_view,
             depth_size: initial_size,
         })
     }
@@ -437,7 +535,54 @@ impl Map {
             cache,
             fade_in_secs: self.options.fade_in_secs,
             visible: true,
+            paint_override: None,
+            dash: None,
+            width_scale: 1.0,
         })));
+    }
+
+    /// Set (or clear) a vector layer's dash pattern, in screen pixels
+    /// `(dash_len, gap_len)`. Returns `false` if no vector layer matches.
+    pub fn set_vector_layer_dash(&mut self, id: &str, dash: Option<(f32, f32)>) -> bool {
+        for layer in &mut self.layers {
+            if let LayerEntry::Vector(v) = layer {
+                if v.id == id {
+                    v.dash = dash;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Set (or clear) a vector layer's per-frame paint colour override.
+    /// `color` is linear RGBA in `[0,1]`. Returns `false` if no vector
+    /// layer matches `id`.
+    pub fn set_vector_layer_color(&mut self, id: &str, color: Option<[f32; 4]>) -> bool {
+        for layer in &mut self.layers {
+            if let LayerEntry::Vector(v) = layer {
+                if v.id == id {
+                    v.paint_override = color;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Set a vector layer's per-frame line-width multiplier (the zoom curve).
+    /// `1.0` is the baked width. No-op for fills/text (width_px = 0). Returns
+    /// `false` if no vector layer matches `id`.
+    pub fn set_vector_layer_width_scale(&mut self, id: &str, scale: f32) -> bool {
+        for layer in &mut self.layers {
+            if let LayerEntry::Vector(v) = layer {
+                if v.id == id {
+                    v.width_scale = scale;
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     pub fn remove_layer(&mut self, id: &str) {
@@ -509,8 +654,31 @@ impl Map {
 
     pub fn set_camera(&mut self, camera: Camera) {
         self.camera = camera;
-        self.animation = None;
+        self.active = None;
         self.sync_scenes();
+    }
+
+    /// Start an inertial fling from the current camera at `velocity_px`
+    /// (screen px/s, the drag-release velocity). The map glides and
+    /// decelerates as `tick` is pumped. A near-zero velocity is a no-op.
+    pub fn fling(&mut self, velocity_px: (f64, f64)) {
+        let f = FlingAnimation::new(self.camera, velocity_px);
+        if f.is_finished(Instant::now()) {
+            return;
+        }
+        self.active = Some(ActiveAnim::PanFling(f));
+    }
+
+    /// Start a zoom fling (pinch-release momentum) at `zoom_velocity`
+    /// (levels/s) about `focus_px`. Glides and settles as `tick` is pumped;
+    /// a near-zero velocity is a no-op.
+    pub fn zoom_fling(&mut self, zoom_velocity: f64, focus_px: (f64, f64)) {
+        let (w, h) = self.viewport_px;
+        let z = ZoomFlingAnimation::new(self.camera, zoom_velocity, focus_px, (w as f64, h as f64));
+        if z.is_finished(Instant::now()) {
+            return;
+        }
+        self.active = Some(ActiveAnim::ZoomFling(z));
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -520,6 +688,8 @@ impl Map {
         // the next render.
         if (width, height) != self.depth_size && width > 0 && height > 0 {
             self.depth_view = create_depth_view(&self.device, (width, height));
+            self.msaa_color_view =
+                create_msaa_color_view(&self.device, self.surface_format, (width, height));
             self.depth_size = (width, height);
         }
         self.sync_scenes();
@@ -538,16 +708,59 @@ impl Map {
         self.set_camera(c);
     }
 
+    /// Rotate the bearing by `delta_deg` (two-finger rotate), pivoting on
+    /// the screen centre.
+    pub fn rotate_by(&mut self, delta_deg: f64) {
+        let mut c = self.camera;
+        c.rotate_by(delta_deg);
+        self.set_camera(c);
+    }
+
+    /// Tilt by `delta_deg` (two-finger drag), clamped to the pitch limit.
+    pub fn pitch_by(&mut self, delta_deg: f64) {
+        let mut c = self.camera;
+        c.pitch_by(delta_deg);
+        self.set_camera(c);
+    }
+
+    /// Rotate the bearing by `delta_deg` about `focus_px` (the gesture
+    /// centroid), keeping that pixel anchored.
+    pub fn rotate_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
+        let (w, h) = self.viewport_px;
+        let c = self.camera.rotated_around(delta_deg, focus_px, (w as f64, h as f64));
+        self.set_camera(c);
+    }
+
+    /// Tilt by `delta_deg` about `focus_px`, keeping that pixel anchored.
+    pub fn pitch_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
+        let (w, h) = self.viewport_px;
+        let c = self.camera.pitched_around(delta_deg, focus_px, (w as f64, h as f64));
+        self.set_camera(c);
+    }
+
+    /// Animate a focus-invariant zoom by `factor` about `focus_px` over
+    /// `duration` — the smooth double-tap / scroll-wheel zoom. Eases to the
+    /// same target [`Camera::zoom_around`] would snap to.
+    pub fn zoom_around_animated(&mut self, factor: f64, focus_px: (f64, f64), duration: Duration) {
+        let (w, h) = self.viewport_px;
+        let target = self.camera.zoomed_around(factor, focus_px, (w as f64, h as f64));
+        self.ease_to(target, duration);
+    }
+
     pub fn ease_to(&mut self, target: Camera, duration: Duration) {
-        self.animation = Some(CameraAnimation::new(self.camera, target, duration));
+        self.active = Some(ActiveAnim::Ease(CameraAnimation::new(
+            self.camera,
+            target,
+            duration,
+        )));
     }
 
     pub fn tick(&mut self, now: Instant) -> bool {
-        if let Some(anim) = self.animation {
+        if let Some(anim) = self.active {
             self.camera = anim.sample(now);
             self.sync_scenes();
             if anim.is_finished(now) {
-                self.animation = None;
+                self.active = None;
                 return false;
             }
             return true;
@@ -556,7 +769,7 @@ impl Map {
     }
 
     pub fn is_animating(&self) -> bool {
-        if self.animation.is_some() {
+        if self.active.is_some() {
             return true;
         }
         // Any layer with a fading tile keeps the animation flag set.
@@ -684,18 +897,20 @@ impl Map {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn ingest_vector_mesh(
         &mut self,
         layer_id: &str,
         tile: TileId,
         mesh: &Mesh,
         labels: Vec<LabelRequest>,
+        icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
     ) {
         for l in &mut self.layers {
             if let LayerEntry::Vector(v) = l {
                 if v.id == layer_id {
-                    v.cache.insert(tile, mesh, labels, interactive);
+                    v.cache.insert(tile, mesh, labels, icons, interactive);
                     v.scene.ingest(tile);
                     return;
                 }
@@ -717,7 +932,14 @@ impl Map {
             return;
         };
         let out = tessellate::tessellate(tile_id, tile, &style);
-        self.ingest_vector_mesh(layer_id, tile_id, &out.mesh, out.labels, out.interactive);
+        self.ingest_vector_mesh(
+            layer_id,
+            tile_id,
+            &out.mesh,
+            out.labels,
+            out.icons,
+            out.interactive,
+        );
     }
 
     // ---- layer visibility ---------------------------------------------
@@ -767,6 +989,16 @@ impl Map {
             }
         }
         false
+    }
+
+    // ---- fonts ---------------------------------------------------------
+
+    /// Register a fallback font face (owned bytes) for scripts the bundled
+    /// default doesn't cover (CJK, Arabic, …). Returns `false` if the bytes
+    /// don't parse. Faces added earlier win where they have coverage, so
+    /// the bundled Latin face is always preferred for Latin text.
+    pub fn add_fallback_font(&mut self, bytes: Vec<u8>) -> bool {
+        self.text_pipeline.add_fallback_face(bytes)
     }
 
     // ---- markers -------------------------------------------------------
@@ -892,11 +1124,17 @@ impl Map {
             ts.try_drain();
             ts.begin(encoder);
         }
-        // 1. Each layer renders its geometry in order. The first
-        //    *visible* layer clears the target; later visible layers
-        //    blend on top. Hidden layers are skipped entirely so the
-        //    UI can isolate one layer for debugging without affecting
-        //    the clear semantics.
+        // The frame is recorded as exactly ONE render pass — on
+        // tile-based mobile GPUs every extra pass costs a full
+        // framebuffer load/store. Three phases:
+        //   A. prepare: every visible layer (in order) does its CPU
+        //      work — uniform/instance uploads, batch building, LRU
+        //      touches — and returns a draw list.
+        //   B. pick the frame clear colour (replicating the old
+        //      "first visible layer clears" semantics).
+        //   C. begin the single pass and replay the prepared draw
+        //      lists in order: layer geometry, then text per visible
+        //      vector layer, then markers.
         //
         // Compute the metres-to-world conversion for vertex
         // displacement now so hillshade (and future terrain consumers)
@@ -934,41 +1172,59 @@ impl Map {
                 .unwrap_or(0),
         };
         let first_visible = self.first_visible_layer_index();
+
+        // ---- Phase A: prepare ------------------------------------
         // Split-borrow the parts we need so the loop can mutably
         // borrow `self.layers` while still passing references into
-        // `self.terrain` and `self.terrain_shared.placeholder_bind_group`.
-        let placeholder_dem = &self.terrain_shared.placeholder_bind_group;
-        let terrain_for_loop = self.terrain.as_mut();
-        // Convert to Option<&mut Terrain> we can `take` on a per-
-        // pipeline basis via reborrow.
-        let mut terrain_cell = terrain_for_loop;
+        // `self.terrain`. `terrain_cell` is an Option<&mut Terrain>
+        // we reborrow on a per-pipeline basis.
+        let mut terrain_cell = self.terrain.as_mut();
+        let mut prepared_layers: Vec<(usize, PreparedLayer)> =
+            Vec::with_capacity(self.layers.len());
+        // One prepared text item per *visible vector layer*, in layer
+        // order — preserving the old one-text-pass-per-vector-layer
+        // semantics (per-layer label collision sets).
+        let mut prepared_text: Vec<PreparedText> = Vec::new();
+        let mut prepared_icons: Vec<PreparedIcons> = Vec::new();
+        self.text_pipeline.begin_frame();
+        self.icon_pipeline.begin_frame();
         for (i, layer) in self.layers.iter_mut().enumerate() {
-            let is_first = Some(i) == first_visible;
             match layer {
                 LayerEntry::Raster(r) if r.visible => {
-                    r.pipeline.render(
+                    let p = r.pipeline.prepare(
                         &r.scene,
                         &mut r.cache,
                         terrain_cell.as_deref_mut().map(|t| &mut t.cache),
-                        placeholder_dem,
                         raster_terrain_cfg,
-                        encoder,
-                        target,
-                        &self.depth_view,
                         r.fade_in_secs,
-                        is_first,
                     );
+                    prepared_layers.push((i, PreparedLayer::Raster(p)));
                 }
                 LayerEntry::Vector(v) if v.visible => {
-                    v.pipeline.render(
+                    let p = v.pipeline.prepare(
                         &v.scene,
                         &mut v.cache,
-                        encoder,
-                        target,
-                        srgb_color_to_linear_f32(v.style.background),
                         v.fade_in_secs,
-                        is_first,
+                        v.paint_override,
+                        v.dash,
+                        v.width_scale,
                     );
+                    prepared_layers.push((i, PreparedLayer::Vector(p)));
+                    // Labels come from visible vector layers only —
+                    // text on top of a hidden vector layer would look
+                    // orphaned. Text runs *before* icons so a POI marker's
+                    // dot can be gated on its label surviving collision (dot
+                    // + label cull as a unit).
+                    prepared_text.push(self.text_pipeline.prepare(
+                        &v.scene,
+                        &mut v.cache,
+                        self.options.pixel_ratio,
+                    ));
+                    prepared_icons.push(self.icon_pipeline.prepare(
+                        &v.scene,
+                        &mut v.cache,
+                        self.text_pipeline.placed_marker_anchors(),
+                    ));
                 }
                 LayerEntry::Hillshade(h) if h.visible => {
                     // Hillshade reads from the shared TerrainCache.
@@ -979,59 +1235,127 @@ impl Map {
                     // `self.terrain` again (which the loop has
                     // mutably borrowed for the whole iteration).
                     if let Some(t) = terrain_cell.as_deref_mut() {
-                        h.pipeline.render(
+                        let p = h.pipeline.prepare(
                             &t.scene,
                             &mut t.cache,
                             h.style,
-                            encoder,
-                            target,
-                            &self.depth_view,
                             h.fade_in_secs,
-                            is_first,
                             meters_to_world,
                         );
+                        prepared_layers.push((i, PreparedLayer::Hillshade(p)));
                     }
                 }
                 _ => {}
             }
         }
+        self.text_pipeline.finish_frame();
+        self.icon_pipeline.finish_frame();
 
-        // 2. Single text pass aggregating labels from visible vector
-        //    layers only — text on top of a hidden vector layer would
-        //    look orphaned.
-        for layer in self.layers.iter_mut() {
-            if let LayerEntry::Vector(v) = layer {
-                if v.visible {
-                    self.text_pipeline
-                        .render(&v.scene, &mut v.cache, encoder, target);
-                }
-            }
-        }
-
-        // 3. Markers last.
-        if !self.markers.is_empty() {
-            // Use the first layer's scene as the camera/viewport source —
-            // any layer works since they all sync from the Map.
-            // Pick any scene that's around — they all sync from the
-            // same camera. Prefer the first raster/vector layer (they
-            // have their own scenes); fall back to terrain; otherwise
-            // build a one-off from the Map's state.
+        // Markers last. Pick any scene that's around — they all sync
+        // from the same camera. Prefer the first raster/vector layer
+        // (they have their own scenes); fall back to terrain;
+        // otherwise build a one-off from the Map's state.
+        let prepared_markers = if self.markers.is_empty() {
+            None
+        } else {
             let scene_from_layer = self.layers.iter().find_map(|l| match l {
                 LayerEntry::Raster(r) => Some(&r.scene),
                 LayerEntry::Vector(v) => Some(&v.scene),
                 LayerEntry::Hillshade(_) => None,
             });
-            if let Some(scene) = scene_from_layer {
-                self.marker_pipeline
-                    .render(scene, &self.markers, encoder, target);
+            let p = if let Some(scene) = scene_from_layer {
+                self.marker_pipeline.prepare(scene, &self.markers)
             } else if let Some(t) = self.terrain.as_ref() {
-                self.marker_pipeline
-                    .render(&t.scene, &self.markers, encoder, target);
+                self.marker_pipeline.prepare(&t.scene, &self.markers)
             } else {
                 // No layers — build a one-off Scene from the Map's state.
                 let scene = Scene::with_margin(self.camera, self.viewport_px, 0, 22, 0);
-                self.marker_pipeline
-                    .render(&scene, &self.markers, encoder, target);
+                self.marker_pipeline.prepare(&scene, &self.markers)
+            };
+            Some(p)
+        };
+
+        // ---- Phase B: frame clear colour -------------------------
+        // Replicates the old "first visible layer clears" semantics:
+        // a vector layer clears to its style background; raster and
+        // hillshade (and an empty layer stack) clear to the shared
+        // backdrop colour.
+        let clear = match first_visible.map(|i| &self.layers[i]) {
+            Some(LayerEntry::Vector(v)) => {
+                let c = srgb_color_to_linear_f32(v.style.background);
+                wgpu::Color {
+                    r: c[0] as f64,
+                    g: c[1] as f64,
+                    b: c[2] as f64,
+                    a: c[3] as f64,
+                }
+            }
+            _ => BACKGROUND_CLEAR,
+        };
+
+        // ---- Phase C: the single render pass ---------------------
+        {
+            let terrain_cache = self.terrain.as_ref().map(|t| &t.cache);
+            let placeholder_dem = &self.terrain_shared.placeholder_bind_group;
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("turbomap-frame-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    // Render multisampled, then resolve down to the surface.
+                    view: &self.msaa_color_view,
+                    resolve_target: Some(target),
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear),
+                        // The multisampled buffer is transient — we only keep
+                        // the resolved surface, so it needn't be stored.
+                        store: wgpu::StoreOp::Discard,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            for (i, prepared) in &prepared_layers {
+                match (&self.layers[*i], prepared) {
+                    (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
+                        r.pipeline
+                            .draw(p, &r.cache, terrain_cache, placeholder_dem, &mut pass);
+                    }
+                    (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
+                        v.pipeline.draw(p, &v.cache, &mut pass);
+                    }
+                    (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
+                        if let Some(tc) = terrain_cache {
+                            h.pipeline.draw(p, tc, &mut pass);
+                        }
+                    }
+                    // prepare tagged each item with its own layer's
+                    // index, and `self.layers` is not mutated between
+                    // the phases.
+                    _ => unreachable!("prepared layer kind mismatch"),
+                }
+            }
+
+            // Icons under labels, so a name centred on a shield reads on top.
+            for p in &prepared_icons {
+                self.icon_pipeline.draw(p, &mut pass);
+            }
+
+            for p in &prepared_text {
+                self.text_pipeline.draw(p, &mut pass);
+            }
+
+            if let Some(p) = &prepared_markers {
+                self.marker_pipeline.draw(p, &mut pass);
             }
         }
 
@@ -1138,20 +1462,9 @@ pub struct FrameMetrics {
 }
 
 fn srgb_color_to_linear_f32(c: Color) -> [f32; 4] {
-    fn to_linear(u: u8) -> f32 {
-        let s = u as f32 / 255.0;
-        if s <= 0.04045 {
-            s / 12.92
-        } else {
-            ((s + 0.055) / 1.055).powf(2.4)
-        }
-    }
-    [
-        to_linear(c.r),
-        to_linear(c.g),
-        to_linear(c.b),
-        c.a as f32 / 255.0,
-    ]
+    // Canonical decode lives on Color; backgrounds use the same contract
+    // as vertex/text/marker colours.
+    c.to_linear_f32()
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -140,12 +142,14 @@ private fun RailButton(
     rotation: Float = 0f,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = if (active) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 3.dp,
         onClick = onClick,
-        modifier = Modifier.size(52.dp),
+        interactionSource = interactionSource,
+        modifier = Modifier.size(52.dp).pressScale(interactionSource),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
@@ -168,11 +172,13 @@ fun IconBtn(
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onClick: () -> Unit = {},
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Surface(
         shape = CircleShape,
         color = Color.Transparent,
         onClick = onClick,
-        modifier = modifier.size(size),
+        interactionSource = interactionSource,
+        modifier = modifier.size(size).pressScale(interactionSource),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, desc, tint = tint, modifier = Modifier.size(24.dp))

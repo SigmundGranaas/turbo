@@ -59,6 +59,31 @@ def post(path: str, body: dict, timeout=60) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def interp_nan(distances: list[float], elev: list[float]) -> list[float]:
+    """Linear-interpolate over NaN runs in an elevation profile (so
+    per-segment slope math doesn't propagate NaN endlessly). Fully
+    nodata samples become 0.0 (sea-level). Mutates and returns `elev`."""
+    n = len(elev)
+    for i in range(n):
+        if math.isnan(elev[i]):
+            j = i
+            while j > 0 and math.isnan(elev[j]):
+                j -= 1
+            k = i
+            while k < n - 1 and math.isnan(elev[k]):
+                k += 1
+            if math.isnan(elev[j]) and math.isnan(elev[k]):
+                elev[i] = 0.0
+            elif math.isnan(elev[j]):
+                elev[i] = elev[k]
+            elif math.isnan(elev[k]):
+                elev[i] = elev[j]
+            else:
+                t = (distances[i] - distances[j]) / max(1.0, distances[k] - distances[j])
+                elev[i] = elev[j] + t * (elev[k] - elev[j])
+    return elev
+
+
 def fetch_elev_profile(polyline: list[list[float]]) -> tuple[list[float], list[float]]:
     """Return (distances_m, elev_m) along the polyline. Distances are
     cumulative arc-length in EPSG:25833 metres; elev is metres above
@@ -70,30 +95,8 @@ def fetch_elev_profile(polyline: list[list[float]]) -> tuple[list[float], list[f
     body = {"line": polyline, "samples": nsamp}
     r = post("/v1/elev/profile", body)
     distances = list(r["distances_m"])
-    elev_raw = r["elev_m"]
-    elev = [e if e is not None else math.nan for e in elev_raw]
-    # Linear interpolate over NaN runs (so per-segment slope math
-    # doesn't propagate NaN endlessly).
-    n = len(elev)
-    for i in range(n):
-        if math.isnan(elev[i]):
-            # Find left non-nan
-            j = i
-            while j > 0 and math.isnan(elev[j]):
-                j -= 1
-            k = i
-            while k < n - 1 and math.isnan(elev[k]):
-                k += 1
-            if math.isnan(elev[j]) and math.isnan(elev[k]):
-                elev[i] = 0.0  # fully nodata; treat as sea-level
-            elif math.isnan(elev[j]):
-                elev[i] = elev[k]
-            elif math.isnan(elev[k]):
-                elev[i] = elev[j]
-            else:
-                t = (distances[i] - distances[j]) / max(1.0, distances[k] - distances[j])
-                elev[i] = elev[j] + t * (elev[k] - elev[j])
-    return distances, elev
+    elev = [e if e is not None else math.nan for e in r["elev_m"]]
+    return distances, interp_nan(distances, elev)
 
 
 def fetch_solver_path(from_pt, to_pt, cost_mode: str = "fast_marching",
@@ -167,19 +170,39 @@ def elev_gain_loss(distances, elev):
     return gain, loss
 
 
+SUSTAINED_WINDOW_M = 60.0
+
+
 def slope_stats(distances, elev):
-    """Return (max_slope_deg, length_weighted_mean_slope_deg)."""
+    """Return (max_sustained_slope_deg, length_weighted_mean_slope_deg).
+
+    Max slope is measured over a rolling ~60 m arc window (3 segments at
+    the 20 m profile spacing), not per ~20 m segment: single-segment max
+    is hypersensitive to sampling phase and to switchback hairpins /
+    smoothing artifacts (a hairpin tighter than the sampling reads as
+    one near-fall-line segment), while the sustained pitch over 60 m is
+    what a hiker actually experiences. Truth and solver polylines get
+    the identical treatment."""
     max_s = 0.0
     sum_w = 0.0
     sum_ws = 0.0
-    for i in range(1, len(elev)):
+    n = len(elev)
+    for i in range(1, n):
         ds = max(0.1, distances[i] - distances[i - 1])
         de = abs(elev[i] - elev[i - 1])
         slope_deg = math.degrees(math.atan2(de, ds))
-        max_s = max(max_s, slope_deg)
         sum_w += ds
         sum_ws += ds * slope_deg
     mean_s = sum_ws / max(1.0, sum_w)
+    j = 0
+    for i in range(1, n):
+        # Smallest window ending at i that spans >= SUSTAINED_WINDOW_M
+        # (falls back to a single segment when sampling is coarser).
+        while j < i - 1 and distances[i] - distances[j + 1] >= SUSTAINED_WINDOW_M:
+            j += 1
+        ds = max(0.1, distances[i] - distances[j])
+        de = abs(elev[i] - elev[j])
+        max_s = max(max_s, math.degrees(math.atan2(de, ds)))
     return max_s, mean_s
 
 
@@ -220,8 +243,13 @@ def discrete_frechet(p, q):
     # ends at p[i], q[j]. Iterative DP.
     ca = [[-1.0] * m for _ in range(n)]
     def d(a, b):
-        dx = (a[0] - b[0]) * 55.0
-        dy = (a[1] - b[1]) * 111.0
+        # Degrees -> METRES at ~60N (1 deg lat = 111 km, 1 deg lon = 55 km).
+        # Was *55.0/*111.0 (kilometres) while the caller stores the result
+        # as frechet_m and normalises by truth length in METRES — a 1000x
+        # unit bug that left the frechet component pinned at ~100 (inert)
+        # for every hike since the harness was written.
+        dx = (a[0] - b[0]) * 55_000.0
+        dy = (a[1] - b[1]) * 111_000.0
         return math.hypot(dx, dy)
     ca[0][0] = d(p[0], q[0])
     for i in range(1, n):
@@ -237,12 +265,15 @@ def discrete_frechet(p, q):
 
 # ----- Per-hike pipeline -------------------------------------------
 
-def analyse_polyline(poly):
-    """Compute the metric battery for one polyline using DEM-driven
-    elevation profile."""
-    if len(poly) < 2:
+def metrics_from_profile(distances, elev_raw):
+    """Compute the metric battery from a precomputed elevation profile.
+    `elev_raw` may contain None (nodata) — interpolated like the HTTP
+    path. Shared by the online (`analyse_polyline`) and offline
+    (`eval-terrain` JSON) pipelines so scoring is identical."""
+    if not distances or len(distances) < 2:
         return None
-    distances, elev = fetch_elev_profile(poly)
+    elev = [e if e is not None else math.nan for e in elev_raw]
+    interp_nan(distances, elev)
     gain, loss = elev_gain_loss(distances, elev)
     max_s, mean_s = slope_stats(distances, elev)
     fall_pct, fall_len = fall_line_pct(distances, elev)
@@ -255,6 +286,15 @@ def analyse_polyline(poly):
         "mean_slope_deg": round(mean_s, 2),
         "fall_line_pct": round(fall_pct, 1),
     }
+
+
+def analyse_polyline(poly):
+    """Compute the metric battery for one polyline using DEM-driven
+    elevation profile (HTTP path)."""
+    if len(poly) < 2:
+        return None
+    distances, elev = fetch_elev_profile(poly)
+    return metrics_from_profile(distances, elev)
 
 
 def score_hike(truth: dict, solver: dict, frechet_m: float) -> tuple[float, dict]:
@@ -336,8 +376,20 @@ def main():
                          "actually measures terrain decision-making — the "
                          "corpus endpoints are sti nodes, so prod-default just "
                          "retraces the ground-truth trail (score ~100).")
+    ap.add_argument("--offline", default=None, metavar="DIR",
+                    help="Score the per-hike JSON emitted by "
+                         "`tileserver eval-terrain` in DIR instead of calling "
+                         "the HTTP server. Fully offline + deterministic — the "
+                         "autonomous routing dev loop. Uses the SAME scoring "
+                         "formula as the HTTP path.")
     args = ap.parse_args()
     override = json.loads(args.override_json) if args.override_json else None
+
+    # Offline mode: no server, no corpus fetch — re-score eval-terrain
+    # output and exit.
+    if args.offline:
+        run_offline(Path(args.offline), Path(args.out))
+        return
 
     corpus_path = Path(args.corpus)
     if not corpus_path.is_absolute():
@@ -405,26 +457,74 @@ def main():
         rows.append(row)
         (out_dir / f"{name}.json").write_text(json.dumps(row, indent=2))
 
-    # Corpus aggregate.
-    if rows:
-        avg_score = sum(r["score"] for r in rows) / len(rows)
-        print(f"\nCorpus average composite score: {avg_score:.1f}")
-        print(f"Median: {sorted(r['score'] for r in rows)[len(rows)//2]}")
-        for k in ("gain", "slope", "fall_line", "length", "frechet"):
-            mean = sum(r["components"][k] for r in rows) / len(rows)
-            print(f"  {k:>10s}: {mean:.1f}")
-        # Strategy mix: how many hikes the router solved on-graph
-        # (retraced an existing trail) vs fell to the off-trail solver.
-        from collections import Counter
-        strat_mix = Counter(r.get("strategy") or "?" for r in rows)
-        print(f"  strategy mix: {dict(strat_mix)}")
-        for strat in sorted(strat_mix):
-            sub = [r for r in rows if (r.get("strategy") or "?") == strat]
-            avg = sum(r["score"] for r in sub) / len(sub)
-            print(f"    {strat:>10s}: n={len(sub)} avg_score={avg:.1f}")
-        (out_dir / "_summary.json").write_text(json.dumps({
-            "rows": rows, "avg_score": avg_score, "solver": args.solver
-        }, indent=2))
+    aggregate(rows, out_dir, args.solver)
+
+
+def aggregate(rows, out_dir, solver_label):
+    """Print the corpus aggregate and write `_summary.json`. Shared by
+    the online (HTTP) and offline (eval-terrain JSON) pipelines."""
+    if not rows:
+        print("\nNo scored hikes.")
+        return
+    avg_score = sum(r["score"] for r in rows) / len(rows)
+    print(f"\nCorpus average composite score: {avg_score:.1f}")
+    print(f"Median: {sorted(r['score'] for r in rows)[len(rows)//2]}")
+    for k in ("gain", "slope", "fall_line", "length", "frechet"):
+        mean = sum(r["components"][k] for r in rows) / len(rows)
+        print(f"  {k:>10s}: {mean:.1f}")
+    # Strategy mix: how many hikes solved on-graph (retraced an existing
+    # trail) vs fell to the off-trail solver.
+    from collections import Counter
+    strat_mix = Counter(r.get("strategy") or "?" for r in rows)
+    print(f"  strategy mix: {dict(strat_mix)}")
+    for strat in sorted(strat_mix):
+        sub = [r for r in rows if (r.get("strategy") or "?") == strat]
+        avg = sum(r["score"] for r in sub) / len(sub)
+        print(f"    {strat:>10s}: n={len(sub)} avg_score={avg:.1f}")
+    (out_dir / "_summary.json").write_text(json.dumps({
+        "rows": rows, "avg_score": avg_score, "solver": solver_label
+    }, indent=2))
+
+
+def run_offline(in_dir: Path, out_dir: Path):
+    """Score the per-hike JSON emitted by `tileserver eval-terrain`,
+    reusing the EXACT scoring formula — no HTTP, no server. Each input
+    file already carries truth + solver polylines with their elevation
+    profiles, so this is a pure, deterministic re-score."""
+    files = sorted(p for p in in_dir.glob("*.json") if not p.name.startswith("_"))
+    print(f"Offline scoring {len(files)} hikes from {in_dir}")
+    rows = []
+    for path in files:
+        d = json.loads(path.read_text())
+        name = f"{d['region']}-{d['id']}"
+        truth = metrics_from_profile(d["truth"]["distances_m"], d["truth"]["elev_m"])
+        if truth is None:
+            print(f"{name}: skip (no truth profile)")
+            continue
+        if not d.get("ok") or len(d["solver"]["polyline"]) < 2:
+            print(f"{name}: solver failed ({d.get('error')})")
+            continue
+        solv = metrics_from_profile(d["solver"]["distances_m"], d["solver"]["elev_m"])
+        if solv is None:
+            print(f"{name}: solver geom too short")
+            continue
+        frechet_m = discrete_frechet(d["truth"]["polyline"], d["solver"]["polyline"])
+        score, parts = score_hike(truth, solv, frechet_m)
+        strat = d.get("strategy") or "?"
+        print(f"{name}: score={score} [{strat}] (gain={parts['gain']} slope={parts['slope']} "
+              f"fall={parts['fall_line']} len={parts['length']} frechet={parts['frechet']}) "
+              f"{d.get('solve_ms', 0):.0f}ms")
+        rows.append({
+            "name": name, "id": d["id"], "region": d["region"],
+            "truth": truth, "solver": solv,
+            "frechet_m": round(frechet_m, 1),
+            "score": score, "components": parts,
+            "strategy": d.get("strategy"),
+            "geometry_hash": d.get("geometry_hash"),
+            "solve_ms": d.get("solve_ms"),
+        })
+    out_dir.mkdir(parents=True, exist_ok=True)
+    aggregate(rows, out_dir, "offline")
 
 
 if __name__ == "__main__":

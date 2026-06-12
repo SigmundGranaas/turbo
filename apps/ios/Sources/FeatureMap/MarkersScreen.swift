@@ -9,13 +9,19 @@ public struct MarkersScreen: View {
     @State private var viewModel: MarkersViewModel
     private let makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)?
     private let shareResource: ((String) async -> URL?)?
+    private let makeWeather: ((LatLng) -> WeatherViewModel)?
+    private let makeAvalanche: ((LatLng) -> AvalancheViewModel)?
 
     public init(viewModel: MarkersViewModel,
                 makePhotosViewModel: ((Marker) -> MarkerPhotosViewModel)? = nil,
-                shareResource: ((String) async -> URL?)? = nil) {
+                shareResource: ((String) async -> URL?)? = nil,
+                makeWeather: ((LatLng) -> WeatherViewModel)? = nil,
+                makeAvalanche: ((LatLng) -> AvalancheViewModel)? = nil) {
         _viewModel = State(initialValue: viewModel)
         self.makePhotosViewModel = makePhotosViewModel
         self.shareResource = shareResource
+        self.makeWeather = makeWeather
+        self.makeAvalanche = makeAvalanche
     }
 
     public var body: some View {
@@ -48,7 +54,9 @@ public struct MarkersScreen: View {
                 marker: marker,
                 onDelete: { viewModel.delete(id: marker.id) },
                 makePhotos: makePhotosViewModel.map { f in { f(marker) } },
-                shareResource: shareResource
+                shareResource: shareResource,
+                makeWeather: makeWeather,
+                makeAvalanche: makeAvalanche
             )
         }
         .task { viewModel.start() }

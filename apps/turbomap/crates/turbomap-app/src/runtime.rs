@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use crossbeam_channel::{Receiver, Sender};
 use turbomap_core::{
-    tessellate, InteractiveFeature, LabelRequest, Mesh, TileId, TileSource, VectorStyle,
-    VectorTileSource,
+    tessellate, IconRequest, InteractiveFeature, LabelRequest, Mesh, TileId, TileSource,
+    VectorStyle, VectorTileSource,
 };
 
 pub enum VectorOutcome {
@@ -16,6 +16,7 @@ pub enum VectorOutcome {
         id: TileId,
         mesh: Mesh,
         labels: Vec<LabelRequest>,
+        icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
     },
     Failed(TileId),
@@ -72,6 +73,7 @@ impl VectorFetchPump {
                     id,
                     mesh: out.mesh,
                     labels: out.labels,
+                    icons: out.icons,
                     interactive: out.interactive,
                 });
             }

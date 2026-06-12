@@ -442,6 +442,10 @@ fn sanitise_filename(name: &str) -> String {
     }
 }
 
+// `statvfs.f_bavail` is `u32` on macOS but `u64` on Linux, so `u64::from`
+// is meaningful on macOS yet a no-op on Linux — where clippy then fires
+// `useless_conversion`. Allow it so the one cast stays portable across both.
+#[allow(clippy::useless_conversion)]
 fn free_disk_bytes(path: &Path) -> Option<u64> {
     // statvfs() via libc. Skip on platforms without it (we only ever
     // run Linux containers, so this is fine).

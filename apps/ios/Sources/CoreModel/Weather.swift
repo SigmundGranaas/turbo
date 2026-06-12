@@ -47,15 +47,21 @@ public struct WeatherSummary: Hashable, Sendable {
     public let summary: String
     public let hourly: [HourForecast]
     public let daily: [DayForecast]
+    /// Wind at the location, when available (real met.no instant details).
+    public let windSpeedMps: Double?
+    public let windFromDegrees: Double?
 
     public init(placeName: String, temperatureC: Double, symbol: WeatherSymbolKind, summary: String,
-                hourly: [HourForecast], daily: [DayForecast]) {
+                hourly: [HourForecast], daily: [DayForecast],
+                windSpeedMps: Double? = nil, windFromDegrees: Double? = nil) {
         self.placeName = placeName
         self.temperatureC = temperatureC
         self.symbol = symbol
         self.summary = summary
         self.hourly = hourly
         self.daily = daily
+        self.windSpeedMps = windSpeedMps
+        self.windFromDegrees = windFromDegrees
     }
 
     /// `"−3°"` — rounded, with a real minus sign.

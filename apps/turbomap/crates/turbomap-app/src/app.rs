@@ -785,15 +785,15 @@ fn encode_frame_dump(
         mapped_at_creation: false,
     });
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: src,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bytes_per_row),
                 rows_per_image: Some(height),
@@ -830,7 +830,7 @@ fn save_dump_to_png(
     // ones the render loop hasn't sent yet.
     let started = std::time::Instant::now();
     loop {
-        device.poll(wgpu::Maintain::Poll);
+        let _ = device.poll(wgpu::PollType::Poll);
         if let Ok(Ok(())) = rx.recv_timeout(std::time::Duration::from_millis(10)) {
             break;
         }
@@ -973,6 +973,14 @@ fn versatiles_demo_style() -> VectorStyle {
                     text_field: "name".into(),
                     font_size_px: 18.0,
                     color: Color::rgb(0x33, 0x33, 0x33),
+                    halo_color: Color::rgb(0xff, 0xff, 0xff),
+                    halo_width: 1.0,
+                    rank_field: None,
+                    along_line: false,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 1.3,
                 },
                 min_zoom: 2,
                 max_zoom: 6,
@@ -985,6 +993,14 @@ fn versatiles_demo_style() -> VectorStyle {
                     text_field: "name".into(),
                     font_size_px: 14.0,
                     color: Color::rgb(0x44, 0x44, 0x44),
+                    halo_color: Color::rgb(0xff, 0xff, 0xff),
+                    halo_width: 1.0,
+                    rank_field: None,
+                    along_line: false,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 1.3,
                 },
                 min_zoom: 4,
                 max_zoom: 8,
@@ -997,6 +1013,14 @@ fn versatiles_demo_style() -> VectorStyle {
                     text_field: "name".into(),
                     font_size_px: 15.0,
                     color: Color::rgb(0x22, 0x22, 0x22),
+                    halo_color: Color::rgb(0xff, 0xff, 0xff),
+                    halo_width: 1.0,
+                    rank_field: None,
+                    along_line: false,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 1.3,
                 },
                 min_zoom: 6,
                 max_zoom: 14,
@@ -1009,6 +1033,14 @@ fn versatiles_demo_style() -> VectorStyle {
                     text_field: "name".into(),
                     font_size_px: 12.0,
                     color: Color::rgb(0x33, 0x33, 0x33),
+                    halo_color: Color::rgb(0xff, 0xff, 0xff),
+                    halo_width: 1.0,
+                    rank_field: None,
+                    along_line: false,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 1.3,
                 },
                 min_zoom: 9,
                 max_zoom: 14,
@@ -1024,6 +1056,14 @@ fn versatiles_demo_style() -> VectorStyle {
                     text_field: "name".into(),
                     font_size_px: 11.0,
                     color: Color::rgb(0x44, 0x44, 0x44),
+                    halo_color: Color::rgb(0xff, 0xff, 0xff),
+                    halo_width: 1.0,
+                    rank_field: None,
+                    along_line: false,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 1.3,
                 },
                 min_zoom: 12,
                 max_zoom: 14,
@@ -1038,6 +1078,14 @@ fn versatiles_demo_style() -> VectorStyle {
                     text_field: "name".into(),
                     font_size_px: 10.0,
                     color: Color::rgb(0x55, 0x55, 0x55),
+                    halo_color: Color::rgb(0xff, 0xff, 0xff),
+                    halo_width: 1.0,
+                    rank_field: None,
+                    along_line: false,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 0.7,
                 },
                 min_zoom: 14,
                 max_zoom: 22,

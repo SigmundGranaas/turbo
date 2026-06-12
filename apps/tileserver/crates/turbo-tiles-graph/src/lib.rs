@@ -668,6 +668,45 @@ impl Graph {
     /// Used by `TrailProximityLayer` (in `turbo-tiles-pathfind`) to
     /// build a spatial index over the trail network so the off-
     /// trail solver can bias cells toward existing trails.
+    /// Like [`Self::collect_segments_with_fkb_types`], but follows each
+    /// edge's POLYLINE (decimated to ~`step_m` arc steps) instead of the
+    /// straight from→to chord. A chord-based set silently misplaces
+    /// curvy trails by hundreds of metres — anything measuring "distance
+    /// to the trail" (proximity attractors) must use this variant or it
+    /// attracts routes to phantom lines. Falls back to the chord when
+    /// the geom sidecar is absent (edge_polyline degrades to endpoints).
+    pub fn collect_polyline_segments_with_fkb_types(
+        &self,
+        kinds: &[u8],
+        step_m: f32,
+    ) -> Vec<((f32, f32), (f32, f32))> {
+        let mut out: Vec<((f32, f32), (f32, f32))> = Vec::new();
+        for (eid, e) in self.edges.iter().enumerate() {
+            if !(kinds.is_empty() || kinds.contains(&e.fkb_type)) {
+                continue;
+            }
+            let poly = self.edge_polyline(eid as u32);
+            if poly.len() < 2 {
+                continue;
+            }
+            let mut anchor = poly[0];
+            let mut acc = 0.0f32;
+            for w in poly.windows(2) {
+                acc += (w[1].x - w[0].x).hypot(w[1].y - w[0].y);
+                if acc >= step_m {
+                    out.push(((anchor.x, anchor.y), (w[1].x, w[1].y)));
+                    anchor = w[1];
+                    acc = 0.0;
+                }
+            }
+            if acc > 0.0 {
+                let last = poly[poly.len() - 1];
+                out.push(((anchor.x, anchor.y), (last.x, last.y)));
+            }
+        }
+        out
+    }
+
     pub fn collect_segments_with_fkb_types(&self, kinds: &[u8]) -> Vec<((f32, f32), (f32, f32))> {
         self.edges
             .iter()

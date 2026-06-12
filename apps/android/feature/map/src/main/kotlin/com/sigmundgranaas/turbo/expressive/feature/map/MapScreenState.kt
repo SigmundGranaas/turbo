@@ -3,12 +3,14 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelectionState
+import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
@@ -30,6 +32,9 @@ class MapScreenState {
     // ── Camera / map handle ──
     var controller by mutableStateOf<MapController?>(null)
     var bearing by mutableFloatStateOf(0f)
+    /** Bumped on every camera-idle so on-map chrome that reads the camera (e.g. the
+     *  offline-coverage chip) recomposes after a pan/zoom, not just on rotation. */
+    var cameraIdleTick by mutableIntStateOf(0)
     /** A saved track opened on the map ("Show on map") — drawn + selected. */
     var displayedTrack by mutableStateOf<List<LatLng>?>(null)
 
@@ -42,6 +47,8 @@ class MapScreenState {
     // ── Layers / overlays ──
     var showLayers by mutableStateOf(false)
     var activeOverlays by mutableStateOf<Set<OverlayId>>(emptySet())
+    /** The captured viewport awaiting the "download this area" size-confirm dialog. */
+    var pendingDownloadArea by mutableStateOf<PendingDownloadArea?>(null)
 
     // ── Create-track tool (one tool, three modes); null = closed ──
     var trackMode by mutableStateOf<TrackMode?>(null)
@@ -73,7 +80,14 @@ class MapScreenState {
     var openCluster by mutableStateOf<PhotoCluster?>(null)
     var viewerStart by mutableStateOf(-1)
     var pendingPhotoAt by mutableStateOf<LatLng?>(null)
+
+    // Marker whose "Add photo" action was tapped → opens the camera/gallery chooser.
+    var addPhotoForMarker by mutableStateOf<Marker?>(null)
 }
+
+/** The viewport captured when the user taps "Download this area", held until they
+ *  confirm the size in [com.sigmundgranaas.turbo.expressive.feature.offline.DownloadAreaDialog]. */
+data class PendingDownloadArea(val bounds: GeoBounds, val centre: LatLng, val zoom: Double)
 
 @Composable
 internal fun rememberMapScreenState(): MapScreenState = remember { MapScreenState() }

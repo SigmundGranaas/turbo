@@ -1,6 +1,11 @@
 package com.sigmundgranaas.turbo.expressive.core.map
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,11 +15,15 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -22,11 +31,19 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.ui.components.Cookie
+import com.sigmundgranaas.turbo.expressive.ui.components.pressScale
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 
 /**
@@ -81,35 +98,91 @@ fun MapEntityDetailHost(
 
             if (actions.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
-                // Primary action gets a full-width row so its label never wraps/clips;
-                // the rest spread evenly on a second row (fits any phone width).
-                val primary = actions.first()
-                Button(
-                    onClick = { primary.onInvoke(ctx); state.clear() },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                ) {
-                    Icon(primary.icon, null, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text(primary.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                val secondary = actions.drop(1)
-                if (secondary.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        secondary.forEach { action ->
-                            FilledIconButton(
-                                onClick = { action.onInvoke(ctx); state.clear() },
-                                modifier = Modifier.weight(1f).height(52.dp),
-                                colors = if (action.isDestructive) {
-                                    IconButtonDefaults.filledIconButtonColors(containerColor = cs.errorContainer, contentColor = cs.onErrorContainer)
-                                } else {
-                                    IconButtonDefaults.filledIconButtonColors(containerColor = cs.secondaryContainer, contentColor = cs.onSecondaryContainer)
-                                },
-                            ) { Icon(action.icon, action.label) }
-                        }
+                ActionBar(actions = actions, onInvoke = { it.onInvoke(ctx); state.clear() })
+            }
+        }
+    }
+}
+
+/**
+ * The detail action bar: ONE big expressive primary button (icon + label), ONE
+ * square icon-only quick action, and the rest tucked into an overflow menu (a
+ * list, not strewn across the sheet). Degrades cleanly when there are fewer
+ * actions — primary only, or primary + quick with no overflow.
+ */
+@Composable
+private fun ActionBar(actions: List<MapEntityAction>, onInvoke: (MapEntityAction) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val primary = actions.first()
+        val primarySource = remember { MutableInteractionSource() }
+        Button(
+            onClick = { onInvoke(primary) },
+            interactionSource = primarySource,
+            modifier = Modifier.weight(1f).height(56.dp).staggerIn(0).pressScale(primarySource),
+        ) {
+            Icon(primary.icon, null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.size(8.dp))
+            Text(primary.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+
+        val rest = actions.drop(1)
+        // One square quick action (the next-most-useful verb).
+        rest.firstOrNull()?.let { quick ->
+            val quickSource = remember { MutableInteractionSource() }
+            FilledTonalIconButton(
+                onClick = { onInvoke(quick) },
+                interactionSource = quickSource,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.size(56.dp).staggerIn(1).pressScale(quickSource),
+            ) { Icon(quick.icon, quick.label, modifier = Modifier.size(22.dp)) }
+        }
+
+        // Everything else lives behind an overflow "⋮" → a dropdown list.
+        val overflow = rest.drop(1)
+        if (overflow.isNotEmpty()) {
+            val moreSource = remember { MutableInteractionSource() }
+            var menuOpen by remember { mutableStateOf(false) }
+            Box(Modifier.staggerIn(2)) {
+                FilledTonalIconButton(
+                    onClick = { menuOpen = true },
+                    interactionSource = moreSource,
+                    shape = RoundedCornerShape(18.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = cs.surfaceContainerHighest,
+                        contentColor = cs.onSurface,
+                    ),
+                    modifier = Modifier.size(56.dp).pressScale(moreSource),
+                ) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.me_more_actions), modifier = Modifier.size(22.dp)) }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    overflow.forEach { action ->
+                        val tint = if (action.isDestructive) cs.error else cs.onSurface
+                        DropdownMenuItem(
+                            text = { Text(action.label, color = tint) },
+                            leadingIcon = { Icon(action.icon, null, tint = tint) },
+                            onClick = { menuOpen = false; onInvoke(action) },
+                        )
                     }
                 }
             }
         }
     }
+}
+
+/** Staggered entrance: each action rises + fades in with a per-[index] delay so the
+ *  bar feels alive when the sheet opens. */
+@Composable
+private fun Modifier.staggerIn(index: Int): Modifier {
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val progress by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0f,
+        animationSpec = tween(durationMillis = 300, delayMillis = index * 55, easing = FastOutSlowInEasing),
+        label = "actionStagger",
+    )
+    return this.graphicsLayer { alpha = progress; translationY = (1f - progress) * 14.dp.toPx() }
 }

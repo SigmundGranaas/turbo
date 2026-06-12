@@ -37,6 +37,7 @@ fn routes_around_a_refused_lake_never_entering_it() {
         }
     }
     let cost = GradeLimitedCost {
+        gain_k: 0.0,
         elev,
         base_pace_s_per_m: 0.714,
         off_trail_factor: 1.0,
@@ -110,6 +111,7 @@ fn switchbacks_up_a_steep_ramp_within_grade_cap() {
     let elev = ramp_dem(n, 35.0);
     let shape = GridShape::new_3d(n, n, N_HEADINGS, 0.0, 0.0, cell_m);
     let cost = GradeLimitedCost {
+        gain_k: 0.0,
         elev,
         base_pace_s_per_m: 0.714,
         off_trail_factor: 1.0,
@@ -180,6 +182,7 @@ fn gentle_ramp_goes_roughly_straight() {
     let elev = ramp_dem(n, 10.0);
     let shape = GridShape::new_3d(n, n, N_HEADINGS, 0.0, 0.0, 10.0);
     let cost = GradeLimitedCost {
+        gain_k: 0.0,
         elev,
         base_pace_s_per_m: 0.714,
         off_trail_factor: 1.0,

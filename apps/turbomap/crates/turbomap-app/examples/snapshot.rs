@@ -240,9 +240,10 @@ fn main() {
 
     // Headless wgpu init. PRIMARY backends + LowPower adapter so we get
     // an integrated GPU when available (matches the demo app).
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        ..Default::default()
+    let instance = wgpu::Instance::new({
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        desc.backends = wgpu::Backends::PRIMARY;
+        desc
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
@@ -260,15 +261,14 @@ fn main() {
     // encoder + submit pair) doesn't hit this. GPU-side timing belongs
     // there. CPU time + cache stats are still useful here.
     let features = wgpu::Features::empty();
-    let (device, queue) = pollster::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("snapshot-device"),
             required_features: features,
             required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
             memory_hints: wgpu::MemoryHints::Performance,
-        },
-        None,
-    ))
+            experimental_features: wgpu::ExperimentalFeatures::default(),
+            trace: wgpu::Trace::Off,
+        }))
     .expect("device");
     let device = Arc::new(device);
     let queue = Arc::new(queue);
@@ -379,15 +379,15 @@ fn main() {
         mapped_at_creation: false,
     });
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &target,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: &readback,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bpr),
                 rows_per_image: Some(HEIGHT),
@@ -431,7 +431,7 @@ fn main() {
     // doesn't have a vsync to drive it, so we have to ask Poll.
     let started = std::time::Instant::now();
     loop {
-        device.poll(wgpu::Maintain::Poll);
+        let _ = device.poll(wgpu::PollType::Poll);
         if let Ok(Ok(())) = rx.recv_timeout(Duration::from_millis(10)) {
             break;
         }

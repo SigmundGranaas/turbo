@@ -32,8 +32,7 @@ use turbo_tiles_elev::{wgs84_to_utm33n, Dem, PointXY};
 use turbo_tiles_graph::{Graph, Profile};
 use turbo_tiles_mask::Mask;
 
-use crate::core::off_trail::Point2;
-use crate::core::off_trail_mesh::{CostSample, MeshBbox, RefusedPolygon};
+use crate::core::off_trail_mesh::{CostSample, MeshBbox, Point2, RefusedPolygon};
 use crate::cost::{compose_cell, CostLayer};
 use crate::layers::{
     AvalancheTerrainLayer, DirectionalSlopeLayer, GraphSlopeLayer, MarkingLayer, MaskRefusalLayer,
@@ -949,6 +948,7 @@ impl Pathfinder {
             length_m,
             profile,
             kind: crate::contributor::EdgeKind::Mesh,
+            elev_probe: None,
         };
         let contributors = self.contributors_for_breakdown();
         crate::contributor::compose_edge_walk_seconds(&contributors, &ctx)

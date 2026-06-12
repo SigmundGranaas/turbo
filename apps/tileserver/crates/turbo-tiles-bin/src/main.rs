@@ -4,6 +4,16 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
+mod eval_terrain;
+mod routing_setup;
+
+// Heap profiler (opt-in via `--features dhat-heap`). The global
+// allocator shim records every allocation; the `Profiler` guard created
+// in `main` dumps `dhat-heap.json` + peak/total-bytes stats on exit.
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 use tower_http::services::ServeDir;
 use turbo_tiles_admin::AdminState;
 use turbo_tiles_api::ApiState;
@@ -99,10 +109,50 @@ enum Command {
     },
     /// Apply pending migrations and exit.
     Migrate,
+    /// Headless terrain-corpus evaluation. Loads the production routing
+    /// artifacts + layer stack in-process (no server, no DB), solves
+    /// every ground-truth hike with force-off-trail prefs, and writes
+    /// machine-readable per-hike JSON + a run summary (latency,
+    /// per-route geometry hash). The autonomous routing dev loop.
+    EvalTerrain {
+        /// Corpus TOML of ground-truth hikes.
+        #[arg(long, default_value = "tools/terrain-corpus.toml")]
+        corpus: std::path::PathBuf,
+        /// Directory containing the routing artifacts (norway.*).
+        #[arg(long, env = "TILESERVER_ARTIFACT_DIR")]
+        artifacts_dir: Option<std::path::PathBuf>,
+        /// Output directory for per-hike JSON + `_summary.json`.
+        #[arg(long, default_value = "/tmp/turbo-routing-eval")]
+        out: std::path::PathBuf,
+        /// Only evaluate hikes whose region or id contains this string.
+        #[arg(long)]
+        filter: Option<String>,
+        /// Evaluate at most this many hikes (after filtering).
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Solve the corpus twice and fail if any route's geometry hash
+        /// differs — catches accidental nondeterminism.
+        #[arg(long, default_value_t = false)]
+        check_determinism: bool,
+        /// Which router to exercise: `off-trail` (force-off-trail FMM —
+        /// quality vs ground truth is meaningful) or `unified`
+        /// (production-default prefs — the unified A* users hit;
+        /// geometry/latency/DEM-work regression lane).
+        #[arg(long, default_value = "off-trail")]
+        mode: eval_terrain::EvalMode,
+        /// JSON CostConfigPatch applied to every solve (knob sweeps),
+        /// e.g. '{"grade_limited_max_grade_deg": 18.0}'.
+        #[arg(long)]
+        override_json: Option<String>,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Held for the whole process; dumps the heap profile on drop.
+    #[cfg(feature = "dhat-heap")]
+    let _dhat = dhat::Profiler::new_heap();
+
     init_tracing();
     let cli = Cli::parse();
 
@@ -129,6 +179,25 @@ async fn main() -> Result<()> {
         } => ingest(&job, bbox.as_deref(), file, area, source, force).await,
         Command::BuildArtifacts { kind, out } => build_artifacts(&kind, out).await,
         Command::Migrate => migrate().await,
+        Command::EvalTerrain {
+            corpus,
+            artifacts_dir,
+            out,
+            filter,
+            limit,
+            check_determinism,
+            mode,
+            override_json,
+        } => eval_terrain::run(
+            corpus,
+            artifacts_dir,
+            out,
+            filter,
+            limit,
+            check_determinism,
+            mode,
+            override_json,
+        ),
     }
 }
 
@@ -199,417 +268,30 @@ async fn serve(
     // Primitive handles are loaded once at boot from the artifact
     // directory. Missing artifacts leave the corresponding endpoint
     // in 503-degraded mode rather than failing the whole start-up.
+    // The artifact-open + pathfinder-assembly logic is shared with the
+    // headless `eval-terrain` command via `routing_setup`, so the
+    // autonomous evaluation loop routes through the IDENTICAL layer
+    // stack the server serves.
     let mut api_state = ApiState::new(db.clone(), auth, public_base_url.clone());
-    if let Some(dir) = artifacts_dir.as_ref() {
-        let dem_path = dir.join("norway.dem");
-        if dem_path.exists() {
-            match turbo_tiles_elev::Dem::open(&dem_path) {
-                Ok(d) => {
-                    let cov = d.coverage();
-                    tracing::info!(
-                        path = %dem_path.display(),
-                        cells_x = cov.cells_x,
-                        cells_y = cov.cells_y,
-                        tiles_present = cov.tiles_present,
-                        tiles_absent = cov.tiles_absent,
-                        file_size_bytes = cov.file_size_bytes,
-                        "loaded DEM artifact"
-                    );
-                    api_state.dem = Some(std::sync::Arc::new(d));
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, path = %dem_path.display(), "failed to open DEM artifact; running in degraded mode")
-                }
-            }
-        } else {
-            tracing::warn!(path = %dem_path.display(), "DEM artifact not present; elev endpoints will return 503");
-        }
-        let mask_path = dir.join("norway.mask");
-        if mask_path.exists() {
-            match turbo_tiles_mask::Mask::open(&mask_path) {
-                Ok(m) => {
-                    let cov = m.coverage();
-                    tracing::info!(
-                        path = %mask_path.display(),
-                        cells_x = cov.meta.cells_x,
-                        cells_y = cov.meta.cells_y,
-                        file_size_bytes = cov.file_size_bytes,
-                        cells_water = cov.cells_water,
-                        cells_glacier = cov.cells_glacier,
-                        "loaded refusal mask artifact"
-                    );
-                    api_state.mask = Some(std::sync::Arc::new(m));
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, path = %mask_path.display(), "failed to open mask artifact")
-                }
-            }
-        }
-        let graph_path = dir.join("norway.graph");
-        if graph_path.exists() {
-            match turbo_tiles_graph::Graph::open(&graph_path) {
-                Ok(mut g) => {
-                    // Attach the polyline sibling artifact if it
-                    // sits next to the graph. Missing/malformed is
-                    // non-fatal — routes degrade to straight-segment
-                    // geometry rather than failing.
-                    let geom_path = dir.join("norway.graph_geom");
-                    if geom_path.exists() {
-                        match g.attach_geom(&geom_path) {
-                            Ok(_) => tracing::info!(
-                                path = %geom_path.display(),
-                                "attached graph_geom artifact (high-fidelity polylines)"
-                            ),
-                            Err(e) => tracing::warn!(
-                                error = %e,
-                                path = %geom_path.display(),
-                                "failed to attach graph_geom; routes will use endpoint segments"
-                            ),
-                        }
-                    }
-                    let s = g.stats();
-                    tracing::info!(
-                        path = %graph_path.display(),
-                        nodes = s.meta.node_count,
-                        edges = s.meta.edge_count,
-                        file_size_bytes = s.file_size_bytes,
-                        has_polylines = g.has_geom(),
-                        "loaded routing graph artifact"
-                    );
-                    api_state.graph = Some(std::sync::Arc::new(g));
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, path = %graph_path.display(), "failed to open graph artifact")
-                }
-            }
-        }
-        let anchors_path = dir.join("norway.anchors");
-        if anchors_path.exists() {
-            match turbo_tiles_search::Index::open(&anchors_path) {
-                Ok(s) => {
-                    let st = s.stats();
-                    tracing::info!(
-                        path = %anchors_path.display(),
-                        count = st.meta.count,
-                        file_size_bytes = st.file_size_bytes,
-                        "loaded anchor search artifact"
-                    );
-                    api_state.search = Some(std::sync::Arc::new(s));
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, path = %anchors_path.display(), "failed to open search artifact")
-                }
-            }
-        }
-    }
+    let art = routing_setup::load_routing_artifacts(artifacts_dir.as_deref());
+    api_state.dem = art.dem.clone();
+    api_state.mask = art.mask.clone();
+    api_state.graph = art.graph.clone();
+    api_state.search = art.search.clone();
 
-    // Assemble the Pathfinder with the default layer stack once we
-    // know which primitives loaded. Then auto-discover any extra
-    // landcover masks under the artifact directory and push them
-    // as `LandcoverLayer`s. Known classes + their cost multipliers
-    // are listed below — they're conservative defaults; a curator
-    // can override at request time via `prefs.layer_weights`.
-    // Resolve cost calibration knobs once at boot. Precedence:
-    // explicit env var → cost-config.toml relative to CWD →
-    // embedded defaults compiled into the binary. The same knobs
-    // drive every layer's hardcoded values that previously had to
-    // be touched in three or four files to recalibrate.
-    let cost_config = turbo_tiles_pathfind::CostConfig::load_or_default(None).unwrap_or_else(|e| {
-        tracing::warn!(
-            error = %e,
-            "failed to load cost-config; falling back to embedded defaults"
-        );
-        turbo_tiles_pathfind::CostConfig::from_embedded()
-            .expect("embedded cost-config defaults must parse")
-    });
+    let cost_config = routing_setup::load_cost_config();
     tracing::info!(
         off_trail_base_foot = cost_config.off_trail_base.foot,
         proximity_bonus = cost_config.trail_proximity.bonus_at_zero,
         slope_refuse_cell = cost_config.slope_cell.refuse_above_deg,
         "loaded cost configuration"
     );
-    let mut pf = turbo_tiles_pathfind::Pathfinder::with_defaults_and_config(
-        api_state.dem.clone(),
-        api_state.mask.clone(),
-        api_state.graph.clone(),
-        cost_config,
-    );
-
-    // ---- Vector cost layers ---------------------------------------------
-    //
-    // If `norway.vectors` is present, register the per-feature-class cost
-    // layers from it. These supersede the equivalent rasterised mask
-    // layers — water, wetland, streams, cultivated, building — because
-    // they preserve the original polygon shape and integrate cost along
-    // each candidate edge instead of vetoing whole 25m cells.
-    let mut taken_layer_names: std::collections::HashSet<&'static str> =
-        std::collections::HashSet::new();
-    if let Some(dir) = artifacts_dir.as_ref() {
-        let vec_path = dir.join("norway.vectors");
-        if vec_path.exists() {
-            match turbo_tiles_vector::VectorStore::open(&vec_path) {
-                Ok(store) => {
-                    tracing::info!(
-                        path = %vec_path.display(),
-                        collections = ?store.collection_names(),
-                        "loaded vectors artifact"
-                    );
-                    // Polygon integral layers — cost per metre walked
-                    // INSIDE the polygon. Returning a value in "extra
-                    // effective metres" composes naturally with the
-                    // Naismith metres-of-walk cost the rest of the
-                    // system speaks in.
-                    if let Some(coll) = store.try_collection("water") {
-                        // Width-proportional crossing cost: every metre of
-                        // open water on an edge adds WATER_CROSS_PENALTY_PER_M
-                        // "effective metres". Because it scales with crossing
-                        // WIDTH, a small tarn stays cheap to ford while a real
-                        // lake/river is effectively impassable — water is only
-                        // ever chosen as an absolute last resort (the integral
-                        // stays finite, so a genuinely water-locked endpoint
-                        // still returns a route instead of a hard failure).
-                        // 400×/m: a 5 m tarn = +2 km (forded if no detour <2 km
-                        // exists); a 50 m river = +20 km; a 500 m lake = +200 km
-                        // (never crossed in practice).
-                        const WATER_CROSS_PENALTY_PER_M: f64 = 400.0;
-                        let legacy = turbo_tiles_pathfind::PolygonIntegralLayer::new(
-                            "water",
-                            coll.clone(),
-                            |len, _attrs, _p| len * WATER_CROSS_PENALTY_PER_M,
-                        );
-                        let native = turbo_tiles_pathfind::PolygonIntegralContributor::new(
-                            "water",
-                            coll,
-                            |len, _attrs, _p| len * WATER_CROSS_PENALTY_PER_M,
-                        );
-                        pf.push_with_native(
-                            std::sync::Arc::new(legacy),
-                            std::sync::Arc::new(native),
-                        );
-                        taken_layer_names.insert("water");
-                        // Tell the raster `mask_refusal` layer to
-                        // stop vetoing water cells — the integral
-                        // layer now handles them with proper
-                        // edge-length cost. Without this swap the
-                        // 25 m water bitmap still produces the
-                        // halo-around-every-tarn pathology.
-                        if let Some(m) = api_state.mask.clone() {
-                            pf.defer_mask_water_to_vector(m);
-                            tracing::info!(
-                                "deferred raster mask water refusal to vector water layer"
-                            );
-                        }
-                    }
-                    if let Some(coll) = store.try_collection("wetland") {
-                        let legacy = turbo_tiles_pathfind::PolygonIntegralLayer::new(
-                            "wetland",
-                            coll.clone(),
-                            |len, _attrs, _p| len * 1.5,
-                        );
-                        let native = turbo_tiles_pathfind::PolygonIntegralContributor::new(
-                            "wetland",
-                            coll,
-                            |len, _attrs, _p| len * 1.5,
-                        );
-                        pf.push_with_native(
-                            std::sync::Arc::new(legacy),
-                            std::sync::Arc::new(native),
-                        );
-                        taken_layer_names.insert("wetland");
-                    }
-                    if let Some(coll) = store.try_collection("cultivated") {
-                        // Innmark — soft penalty so the solver routes
-                        // around farmyards but doesn't refuse them.
-                        let legacy = turbo_tiles_pathfind::PolygonIntegralLayer::new(
-                            "cultivated",
-                            coll.clone(),
-                            |len, _attrs, _p| len * 3.0,
-                        );
-                        let native = turbo_tiles_pathfind::PolygonIntegralContributor::new(
-                            "cultivated",
-                            coll,
-                            |len, _attrs, _p| len * 3.0,
-                        );
-                        pf.push_with_native(
-                            std::sync::Arc::new(legacy),
-                            std::sync::Arc::new(native),
-                        );
-                        taken_layer_names.insert("cultivated");
-                    }
-                    if let Some(coll) = store.try_collection("ocean") {
-                        // Saltwater is a hard veto — you cannot
-                        // wade across a fjord. Without this layer
-                        // the mimicry harness's `bergen-2km-roads`
-                        // case sent the mesh path right through
-                        // Bergen harbor.
-                        let legacy = turbo_tiles_pathfind::PolygonRefusalLayer::new(
-                            "ocean",
-                            coll.clone(),
-                            "ocean",
-                        );
-                        let native = turbo_tiles_pathfind::PolygonRefusalContributor::new(
-                            "ocean", coll, "ocean",
-                        );
-                        pf.push_with_native(
-                            std::sync::Arc::new(legacy),
-                            std::sync::Arc::new(native),
-                        );
-                        taken_layer_names.insert("ocean");
-                    }
-                    if let Some(coll) = store.try_collection("building") {
-                        // Buildings are truly impassable — refusal
-                        // layer, not integral. The collection acts as
-                        // a high-fidelity replacement for the 100m
-                        // building mask.
-                        let legacy = turbo_tiles_pathfind::PolygonRefusalLayer::new(
-                            "building",
-                            coll.clone(),
-                            "building",
-                        );
-                        let native = turbo_tiles_pathfind::PolygonRefusalContributor::new(
-                            "building", coll, "building",
-                        );
-                        pf.push_with_native(
-                            std::sync::Arc::new(legacy),
-                            std::sync::Arc::new(native),
-                        );
-                        taken_layer_names.insert("building");
-                    }
-                    if let Some(coll) = store.try_collection("streams") {
-                        // Stream crossings — width-aware cost. Width is
-                        // metres; crossing cost = 10 + 5×width metres
-                        // per crossing. A 1m brook = +15m; a 5m river
-                        // = +35m; a 20m+ river is something else
-                        // (typically broken into separate "river"
-                        // polygons in the water layer anyway).
-                        let legacy = turbo_tiles_pathfind::LineCrossingLayer::new(
-                            "streams",
-                            coll.clone(),
-                            |n, attrs, _p| {
-                                let w = attrs.f32("width_m").unwrap_or(2.0) as f64;
-                                (n as f64) * (10.0 + 5.0 * w)
-                            },
-                        );
-                        let native = turbo_tiles_pathfind::LineCrossingContributor::new(
-                            "streams",
-                            coll,
-                            |n, attrs, _p| {
-                                let w = attrs.f32("width_m").unwrap_or(2.0) as f64;
-                                (n as f64) * (10.0 + 5.0 * w)
-                            },
-                        );
-                        pf.push_with_native(
-                            std::sync::Arc::new(legacy),
-                            std::sync::Arc::new(native),
-                        );
-                        taken_layer_names.insert("streams");
-                        // Mask-based stream_barrier + bridge_zone are
-                        // strictly weaker than this — skip both.
-                        taken_layer_names.insert("stream_barrier");
-                        taken_layer_names.insert("bridge_zone");
-                    }
-                }
-                Err(e) => tracing::error!(
-                    error = %e,
-                    path = %vec_path.display(),
-                    "failed to open vectors artifact"
-                ),
-            }
-        }
-    }
-
-    if let Some(dir) = artifacts_dir.as_ref() {
-        // (file suffix, layer name, cost multiplier when class present)
-        //
-        // Multipliers calibrated for foot hiking. Ski/bike profiles
-        // get the same multipliers in this stack — when those
-        // profiles care about a different surface mix (e.g. ski
-        // doesn't slow down in forest as much), a profile-aware
-        // version of `LandcoverLayer` is the right place to add the
-        // distinction.
-        let landcover_specs: &[(&str, &'static str, f32)] = &[
-            ("norway.wetland.mask", "wetland", 2.5),
-            ("norway.forest.mask", "forest", 1.4),
-            ("norway.open.mask", "open", 0.95),
-            // Cultivated land (innmark): walkable per `allemannsretten`
-            // only on existing paths. Heavy penalty when off-trail
-            // so the solver routes around farmyards. Trail-proximity
-            // bias counter-acts this when a real trail is nearby.
-            ("norway.cultivated.mask", "cultivated", 4.0),
-            // Built-up areas: passable but unattractive for hiking.
-            ("norway.developed.mask", "developed", 2.5),
-            // Individual buildings: refused — you can't walk THROUGH
-            // a building. The mask cell is small (100 m) so the
-            // refusal is roughly building-sized; routing detours
-            // around it.
-            ("norway.building.mask", "building", f32::INFINITY),
-            // Stream barrier: fordable but expensive (4×). When a
-            // bridge crosses the same cell, the `bridge_zone` layer
-            // multiplies by 0.25 → product 1.0 (free crossing).
-            ("norway.stream_barrier.mask", "stream_barrier", 4.0),
-            ("norway.bridge_zone.mask", "bridge_zone", 0.25),
-        ];
-        for (filename, layer_name, multiplier) in landcover_specs {
-            // Skip mask layers superseded by vector collections of
-            // the same name — they're strictly worse (cell-grid all-
-            // or-nothing) and would double-count cost if registered
-            // alongside the vector layer.
-            if taken_layer_names.contains(layer_name) {
-                tracing::info!(
-                    layer = layer_name,
-                    "skipping mask landcover; vector layer present"
-                );
-                continue;
-            }
-            let path = dir.join(filename);
-            if !path.exists() {
-                continue;
-            }
-            match turbo_tiles_mask::Mask::open(&path) {
-                Ok(m) => {
-                    let cov = m.coverage();
-                    tracing::info!(
-                        path = %path.display(),
-                        layer = layer_name,
-                        present_cells = cov.cells_water,
-                        multiplier,
-                        "loaded landcover layer"
-                    );
-                    let arc = std::sync::Arc::new(m);
-                    // Two consumers: the pathfinder layer stack
-                    // (for cost composition) and the SPA inspect
-                    // endpoints (for visualisation). Share via Arc.
-                    api_state.landcover.insert(*layer_name, arc.clone());
-                    let legacy = turbo_tiles_pathfind::LandcoverLayer {
-                        mask: arc.clone(),
-                        layer_name,
-                        multiplier: *multiplier,
-                    };
-                    // Translate the legacy multiplier into a walk-
-                    // seconds-per-metre delta against the flat-trail
-                    // baseline. Infinity multipliers (building)
-                    // become a hard veto on the native side via
-                    // `LandcoverContributor::veto`.
-                    let delta_s_per_m = if multiplier.is_infinite() {
-                        f64::INFINITY
-                    } else {
-                        ((*multiplier as f64) - 1.0) * turbo_tiles_pathfind::BASE_PACE_S_PER_M
-                    };
-                    let native = turbo_tiles_pathfind::LandcoverContributor::new(
-                        arc,
-                        layer_name,
-                        delta_s_per_m,
-                    );
-                    pf.push_with_native(std::sync::Arc::new(legacy), std::sync::Arc::new(native));
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, path = %path.display(), "failed to open landcover artifact")
-                }
-            }
-        }
+    let (pf, landcover) =
+        routing_setup::build_pathfinder(artifacts_dir.as_deref(), &art, cost_config);
+    for (name, mask) in landcover {
+        api_state.landcover.insert(name, mask);
     }
     tracing::info!(
-        layers = ?pf.layer_names(),
         graph_loaded = api_state.graph.is_some(),
         "pathfinder assembled"
     );

@@ -1,0 +1,31 @@
+{
+    "referenceNumber": "e1c882fa-78d3-49f6-b356-85b26ec0bec7",
+    "files": [
+        {
+            "downloadUrl": "https://nedlasting.geonorge.no/api/download/order/e1c882fa-78d3-49f6-b356-85b26ec0bec7/e81ce4a8-8103-4984-8bf0-cb4b5a834bcc",
+            "name": "Basisdata_03_Oslo_25833_Kommuner_GeoJSON.zip",
+            "fileId": "e81ce4a8-8103-4984-8bf0-cb4b5a834bcc",
+            "metadataUuid": "041f1e6e-bdbc-4091-b48f-8a5990f3cc5b",
+            "area": "03",
+            "projection": "25833",
+            "format": "GeoJSON ",
+            "status": "ReadyForDownload",
+            "metadataName": "Kommuner",
+            "areaName": "Oslo",
+            "projectionName": "EUREF89 UTM sone 33, 2d"
+        }
+    ],
+    "email": "",
+    "orderDate": "2026-06-10T05:31:56.9119145Z",
+    "downloadAsBundle": false,
+    "_links": [
+        {
+            "href": "https://nedlasting.geonorge.no/api/order/e1c882fa-78d3-49f6-b356-85b26ec0bec7",
+            "rel": "self"
+        },
+        {
+            "href": "https://nedlasting.geonorge.no/api/order/e1c882fa-78d3-49f6-b356-85b26ec0bec7",
+            "rel": "http://rel.geonorge.no/download/order/bundle"
+        }
+    ]
+}

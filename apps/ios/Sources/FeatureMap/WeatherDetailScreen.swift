@@ -35,6 +35,7 @@ public struct WeatherDetailScreen: View {
                         .padding(.top, 12)
 
                         hourlyStrip(s.hourly)
+                        if let wind = s.windSpeedMps { windCard(speed: wind, fromDegrees: s.windFromDegrees) }
                         if let sun = weather.sun { sunCard(sun) }
                         if let marine = weather.marine { marineCard(marine) }
                         dailyList(s.daily)
@@ -62,6 +63,33 @@ public struct WeatherDetailScreen: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task { await weather.load() }
         }
+    }
+
+    private func windCard(speed: Double, fromDegrees: Double?) -> some View {
+        HStack(spacing: 0) {
+            sunCell(symbol: "wind", title: "Wind", value: String(format: "%.0f m/s", speed))
+            if let deg = fromDegrees {
+                Rectangle().fill(t.separator).frame(width: 0.5).padding(.vertical, 8)
+                VStack(spacing: 6) {
+                    Label("Direction", systemImage: "location.north.fill").font(.turboFootnote).foregroundStyle(t.label2)
+                    HStack(spacing: 6) {
+                        Image(systemName: "location.north.fill")
+                            .font(.system(size: 15)).foregroundStyle(t.blue)
+                            .rotationEffect(.degrees(deg + 180))   // arrow points where the wind blows TO
+                        Text("from \(Self.cardinal(deg))").font(.turboTitle3).foregroundStyle(t.label)
+                    }
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 14)
+            }
+        }
+        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .accessibilityIdentifier("weather.wind")
+    }
+
+    private static func cardinal(_ degrees: Double) -> String {
+        let dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        let index = Int((degrees / 45).rounded()) % 8
+        return dirs[(index + 8) % 8]
     }
 
     private func marineCard(_ marine: MarineConditions) -> some View {

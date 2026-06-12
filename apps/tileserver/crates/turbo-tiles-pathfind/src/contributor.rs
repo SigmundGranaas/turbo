@@ -70,6 +70,83 @@ pub enum EdgeKind<'a> {
     Mesh,
 }
 
+/// Memoized elevation samples along one edge, shared across the
+/// contributor stack via [`EdgeContext::elev_probe`].
+///
+/// The slope-family contributors (tobler slope, naismith gain,
+/// dem-coverage, contour crossing) all sample the same evenly-spaced
+/// points along the edge; without sharing, each re-samples the DEM
+/// independently — measured at ~93% of ALL DEM work on the off-trail
+/// corpus (~4× redundancy per evaluated cell). The probe computes the
+/// profile once per requested density `n` and hands the same samples
+/// to every consumer. Values are identical to direct sampling; only
+/// the redundancy is removed.
+pub struct EdgeElevProbe<'a> {
+    dem: &'a turbo_tiles_elev::Dem,
+    fx: f64,
+    fy: f64,
+    tx: f64,
+    ty: f64,
+    /// `(n, samples)` memo — contributors request specific densities;
+    /// they almost always agree on one `n`, so this stays at 1-2
+    /// entries and a linear scan beats any map.
+    memo: std::cell::RefCell<Vec<(usize, std::rc::Rc<Vec<Option<f32>>>)>>,
+    /// Per-point memo keyed on the parameter `t`'s bit pattern. Equal
+    /// rationals produce bit-identical `i as f64 / n as f64` (IEEE
+    /// division is correctly rounded), so coincident points SHARE
+    /// across densities — e.g. n=2's {0, ½, 1} are a subset of n=4's
+    /// {0, ¼, ½, ¾, 1}. Tiny (≤ ~10 entries); linear scan.
+    points: std::cell::RefCell<Vec<(u64, Option<f32>)>>,
+}
+
+impl<'a> EdgeElevProbe<'a> {
+    pub fn new(dem: &'a turbo_tiles_elev::Dem, fx: f64, fy: f64, tx: f64, ty: f64) -> Self {
+        Self {
+            dem,
+            fx,
+            fy,
+            tx,
+            ty,
+            memo: std::cell::RefCell::new(Vec::new()),
+            points: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Elevation at parameter `t` along the edge, point-memoized.
+    fn point(&self, t: f64, dx: f64, dy: f64) -> Option<f32> {
+        let bits = t.to_bits();
+        if let Some(&(_, z)) = self.points.borrow().iter().find(|(b, _)| *b == bits) {
+            return z;
+        }
+        let p = turbo_tiles_elev::PointXY {
+            x: self.fx + dx * t,
+            y: self.fy + dy * t,
+        };
+        let z = self.dem.sample(p).ok().flatten();
+        self.points.borrow_mut().push((bits, z));
+        z
+    }
+
+    /// `n+1` evenly-spaced elevation samples from (fx,fy) to (tx,ty),
+    /// memoized per `n` (and per point across densities). `None`
+    /// entries = DEM nodata at that point.
+    pub fn elevations(&self, n: usize) -> std::rc::Rc<Vec<Option<f32>>> {
+        if let Some((_, zs)) = self.memo.borrow().iter().find(|(m, _)| *m == n) {
+            return zs.clone();
+        }
+        let dx = self.tx - self.fx;
+        let dy = self.ty - self.fy;
+        let mut zs: Vec<Option<f32>> = Vec::with_capacity(n + 1);
+        for i in 0..=n {
+            let t = i as f64 / n as f64;
+            zs.push(self.point(t, dx, dy));
+        }
+        let rc = std::rc::Rc::new(zs);
+        self.memo.borrow_mut().push((n, rc.clone()));
+        rc
+    }
+}
+
 /// Geometric + categorical context for one edge a contributor is
 /// asked to cost. UTM33N metres throughout; the API layer projects.
 pub struct EdgeContext<'a> {
@@ -86,6 +163,10 @@ pub struct EdgeContext<'a> {
     pub length_m: f64,
     pub profile: Profile,
     pub kind: EdgeKind<'a>,
+    /// Shared elevation sampler for this edge (see [`EdgeElevProbe`]).
+    /// `None` = contributors sample their own primitives directly
+    /// (graph edges, tests, callers that don't price terrain).
+    pub elev_probe: Option<&'a EdgeElevProbe<'a>>,
 }
 
 impl<'a> EdgeContext<'a> {
@@ -349,6 +430,7 @@ mod tests {
             length_m,
             profile: Profile::Foot,
             kind: EdgeKind::Mesh,
+            elev_probe: None,
         }
     }
 

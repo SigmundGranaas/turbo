@@ -30,9 +30,9 @@ struct MapTileStylesTests {
     func overlayTemplates() {
         #expect(MapTileStyles.overlayTemplate(for: .trails)?.contains("waymarkedtrails") == true)
         #expect(MapTileStyles.overlayTemplate(for: .avalanche)?.contains("nve.no") == true)
-        // Wave/wind need keyed sources we don't ship — no dead toggles.
-        #expect(MapTileStyles.overlayTemplate(for: .waves) == nil)
-        #expect(MapTileStyles.overlayTemplate(for: .wind) == nil)
+        // Only overlays with a real raster source ship — wave/wind heatmaps (no
+        // keyed source) were removed rather than left as dead toggles.
         #expect(MapTileStyles.renderableOverlays == [.trails, .avalanche])
+        #expect(OverlayId.allCases == [.trails, .avalanche])
     }
 }

@@ -1,0 +1,237 @@
+[
+  {
+    "name": "peak within 100 m is tagged On and beats far peaks/towns",
+    "input": {
+      "toponyms": [
+        { "name": "Galdhøpiggen", "kind": "Fjelltopp", "distance_m": 33.0, "status": "aktiv" },
+        { "name": "Spiterhøi", "kind": "Fjelltopp", "distance_m": 7000.0, "status": "aktiv" },
+        { "name": "Lom", "kind": "Tettsted", "distance_m": 25000.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Galdhøpiggen", "qualifier": "on", "distance_m": 33.0 }
+  },
+  {
+    "name": "peak within 800 m is CloseTo; out-of-range peak ignored",
+    "input": {
+      "toponyms": [
+        { "name": "Storrist", "kind": "Fjelltopp", "distance_m": 450.0, "status": "aktiv" },
+        { "name": "Lomseggen", "kind": "Ås", "distance_m": 5000.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Storrist", "qualifier": "closeTo", "distance_m": 450.0 }
+  },
+  {
+    "name": "protected area wins when no usable toponym; kommune enriches subtitle",
+    "input": {
+      "toponyms": [],
+      "protected_area": { "name": "Saltfjellet–Svartisen nasjonalpark", "kind": "Nasjonalpark" },
+      "kommune": { "name": "Bodø", "fylke": "Nordland" }
+    },
+    "expect": {
+      "title": "Saltfjellet–Svartisen nasjonalpark",
+      "qualifier": "inArea",
+      "secondary": "Nasjonalpark",
+      "kommune": "Bodø",
+      "fylke": "Nordland"
+    }
+  },
+  {
+    "name": "tight toponym bypasses a containing protected area",
+    "input": {
+      "toponyms": [
+        { "name": "Galdhøpiggen", "kind": "Fjelltopp", "distance_m": 33.0, "status": "aktiv" }
+      ],
+      "protected_area": { "name": "Jotunheimen", "kind": "Nasjonalpark" }
+    },
+    "expect": { "title": "Galdhøpiggen", "qualifier": "on", "distance_m": 33.0 }
+  },
+  {
+    "name": "kommune fallback has no qualifier and fylke as subtitle",
+    "input": {
+      "toponyms": [],
+      "kommune": { "name": "Lom", "fylke": "Innlandet" }
+    },
+    "expect": { "title": "Lom", "secondary": "Innlandet", "kommune": "Lom" }
+  },
+  {
+    "name": "nameless toponyms are skipped, falling through to kommune",
+    "input": {
+      "toponyms": [
+        { "name": "", "kind": "Gard", "distance_m": 25.0, "status": "aktiv" },
+        { "name": "", "kind": "Haug", "distance_m": 35.0, "status": "aktiv" }
+      ],
+      "kommune": { "name": "Bodø", "fylke": "Nordland" }
+    },
+    "expect": { "title": "Bodø", "secondary": "Nordland", "kommune": "Bodø" }
+  },
+  {
+    "name": "named neighbour beats a closer nameless feature",
+    "input": {
+      "toponyms": [
+        { "name": "", "kind": "Haug", "distance_m": 5.0, "status": "aktiv" },
+        { "name": "Galdhøpiggen", "kind": "Fjelltopp", "distance_m": 55.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Galdhøpiggen", "qualifier": "on", "distance_m": 55.0 }
+  },
+  {
+    "name": "town within 1.5 km outranks a close-to peak (tier precedence)",
+    "input": {
+      "toponyms": [
+        { "name": "Storsteinnes", "kind": "Tettsted", "distance_m": 400.0, "status": "aktiv" },
+        { "name": "Sennefjellet", "kind": "Fjelltopp", "distance_m": 700.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Storsteinnes", "qualifier": "inArea", "distance_m": 400.0 }
+  },
+  {
+    "name": "rural farm ~300 m wins over kommune (periphery near)",
+    "input": {
+      "toponyms": [
+        { "name": "Storgården", "kind": "Gard", "distance_m": 300.0, "status": "aktiv" }
+      ],
+      "kommune": { "name": "Bodø", "fylke": "Nordland" }
+    },
+    "expect": {
+      "title": "Storgården",
+      "qualifier": "near",
+      "kommune": "Bodø",
+      "fylke": "Nordland",
+      "distance_m": 300.0
+    }
+  },
+  {
+    "name": "lake within 100 m is tagged At",
+    "input": {
+      "toponyms": [
+        { "name": "Mjøsa", "kind": "Innsjø", "distance_m": 33.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Mjøsa", "qualifier": "atPlace", "distance_m": 33.0 }
+  },
+  {
+    "name": "small island within 200 m is tagged On",
+    "input": {
+      "toponyms": [
+        { "name": "Bjørkøya", "kind": "Øy", "distance_m": 111.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Bjørkøya", "qualifier": "on", "distance_m": 111.0 }
+  },
+  {
+    "name": "glacier within 200 m is tagged On",
+    "input": {
+      "toponyms": [
+        { "name": "Folgefonna", "kind": "Isbre", "distance_m": 111.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Folgefonna", "qualifier": "on", "distance_m": 111.0 }
+  },
+  {
+    "name": "literal Unknown/Ukjent titles are rejected",
+    "input": {
+      "toponyms": [
+        { "name": "Unknown", "kind": "Gard", "distance_m": 5.0, "status": "aktiv" },
+        { "name": "Ukjent", "kind": "Haug", "distance_m": 15.0, "status": "aktiv" }
+      ],
+      "kommune": { "name": "Bodø", "fylke": "Nordland" }
+    },
+    "expect": { "title": "Bodø", "secondary": "Nordland", "kommune": "Bodø" }
+  },
+  {
+    "name": "everything empty (outside Norway) yields null",
+    "input": { "toponyms": [] },
+    "expect": null
+  },
+  {
+    "name": "town centroid 1.2 km away still beats a containing park",
+    "input": {
+      "toponyms": [
+        { "name": "Bodø", "kind": "Tettsted", "distance_m": 1220.0, "status": "aktiv" }
+      ],
+      "protected_area": { "name": "Saltfjellet–Svartisen nasjonalpark", "kind": "Nasjonalpark" }
+    },
+    "expect": { "title": "Bodø", "qualifier": "inArea", "distance_m": 1220.0 }
+  },
+  {
+    "name": "protected-area subtitle uses verneform (kind)",
+    "input": {
+      "toponyms": [],
+      "protected_area": { "name": "Junkerdal nasjonalpark", "kind": "Nasjonalpark" }
+    },
+    "expect": { "title": "Junkerdal nasjonalpark", "qualifier": "inArea", "secondary": "Nasjonalpark" }
+  },
+  {
+    "name": "elevation merges onto the winning toponym",
+    "input": {
+      "toponyms": [
+        { "name": "Galdhøpiggen", "kind": "Fjelltopp", "distance_m": 33.0, "status": "aktiv" }
+      ],
+      "elevation_m": 2469.0
+    },
+    "expect": { "title": "Galdhøpiggen", "qualifier": "on", "distance_m": 33.0, "elevation_m": 2469.0 }
+  },
+  {
+    "name": "address wins between protected-area and kommune; kommune enriches",
+    "input": {
+      "toponyms": [],
+      "address": { "text": "Storgården 4", "secondary": "2686 LOM" },
+      "kommune": { "name": "Lom", "fylke": "Innlandet" }
+    },
+    "expect": {
+      "title": "Storgården 4",
+      "qualifier": "near",
+      "secondary": "2686 LOM",
+      "kommune": "Lom",
+      "fylke": "Innlandet"
+    }
+  },
+  {
+    "name": "elevation merges even when the address wins",
+    "input": {
+      "toponyms": [],
+      "address": { "text": "Storgården 4", "secondary": "2686 LOM" },
+      "elevation_m": 380.0
+    },
+    "expect": { "title": "Storgården 4", "qualifier": "near", "secondary": "2686 LOM", "elevation_m": 380.0 }
+  },
+  {
+    "name": "duplicate titles (Fjell + Fjelltopp) collapse to one hit",
+    "input": {
+      "toponyms": [
+        { "name": "Galdhøpiggen", "kind": "Fjell", "distance_m": 40.0, "status": "aktiv" },
+        { "name": "Galdhøpiggen", "kind": "Fjelltopp", "distance_m": 40.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Galdhøpiggen", "qualifier": "on", "distance_m": 40.0 }
+  },
+  {
+    "name": "bare parcel-code address is skipped for the kommune fallback",
+    "input": {
+      "toponyms": [],
+      "address": { "text": "155/1/73" },
+      "kommune": { "name": "Lom", "fylke": "Innlandet" }
+    },
+    "expect": { "title": "Lom", "secondary": "Innlandet", "kommune": "Lom" }
+  },
+  {
+    "name": "status penalty: a live peak beats a closer historic peak",
+    "input": {
+      "toponyms": [
+        { "name": "Peak A", "kind": "Fjelltopp", "distance_m": 90.0, "status": "historisk" },
+        { "name": "Peak B", "kind": "Fjelltopp", "distance_m": 95.0, "status": "aktiv" }
+      ]
+    },
+    "expect": { "title": "Peak B", "qualifier": "on", "distance_m": 95.0 }
+  },
+  {
+    "name": "out-of-range elevation is dropped",
+    "input": {
+      "toponyms": [
+        { "name": "Galdhøpiggen", "kind": "Fjelltopp", "distance_m": 33.0, "status": "aktiv" }
+      ],
+      "elevation_m": 99999.0
+    },
+    "expect": { "title": "Galdhøpiggen", "qualifier": "on", "distance_m": 33.0 }
+  }
+]

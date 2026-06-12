@@ -1,18 +1,21 @@
 package com.sigmundgranaas.turbo.expressive.feature.offline
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.map.OfflineTileManager
-import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
-import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
+import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.LocationDescription
+import com.sigmundgranaas.turbo.expressive.domain.OfflineEstimate
 import com.sigmundgranaas.turbo.expressive.domain.OfflineRegionInfo
+import com.sigmundgranaas.turbo.expressive.domain.OfflineStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertTrue
@@ -27,8 +30,17 @@ private class StubOfflineTileManager(initial: List<OfflineRegionInfo>) : Offline
     private val flow = MutableStateFlow(initial)
     override val regions: StateFlow<List<OfflineRegionInfo>> = flow
     val deleted = mutableListOf<Long>()
+    val retried = mutableListOf<Long>()
     override fun refresh() = Unit
-    override fun download(name: String, base: BaseLayer, bounds: GeoBounds, minZoom: Double, maxZoom: Double) = Unit
+    override fun download(spec: DownloadSpec) = Unit
+    override fun retry(id: Long) { retried += id }
+    override fun pause(id: Long) = Unit
+    override fun resume(id: Long) = Unit
+    override fun setNetworkAllowed(allowed: Boolean) = Unit
+    override fun rename(id: Long, name: String) { renamed += id to name }
+    override fun clearAmbientCache() = Unit
+    val renamed = mutableListOf<Pair<Long, String>>()
+    override fun estimate(spec: DownloadSpec) = OfflineEstimate(tiles = 0, bytes = 0)
     override fun delete(id: Long) {
         deleted += id
         flow.value = flow.value.filterNot { it.id == id }
@@ -57,7 +69,7 @@ class OfflineMapsScreenTest {
 
     @Test
     fun `a downloading region shows its name and progress`() {
-        val region = OfflineRegionInfo(id = 1, name = "Tromsø", complete = false, progress = 0.42f, sizeBytes = 5_000_000)
+        val region = OfflineRegionInfo(id = 1, name = "Tromsø", status = OfflineStatus.Downloading, progress = 0.42f, sizeBytes = 5_000_000)
         composeRule.setContent {
             OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(StubOfflineTileManager(listOf(region)), stubGeo))
         }
@@ -66,19 +78,50 @@ class OfflineMapsScreenTest {
     }
 
     @Test
-    fun `tapping delete removes the region`() {
-        val region = OfflineRegionInfo(id = 9, name = "Lofoten", complete = true, progress = 1f, sizeBytes = 12_000_000)
+    fun `a failed region offers retry which calls the manager`() {
+        val region = OfflineRegionInfo(
+            id = 3, name = "Senja", status = OfflineStatus.Failed, progress = 0f, sizeBytes = 0,
+            errorReason = "Area too large",
+        )
+        val manager = StubOfflineTileManager(listOf(region))
+        composeRule.setContent {
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
+        }
+        composeRule.onNodeWithText("Retry").performClick()
+        composeRule.waitForIdle()
+        assertTrue(manager.retried.contains(3L))
+    }
+
+    @Test
+    fun `delete is staged with an undo snackbar - undo restores the region`() {
+        val region = OfflineRegionInfo(id = 9, name = "Lofoten", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 12_000_000)
         val manager = StubOfflineTileManager(listOf(region))
         composeRule.setContent {
             OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
         }
         composeRule.onNodeWithContentDescription("Delete Lofoten").performClick()
         composeRule.waitForIdle()
-        // Tapping delete only opens the confirmation — nothing removed yet.
+        // Hidden from the list, but nothing actually deleted while the snackbar runs.
         assertTrue(manager.deleted.isEmpty())
-        composeRule.onNodeWithText("Delete").performClick()
-        composeRule.waitForIdle()
-        assertTrue(manager.deleted.contains(9L))
         composeRule.onNodeWithText("No offline maps yet").assertIsDisplayed()
+
+        composeRule.onNodeWithText("Undo").performClick()
+        composeRule.waitForIdle()
+        assertTrue(manager.deleted.isEmpty())
+        composeRule.onNodeWithText("Lofoten").assertIsDisplayed()
+    }
+
+    @Test
+    fun `tapping the name opens rename and forwards the new name`() {
+        val region = OfflineRegionInfo(id = 4, name = "Tromsø", status = OfflineStatus.Complete, progress = 1f, sizeBytes = 1_000_000)
+        val manager = StubOfflineTileManager(listOf(region))
+        composeRule.setContent {
+            OfflineMapsScreen(onBack = {}, viewModel = OfflineViewModel(manager, stubGeo))
+        }
+        composeRule.onNodeWithText("Tromsø").performClick()
+        composeRule.onNode(hasSetTextAction()).performTextReplacement("Kvaløya")
+        composeRule.onNodeWithText("Rename").performClick()
+        composeRule.waitForIdle()
+        assertTrue(manager.renamed.contains(4L to "Kvaløya"))
     }
 }

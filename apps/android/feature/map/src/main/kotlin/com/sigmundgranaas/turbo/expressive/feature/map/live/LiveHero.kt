@@ -21,7 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -129,12 +131,22 @@ fun LiveHero(
         }
         Spacer(Modifier.height(14.dp))
 
-        // Row C — the official M3 Expressive wavy indicator as the "live GPS" motif + speed.
+        // Row C — the M3 Expressive wavy indicator as a live-GPS motif. Its amplitude
+        // tracks speed: nearly flat at rest, gently growing as you move — so it reads as
+        // a real signal, not decorative thrash. (Was full amplitude, always.)
+        val targetAmp = waveAmplitudeForSpeed(stats.speedMps)
+        val amplitude by animateFloatAsState(
+            targetValue = targetAmp,
+            animationSpec = MaterialTheme.motionScheme.slowEffectsSpec(),
+            label = "waveAmp",
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             LinearWavyProgressIndicator(
                 modifier = Modifier.weight(1f).height(14.dp).testTag("liveWave"),
                 color = cs.primary,
                 trackColor = onContainer.copy(alpha = .14f),
+                amplitude = amplitude,
+                waveSpeed = 6.dp,
             )
             Spacer(Modifier.width(12.dp))
             Row(verticalAlignment = Alignment.Bottom) {
@@ -253,6 +265,17 @@ private fun heroNumber(stats: LiveStats, metric: Boolean): Pair<String, String> 
 internal fun formatShortDuration(seconds: Int): String {
     val totalMin = seconds / 60
     return if (totalMin >= 60) "%d h %02d".format(totalMin / 60, totalMin % 60) else "$totalMin min"
+}
+
+/**
+ * Wave amplitude (0..1) for the live-GPS indicator from current speed (m/s): a small
+ * floor so it never reads as fully flat/broken, scaling to a calm cap around brisk
+ * hiking/skiing pace (~6 m/s). Deliberately well under 1f (the old default) so the
+ * wave is a gentle signal, not a thrash.
+ */
+internal fun waveAmplitudeForSpeed(speedMps: Double?): Float {
+    val s = (speedMps ?: 0.0).coerceAtLeast(0.0)
+    return (0.1f + (s / 6.0).toFloat() * 0.45f).coerceIn(0.1f, 0.55f)
 }
 
 /** A running clock for the recording title: "MM:SS" (or "H:MM:SS" past an hour). */

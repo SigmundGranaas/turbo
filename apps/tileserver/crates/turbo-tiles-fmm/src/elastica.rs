@@ -116,6 +116,11 @@ pub struct GradeLimitedCost<E: Elevation, O: CellOverlay> {
     /// Seconds charged per 45° heading change (curvature/effort). Higher
     /// → fewer, longer traverses; lower → tighter switchbacks.
     pub turn_penalty_s: f32,
+    /// Naismith-style climb aversion: extra walk-seconds per metre of
+    /// POSITIVE elevation gain along a move (descents refund nothing).
+    /// 0 = off. Mirrors the unified mesh's `mesh_gain_k` so the two
+    /// routers price vertical gain consistently when enabled.
+    pub gain_k: f32,
     /// Per-cell refusal + pace overlay (water/glacier/trail cost).
     pub overlay: O,
 }
@@ -217,7 +222,13 @@ impl<E: Elevation, O: CellOverlay> GradeLimitedCost<E, O> {
                 } else {
                     1.0
                 };
-                step_m * tobler_pace(grad) * mul * steep
+                // Naismith-style climb aversion (see `gain_k`; 0 = off).
+                let gain = if self.gain_k > 0.0 && z1 > z0 {
+                    self.gain_k * (z1 - z0)
+                } else {
+                    0.0
+                };
+                step_m * tobler_pace(grad) * mul * steep + gain
             }
             // Missing elevation: passable but discouraged (flat × 3).
             _ => step_m * base * 3.0 * mul,

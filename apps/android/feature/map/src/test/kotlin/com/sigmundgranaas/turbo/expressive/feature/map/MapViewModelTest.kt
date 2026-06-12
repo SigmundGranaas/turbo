@@ -5,11 +5,15 @@ import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.LocationSample
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
+import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.LocationDescription
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.PlaceQualifier
+import com.sigmundgranaas.turbo.expressive.domain.ThemeMode
+import com.sigmundgranaas.turbo.expressive.domain.UserSettings
 import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -54,6 +58,18 @@ private class FakeStringProvider : com.sigmundgranaas.turbo.expressive.core.comm
     override fun get(id: Int, vararg formatArgs: Any): String = "s$id:" + formatArgs.joinToString()
 }
 
+private class FakeSettings : SettingsRepository {
+    val state = MutableStateFlow(UserSettings())
+    override val settings: Flow<UserSettings> = state
+    override suspend fun setCompassOrientation(enabled: Boolean) = Unit
+    override suspend fun setFollowLocation(enabled: Boolean) = Unit
+    override suspend fun setMetricUnits(metric: Boolean) = Unit
+    override suspend fun setThemeMode(mode: ThemeMode) = Unit
+    override suspend fun setCloudSyncEnabled(enabled: Boolean) = Unit
+    override suspend fun setDownloadOverWifiOnly(enabled: Boolean) = Unit
+    override suspend fun setBaseLayer(layer: BaseLayer) { state.value = state.value.copy(baseLayer = layer) }
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class MapViewModelTest {
 
@@ -63,7 +79,7 @@ class MapViewModelTest {
     @Test
     fun `addMarker persists and surfaces in state`() = runTest(mainRule.dispatcher) {
         val markers = FakeMarkerRepository()
-        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         vm.addMarker("Camp", ActivityKindId.Camping, LatLng(69.0, 18.0))
         advanceUntilIdle()
 
@@ -75,7 +91,7 @@ class MapViewModelTest {
     @Test
     fun `addMarker keeps the chosen colour and notes`() = runTest(mainRule.dispatcher) {
         val markers = FakeMarkerRepository()
-        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         vm.addMarker("Hut", ActivityKindId.Cabin, LatLng(69.0, 18.0), colorArgb = 0xFF1A73E8, notes = "spring water nearby")
         advanceUntilIdle()
 
@@ -88,7 +104,7 @@ class MapViewModelTest {
     fun `updateMarker replaces the row in place`() = runTest(mainRule.dispatcher) {
         val markers = FakeMarkerRepository()
         markers.markers.value = listOf(Marker("m1", "Old", ActivityKindId.Cabin, LatLng(69.0, 18.0)))
-        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         advanceUntilIdle()
 
         vm.updateMarker(
@@ -107,7 +123,7 @@ class MapViewModelTest {
     fun `blank name falls back to the kind label`() = runTest(mainRule.dispatcher) {
         val markers = FakeMarkerRepository()
         val strings = FakeStringProvider()
-        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), strings)
+        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), strings, FakeSettings())
         vm.addMarker("  ", ActivityKindId.Cabin, LatLng(69.0, 18.0))
         advanceUntilIdle()
         assertEquals(strings.get(ActivityKindId.Cabin.labelRes), vm.state.value.markers[0].name)
@@ -117,7 +133,7 @@ class MapViewModelTest {
     fun `deleteMarker removes it`() = runTest(mainRule.dispatcher) {
         val markers = FakeMarkerRepository()
         markers.markers.value = listOf(Marker("m1", "A", ActivityKindId.Cabin, LatLng(69.0, 18.0)))
-        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(markers, FakeLocationRepository(), FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         advanceUntilIdle()
         assertEquals(1, vm.state.value.markers.size)
 
@@ -129,7 +145,7 @@ class MapViewModelTest {
     @Test
     fun `enableLocation streams fixes into state`() = runTest(mainRule.dispatcher) {
         val location = FakeLocationRepository(permitted = true)
-        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         vm.enableLocation()
         runCurrent()
         location.fixes.emit(LatLng(69.65, 18.95))
@@ -141,7 +157,7 @@ class MapViewModelTest {
     @Test
     fun `enableLocation is a no-op without permission`() = runTest(mainRule.dispatcher) {
         val location = FakeLocationRepository(permitted = false)
-        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         vm.enableLocation()
         runCurrent()
         location.fixes.emit(LatLng(1.0, 2.0))
@@ -152,7 +168,7 @@ class MapViewModelTest {
     @Test
     fun `enableLocation marks locating until the first fix arrives`() = runTest(mainRule.dispatcher) {
         val location = FakeLocationRepository(permitted = true)
-        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         vm.enableLocation()
         runCurrent()
         assertTrue(vm.state.value.locating)
@@ -165,7 +181,7 @@ class MapViewModelTest {
     @Test
     fun `beginInitialLocate flags ServicesOff when location is disabled`() = runTest(mainRule.dispatcher) {
         val location = FakeLocationRepository(permitted = true, enabled = false)
-        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         vm.beginInitialLocate()
         runCurrent()
         assertEquals(LocationNotice.ServicesOff, vm.state.value.locationNotice)
@@ -175,7 +191,7 @@ class MapViewModelTest {
     @Test
     fun `beginInitialLocate times out to a notice when no fix arrives`() = runTest(mainRule.dispatcher) {
         val location = FakeLocationRepository(permitted = true, enabled = true)
-        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         vm.beginInitialLocate()
         runCurrent()
         assertTrue(vm.state.value.locating)
@@ -188,7 +204,7 @@ class MapViewModelTest {
     @Test
     fun `a late fix after timeout still recentres and clears the notice`() = runTest(mainRule.dispatcher) {
         val location = FakeLocationRepository(permitted = true, enabled = true)
-        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider())
+        val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings())
         vm.beginInitialLocate()
         advanceTimeBy(13_000)
         runCurrent()
@@ -204,7 +220,7 @@ class MapViewModelTest {
         val geocoder = FakeReverseGeocodeRepository(
             LocationDescription("Galdhøpiggen", PlaceQualifier.On, "fjelltopp", 2469.0),
         )
-        val vm = MapViewModel(FakeMarkerRepository(), FakeLocationRepository(), geocoder, FakeStringProvider())
+        val vm = MapViewModel(FakeMarkerRepository(), FakeLocationRepository(), geocoder, FakeStringProvider(), FakeSettings())
         vm.describePoint(LatLng(61.636, 8.313))
         advanceUntilIdle()
         assertEquals("Galdhøpiggen", vm.pointDescription.value?.title)
