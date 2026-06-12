@@ -75,8 +75,20 @@ pub async fn describe(State(state): State<ApiState>) -> Json<Value> {
         })
         .collect();
 
-    let min = state.basemap.layer.iter().map(|l| l.min_zoom).min().unwrap_or(0);
-    let max = state.basemap.layer.iter().map(|l| l.max_zoom).max().unwrap_or(22);
+    let min = state
+        .basemap
+        .layer
+        .iter()
+        .map(|l| l.min_zoom)
+        .min()
+        .unwrap_or(0);
+    let max = state
+        .basemap
+        .layer
+        .iter()
+        .map(|l| l.max_zoom)
+        .max()
+        .unwrap_or(22);
 
     Json(json!({
         "tilejson": "3.0.0",
@@ -107,7 +119,10 @@ pub async fn style(State(state): State<ApiState>) -> Response {
     let body = text.replace("{BASE_URL}", &state.public_base_url);
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        )
         .header(
             header::CACHE_CONTROL,
             HeaderValue::from_static("public, max-age=3600, stale-while-revalidate=86400"),
@@ -160,7 +175,10 @@ mod tests {
         let style: serde_json::Value = serde_json::from_str(EMBEDDED_STYLE).unwrap();
         let tiles = style["sources"]["n50"]["tiles"][0].as_str().unwrap();
         for needle in ["{BASE_URL}", "{z}", "{x}", "{y}"] {
-            assert!(tiles.contains(needle), "tiles template missing {needle}: {tiles}");
+            assert!(
+                tiles.contains(needle),
+                "tiles template missing {needle}: {tiles}"
+            );
         }
     }
 }

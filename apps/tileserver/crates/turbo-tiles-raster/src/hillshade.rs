@@ -9,8 +9,6 @@
 //! Intensity math is pure (`intensity`) so it can be unit- and
 //! visually-tested on synthetic surfaces without a DEM artifact present.
 
-use std::f32::consts::PI;
-
 use tiny_skia::Pixmap;
 use turbo_tiles_elev::{wgs84_to_utm33n, Dem, PointXY};
 
@@ -98,7 +96,7 @@ pub fn intensity(grid: &[f32], size: u32, px_size_m: f32, p: &HillshadeParams) -
             }
             let dzdx = (r - l) * inv2px;
             let dzdy = (d - u) * inv2px; // +y is south
-            // Up-facing surface normal, exaggerated.
+                                         // Up-facing surface normal, exaggerated.
             let nx = -dzdx * p.exaggeration;
             let ny = -dzdy * p.exaggeration;
             let nz = 1.0;
@@ -176,7 +174,10 @@ mod tests {
         let grid = grid_from(8, |i, j| (i as f32 + j as f32) * 5.0);
         let it = intensity(&grid, 8, 10.0, &HillshadeParams::default());
         let mid = it[4 * 8 + 4];
-        assert!(mid > 0.55, "NW-facing slope under NW sun should be lit: {mid}");
+        assert!(
+            mid > 0.55,
+            "NW-facing slope under NW sun should be lit: {mid}"
+        );
 
         // The opposite plane (rising NW, facing SE) should be in shadow.
         let grid2 = grid_from(8, |i, j| ((14 - i) as f32 + (14 - j) as f32) * 5.0);
@@ -188,8 +189,9 @@ mod tests {
     fn nodata_neighbours_stay_neutral() {
         let g = 4 + 2; // haloed width
         let mut grid = grid_from(4, |i, j| (i + j) as f32);
-        // Left neighbour of interior pixel (0,0) is haloed cell (0,1).
-        grid[1 * g] = f32::NAN;
+        // Left neighbour of interior pixel (0,0) is haloed cell (0,1) —
+        // row 1, col 0 = index g.
+        grid[g] = f32::NAN;
         let it = intensity(&grid, 4, 10.0, &HillshadeParams::default());
         assert!((it[0] - 0.5).abs() < 1e-6, "nodata neighbour → neutral");
     }
@@ -202,7 +204,11 @@ mod tests {
         }
         composite(&mut pm, &[0.5, 0.0], 0.5);
         let p0 = pm.pixels()[0];
-        assert_eq!((p0.red(), p0.green(), p0.blue()), (200, 100, 50), "flat unchanged");
+        assert_eq!(
+            (p0.red(), p0.green(), p0.blue()),
+            (200, 100, 50),
+            "flat unchanged"
+        );
         let p1 = pm.pixels()[1];
         assert!(p1.red() < 200 && p1.green() < 100, "shadow darkens");
     }

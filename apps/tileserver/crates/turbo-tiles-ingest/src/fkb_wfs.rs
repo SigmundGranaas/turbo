@@ -474,8 +474,19 @@ mod tests {
 
     #[test]
     fn passes_through_already_canonical_and_unknown() {
-        for s in ["sti", "traktorvei", "skogsvei", "sykkelvei", "vei", "skiloype"] {
-            assert_eq!(normalize_fkb_type(s), s, "canonical value must pass through");
+        for s in [
+            "sti",
+            "traktorvei",
+            "skogsvei",
+            "sykkelvei",
+            "vei",
+            "skiloype",
+        ] {
+            assert_eq!(
+                normalize_fkb_type(s),
+                s,
+                "canonical value must pass through"
+            );
         }
         // Unknown values pass through unchanged (encoder maps them to 0).
         assert_eq!(normalize_fkb_type("bilferje"), "bilferje");

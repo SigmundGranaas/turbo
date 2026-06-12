@@ -15,7 +15,9 @@ use crate::error::ApiError;
 /// `GET /fonts/{fontstack}/{range}.pbf`. `range` is `"{start}-{end}.pbf"`
 /// where start is a multiple of 256 (MapLibre requests one 256-codepoint
 /// block at a time). The fontstack is ignored — we only ship one face.
-pub async fn glyphs(Path((_fontstack, range)): Path<(String, String)>) -> Result<Response, ApiError> {
+pub async fn glyphs(
+    Path((_fontstack, range)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
     let range = range
         .strip_suffix(".pbf")
         .ok_or_else(|| ApiError::BadRequest("font range must end in .pbf".into()))?;
@@ -24,14 +26,13 @@ pub async fn glyphs(Path((_fontstack, range)): Path<(String, String)>) -> Result
         .next()
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| ApiError::BadRequest(format!("invalid glyph range `{range}`")))?;
-    if start % 256 != 0 {
+    if !start.is_multiple_of(256) {
         return Err(ApiError::BadRequest(
             "glyph range start must be a multiple of 256".into(),
         ));
     }
 
-    let pbf = turbo_tiles_raster::render_range(start)
-        .map_err(|e| ApiError::Db(e.to_string()))?;
+    let pbf = turbo_tiles_raster::render_range(start).map_err(|e| ApiError::Db(e.to_string()))?;
 
     let mut resp = Response::builder()
         .status(StatusCode::OK)

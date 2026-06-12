@@ -356,7 +356,10 @@ async fn run_job_with_options_owned(
                 tracing::info!(file = %path.display(), "geonorge-fetch: downloaded");
                 // rows_in/upserted are N/A for a pure download; report 1 so the
                 // job row reads as "did something" rather than an empty no-op.
-                Ok(JobOutcome { rows_in: 1, rows_upserted: 1 })
+                Ok(JobOutcome {
+                    rows_in: 1,
+                    rows_upserted: 1,
+                })
             })
         }
         JobName::ProvisionN50 => {

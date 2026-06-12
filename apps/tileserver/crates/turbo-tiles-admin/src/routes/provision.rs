@@ -31,7 +31,9 @@ pub struct ProvisionBody {
 /// `run_id`; the SPA watches progress on `/api/ingest/jobs?name=provision-n50`.
 pub async fn provision(
     _: RequireRole<Curator>,
-    State(state): State<AdminState>,
+    // The serving pool is intentionally unused: provisioning runs on a
+    // dedicated pool (built below) with the statement timeout disabled.
+    State(_state): State<AdminState>,
     Json(body): Json<ProvisionBody>,
 ) -> Result<Json<Value>, AdminError> {
     // Validate the area up front so the curator gets an immediate 400 on a
@@ -115,7 +117,8 @@ pub async fn geonorge_areas(
         .await
         .map_err(|e| AdminError::Upstream(format!("geonorge areas not JSON: {e}")))?;
 
-    let mut areas = vec![json!({ "code": "national", "name": "Hele landet", "type": "landsdekkende" })];
+    let mut areas =
+        vec![json!({ "code": "national", "name": "Hele landet", "type": "landsdekkende" })];
     if let Some(arr) = resp.as_array() {
         for a in arr {
             if a.get("type").and_then(|t| t.as_str()) == Some("fylke") {

@@ -59,9 +59,18 @@ impl Width {
 
 #[derive(Debug, Clone)]
 pub enum PaintKind {
-    Fill { color: Rgba },
-    Line { color: Rgba, width: Width },
-    Text { field: String, size_px: f32, color: Rgba },
+    Fill {
+        color: Rgba,
+    },
+    Line {
+        color: Rgba,
+        width: Width,
+    },
+    Text {
+        field: String,
+        size_px: f32,
+        color: Rgba,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -138,9 +147,7 @@ impl RasterStyle {
                 // has no raster sources, so it ignores `hillshade`/`raster`
                 // layers in the shared style rather than rejecting them.
                 "hillshade" | "raster" => continue,
-                other => {
-                    return Err(StyleError::Unsupported(id, format!("layer type `{other}`")))
-                }
+                other => return Err(StyleError::Unsupported(id, format!("layer type `{other}`"))),
             }
             let source_layer = layer["source-layer"]
                 .as_str()
@@ -202,19 +209,22 @@ fn parse_width(id: &str, v: &Json) -> Result<Width, StyleError> {
                 .ok_or_else(|| StyleError::Unsupported(id.into(), "width without stops".into()))?;
             let pairs = stops
                 .iter()
-                .map(|p| {
-                    Some((p.get(0)?.as_f64()? as f32, p.get(1)?.as_f64()? as f32))
-                })
+                .map(|p| Some((p.get(0)?.as_f64()? as f32, p.get(1)?.as_f64()? as f32)))
                 .collect::<Option<Vec<_>>>()
                 .ok_or_else(|| StyleError::Unsupported(id.into(), "malformed stops".into()))?;
             Ok(Width::Stops(pairs))
         }
-        other => Err(StyleError::Unsupported(id.into(), format!("line-width `{other}`"))),
+        other => Err(StyleError::Unsupported(
+            id.into(),
+            format!("line-width `{other}`"),
+        )),
     }
 }
 
 fn parse_filter(id: &str, f: Option<&Json>) -> Result<Filter, StyleError> {
-    let Some(f) = f else { return Ok(Filter::Always) };
+    let Some(f) = f else {
+        return Ok(Filter::Always);
+    };
     let arr = f
         .as_array()
         .ok_or_else(|| StyleError::Unsupported(id.into(), "filter not an array".into()))?;
@@ -236,7 +246,10 @@ fn parse_filter(id: &str, f: Option<&Json>) -> Result<Filter, StyleError> {
                 .ok_or_else(|| StyleError::Unsupported(id.into(), "== value".into()))?,
         )),
         "in" => Ok(Filter::In(key, arr[2..].to_vec())),
-        other => Err(StyleError::Unsupported(id.into(), format!("filter op `{other}`"))),
+        other => Err(StyleError::Unsupported(
+            id.into(),
+            format!("filter op `{other}`"),
+        )),
     }
 }
 
@@ -252,10 +265,31 @@ fn parse_color(id: &str, v: &Json) -> Result<Rgba, StyleError> {
     let parsed = match hex.len() {
         3 => {
             let d = |i: usize| u8::from_str_radix(&hex[i..i + 1], 16).ok().map(|v| v * 17);
-            (|| Some(Rgba { r: d(0)?, g: d(1)?, b: d(2)?, a: 255 }))()
+            (|| {
+                Some(Rgba {
+                    r: d(0)?,
+                    g: d(1)?,
+                    b: d(2)?,
+                    a: 255,
+                })
+            })()
         }
-        6 => (|| Some(Rgba { r: h(0)?, g: h(2)?, b: h(4)?, a: 255 }))(),
-        8 => (|| Some(Rgba { r: h(0)?, g: h(2)?, b: h(4)?, a: h(6)? }))(),
+        6 => (|| {
+            Some(Rgba {
+                r: h(0)?,
+                g: h(2)?,
+                b: h(4)?,
+                a: 255,
+            })
+        })(),
+        8 => (|| {
+            Some(Rgba {
+                r: h(0)?,
+                g: h(2)?,
+                b: h(4)?,
+                a: h(6)?,
+            })
+        })(),
         _ => None,
     };
     parsed.ok_or_else(|| StyleError::Unsupported(id.into(), format!("color `{s}`")))

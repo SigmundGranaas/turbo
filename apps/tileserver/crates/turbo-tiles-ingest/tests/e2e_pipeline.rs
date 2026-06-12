@@ -287,12 +287,11 @@ async fn n50_upsert_vegnett_creates_road_edges() {
     // Reconciliation guard: the N50 vegnett edges must now actually surface
     // in the served forest-roads view (skogsvei + traktorvei both qualify).
     // This is what the vocabulary mismatch used to break.
-    let (forest_edges,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint FROM paths.v_forest_roads WHERE id LIKE 'edge:%'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (forest_edges,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM paths.v_forest_roads WHERE id LIKE 'edge:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         forest_edges, 2,
         "both N50 vegnett edges (skogsvei + traktorvei) must appear in v_forest_roads"
@@ -314,7 +313,10 @@ async fn n50_upsert_hoydekurve_creates_contours() {
         .expect("restore");
 
     let outcome = n50::upsert_hoydekurve(&pool).await.expect("upsert");
-    assert_eq!(outcome.rows_in, 5, "fixture has 3 main + 1 aux + 1 depression");
+    assert_eq!(
+        outcome.rows_in, 5,
+        "fixture has 3 main + 1 aux + 1 depression"
+    );
 
     for (kind, expected) in [("main", 3), ("auxiliary", 1), ("depression", 1)] {
         let (n,): (i64,) = sqlx::query_as(

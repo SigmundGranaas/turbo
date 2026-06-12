@@ -127,6 +127,18 @@ fn lower_layer(id: &str, ty: &str, layer: &Json) -> Result<Vec<Rule>, StyleError
                     text_field,
                     font_size_px,
                     color,
+                    // The supported MapLibre subset (see the crate docs) does
+                    // not yet lower halo / icon / placement / spacing, so the
+                    // new Paint::Text knobs default to no-ops — identical
+                    // rendering to before main extended the variant.
+                    halo_color: Color::rgba(0, 0, 0, 0),
+                    halo_width: 0.0,
+                    rank_field: None,
+                    along_line: false,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 0.0,
                 },
                 ..base
             }])

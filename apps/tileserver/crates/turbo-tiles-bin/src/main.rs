@@ -456,7 +456,10 @@ async fn maybe_provision_on_boot(serving_db: turbo_tiles_db::DbPool, area: Strin
 /// when Kartverket republished. Uses a dedicated batch pool (no statement
 /// timeout). Does nothing until something has been provisioned at least once.
 async fn refresh_loop(serving_db: turbo_tiles_db::DbPool, interval: std::time::Duration) {
-    tracing::info!(secs = interval.as_secs(), "provision-refresh: scheduler armed");
+    tracing::info!(
+        secs = interval.as_secs(),
+        "provision-refresh: scheduler armed"
+    );
     let mut tick = tokio::time::interval(interval);
     tick.tick().await; // consume the immediate first tick; wait a full interval
     loop {

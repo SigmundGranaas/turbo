@@ -110,10 +110,7 @@ fn coverage_to_sdf(cov: &[f64], w: usize, h: usize) -> Vec<u8> {
 /// `true` (feature) cell. Two 1-D passes (columns then rows).
 fn edt(feature: &[bool], w: usize, h: usize) -> Vec<f64> {
     // Seed: 0 at feature cells, +inf elsewhere (squared-distance domain).
-    let mut grid: Vec<f64> = feature
-        .iter()
-        .map(|&f| if f { 0.0 } else { INF })
-        .collect();
+    let mut grid: Vec<f64> = feature.iter().map(|&f| if f { 0.0 } else { INF }).collect();
 
     // Columns.
     let mut col = vec![0.0f64; h];
@@ -166,12 +163,12 @@ fn edt_1d(f: &[f64]) -> Vec<f64> {
         z[k + 1] = INF;
     }
     k = 0;
-    for q in 0..n {
+    for (q, dq_out) in d.iter_mut().enumerate() {
         while z[k + 1] < q as f64 {
             k += 1;
         }
         let dq = q as f64 - v[k] as f64;
-        d[q] = dq * dq + f[v[k]];
+        *dq_out = dq * dq + f[v[k]];
     }
     d
 }

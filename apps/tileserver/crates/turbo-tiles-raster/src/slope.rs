@@ -121,7 +121,9 @@ mod tests {
     #[test]
     fn flat_is_zero_and_45_degree_plane_measures_45() {
         let flat = plane_grid(8, 0.0);
-        assert!(slope_degrees(&flat, 8, 10.0).iter().all(|&s| s.abs() < 1e-4));
+        assert!(slope_degrees(&flat, 8, 10.0)
+            .iter()
+            .all(|&s| s.abs() < 1e-4));
 
         // Rise 10 m per 10 m pixel → 45°.
         let p45 = plane_grid(8, 10.0);
@@ -132,11 +134,17 @@ mod tests {
     #[test]
     fn curve_is_transparent_then_yellow_then_red() {
         assert!(color_for_slope(10.0).is_none(), "gentle ground transparent");
-        assert!(color_for_slope(25.0).is_none(), "onset angle still transparent");
+        assert!(
+            color_for_slope(25.0).is_none(),
+            "onset angle still transparent"
+        );
         assert!(color_for_slope(f32::NAN).is_none(), "nodata transparent");
 
         let yellow = color_for_slope(25.5).unwrap();
-        assert!(yellow.r > 0xD8 && yellow.g > 0xB8, "onset is yellow: {yellow:?}");
+        assert!(
+            yellow.r > 0xD8 && yellow.g > 0xB8,
+            "onset is yellow: {yellow:?}"
+        );
 
         let red = color_for_slope(45.0).unwrap();
         assert!(red.r > 0xB0 && red.g < 0x60, "45° is red: {red:?}");
@@ -153,8 +161,7 @@ mod tests {
         while deg < 55.0 {
             let c = color_for_slope(deg).unwrap();
             assert!(
-                (c.r as i16 - prev.r as i16).abs() <= 2
-                    && (c.g as i16 - prev.g as i16).abs() <= 2,
+                (c.r as i16 - prev.r as i16).abs() <= 2 && (c.g as i16 - prev.g as i16).abs() <= 2,
                 "jump at {deg}°: {prev:?} → {c:?}"
             );
             assert!(c.g <= prev.g, "hue reversed at {deg}°");
@@ -173,7 +180,7 @@ mod tests {
     fn nodata_neighbours_stay_transparent() {
         let g = 4 + 2;
         let mut grid = plane_grid(4, 10.0);
-        grid[1 * g] = f32::NAN; // left neighbour of pixel (0,0)
+        grid[g] = f32::NAN; // row 1, col 0 — left neighbour of pixel (0,0)
         let s = slope_degrees(&grid, 4, 10.0);
         assert!(s[0].is_nan());
         assert!(!s[5].is_nan(), "interior pixels unaffected");

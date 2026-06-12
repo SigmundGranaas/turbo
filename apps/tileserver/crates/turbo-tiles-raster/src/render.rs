@@ -51,7 +51,7 @@ pub fn tile_envelope_3857(coord: TileCoord) -> (f64, f64, f64, f64) {
 }
 
 /// Projection from EPSG:3857 metres into tile-local pixels.
-struct Proj {
+pub(crate) struct Proj {
     xmin: f64,
     ymax: f64,
     scale: f64, // px per metre
@@ -90,8 +90,8 @@ pub async fn render_tile(
     // simplification the MVT path uses.
     let simplify_tol_m = 0.5 / proj.scale;
 
-    let mut pixmap = Pixmap::new(size_px, size_px)
-        .ok_or_else(|| RasterError::Render("pixmap alloc".into()))?;
+    let mut pixmap =
+        Pixmap::new(size_px, size_px).ok_or_else(|| RasterError::Render("pixmap alloc".into()))?;
     let bg = style.background;
     pixmap.fill(tiny_skia::Color::from_rgba8(bg.r, bg.g, bg.b, bg.a));
 
@@ -137,10 +137,18 @@ pub async fn render_tile(
             };
             match &layer.paint {
                 PaintKind::Fill { color } => draw_fill(&mut pixmap, &geom, &proj, *color),
-                PaintKind::Line { color, width } => {
-                    draw_line(&mut pixmap, &geom, &proj, *color, width.at(f32::from(coord.z)))
-                }
-                PaintKind::Text { field, size_px, color } => {
+                PaintKind::Line { color, width } => draw_line(
+                    &mut pixmap,
+                    &geom,
+                    &proj,
+                    *color,
+                    width.at(f32::from(coord.z)),
+                ),
+                PaintKind::Text {
+                    field,
+                    size_px,
+                    color,
+                } => {
                     if let (Some(text), Geometry::Point(p)) =
                         (attrs.get(field).and_then(|v| v.as_str()), &geom)
                     {
@@ -265,7 +273,13 @@ pub(crate) fn draw_fill(pixmap: &mut Pixmap, geom: &Geometry<f64>, proj: &Proj, 
         _ => return,
     }
     if let Some(path) = pb.finish() {
-        pixmap.fill_path(&path, &sk_paint(color), FillRule::EvenOdd, Transform::identity(), None);
+        pixmap.fill_path(
+            &path,
+            &sk_paint(color),
+            FillRule::EvenOdd,
+            Transform::identity(),
+            None,
+        );
     }
 }
 
@@ -306,7 +320,13 @@ pub(crate) fn draw_line(
         line_join: LineJoin::Round,
         ..Stroke::default()
     };
-    pixmap.stroke_path(&path, &sk_paint(color), &stroke, Transform::identity(), None);
+    pixmap.stroke_path(
+        &path,
+        &sk_paint(color),
+        &stroke,
+        Transform::identity(),
+        None,
+    );
 }
 
 /// Centered labels with a background-coloured halo and a naive keep-out so
@@ -332,7 +352,16 @@ fn draw_labels(
         }
         taken.push(rect);
         // Halo first (8 offsets), then the label itself.
-        for (dx, dy) in [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (-1.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (1.0, -1.0)] {
+        for (dx, dy) in [
+            (-1.0, 0.0),
+            (1.0, 0.0),
+            (0.0, -1.0),
+            (0.0, 1.0),
+            (-1.0, -1.0),
+            (1.0, 1.0),
+            (-1.0, 1.0),
+            (1.0, -1.0),
+        ] {
             draw_text_run(pixmap, &scaled, text, x0 + dx, y0 + dy, halo);
         }
         draw_text_run(pixmap, &scaled, text, x0, y0, *color);
@@ -357,7 +386,9 @@ fn draw_text_run(
         let mut glyph = scaled.scaled_glyph(ch);
         glyph.position = ab_glyph::point(pen_x, baseline);
         pen_x += scaled.h_advance(glyph.id);
-        let Some(outline) = scaled.outline_glyph(glyph) else { continue };
+        let Some(outline) = scaled.outline_glyph(glyph) else {
+            continue;
+        };
         let bounds = outline.px_bounds();
         let (w, h) = (pixmap.width() as i32, pixmap.height() as i32);
         outline.draw(|gx, gy, cov| {
@@ -420,7 +451,12 @@ mod tests {
             geo::LineString::from(vec![(-q, -q), (q, -q), (q, q), (-q, q), (-q, -q)]),
             vec![],
         );
-        draw_fill(&mut pixmap, &Geometry::Polygon(poly), &proj, Rgba::rgb(185, 217, 241));
+        draw_fill(
+            &mut pixmap,
+            &Geometry::Polygon(poly),
+            &proj,
+            Rgba::rgb(185, 217, 241),
+        );
         assert_eq!(px_at(&pixmap, 128, 128), (185, 217, 241), "center filled");
         assert_eq!(px_at(&pixmap, 10, 10), (255, 255, 255), "corner untouched");
     }
@@ -432,7 +468,13 @@ mod tests {
         let mut pixmap = Pixmap::new(256, 256).unwrap();
         pixmap.fill(tiny_skia::Color::WHITE);
         let ls = geo::LineString::from(vec![(-WORLD_M, 0.0), (WORLD_M, 0.0)]);
-        draw_line(&mut pixmap, &Geometry::LineString(ls), &proj, Rgba::rgb(160, 82, 45), 4.0);
+        draw_line(
+            &mut pixmap,
+            &Geometry::LineString(ls),
+            &proj,
+            Rgba::rgb(160, 82, 45),
+            4.0,
+        );
         assert_eq!(px_at(&pixmap, 128, 128), (160, 82, 45), "on the line");
         assert_eq!(px_at(&pixmap, 128, 100), (255, 255, 255), "off the line");
     }

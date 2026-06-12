@@ -35,7 +35,11 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
     //    county — the easy way to accidentally wipe a prod dataset. Done
     //    before the expensive download so the failure is instant.
     let prev = existing_provision(pool).await?;
-    guard_replacement(prev.as_ref().map(|p| (p.area.clone(), p.row_count)), &area, force)?;
+    guard_replacement(
+        prev.as_ref().map(|p| (p.area.clone(), p.row_count)),
+        &area,
+        force,
+    )?;
 
     // 1. Download the dump and unzip to the SQL file.
     tracing::info!(area = %area.0, force, "provision: fetching N50 dump");
@@ -54,7 +58,10 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
             rows,
             "provision: source unchanged since last run — skipping restore + upserts"
         );
-        return Ok(JobOutcome { rows_in: rows, rows_upserted: rows });
+        return Ok(JobOutcome {
+            rows_in: rows,
+            rows_upserted: rows,
+        });
     }
 
     // 2. Restore into n50_staging (idempotent unless force). Passing the
@@ -69,7 +76,11 @@ pub async fn provision_n50(pool: &DbPool, area: &str, force: bool) -> Result<Job
     macro_rules! step {
         ($label:literal, $call:expr) => {{
             let out = $call.await?;
-            tracing::info!(step = $label, rows = out.rows_upserted, "provision: upsert done");
+            tracing::info!(
+                step = $label,
+                rows = out.rows_upserted,
+                "provision: upsert done"
+            );
             total += out.rows_upserted;
         }};
     }
@@ -210,7 +221,12 @@ async fn record_provision(
 
 /// Skip the restore + upserts iff the prior run covered the *same* area with
 /// the *same* content hash and we're not forcing. Pure for unit testing.
-fn should_skip(prev: Option<&ProvisionState>, requested: &Area, version: &str, force: bool) -> bool {
+fn should_skip(
+    prev: Option<&ProvisionState>,
+    requested: &Area,
+    version: &str,
+    force: bool,
+) -> bool {
     if force {
         return false;
     }
@@ -254,13 +270,16 @@ mod tests {
 
     #[test]
     fn same_area_refresh_is_allowed() {
-        assert!(guard_replacement(Some(("0000".into(), 7_000_000)), &area("national"), false).is_ok());
+        assert!(
+            guard_replacement(Some(("0000".into(), 7_000_000)), &area("national"), false).is_ok()
+        );
         assert!(guard_replacement(Some(("03".into(), 28_000)), &area("03"), false).is_ok());
     }
 
     #[test]
     fn county_replacing_national_is_refused_without_force() {
-        let err = guard_replacement(Some(("0000".into(), 7_000_000)), &area("03"), false).unwrap_err();
+        let err =
+            guard_replacement(Some(("0000".into(), 7_000_000)), &area("03"), false).unwrap_err();
         assert!(matches!(err, JobError::WouldReplace(_)), "got {err:?}");
         // ...but force overrides it.
         assert!(guard_replacement(Some(("0000".into(), 7_000_000)), &area("03"), true).is_ok());
@@ -273,13 +292,20 @@ mod tests {
     }
 
     fn state(area: &str, ver: Option<&str>) -> ProvisionState {
-        ProvisionState { area: area.into(), row_count: 100, source_version: ver.map(String::from) }
+        ProvisionState {
+            area: area.into(),
+            row_count: 100,
+            source_version: ver.map(String::from),
+        }
     }
 
     #[test]
     fn skips_when_same_area_and_hash_unchanged() {
         let prev = state("03", Some("abc123"));
-        assert!(should_skip(Some(&prev), &area("03"), "abc123", false), "unchanged → skip");
+        assert!(
+            should_skip(Some(&prev), &area("03"), "abc123", false),
+            "unchanged → skip"
+        );
         // Different hash (Kartverket republished) → do the work.
         assert!(!should_skip(Some(&prev), &area("03"), "def456", false));
         // force always re-provisions.
@@ -289,8 +315,14 @@ mod tests {
     #[test]
     fn never_skips_across_areas_or_fresh_db() {
         let nat = state("0000", Some("abc123"));
-        assert!(!should_skip(Some(&nat), &area("03"), "abc123", false), "area change → never skip");
-        assert!(!should_skip(None, &area("03"), "abc123", false), "fresh db → never skip");
+        assert!(
+            !should_skip(Some(&nat), &area("03"), "abc123", false),
+            "area change → never skip"
+        );
+        assert!(
+            !should_skip(None, &area("03"), "abc123", false),
+            "fresh db → never skip"
+        );
     }
 
     #[test]

@@ -246,10 +246,7 @@ mod tests {
             overview_max_zoom: Some(9),
         };
         // In the overview band: matview, no simplify, no filter (baked in).
-        assert_eq!(
-            layer.source_at(6),
-            ("basemap.water_overview", false, None)
-        );
+        assert_eq!(layer.source_at(6), ("basemap.water_overview", false, None));
         assert_eq!(layer.source_at(9), ("basemap.water_overview", false, None));
         // Above the band: base table, simplify on, filter applied.
         let (t, s, f) = layer.source_at(10);
@@ -285,9 +282,19 @@ mod tests {
     #[test]
     fn embedded_config_parses_and_has_layers() {
         let cfg: BasemapConfig = toml::from_str(EMBEDDED).expect("embedded toml parses");
-        assert!(!cfg.layer.is_empty(), "embedded basemap config must define layers");
+        assert!(
+            !cfg.layer.is_empty(),
+            "embedded basemap config must define layers"
+        );
         // Core topo layers must be present.
-        for want in ["water", "landcover", "contour", "building", "transportation", "place"] {
+        for want in [
+            "water",
+            "landcover",
+            "contour",
+            "building",
+            "transportation",
+            "place",
+        ] {
             assert!(
                 cfg.layer.iter().any(|l| l.name == want),
                 "missing basemap layer `{want}`"
@@ -314,6 +321,9 @@ mod tests {
         let wi = names.iter().position(|n| *n == "water").unwrap();
         let ti = names.iter().position(|n| *n == "transportation").unwrap();
         let pi = names.iter().position(|n| *n == "place").unwrap();
-        assert!(wi < ti && ti < pi, "paint order must be fills → lines → labels: {names:?}");
+        assert!(
+            wi < ti && ti < pi,
+            "paint order must be fills → lines → labels: {names:?}"
+        );
     }
 }
