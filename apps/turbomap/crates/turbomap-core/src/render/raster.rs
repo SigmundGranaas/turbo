@@ -472,11 +472,14 @@ impl RasterPipeline {
             } else {
                 Vec::new()
             };
-            let has_backdrop = ancestor.is_some() || !descendants.is_empty();
-
+            // Fade every freshly-ingested tile, whether it blends over a cached
+            // ancestor/descendant backdrop OR straight over the empty-tile clear
+            // colour. The clear is a light grey (not black), so fading up from it
+            // reads as a soft reveal, not a pop — and crucially this makes
+            // disk-cached tiles (which arrive all-at-once with no backdrop) fade in
+            // too, instead of snapping. `fade_in_secs == 0` (goldens) still snaps.
             let self_alpha = match self_age {
                 None => 0.0,
-                Some(_) if !has_backdrop => 1.0, // no blend possible — show now
                 Some(age) if fade_in_secs <= 0.0 || age >= fade_in_secs => 1.0,
                 Some(age) => {
                     let t = (age / fade_in_secs).clamp(0.0, 1.0);
