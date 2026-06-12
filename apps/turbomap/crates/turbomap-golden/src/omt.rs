@@ -135,14 +135,16 @@ pub fn bergen_scene() -> Scene {
         width: Paint::Const(0.8),
         dash_array: None,
     });
-    // Buildings: a warm fill with a slightly darker outline so adjacent
-    // footprints read as separate shapes instead of one grey blob.
+    // Buildings: a light, slightly-cool fill that sits just above the warm
+    // land so the footprints recede (Google's flat top-down look) and let
+    // roads + labels carry the contrast. A crisp, marginally darker outline
+    // keeps adjacent footprints reading as separate shapes.
     scene.layers.push(Layer::Fill {
         id: "buildings".to_string(),
         source: "omt".to_string(),
         source_layer: Some("building".to_string()),
         filter: Filter::Always,
-        color: Paint::Const(Color::rgb(224, 217, 206)),
+        color: Paint::Const(Color::rgb(232, 229, 222)),
         opacity: Paint::Const(1.0),
     });
     scene.layers.push(Layer::Line {
@@ -150,7 +152,7 @@ pub fn bergen_scene() -> Scene {
         source: "omt".to_string(),
         source_layer: Some("building".to_string()),
         filter: Filter::Always,
-        color: Paint::Const(Color::rgb(198, 189, 174)),
+        color: Paint::Const(Color::rgb(210, 204, 193)),
         width: Paint::Const(0.8),
         dash_array: None,
     });
