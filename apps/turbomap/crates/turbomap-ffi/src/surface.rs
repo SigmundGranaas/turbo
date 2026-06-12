@@ -185,14 +185,22 @@ impl OnScreen {
     }
 }
 
-/// `handle` is a `Box<OnScreen>` pointer; borrow it for the call's duration.
+/// `handle` is a `Box<Mutex<OnScreen>>` pointer. Every native entry point goes
+/// through here, so the lock serialises access from the dedicated render thread
+/// (the frame loop) and the UI thread (gestures, projection, the tile
+/// reconciler) — the engine itself stays single-owner, no internal locking.
+/// A panic while the lock is held poisons it; we recover the inner value so one
+/// caught panic doesn't wedge the map forever.
 unsafe fn with_map<R>(handle: jlong, f: impl FnOnce(&mut OnScreen) -> R) -> Option<R> {
-    let ptr = handle as *mut OnScreen;
+    let ptr = handle as *const Mutex<OnScreen>;
     if ptr.is_null() {
         return None;
     }
-    let map = &mut *ptr;
-    match catch_unwind(AssertUnwindSafe(|| f(map))) {
+    let mtx = &*ptr;
+    match catch_unwind(AssertUnwindSafe(|| {
+        let mut guard = mtx.lock().unwrap_or_else(|poison| poison.into_inner());
+        f(&mut guard)
+    })) {
         Ok(r) => Some(r),
         Err(payload) => {
             set_error(format!("panic: {}", panic_message(&*payload)));
@@ -226,7 +234,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         build(window, width.max(0) as u32, height.max(0) as u32, camera)
     }));
     match result {
-        Ok(Ok(map)) => Box::into_raw(Box::new(map)) as jlong,
+        Ok(Ok(map)) => Box::into_raw(Box::new(Mutex::new(map))) as jlong,
         Ok(Err(reason)) => {
             set_error(reason);
             0
@@ -490,9 +498,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     _class: JClass,
     handle: jlong,
 ) {
-    let ptr = handle as *mut OnScreen;
+    let ptr = handle as *mut Mutex<OnScreen>;
     if !ptr.is_null() {
-        // Drop the boxed map (surface, device, engine, native window).
+        // Drop the boxed mutex+map (surface, device, engine, native window).
         let _ = catch_unwind(AssertUnwindSafe(|| unsafe { drop(Box::from_raw(ptr)) }));
     }
 }

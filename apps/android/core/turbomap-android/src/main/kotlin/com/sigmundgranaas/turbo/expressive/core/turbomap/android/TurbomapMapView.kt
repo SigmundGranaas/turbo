@@ -1,5 +1,8 @@
 package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Looper
 import android.view.Choreographer
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -174,7 +177,8 @@ internal class TurbomapSurfaceController {
 
     private val tileCache: TurbomapTileCache? by lazy { cacheDir?.let { TurbomapTileCache(it) } }
 
-    private var handle = 0L
+    // Mutated on the main thread (attach/detach), read on the render thread.
+    @Volatile private var handle = 0L
     private var width = 0
     private var height = 0
     private var rasters: List<TurbomapScene.RasterSpec> = emptyList()
@@ -198,22 +202,33 @@ internal class TurbomapSurfaceController {
         .readTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .build()
 
-    private val choreographer = Choreographer.getInstance()
-    private var running = false
+    // ── Render thread ──────────────────────────────────────────────────────
+    // Rendering (GPU encode/submit/present, which can block on vsync) runs on a
+    // dedicated thread so it never stalls the UI thread. The native engine is
+    // serialised by a Mutex inside the FFI, so gestures / projection / the tile
+    // reconciler stay on the main thread and just contend briefly for the lock.
+    // UI-touching results (overlay tick, bearing) are marshalled back to main.
+    @Volatile private var running = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var renderThread: HandlerThread? = null
+    private var renderHandler: Handler? = null
+    private var choreographer: Choreographer? = null // this render thread's, set on it
     private val frame = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (!running || handle == 0L) return
             NativeSurfaceMap.nativeRender(handle)
             // Re-place the Compose overlays in lockstep with the GPU frame, whatever
-            // moved the camera (gesture, zoom rail, fit-to-track). Reading cameraTick in
-            // the overlays' `offset {}` makes this a cheap re-layout, not a recompose.
-            cameraTick?.let { it.intValue++ }
-            val b = engine?.bearing() ?: 0.0
+            // moved the camera (gesture, zoom rail, fit-to-track). Hop to the main
+            // thread: cameraTick is read by the overlays' `offset {}` layout there.
+            mainHandler.post { cameraTick?.let { it.intValue++ } }
+            // Read bearing natively here (mutex-safe); deliver the callback on main.
+            val cam = NativeSurfaceMap.nativeCamera(handle)
+            val b = if (cam.size >= 4) cam[3] else 0.0
             if (lastBearing.isNaN() || abs(b - lastBearing) > BEARING_EPSILON) {
                 lastBearing = b
-                onBearingChange(b)
+                mainHandler.post { onBearingChange(b) }
             }
-            choreographer.postFrameCallback(this)
+            choreographer?.postFrameCallback(this)
         }
     }
 
@@ -355,7 +370,6 @@ internal class TurbomapSurfaceController {
 
     fun detach() {
         running = false
-        choreographer.removeFrameCallback(frame)
         reconcileLoop?.cancel()
         reconcileLoop = null
         inFlight.values.forEach { it.cancel() }
@@ -365,13 +379,40 @@ internal class TurbomapSurfaceController {
         val h = handle
         handle = 0L
         engine = null
-        if (h != 0L) NativeSurfaceMap.nativeDestroy(h)
+        val thread = renderThread
+        val handler = renderHandler
+        renderThread = null
+        renderHandler = null
+        if (thread != null && handler != null) {
+            // Stop the loop + free the native map ON the render thread, after any
+            // in-flight frame drains (serial queue) — so destroy never races a
+            // render. Then block-join briefly so surfaceDestroyed doesn't return
+            // (and Android tear down the ANativeWindow) while we're still using it.
+            handler.post {
+                choreographer?.removeFrameCallback(frame)
+                choreographer = null
+                if (h != 0L) NativeSurfaceMap.nativeDestroy(h)
+            }
+            thread.quitSafely()
+            runCatching { thread.join(DETACH_JOIN_MS) }
+        } else if (h != 0L) {
+            NativeSurfaceMap.nativeDestroy(h)
+        }
     }
 
     private fun startRenderLoop() {
         if (running) return
         running = true
-        choreographer.postFrameCallback(frame)
+        val thread = HandlerThread("turbomap-render").apply { start() }
+        val handler = Handler(thread.looper)
+        renderThread = thread
+        renderHandler = handler
+        // Grab THIS thread's Choreographer (vsync) and drive the frame loop on it.
+        handler.post {
+            val c = Choreographer.getInstance()
+            choreographer = c
+            c.postFrameCallback(frame)
+        }
     }
 
     /** Fetch a tile over the pooled OkHttp client; cancels the live HTTP call if the coroutine is cancelled. */
@@ -401,5 +442,7 @@ internal class TurbomapSurfaceController {
         // returning "[]" when idle).
         const val SAFETY_TICK_MS = 350L
         const val RETRY_BACKOFF_MS = 1500L
+        // Bounded wait for the render thread to release the surface on detach.
+        const val DETACH_JOIN_MS = 350L
     }
 }
