@@ -151,7 +151,28 @@ impl Camera {
         self.view_projection(viewport_px).to_cols_array_2d()
     }
 
+    /// Like [`Self::view_projection_matrix`] but built in a frame translated so
+    /// the f64 world point `origin` maps to the world-space zero. Vertex
+    /// pipelines pass `(world - origin)` as f32 (small magnitudes → full f32
+    /// precision) instead of absolute Mercator coords near 0.5 (which lose
+    /// ~16 px at zoom ≈ 20). The matrix is otherwise identical, so with
+    /// `origin = (0,0)` this equals `view_projection_matrix`.
+    pub fn view_projection_matrix_rtc(
+        self,
+        origin: WorldPoint,
+        viewport_px: (u32, u32),
+    ) -> [[f32; 4]; 4] {
+        self.view_projection_from_origin(origin, viewport_px)
+            .to_cols_array_2d()
+    }
+
     fn view_projection(self, viewport_px: (u32, u32)) -> Mat4 {
+        // Absolute frame: origin at world (0,0). Kept for the legacy/ortho
+        // parity tests; live pipelines use the RTC path.
+        self.view_projection_from_origin(WorldPoint::new(0.0, 0.0), viewport_px)
+    }
+
+    fn view_projection_from_origin(self, origin: WorldPoint, viewport_px: (u32, u32)) -> Mat4 {
         let vw = viewport_px.0.max(1) as f32;
         let vh = viewport_px.1.max(1) as f32;
         let ppw = self.pixels_per_world_unit() as f32;
@@ -160,8 +181,11 @@ impl Camera {
         let pitch = (self.pitch_deg.clamp(0.0, MAX_PITCH_DEG) as f32).to_radians();
         let bearing = (self.bearing_deg as f32).to_radians();
 
+        // Build target/eye in the origin-relative frame: subtract the f64
+        // origin in f64, then cast — so the f32 the matrix carries is the small
+        // offset from the origin, not the ~0.5 absolute Mercator coordinate.
         let centre = self.center.to_world();
-        let target = Vec3::new(centre.x as f32, centre.y as f32, 0.0);
+        let target = Vec3::new((centre.x - origin.x) as f32, (centre.y - origin.y) as f32, 0.0);
 
         // Eye position relative to target.
         //   1. Start at (0, 0, altitude) — straight above the target.
@@ -907,6 +931,46 @@ mod tests {
         // Round-trip still holds with the inset applied.
         let back = inset_cam.pixel_to_world((512.0, inset_y as f64), viewport);
         assert_world_close(back, world, 1e-3);
+    }
+
+    #[test]
+    fn rtc_keeps_high_zoom_geometry_locked_to_the_f64_projection() {
+        // The desync the user saw at max zoom: GPU pipelines fed absolute f32
+        // world coords (~0.5) lose precision under the huge zoom-19 scale and
+        // drift away from the f64 overlay projection. The RTC matrix (origin =
+        // camera centre) must track `world_to_screen` (exact f64 here) to a
+        // sub-pixel, while the absolute path is visibly off.
+        let vp_px = (1024.0, 768.0);
+        let viewport = (1024u32, 768u32);
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 20.0);
+        let origin = cam.center.to_world();
+        let ppw = cam.pixels_per_world_unit();
+        // A world point ~200 px east / 150 px south of centre.
+        let world = WorldPoint::new(origin.x + 200.0 / ppw, origin.y + 150.0 / ppw);
+        let truth = cam.world_to_screen(world, vp_px).expect("on-screen");
+
+        let project = |m: [[f32; 4]; 4], p: glam::Vec4| -> (f64, f64) {
+            let clip = glam::Mat4::from_cols_array_2d(&m) * p;
+            let ndc = clip.truncate() / clip.w;
+            (((ndc.x + 1.0) * 0.5) as f64 * vp_px.0, ((1.0 - ndc.y) * 0.5) as f64 * vp_px.1)
+        };
+        let dist = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+
+        let abs_px = project(
+            cam.view_projection_matrix(viewport),
+            glam::Vec4::new(world.x as f32, world.y as f32, 0.0, 1.0),
+        );
+        let rtc_px = project(
+            cam.view_projection_matrix_rtc(origin, viewport),
+            glam::Vec4::new((world.x - origin.x) as f32, (world.y - origin.y) as f32, 0.0, 1.0),
+        );
+        let abs_err = dist(abs_px, truth);
+        let rtc_err = dist(rtc_px, truth);
+        assert!(rtc_err < 1.0, "RTC should be sub-pixel at z19 (got {rtc_err} px; abs {abs_err} px)");
+        assert!(
+            abs_err > 4.0,
+            "absolute f32 must be visibly off at z19 ({abs_err} px) or the test proves nothing"
+        );
     }
 
     #[test]

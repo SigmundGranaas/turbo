@@ -262,8 +262,11 @@ impl VectorPipeline {
     ) -> PreparedVector {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
+        // Relative-to-centre frame (see raster.rs): per-tile origins reach the
+        // GPU as `(world - origin)` for full f32 precision at deep zoom.
+        let origin = camera.center.to_world();
         let uniform = CameraUniform {
-            view_proj: camera.view_projection_matrix((vw, vh)),
+            view_proj: camera.view_projection_matrix_rtc(origin, (vw, vh)),
             params: [(256.0 * 2f64.powf(camera.zoom)) as f32, 0.0, 0.0, 0.0],
         };
         self.queue
@@ -330,11 +333,13 @@ impl VectorPipeline {
                     bytes[c..c + 4].copy_from_slice(&comp.to_le_bytes());
                 }
                 // Tile placement: world origin + span for the tile-local
-                // mesh ([0,1] across the tile). f64 keeps the origin exact
-                // until the GPU; the span is exactly representable.
+                // mesh ([0,1] across the tile). Subtract the camera-centre
+                // origin in f64, then cast — so the GPU gets the small
+                // relative offset, not the ~0.5 absolute coord. The span is
+                // exactly representable either way.
                 let span = 1.0f64 / (1u64 << tile.z) as f64;
-                let ox = (tile.x as f64 * span) as f32;
-                let oy = (tile.y as f64 * span) as f32;
+                let ox = (tile.x as f64 * span - origin.x) as f32;
+                let oy = (tile.y as f64 * span - origin.y) as f32;
                 bytes[off + 32..off + 36].copy_from_slice(&ox.to_le_bytes());
                 bytes[off + 36..off + 40].copy_from_slice(&oy.to_le_bytes());
                 bytes[off + 40..off + 44].copy_from_slice(&(span as f32).to_le_bytes());

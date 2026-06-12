@@ -410,8 +410,11 @@ impl RasterPipeline {
     ) -> PreparedRaster {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
+        // Relative-to-centre frame: tile world coords go to the GPU as
+        // `(world - origin)` so f32 keeps full precision at deep zoom.
+        let origin = camera.center.to_world();
         let uniform = CameraUniform {
-            view_proj: camera.view_projection_matrix((vw, vh)),
+            view_proj: camera.view_projection_matrix_rtc(origin, (vw, vh)),
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
@@ -460,7 +463,7 @@ impl RasterPipeline {
         for tile in scene.visible_tiles() {
             let (nw, _se) = tile.world_bounds();
             let world_size = 1.0 / (1u64 << tile.z) as f32;
-            let nw_f32 = [nw.x as f32, nw.y as f32];
+            let nw_f32 = [(nw.x - origin.x) as f32, (nw.y - origin.y) as f32];
 
             let self_age = cache.age_secs(tile);
             let ancestor = cache.nearest_ancestor(tile);
@@ -515,7 +518,7 @@ impl RasterPipeline {
                             *desc,
                             dem_src,
                             Instance {
-                                world_origin: [d_nw.x as f32, d_nw.y as f32],
+                                world_origin: [(d_nw.x - origin.x) as f32, (d_nw.y - origin.y) as f32],
                                 world_size: d_size,
                                 alpha: 1.0,
                                 uv_origin: [0.0, 0.0],

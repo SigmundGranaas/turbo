@@ -317,13 +317,16 @@ impl HillshadePipeline {
     ) -> PreparedHillshade {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
+        // Relative-to-centre frame (see raster.rs): tile world coords reach the
+        // GPU as `(world - origin)` for full f32 precision at deep zoom.
+        let origin = camera.center.to_world();
 
         // Upload camera + globals.
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::bytes_of(&CameraUniform {
-                view_proj: camera.view_projection_matrix((vw, vh)),
+                view_proj: camera.view_projection_matrix_rtc(origin, (vw, vh)),
             }),
         );
         // Halo UV is `halo / (256 + 2*halo)` — the fraction of texture
@@ -367,7 +370,7 @@ impl HillshadePipeline {
                 let (nw, _) = tile.world_bounds();
                 let world_size = 1.0 / (1u64 << tile.z) as f32;
                 instances.push(Instance {
-                    world_origin: [nw.x as f32, nw.y as f32],
+                    world_origin: [(nw.x - origin.x) as f32, (nw.y - origin.y) as f32],
                     world_size,
                     alpha: fade_alpha(age, fade_in_secs),
                 });
