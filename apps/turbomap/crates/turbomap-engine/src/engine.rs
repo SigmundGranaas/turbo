@@ -49,6 +49,10 @@ pub struct TurbomapEngine {
     /// Colour paint per line/fill layer, re-evaluated each frame so zoom
     /// curves animate on the GPU without re-tessellation.
     layer_colors: HashMap<String, Paint<Color>>,
+    /// Ids of every `Line` layer, so the per-frame width-zoom curve can grow
+    /// their baked widths on the GPU (no re-tessellation). Data-driven colour
+    /// lines aren't in `layer_colors`, so width needs its own roster.
+    line_layers: Vec<String>,
     /// Layer ids the current backend cannot render (recorded each apply).
     unsupported: Vec<String>,
     max_texture_size: u32,
@@ -82,6 +86,7 @@ impl TurbomapEngine {
             terrain_source: None,
             vector_sources: HashMap::new(),
             layer_colors: HashMap::new(),
+            line_layers: Vec::new(),
             unsupported: Vec::new(),
             max_texture_size,
             pixel_ratio,
@@ -119,6 +124,7 @@ impl TurbomapEngine {
             self.raster_sources.remove(id);
             self.vector_sources.remove(id);
             self.layer_colors.remove(id);
+            self.line_layers.retain(|l| l != id);
         }
         // Re-install the new tail in order (core appends).
         for layer in new_pos.iter().skip(prefix) {
@@ -194,6 +200,7 @@ impl TurbomapEngine {
                         self.map.set_vector_layer_dash(id, Some((d * r, g * r)));
                     }
                     self.vector_sources.insert(id.clone(), vsrc);
+                    self.line_layers.push(id.clone());
                     // Single-colour layers get a per-frame GPU override
                     // (zoom curves animate); data-driven Match colours are
                     // baked per-feature, so leave the override off.
@@ -499,6 +506,14 @@ impl TurbomapEngine {
             // authored sRGB, decoded to linear once before the shader.
             let linear = CoreColor::rgba(c.r, c.g, c.b, c.a).to_linear_f32();
             self.map.set_vector_layer_color(id, Some(linear));
+        }
+        // Road widths grow as you zoom past city-detail level — the Google
+        // behaviour where streets swell into ribbons up close. Below the
+        // reference the curve is flat (baked widths unchanged), so low-zoom
+        // and pixel-constant-width behaviour is exactly as before.
+        let scale = line_width_scale(zoom);
+        for id in &self.line_layers {
+            self.map.set_vector_layer_width_scale(id, scale);
         }
     }
 
@@ -1014,6 +1029,23 @@ fn line_rules(
     rules
 }
 
+/// Per-frame multiplier on baked line widths as a function of camera zoom.
+/// Flat at 1.0 up to [`LINE_WIDTH_REF_ZOOM`] — so low-zoom maps and the
+/// pixel-constant-width contract are untouched — then grows ~12% per zoom
+/// level as you push in, capped, giving roads the Google-style swell up
+/// close without re-tessellating.
+fn line_width_scale(zoom: f64) -> f32 {
+    const LINE_WIDTH_REF_ZOOM: f64 = 15.0;
+    const PER_ZOOM_GROWTH: f64 = 1.12;
+    const MAX_SCALE: f64 = 2.0;
+    if zoom <= LINE_WIDTH_REF_ZOOM {
+        return 1.0;
+    }
+    PER_ZOOM_GROWTH
+        .powf(zoom - LINE_WIDTH_REF_ZOOM)
+        .min(MAX_SCALE) as f32
+}
+
 fn line_style(
     layer_name: String,
     filter: &Filter,
@@ -1083,4 +1115,25 @@ fn fetch_decode(src: &dyn TileSource, tile: TileId) -> Option<(Vec<u8>, u32, u32
     let img = image::load_from_memory(&raw.bytes).ok()?.to_rgba8();
     let (w, h) = img.dimensions();
     Some((img.into_raw(), w, h))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::line_width_scale;
+
+    #[test]
+    fn line_width_scale_is_flat_below_reference_and_grows_above() {
+        // At and below the reference zoom the curve is exactly 1.0, so the
+        // baked widths — and the pixel-constant-width contract at low zoom —
+        // are untouched.
+        assert_eq!(line_width_scale(9.0), 1.0);
+        assert_eq!(line_width_scale(9.6), 1.0, "flat region keeps z9 constant");
+        assert_eq!(line_width_scale(15.0), 1.0, "reference zoom is the baked width");
+
+        // Past the reference roads swell, monotonically, and the growth is
+        // capped so it can never run away.
+        assert!(line_width_scale(16.0) > 1.0);
+        assert!(line_width_scale(18.0) > line_width_scale(16.0), "monotonic growth");
+        assert!(line_width_scale(30.0) <= 2.0, "capped");
+    }
 }

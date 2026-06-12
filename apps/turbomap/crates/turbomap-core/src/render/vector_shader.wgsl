@@ -24,7 +24,12 @@ struct TileUniform {
     // shader places them with `origin + base * span`.
     origin: vec2<f32>,
     span: f32,
-    _pad2: f32,
+    // Per-frame multiplier on every line's baked screen width, so road
+    // widths grow/shrink smoothly with zoom without re-tessellating. The
+    // host evaluates a zoom curve per layer and writes it here; 1.0 (the
+    // default) leaves widths exactly as baked. Fills/text/extrusions carry
+    // width_px = 0, so the scale is a no-op for them.
+    width_scale: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -58,7 +63,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // centerline by the normal to a half-width that is a constant number
     // of *screen* pixels — so a road stays N px wide at every zoom.
     // width_px 0 (fills) leaves the position untouched.
-    let half_width_world = (in.width_px * 0.5) / camera.params.x;
+    let half_width_world = (in.width_px * tile.width_scale * 0.5) / camera.params.x;
     let world = tile.origin + in.base * tile.span + in.normal * half_width_world;
     // `z` is the world height for extruded geometry; 0 for flat features,
     // so they sit on the ground plane exactly as before.

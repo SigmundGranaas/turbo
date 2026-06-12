@@ -257,6 +257,8 @@ impl VectorPipeline {
         paint_override: Option<[f32; 4]>,
         // `(dash_len_px, gap_len_px)` for a dashed line layer; `None` = solid.
         dash: Option<(f32, f32)>,
+        // Per-frame multiplier on baked line widths (zoom curve); 1.0 = baked.
+        width_scale: f32,
     ) -> PreparedVector {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
@@ -336,6 +338,9 @@ impl VectorPipeline {
                 bytes[off + 32..off + 36].copy_from_slice(&ox.to_le_bytes());
                 bytes[off + 36..off + 40].copy_from_slice(&oy.to_le_bytes());
                 bytes[off + 40..off + 44].copy_from_slice(&(span as f32).to_le_bytes());
+                // Per-frame line-width zoom multiplier (same for every tile of
+                // this layer); 1.0 leaves baked widths untouched.
+                bytes[off + 44..off + 48].copy_from_slice(&width_scale.to_le_bytes());
             }
             self.queue
                 .write_buffer(&self.tile_uniform_buffer, 0, &bytes);

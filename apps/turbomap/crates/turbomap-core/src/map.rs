@@ -262,6 +262,9 @@ struct VectorLayer {
     paint_override: Option<[f32; 4]>,
     /// `(dash_len_px, gap_len_px)` for a dashed line layer; `None` = solid.
     dash: Option<(f32, f32)>,
+    /// Per-frame multiplier on baked line widths — the zoom curve that lets
+    /// roads thicken as you zoom in without re-tessellating. 1.0 = baked.
+    width_scale: f32,
 }
 
 struct HillshadeLayer {
@@ -533,6 +536,7 @@ impl Map {
             visible: true,
             paint_override: None,
             dash: None,
+            width_scale: 1.0,
         })));
     }
 
@@ -558,6 +562,21 @@ impl Map {
             if let LayerEntry::Vector(v) = layer {
                 if v.id == id {
                     v.paint_override = color;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Set a vector layer's per-frame line-width multiplier (the zoom curve).
+    /// `1.0` is the baked width. No-op for fills/text (width_px = 0). Returns
+    /// `false` if no vector layer matches `id`.
+    pub fn set_vector_layer_width_scale(&mut self, id: &str, scale: f32) -> bool {
+        for layer in &mut self.layers {
+            if let LayerEntry::Vector(v) = layer {
+                if v.id == id {
+                    v.width_scale = scale;
                     return true;
                 }
             }
@@ -1187,6 +1206,7 @@ impl Map {
                         v.fade_in_secs,
                         v.paint_override,
                         v.dash,
+                        v.width_scale,
                     );
                     prepared_layers.push((i, PreparedLayer::Vector(p)));
                     // Labels come from visible vector layers only —
