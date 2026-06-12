@@ -127,13 +127,20 @@ fn build(
     };
     surface.configure(&device, &config);
 
+    // Fade newly-ingested tiles in over ~0.3 s instead of popping. The host keeps
+    // rendering (render-on-demand) while `is_animating` is true so the fade
+    // completes. Goldens keep the default 0 (deterministic, no time dependence).
+    let options = MapOptions {
+        fade_in_secs: 0.3,
+        ..MapOptions::default()
+    };
     let engine = TurbomapEngine::new(
         device.clone(),
         queue.clone(),
         format,
         (config.width, config.height),
         camera,
-        MapOptions::default(),
+        options,
         Box::new(HostDrivenResolver),
     )
     .map_err(|e| format!("engine init failed: {e}"))?;
@@ -250,7 +257,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 /// this to the user instead of falling back. See [`LAST_ERROR`].
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeLastError(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
 ) -> jstring {
     let msg = LAST_ERROR.lock().ok().and_then(|mut slot| slot.take());
@@ -314,6 +321,22 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 ) {
     unsafe {
         with_map(handle, |map| map.render());
+    }
+}
+
+/// True while a camera animation or tile fade-in is running — the host keeps
+/// drawing until it goes false, then parks (render-on-demand).
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeIsAnimating(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jboolean {
+    let animating = unsafe { with_map(handle, |map| map.engine.is_animating()) };
+    if animating == Some(true) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
     }
 }
 

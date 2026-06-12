@@ -534,6 +534,12 @@ impl TurbomapEngine {
         self.map.after_submit();
     }
 
+    /// True while a camera animation or a tile fade-in is in progress — the host
+    /// keeps rendering (render-on-demand) until this goes false.
+    pub fn is_animating(&self) -> bool {
+        self.map.is_animating()
+    }
+
     /// Metrics for the last rendered frame (cpu/gpu time, per-layer cache
     /// stats) — the inspection tooling reads these.
     pub fn last_frame_metrics(&self) -> &turbomap_core::map::FrameMetrics {

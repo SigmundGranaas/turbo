@@ -238,6 +238,9 @@ internal class TurbomapSurfaceController {
                         mainHandler.post { onBearingChange(b) }
                     }
                 }
+                // Keep drawing while a tile fade-in (or camera anim) is running so
+                // the blend completes; then the loop parks again (render-on-demand).
+                if (NativeSurfaceMap.nativeIsAnimating(handle)) pendingRender.set(true)
             }
             choreographer?.postFrameCallback(this)
         }

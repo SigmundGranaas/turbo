@@ -83,6 +83,37 @@ class TurbomapRasterFillOnDeviceTest {
         }
     }
 
+    @Test
+    fun ingested_tile_fades_in_then_settles() {
+        val reader = ImageReader.newInstance(
+            256, 256, PixelFormat.RGBA_8888, 3,
+            HardwareBuffer.USAGE_GPU_COLOR_OUTPUT or HardwareBuffer.USAGE_CPU_READ_OFTEN,
+        )
+        val redTile = solidPng(Color.rgb(255, 0, 0))
+        var handle = 0L
+        try {
+            handle = NativeSurfaceMap.nativeCreate(reader.surface, 256, 256, 60.39, 5.32, 9.0)
+            assertTrue(handle != 0L)
+            assertTrue(NativeSurfaceMap.nativeApplyScene(handle, rasterScene))
+            assertTrue("no fade running before any tile arrives", !NativeSurfaceMap.nativeIsAnimating(handle))
+
+            NativeSurfaceMap.nativePumpLocal(handle)
+            val pending = JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle))
+            val o = pending.optJSONObject(0)
+            assertTrue("engine should request a tile", o != null)
+            NativeSurfaceMap.nativeIngestRaster(handle, o.optString("layer"), o.optInt("z"), o.optInt("x"), o.optInt("y"), redTile)
+
+            // Just ingested → inside the ~0.3 s fade window → the host must keep drawing.
+            assertTrue("a freshly ingested tile is fading in", NativeSurfaceMap.nativeIsAnimating(handle))
+            Thread.sleep(450)
+            // Past the fade window → animation settles → render-on-demand can park.
+            assertTrue("fade completes and animation settles", !NativeSurfaceMap.nativeIsAnimating(handle))
+        } finally {
+            if (handle != 0L) NativeSurfaceMap.nativeDestroy(handle)
+            reader.close()
+        }
+    }
+
     private fun solidPng(color: Int): ByteArray {
         val bmp = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
         bmp.eraseColor(color)

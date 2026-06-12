@@ -92,6 +92,20 @@ impl TextureCache {
             .map(|e| Instant::now().duration_since(e.created_at).as_secs_f32())
     }
 
+    /// True if any cached tile was ingested less than `secs` ago — i.e. a
+    /// fade-in is still in progress, so the frame must be re-rendered. Drives
+    /// `Map::is_animating` for raster layers (render-on-demand keeps drawing
+    /// until the fade completes).
+    pub(crate) fn any_younger_than(&self, secs: f32) -> bool {
+        if secs <= 0.0 {
+            return false;
+        }
+        let now = Instant::now();
+        self.entries
+            .values()
+            .any(|e| now.duration_since(e.created_at).as_secs_f32() < secs)
+    }
+
     pub(crate) fn get(&mut self, id: TileId) -> Option<&CacheEntry> {
         if self.entries.contains_key(&id) {
             self.touch(id);

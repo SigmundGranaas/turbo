@@ -36,6 +36,9 @@ internal object NativeSurfaceMap {
 
     external fun nativeRender(handle: Long)
 
+    /** True while a camera animation or tile fade-in is running (keep drawing). */
+    external fun nativeIsAnimating(handle: Long): Boolean
+
     external fun nativeResize(handle: Long, width: Int, height: Int)
 
     /** Reserve [bottomPx] at the bottom of the viewport (projection + render shift up). */

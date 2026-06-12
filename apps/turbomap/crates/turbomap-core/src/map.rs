@@ -790,7 +790,7 @@ impl Map {
         }
         // Any layer with a fading tile keeps the animation flag set.
         self.layers.iter().any(|l| match l {
-            LayerEntry::Raster(_) => false, // fade-in for raster is per-tile, owned by the pipeline
+            LayerEntry::Raster(r) => r.cache.any_younger_than(r.fade_in_secs),
             LayerEntry::Vector(v) => v.cache.any_younger_than(v.fade_in_secs),
             LayerEntry::Hillshade(_) => false,
         })
