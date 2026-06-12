@@ -518,3 +518,36 @@ manager lives on the IO side off the UI thread.
 - ✅ Two real stall fixes found by running the app on the emulator: undecodable-tile busy-loop (evict + backoff), and the **HTTP/2 StreamResetException dead-slot leak** (always resume the fetch) — the actual cause of grey-after-panning.
 - ✅ **Stage 6** — `nativeStats` cache telemetry (budget already enforced by the 128 MB LRU).
 - ⬜ **Stage 4** (shared GPU device — minor: avoids re-init on rotation; touches the just-stabilised surface lifecycle), **Stage 0b** (OfflineTileManager cache sharing — cross-module DI), **Stage 7** (device-golden + differential-vs-MapLibre CI lane) — remaining; all infra, low user-facing value.
+
+---
+
+## 10. Physics & motion plan (iPhone-like feel)
+
+The engine already has the full camera-physics system (`ActiveAnim::{Ease,
+PanFling,ZoomFling}`, `Map::fling`, `ease_to`, `zoom_around_animated`,
+`tick(now)`); the on-screen Android path bypasses it (per-event `setCamera`, no
+momentum, dead stop on release). Physics stays engine-side (renderer-agnostic,
+shared with iOS); the host feeds gestures in and the render loop advances time.
+
+- ✅ **M0 — universal tile fade** (incl. cached tiles): done (617d49fb) — fade
+  over a backdrop or the clear colour; no more pop.
+- **M1 — FFI + tick drive**: `nativeFling(vx,vy)`, `nativeEaseTo(lat,lng,zoom,
+  bearing,ms)`, `nativeZoomAroundAnimated(factor,fx,fy,ms)`, `nativeCancelAnimation()`;
+  render frame calls `engine.tick_now()`; an animated frame counts as a camera
+  move → bump `cameraTick` (overlays follow) + `requestReconcile()` (tiles load
+  along the trajectory). `is_animating` already keeps render-on-demand alive then
+  parks. Gate: on-device fling moves the camera over frames then settles; cancel stops it.
+- **M2 — gesture physics**: replace `detectTransformGestures` with `awaitEachGesture`
+  + `VelocityTracker`. Down → `nativeCancelAnimation()` (catch the motion exactly);
+  move → pan/zoom live + track velocity; up → `nativeFling(v)`; pinch-release →
+  optional zoom-fling. Gate: emulator (swipe glides + decelerates; touch mid-glide
+  stops dead) + a pure velocity-mapping unit test.
+- **M3 — eased programmatic moves**: `TurbomapMapEngine.flyTo/zoomIn/zoomOut/
+  resetNorth/frameTo` + centre-on-me route through `ease_to`/`zoom_around_animated`
+  (accel/decel) instead of instant `setCamera`. Gate: emulator — rail + locate ease.
+- **M4 — tune to iPhone feel**: calibrate fling τ, ease durations, min-fling
+  velocity; confirm no grey trail behind a fling + clean park afterward.
+
+### Motion status (2026-06-13)
+- ✅ M0 universal fade · ✅ M1 FFI+tick · ✅ M2 gesture velocity/fling/catch · ✅ M3 eased programmatic moves.
+- ◑ **M4 tuning**: defaults set + mechanically verified (fling glides, loads tiles along the path with no grey trail, settles to idle; 0 errors). The three feel knobs to dial on a real device: engine fling **τ = 0.32 s** (`FlingAnimation::new`; iPhone ≈ 0.45 s = floatier), `MIN_FLING_VELOCITY = 120` px/s, ease durations 450/250 ms. Final taste calibration is a user feel-loop.
