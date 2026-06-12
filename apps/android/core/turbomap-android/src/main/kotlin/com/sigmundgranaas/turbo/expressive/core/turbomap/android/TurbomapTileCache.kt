@@ -35,6 +35,11 @@ internal class TurbomapTileCache(private val dir: File) {
         }
     }
 
+    /** Drop a cached entry — used when its bytes turn out not to decode (a poisoned tile). */
+    fun remove(layer: String, z: Int, x: Int, y: Int) {
+        runCatching { fileFor(layer, z, x, y).delete() }
+    }
+
     private fun fileFor(layer: String, z: Int, x: Int, y: Int): File {
         // Sanitise the layer id (it comes from app-authored scene ids) to a flat filename.
         val safeLayer = layer.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")

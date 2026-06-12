@@ -377,13 +377,25 @@ internal class TurbomapSurfaceController {
             val bytes = cached ?: fetchBytes(t.url)?.also { fetched ->
                 withContext(Dispatchers.IO) { tileCache?.put(t.layer, t.z, t.x, t.y, fetched) }
             }
-            if (bytes != null && handle != 0L) {
-                NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes)
-                requestRender(cameraMoved = false) // new tile → redraw, overlays unchanged
-            } else if (bytes == null) {
-                // Genuine miss (HTTP error/timeout): back off, then the next
-                // reconcile pass retries it for free (it's still desired).
-                retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+            when {
+                bytes == null -> {
+                    // Genuine miss (HTTP error/timeout): back off, then the next
+                    // reconcile pass retries it for free (it's still desired).
+                    retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                }
+                handle == 0L -> Unit
+                NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes) -> {
+                    requestRender(cameraMoved = false) // new tile → redraw, overlays unchanged
+                }
+                else -> {
+                    // Bytes didn't decode (a 200-with-error-body / corrupt tile, e.g. a
+                    // throttled upstream). Drop the poisoned cache entry and back off so
+                    // the next pass re-fetches from the network instead of looping on it
+                    // forever — the cause of grey gaps accumulating over a session.
+                    withContext(Dispatchers.IO) { tileCache?.remove(t.layer, t.z, t.x, t.y) }
+                    retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                    android.util.Log.w("TurbomapTiles", "tile ${t.key} did not decode (${bytes.size}B); evicted + backing off")
+                }
             }
         } finally {
             inFlight.remove(t.key)
