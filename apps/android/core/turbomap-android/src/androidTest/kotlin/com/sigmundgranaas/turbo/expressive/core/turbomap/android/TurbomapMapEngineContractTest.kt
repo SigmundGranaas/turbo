@@ -64,6 +64,18 @@ class TurbomapMapEngineContractTest {
     }
 
     @Test
+    fun bottom_inset_lifts_the_centred_target_into_the_visible_band() = withEngine { engine ->
+        val target = LatLng(61.0, 6.0)
+        engine.flyTo(target, 11.0)
+        val (_, yNoInset) = engine.toScreen(target)
+        // Reserve the bottom half for a sheet; re-centring must lift the target upward.
+        engine.setBottomInset(size / 2)
+        engine.flyTo(target, 11.0)
+        val (_, yInset) = engine.toScreen(target)
+        assertTrue("inset should move the centred target up the screen ($yInset !< $yNoInset)", yInset < yNoInset)
+    }
+
+    @Test
     fun visible_bounds_contain_the_centre() = withEngine { engine ->
         engine.flyTo(LatLng(61.0, 6.0), 11.0)
         val b = engine.visibleBounds()
