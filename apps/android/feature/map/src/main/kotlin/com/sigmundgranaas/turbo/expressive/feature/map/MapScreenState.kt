@@ -16,7 +16,7 @@ import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.OverlayId
 import com.sigmundgranaas.turbo.expressive.feature.map.live.LiveDetent
 import com.sigmundgranaas.turbo.expressive.feature.photos.PhotoCluster
-import com.sigmundgranaas.turbo.expressive.ui.map.MapController
+import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 
 /**
  * All of [MapScreen]'s transient UI state in one place — the map controller, the
@@ -30,7 +30,7 @@ import com.sigmundgranaas.turbo.expressive.ui.map.MapController
 @Stable
 class MapScreenState {
     // ── Camera / map handle ──
-    var controller by mutableStateOf<MapController?>(null)
+    var controller by mutableStateOf<MapEngine?>(null)
     var bearing by mutableFloatStateOf(0f)
     /** Bumped on every camera-idle so on-map chrome that reads the camera (e.g. the
      *  offline-coverage chip) recomposes after a pan/zoom, not just on rotation. */

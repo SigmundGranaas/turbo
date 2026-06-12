@@ -24,6 +24,14 @@ pub fn headless() -> Option<GpuContext> {
     let instance = wgpu::Instance::new({
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
         desc.backends = wgpu::Backends::PRIMARY | wgpu::Backends::GL;
+        // Never request Vulkan debug-utils / validation from this (shipping)
+        // path: in a debug build `from_env` would enable object-name labelling,
+        // and the Android emulator's Vulkan driver (`vulkan.ranchu`) SIGSEGVs in
+        // `vkSetDebugUtilsObjectNameEXT`. These flags are a dev-only convenience
+        // and have no place in the host-facing bindings or deterministic
+        // snapshots, so strip them on every target.
+        desc.flags
+            .remove(wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION);
         desc
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

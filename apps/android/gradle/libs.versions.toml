@@ -16,6 +16,12 @@ kotlinxSerialization = "1.9.0"
 kotlinxCoroutines = "1.11.0"
 javaxInject = "1"
 junit = "4.13.2"
+# JNA backs the uniffi-generated Kotlin bindings for the turbomap (wgpu) engine.
+jna = "5.14.0"
+# Instrumented (on-device) test runner — first androidTest in the project.
+androidxTestExtJunit = "1.2.1"
+androidxTestRunner = "1.6.2"
+androidxTestCore = "1.6.1"
 turbine = "1.2.1"
 robolectric = "4.16.1"
 konsist = "0.17.3"
@@ -55,6 +61,10 @@ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 javax-inject = { group = "javax.inject", name = "javax.inject", version.ref = "javaxInject" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }

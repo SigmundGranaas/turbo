@@ -54,6 +54,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
+import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.ui.components.MarkerPin
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
@@ -74,48 +75,41 @@ import org.maplibre.geojson.Point
 import kotlin.math.roundToInt
 import org.maplibre.android.geometry.LatLng as MlLatLng
 
-/** Thin camera controller handed up to the screen for the zoom/locate buttons. */
-class MapController(internal val map: MapLibreMap) {
-    fun zoomIn() = map.animateCamera(CameraUpdateFactory.zoomBy(1.0))
-    fun zoomOut() = map.animateCamera(CameraUpdateFactory.zoomBy(-1.0))
-    fun flyTo(target: LatLng, zoom: Double) =
+/**
+ * The MapLibre implementation of the renderer-agnostic [MapEngine] seam — a thin
+ * camera/projection controller over `MapLibreMap`, handed up to the screen for the
+ * zoom/locate rail and the route/measure/offline tools. The wgpu `TurbomapEngine`
+ * will be a second [MapEngine] behind the same seam (see
+ * `docs/architecture/2026-06-android-renderer-swap-test-plan.md`).
+ */
+class MapLibreEngine(internal val map: MapLibreMap) : MapEngine {
+    override fun zoomIn() = map.animateCamera(CameraUpdateFactory.zoomBy(1.0))
+    override fun zoomOut() = map.animateCamera(CameraUpdateFactory.zoomBy(-1.0))
+    override fun flyTo(target: LatLng, zoom: Double) =
         map.animateCamera(CameraUpdateFactory.newLatLngZoom(MlLatLng(target.lat, target.lng), zoom))
 
-    /** The current camera centre — a sensible route origin when there's no GPS fix. */
-    fun center(): LatLng = map.cameraPosition.target.let { LatLng(it!!.latitude, it.longitude) }
+    override fun center(): LatLng = map.cameraPosition.target.let { LatLng(it!!.latitude, it.longitude) }
 
-    /** Geographic position under a screen pixel — used to capture freehand drawing. */
-    fun fromScreen(xPx: Float, yPx: Float): LatLng =
+    override fun fromScreen(xPx: Float, yPx: Float): LatLng =
         map.projection.fromScreenLocation(android.graphics.PointF(xPx, yPx)).let { LatLng(it.latitude, it.longitude) }
 
-    /** Screen pixel for a geographic position — anchors on-map UI (e.g. the long-press menu). */
-    fun toScreen(point: LatLng): Pair<Float, Float> =
+    override fun toScreen(point: LatLng): Pair<Float, Float> =
         map.projection.toScreenLocation(MlLatLng(point.lat, point.lng)).let { it.x to it.y }
 
-    /** The currently visible lat/lng box — the area to download for offline use. */
-    fun visibleBounds(): GeoBounds {
+    override fun visibleBounds(): GeoBounds {
         val b = map.projection.visibleRegion.latLngBounds
         return GeoBounds(south = b.latitudeSouth, west = b.longitudeWest, north = b.latitudeNorth, east = b.longitudeEast)
     }
 
-    /**
-     * Reserve [bottomPx] at the bottom of the map for an overlay (the live sheet),
-     * so "centre on me" keeps the user dot in the *visible* band above it instead of
-     * hidden behind the sheet. Subsequent camera moves honour this padding.
-     */
-    fun setBottomInset(bottomPx: Int) = map.setPadding(0, 0, 0, bottomPx.coerceAtLeast(0))
+    override fun setBottomInset(bottomPx: Int) = map.setPadding(0, 0, 0, bottomPx.coerceAtLeast(0))
 
-    /** Current camera zoom level. */
-    fun zoom(): Double = map.cameraPosition.zoom
+    override fun zoom(): Double = map.cameraPosition.zoom
 
-    /** Current map bearing in degrees (0 = north up). */
-    fun bearing(): Double = map.cameraPosition.bearing
+    override fun bearing(): Double = map.cameraPosition.bearing
 
-    /** Animate the map back to north-up (compass reset). */
-    fun resetNorth() = map.animateCamera(CameraUpdateFactory.bearingTo(0.0))
+    override fun resetNorth() = map.animateCamera(CameraUpdateFactory.bearingTo(0.0))
 
-    /** Frame the camera to fit [points] (e.g. a saved track being opened on the map). */
-    fun frameTo(points: List<LatLng>, paddingPx: Int = 140) {
+    override fun frameTo(points: List<LatLng>, paddingPx: Int) {
         when {
             points.isEmpty() -> Unit
             points.size == 1 -> flyTo(points.first(), 14.0)
@@ -164,7 +158,7 @@ fun TurboMap(
     onMarkerClick: (Marker) -> Unit = {},
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
-    onMapReady: (MapController) -> Unit = {},
+    onMapReady: (MapEngine) -> Unit = {},
     onBearingChange: (Double) -> Unit = {},
 ) {
     val longClick by rememberUpdatedState(onMapLongClick)
@@ -221,7 +215,7 @@ fun TurboMap(
                         val onTap = tap
                         if (onTap != null) { onTap(LatLng(point.latitude, point.longitude)); true } else false
                     }
-                    onMapReady(MapController(ml))
+                    onMapReady(MapLibreEngine(ml))
                 }
             }
         })

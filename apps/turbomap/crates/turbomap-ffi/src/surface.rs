@@ -1,0 +1,366 @@
+//! On-screen render path for Android.
+//!
+//! uniffi carries the control plane, but a `wgpu::Surface` needs an
+//! `ANativeWindow`, which can't cross uniffi. This module is the small
+//! hand-written JNI glue that bridges a Java `Surface` to a presenting
+//! [`TurbomapEngine`]: the host (a `SurfaceView`/`Choreographer` loop, or an
+//! `ImageReader` in tests) calls these `native*` functions.
+//!
+//! Methods take a raw `jlong` handle to a boxed [`OnScreen`]; every entry point
+//! catches unwinds so a Rust panic can never propagate across the FFI boundary.
+
+// This module is, by nature, raw JNI + raw-handle wgpu surface creation — the
+// workspace's `unsafe_code = "warn"` doesn't fit a hand-written FFI boundary.
+#![allow(unsafe_code)]
+
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::Arc;
+
+use jni::objects::{JClass, JObject, JString};
+use jni::sys::{jboolean, jdouble, jint, jlong, JNI_FALSE, JNI_TRUE};
+use jni::JNIEnv;
+use ndk::native_window::NativeWindow;
+use raw_window_handle::{
+    AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
+use turbomap_core::MapOptions;
+use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
+use turbomap_scene::{LatLng, Scene, ScreenPoint};
+
+/// A presenting map: the wgpu surface + the engine that draws into it. The
+/// `NativeWindow` is held to keep the `ANativeWindow` reference alive.
+struct OnScreen {
+    surface: wgpu::Surface<'static>,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    config: wgpu::SurfaceConfiguration,
+    engine: TurbomapEngine,
+    _instance: wgpu::Instance,
+    _window: NativeWindow,
+}
+
+fn build(
+    window: NativeWindow,
+    width: u32,
+    height: u32,
+    camera: CameraState,
+) -> Option<OnScreen> {
+    let instance = wgpu::Instance::new({
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        desc.backends = wgpu::Backends::PRIMARY | wgpu::Backends::GL;
+        // Same crash-avoidance as the offscreen path: never request Vulkan
+        // debug-utils (the emulator driver SIGSEGVs in vkSetDebugUtilsObjectName).
+        desc.flags
+            .remove(wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION);
+        desc
+    });
+
+    let window_handle = AndroidNdkWindowHandle::new(window.ptr().cast());
+    let target = wgpu::SurfaceTargetUnsafe::RawHandle {
+        raw_display_handle: Some(RawDisplayHandle::Android(AndroidDisplayHandle::new())),
+        raw_window_handle: RawWindowHandle::AndroidNdk(window_handle),
+    };
+    // Safety: `window` outlives `surface` (both owned by the returned struct),
+    // and the handle points at a live ANativeWindow we hold a reference to.
+    let surface = unsafe { instance.create_surface_unsafe(target) }.ok()?;
+
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: Some(&surface),
+        force_fallback_adapter: false,
+    }))
+    .ok()?;
+
+    let caps = surface.get_capabilities(&adapter);
+    // Decision 3: prefer an sRGB surface format (colours are blended in linear,
+    // re-encoded by the *Srgb target); fall back to whatever the surface offers.
+    let format = caps
+        .formats
+        .iter()
+        .copied()
+        .find(|f| f.is_srgb())
+        .unwrap_or_else(|| caps.formats[0]);
+
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("turbomap-surface-device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+        memory_hints: wgpu::MemoryHints::Performance,
+        experimental_features: wgpu::ExperimentalFeatures::default(),
+        trace: wgpu::Trace::Off,
+    }))
+    .ok()?;
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format,
+        width: width.max(1),
+        height: height.max(1),
+        present_mode: wgpu::PresentMode::Fifo,
+        desired_maximum_frame_latency: 2,
+        alpha_mode: caps.alpha_modes[0],
+        view_formats: vec![],
+    };
+    surface.configure(&device, &config);
+
+    let engine = TurbomapEngine::new(
+        device.clone(),
+        queue.clone(),
+        format,
+        (config.width, config.height),
+        camera,
+        MapOptions::default(),
+        Box::new(HostDrivenResolver),
+    )
+    .ok()?;
+
+    Some(OnScreen {
+        surface,
+        device,
+        queue,
+        config,
+        engine,
+        _instance: instance,
+        _window: window,
+    })
+}
+
+impl OnScreen {
+    fn render(&mut self) {
+        use wgpu::CurrentSurfaceTexture;
+        let frame = match self.surface.get_current_texture() {
+            CurrentSurfaceTexture::Success(t) | CurrentSurfaceTexture::Suboptimal(t) => t,
+            CurrentSurfaceTexture::Lost | CurrentSurfaceTexture::Outdated => {
+                // Lost/outdated (rotate, background, resize): reconfigure and try
+                // once more; if it still isn't ready, skip this frame.
+                self.surface.configure(&self.device, &self.config);
+                match self.surface.get_current_texture() {
+                    CurrentSurfaceTexture::Success(t) | CurrentSurfaceTexture::Suboptimal(t) => t,
+                    _ => return,
+                }
+            }
+            _ => return,
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        self.engine.render(&mut encoder, &view);
+        self.queue.submit([encoder.finish()]);
+        frame.present();
+        self.engine.after_submit();
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        self.config.width = width.max(1);
+        self.config.height = height.max(1);
+        self.surface.configure(&self.device, &self.config);
+        self.engine.resize(self.config.width, self.config.height);
+    }
+}
+
+/// `handle` is a `Box<OnScreen>` pointer; borrow it for the call's duration.
+unsafe fn with_map<R>(handle: jlong, f: impl FnOnce(&mut OnScreen) -> R) -> Option<R> {
+    let ptr = handle as *mut OnScreen;
+    if ptr.is_null() {
+        return None;
+    }
+    let map = &mut *ptr;
+    catch_unwind(AssertUnwindSafe(|| f(map))).ok()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeCreate(
+    env: JNIEnv,
+    _class: JClass,
+    surface: JObject,
+    width: jint,
+    height: jint,
+    lat: jdouble,
+    lng: jdouble,
+    zoom: jdouble,
+) -> jlong {
+    let raw_env = env.get_raw();
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        // Safety: `surface` is a live android.view.Surface for this call.
+        let window = unsafe { NativeWindow::from_surface(raw_env, surface.as_raw()) }?;
+        let camera = CameraState {
+            center: LatLng::new(lat, lng),
+            zoom,
+            pitch_deg: 0.0,
+            bearing_deg: 0.0,
+        };
+        build(window, width.max(0) as u32, height.max(0) as u32, camera)
+    }));
+    match result {
+        Ok(Some(map)) => Box::into_raw(Box::new(map)) as jlong,
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeApplyScene(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    scene_json: JString,
+) -> jboolean {
+    let json: String = match env.get_string(&scene_json) {
+        Ok(s) => s.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    let ok = unsafe {
+        with_map(handle, |map| {
+            let Ok(scene) = serde_json::from_str::<Scene>(&json) else {
+                return false;
+            };
+            if scene.validate().is_err() {
+                return false;
+            }
+            map.engine.apply(scene);
+            true
+        })
+    };
+    if ok == Some(true) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativePumpLocal(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.pump_tiles();
+        });
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeRender(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) {
+    unsafe {
+        with_map(handle, |map| map.render());
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeResize(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    width: jint,
+    height: jint,
+) {
+    unsafe {
+        with_map(handle, |map| map.resize(width.max(0) as u32, height.max(0) as u32));
+    }
+}
+
+/// Build a `double[]` JNI return; empty array on allocation failure.
+fn double_array(env: &mut JNIEnv, values: &[f64]) -> jni::sys::jarray {
+    match env.new_double_array(values.len() as i32) {
+        Ok(arr) => {
+            let _ = env.set_double_array_region(&arr, 0, values);
+            arr.into_raw()
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetCamera(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    lat: jdouble,
+    lng: jdouble,
+    zoom: jdouble,
+    bearing_deg: jdouble,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            let mut cam = map.engine.camera();
+            cam.center = LatLng::new(lat, lng);
+            cam.zoom = zoom;
+            cam.bearing_deg = bearing_deg;
+            map.engine.set_camera(cam);
+        });
+    }
+}
+
+/// `[lat, lng, zoom, bearingDeg]`.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeCamera(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jni::sys::jarray {
+    let cam = unsafe { with_map(handle, |map| map.engine.camera()) };
+    match cam {
+        Some(c) => double_array(&mut env, &[c.center.lat, c.center.lng, c.zoom, c.bearing_deg]),
+        None => double_array(&mut env, &[]),
+    }
+}
+
+/// `[x, y, valid]` — `valid` is 1.0 if the point projects, else 0.0.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeProject(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    lat: jdouble,
+    lng: jdouble,
+) -> jni::sys::jarray {
+    let p = unsafe { with_map(handle, |map| map.engine.project(LatLng::new(lat, lng))) }.flatten();
+    match p {
+        Some(s) => double_array(&mut env, &[s.x, s.y, 1.0]),
+        None => double_array(&mut env, &[0.0, 0.0, 0.0]),
+    }
+}
+
+/// `[lat, lng, valid]`.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeUnproject(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    x: jdouble,
+    y: jdouble,
+) -> jni::sys::jarray {
+    let g = unsafe {
+        with_map(handle, |map| {
+            map.engine.unproject(ScreenPoint::new(x, y))
+        })
+    }
+    .flatten();
+    match g {
+        Some(ll) => double_array(&mut env, &[ll.lat, ll.lng, 1.0]),
+        None => double_array(&mut env, &[0.0, 0.0, 0.0]),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeDestroy(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) {
+    let ptr = handle as *mut OnScreen;
+    if !ptr.is_null() {
+        // Drop the boxed map (surface, device, engine, native window).
+        let _ = catch_unwind(AssertUnwindSafe(|| unsafe { drop(Box::from_raw(ptr)) }));
+    }
+}

@@ -1,0 +1,63 @@
+name: Android FFI binding tests (Lane D)
+
+# Executes the uniffi-generated Kotlin bindings against the wgpu engine on a
+# software-Vulkan adapter (Lavapipe) — the host-side proof that the Rust map
+# engine reaches Kotlin. Separate from android_build.yml because it needs the
+# Rust toolchain + protoc + a GPU adapter the plain unit lane doesn't, and it
+# must run when *either* the Rust FFI crate or the Kotlin module changes.
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'apps/android/core/turbomap/**'
+      - 'apps/turbomap/**'
+      - '.github/workflows/android_ffi.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'apps/android/core/turbomap/**'
+      - 'apps/turbomap/**'
+      - '.github/workflows/android_ffi.yml'
+
+jobs:
+  ffi-roundtrip:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # turbomap-mvt compiles .proto at build time via prost-build; the golden
+      # path renders on Mesa's software Vulkan (Lavapipe) — deterministic, no GPU.
+      - name: Install protoc + Lavapipe (software Vulkan)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler mesa-vulkan-drivers vulkan-tools
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/turbomap
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+      # The Gradle module builds the cdylib + generates the bindings itself
+      # (buildRustFfi / generateFfiBindings). REQUIRE_GPU=1 makes a missing
+      # adapter a hard failure so a broken Lavapipe install can't silently skip.
+      - name: FFI round-trip tests
+        env:
+          REQUIRE_GPU: "1"
+        run: ./gradlew :core:turbomap:test :core:turbomap:detekt --no-configuration-cache

@@ -36,3 +36,11 @@ pollster.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 log.workspace = true
+
+# On-screen surface glue (Stage C): create a wgpu surface from an Android
+# `Surface` via JNI. Android-only so host builds (bindgen, golden, Stage-B
+# tests) never pull the NDK crates.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk = "0.9"
+raw-window-handle = "0.6"

@@ -40,7 +40,7 @@ jobs:
         run: >-
           ./gradlew
           :core:model:test :core:common:test
-          :core:data:testDebugUnitTest
+          :core:data:testDebugUnitTest :core:map:testDebugUnitTest
           :feature:search:testDebugUnitTest :feature:map:testDebugUnitTest
           :feature:recording:testDebugUnitTest :feature:settings:testDebugUnitTest
           :app:testDebugUnitTest

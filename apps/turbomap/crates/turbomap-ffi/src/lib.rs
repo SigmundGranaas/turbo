@@ -26,6 +26,11 @@ use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
 pub mod offscreen;
 
+// On-screen render path for Android: a `wgpu::Surface` built from a Java
+// `Surface` through hand-written JNI (uniffi can't carry an `ANativeWindow`).
+#[cfg(target_os = "android")]
+mod surface;
+
 uniffi::setup_scaffolding!();
 
 // ---- value types ----------------------------------------------------------

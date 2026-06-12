@@ -19,6 +19,23 @@ class ArchitectureBoundaryTest {
             .assertTrue { it.path.contains("/core/map/") }
     }
 
+    /**
+     * The [com.sigmundgranaas.turbo.expressive.domain.MapEngine] seam is the
+     * renderer-agnostic contract feature code talks to — the keystone that lets a
+     * second engine (the wgpu `TurbomapEngine`) slot in beside `MapLibreEngine` for
+     * shadow parity. If a renderer type ever leaks into the contract itself, the
+     * abstraction is dead, so guard it harder than the module boundary above.
+     */
+    @Test
+    fun `the MapEngine seam stays renderer-agnostic`() {
+        Konsist.scopeFromProject()
+            .interfaces()
+            .filter { it.name == "MapEngine" }
+            .assertTrue { iface ->
+                iface.containingFile.imports.none { it.name.startsWith("org.maplibre") }
+            }
+    }
+
     @Test
     fun `ViewModels live in feature modules and are named ViewModel`() {
         Konsist.scopeFromProject()
