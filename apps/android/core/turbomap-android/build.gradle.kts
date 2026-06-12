@@ -90,9 +90,12 @@ val buildRustFfiAndroid = tasks.register<Exec>("buildRustFfiAndroid") {
     workingDir = turbomapDir
     if (ndkHome != null) environment("ANDROID_NDK_HOME", ndkHome)
     val abiArgs = androidAbis.flatMap { listOf("-t", it) }
+    // --release: the .so ships in the (release) APK, so build it optimised + much
+    // smaller than the unstripped debug profile. uniffi bindings are generated from
+    // the host cdylib, so the contract checksums are profile-independent.
     commandLine(
         listOf("cargo", "ndk") + abiArgs +
-            listOf("-o", ffiJniLibsDir.absolutePath, "build", "-p", "turbomap-ffi"),
+            listOf("-o", ffiJniLibsDir.absolutePath, "build", "--release", "-p", "turbomap-ffi"),
     )
     outputs.dir(ffiJniLibsDir)
     outputs.upToDateWhen { false }

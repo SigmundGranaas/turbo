@@ -33,6 +33,23 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
+      # :core:turbomap-android cross-compiles the wgpu engine (turbomap-ffi) to a
+      # per-ABI .so via cargo-ndk and generates its uniffi bindings, so the app
+      # build needs the Rust toolchain + NDK. (Follow-up: ship a prebuilt engine
+      # artifact so app CI doesn't rebuild it each run.)
+      - name: Install protoc (turbomap-mvt compiles .proto)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Rust + Android targets + cargo-ndk
+        run: |
+          rustup toolchain install 1.94.1 --profile minimal --target aarch64-linux-android --target x86_64-linux-android
+          cargo install cargo-ndk --locked
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/turbomap
+
       - name: Static analysis (detekt)
         run: ./gradlew detekt --no-configuration-cache
 
