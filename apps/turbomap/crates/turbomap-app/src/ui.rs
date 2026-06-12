@@ -74,7 +74,8 @@ impl UiOverlay {
             None,
             None,
         );
-        let renderer = egui_wgpu::Renderer::new(device, surface_format, None, 1, false);
+        let renderer =
+            egui_wgpu::Renderer::new(device, surface_format, egui_wgpu::RendererOptions::default());
         Self {
             ctx,
             state,
@@ -152,6 +153,7 @@ impl UiOverlay {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
@@ -160,6 +162,7 @@ impl UiOverlay {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         let mut pass = pass.forget_lifetime();
         self.renderer.render(&mut pass, &clipped, &screen_desc);

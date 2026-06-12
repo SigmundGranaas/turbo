@@ -10,7 +10,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{
     spatial_index::SpatialIndex,
-    tessellate::{InteractiveFeature, LabelRequest, Mesh},
+    tessellate::{IconRequest, InteractiveFeature, LabelRequest, Mesh},
     tile::TileId,
 };
 
@@ -19,6 +19,7 @@ pub(crate) struct VectorEntry {
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
     pub labels: Vec<LabelRequest>,
+    pub icons: Vec<IconRequest>,
     pub interactive: Vec<InteractiveFeature>,
     /// Spatial index over `interactive` features keyed by tile-local
     /// AABB. `Map::hit_test` queries the cell under the cursor instead
@@ -112,13 +113,14 @@ impl VectorMeshCache {
         id: TileId,
         mesh: &Mesh,
         labels: Vec<LabelRequest>,
+        icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
     ) {
         if self.entries.contains_key(&id) {
             self.touch(id);
             return;
         }
-        if mesh.is_empty() && labels.is_empty() && interactive.is_empty() {
+        if mesh.is_empty() && labels.is_empty() && icons.is_empty() && interactive.is_empty() {
             // Insert a zero-sized marker so the host knows the tile is
             // "loaded but empty" and won't keep re-fetching it. We use an
             // empty vertex buffer (4-byte placeholder for wgpu).
@@ -141,6 +143,7 @@ impl VectorMeshCache {
                     index_buffer: ib,
                     index_count: 0,
                     labels: Vec::new(),
+                    icons: Vec::new(),
                     interactive: Vec::new(),
                     hit_index: SpatialIndex::new(4096),
                     bytes: 8,
@@ -188,6 +191,7 @@ impl VectorMeshCache {
             (vb, ib, bytes)
         };
         let label_bytes: usize = labels.iter().map(|l| l.text.len() + 32).sum();
+        let icon_bytes: usize = icons.iter().map(|i| i.sprite.len() + 24).sum();
         let interactive_bytes: usize = interactive
             .iter()
             .map(
@@ -212,7 +216,7 @@ impl VectorMeshCache {
             hit_index.insert(i as u32, &f.feature.geometry, 4.0);
         }
         hit_index.finish();
-        let bytes = mesh_bytes + label_bytes + interactive_bytes + hit_index.bytes();
+        let bytes = mesh_bytes + label_bytes + icon_bytes + interactive_bytes + hit_index.bytes();
         self.entries.insert(
             id,
             VectorEntry {
@@ -220,6 +224,7 @@ impl VectorMeshCache {
                 index_buffer,
                 index_count: mesh.indices.len() as u32,
                 labels,
+                icons,
                 interactive,
                 hit_index,
                 bytes,

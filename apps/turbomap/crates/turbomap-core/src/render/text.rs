@@ -2,9 +2,17 @@
 //! vector-tile cache, lays them out per frame against a single GPU atlas,
 //! does AABB collision in screen space, and draws the surviving glyphs.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
+
+/// Minimum screen-space spacing between two line labels carrying the *same*
+/// text. A long road clipped across several tiles yields one along-line
+/// label per piece; without this they'd stack up (the doubled-name bug).
+/// It doubles as the repeat distance for genuinely long roads. MapLibre's
+/// `symbol-spacing` default is 250px; we match it.
+const LINE_LABEL_REPEAT_PX: f32 = 250.0;
 
 use crate::{
     camera::Camera,
@@ -36,7 +44,34 @@ struct TextInstance {
     atlas_origin: [f32; 2],
     atlas_size: [f32; 2],
     color: [u8; 4],
-    _pad: [u8; 4],
+    halo_color: [u8; 4],
+    /// Halo half-width as a normalized SDF threshold offset beyond the
+    /// glyph contour (0 = no halo). px → this is converted at stage time.
+    halo_width: f32,
+    /// Rotation of the glyph quad about `pivot`, in radians (0 for
+    /// axis-aligned point labels). Line labels set this to the local path
+    /// tangent so glyphs follow the curve.
+    angle: f32,
+    /// Screen-space point the quad rotates about (the glyph's pen point on
+    /// the path). Ignored when `angle == 0`.
+    pivot: [f32; 2],
+    /// 1.0 → halo-only instance, 0.0 → fill-only. Halos for a whole label
+    /// are staged *before* its fills (the MapLibre two-pass), so a glyph's
+    /// halo can never paint over a neighbouring glyph's body.
+    mode: f32,
+    /// Faux-bold: how far (normalized SDF units) to push the fill cutoff
+    /// outside the glyph contour. 0 = the font's natural weight. Drives the
+    /// label-weight hierarchy (heavy place names, light street names).
+    weight: f32,
+    _pad: [f32; 2],
+}
+
+/// Output of one per-vector-layer [`TextPipeline::prepare`] call: the
+/// half-open instance range this layer's surviving glyphs occupy in
+/// the pipeline's shared instance buffer (uploaded by `finish_frame`).
+pub(crate) struct PreparedText {
+    start: u32,
+    end: u32,
 }
 
 pub(crate) struct TextPipeline {
@@ -54,6 +89,26 @@ pub(crate) struct TextPipeline {
     /// Anchor-relative laid-out glyphs, keyed by (text, font_size). Avoids
     /// per-frame layout for the steady-state visible label set.
     layout_cache: LayoutCache,
+    /// Frame-local staging: instances appended by per-layer `prepare`
+    /// calls, uploaded once by `finish_frame`. One shared buffer (the
+    /// pipeline is shared across vector layers) — per-layer ranges are
+    /// carried in [`PreparedText`].
+    staged: Vec<TextInstance>,
+    /// Viewport recorded by the frame's `prepare` calls, written into
+    /// the globals uniform by `finish_frame`.
+    frame_viewport: [f32; 2],
+    /// Collision boxes of every label placed this frame — shared across
+    /// *all* Symbol layers, so place names, street names and water names
+    /// can never overlap each other. Earlier layers win space.
+    frame_placed: Vec<Aabb>,
+    /// Screen anchors of placed line labels keyed by text (frame-wide):
+    /// cross-tile dedup + repeat spacing for road names.
+    frame_line_names: HashMap<String, Vec<(f32, f32)>>,
+    /// World-position bit-keys of left-anchored (POI) labels placed this
+    /// frame. The icon pass consults this so a POI dot only draws when its
+    /// name survived collision — dot and label cull as a unit. Bit-keys
+    /// because the icon and label share an identical `world_pos`.
+    frame_marker_anchors: std::collections::HashSet<(u32, u32)>,
 }
 
 impl TextPipeline {
@@ -103,8 +158,8 @@ impl TextPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("turbomap-text-layout"),
-            bind_group_layouts: &[&bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
         });
 
         let vertex_layout = wgpu::VertexBufferLayout {
@@ -142,8 +197,38 @@ impl TextPipeline {
                 },
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Unorm8x4,
+                    offset: 36,
+                    shader_location: 6,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 40,
+                    shader_location: 7,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Unorm8x4,
                     offset: 32,
                     shader_location: 5,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 44,
+                    shader_location: 8,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 48,
+                    shader_location: 9,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 56,
+                    shader_location: 10,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 60,
+                    shader_location: 11,
                 },
             ],
         };
@@ -153,13 +238,13 @@ impl TextPipeline {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[vertex_layout, instance_layout],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -168,9 +253,12 @@ impl TextPipeline {
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            // The Map's single frame pass always carries a depth
+            // attachment. Text is a screen-space overlay — always in
+            // front, never writing z.
+            depth_stencil: Some(super::overlay_depth_state()),
+            multisample: super::multisample_state(),
+            multiview_mask: None,
             cache: None,
         });
 
@@ -264,21 +352,57 @@ impl TextPipeline {
             queue,
             atlas: FontAtlas::new(),
             layout_cache: LayoutCache::new(),
+            staged: Vec::new(),
+            frame_viewport: [0.0; 2],
+            frame_placed: Vec::new(),
+            frame_line_names: HashMap::new(),
+            frame_marker_anchors: std::collections::HashSet::new(),
         }
     }
 
-    /// Draw labels for the currently visible vector tiles. Renders on top of
-    /// whatever the geometry pass left in `target` (LoadOp::Load).
-    pub(crate) fn render(
+    /// World-position keys of the POI labels placed this frame — the icon
+    /// pass uses this to gate left-anchored markers' dots.
+    pub(crate) fn placed_marker_anchors(&self) -> &std::collections::HashSet<(u32, u32)> {
+        &self.frame_marker_anchors
+    }
+
+    /// Register a fallback font face for scripts the bundled default
+    /// doesn't cover (CJK, Arabic, …). New glyphs pack into the existing
+    /// atlas and are re-uploaded on the next dirty frame. Returns `false`
+    /// if the bytes don't parse as a font.
+    pub(crate) fn add_fallback_face(&mut self, bytes: Vec<u8>) -> bool {
+        self.atlas.add_fallback_face(bytes)
+    }
+
+    /// Reset the frame-local staging list. Call once per `Map::render`
+    /// before the per-layer `prepare` calls.
+    pub(crate) fn begin_frame(&mut self) {
+        self.staged.clear();
+        self.frame_placed.clear();
+        self.frame_line_names.clear();
+        self.frame_marker_anchors.clear();
+    }
+
+    /// Lay out labels for one vector layer's currently visible tiles and
+    /// stage the surviving glyph instances. Collision state is **frame-
+    /// wide** (`begin_frame` resets it), so labels from different Symbol
+    /// layers never overlap each other; layers prepared earlier win space.
+    /// The returned range is drawn by `draw` after `finish_frame` uploads
+    /// the shared buffer.
+    pub(crate) fn prepare(
         &mut self,
         scene: &Scene,
         cache: &mut VectorMeshCache,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-    ) {
+        pixel_ratio: f32,
+    ) -> PreparedText {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
         let viewport_px = (vw as f32, vh as f32);
+        // Labels grow gently as you zoom past city-detail level — the subtle
+        // size lift Google applies up close, paired with the road-width curve
+        // so the whole frame scales coherently. Flat (1.0) at and below the
+        // reference zoom, so low-zoom maps are untouched.
+        let text_scale = text_size_scale(camera.zoom);
 
         // 1. Collect all labels from visible tiles, sort by distance from
         // camera centre (closest wins on collision), and reject any that
@@ -294,15 +418,27 @@ impl TextPipeline {
                 candidates.extend(entry.labels.iter().cloned());
             }
         }
+        // Placement priority: lowest sort-key first (MapLibre semantics —
+        // OMT `rank` 1 is the most important place and wins collisions),
+        // then nearest-to-centre as the tiebreak among equals.
         candidates.sort_by(|a, b| {
-            let da = sq_dist(a.world_pos, (world_centre.x as f32, world_centre.y as f32));
-            let db = sq_dist(b.world_pos, (world_centre.x as f32, world_centre.y as f32));
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            a.sort_key
+                .partial_cmp(&b.sort_key)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    let da = sq_dist(a.world_pos, (world_centre.x as f32, world_centre.y as f32));
+                    let db = sq_dist(b.world_pos, (world_centre.x as f32, world_centre.y as f32));
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
         });
 
-        let mut placed: Vec<Aabb> = Vec::new();
-        let mut instances: Vec<TextInstance> = Vec::new();
+        let start = self.staged.len() as u32;
         for label in candidates {
+            // Line-placed labels (road names) follow a projected centerline.
+            if let Some(path) = &label.path {
+                self.stage_line_label(&camera, viewport_px, &label, path, pixel_ratio, text_scale);
+                continue;
+            }
             // Project world → screen.
             let screen = world_to_screen(&camera, label.world_pos, viewport_px);
             // Skip labels off-screen with a small margin so we don't pay to
@@ -318,8 +454,26 @@ impl TextPipeline {
             // origin). Translate by `screen` to get this frame's positions.
             let cached: Vec<crate::text::LayoutGlyph> = self
                 .layout_cache
-                .get_or_compute(&label.text, label.font_size_px, &mut self.atlas)
+                .get_or_compute(
+                    &label.text,
+                    label.font_size_px * text_scale,
+                    label.letter_spacing,
+                    &mut self.atlas,
+                )
                 .to_vec();
+            // Horizontal placement: centred on the anchor by default, or —
+            // for a left-anchored POI label — shifted so the text's left
+            // edge lands `pad` px right of the anchor (clearing the icon).
+            let shift_x = match label.left_pad_px {
+                Some(pad) => {
+                    let cached_min = cached
+                        .iter()
+                        .map(|g| g.screen_x)
+                        .fold(f32::INFINITY, f32::min);
+                    screen.0 + pad - cached_min
+                }
+                None => screen.0,
+            };
             let mut aabb_xy = (
                 f32::INFINITY,
                 f32::INFINITY,
@@ -329,7 +483,7 @@ impl TextPipeline {
             let translated: Vec<crate::text::LayoutGlyph> = cached
                 .into_iter()
                 .map(|g| {
-                    let x = g.screen_x + screen.0;
+                    let x = g.screen_x + shift_x;
                     let y = g.screen_y + screen.1;
                     aabb_xy.0 = aabb_xy.0.min(x);
                     aabb_xy.1 = aabb_xy.1.min(y);
@@ -351,39 +505,204 @@ impl TextPipeline {
                 max_x: aabb_xy.2,
                 max_y: aabb_xy.3,
             };
-            let padded = aabb.pad(2.0);
-            if placed.iter().any(|p| p.overlaps(padded)) {
+            let padded = aabb.pad(2.0 * pixel_ratio);
+            if self.frame_placed.iter().any(|p| p.overlaps(padded)) {
                 continue;
             }
-            placed.push(padded);
-            let color = [label.color.r, label.color.g, label.color.b, label.color.a];
-            for g in translated {
-                instances.push(TextInstance {
+            self.frame_placed.push(padded);
+            // A left-anchored (POI) label placed → record its anchor so the
+            // icon pass knows this marker's dot may draw.
+            if label.left_pad_px.is_some() {
+                self.frame_marker_anchors
+                    .insert(crate::text::anchor_key(label.world_pos));
+            }
+            // sRGB-authored → linear, since the target re-encodes on write.
+            let color = label.color.to_linear_bytes();
+            let halo_color = label.halo_color.to_linear_bytes();
+            let halo_width = sdf_halo_width(label.halo_width);
+            let weight = sdf_weight(label.weight);
+            // Two passes per label (the MapLibre order): every glyph's halo
+            // first, then every fill — so no halo paints over a neighbouring
+            // glyph's body.
+            let push = |staged: &mut Vec<TextInstance>, g: &crate::text::LayoutGlyph, mode: f32| {
+                staged.push(TextInstance {
                     screen_origin: [g.screen_x, g.screen_y],
                     screen_size: [g.width, g.height],
                     atlas_origin: [g.atlas_x / ATLAS_SIZE as f32, g.atlas_y / ATLAS_SIZE as f32],
                     atlas_size: [g.atlas_w / ATLAS_SIZE as f32, g.atlas_h / ATLAS_SIZE as f32],
                     color,
-                    _pad: [0; 4],
+                    halo_color,
+                    halo_width,
+                    // Point labels are axis-aligned: zero rotation makes the
+                    // pivot irrelevant, so the shader path is unchanged.
+                    angle: 0.0,
+                    pivot: [g.screen_x, g.screen_y],
+                    mode,
+                    weight,
+                    _pad: [0.0; 2],
                 });
+            };
+            if halo_width > 0.0 && halo_color[3] > 0 {
+                for g in &translated {
+                    push(&mut self.staged, g, 1.0);
+                }
+            }
+            for g in &translated {
+                push(&mut self.staged, g, 0.0);
             }
         }
 
-        if instances.is_empty() {
+        // Record the viewport so `finish_frame` can fill the shared
+        // globals uniform (every layer's scene syncs from the same Map
+        // camera + viewport, so last-writer-wins is exact).
+        self.frame_viewport = [viewport_px.0, viewport_px.1];
+
+        PreparedText {
+            start,
+            end: self.staged.len() as u32,
+        }
+    }
+
+    /// Stage one line-placed label: project its world centerline to screen,
+    /// run the glyphs along the curve, collide as a single AABB, and emit
+    /// the rotated glyph instances.
+    fn stage_line_label(
+        &mut self,
+        camera: &Camera,
+        viewport_px: (f32, f32),
+        label: &LabelRequest,
+        path: &[(f32, f32)],
+        pixel_ratio: f32,
+        text_scale: f32,
+    ) {
+        // Cheap cull on the anchor (path midpoint) before any layout.
+        let anchor = world_to_screen(camera, label.world_pos, viewport_px);
+        if anchor.0 < -300.0
+            || anchor.0 > viewport_px.0 + 300.0
+            || anchor.1 < -120.0
+            || anchor.1 > viewport_px.1 + 120.0
+        {
+            return;
+        }
+        // Cross-tile dedup / repeat spacing: drop this label if the same
+        // road name was already placed within the repeat distance. Sorting
+        // put the piece nearest the camera centre first, so the survivor is
+        // the best-placed one.
+        if let Some(prev) = self.frame_line_names.get(&label.text) {
+            let repeat = LINE_LABEL_REPEAT_PX * pixel_ratio;
+            if prev.iter().any(|&p| sq_dist(p, anchor) < repeat * repeat) {
+                return;
+            }
+        }
+        let screen_path: Vec<(f32, f32)> = path
+            .iter()
+            .map(|&p| world_to_screen(camera, p, viewport_px))
+            .collect();
+        // Behind-camera / non-finite projection → skip the whole label.
+        if screen_path
+            .iter()
+            .any(|p| !p.0.is_finite() || !p.1.is_finite())
+        {
+            return;
+        }
+        let Some(glyphs) = crate::text::layout_along_path(
+            &label.text,
+            label.font_size_px * text_scale,
+            &screen_path,
+            &mut self.atlas,
+        ) else {
+            return;
+        };
+
+        // Collision AABB: the axis-aligned bound of every rotated glyph quad.
+        let mut bb = (
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        );
+        for g in &glyphs {
+            for (cx, cy) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
+                let (rx, ry) = rotate_about(
+                    (g.screen_x + cx * g.width, g.screen_y + cy * g.height),
+                    g.pivot,
+                    g.angle,
+                );
+                bb.0 = bb.0.min(rx);
+                bb.1 = bb.1.min(ry);
+                bb.2 = bb.2.max(rx);
+                bb.3 = bb.3.max(ry);
+            }
+        }
+        let padded = Aabb {
+            min_x: bb.0,
+            min_y: bb.1,
+            max_x: bb.2,
+            max_y: bb.3,
+        }
+        .pad(2.0 * pixel_ratio);
+        if self.frame_placed.iter().any(|p| p.overlaps(padded)) {
+            return;
+        }
+        self.frame_placed.push(padded);
+        // Record this placement so later same-name pieces honour the repeat
+        // distance (cross-tile dedup).
+        self.frame_line_names
+            .entry(label.text.clone())
+            .or_default()
+            .push(anchor);
+
+        let color = label.color.to_linear_bytes();
+        let halo_color = label.halo_color.to_linear_bytes();
+        let halo_width = sdf_halo_width(label.halo_width);
+        let weight = sdf_weight(label.weight);
+        // Halo pass first, then fills (see `prepare`).
+        let push = |staged: &mut Vec<TextInstance>, g: &crate::text::PathGlyph, mode: f32| {
+            staged.push(TextInstance {
+                screen_origin: [g.screen_x, g.screen_y],
+                screen_size: [g.width, g.height],
+                atlas_origin: [g.atlas_x / ATLAS_SIZE as f32, g.atlas_y / ATLAS_SIZE as f32],
+                atlas_size: [g.atlas_w / ATLAS_SIZE as f32, g.atlas_h / ATLAS_SIZE as f32],
+                color,
+                halo_color,
+                halo_width,
+                angle: g.angle,
+                pivot: [g.pivot.0, g.pivot.1],
+                mode,
+                weight,
+                _pad: [0.0; 2],
+            });
+        };
+        if halo_width > 0.0 && halo_color[3] > 0 {
+            for g in &glyphs {
+                push(&mut self.staged, g, 1.0);
+            }
+        }
+        for g in &glyphs {
+            push(&mut self.staged, g, 0.0);
+        }
+    }
+
+    /// Upload everything the frame's `prepare` calls staged: the glyph
+    /// atlas (if dirty), the globals uniform, and the shared instance
+    /// buffer (grown as needed). Call once, after all `prepare`s and
+    /// before the render pass begins.
+    pub(crate) fn finish_frame(&mut self) {
+        if self.staged.is_empty() {
             return;
         }
 
         // 2. Re-upload the atlas if it's been touched since the last frame.
         if self.atlas.take_dirty() {
             self.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &self.atlas_texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 self.atlas.bitmap(),
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(ATLAS_SIZE),
                     rows_per_image: Some(ATLAS_SIZE),
@@ -398,15 +717,15 @@ impl TextPipeline {
 
         // 3. Upload globals + instances.
         let globals = Globals {
-            viewport: [viewport_px.0, viewport_px.1],
+            viewport: self.frame_viewport,
             _pad: [0.0; 2],
         };
         self.queue
             .write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
 
-        if (instances.len() as u64) > self.instance_capacity {
+        if (self.staged.len() as u64) > self.instance_capacity {
             let mut new_cap = self.instance_capacity.max(1);
-            while new_cap < instances.len() as u64 {
+            while new_cap < self.staged.len() as u64 {
                 new_cap *= 2;
             }
             self.instance_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -418,30 +737,21 @@ impl TextPipeline {
             self.instance_capacity = new_cap;
         }
         self.queue
-            .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
+            .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&self.staged));
+    }
 
-        // 4. Draw — note LoadOp::Load so we composite on top of the geometry
-        // pass that ran before us.
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("turbomap-text-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+    /// Draw one layer's prepared glyph range inside the Map's single
+    /// render pass, on top of whatever geometry drew before it.
+    pub(crate) fn draw(&self, prepared: &PreparedText, pass: &mut wgpu::RenderPass<'_>) {
+        if prepared.start == prepared.end {
+            return;
+        }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        pass.draw_indexed(0..6, 0, 0..instances.len() as u32);
+        pass.draw_indexed(0..6, 0, prepared.start..prepared.end);
     }
 }
 
@@ -459,8 +769,72 @@ fn world_to_screen(camera: &Camera, world: (f32, f32), viewport_px: (f32, f32)) 
     }
 }
 
+/// Rotate `p` about `pivot` by `angle` radians (screen space). Mirrors the
+/// vertex shader so CPU-side collision boxes match what the GPU draws.
+fn rotate_about(p: (f32, f32), pivot: (f32, f32), angle: f32) -> (f32, f32) {
+    let (s, c) = angle.sin_cos();
+    let (rx, ry) = (p.0 - pivot.0, p.1 - pivot.1);
+    (pivot.0 + rx * c - ry * s, pivot.1 + rx * s + ry * c)
+}
+
+/// Convert a halo width in glyph raster pixels to the normalized SDF
+/// threshold offset the shader uses — clamped to what the atlas can
+/// actually express. The SDF saturates `SDF_PAD` raster px outside the
+/// contour and the glyph quad ends there too, so wider halos would clip
+/// into square boxes around every glyph.
+fn sdf_halo_width(halo_px: f32) -> f32 {
+    let max_px = crate::text::SDF_PAD as f32 - 1.0;
+    halo_px.clamp(0.0, max_px) * (128.0 / crate::text::SDF_PAD as f32) / 255.0
+}
+
+/// Convert a faux-bold weight in glyph raster pixels to the normalized SDF
+/// dilation the shader adds to the fill cutoff. Like the halo it's capped to
+/// what the SDF can express; here we leave headroom (half the pad) so the
+/// halo still has room to sit outside a thickened stroke.
+fn sdf_weight(weight_px: f32) -> f32 {
+    let max_px = (crate::text::SDF_PAD as f32 - 1.0) * 0.5;
+    weight_px.clamp(0.0, max_px) * (128.0 / crate::text::SDF_PAD as f32) / 255.0
+}
+
+/// Per-frame label-size multiplier as a function of camera zoom. Flat at 1.0
+/// up to the reference zoom — so low-zoom maps and the single-zoom goldens at
+/// or below it are untouched — then a gentle lift as you push in, capped, so
+/// labels grow only subtly (Google keeps text near-constant; the variation is
+/// small) rather than ballooning. Quantised so a continuous zoom doesn't force
+/// a fresh layout every frame: the value snaps to coarse steps the layout
+/// cache can hit across small zoom deltas.
+fn text_size_scale(zoom: f64) -> f32 {
+    const REF_ZOOM: f64 = 15.0;
+    const PER_ZOOM_GROWTH: f64 = 1.05;
+    const MAX_SCALE: f64 = 1.35;
+    if zoom <= REF_ZOOM {
+        return 1.0;
+    }
+    let raw = PER_ZOOM_GROWTH.powf(zoom - REF_ZOOM).min(MAX_SCALE);
+    // Snap to 5% steps → at most a handful of distinct laid-out sizes.
+    ((raw * 20.0).round() / 20.0) as f32
+}
+
 fn sq_dist(a: (f32, f32), b: (f32, f32)) -> f32 {
     let dx = a.0 - b.0;
     let dy = a.1 - b.1;
     dx * dx + dy * dy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::text_size_scale;
+
+    #[test]
+    fn text_size_scale_is_flat_below_reference_and_lifts_gently_above() {
+        // At/below the reference the multiplier is exactly 1.0, so low-zoom
+        // maps and the single-zoom goldens there are untouched.
+        assert_eq!(text_size_scale(9.0), 1.0);
+        assert_eq!(text_size_scale(15.0), 1.0);
+        // Past the reference labels lift, monotonically, but stay capped so
+        // text never balloons (Google keeps it near-constant).
+        assert!(text_size_scale(16.0) >= 1.0);
+        assert!(text_size_scale(20.0) > text_size_scale(16.0), "monotonic lift");
+        assert!(text_size_scale(40.0) <= 1.35, "capped");
+    }
 }

@@ -1,0 +1,10 @@
+{
+  "name": "hillshade-bergen",
+  "width": 512,
+  "height": 384,
+  "camera": { "lat": 60.39, "lng": 5.32, "zoom": 9.0 },
+  "layers": [
+    { "type": "raster", "id": "basemap", "source": "parchment" },
+    { "type": "hillshade", "id": "hillshade", "terrain": "gaussian-bergen" }
+  ]
+}

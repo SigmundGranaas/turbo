@@ -7,11 +7,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{scene::Scene, tile::TileId};
 
-use super::{
-    cache::TextureCache,
-    terrain::TerrainCache,
-    BACKGROUND_CLEAR, DEPTH_FORMAT,
-};
+use super::{cache::TextureCache, terrain::TerrainCache};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -82,6 +78,23 @@ struct DrawBatch {
     /// registered, or no ancestor cached for the drawn area).
     dem_source: Option<TileId>,
     instances: Vec<Instance>,
+}
+
+/// One draw call recorded by `prepare`, replayed by `draw`. Holds only
+/// tile ids + an instance count — no references into the caches, so the
+/// prepared frame can outlive the mutable prepare borrows.
+struct PreparedBatch {
+    texture_id: TileId,
+    dem_source: Option<TileId>,
+    instance_count: u32,
+}
+
+/// Output of [`RasterPipeline::prepare`]: everything `draw` needs to
+/// replay the frame's draw list inside the shared render pass. An empty
+/// batch list means "draw nothing" (the frame-level clear covers the
+/// old clear-only path).
+pub(crate) struct PreparedRaster {
+    batches: Vec<PreparedBatch>,
 }
 
 /// Per-frame terrain configuration the Map hands the raster pipeline.
@@ -195,8 +208,8 @@ impl RasterPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("turbomap-raster-layout"),
-            bind_group_layouts: &[&camera_bgl, &texture_bgl, terrain_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&camera_bgl), Some(&texture_bgl), Some(terrain_bgl)],
+            immediate_size: 0,
         });
 
         let vertex_layout = wgpu::VertexBufferLayout {
@@ -255,13 +268,13 @@ impl RasterPipeline {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[vertex_layout, instance_layout],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -273,15 +286,9 @@ impl RasterPipeline {
             // Raster basemap displaces by terrain DEM in its vertex
             // shader → 3D geometry → needs depth so back faces of
             // mountains don't paint over front faces.
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            depth_stencil: Some(super::ground_depth_state()),
+            multisample: super::multisample_state(),
+            multiview_mask: None,
             cache: None,
         });
 
@@ -368,7 +375,7 @@ impl RasterPipeline {
             // uploads a full mip chain for raster tiles, so the GPU
             // picks the right LOD automatically. Without this, far-
             // zoomed tiles alias and shimmer when panning.
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         }));
 
@@ -390,20 +397,17 @@ impl RasterPipeline {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn render(
+    /// CPU half of a frame: uniform/instance uploads, batch building,
+    /// and LRU touches for every tile the draw list will reference.
+    /// Returns the draw list `draw` replays inside the shared pass.
+    pub(crate) fn prepare(
         &mut self,
         scene: &Scene,
         cache: &mut TextureCache,
         mut terrain: Option<&mut TerrainCache>,
-        placeholder_dem: &wgpu::BindGroup,
         terrain_options: TerrainConfig,
-        encoder: &mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-        depth: &wgpu::TextureView,
         fade_in_secs: f32,
-        is_first_layer: bool,
-    ) {
+    ) -> PreparedRaster {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
         let uniform = CameraUniform {
@@ -549,31 +553,9 @@ impl RasterPipeline {
 
         let total_instances: u64 = batches.iter().map(|b| b.instances.len() as u64).sum();
         if total_instances == 0 {
-            if is_first_layer {
-                // Clear the target so the previous frame doesn't linger.
-                let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("turbomap-raster-clear-only"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: target,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(BACKGROUND_CLEAR),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: depth,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-            }
-            return;
+            // Nothing to draw. The Map-level frame clear replaces the old
+            // clear-only pass.
+            return PreparedRaster { batches: Vec::new() };
         }
 
         if total_instances > self.instance_capacity {
@@ -599,42 +581,47 @@ impl RasterPipeline {
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&flat));
 
-        // No pre-collection of bind-group refs: `wgpu::BindGroup`
-        // isn't Clone in wgpu 22 and the basemap + terrain caches are
-        // independent fields on Map, so we can mutably re-borrow each
-        // inside the per-batch loop below — `pass.set_bind_group`
-        // internally Arc-counts the binding, so we don't need to
-        // hold the &BindGroup across iterations.
+        // Touch every tile the draw will reference so the LRU can't
+        // evict it before (or, with budget pressure, shortly after)
+        // the frame draws. `draw` then uses read-only `peek` lookups.
+        let mut prepared = Vec::with_capacity(batches.len());
+        for b in &batches {
+            let _ = cache
+                .get(b.texture_id)
+                .expect("batch references uncached texture");
+            if let Some(src) = b.dem_source {
+                let t = terrain
+                    .as_deref_mut()
+                    .expect("dem_source set implies terrain present");
+                let _ = t
+                    .get_entry(src)
+                    .expect("dem_source was cached at resolve time");
+            }
+            prepared.push(PreparedBatch {
+                texture_id: b.texture_id,
+                dem_source: b.dem_source,
+                instance_count: b.instances.len() as u32,
+            });
+        }
+        PreparedRaster { batches: prepared }
+    }
 
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("turbomap-raster-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: if is_first_layer {
-                        wgpu::LoadOp::Clear(BACKGROUND_CLEAR)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: if is_first_layer {
-                        wgpu::LoadOp::Clear(1.0)
-                    } else {
-                        wgpu::LoadOp::Load
-                    },
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
+    /// GPU half of the frame: replay the prepared draw list inside the
+    /// Map's single render pass. Only `pass.set_*`/`draw*` calls plus
+    /// immutable cache lookups — `prepare` already touched every tile
+    /// referenced here, so the `expect`s can't fire within one
+    /// `Map::render`.
+    pub(crate) fn draw(
+        &self,
+        prepared: &PreparedRaster,
+        cache: &TextureCache,
+        terrain: Option<&TerrainCache>,
+        placeholder_dem: &wgpu::BindGroup,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) {
+        if prepared.batches.is_empty() {
+            return;
+        }
         pass.set_pipeline(&self.pipeline);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
@@ -642,14 +629,12 @@ impl RasterPipeline {
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
         let mut start: u32 = 0;
-        for b in &batches {
+        for b in &prepared.batches {
             // Basemap colour texture.
-            {
-                let entry = cache
-                    .get(b.texture_id)
-                    .expect("batch references uncached texture");
-                pass.set_bind_group(1, &entry.bind_group, &[]);
-            }
+            let entry = cache
+                .peek(b.texture_id)
+                .expect("prepare touched this texture");
+            pass.set_bind_group(1, &entry.bind_group, &[]);
             // DEM height texture. The batch already resolved which
             // DEM source tile to use (self or nearest ancestor); we
             // just rebind it. The per-instance dem_uv_origin/size
@@ -657,17 +642,13 @@ impl RasterPipeline {
             // of that DEM source.
             match b.dem_source {
                 Some(src) => {
-                    let t = terrain
-                        .as_deref_mut()
-                        .expect("dem_source set implies terrain present");
-                    let entry = t
-                        .get_entry(src)
-                        .expect("dem_source was cached at resolve time");
+                    let t = terrain.expect("dem_source set implies terrain present");
+                    let entry = t.peek_entry(src).expect("prepare touched this DEM tile");
                     pass.set_bind_group(2, &entry.bind_group, &[]);
                 }
                 None => pass.set_bind_group(2, placeholder_dem, &[]),
             }
-            let end = start + b.instances.len() as u32;
+            let end = start + b.instance_count;
             pass.draw_indexed(0..self.index_count, 0, start..end);
             start = end;
         }

@@ -1,0 +1,37 @@
+//! Translating the IR's declarative [`SourceDef`] into a concrete
+//! `turbomap_core::TileSource`.
+//!
+//! The IR describes sources by URL templates / inline data; the renderer
+//! needs an `Arc<dyn TileSource>`. That translation is the one piece of
+//! I/O policy the engine must not hard-code — a production host resolves
+//! to HTTP-backed sources (with auth, caching, offline), while tests and
+//! the inspect tool resolve to deterministic synthetic sources. So it is
+//! injected as a `SourceResolver`.
+
+use std::sync::Arc;
+
+use turbomap_core::{TileSource, VectorTileSource};
+use turbomap_scene::SourceDef;
+
+/// The concrete tile source a [`SourceResolver`] produces for a layer,
+/// or a signal that this backend can't serve it.
+pub enum ResolvedSource {
+    /// A raster basemap/overlay source.
+    Raster(Arc<dyn TileSource>),
+    /// A DEM source feeding terrain/hillshade.
+    Dem(Arc<dyn TileSource>),
+    /// A vector source (MVT tiles, or inline GeoJSON via
+    /// [`crate::GeoJsonVectorSource`]) feeding line/fill layers.
+    Vector(Arc<dyn VectorTileSource>),
+    /// The resolver does not provide this source (the layer is skipped
+    /// and recorded as unsupported).
+    Unsupported,
+}
+
+/// Turns a declarative [`SourceDef`] into a tile source. Injected at
+/// engine construction so I/O policy lives with the host, not the engine.
+/// `Send + Sync` because the engine itself must cross thread boundaries
+/// (the FFI layer wraps it in a mutex shared with foreign code).
+pub trait SourceResolver: Send + Sync {
+    fn resolve(&self, id: &str, def: &SourceDef) -> ResolvedSource;
+}

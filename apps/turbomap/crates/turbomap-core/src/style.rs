@@ -25,6 +25,53 @@ impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
+
+    /// The colour-management contract: colours are *authored* in sRGB
+    /// (what design tools and style specs produce), but every render
+    /// target is `*Srgb`, meaning the GPU re-encodes on write and blends
+    /// in linear space. Anything fed to a shader as a colour therefore
+    /// has to be decoded sRGB→linear exactly once, here. Skipping this
+    /// double-encodes and visibly washes out everything darker than
+    /// white (the bug the simulator's colour histogram caught).
+    pub fn to_linear_f32(self) -> [f32; 4] {
+        [
+            srgb_channel_to_linear(self.r),
+            srgb_channel_to_linear(self.g),
+            srgb_channel_to_linear(self.b),
+            self.a as f32 / 255.0, // alpha is coverage — never gamma-encoded
+        ]
+    }
+
+    /// [`Self::to_linear_f32`] quantised to bytes, for `Unorm8x4` vertex
+    /// attributes. Flat fills don't band; if gradients ever do, the
+    /// decode moves into the shader instead.
+    pub fn to_linear_bytes(self) -> [u8; 4] {
+        let [r, g, b, a] = self.to_linear_f32();
+        let q = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        [q(r), q(g), q(b), q(a)]
+    }
+}
+
+/// Exact (piecewise) sRGB EOTF for one 8-bit channel.
+fn srgb_channel_to_linear(byte: u8) -> f32 {
+    let c = byte as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// A sprite drawn at a point feature (a POI icon or a route-shield
+/// background). The named sprite is resolved against the renderer's
+/// built-in sprite atlas; `size_px` is its on-screen height in pixels
+/// (width follows the sprite's aspect ratio).
+#[derive(Debug, Clone, PartialEq)]
+pub struct IconSpec {
+    pub sprite: String,
+    pub size_px: f32,
+    /// Tint applied to the monochrome SDF sprite.
+    pub color: Color,
 }
 
 /// What to do with a matching feature.
@@ -39,12 +86,58 @@ pub enum Paint {
         color: Color,
         width: f32,
     },
+    /// Extrude a polygon to a 3D prism: a flat roof at `height_m` metres
+    /// plus vertical walls down to the ground. Walls are shaded darker than
+    /// the roof so the form reads under a tilted camera. Only meaningful
+    /// with pitch > 0.
+    ///
+    /// When `height_property` names a numeric feature property (e.g. OMT's
+    /// `render_height`), each polygon extrudes to *its own* height; features
+    /// missing that property fall back to `height_m`.
+    FillExtrusion {
+        color: Color,
+        height_m: f32,
+        height_property: Option<String>,
+        /// Numeric feature property giving each polygon's *base* height in
+        /// metres (e.g. OMT `render_min_height`) — walls start here instead
+        /// of the ground, so rooftop structures and bridges float at their
+        /// real elevation. `None`/absent ⇒ base 0 (extrude from ground).
+        min_height_property: Option<String>,
+    },
     /// Render the feature's value at `text_field` as a text label at the
     /// feature's point. `font_size_px` is the rasterised line height.
+    ///
+    /// The label is drawn from the SDF atlas with an optional halo (the
+    /// readability outline real maps use over busy ground). `halo_width`
+    /// is in glyph pixels (0 = no halo); `halo_color` its colour.
     Text {
         text_field: String,
         font_size_px: f32,
         color: Color,
+        halo_color: Color,
+        halo_width: f32,
+        /// Numeric feature property ranking placement importance (higher
+        /// wins collisions). `None` falls back to font size, so larger
+        /// labels still beat smaller ones.
+        rank_field: Option<String>,
+        /// When `true`, the label is placed *along* a LineString feature's
+        /// centerline (glyphs follow the curve, like a road name) instead
+        /// of at a Point. Such a rule matches LineString geometry, not Point.
+        along_line: bool,
+        /// Optional sprite drawn at the feature's point, behind the label —
+        /// a POI icon, or (with centred text) a route shield. `None` ⇒
+        /// text only. Ignored for `along_line` rules.
+        icon: Option<IconSpec>,
+        /// When `true`, a point label is placed to the *right* of its anchor
+        /// (left-aligned, clearing any icon) instead of centred — the POI
+        /// marker layout. Ignored for `along_line` rules.
+        left_anchor: bool,
+        /// Extra tracking between glyphs in em (0 = none) — area-label
+        /// spacing. Applies to point labels only.
+        letter_spacing: f32,
+        /// Faux-bold weight in glyph raster pixels (0 = the font's natural
+        /// weight). The label-weight hierarchy lever.
+        weight: f32,
     },
 }
 
@@ -58,6 +151,12 @@ pub enum Filter {
     Eq(String, String),
     /// Match if property `key` is in any of the given values.
     In(String, Vec<String>),
+    /// Logical negation — match when the inner filter does not.
+    Not(Box<Filter>),
+    /// Match only when *every* sub-filter matches (AND). Empty ⇒ match.
+    All(Vec<Filter>),
+    /// Match when *any* sub-filter matches (OR). Empty ⇒ no match.
+    Any(Vec<Filter>),
 }
 
 #[derive(Debug, Clone)]
@@ -172,15 +271,24 @@ fn filter_matches(filter: &Filter, feature: &Feature) -> bool {
             .get(k)
             .map(|val| vs.iter().any(|v| value_eq_str(val, v)))
             .unwrap_or(false),
+        Filter::Not(inner) => !filter_matches(inner, feature),
+        Filter::All(fs) => fs.iter().all(|f| filter_matches(f, feature)),
+        Filter::Any(fs) => fs.iter().any(|f| filter_matches(f, feature)),
     }
 }
 
 fn paint_matches_geom_type(paint: &Paint, gt: GeomType) -> bool {
     match (paint, gt) {
         (Paint::Fill { .. }, GeomType::Polygon) => true,
+        (Paint::FillExtrusion { .. }, GeomType::Polygon) => true,
         (Paint::Line { .. }, GeomType::LineString) => true,
-        (Paint::Text { .. }, GeomType::Point) => true,
-        // Outline-as-line for polygons would be possible but skip for now.
+        // A line rule also strokes polygon rings — the outline real maps
+        // draw around buildings, water and landuse to separate adjacent
+        // same-colour shapes.
+        (Paint::Line { .. }, GeomType::Polygon) => true,
+        // Point labels match points; along-line labels match lines.
+        (Paint::Text { along_line, .. }, GeomType::Point) => !*along_line,
+        (Paint::Text { along_line, .. }, GeomType::LineString) => *along_line,
         _ => false,
     }
 }
@@ -219,6 +327,32 @@ mod tests {
             geometry: Geometry::Polygon(vec![]),
             properties: p,
         }
+    }
+
+    #[test]
+    fn compound_filters_combine_eq_in_and_not() {
+        // "a surface road" = class in {trunk,primary} AND NOT brunnel=tunnel
+        // — the exact predicate the tunnel styling relies on.
+        let surface = Filter::All(vec![
+            Filter::In("class".into(), vec!["trunk".into(), "primary".into()]),
+            Filter::Not(Box::new(Filter::Eq("brunnel".into(), "tunnel".into()))),
+        ]);
+        let surface_trunk = poly_feature(&[("class", "trunk")]);
+        let tunnel_trunk = poly_feature(&[("class", "trunk"), ("brunnel", "tunnel")]);
+        let service = poly_feature(&[("class", "service")]);
+        assert!(filter_matches(&surface, &surface_trunk), "surface trunk matches");
+        assert!(!filter_matches(&surface, &tunnel_trunk), "tunnel excluded");
+        assert!(!filter_matches(&surface, &service), "wrong class excluded");
+
+        // Any = OR; empty All = match-all; empty Any = match-none.
+        let either = Filter::Any(vec![
+            Filter::Eq("brunnel".into(), "bridge".into()),
+            Filter::Eq("brunnel".into(), "tunnel".into()),
+        ]);
+        assert!(filter_matches(&either, &tunnel_trunk));
+        assert!(!filter_matches(&either, &surface_trunk));
+        assert!(filter_matches(&Filter::All(vec![]), &service), "empty All matches");
+        assert!(!filter_matches(&Filter::Any(vec![]), &service), "empty Any never matches");
     }
 
     fn line_feature(props: &[(&str, &str)]) -> Feature {

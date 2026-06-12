@@ -53,10 +53,11 @@ impl GpuContext {
     /// surface configuration target; the actual configuration
     /// happens later in `RenderSurface::new`.
     pub fn new(window: Arc<Window>) -> Self {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new({
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        desc.backends = wgpu::Backends::PRIMARY;
+        desc
+    });
         let surface = instance
             .create_surface(window)
             .expect("create surface");
@@ -74,16 +75,15 @@ impl GpuContext {
         let wanted =
             wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
         let features = adapter.features() & wanted;
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("turbomap-device"),
-                required_features: features,
-                required_limits: wgpu::Limits::downlevel_defaults()
-                    .using_resolution(adapter.limits()),
-                memory_hints: wgpu::MemoryHints::Performance,
-            },
-            None,
-        ))
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("turbomap-device"),
+            required_features: features,
+            required_limits: wgpu::Limits::downlevel_defaults()
+                .using_resolution(adapter.limits()),
+            memory_hints: wgpu::MemoryHints::Performance,
+            experimental_features: wgpu::ExperimentalFeatures::default(),
+            trace: wgpu::Trace::Off,
+        }))
         .expect("request device");
         let caps = surface.get_capabilities(&adapter);
         let surface_format = caps

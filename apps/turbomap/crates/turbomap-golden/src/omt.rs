@@ -1,0 +1,396 @@
+//! The shared OpenMapTiles **Bergen basemap fixture** — one canonical
+//! `Scene` + fixture path used by both the `omt-real-bergen` golden and
+//! the `visual_lab` example, so the credibility golden and the iteration
+//! tool can never drift apart. Real OSM data (OpenFreeMap, ODbL ©
+//! OpenStreetMap contributors) lives in `tests/fixtures/bergen-omt.pmtiles`.
+
+use turbomap_scene::{
+    Color, Filter, FilterValue, Layer, MatchCase, Paint, Scene, SourceDef, SymbolPlacement,
+    TextAnchor,
+};
+
+/// The flat "land" ground colour the raster base paints under the vector
+/// layers.
+pub const LAND: [u8; 3] = [242, 240, 235];
+
+/// Path to the committed real-data PMTiles archive.
+pub fn fixture_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/bergen-omt.pmtiles")
+}
+
+fn s(v: &str) -> FilterValue {
+    FilterValue::String(v.to_string())
+}
+
+fn class_in(values: &[&str]) -> Filter {
+    Filter::In("class".to_string(), values.iter().map(|v| s(v)).collect())
+}
+
+/// The designed basemap style, keyed on the OpenMapTiles taxonomy: road
+/// casings + class hierarchy, landcover/park greens, buildings, dashed
+/// admin boundaries, water, street names along real centerlines, ranked
+/// place labels.
+pub fn bergen_scene() -> Scene {
+    let mut scene = Scene::new();
+    scene.sources.insert(
+        "base".to_string(),
+        SourceDef::RasterXyz {
+            tiles: vec!["https://example.test/{z}/{x}/{y}.png".to_string()],
+            tile_size: 256,
+            min_zoom: 0,
+            max_zoom: 22,
+            attribution: None,
+        },
+    );
+    scene.sources.insert(
+        "omt".to_string(),
+        SourceDef::VectorXyz {
+            tiles: vec!["pmtiles://bergen".to_string()],
+            min_zoom: 14,
+            max_zoom: 14,
+        },
+    );
+
+    scene.layers.push(Layer::Raster {
+        id: "land".to_string(),
+        source: "base".to_string(),
+        opacity: Paint::Const(1.0),
+    });
+    // Greens under everything else.
+    scene.layers.push(Layer::Fill {
+        id: "landcover-green".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("landcover".to_string()),
+        filter: class_in(&["grass", "meadow", "garden", "park", "recreation_ground"]),
+        color: Paint::Const(Color::rgb(205, 227, 197)),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Fill {
+        id: "landcover-wood".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("landcover".to_string()),
+        filter: class_in(&["wood", "forest"]),
+        color: Paint::Const(Color::rgb(186, 214, 183)),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Fill {
+        id: "park".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("park".to_string()),
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(208, 229, 199)),
+        opacity: Paint::Const(1.0),
+    });
+    // Landuse zones, tinted by category the way real basemaps differentiate
+    // areas: education warm, hospital pink, sport/cemetery green, industrial
+    // cool grey. One Match layer keyed on class; everything else falls to a
+    // neutral residential tone.
+    scene.layers.push(Layer::Fill {
+        id: "landuse".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("landuse".to_string()),
+        filter: class_in(&[
+            "residential", "suburb", "neighbourhood", "school", "kindergarten",
+            "university", "college", "hospital", "pitch", "playground", "stadium",
+            "cemetery", "industrial", "military", "commercial", "retail",
+        ]),
+        color: Paint::Match {
+            property: "class".to_string(),
+            cases: vec![
+                MatchCase { value: s("school"), result: Color::rgb(241, 236, 221) },
+                MatchCase { value: s("kindergarten"), result: Color::rgb(241, 236, 221) },
+                MatchCase { value: s("university"), result: Color::rgb(241, 236, 221) },
+                MatchCase { value: s("college"), result: Color::rgb(241, 236, 221) },
+                MatchCase { value: s("hospital"), result: Color::rgb(244, 230, 230) },
+                MatchCase { value: s("pitch"), result: Color::rgb(206, 228, 200) },
+                MatchCase { value: s("playground"), result: Color::rgb(206, 228, 200) },
+                MatchCase { value: s("stadium"), result: Color::rgb(206, 228, 200) },
+                MatchCase { value: s("cemetery"), result: Color::rgb(216, 225, 209) },
+                MatchCase { value: s("industrial"), result: Color::rgb(232, 230, 227) },
+                MatchCase { value: s("military"), result: Color::rgb(232, 230, 227) },
+                MatchCase { value: s("commercial"), result: Color::rgb(243, 235, 226) },
+                MatchCase { value: s("retail"), result: Color::rgb(243, 235, 226) },
+            ],
+            default: Box::new(Color::rgb(237, 234, 228)),
+        },
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Fill {
+        id: "water".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("water".to_string()),
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(163, 201, 224)),
+        opacity: Paint::Const(1.0),
+    });
+    // Coastline: a slightly darker stroke on the water polygon so the
+    // land/water boundary crisps up (the outline feature on a fill).
+    scene.layers.push(Layer::Line {
+        id: "coastline".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("water".to_string()),
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(132, 174, 201)),
+        width: Paint::Const(0.8),
+        dash_array: None,
+    });
+    // Buildings: a light, slightly-cool fill that sits just above the warm
+    // land so the footprints recede (Google's flat top-down look) and let
+    // roads + labels carry the contrast. A crisp, marginally darker outline
+    // keeps adjacent footprints reading as separate shapes.
+    scene.layers.push(Layer::Fill {
+        id: "buildings".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("building".to_string()),
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(232, 229, 222)),
+        opacity: Paint::Const(1.0),
+    });
+    scene.layers.push(Layer::Line {
+        id: "building-outline".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("building".to_string()),
+        filter: Filter::Always,
+        color: Paint::Const(Color::rgb(210, 204, 193)),
+        width: Paint::Const(0.8),
+        dash_array: None,
+    });
+
+    // Streets: grey casing under, class-coloured inner over. `service`
+    // (driveways, parking aisles) is deliberately excluded — at city zoom
+    // it's a web of clutter, especially over the hillsides, and a basemap
+    // reads cleaner without it (the same call Google/MapLibre make here).
+    let street_classes = [
+        "motorway", "trunk", "primary", "secondary", "tertiary", "minor",
+    ];
+    // Tunnels (e.g. Fløyfjelltunnelen) read as "below ground": a dashed,
+    // dimmed casing drawn *under* the surface roads. Surface roads then
+    // exclude tunnels so the bright fill doesn't cover the dashes.
+    let is_tunnel = || Filter::Eq("brunnel".to_string(), s("tunnel"));
+    let not_tunnel = || Filter::Not(Box::new(is_tunnel()));
+    let surface_streets =
+        || Filter::All(vec![class_in(&street_classes), not_tunnel()]);
+    scene.layers.push(Layer::Line {
+        id: "tunnel".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("transportation".to_string()),
+        filter: Filter::All(vec![class_in(&street_classes), is_tunnel()]),
+        color: Paint::Const(Color::rgb(222, 216, 206)),
+        width: Paint::Const(5.0),
+        dash_array: Some(vec![5.0, 4.0]),
+    });
+    scene.layers.push(Layer::Line {
+        id: "road-casing".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("transportation".to_string()),
+        filter: surface_streets(),
+        color: Paint::Const(Color::rgb(196, 192, 186)),
+        width: Paint::Match {
+            property: "class".to_string(),
+            cases: vec![
+                MatchCase { value: s("motorway"), result: 11.0f32 },
+                MatchCase { value: s("trunk"), result: 10.0f32 },
+                MatchCase { value: s("primary"), result: 8.5f32 },
+                MatchCase { value: s("secondary"), result: 7.0f32 },
+                MatchCase { value: s("tertiary"), result: 6.0f32 },
+                MatchCase { value: s("minor"), result: 5.0f32 },
+            ],
+            default: Box::new(3.4f32),
+        },
+        dash_array: None,
+    });
+    scene.layers.push(Layer::Line {
+        id: "road-inner".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("transportation".to_string()),
+        filter: surface_streets(),
+        color: Paint::Match {
+            property: "class".to_string(),
+            cases: vec![
+                MatchCase { value: s("motorway"), result: Color::rgb(250, 200, 108) },
+                MatchCase { value: s("trunk"), result: Color::rgb(252, 212, 130) },
+            ],
+            default: Box::new(Color::rgb(255, 255, 255)),
+        },
+        width: Paint::Match {
+            property: "class".to_string(),
+            cases: vec![
+                MatchCase { value: s("motorway"), result: 8.0f32 },
+                MatchCase { value: s("trunk"), result: 7.2f32 },
+                MatchCase { value: s("primary"), result: 6.0f32 },
+                MatchCase { value: s("secondary"), result: 4.8f32 },
+                MatchCase { value: s("tertiary"), result: 4.0f32 },
+                MatchCase { value: s("minor"), result: 3.2f32 },
+            ],
+            default: Box::new(2.0f32),
+        },
+        dash_array: None,
+    });
+    // Footpaths: pedestrian streets only, thin and very light so the
+    // network recedes. `path`/`track` (the hillside trail web) is dropped
+    // at this zoom — it was the dominant source of speckle noise.
+    scene.layers.push(Layer::Line {
+        id: "paths".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("transportation".to_string()),
+        filter: class_in(&["pedestrian"]),
+        color: Paint::Const(Color::rgb(208, 202, 194)),
+        width: Paint::Const(1.0),
+        dash_array: None,
+    });
+    scene.layers.push(Layer::Line {
+        id: "rail".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("transportation".to_string()),
+        filter: class_in(&["rail", "transit"]),
+        color: Paint::Const(Color::rgb(200, 199, 204)),
+        width: Paint::Const(1.8),
+        dash_array: None,
+    });
+    scene.layers.push(Layer::Line {
+        id: "boundary".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("boundary".to_string()),
+        filter: Filter::In(
+            "admin_level".to_string(),
+            vec![
+                FilterValue::Number(4.0),
+                FilterValue::Number(6.0),
+                FilterValue::Number(7.0),
+                FilterValue::Number(8.0),
+            ],
+        ),
+        color: Paint::Const(Color::rgb(172, 160, 186)),
+        width: Paint::Const(1.4),
+        dash_array: Some(vec![6.0, 4.5]),
+    });
+
+    // Labels: places, then water names, then street names — prepare order
+    // is placement priority for the frame-wide collision set.
+    scene.layers.push(Layer::Symbol {
+        id: "places".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("place".to_string()),
+        filter: class_in(&["city", "town", "suburb", "village", "neighbourhood", "quarter"]),
+        text_field: "name".to_string(),
+        text_size: Paint::Match {
+            property: "class".to_string(),
+            cases: vec![
+                MatchCase { value: s("city"), result: 22.0f32 },
+                MatchCase { value: s("town"), result: 18.0f32 },
+                MatchCase { value: s("suburb"), result: 15.0f32 },
+                MatchCase { value: s("village"), result: 14.0f32 },
+            ],
+            default: Box::new(13.0f32),
+        },
+        // Near-black text with a thick pure-white halo so labels stay sharp
+        // and legible over busy ground and 3D buildings (the Google/Apple
+        // legibility recipe — halo capped by SDF_PAD).
+        color: Paint::Const(Color::rgb(30, 32, 38)),
+        halo_color: Paint::Const(Color::rgb(255, 255, 255)),
+        halo_width: Paint::Const(3.8),
+        // OMT `rank` (1 = most important place) drives collision priority,
+        // so the dominant place in a cluster survives — not whichever
+        // happens to sit nearest the screen centre.
+        sort_key: Some("rank".to_string()),
+        placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
+        letter_spacing: 0.10, // districts / place names tracked, Google-style
+        font_weight: 1.6,     // place names are the visual anchors — heaviest
+    });
+    scene.layers.push(Layer::Symbol {
+        id: "water-names".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("water_name".to_string()),
+        filter: Filter::Always,
+        text_field: "name".to_string(),
+        text_size: Paint::Const(14.0),
+        color: Paint::Const(Color::rgb(54, 92, 132)),
+        halo_color: Paint::Const(Color::rgb(255, 255, 255)),
+        halo_width: Paint::Const(3.2),
+        sort_key: None,
+        placement: SymbolPlacement::Point,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
+        letter_spacing: 0.18, // water bodies strongly tracked
+        font_weight: 1.1,     // medium weight, below place names
+    });
+    scene.layers.push(Layer::Symbol {
+        id: "street-names".to_string(),
+        source: "omt".to_string(),
+        source_layer: Some("transportation_name".to_string()),
+        // Footpath and service-road names are clutter at city zoom.
+        filter: class_in(&["motorway", "trunk", "primary", "secondary", "tertiary", "minor"]),
+        text_field: "name".to_string(),
+        text_size: Paint::Const(12.5),
+        color: Paint::Const(Color::rgb(52, 54, 64)),
+        halo_color: Paint::Const(Color::rgb(255, 255, 255)),
+        halo_width: Paint::Const(3.2),
+        sort_key: None,
+        placement: SymbolPlacement::Line,
+        icon_image: None,
+        icon_size: Paint::Const(24.0),
+        icon_color: Paint::Const(Color::rgb(70, 78, 92)),
+        text_anchor: TextAnchor::Center,
+        letter_spacing: 0.0,
+        font_weight: 0.8, // streets sit a notch under area labels
+    });
+
+    // POIs: a curated set of landmarks, each a colour-coded dot with the
+    // name to its right (left-anchored text). Grouped into a few category
+    // colours the way real basemaps cue what a place is. Prepared last, so
+    // they never displace place/street/water labels, and the frame-wide
+    // collision thins the rest — the long tail (parking/waste_basket/gate)
+    // is deliberately excluded as pure clutter.
+    let mut poi_layer = |id: &str, classes: &[&str], sprite: &str, dot: Color| {
+        scene.layers.push(Layer::Symbol {
+            id: id.to_string(),
+            source: "omt".to_string(),
+            source_layer: Some("poi".to_string()),
+            filter: class_in(classes),
+            text_field: "name".to_string(),
+            text_size: Paint::Const(11.5),
+            color: Paint::Const(Color::rgb(48, 44, 40)),
+            halo_color: Paint::Const(Color::rgb(255, 255, 255)),
+            halo_width: Paint::Const(3.0),
+            // POI `rank` (lower = more prominent) so the landmark wins the
+            // collision over an incidental neighbour.
+            sort_key: Some("rank".to_string()),
+            placement: SymbolPlacement::Point,
+            icon_image: Some(sprite.to_string()),
+            icon_size: Paint::Const(12.0),
+            icon_color: Paint::Const(dot),
+            text_anchor: TextAnchor::Left,
+            letter_spacing: 0.0,
+            font_weight: 0.7, // POI labels lightest — the detail tier
+        });
+    };
+    // Food & drink — a fork, warm orange.
+    poi_layer(
+        "poi-food",
+        &["restaurant", "cafe", "bar", "fast_food", "pub"],
+        "fork",
+        Color::rgb(224, 138, 72),
+    );
+    // Lodging & culture — a diamond, muted violet.
+    poi_layer(
+        "poi-culture",
+        &["hotel", "hostel", "museum", "theatre", "cinema", "library", "place_of_worship"],
+        "diamond",
+        Color::rgb(150, 122, 186),
+    );
+    // Health & shops — a cross, teal-green.
+    poi_layer(
+        "poi-service",
+        &["hospital", "pharmacy", "supermarket"],
+        "cross",
+        Color::rgb(72, 158, 132),
+    );
+    scene
+}

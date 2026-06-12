@@ -13,6 +13,11 @@ Kartverket Turkart raster tiles, and lets you pan and zoom around Norway.
 | `turbomap-core` | The renderer library. Knows about `wgpu`. Has no I/O, no HTTP, no winit. The FFI-ready boundary. |
 | `turbomap-tiles-http` | A `TileSource` implementation over `reqwest::blocking`. Includes a preconfigured Kartverket Turkart source. |
 | `turbomap-app` | The desktop binary. winit window + wgpu surface + tile fetch pump. |
+| `turbomap-golden` | Headless golden-image + record/replay test harness. No I/O, no window — deterministic render tests on a software adapter. |
+| `turbomap-scene` | Renderer-agnostic `Scene`/`Paint` IR, pure scene `diff`, and the `MapEngine` contract + conformance suite. No GPU, no I/O — the shared schema host languages bind to. |
+| `turbomap-engine` | `TurbomapEngine`: drives `turbomap-core`'s wgpu pipelines from the `Scene` IR via the `MapEngine` contract. Renders raster, hillshade, and GeoJSON line / fill / circle / symbol-label layers (SDF text with configurable halos); reconciles scene edits incrementally (unchanged layers keep their GPU caches); evaluates zoom-curve line/fill colour on the GPU per frame (no re-tessellation) and compiles data-driven `Match` colour to per-feature style rules. Includes the `inspect` dev tool and a vector bench. |
+| `turbomap-ffi` | uniffi bindings (Kotlin/Swift) for the engine's control plane: scene JSON, camera, projection, hit-test, host-driven pull/push tile IO, and an offscreen PNG snapshot API. Surface creation + the render loop stay in per-platform glue. |
+| `turbomap-sim` | Headless device-equivalent: a deterministic synthetic city served as real MVT bytes + a session driver (scripted journeys, latency-simulated tiles, per-frame pixel/perf instrumentation). Behavioural CI gates: no blank map while zooming, frames converge, budgets hold. `journey` example dumps keyframes + metrics. |
 
 Dependency direction is strict and one-way:
 
@@ -37,9 +42,56 @@ to pan, scroll wheel to zoom.
 cargo test --workspace
 ```
 
-Tests live only at value boundaries — the public APIs consumers depend on
+Tests live at value boundaries — the public APIs consumers depend on
 (Mercator math, camera intent, the pull-push tile contract, URL expansion).
-Internal renderer plumbing is verified by the manual smoke test above.
+
+Render output is verified by **golden-image tests** in `turbomap-golden`,
+which render synthetic scenes headless on a software GPU adapter and
+compare against committed reference PNGs. They are behind a feature flag
+so the default lane stays GPU-free:
+
+```sh
+# Needs a wgpu adapter; a software one is enough:
+#   sudo apt-get install -y mesa-vulkan-drivers
+cargo test -p turbomap-golden --features gpu-tests
+
+# Re-baseline references after an intentional visual change:
+UPDATE_GOLDEN=1 cargo test -p turbomap-golden --features gpu-tests
+```
+
+CI runs both lanes (`.github/workflows/turbomap_build.yml`): a fast
+Rust lane (tests + lints) and a golden lane on Lavapipe (which also runs
+the engine conformance + scene-vs-imperative parity tests).
+
+### Inspecting the engine
+
+`turbomap-engine` ships an **agent-first inspection tool**: it runs a
+`Scene` through the real engine headless and emits one machine-readable
+JSON report covering every stage — the scene + validation, the applied
+diff, which layers the backend supports, tile-drain activity, per-layer
+render metrics + cache stats, and projection round-trips — plus the
+rendered PNG.
+
+```sh
+# Built-in raster+hillshade scene → /tmp/turbomap-inspect.png + JSON report
+cargo run -p turbomap-engine --example inspect -- --png /tmp/out.png
+
+# Inspect a Scene JSON, reporting the delta vs a previous scene
+cargo run -p turbomap-engine --example inspect -- \
+  --scene scene.json --prev prev.json --report report.json
+```
+
+### Profiling
+
+The GeoJSON line path (per-tile clip + tessellate) has a criterion bench:
+
+```sh
+cargo bench -p turbomap-engine
+```
+
+Per-tile clipping is what keeps it cheap — without it every tile
+tessellates the whole line. On a Bergen route across ~35 tiles the
+clipped clip+tessellate runs ~9× faster than the unclipped path.
 
 ## License
 
