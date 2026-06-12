@@ -124,7 +124,24 @@ impl Scene {
     /// `prefetch_margin_px`-wide ring of off-screen tiles. The renderer does
     /// not draw the margin — it just keeps it warm so panning is smooth.
     pub fn desired_tiles(&self) -> Vec<TileId> {
-        self.tiles_for_margin(self.prefetch_margin_px)
+        // How many zoom levels below the visible set to keep as a backdrop.
+        const OVERVIEW_DEPTH: u8 = 3;
+        let mut tiles = self.tiles_for_margin(self.prefetch_margin_px);
+        // Always keep a coarse overview level loaded under the visible set. It's
+        // cheap (a handful of tiles) and guarantees the renderer's ancestor
+        // fallback always has a backdrop to fade over — so newly-arrived or
+        // post-zoom tiles blend over real (if blurry) content instead of fading
+        // up from the empty-tile grey (the zoom-out "flash") or popping.
+        let z = self.tile_zoom();
+        let overview_z = z.saturating_sub(OVERVIEW_DEPTH).max(self.min_zoom);
+        if overview_z < z {
+            for t in self.tiles_for_margin_at(0, overview_z) {
+                if !tiles.contains(&t) {
+                    tiles.push(t);
+                }
+            }
+        }
+        tiles
     }
 
     /// Desired tiles that have not yet been ingested, sorted by ascending
@@ -164,6 +181,12 @@ impl Scene {
     }
 
     fn tiles_for_margin(&self, margin_px: u32) -> Vec<TileId> {
+        self.tiles_for_margin_at(margin_px, self.tile_zoom())
+    }
+
+    /// As [`Self::tiles_for_margin`] but at an explicit tile zoom `z` (used to
+    /// also request a coarse overview level as a guaranteed backdrop).
+    fn tiles_for_margin_at(&self, margin_px: u32, z: u8) -> Vec<TileId> {
         // We unproject the four (margin-extended) viewport corners onto
         // the ground plane to get the actual visible-on-ground area.
         // For pitch=0 / bearing=0 this collapses to the legacy
@@ -179,7 +202,6 @@ impl Scene {
         // grows, but the cap still requests the closest tiles first
         // via `pending_tiles`' distance sort).
         const MAX_TILES: usize = 256;
-        let z = self.tile_zoom();
         let n = 1u32 << z;
         let vw = self.viewport_px.0 as f64;
         let vh = self.viewport_px.1 as f64;
@@ -300,7 +322,8 @@ mod tests {
         // After a pan to a new region, freshly visible tiles should appear in
         // the pending list even if previously visible tiles were ingested.
         let mut scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 1.0), (200, 200), 0, 22);
-        for t in scene.visible_tiles() {
+        // Ingest the whole desired set (visible + the coarse overview backdrop).
+        for t in scene.desired_tiles() {
             scene.ingest(t);
         }
         assert!(scene.pending_tiles().is_empty());
@@ -357,9 +380,11 @@ mod tests {
     // ---- prefetch margin contract -----------------------------------------
 
     #[test]
-    fn desired_tiles_with_zero_margin_equals_visible_tiles() {
-        // The legacy default — no margin — produces the same set as the
-        // strict visible computation. Hosts that don't opt in see no change.
+    fn desired_tiles_includes_a_coarse_overview_backdrop() {
+        // Even with no prefetch margin, the desired set adds a coarse overview
+        // level under the visible tiles (a guaranteed fade backdrop, so tiles
+        // never fade up from the empty-tile grey on load / zoom-out). Every
+        // visible tile is still desired; the extras are strictly coarser.
         let scene = Scene::with_margin(
             Camera::new(LatLng::new(60.39, 5.32), 11.0),
             (1024, 768),
@@ -369,7 +394,12 @@ mod tests {
         );
         let visible: HashSet<_> = scene.visible_tiles().into_iter().collect();
         let desired: HashSet<_> = scene.desired_tiles().into_iter().collect();
-        assert_eq!(visible, desired);
+        assert!(visible.is_subset(&desired), "visible must stay desired");
+        let visible_z = scene.tile_zoom();
+        assert!(
+            desired.iter().any(|t| t.z < visible_z),
+            "a coarser overview backdrop level must be included",
+        );
     }
 
     #[test]
