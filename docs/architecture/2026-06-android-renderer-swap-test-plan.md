@@ -511,3 +511,10 @@ manager lives on the IO side off the UI thread.
 - ✅ **Stage 2** — dedicated render thread + `Mutex<OnScreen>` (concurrency stress test).
 - ✅ **Stage 3** — render-on-demand + camera-only overlay tick.
 - ⬜ **Stage 4** (shared GPU device), **Stage 0b** (OfflineTileManager cache), **Stage 6** (memory/telemetry), **Stage 7** (device golden + differential gates) — remaining.
+
+### Hardening status (updated 2026-06-13)
+- ✅ Stage 0, 1, 2, 3 (see above).
+- ✅ **Tile fade-in** — per-tile 0.3 s smoothstep blend; `is_animating` keeps render-on-demand alive during the fade.
+- ✅ Two real stall fixes found by running the app on the emulator: undecodable-tile busy-loop (evict + backoff), and the **HTTP/2 StreamResetException dead-slot leak** (always resume the fetch) — the actual cause of grey-after-panning.
+- ✅ **Stage 6** — `nativeStats` cache telemetry (budget already enforced by the 128 MB LRU).
+- ⬜ **Stage 4** (shared GPU device — minor: avoids re-init on rotation; touches the just-stabilised surface lifecycle), **Stage 0b** (OfflineTileManager cache sharing — cross-module DI), **Stage 7** (device-golden + differential-vs-MapLibre CI lane) — remaining; all infra, low user-facing value.
