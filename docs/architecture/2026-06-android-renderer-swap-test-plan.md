@@ -255,9 +255,15 @@ fiddly device piece, then parity, then real wiring, then rollout.
   honoured adapter-side: `flyTo`/`frameTo` lift the centred target into the visible band above
   the live sheet (on-device test asserts the target moves up). A projection-wide inset (scale
   bar / continuous unproject reflecting the band) still needs engine viewport-padding support.
+- **Stage D — projection parity gate (2026-06-12):** `TurbomapProjectionParityTest` asserts the
+  engine's `project` is the **Web Mercator** projection MapLibre is defined by — correct centring,
+  axis directions (E→right, N→up), longitude symmetry, and **conformality** (isotropic
+  px/mercator-unit). Host-side + deterministic; this is what makes overlays land where MapLibre
+  puts them, so it gates the eventual flag default-flip. (A live pixel-diff vs MapLibre
+  `MapSnapshotter` is a follow-up — flaky on a software-GL emulator, so not a main-gating test.)
 - **Genuinely remaining:** download-region offline parity (the disk cache is the substrate),
-  Stage D (golden-on-device + differential vs MapLibre), Stage F (shadow telemetry + perf
-  budgets + flag default-flip), and engine-side viewport padding for a full `setBottomInset`.
+  the live MapLibre pixel-diff + golden-on-device (Stage D visual), Stage F (shadow telemetry +
+  perf budgets + flag default-flip), and engine-side viewport padding for a full `setBottomInset`.
 - **Remaining (full parity + rollout):** a turbomap Compose host with marker/waypoint/photo
   (`SurfaceView`/`Choreographer`) that authors the app's live track/route/measure/markers as
   **Scene layers** (replacing `setGeoJson`/`installTurboLayers`/`LocalStyleServer` on the
