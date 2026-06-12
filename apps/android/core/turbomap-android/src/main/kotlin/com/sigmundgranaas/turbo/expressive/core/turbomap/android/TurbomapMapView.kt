@@ -460,7 +460,15 @@ internal class TurbomapSurfaceController {
             }
 
             override fun onResponse(call: Call, response: Response) {
-                response.use { if (cont.isActive) cont.resume(if (it.isSuccessful) it.body?.bytes() else null) }
+                // CRITICAL: reading the body can throw (e.g. StreamResetException when
+                // the HTTP/2 stream is reset mid-read under the concurrent-fetch burst).
+                // If we let that escape, the continuation is never resumed → this worker
+                // hangs forever and its concurrency slot leaks; after a few, all slots
+                // are dead and tile loading silently stalls. Always resume.
+                val bytes = runCatching {
+                    response.use { r -> if (r.isSuccessful) r.body?.bytes() else null }
+                }.getOrNull()
+                if (cont.isActive) cont.resume(bytes)
             }
         })
     }
