@@ -52,6 +52,19 @@ internal object NativeSurfaceMap {
     // ── Control plane (the MapEngine contract) ──────────────────────────────
     external fun nativeSetCamera(handle: Long, lat: Double, lng: Double, zoom: Double, bearingDeg: Double)
 
+    // ── Physics / motion ────────────────────────────────────────────────────
+    /** Start an inertial pan fling at screen-pixel velocity (drag-release). */
+    external fun nativeFling(handle: Long, vx: Double, vy: Double)
+
+    /** Ease the camera to a pose over [durationMs] (accel/decel). */
+    external fun nativeEaseTo(handle: Long, lat: Double, lng: Double, zoom: Double, bearingDeg: Double, durationMs: Int)
+
+    /** Animate a focus-invariant zoom by [factor] about ([fx],[fy]) over [durationMs]. */
+    external fun nativeZoomAroundAnimated(handle: Long, factor: Double, fx: Double, fy: Double, durationMs: Int)
+
+    /** Catch any in-flight camera animation, freezing the camera where it is. */
+    external fun nativeCancelAnimation(handle: Long)
+
     /** `[lat, lng, zoom, bearingDeg]` (empty if the handle is gone). */
     external fun nativeCamera(handle: Long): DoubleArray
 

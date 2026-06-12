@@ -200,6 +200,7 @@ internal class TurbomapSurfaceController {
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var reconcileLoop: Job? = null
     private var lastStatsLogMs = 0L
+    private var lastAnimReconcileMs = 0L
     private val http = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
@@ -235,9 +236,14 @@ internal class TurbomapSurfaceController {
         override fun doFrame(frameTimeNanos: Long) {
             if (!running || handle == 0L) return
             val needsRender = pendingRender.getAndSet(false)
-            val cameraMoved = pendingCamera.getAndSet(false)
+            var cameraMoved = pendingCamera.getAndSet(false)
             if (needsRender) {
+                // nativeRender ticks any in-flight camera animation (fling/ease) first,
+                // so the camera advances under our feet — treat an animating frame as a
+                // camera move so overlays follow and tiles load along the trajectory.
                 NativeSurfaceMap.nativeRender(handle)
+                val animating = NativeSurfaceMap.nativeIsAnimating(handle)
+                if (animating) cameraMoved = true
                 if (cameraMoved) {
                     // Camera changed → reproject overlays (cameraTick, read by the
                     // overlays' `offset {}` on main) + report bearing.
@@ -249,9 +255,17 @@ internal class TurbomapSurfaceController {
                         mainHandler.post { onBearingChange(b) }
                     }
                 }
-                // Keep drawing while a tile fade-in (or camera anim) is running so
-                // the blend completes; then the loop parks again (render-on-demand).
-                if (NativeSurfaceMap.nativeIsAnimating(handle)) pendingRender.set(true)
+                if (animating) {
+                    // Keep drawing until the fling/ease/fade settles (render-on-demand
+                    // resumes parking afterward), and pull tiles along the path — but
+                    // throttled, not 60×/s.
+                    pendingRender.set(true)
+                    val now = SystemClock.uptimeMillis()
+                    if (now - lastAnimReconcileMs > ANIM_RECONCILE_MS) {
+                        lastAnimReconcileMs = now
+                        requestReconcile()
+                    }
+                }
             }
             choreographer?.postFrameCallback(this)
         }
@@ -522,5 +536,7 @@ internal class TurbomapSurfaceController {
         // Bounded wait for the render thread to release the surface on detach.
         const val DETACH_JOIN_MS = 350L
         const val STATS_LOG_INTERVAL_MS = 3000L
+        // During an animation, pull tiles along the path at ~8 Hz, not every frame.
+        const val ANIM_RECONCILE_MS = 120L
     }
 }

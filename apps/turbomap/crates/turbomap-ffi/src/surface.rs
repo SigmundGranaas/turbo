@@ -158,6 +158,10 @@ fn build(
 
 impl OnScreen {
     fn render(&mut self) {
+        // Advance any in-flight camera animation (fling / ease / zoom-fling) to
+        // the current wall-clock before drawing — physics is time-based, so each
+        // rendered frame samples it forward. No-op when nothing is animating.
+        self.engine.tick_now();
         use wgpu::CurrentSurfaceTexture;
         let frame = match self.surface.get_current_texture() {
             CurrentSurfaceTexture::Success(t) | CurrentSurfaceTexture::Suboptimal(t) => t,
@@ -337,6 +341,84 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         JNI_TRUE
     } else {
         JNI_FALSE
+    }
+}
+
+/// Start an inertial pan fling from the current camera at screen-pixel velocity
+/// (drag-release velocity). The map glides + decelerates as `render` ticks.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeFling(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    vx: jdouble,
+    vy: jdouble,
+) {
+    unsafe {
+        with_map(handle, |map| map.engine.fling((vx, vy)));
+    }
+}
+
+/// Ease the camera to a target pose over `duration_ms` (accel/decel). Pitch is
+/// kept from the current camera; pass the desired centre/zoom/bearing.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeEaseTo(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    lat: jdouble,
+    lng: jdouble,
+    zoom: jdouble,
+    bearing_deg: jdouble,
+    duration_ms: jint,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            let mut target = map.engine.camera();
+            target.center = LatLng::new(lat, lng);
+            target.zoom = zoom;
+            target.bearing_deg = bearing_deg;
+            map.engine
+                .ease_to(target, std::time::Duration::from_millis(duration_ms.max(0) as u64));
+        });
+    }
+}
+
+/// Animate a focus-invariant zoom by `factor` about `(fx, fy)` over `duration_ms`.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeZoomAroundAnimated(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    factor: jdouble,
+    fx: jdouble,
+    fy: jdouble,
+    duration_ms: jint,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.zoom_around_animated(
+                factor,
+                (fx, fy),
+                std::time::Duration::from_millis(duration_ms.max(0) as u64),
+            );
+        });
+    }
+}
+
+/// Catch any in-flight camera animation, freezing the camera exactly where it
+/// is (finger-down stops the motion). `set_camera(current)` clears `active`.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeCancelAnimation(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            let here = map.engine.camera();
+            map.engine.set_camera(here);
+        });
     }
 }
 
