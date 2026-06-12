@@ -374,3 +374,20 @@ testing can't even be written. Stage B (Kotlin bindings actually executing the
 engine, against the offscreen path we already trust) is the cheapest proof that
 the Rust work reaches the device, and it needs no surface glue — so it can land in
 parallel with A.
+
+---
+
+## 8. Post-cutover usability fixes (2026-06, device QA)
+
+On-device QA of the wgpu renderer surfaced four issues. Root causes + status:
+
+| Symptom (device report) | Root cause | Status |
+| --- | --- | --- |
+| Map renders in a small grey-bordered island | `BACKGROUND_CLEAR` (sRGB 170,170,165) is the empty-tile colour; the island was just the few tiles that loaded before fetching stalled. **Not** a projection bug. | **Fixed** — proven by `TurbomapRasterFillOnDeviceTest`: with every pending tile ingested the basemap fills >90% of a 360×780 surface, <2% grey. |
+| Tiles load a little, then stop | `scheduleTileFetch` marked every pending key into a permanent `fetched` set *before* fetching, then `onTransform` (many events/pinch) called `fetchJob.cancel()` — orphaning in-flight tiles in `fetched` forever, so they were skipped on every later pass. | **Fixed** — dedup on a transient `inFlight` set only (no permanent suppression → evicted tiles can reload); no destructive cancel. |
+| Loading far slower than MapLibre | Tiles fetched strictly sequentially (one HTTP at a time, 10 s timeout each). | **Fixed** — bounded-concurrency parallel fetch (`Semaphore(6)`), nearest-first. |
+| At max zoom tiles desync / drift, camera snaps | GPU pipelines tessellate in **absolute f32 world coords**; near world 0.5 at z≈18–20 f32 carries ~16 px of error, so f64 unproject and f32 render disagree. (The documented "centre-relative world coords on the GPU" TODO.) | **Open** — needs a relative-to-centre (floating-origin) pass across raster/vector/hillshade/text/icon/marker pipelines + both WGSL shaders, golden-gated. Tracked as task #278. |
+
+Engine-side viewport padding (`setBottomInset` → `nativeSetViewportInset`,
+projection + GPU view-matrix shift) also landed and is covered by
+`camera::viewport_inset_*` (unit) and `TurbomapMapEngineContractTest` (device).

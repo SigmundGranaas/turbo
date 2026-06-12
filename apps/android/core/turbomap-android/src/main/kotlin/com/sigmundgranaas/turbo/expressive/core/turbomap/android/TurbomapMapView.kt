@@ -30,8 +30,10 @@ import com.sigmundgranaas.turbo.expressive.ui.components.MapOverlay
 import com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.File
@@ -163,9 +165,17 @@ internal class TurbomapSurfaceController {
     private var width = 0
     private var height = 0
     private var rasters: List<TurbomapScene.RasterSpec> = emptyList()
-    private val fetched = HashSet<String>()
+    // Tiles with a fetch in flight — the only dedup the host needs. We do NOT
+    // keep a permanent "already fetched" set: the engine's `pending_tiles`
+    // already excludes everything it currently holds, so an evicted tile that
+    // becomes visible again simply reappears and we re-serve it (from disk
+    // cache, instantly). A permanent set would suppress that re-load and leave
+    // a grey hole on revisit.
+    private val inFlight = HashSet<String>()
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
-    private var fetchJob: Job? = null
+    // Bound concurrent HTTP so a viewport-full of tiles fetches in parallel
+    // (like MapLibre) instead of one-at-a-time, without opening 30 sockets.
+    private val fetchGate = Semaphore(MAX_CONCURRENT_FETCHES)
     private var lastBearing = Double.NaN
 
     private val choreographer = Choreographer.getInstance()
@@ -244,41 +254,55 @@ internal class TurbomapSurfaceController {
         return if (r.size >= 3 && r[2] == 1.0) LatLng(r[0], r[1]) else null
     }
 
-    private data class TileFetch(val layer: String, val z: Int, val x: Int, val y: Int, val key: String, val url: String)
-
-    /** Fetch any pending raster tiles host-side, ingesting back on the main thread. */
+    /**
+     * Fetch every currently-pending raster tile, each on its own coroutine
+     * (bounded by [fetchGate]) so the viewport fills in parallel and ingests
+     * the instant its bytes land. Safe to call on every gesture frame: tiles
+     * already in flight are skipped, so repeated calls just pick up whatever
+     * the camera newly revealed — no job is cancelled, so an in-flight tile is
+     * never orphaned (the bug that used to freeze loading after one pan/zoom).
+     */
     private fun scheduleTileFetch() {
         if (handle == 0L) return
-        fetchJob?.cancel()
-        fetchJob = scope.launch {
-            val pending = NativeSurfaceMap.nativePendingTilesJson(handle)
-            val arr = runCatching { JSONArray(pending) }.getOrNull() ?: return@launch
-            val toFetch = (0 until arr.length()).mapNotNull { i ->
-                val o = arr.optJSONObject(i)
-                val layer = o?.optString("layer").orEmpty()
-                val template = rasters.firstOrNull { it.id == layer }?.tileUrlTemplate
-                val z = o?.optInt("z") ?: 0
-                val x = o?.optInt("x") ?: 0
-                val y = o?.optInt("y") ?: 0
-                val key = "$layer/$z/$x/$y"
-                if (o == null || o.optString("kind") != "raster" || template == null || !fetched.add(key)) {
-                    null
-                } else {
-                    TileFetch(layer, z, x, y, key, template.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y"))
-                }
-            }
-            for (t in toFetch) {
-                // Read-through disk cache: serve a previously-fetched tile offline, else
-                // fetch and persist it (the host owns caching, per the pull/push contract).
+        val arr = runCatching { JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle)) }.getOrNull() ?: return
+        val toFetch = (0 until arr.length()).mapNotNull { parsePendingRaster(arr.optJSONObject(it)) }
+        for (t in toFetch) {
+            // Skip a tile already in flight; otherwise claim it (transient dedup).
+            if (inFlight.add(t.key)) launchTileFetch(t)
+        }
+    }
+
+    private data class TileFetch(val layer: String, val z: Int, val x: Int, val y: Int, val key: String, val url: String)
+
+    /** Turn one pending-tiles entry into a fetchable raster request, or null. */
+    private fun parsePendingRaster(o: org.json.JSONObject?): TileFetch? {
+        if (o == null || o.optString("kind") != "raster") return null
+        val layer = o.optString("layer")
+        val template = rasters.firstOrNull { it.id == layer }?.tileUrlTemplate ?: return null
+        val z = o.optInt("z")
+        val x = o.optInt("x")
+        val y = o.optInt("y")
+        val url = template.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
+        return TileFetch(layer, z, x, y, "$layer/$z/$x/$y", url)
+    }
+
+    private fun launchTileFetch(t: TileFetch) {
+        scope.launch {
+            try {
+                // Read-through disk cache: serve an already-fetched tile offline,
+                // else fetch + persist (the host owns caching, per the pull/push
+                // contract). The gate caps how many sockets are open at once.
                 val bytes = withContext(Dispatchers.IO) {
-                    tileCache?.get(t.layer, t.z, t.x, t.y)
-                        ?: fetchBytes(t.url)?.also { tileCache?.put(t.layer, t.z, t.x, t.y, it) }
+                    fetchGate.withPermit {
+                        tileCache?.get(t.layer, t.z, t.x, t.y)
+                            ?: fetchBytes(t.url)?.also { tileCache?.put(t.layer, t.z, t.x, t.y, it) }
+                    }
                 }
                 if (bytes != null && handle != 0L) {
                     NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes)
-                } else {
-                    fetched.remove(t.key)
                 }
+            } finally {
+                inFlight.remove(t.key)
             }
         }
     }
@@ -286,12 +310,12 @@ internal class TurbomapSurfaceController {
     fun detach() {
         running = false
         choreographer.removeFrameCallback(frame)
-        fetchJob?.cancel()
+        scope.coroutineContext.cancelChildren()
         val h = handle
         handle = 0L
         engine = null
         if (h != 0L) NativeSurfaceMap.nativeDestroy(h)
-        fetched.clear()
+        inFlight.clear()
     }
 
     private fun startRenderLoop() {
@@ -319,5 +343,6 @@ internal class TurbomapSurfaceController {
         const val MAX_ZOOM = 20.0
         const val TIMEOUT_MS = 10_000
         const val BEARING_EPSILON = 0.01
+        const val MAX_CONCURRENT_FETCHES = 6
     }
 }
