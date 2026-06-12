@@ -397,3 +397,110 @@ engine `golden_parity` + conformance pass, and the 8-test on-device suite still 
 Engine-side viewport padding (`setBottomInset` → `nativeSetViewportInset`,
 projection + GPU view-matrix shift) also landed and is covered by
 `camera::viewport_inset_*` (unit) and `TurbomapMapEngineContractTest` (device).
+
+---
+
+## 9. Production-hardening plan (2026-06)
+
+Directives: **no MapLibre fallback** — the wgpu engine must *fail loudly and
+report the error*; and **rendering moves to a dedicated render thread**. Staged,
+each its own gated commit, following the strangler/golden-gate discipline.
+
+### Stage 1 — Fail-fast + error reporting (replaces "fallback")
+- **Rust** (`surface.rs`): capture the failure reason instead of returning a bare
+  `0`/`null`. Add `nativeLastError() -> String?` backed by a `Mutex<Option<String>>`
+  set at every `build()` `?`-fail and in each `with_map` `catch_unwind` `Err` arm
+  (panic payload), plus device-lost / surface-create failures from `render()`.
+- **Kotlin**: `TurbomapSurfaceController` surfaces `onEngineError(reason)`;
+  `TurbomapMapView` exposes the callback. `MapScreen` shows a **visible error
+  surface** ("Map engine failed: <reason>") — never a silent grey — and `Log.e`s
+  it. Unrecoverable GPU/device-lost = reported + surfaced; in `debug` builds it
+  rethrows so it crashes visibly. No fallback path.
+- **Verify**: on-device test forcing init failure asserts the reason propagates;
+  Robolectric test for the error-state UI.
+
+### Stage 2 — Render thread + thread-safe engine (backbone)
+- **Kotlin**: replace the main-thread Choreographer loop with a dedicated render
+  `HandlerThread` (own `Looper` + `Choreographer`). All mutating/render native
+  calls (`create/applyScene/render/resize/ingest/destroy/setCamera/setViewportInset`)
+  post to it.
+- **Rust**: drop the "single-threaded, unlocked" contract. Put camera + projection
+  inputs behind a fast lock so UI-thread `project/unproject/camera/visibleBounds`
+  run concurrently with the render thread; the frame snapshots the camera briefly,
+  then does GPU work unlocked. Mutations take the lock + set dirty.
+- **Verify**: existing contract + fill on-device tests pass from the render thread;
+  new concurrency stress test (UI-thread projection hammered during render) — no
+  crash/UB; UI thread never blocks on a frame.
+
+### Stage 3 — Render-on-demand + decoupled overlay tick
+- Render only when **dirty** (camera/scene/ingest/resize/inset change, or an active
+  fling/zoom animation); park when idle. Bump `cameraTick` (overlay relayout) only
+  on frames where the camera actually moved, signalled from the render thread.
+- **Verify**: instrumented assert of zero renders while idle; overlays still track
+  during pan + animations.
+
+### Stage 4 — Shared GPU device; surface-only recreate
+- Cache `Instance`+`Adapter`+`Device`+`Queue` (process-wide, shared with the
+  offscreen/golden path); `surfaceCreated` builds only the `Surface` + configures;
+  `surfaceDestroyed` drops only the surface. Recreate device only on true loss.
+- **Verify**: rotation/resume re-enumerates no adapters (timing/log); surface
+  attach/detach/reattach on-device test.
+
+### Stage 5 — Networking unification
+- Move tile IO out of the Compose host into a `:core:data`/`:core:map` repository
+  on the shared OkHttp (`core/data/di/NetworkModule`) + a cache aligned with
+  `OfflineTileManager` (Cache-Control/ETag, offline regions, shared with MapLibre).
+  The host talks to a `TileSource` seam; the controller stays renderer-glue only.
+- **Verify**: offline-region tiles serve with no network; cache shared with
+  MapLibre; repository unit tests.
+
+### Stage 6 — Memory budget + telemetry
+- Bound the engine texture LRU + disk cache to a configured budget; add an FFI
+  `nativeStats()` (tile counts, texture bytes); report (log + debug overlay).
+- **Verify**: LRU eviction test; stats sane on device.
+
+### Stage 7 — Gates
+- Device golden lane (D1/E) in CI on the emulator; differential projection/hit
+  test vs `MapLibreEngine` (D2 — kept as a correctness gate even without runtime
+  fallback); sRGB-on-GLES confirmation; floating-origin invariant guard.
+
+### Stage 0 — Tile pipeline rearchitecture (declarative reconciler) — TOP PRIORITY
+
+Root cause of the "slow / inconsistent / stops after panning" report: the host
+tile pump is **edge-triggered and fire-and-forget**. `scheduleTileFetch` runs
+only on `attachOrResize` / `applyScene` / `onTransform`; the render loop never
+pumps. Consequences: (a) when gestures stop, missing tiles (failed or starved)
+are **never retried** → permanent gaps; (b) no cancellation → a fast pan floods
+the queue with stale-position tiles that starve the current view behind the
+`Semaphore(6)`; (c) `HttpURLConnection` has no pool/HTTP2, and a few hung
+requests hold all permits and stall everything. No retry, no priority, no
+cancellation — the three things a tile pipeline must have.
+
+Replace the glue with a **continuously-reconciled tile manager** (the source of
+truth is the engine's desired set; the loop drives the host toward it):
+
+- **Reconcile tick** (driven by the render frame, or a steady ~250 ms timer while
+  the desired set is non-empty; stops when complete): each tick diff
+  `desired` (engine `pending_tiles`, already excludes present) against
+  `in-flight` and:
+  - enqueue `desired − in-flight` into a **priority queue** (key: distance to
+    camera centre, then zoom) — re-prioritised every tick as the camera moves;
+  - **cancel** `in-flight − desired` so workers free up for the current view.
+- **Bounded worker pool** on the shared **OkHttp** client (connection pool,
+  HTTP/2, sane timeouts), not `HttpURLConnection`.
+- **Retry is implicit**: a failed tile simply isn't `present`, so it reappears in
+  `desired` next tick and is retried (with short backoff to avoid hammering).
+- **Cache** via a `TileSource` seam aligned with `OfflineTileManager`
+  (Cache-Control/ETag, offline regions, shared with MapLibre).
+- The Compose host shrinks to "publish camera/scene → engine; pump on the tick";
+  no fetch logic in the view.
+
+This **absorbs old Stage 5** (networking unification) and is the prerequisite for
+a good experience, so it runs first. It composes with Stage 2: the render thread
+provides the natural reconcile cadence (reconcile after each frame), and the
+manager lives on the IO side off the UI thread.
+
+- **Verify**: pan-and-release leaves **zero** missing desired tiles (instrumented
+  reconcile-to-empty assert); a stale-tile cancellation test (fast pan cancels
+  off-screen fetches); a forced-failure tile is retried and eventually present;
+  offline-region tiles serve with no network.

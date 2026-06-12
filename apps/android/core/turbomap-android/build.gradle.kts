@@ -117,6 +117,9 @@ dependencies {
     // The on-screen Compose host (SurfaceView + Choreographer + host-driven tiles).
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.android)
+    // Tile fetching: connection pool + HTTP/2 + true Call-level cancellation,
+    // which the reconciler relies on to drop stale-viewport fetches.
+    implementation(libs.okhttp)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
