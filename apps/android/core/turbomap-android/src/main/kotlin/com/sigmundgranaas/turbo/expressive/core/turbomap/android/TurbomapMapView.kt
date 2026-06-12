@@ -51,6 +51,7 @@ import org.json.JSONArray
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.ln
@@ -213,23 +214,39 @@ internal class TurbomapSurfaceController {
     private var renderThread: HandlerThread? = null
     private var renderHandler: Handler? = null
     private var choreographer: Choreographer? = null // this render thread's, set on it
+    // Render-on-demand: only draw when something changed (camera/scene/tiles),
+    // and only reproject the overlays when the camera actually moved. The vsync
+    // loop stays armed (a cheap flag check) so a dirty flag is always picked up
+    // next frame — no parking that could freeze the map.
+    private val pendingRender = AtomicBoolean(true)
+    private val pendingCamera = AtomicBoolean(true)
     private val frame = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (!running || handle == 0L) return
-            NativeSurfaceMap.nativeRender(handle)
-            // Re-place the Compose overlays in lockstep with the GPU frame, whatever
-            // moved the camera (gesture, zoom rail, fit-to-track). Hop to the main
-            // thread: cameraTick is read by the overlays' `offset {}` layout there.
-            mainHandler.post { cameraTick?.let { it.intValue++ } }
-            // Read bearing natively here (mutex-safe); deliver the callback on main.
-            val cam = NativeSurfaceMap.nativeCamera(handle)
-            val b = if (cam.size >= 4) cam[3] else 0.0
-            if (lastBearing.isNaN() || abs(b - lastBearing) > BEARING_EPSILON) {
-                lastBearing = b
-                mainHandler.post { onBearingChange(b) }
+            val needsRender = pendingRender.getAndSet(false)
+            val cameraMoved = pendingCamera.getAndSet(false)
+            if (needsRender) {
+                NativeSurfaceMap.nativeRender(handle)
+                if (cameraMoved) {
+                    // Camera changed → reproject overlays (cameraTick, read by the
+                    // overlays' `offset {}` on main) + report bearing.
+                    mainHandler.post { cameraTick?.let { it.intValue++ } }
+                    val cam = NativeSurfaceMap.nativeCamera(handle)
+                    val b = if (cam.size >= 4) cam[3] else 0.0
+                    if (lastBearing.isNaN() || abs(b - lastBearing) > BEARING_EPSILON) {
+                        lastBearing = b
+                        mainHandler.post { onBearingChange(b) }
+                    }
+                }
             }
             choreographer?.postFrameCallback(this)
         }
+    }
+
+    /** Mark the next vsync dirty so the render thread draws it (render-on-demand). */
+    fun requestRender(cameraMoved: Boolean) {
+        pendingRender.set(true)
+        if (cameraMoved) pendingCamera.set(true)
     }
 
     fun attachOrResize(
@@ -255,6 +272,8 @@ internal class TurbomapSurfaceController {
             NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
             NativeSurfaceMap.nativePumpLocal(handle)
             val eng = TurbomapMapEngine(handle, w, h)
+            // Camera/inset changes from the rail/flyTo/sheet must redraw (render-on-demand).
+            eng.onMutated = { requestRender(cameraMoved = true) }
             engine = eng
             onMapReady(eng)
             startRenderLoop()
@@ -263,6 +282,7 @@ internal class TurbomapSurfaceController {
         } else {
             engine?.onResized(w, h)
             NativeSurfaceMap.nativeResize(handle, w, h)
+            requestRender(cameraMoved = true)
             requestReconcile()
         }
     }
@@ -272,6 +292,7 @@ internal class TurbomapSurfaceController {
         rasters = rasterSpecs
         NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
         NativeSurfaceMap.nativePumpLocal(handle)
+        requestRender(cameraMoved = false)
         requestReconcile()
     }
 
@@ -284,6 +305,7 @@ internal class TurbomapSurfaceController {
         var z = cam[2]
         if (zoomFactor != 1f) z = (z + ln(zoomFactor.toDouble()) / LN2).coerceIn(MIN_ZOOM, MAX_ZOOM)
         NativeSurfaceMap.nativeSetCamera(handle, newCenter.lat, newCenter.lng, z, cam[3])
+        requestRender(cameraMoved = true)
         requestReconcile()
     }
 
@@ -357,6 +379,7 @@ internal class TurbomapSurfaceController {
             }
             if (bytes != null && handle != 0L) {
                 NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes)
+                requestRender(cameraMoved = false) // new tile → redraw, overlays unchanged
             } else if (bytes == null) {
                 // Genuine miss (HTTP error/timeout): back off, then the next
                 // reconcile pass retries it for free (it's still desired).

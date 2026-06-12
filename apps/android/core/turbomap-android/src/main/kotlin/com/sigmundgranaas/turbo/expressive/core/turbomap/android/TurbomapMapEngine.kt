@@ -20,6 +20,12 @@ class TurbomapMapEngine(
     private var heightPx: Int,
 ) : MapEngine {
 
+    /**
+     * Invoked after any camera/projection mutation so the host can request a
+     * render (render-on-demand). The host wires this to its render-thread nudge.
+     */
+    var onMutated: () -> Unit = {}
+
     /** The host calls this when the surface is resized so [visibleBounds] stays correct. */
     fun onResized(width: Int, height: Int) {
         widthPx = width
@@ -29,8 +35,10 @@ class TurbomapMapEngine(
     /** `[lat, lng, zoom, bearingDeg]`, or empty if the handle is gone. */
     private fun camera(): DoubleArray = NativeSurfaceMap.nativeCamera(handle)
 
-    private fun setCamera(lat: Double, lng: Double, zoom: Double, bearingDeg: Double) =
+    private fun setCamera(lat: Double, lng: Double, zoom: Double, bearingDeg: Double) {
         NativeSurfaceMap.nativeSetCamera(handle, lat, lng, zoom, bearingDeg)
+        onMutated()
+    }
 
     override fun zoomIn() = camera().let { if (it.size >= 4) setCamera(it[0], it[1], it[2] + 1.0, it[3]) }
 
@@ -86,6 +94,7 @@ class TurbomapMapEngine(
      */
     override fun setBottomInset(bottomPx: Int) {
         NativeSurfaceMap.nativeSetViewportInset(handle, bottomPx.coerceAtLeast(0).toDouble())
+        onMutated()
     }
 
     override fun frameTo(points: List<LatLng>, paddingPx: Int) {
