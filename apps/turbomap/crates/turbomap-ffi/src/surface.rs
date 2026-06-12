@@ -14,10 +14,10 @@
 #![allow(unsafe_code)]
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use jni::objects::{JClass, JObject, JString};
-use jni::sys::{jboolean, jdouble, jint, jlong, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jdouble, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use ndk::native_window::NativeWindow;
 use raw_window_handle::{
@@ -26,6 +26,27 @@ use raw_window_handle::{
 use turbomap_core::{MapOptions, PendingTile, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
+
+/// Last failure reason (GPU/surface init or a caught panic), surfaced to the
+/// host via `nativeLastError` so the engine **fails loudly** — there is no
+/// MapLibre fallback by design, so a failure must be reported, never hidden
+/// behind a silent blank.
+static LAST_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+
+fn set_error(msg: impl Into<String>) {
+    if let Ok(mut slot) = LAST_ERROR.lock() {
+        *slot = Some(msg.into());
+    }
+}
+
+/// Best-effort string for a caught panic payload.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "panic (non-string payload)".to_string())
+}
 
 /// A presenting map: the wgpu surface + the engine that draws into it. The
 /// `NativeWindow` is held to keep the `ANativeWindow` reference alive.
@@ -44,7 +65,7 @@ fn build(
     width: u32,
     height: u32,
     camera: CameraState,
-) -> Option<OnScreen> {
+) -> Result<OnScreen, String> {
     let instance = wgpu::Instance::new({
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
         desc.backends = wgpu::Backends::PRIMARY | wgpu::Backends::GL;
@@ -62,14 +83,15 @@ fn build(
     };
     // Safety: `window` outlives `surface` (both owned by the returned struct),
     // and the handle points at a live ANativeWindow we hold a reference to.
-    let surface = unsafe { instance.create_surface_unsafe(target) }.ok()?;
+    let surface = unsafe { instance.create_surface_unsafe(target) }
+        .map_err(|e| format!("create_surface failed: {e}"))?;
 
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: Some(&surface),
         force_fallback_adapter: false,
     }))
-    .ok()?;
+    .map_err(|e| format!("no compatible GPU adapter: {e}"))?;
 
     let caps = surface.get_capabilities(&adapter);
     // Decision 3: prefer an sRGB surface format (colours are blended in linear,
@@ -89,7 +111,7 @@ fn build(
         experimental_features: wgpu::ExperimentalFeatures::default(),
         trace: wgpu::Trace::Off,
     }))
-    .ok()?;
+    .map_err(|e| format!("request_device failed: {e}"))?;
     let device = Arc::new(device);
     let queue = Arc::new(queue);
 
@@ -114,9 +136,9 @@ fn build(
         MapOptions::default(),
         Box::new(HostDrivenResolver),
     )
-    .ok()?;
+    .map_err(|e| format!("engine init failed: {e}"))?;
 
-    Some(OnScreen {
+    Ok(OnScreen {
         surface,
         device,
         queue,
@@ -170,7 +192,13 @@ unsafe fn with_map<R>(handle: jlong, f: impl FnOnce(&mut OnScreen) -> R) -> Opti
         return None;
     }
     let map = &mut *ptr;
-    catch_unwind(AssertUnwindSafe(|| f(map))).ok()
+    match catch_unwind(AssertUnwindSafe(|| f(map))) {
+        Ok(r) => Some(r),
+        Err(payload) => {
+            set_error(format!("panic: {}", panic_message(&*payload)));
+            None
+        }
+    }
 }
 
 #[no_mangle]
@@ -185,9 +213,10 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     zoom: jdouble,
 ) -> jlong {
     let raw_env = env.get_raw();
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = catch_unwind(AssertUnwindSafe(|| -> Result<OnScreen, String> {
         // Safety: `surface` is a live android.view.Surface for this call.
-        let window = unsafe { NativeWindow::from_surface(raw_env, surface.as_raw()) }?;
+        let window = unsafe { NativeWindow::from_surface(raw_env, surface.as_raw()) }
+            .ok_or_else(|| "ANativeWindow from Surface was null".to_string())?;
         let camera = CameraState {
             center: LatLng::new(lat, lng),
             zoom,
@@ -197,8 +226,32 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         build(window, width.max(0) as u32, height.max(0) as u32, camera)
     }));
     match result {
-        Ok(Some(map)) => Box::into_raw(Box::new(map)) as jlong,
-        _ => 0,
+        Ok(Ok(map)) => Box::into_raw(Box::new(map)) as jlong,
+        Ok(Err(reason)) => {
+            set_error(reason);
+            0
+        }
+        Err(payload) => {
+            set_error(format!("panic during create: {}", panic_message(&*payload)));
+            0
+        }
+    }
+}
+
+/// The last failure reason (and clears it), or null if none — the host shows
+/// this to the user instead of falling back. See [`LAST_ERROR`].
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeLastError(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    let msg = LAST_ERROR.lock().ok().and_then(|mut slot| slot.take());
+    match msg {
+        Some(s) => env
+            .new_string(s)
+            .map(|js| js.into_raw())
+            .unwrap_or(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
     }
 }
 

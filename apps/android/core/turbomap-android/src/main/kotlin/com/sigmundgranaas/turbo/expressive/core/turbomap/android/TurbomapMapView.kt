@@ -92,12 +92,14 @@ fun TurbomapMapView(
     onMapTap: ((LatLng) -> Unit)? = null,
     onBearingChange: (Double) -> Unit = {},
     onMapReady: (MapEngine) -> Unit = {},
+    onEngineError: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val cameraTick = remember { mutableIntStateOf(0) }
     val controller = remember { TurbomapSurfaceController() }
     controller.cameraTick = cameraTick
     controller.onBearingChange = onBearingChange
+    controller.onError = onEngineError
     controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles") }
     fun scene() = TurbomapScene.build(rasters, track, route, measure, userLocation)
 
@@ -167,6 +169,7 @@ internal class TurbomapSurfaceController {
         private set
     var cameraTick: MutableIntState? = null
     var onBearingChange: (Double) -> Unit = {}
+    var onError: (String) -> Unit = {}
     var cacheDir: File? = null
 
     private val tileCache: TurbomapTileCache? by lazy { cacheDir?.let { TurbomapTileCache(it) } }
@@ -229,7 +232,11 @@ internal class TurbomapSurfaceController {
         rasters = rasterSpecs
         if (handle == 0L) {
             handle = NativeSurfaceMap.nativeCreate(surface, w, h, camera.lat, camera.lng, zoom)
-            if (handle == 0L) return
+            if (handle == 0L) {
+                // No fallback by design: report the GPU/surface failure loudly.
+                onError(NativeSurfaceMap.nativeLastError() ?: "wgpu surface init failed")
+                return
+            }
             NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
             NativeSurfaceMap.nativePumpLocal(handle)
             val eng = TurbomapMapEngine(handle, w, h)

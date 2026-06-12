@@ -5,6 +5,7 @@ import android.hardware.HardwareBuffer
 import android.media.ImageReader
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +47,7 @@ class TurbomapSurfaceOnDeviceTest {
         try {
             handle = NativeSurfaceMap.nativeCreate(reader.surface, width, height, 60.39, 5.32, 9.0)
             assertNotEquals("surface map should be created (0 = failure)", 0L, handle)
+            assertNull("a successful create must not report an engine error", NativeSurfaceMap.nativeLastError())
             assertTrue("scene should apply", NativeSurfaceMap.nativeApplyScene(handle, circleScene))
             NativeSurfaceMap.nativePumpLocal(handle)
 

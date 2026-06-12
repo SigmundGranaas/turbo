@@ -27,6 +27,9 @@ internal object NativeSurfaceMap {
         zoom: Double,
     ): Long
 
+    /** The last GPU/surface init or caught-panic reason (and clears it), or null. */
+    external fun nativeLastError(): String?
+
     external fun nativeApplyScene(handle: Long, sceneJson: String): Boolean
 
     external fun nativePumpLocal(handle: Long)

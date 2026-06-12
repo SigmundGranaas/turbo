@@ -481,6 +481,8 @@ fun MapScreen(
                 null -> ui.selectionState.clear()
             }
         }
+        // wgpu engine failure (no fallback by design): surface it loudly.
+        val wgpuError = remember { mutableStateOf<String?>(null) }
         Box(Modifier.fillMaxSize()) {
             // Experimental wgpu renderer (Settings toggle). Renders the basemap +
             // overlays + live track/route/measure/user as a turbomap Scene with
@@ -520,6 +522,10 @@ fun MapScreen(
                     onMapTap = { p -> onMapTapForMode(p) },
                     onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
                     onMapReady = { ui.controller = it },
+                    onEngineError = {
+                        wgpuError.value = it
+                        android.util.Log.e("TurbomapMap", "wgpu engine error: $it")
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -570,6 +576,21 @@ fun MapScreen(
                 onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
                 modifier = Modifier.fillMaxSize(),
             )
+            }
+
+            // No silent blank: if the wgpu engine failed to start, say so.
+            wgpuError.value?.let { msg ->
+                Surface(
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    color = cs.errorContainer,
+                    shape = MaterialTheme.shapes.large,
+                ) {
+                    Text(
+                        "Map engine failed to start:\n$msg",
+                        modifier = Modifier.padding(20.dp),
+                        color = cs.onErrorContainer,
+                    )
+                }
             }
 
             // Freehand Draw capture: a transparent layer that turns finger drags into
