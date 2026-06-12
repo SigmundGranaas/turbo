@@ -7,7 +7,6 @@ import android.view.Choreographer
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -20,7 +19,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -123,13 +121,15 @@ fun TurbomapMapView(
             },
             modifier = Modifier.fillMaxSize(),
         )
-        // Pan/zoom + tap/long-press → camera + map events. (Same thread as render.)
+        // Pan/zoom + momentum + tap/long-press → camera + map events.
         Box(
             Modifier.fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTransformGestures(onGesture = { _: Offset, pan: Offset, zoom: Float, _: Float ->
-                        controller.onTransform(pan.x, pan.y, zoom)
-                    })
+                    detectMapGestures(
+                        onDown = { controller.onGestureDown() },
+                        onTransform = { panX, panY, zoom -> controller.onTransform(panX, panY, zoom) },
+                        onFling = { vx, vy -> controller.onFling(vx, vy) },
+                    )
                 }
                 .pointerInput(onMapTap, onMapLongClick) {
                     detectTapGestures(
@@ -335,6 +335,18 @@ internal class TurbomapSurfaceController {
         NativeSurfaceMap.nativeSetCamera(handle, newCenter.lat, newCenter.lng, z, cam[3])
         requestRender(cameraMoved = true)
         requestReconcile()
+    }
+
+    /** Finger down: catch any in-flight fling/ease so the map stops where it is. */
+    fun onGestureDown() {
+        if (handle != 0L) NativeSurfaceMap.nativeCancelAnimation(handle)
+    }
+
+    /** Drag release: throw the map with the centroid velocity (px/s); (0,0) = rest. */
+    fun onFling(vx: Float, vy: Float) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeFling(handle, vx.toDouble(), vy.toDouble())
+        requestRender(cameraMoved = true) // kick the loop so it ticks the fling
     }
 
     /** Geographic point under a screen pixel, or null before the map is ready. */
