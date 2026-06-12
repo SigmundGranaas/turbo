@@ -1,5 +1,11 @@
 # Deploying the tileserver (routing API) to k8s
 
+> **Full deploy sequence** (origin → DEM → provision → Worker → client flip,
+> with the ingress/PUBLIC_BASE_URL gotchas): see
+> `docs/architecture/2026-06-deploy-runbook.md`. This file covers the k8s
+> artifact-staging + secrets details that runbook references.
+
+
 Stage 3 of the app-facing routing rollout. Everything is authored and
 committed but **deliberately inert**: `base/tileserver.yaml` and
 `base/tiles-db.yaml` are **commented out in `base/kustomization.yaml`**

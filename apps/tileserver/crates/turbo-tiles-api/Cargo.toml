@@ -9,6 +9,7 @@ publish.workspace = true
 turbo-tiles-core.workspace = true
 turbo-tiles-db.workspace = true
 turbo-tiles-mvt.workspace = true
+turbo-tiles-raster.workspace = true
 turbo-tiles-auth.workspace = true
 turbo-tiles-artifacts.workspace = true
 turbo-tiles-elev.workspace = true

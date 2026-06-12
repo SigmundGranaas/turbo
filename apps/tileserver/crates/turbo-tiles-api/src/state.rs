@@ -43,6 +43,13 @@ pub struct ApiState {
     /// from `tools/route-presets.toml`. A request's `preset` field maps
     /// to one of these; the SPA lists them in its "Trip style" dropdown.
     pub presets: Arc<turbo_tiles_pathfind::PresetSet>,
+    /// Multi-layer N50 basemap definition, resolved at boot from
+    /// `tools/basemap-layers.toml` (embedded fallback). Drives
+    /// `/v1/basemap/{z}/{x}/{y}.mvt`.
+    pub basemap: Arc<turbo_tiles_mvt::BasemapConfig>,
+    /// The house style parsed for the server-side raster renderer
+    /// (`/v1/raster/n50/...`). Same document as `/v1/basemap/style.json`.
+    pub raster_style: Arc<turbo_tiles_raster::RasterStyle>,
     /// Global routing-solve concurrency cap. Each Pathfinder solve
     /// holds corridor + trail-graph scratch (MBs) for its duration and
     /// the default blocking pool allows 512 threads — so without a cap,
@@ -75,6 +82,11 @@ impl ApiState {
             landcover: std::collections::HashMap::new(),
             pathfinder: None,
             presets: Arc::new(turbo_tiles_pathfind::PresetSet::load_or_default()),
+            basemap: Arc::new(turbo_tiles_mvt::BasemapConfig::load_or_default()),
+            raster_style: Arc::new(
+                turbo_tiles_raster::RasterStyle::load_or_default()
+                    .expect("embedded n50-topo style must parse"),
+            ),
             routing_permits: Arc::new(tokio::sync::Semaphore::new(permits)),
         }
     }

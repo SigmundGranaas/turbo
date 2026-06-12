@@ -1,6 +1,7 @@
 pub mod dev_login;
 pub mod dev_redirect;
 pub mod ingest;
+pub mod provision;
 pub mod reset;
 pub mod resources;
 pub mod tus;

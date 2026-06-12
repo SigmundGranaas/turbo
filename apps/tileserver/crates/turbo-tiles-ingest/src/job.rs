@@ -27,6 +27,12 @@ pub enum JobName {
     N50Restore,
     /// Cheap: re-run vann upsert against `n50_staging`.
     N50VannUpsert,
+    /// Cheap: re-run contour upsert (hoydekurve/hjelpekurve/forsenkningskurve).
+    N50HoydekurveUpsert,
+    /// Cheap: re-run building-footprint upsert against `n50_staging`.
+    N50BygningUpsert,
+    /// Cheap: re-run coastline upsert (kystkontur) against `n50_staging`.
+    N50KystkonturUpsert,
     /// Cheap: re-run glacier upsert against `n50_staging`.
     N50IsogBreUpsert,
     /// Cheap: re-run landcover upsert (skog/myr/apentomrade/dyrketmark).
@@ -41,6 +47,14 @@ pub enum JobName {
     TurbaseUpsert,
     /// DNT cabins HTTP API → anchors.anchor.
     DntCabinsLoad,
+    /// Download an N50 dump from the Geonorge Nedlasting API into the
+    /// incoming dir (no restore). Needs `--area`.
+    GeonorgeFetch,
+    /// Full hands-off N50 provisioning: download → restore → all upserts.
+    /// Needs `--area`.
+    ProvisionN50,
+    /// Rebuild the basemap low-zoom overview materialized views.
+    RefreshBasemapOverviews,
 }
 
 impl FromStr for JobName {
@@ -59,6 +73,9 @@ impl FromStr for JobName {
             "skeleton-build" => Ok(JobName::SkeletonBuild),
             "n50-restore" => Ok(JobName::N50Restore),
             "n50-vann-upsert" => Ok(JobName::N50VannUpsert),
+            "n50-hoydekurve-upsert" => Ok(JobName::N50HoydekurveUpsert),
+            "n50-bygning-upsert" => Ok(JobName::N50BygningUpsert),
+            "n50-kystkontur-upsert" => Ok(JobName::N50KystkonturUpsert),
             "n50-isogbre-upsert" => Ok(JobName::N50IsogBreUpsert),
             "n50-landcover-upsert" => Ok(JobName::N50LandcoverUpsert),
             "n50-stedsnavn-upsert" => Ok(JobName::N50StedsnavnUpsert),
@@ -66,6 +83,9 @@ impl FromStr for JobName {
             "turbase-restore" => Ok(JobName::TurbaseRestore),
             "turbase-upsert" => Ok(JobName::TurbaseUpsert),
             "dnt-cabins-load" => Ok(JobName::DntCabinsLoad),
+            "geonorge-fetch" => Ok(JobName::GeonorgeFetch),
+            "provision-n50" => Ok(JobName::ProvisionN50),
+            "refresh-basemap-overviews" => Ok(JobName::RefreshBasemapOverviews),
             other => Err(format!("unknown job `{other}`")),
         }
     }
@@ -86,6 +106,9 @@ impl JobName {
             JobName::SkeletonBuild => "skeleton-build",
             JobName::N50Restore => "n50-restore",
             JobName::N50VannUpsert => "n50-vann-upsert",
+            JobName::N50HoydekurveUpsert => "n50-hoydekurve-upsert",
+            JobName::N50BygningUpsert => "n50-bygning-upsert",
+            JobName::N50KystkonturUpsert => "n50-kystkontur-upsert",
             JobName::N50IsogBreUpsert => "n50-isogbre-upsert",
             JobName::N50LandcoverUpsert => "n50-landcover-upsert",
             JobName::N50StedsnavnUpsert => "n50-stedsnavn-upsert",
@@ -93,6 +116,9 @@ impl JobName {
             JobName::TurbaseRestore => "turbase-restore",
             JobName::TurbaseUpsert => "turbase-upsert",
             JobName::DntCabinsLoad => "dnt-cabins-load",
+            JobName::GeonorgeFetch => "geonorge-fetch",
+            JobName::ProvisionN50 => "provision-n50",
+            JobName::RefreshBasemapOverviews => "refresh-basemap-overviews",
         }
     }
 
@@ -123,6 +149,9 @@ impl JobName {
             JobName::SkeletonBuild,
             JobName::N50Restore,
             JobName::N50VannUpsert,
+            JobName::N50HoydekurveUpsert,
+            JobName::N50BygningUpsert,
+            JobName::N50KystkonturUpsert,
             JobName::N50IsogBreUpsert,
             JobName::N50LandcoverUpsert,
             JobName::N50StedsnavnUpsert,
@@ -130,6 +159,9 @@ impl JobName {
             JobName::TurbaseRestore,
             JobName::TurbaseUpsert,
             JobName::DntCabinsLoad,
+            JobName::GeonorgeFetch,
+            JobName::ProvisionN50,
+            JobName::RefreshBasemapOverviews,
         ]
     }
 }
@@ -146,6 +178,10 @@ pub enum JobError {
     NotImplemented(&'static str),
     #[error("missing required option: {0}")]
     MissingOption(&'static str),
+    /// A provision would shrink coverage (e.g. a county replacing national)
+    /// without `force`. Carries a human-readable explanation.
+    #[error("{0}")]
+    WouldReplace(String),
 }
 
 #[derive(Debug, Default, Clone)]
@@ -153,6 +189,9 @@ pub struct JobOptions {
     pub bbox: Option<Bbox>,
     pub file: Option<PathBuf>,
     pub source: Option<String>,
+    /// Geonorge area for `geonorge-fetch` / `provision-n50`: a two-digit
+    /// county code (`"03"`) or `national`.
+    pub area: Option<String>,
     pub run_id: Option<uuid::Uuid>,
     /// Used for `dtm10-attach` (overwrite) and `n50-restore`/`turbase-restore`
     /// (drop+recreate the canonical staging schema).
@@ -260,6 +299,18 @@ async fn run_job_with_options_owned(
             let p = pool.clone();
             Box::pin(async move { crate::n50::upsert_vann(&p).await })
         }
+        JobName::N50HoydekurveUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_hoydekurve(&p).await })
+        }
+        JobName::N50BygningUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_bygning(&p).await })
+        }
+        JobName::N50KystkonturUpsert => {
+            let p = pool.clone();
+            Box::pin(async move { crate::n50::upsert_kystkontur(&p).await })
+        }
         JobName::N50IsogBreUpsert => {
             let p = pool.clone();
             Box::pin(async move { crate::n50::upsert_isogbre(&p).await })
@@ -293,6 +344,36 @@ async fn run_job_with_options_owned(
             let p = pool.clone();
             let file = opts.file.clone();
             Box::pin(async move { crate::dnt_cabins::run(&p, file, None).await })
+        }
+        JobName::GeonorgeFetch => {
+            let area = opts.area.clone();
+            Box::pin(async move {
+                let area = area.ok_or(JobError::MissingOption("area"))?;
+                let parsed = crate::geonorge::Area::parse(&area)?;
+                let dest = std::path::PathBuf::from(crate::incoming_dir());
+                let path =
+                    crate::geonorge::fetch(crate::geonorge::Dataset::N50, &parsed, &dest).await?;
+                tracing::info!(file = %path.display(), "geonorge-fetch: downloaded");
+                // rows_in/upserted are N/A for a pure download; report 1 so the
+                // job row reads as "did something" rather than an empty no-op.
+                Ok(JobOutcome {
+                    rows_in: 1,
+                    rows_upserted: 1,
+                })
+            })
+        }
+        JobName::ProvisionN50 => {
+            let p = pool.clone();
+            let area = opts.area.clone();
+            let force = opts.force;
+            Box::pin(async move {
+                let area = area.ok_or(JobError::MissingOption("area"))?;
+                crate::provision::provision_n50(&p, &area, force).await
+            })
+        }
+        JobName::RefreshBasemapOverviews => {
+            let p = pool.clone();
+            Box::pin(async move { crate::provision::refresh_overviews(&p).await })
         }
         other => Box::pin(async move { Err(JobError::NotImplemented(other.as_str())) }),
     };

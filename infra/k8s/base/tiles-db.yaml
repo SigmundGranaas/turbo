@@ -1,7 +1,9 @@
 # CloudNativePG Postgres (PostGIS) for the tileserver's `tiles` database.
 #
-# ⚠️ NOT YET WIRED INTO kustomization.yaml — see README-tileserver.md. This
-#    is a reviewed draft; it provisions nothing until referenced.
+# LIVE — referenced by base/kustomization.yaml. Holds the self-hosted N50
+# basemap data (vann, høydekurve, bygning, kystkontur, isogbre, landcover,
+# stedsnavn, vegnett) the tileserver provisions from Geonorge, plus the
+# basemap overview matviews. Sized for the NATIONAL dataset (see below).
 #
 # Separate from the modulith's `turbo-db` so the tileserver owns its data
 # lifecycle. Note: the ROUTING endpoints read on-disk artifacts, not this
@@ -30,24 +32,34 @@ spec:
         - CREATE EXTENSION IF NOT EXISTS postgis;
 
   storage:
-    size: 10Gi            # grows with curated-tile geometry; resize as needed
+    # National N50 restores to ~22-28Gi of tables+indexes (8 themes +
+    # overview matviews); plus restore churn. 40Gi leaves headroom for a
+    # re-provision (old rows DELETEd then re-INSERTed before VACUUM) and
+    # future growth. CNPG supports online expansion if the SC allows it.
+    size: 40Gi
   walStorage:
-    size: 2Gi
+    # National restore generates a lot of WAL in one shot; 2Gi can wedge a
+    # cold provision. 8Gi absorbs the restore burst.
+    size: 8Gi
 
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 250m
+      memory: 512Mi
     limits:
-      memory: 1Gi
+      # Restoring + indexing the national dump and serving overview matview
+      # queries wants more than 1Gi. Bump with the node/quota if needed.
+      memory: 2Gi
 
-  # Tuned small for the shared node (these are Cluster-level Postgres
-  # params — they do NOT belong on the Database CRD below, whose schema
-  # silently drops unknown fields).
+  # Tuned for the shared node (these are Cluster-level Postgres params —
+  # they do NOT belong on the Database CRD below, whose schema silently
+  # drops unknown fields).
   postgresql:
     parameters:
-      shared_buffers: "256MB"
+      shared_buffers: "512MB"
       max_connections: "100"
+      # Speeds the cold national restore + overview matview builds.
+      maintenance_work_mem: "256MB"
 ---
 # Extensions for the tiles DB, created by CNPG (the operator runs them with
 # the privileges the `app` role lacks). The tileserver migrations do

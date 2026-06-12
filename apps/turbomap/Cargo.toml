@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/turbomap-core",
     "crates/turbomap-mvt",
+    "crates/turbomap-style-maplibre",
     "crates/turbomap-tiles-cache",
     "crates/turbomap-tiles-http",
     "crates/turbomap-tiles-pmtiles",

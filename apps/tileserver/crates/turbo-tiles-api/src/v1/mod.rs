@@ -3,12 +3,14 @@ use axum::Router;
 
 use crate::state::ApiState;
 
+mod basemap;
 mod catalog;
 mod dem;
 mod elev;
 mod inspect;
 mod mask;
 mod pathfind;
+mod raster;
 mod resource;
 mod route;
 mod route_plan;
@@ -28,6 +30,15 @@ mod tiles;
 pub fn router() -> Router<ApiState> {
     Router::new()
         .route("/catalog", get(catalog::catalog))
+        // Multi-layer N50 topo basemap (water/landcover/contour/building/
+        // transportation/place) + its TileJSON descriptor. Registered before
+        // the generic `/:resource/...` routes so `basemap` isn't captured as
+        // a resource slug.
+        .route("/basemap", get(basemap::describe))
+        .route("/basemap/style.json", get(basemap::style))
+        .route("/basemap/:z/:x/:y.mvt", get(basemap::tile))
+        // Raster fallback: same data + style, rasterised at the origin.
+        .route("/raster/n50/:z/:x/:y.png", get(raster::tile))
         .route("/:resource/tiles/:z/:x/:y.mvt", get(tiles::tile))
         .route("/:resource", get(resource::list))
         .route("/:resource/:id", get(resource::detail))
@@ -43,6 +54,9 @@ pub fn router() -> Router<ApiState> {
         .route("/dem/rgb/:z/:x/:y_ext", get(dem::rgb))
         // Stage 2: slope + aspect (derived from DEM)
         .route("/slope/sample", post(slope::sample))
+        // Slope-angle (bratthet) overlay tiles from our own DEM — the
+        // self-hosted replacement for the NVE steepness WMTS.
+        .route("/slope/tiles/:z/:x/:y.png", get(slope::tile))
         .route("/slope/along", post(slope::along))
         // Stage 3: refusal mask
         .route("/mask/sample", post(mask::sample))

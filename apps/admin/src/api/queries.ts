@@ -134,3 +134,37 @@ export function useTriggerIngest() {
     },
   });
 }
+
+export interface GeonorgeArea {
+  code: string;
+  name: string;
+  type: string;
+}
+
+/** Counties + "Whole country" for the Provision picker (proxied codelist). */
+export function useGeonorgeAreas() {
+  return useQuery({
+    queryKey: ["geonorge-areas"],
+    queryFn: () => api.get<{ areas: GeonorgeArea[] }>("/geonorge/areas"),
+    staleTime: 60 * 60 * 1000, // codelist is effectively static
+  });
+}
+
+/**
+ * Kick off the fully-automated N50 provisioning chain (Geonorge download →
+ * restore → all upserts) for an area. Returns a run_id; the Jobs view (and
+ * the inline log) follow `provision-n50` to completion.
+ */
+export function useProvision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { area: string; force?: boolean }) =>
+      api.post<{ ok: boolean; job: string; area: string; run_id: string }>(
+        "/provision",
+        body,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingest-jobs"] });
+    },
+  });
+}

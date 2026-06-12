@@ -91,6 +91,7 @@ pub async fn trigger_bulk(
         bbox: None,
         file: Some(resolved.clone()),
         source: body.source,
+        area: None,
         // Thread the run_id through so the eventual paths.ingest_job
         // row carries this exact UUID — the SPA polls by run_id.
         run_id: Some(run_id),

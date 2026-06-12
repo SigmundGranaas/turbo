@@ -10,8 +10,10 @@
 //! low zooms (z <= 11) we ship only `id` and `marking` to keep tile
 //! size small; at z >= 12 the full attribute set is included.
 
+pub mod basemap;
 pub mod feature;
 pub mod tile;
 
+pub use basemap::{render_basemap_tile, BasemapConfig, BasemapLayer, GeomKind};
 pub use feature::{feature_by_id, list_by_bbox, FeatureRow};
 pub use tile::{render_tile, MvtError};

@@ -272,6 +272,20 @@ fn local_name(qualified: &[u8]) -> String {
     }
 }
 
+/// Map Kartverket's "veg" spellings onto the canonical "vei" vocabulary
+/// shared by the N50 vegnett upsert and the graph encoder. Unknown values
+/// pass through unchanged (the encoder maps anything it doesn't know to 0).
+pub(crate) fn normalize_fkb_type(s: &str) -> String {
+    match s {
+        "traktorveg" => "traktorvei",
+        "skogsbilveg" | "skogsveg" => "skogsvei",
+        "sykkelveg" => "sykkelvei",
+        "gangveg" | "gangogsykkelveg" => "sti",
+        other => other,
+    }
+    .to_string()
+}
+
 fn build_feature(
     fkb_type_root: &str,
     pos_list: &str,
@@ -302,7 +316,7 @@ fn build_feature(
 
     // `typeveg` discriminates sti / traktorveg inside the combined
     // `traktorveg_sti` layer; the `skogsbilveg` layer doesn't have it.
-    let fkb_type = match fkb_type_root {
+    let raw_fkb_type = match fkb_type_root {
         "traktorveg_sti" => attrs
             .get("typeveg")
             .and_then(|v| v.as_str())
@@ -310,6 +324,11 @@ fn build_feature(
             .to_lowercase(),
         other => other.to_string(),
     };
+    // Normalise to the canonical "vei" vocabulary the graph encoder and the
+    // N50 vegnett upsert use, so FKB and N50 edges share one fkb_type space
+    // (and surface in the same resource views). See migration
+    // 20260603000002_resource_view_vocab.sql.
+    let fkb_type = normalize_fkb_type(&raw_fkb_type);
 
     let marking = attrs
         .get("merking")
@@ -438,4 +457,38 @@ pub(crate) async fn rebuild_topology(pool: &turbo_tiles_db::DbPool) -> Result<()
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_fkb_type;
+
+    #[test]
+    fn normalizes_veg_spellings_to_canonical_vei() {
+        // Kartverket "veg" spellings collapse onto the encoder/N50 vocabulary.
+        assert_eq!(normalize_fkb_type("traktorveg"), "traktorvei");
+        assert_eq!(normalize_fkb_type("skogsbilveg"), "skogsvei");
+        assert_eq!(normalize_fkb_type("sykkelveg"), "sykkelvei");
+        assert_eq!(normalize_fkb_type("gangogsykkelveg"), "sti");
+    }
+
+    #[test]
+    fn passes_through_already_canonical_and_unknown() {
+        for s in [
+            "sti",
+            "traktorvei",
+            "skogsvei",
+            "sykkelvei",
+            "vei",
+            "skiloype",
+        ] {
+            assert_eq!(
+                normalize_fkb_type(s),
+                s,
+                "canonical value must pass through"
+            );
+        }
+        // Unknown values pass through unchanged (encoder maps them to 0).
+        assert_eq!(normalize_fkb_type("bilferje"), "bilferje");
+    }
 }

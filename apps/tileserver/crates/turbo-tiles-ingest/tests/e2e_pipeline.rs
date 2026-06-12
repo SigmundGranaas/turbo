@@ -65,6 +65,9 @@ async fn ensure_clean(pool: &DbPool) {
         "DELETE FROM terrain.water_polygon",
         "DELETE FROM terrain.glacier_polygon",
         "DELETE FROM terrain.landcover_patch",
+        "DELETE FROM terrain.building_polygon",
+        "DELETE FROM terrain.coastline",
+        "DELETE FROM terrain.contour",
         "DELETE FROM paths.edge",
         "DELETE FROM paths.node",
     ] {
@@ -259,11 +262,13 @@ async fn n50_upsert_vegnett_creates_road_edges() {
     .unwrap();
     assert_eq!(n, 2, "fixture has 2 veglenke rows");
 
-    // Verify fkb_type classification: traktorveg + skogsbilveg.
+    // Verify fkb_type classification. The vegnett upsert emits the canonical
+    // "vei" vocabulary the graph encoder understands and the resource views
+    // now filter on (migration 20260603000002): `traktorvei` / `skogsvei`.
     let (traktor,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*)::bigint FROM paths.edge \
          WHERE deleted_at IS NULL AND attrs->>'source' = 'n50_vegnett' \
-           AND fkb_type = 'traktorveg'",
+           AND fkb_type = 'traktorvei'",
     )
     .fetch_one(&pool)
     .await
@@ -271,13 +276,138 @@ async fn n50_upsert_vegnett_creates_road_edges() {
     let (skogs,): (i64,) = sqlx::query_as(
         "SELECT COUNT(*)::bigint FROM paths.edge \
          WHERE deleted_at IS NULL AND attrs->>'source' = 'n50_vegnett' \
-           AND fkb_type = 'skogsbilveg'",
+           AND fkb_type = 'skogsvei'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(traktor, 1);
-    assert_eq!(skogs, 1);
+    assert_eq!(traktor, 1, "Traktorveg → fkb_type 'traktorvei'");
+    assert_eq!(skogs, 1, "Skogsbilveg → fkb_type 'skogsvei'");
+
+    // Reconciliation guard: the N50 vegnett edges must now actually surface
+    // in the served forest-roads view (skogsvei + traktorvei both qualify).
+    // This is what the vocabulary mismatch used to break.
+    let (forest_edges,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM paths.v_forest_roads WHERE id LIKE 'edge:%'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        forest_edges, 2,
+        "both N50 vegnett edges (skogsvei + traktorvei) must appear in v_forest_roads"
+    );
+}
+
+#[tokio::test]
+async fn n50_upsert_hoydekurve_creates_contours() {
+    // N50 "Høyde" theme → terrain.contour. The fixture has 3 main
+    // contours (200/220/600 m), 1 auxiliary (210 m) and 1 depression
+    // (180 m). Index lines are the 100 m multiples among main/depression
+    // (200 + 600), so 2 lines must carry is_index.
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
+    ensure_clean(&pool).await;
+    n50::restore(&pool, fixture_path("n50_mini.sql"), true)
+        .await
+        .expect("restore");
+
+    let outcome = n50::upsert_hoydekurve(&pool).await.expect("upsert");
+    assert_eq!(
+        outcome.rows_in, 5,
+        "fixture has 3 main + 1 aux + 1 depression"
+    );
+
+    for (kind, expected) in [("main", 3), ("auxiliary", 1), ("depression", 1)] {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*)::bigint FROM terrain.contour WHERE source = 'n50' AND kind = $1",
+        )
+        .bind(kind)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(n, expected, "kind {kind} count");
+    }
+
+    // Index detection: 200 m and 600 m main contours are the only
+    // 100 m multiples in the fixture.
+    let (index_lines,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.contour WHERE source = 'n50' AND is_index",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(index_lines, 2, "200 m + 600 m are index contours");
+
+    // Geometry must be clean LineStrings in EPSG:25833 (ST_Dump output).
+    let (bad_geom,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.contour \
+         WHERE source = 'n50' AND (ST_GeometryType(geom) <> 'ST_LineString' OR ST_SRID(geom) <> 25833)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bad_geom, 0, "all contours must be LineString/25833");
+}
+
+#[tokio::test]
+async fn n50_upsert_kystkontur_creates_coastline() {
+    // N50 Arealdekke (kystkontur) → terrain.coastline. The fixture has one
+    // shoreline segment; geometry must come out as LineString in 25833.
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
+    ensure_clean(&pool).await;
+    n50::restore(&pool, fixture_path("n50_mini.sql"), true)
+        .await
+        .expect("restore");
+
+    let outcome = n50::upsert_kystkontur(&pool).await.expect("upsert");
+    assert_eq!(outcome.rows_in, 1, "fixture has 1 coastline segment");
+
+    let (bad_geom,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.coastline \
+         WHERE source = 'n50' AND (ST_GeometryType(geom) <> 'ST_LineString' OR ST_SRID(geom) <> 25833)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bad_geom, 0, "all coastline must be LineString/25833");
+}
+
+#[tokio::test]
+async fn n50_upsert_bygning_creates_buildings() {
+    // N50 BygningerOgAnlegg → terrain.building_polygon. The fixture has 2
+    // footprints, one named (a cabin), one unnamed. Geometry must come out as
+    // MultiPolygon in EPSG:25833.
+    let Some(pool) = pool_or_skip().await else {
+        return;
+    };
+    ensure_clean(&pool).await;
+    n50::restore(&pool, fixture_path("n50_mini.sql"), true)
+        .await
+        .expect("restore");
+
+    let outcome = n50::upsert_bygning(&pool).await.expect("upsert");
+    assert_eq!(outcome.rows_in, 2, "fixture has 2 building footprints");
+
+    let (named,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.building_polygon \
+         WHERE source = 'n50' AND name = 'Kobberhaughytta'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(named, 1, "named cabin footprint must carry its navn");
+
+    let (bad_geom,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint FROM terrain.building_polygon \
+         WHERE source = 'n50' AND (ST_GeometryType(geom) <> 'ST_MultiPolygon' OR ST_SRID(geom) <> 25833)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(bad_geom, 0, "all buildings must be MultiPolygon/25833");
 }
 
 #[tokio::test]
@@ -405,6 +535,9 @@ async fn reset_all_clears_every_namespace_to_zero() {
         "DELETE FROM terrain.water_polygon",
         "DELETE FROM terrain.glacier_polygon",
         "DELETE FROM terrain.landcover_patch",
+        "DELETE FROM terrain.building_polygon",
+        "DELETE FROM terrain.coastline",
+        "DELETE FROM terrain.contour",
         "DELETE FROM paths.edge",
         "DELETE FROM paths.node",
         "DELETE FROM paths.dem",

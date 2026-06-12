@@ -1,0 +1,323 @@
+{
+  "version": 8,
+  "name": "N50 Topo",
+  "metadata": {
+    "attribution": "© Kartverket",
+    "turbo:source": "apps/tileserver/tools/basemap-layers.toml"
+  },
+  "sources": {
+    "n50": {
+      "type": "vector",
+      "tiles": [
+        "{BASE_URL}/v1/basemap/{z}/{x}/{y}.mvt"
+      ],
+      "minzoom": 4,
+      "maxzoom": 16,
+      "attribution": "© Kartverket"
+    },
+    "dem": {
+      "type": "raster-dem",
+      "encoding": "mapbox",
+      "tileSize": 256,
+      "tiles": [
+        "{BASE_URL}/v1/dem/rgb/{z}/{x}/{y}.png"
+      ],
+      "minzoom": 0,
+      "maxzoom": 13,
+      "attribution": "© Kartverket"
+    }
+  },
+  "glyphs": "{BASE_URL}/fonts/{fontstack}/{range}.pbf",
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#f3f1ea"
+      }
+    },
+    {
+      "id": "landcover-forest",
+      "type": "fill",
+      "source": "n50",
+      "source-layer": "landcover",
+      "minzoom": 7,
+      "filter": [
+        "==",
+        "class",
+        "forest"
+      ],
+      "paint": {
+        "fill-color": "#cfe5bc"
+      }
+    },
+    {
+      "id": "landcover-wetland",
+      "type": "fill",
+      "source": "n50",
+      "source-layer": "landcover",
+      "minzoom": 7,
+      "filter": [
+        "==",
+        "class",
+        "wetland"
+      ],
+      "paint": {
+        "fill-color": "#dfeadf"
+      }
+    },
+    {
+      "id": "glacier",
+      "type": "fill",
+      "source": "n50",
+      "source-layer": "glacier",
+      "minzoom": 6,
+      "paint": {
+        "fill-color": "#eef7ff"
+      }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "n50",
+      "source-layer": "water",
+      "minzoom": 4,
+      "paint": {
+        "fill-color": "#b9d9f1"
+      }
+    },
+    {
+      "id": "hillshade",
+      "type": "hillshade",
+      "source": "dem",
+      "paint": {
+        "hillshade-exaggeration": 0.45,
+        "hillshade-shadow-color": "#5a4a36",
+        "hillshade-highlight-color": "#fffaf0",
+        "hillshade-accent-color": "#6b5a44",
+        "hillshade-illumination-direction": 315,
+        "hillshade-illumination-anchor": "map"
+      }
+    },
+    {
+      "id": "coastline",
+      "type": "line",
+      "source": "n50",
+      "source-layer": "coastline",
+      "minzoom": 4,
+      "paint": {
+        "line-color": "#7da7c9",
+        "line-width": 1.0
+      }
+    },
+    {
+      "id": "contour-index",
+      "type": "line",
+      "source": "n50",
+      "source-layer": "contour",
+      "minzoom": 11,
+      "filter": [
+        "==",
+        "is_index",
+        true
+      ],
+      "paint": {
+        "line-color": "#b08a5a",
+        "line-width": 1.2
+      }
+    },
+    {
+      "id": "contour",
+      "type": "line",
+      "source": "n50",
+      "source-layer": "contour",
+      "minzoom": 12,
+      "filter": [
+        "==",
+        "is_index",
+        false
+      ],
+      "paint": {
+        "line-color": "#c9aa7e",
+        "line-width": 0.6
+      }
+    },
+    {
+      "id": "building",
+      "type": "fill",
+      "source": "n50",
+      "source-layer": "building",
+      "minzoom": 14,
+      "paint": {
+        "fill-color": "#d2bfae"
+      }
+    },
+    {
+      "id": "road-vei",
+      "type": "line",
+      "source": "n50",
+      "source-layer": "transportation",
+      "minzoom": 9,
+      "filter": [
+        "==",
+        "class",
+        "vei"
+      ],
+      "paint": {
+        "line-color": "#9b9b9b",
+        "line-width": {
+          "stops": [
+            [
+              9,
+              0.8
+            ],
+            [
+              12,
+              1.6
+            ],
+            [
+              15,
+              3.0
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "road-skogsvei",
+      "type": "line",
+      "source": "n50",
+      "source-layer": "transportation",
+      "minzoom": 10,
+      "filter": [
+        "in",
+        "class",
+        "skogsvei",
+        "traktorvei",
+        "sykkelvei"
+      ],
+      "paint": {
+        "line-color": "#8a795d",
+        "line-width": {
+          "stops": [
+            [
+              10,
+              0.8
+            ],
+            [
+              14,
+              2.0
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "path-sti",
+      "type": "line",
+      "source": "n50",
+      "source-layer": "transportation",
+      "minzoom": 11,
+      "filter": [
+        "==",
+        "class",
+        "sti"
+      ],
+      "paint": {
+        "line-color": "#a0522d",
+        "line-width": {
+          "stops": [
+            [
+              11,
+              0.7
+            ],
+            [
+              14,
+              1.4
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "ski-skiloype",
+      "type": "line",
+      "source": "n50",
+      "source-layer": "transportation",
+      "minzoom": 10,
+      "filter": [
+        "==",
+        "class",
+        "skiloype"
+      ],
+      "paint": {
+        "line-color": "#3388cc",
+        "line-width": 1.4
+      }
+    },
+    {
+      "id": "place-summit",
+      "type": "symbol",
+      "source": "n50",
+      "source-layer": "place",
+      "minzoom": 10,
+      "filter": [
+        "==",
+        "kind",
+        "summit"
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "text-size": 11,
+        "text-font": [
+          "DejaVu Sans"
+        ],
+        "icon-image": "summit",
+        "icon-size": 0.8,
+        "text-offset": [
+          0,
+          0.9
+        ],
+        "text-anchor": "top"
+      },
+      "paint": {
+        "text-color": "#6b4f2a"
+      }
+    },
+    {
+      "id": "place-name",
+      "type": "symbol",
+      "source": "n50",
+      "source-layer": "place",
+      "minzoom": 8,
+      "filter": [
+        "in",
+        "kind",
+        "named_place",
+        "cabin",
+        "waterfeature"
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "text-size": 12,
+        "text-font": [
+          "DejaVu Sans"
+        ],
+        "icon-image": [
+          "get",
+          "kind"
+        ],
+        "icon-size": 0.7,
+        "text-offset": [
+          0,
+          0.8
+        ],
+        "text-anchor": "top"
+      },
+      "paint": {
+        "text-color": "#333333"
+      }
+    }
+  ],
+  "sprite": "{BASE_URL}/sprite"
+}

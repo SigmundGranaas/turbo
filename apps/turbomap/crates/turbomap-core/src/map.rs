@@ -174,13 +174,14 @@ impl Default for MapOptions {
             cache_budget_bytes: 128 * 1024 * 1024,
             prefetch_margin_px: 256,
             pixel_ratio: 1.0,
-            // 0.4 s reads as a smooth fade. The earlier default (0.18)
-            // popped — each per-layer tile arrival was over visually
-            // before the next layer's matching tile could blend in,
-            // so the eye perceived a chain of discrete additions
-            // instead of a coordinated transition. Longer durations
-            // also absorb the staggered cross-layer arrival times.
-            fade_in_secs: 0.4,
+            // Fade-in is currently DISABLED (0 = tiles snap to fully
+            // opaque on ingest) while the per-frame-alpha flicker
+            // diagnosis is open. History: 0.18 popped (per-layer
+            // arrivals read as discrete additions), 0.4 read as a
+            // smooth fade but was suspected as the flicker source.
+            // If the flicker is fixed elsewhere, restore 0.4 and
+            // update `default_options_are_sensible` accordingly.
+            fade_in_secs: 0.0,
         }
     }
 }
@@ -1528,6 +1529,9 @@ mod tests {
         let o = MapOptions::default();
         assert!(o.cache_budget_bytes >= 64 * 1024 * 1024);
         assert!(o.prefetch_margin_px > 0);
-        assert!(o.fade_in_secs > 0.0 && o.fade_in_secs < 1.0);
+        // Fade is deliberately disabled (0.0) while the flicker
+        // diagnosis is open — see the MapOptions::default comment.
+        // Anything inside [0, 1) is sane; sub-zero or 1 s+ is not.
+        assert!((0.0..1.0).contains(&o.fade_in_secs));
     }
 }

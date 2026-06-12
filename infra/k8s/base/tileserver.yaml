@@ -1,22 +1,22 @@
-# Turbo tileserver (Rust) — routing-only deployment.
+# Turbo tileserver (Rust) — full basemap + routing deployment.
 #
-# ⚠️ NOT YET WIRED INTO kustomization.yaml. This manifest is a reviewed
-#    draft (Stage 3 of the routing-API rollout). It deploys nothing until
-#    it is added to base/kustomization.yaml AND the prerequisites in
-#    infra/k8s/README-tileserver.md are met (artifacts rsync'd onto the
-#    node + hostPath PV, tiles-db secrets sealed, capacity confirmed).
-#    Keeping it unreferenced means `kustomize build` ignores it.
+# Serves the self-hosted N50 basemap (vector MVT + style + glyphs + sprites +
+# raster fallback + DEM/hillshade/slope) AND the routing API, in FULL mode
+# (connected to the tiles Postgres). Self-provisions N50 from Geonorge at
+# boot (TILESERVER_PROVISION_ON_BOOT) and refreshes daily, so a fresh deploy
+# populates itself. See docs/architecture/2026-06-deploy-runbook.md for the
+# full sequence and infra/k8s/README-tileserver.md for artifact staging.
 #
-# Scope: the routing API (/v1/route/*) is the first consumer, but this
-# runs the tileserver in FULL mode (connected to a tiles Postgres) — we
-# do NOT ship the --no-db shortcut. Routing only goes live once ALL the
-# data is in place: the tiles DB (provisioned + ingested) AND the on-disk
-# artifacts. See README-tileserver.md.
+# Prerequisites (runbook §2): tiles-db secrets sealed; `norway.dem` staged on
+# the hostPath PV (else /v1/dem,/v1/slope,raster-hillshade are 503 — vector
+# basemap still works); egress to *.geonorge.no permitted; the Cloudflare
+# Worker (infra/edge/tiles-worker) deployed at PUBLIC_BASE_URL's host.
 #
-# Exposure: there is no YARP gateway in k8s — the Traefik ingress targets
-# this Service directly. A ReplacePathRegex middleware maps the public
-# /api/route/* onto the tileserver's /v1/route/* (mirrors what the compose
-# gateway's PathRemovePrefix+PathPrefix transforms do).
+# Exposure: Traefik ingress targets this Service directly. The public tile
+# surface (/v1/basemap,/v1/raster,/v1/dem,/v1/slope,/fonts,/sprite,/v1/route,
+# curated /v1/{resource}) is routed natively; the legacy /api/route -> /v1/route
+# ReplacePathRegex is kept for back-compat. /admin and /v1/debug are NOT
+# exposed publicly.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -109,8 +109,29 @@ spec:
             # CNPG actually set — no separately-sealed secret to drift.
             - name: DATABASE_URL
               valueFrom: { secretKeyRef: { name: tiles-db-app, key: uri } }
+            # Public origin for self-referential URLs in style.json / sprite /
+            # glyphs / TileJSON. This is the Cloudflare Worker host (the cache
+            # tier), NOT the cluster ingress — clients fetch every tile/asset
+            # through tiles.turkart.no, which pull-through-caches from this
+            # origin. Must match infra/edge/tiles-worker routes[].pattern.
             - name: PUBLIC_BASE_URL
-              value: "https://kart-api.sandring.no/api/route"
+              value: "https://tiles.turkart.no"
+            # --- Self-provisioning (Geonorge N50) ---------------------------
+            # Where the ingest pipeline unzips/restores the downloaded
+            # PostGIS dumps. Must be writable + sized (see the `incoming`
+            # emptyDir below); a national dump peaks ~35-40Gi on disk.
+            - name: TILESERVER_INCOMING_DIR
+              value: "/var/lib/tileserver/incoming"
+            # On an EMPTY tiles DB, fetch+restore the national N50 from
+            # Geonorge at boot so a fresh deploy populates itself. No-op once
+            # data is present (guarded on row count). Requires *.geonorge.no
+            # egress. Unset/blank to disable and provision via the admin panel.
+            - name: TILESERVER_PROVISION_ON_BOOT
+              value: "national"
+            # Daily background re-check; skips the restore when Geonorge's
+            # source version is unchanged (hash freshness), so it's cheap.
+            - name: TILESERVER_PROVISION_REFRESH_SECS
+              value: "86400"
             # Decompressed DEM-tile cache ceiling. The binary default is
             # 512MiB — sized for dev boxes, not this 1536Mi-limit pod
             # (cache + heap + resident mmap pages must fit under the
@@ -123,8 +144,10 @@ spec:
             # CPU limit rather than the node's core count.
             - name: TILESERVER_ROUTING_CONCURRENCY
               value: "2"
-            # AuthConfig::from_env requires a secret even though the
-            # routing endpoints are public (it gates only /admin + debug).
+            # JWT_SECRET gates only the /admin + debug surface; the public
+            # tiles/basemap/routing endpoints serve without it (boot no longer
+            # fails when it's unset — public-only mode). We still set it here so
+            # the admin panel works in prod.
             - name: JWT_SECRET
               valueFrom: { secretKeyRef: { name: auth-secrets, key: jwt-key } }
           startupProbe:                  # mmapping an 11Gi DEM at boot can be slow on cold cache
@@ -165,12 +188,26 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            # Writable scratch for Geonorge downloads + unzipped PostGIS
+            # dumps (readOnlyRootFilesystem is on, so this must be a real
+            # volume). Matches TILESERVER_INCOMING_DIR above.
+            - name: incoming
+              mountPath: /var/lib/tileserver/incoming
       volumes:
         - name: artifacts
           persistentVolumeClaim:
             claimName: tileserver-artifacts
         - name: tmp
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: incoming
+          # Ephemeral, node-local: the dump only has to survive the restore,
+          # then the DB (tiles-db PVC) is the system of record. A national
+          # N50 zip is ~5-7Gi and unzips alongside itself, peaking ~20Gi —
+          # 30Gi leaves headroom. Sits on the node's ephemeral disk; ensure
+          # the node has the free space (else the pod is evicted).
+          emptyDir:
+            sizeLimit: 30Gi
 ---
 apiVersion: v1
 kind: Service
@@ -199,11 +236,87 @@ spec:
   rules:
     - host: kart-api.sandring.no
       http:
+        # The Cloudflare Worker (tiles.turkart.no) is the public front door and
+        # pull-through-caches from this origin, so every path it may forward
+        # must be routable here. The route-rewrite middleware only matches
+        # ^/api/route/(.*) — for every other prefix below it's a no-op, so we
+        # can list the native /v1 surface alongside the legacy /api/route.
+        #
+        # Deliberately NOT exposed: /admin (JWT-gated control plane) and
+        # /v1/debug (internal inspection) — they have no Ingress path, so
+        # Traefik 404s them at the edge.
         paths:
+          # Legacy back-compat: /api/route/* -> /v1/route/* (middleware).
           - path: /api/route
             pathType: Prefix
             backend:
-              service:
+              service: &svc
                 name: tileserver
                 port:
                   number: 8080
+          # Vector basemap + style.json.
+          - path: /v1/basemap
+            pathType: Prefix
+            backend:
+              service: *svc
+          # Terrain-RGB DEM tiles (hillshade/slope source).
+          - path: /v1/dem
+            pathType: Prefix
+            backend:
+              service: *svc
+          # Slope overlay tiles + sample/along queries.
+          - path: /v1/slope
+            pathType: Prefix
+            backend:
+              service: *svc
+          # Raster basemap fallback (n50 PNG).
+          - path: /v1/raster
+            pathType: Prefix
+            backend:
+              service: *svc
+          # Read-only elevation profile/sample.
+          - path: /v1/elev
+            pathType: Prefix
+            backend:
+              service: *svc
+          # Layer/source catalog (TileJSON-ish discovery).
+          - path: /v1/catalog
+            pathType: Prefix
+            backend:
+              service: *svc
+          # Placename / nearest search.
+          - path: /v1/search
+            pathType: Prefix
+            backend:
+              service: *svc
+          # Routing (native path; /api/route above rewrites to this).
+          - path: /v1/route
+            pathType: Prefix
+            backend:
+              service: *svc
+          # Curated MVT resources (/v1/<resource>/tiles/z/x/y.mvt).
+          - path: /v1/hiking-trails
+            pathType: Prefix
+            backend:
+              service: *svc
+          - path: /v1/ski-tracks
+            pathType: Prefix
+            backend:
+              service: *svc
+          - path: /v1/forest-roads
+            pathType: Prefix
+            backend:
+              service: *svc
+          - path: /v1/cycling-routes
+            pathType: Prefix
+            backend:
+              service: *svc
+          # SDF glyphs + sprite sheets referenced by the style.
+          - path: /fonts
+            pathType: Prefix
+            backend:
+              service: *svc
+          - path: /sprite
+            pathType: Prefix
+            backend:
+              service: *svc

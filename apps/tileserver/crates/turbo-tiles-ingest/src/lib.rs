@@ -16,10 +16,12 @@ pub mod dtm_bulk;
 pub mod dtm_raster;
 pub mod edge_attrs;
 pub mod fkb_wfs;
+pub mod geonorge;
 pub mod job;
 pub mod n50;
 pub mod n50_anchors;
 pub mod pgdump_load;
+pub mod provision;
 pub mod recommend_seed;
 pub mod skeleton_build;
 pub mod stage;
@@ -29,3 +31,4 @@ pub use dtm_raster::{incoming_dir, list_incoming, resolve_under_incoming};
 
 pub use fkb_wfs::Bbox;
 pub use job::{run_job, run_job_with_options, JobError, JobName, JobOptions, JobOutcome};
+pub use provision::provisioned_area;

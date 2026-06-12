@@ -94,6 +94,10 @@ enum Command {
         /// Filesystem path for bulk-file jobs (`dtm-load`).
         #[arg(long)]
         file: Option<std::path::PathBuf>,
+        /// Geonorge area for `geonorge-fetch` / `provision-n50`: a two-digit
+        /// county code (e.g. `03`) or `national`.
+        #[arg(long)]
+        area: Option<String>,
         /// Source label stamped on loaded raster rows (e.g. `dtm10`).
         #[arg(long, default_value = "dtm10")]
         source: String,
@@ -169,9 +173,10 @@ async fn main() -> Result<()> {
             job,
             bbox,
             file,
+            area,
             source,
             force,
-        } => ingest(&job, bbox.as_deref(), file, source, force).await,
+        } => ingest(&job, bbox.as_deref(), file, area, source, force).await,
         Command::BuildArtifacts { kind, out } => build_artifacts(&kind, out).await,
         Command::Migrate => migrate().await,
         Command::EvalTerrain {
@@ -247,7 +252,17 @@ async fn serve(
         pool
     };
 
-    let auth = AuthConfig::from_env().context("auth config")?;
+    // Auth is only needed for the /admin + debug surface. A missing
+    // JWT_SECRET must NOT block boot — the public tiles / basemap / routing
+    // endpoints serve fine without it. Run in public-only mode and warn.
+    let auth = AuthConfig::from_env_lenient();
+    if !auth.enabled {
+        tracing::warn!(
+            "JWT_SECRET not set: running in public-only mode. /admin and \
+             auth-gated debug endpoints will reject all requests; tiles, \
+             basemap, and routing endpoints are unaffected."
+        );
+    }
     let auth_state = AuthState(Arc::new(auth.clone()));
 
     // Primitive handles are loaded once at boot from the artifact
@@ -344,6 +359,37 @@ async fn serve(
     // after 7 (curator window for triggering ingest).
     turbo_tiles_admin::routes::tus::spawn_sweeper(std::time::Duration::from_secs(3600));
 
+    // Zero-touch deploy: if TILESERVER_PROVISION_ON_BOOT is set to an area
+    // (e.g. `national` or `03`) AND the basemap is empty, download + restore
+    // + upsert N50 in the background so a fresh deploy self-populates with no
+    // operator action. Off by default; only fires on an empty DB so restarts
+    // don't re-provision. Re-provisioning on a cadence is a separate concern.
+    if let Ok(area) = std::env::var("TILESERVER_PROVISION_ON_BOOT") {
+        let provision_db = db.clone();
+        tokio::spawn(async move {
+            maybe_provision_on_boot(provision_db, area).await;
+        });
+    }
+
+    // Hands-off freshness: when TILESERVER_PROVISION_REFRESH_SECS is set,
+    // periodically re-provision whatever area is currently loaded. The
+    // freshness skip makes each tick cheap (download + hash) when Kartverket
+    // hasn't republished, and a full refresh when it has. Off by default.
+    if let Ok(secs) = std::env::var("TILESERVER_PROVISION_REFRESH_SECS") {
+        match secs.parse::<u64>() {
+            Ok(s) if s >= 60 => {
+                let refresh_db = db.clone();
+                tokio::spawn(async move {
+                    refresh_loop(refresh_db, std::time::Duration::from_secs(s)).await;
+                });
+            }
+            _ => tracing::warn!(
+                value = %secs,
+                "TILESERVER_PROVISION_REFRESH_SECS must be an integer >= 60; refresh disabled"
+            ),
+        }
+    }
+
     let listener = tokio::net::TcpListener::bind(&bind)
         .await
         .with_context(|| format!("binding {bind}"))?;
@@ -354,20 +400,136 @@ async fn serve(
     Ok(())
 }
 
+/// Background boot-time provisioning. Runs the full N50 chain for `area`
+/// only when the basemap is empty, so a fresh deploy populates itself and a
+/// restart is a no-op. Uses a dedicated batch pool (no statement timeout).
+async fn maybe_provision_on_boot(serving_db: turbo_tiles_db::DbPool, area: String) {
+    // Cheap emptiness probe on the serving pool (short timeout is fine here).
+    let already: i64 = sqlx::query_scalar("SELECT count(*) FROM terrain.water_polygon")
+        .fetch_one(&serving_db)
+        .await
+        .unwrap_or(0);
+    if already > 0 {
+        tracing::info!(
+            rows = already,
+            "boot-provision: basemap already populated, skipping"
+        );
+        return;
+    }
+    tracing::warn!(area = %area, "boot-provision: empty basemap — provisioning N50 from Geonorge");
+    let mut cfg = match DbConfig::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "boot-provision: DATABASE_URL missing");
+            return;
+        }
+    };
+    cfg.statement_timeout_ms = 0; // batch job, not a serving query
+    cfg.max_connections = 2;
+    let pool = match cfg.connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = %e, "boot-provision: batch pool connect failed");
+            return;
+        }
+    };
+    let opts = turbo_tiles_ingest::JobOptions {
+        area: Some(area),
+        force: false,
+        ..Default::default()
+    };
+    match turbo_tiles_ingest::run_job_with_options(
+        pool,
+        turbo_tiles_ingest::JobName::ProvisionN50,
+        opts,
+    )
+    .await
+    {
+        Ok(o) => tracing::info!(rows = o.rows_upserted, "boot-provision: complete"),
+        Err(e) => tracing::error!(error = %e, "boot-provision: failed"),
+    }
+}
+
+/// Periodic refresh loop: every `interval`, re-provision the area currently
+/// recorded in `paths.provision_state`. Cheap when the source is unchanged
+/// (the freshness skip returns after download+hash); does a full refresh
+/// when Kartverket republished. Uses a dedicated batch pool (no statement
+/// timeout). Does nothing until something has been provisioned at least once.
+async fn refresh_loop(serving_db: turbo_tiles_db::DbPool, interval: std::time::Duration) {
+    tracing::info!(
+        secs = interval.as_secs(),
+        "provision-refresh: scheduler armed"
+    );
+    let mut tick = tokio::time::interval(interval);
+    tick.tick().await; // consume the immediate first tick; wait a full interval
+    loop {
+        tick.tick().await;
+        let area = match turbo_tiles_ingest::provisioned_area(&serving_db).await {
+            Ok(Some(a)) => a,
+            Ok(None) => {
+                tracing::debug!("provision-refresh: nothing provisioned yet, skipping tick");
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "provision-refresh: state read failed");
+                continue;
+            }
+        };
+        let mut cfg = match DbConfig::from_env() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(error = %e, "provision-refresh: DATABASE_URL missing");
+                continue;
+            }
+        };
+        cfg.statement_timeout_ms = 0;
+        cfg.max_connections = 2;
+        let pool = match cfg.connect().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(error = %e, "provision-refresh: pool connect failed");
+                continue;
+            }
+        };
+        tracing::info!(area = %area, "provision-refresh: checking for a newer N50 dump");
+        let opts = turbo_tiles_ingest::JobOptions {
+            area: Some(area),
+            force: false,
+            ..Default::default()
+        };
+        if let Err(e) = turbo_tiles_ingest::run_job_with_options(
+            pool,
+            turbo_tiles_ingest::JobName::ProvisionN50,
+            opts,
+        )
+        .await
+        {
+            tracing::error!(error = %e, "provision-refresh: failed");
+        }
+    }
+}
+
 async fn ingest(
     job: &str,
     bbox: Option<&str>,
     file: Option<std::path::PathBuf>,
+    area: Option<String>,
     source: String,
     force: bool,
 ) -> Result<()> {
-    let db_cfg = DbConfig::from_env().context("DATABASE_URL must be set")?;
+    let mut db_cfg = DbConfig::from_env().context("DATABASE_URL must be set")?;
+    // Ingest is a batch operation (restore + upserts + topology rebuilds run
+    // for minutes), not a serving query. Disable the per-statement timeout so
+    // a cold-cache contour/vegnett upsert isn't killed by the 10 s serving
+    // default. An operator watching the job log can still cancel.
+    db_cfg.statement_timeout_ms = 0;
     let db = db_cfg.connect().await.context("connecting to database")?;
     let job: turbo_tiles_ingest::JobName = job.parse().map_err(|e: String| anyhow::anyhow!(e))?;
     let opts = turbo_tiles_ingest::JobOptions {
         bbox: bbox.map(parse_bbox).transpose()?,
         file,
         source: Some(source),
+        area,
         run_id: None,
         force,
     };

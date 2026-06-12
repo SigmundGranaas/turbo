@@ -12,6 +12,7 @@ import { ResourceCreate } from "./screens/ResourceCreate";
 import { UploadGpx } from "./screens/UploadGpx";
 import { UploadBulk } from "./screens/UploadBulk";
 import { Incoming } from "./screens/Incoming";
+import { Provision } from "./screens/Provision";
 import { Jobs } from "./screens/Jobs";
 import { PlotRoute } from "./screens/PlotRoute";
 import { Primitives } from "./screens/Primitives";
@@ -50,6 +51,7 @@ const router = createBrowserRouter(
         { path: "upload-gpx", element: <UploadGpx /> },
         { path: "upload-bulk", element: <UploadBulk /> },
         { path: "incoming", element: <Incoming /> },
+        { path: "provision", element: <Provision /> },
         { path: "jobs", element: <Jobs /> },
         { path: "primitives", element: <Primitives /> },
       ],

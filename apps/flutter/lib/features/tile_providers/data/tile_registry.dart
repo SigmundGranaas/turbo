@@ -10,6 +10,8 @@ import 'package:turbo/features/tile_providers/data/providers/norges_kart_topo.da
 import 'package:turbo/features/tile_providers/data/providers/ocean_conditions_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/offline_region_provider_config.dart';
 import 'package:turbo/features/tile_providers/data/providers/osm_tiles.dart';
+import 'package:turbo/features/tile_providers/data/providers/turbo_n50_topo.dart';
+import 'package:turbo/features/tile_providers/data/providers/turbo_slope_overlay.dart';
 import 'package:turbo/features/tile_providers/data/providers/vector_path_overlays.dart';
 import 'package:turbo/features/tile_providers/models/custom_tile_provider.dart';
 import 'package:turbo/features/tile_providers/models/tile_provider_config.dart';
@@ -17,6 +19,7 @@ import 'package:turbo/features/tile_providers/models/tile_registry_state.dart';
 import 'package:turbo/features/tile_storage/cached_tiles/api.dart';
 import 'package:turbo/features/tile_storage/offline_regions/api.dart';
 import 'package:turbo/features/tile_storage/tile_store/api.dart';
+import 'package:turbo/features/curated_paths/api.dart' show tileserverBaseUrlProvider;
 
 final tileRegistryProvider =
     NotifierProvider<TileRegistry, TileRegistryState>(TileRegistry.new);
@@ -27,6 +30,11 @@ class TileRegistry extends Notifier<TileRegistryState> {
     // --- 1. Register built-in providers ---
     final builtInProviders = [
       NorgeskartTopoConfig(),
+      // Self-hosted N50 raster basemap — selectable alternative to
+      // Norgeskart; becomes the default once parity holds (M1 plan).
+      TurboN50TopoConfig(ref.read(tileserverBaseUrlProvider)),
+      // Self-hosted slope-angle overlay (alternative to the NVE WMTS).
+      TurboSlopeOverlayConfig(ref.read(tileserverBaseUrlProvider)),
       OsmConfig(),
       GoogleSatelliteConfig(),
       AvalancheOverlayConfig(),

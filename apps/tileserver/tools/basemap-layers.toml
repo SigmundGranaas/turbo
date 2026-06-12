@@ -1,0 +1,107 @@
+# N50 topo basemap — vector tile layers.
+#
+# Each [[layer]] becomes one named MVT layer inside the basemap tile served
+# at /v1/basemap/{z}/{x}/{y}.mvt. Order here is PAINT order: fills first,
+# then lines, then point labels on top. The renderer's style references these
+# layer names + the listed attribute properties.
+#
+# Sources are the canonical tables the N50 ingest upserts populate
+# (terrain.*, paths.*, anchors.*) — see apps/tileserver/docs/ingesting-n50.md.
+#
+# kind     : polygon | line | point (drives ST_AsMVTGeom + the sub-pixel drop)
+# min/max_zoom : layer is emitted only inside this inclusive zoom range
+# simplify : zoom-scaled ST_SimplifyPreserveTopology + sub-pixel polygon drop
+# attrs    : MVT feature properties. `expr` defaults to `name` when omitted.
+
+# ----- Water (lakes / rivers / sea) ------------------------------
+[[layer]]
+name        = "water"
+table          = "terrain.water_polygon"
+overview_table = "basemap.water_overview"
+overview_max_zoom = 9
+kind        = "polygon"
+min_zoom    = 4
+simplify    = true
+attrs       = [{ name = "kind" }]
+
+# ----- Glaciers / perpetual snow ---------------------------------
+[[layer]]
+name        = "glacier"
+table       = "terrain.glacier_polygon"
+kind        = "polygon"
+min_zoom    = 6
+simplify    = true
+
+# ----- Landcover (forest / wetland / open) -----------------------
+[[layer]]
+name        = "landcover"
+table          = "terrain.landcover_patch"
+overview_table = "basemap.landcover_overview"
+overview_max_zoom = 9
+kind        = "polygon"
+min_zoom    = 7
+simplify    = true
+attrs       = [{ name = "class" }]
+
+# ----- Building footprints ---------------------------------------
+[[layer]]
+name        = "building"
+table       = "terrain.building_polygon"
+kind        = "polygon"
+min_zoom    = 14
+attrs       = [{ name = "building_type" }]
+
+# ----- Coastline (land/sea shoreline) ----------------------------
+# Drawn over the sea fill (water kind='sea') as the crisp coast edge.
+[[layer]]
+name        = "coastline"
+table          = "terrain.coastline"
+overview_table = "basemap.coastline_overview"
+overview_max_zoom = 9
+kind        = "line"
+min_zoom    = 4
+simplify    = true
+
+# ----- Contour lines (20 m equidistance, index every 100 m) ------
+[[layer]]
+name        = "contour"
+table          = "terrain.contour"
+overview_table = "basemap.contour_overview"
+overview_max_zoom = 12
+kind        = "line"
+min_zoom    = 11
+simplify    = true
+attrs       = [
+  { name = "elev_m" },
+  { name = "is_index" },
+  { name = "kind" },
+]
+
+# ----- Transportation (N50 + FKB roads/paths) --------------------
+# All non-deleted edges; `class` is the canonical fkb_type
+# (sti / vei / traktorvei / skogsvei / sykkelvei / skiloype).
+[[layer]]
+name        = "transportation"
+table          = "paths.edge"
+overview_table = "basemap.transportation_overview"
+overview_max_zoom = 11
+kind        = "line"
+min_zoom    = 9
+simplify    = true
+filter      = "g.deleted_at IS NULL"
+attrs       = [
+  { name = "class", expr = "fkb_type" },
+  { name = "marking" },
+]
+
+# ----- Place labels (summits / cabins / lakes / named places) ----
+[[layer]]
+name        = "place"
+table       = "anchors.anchor"
+kind        = "point"
+min_zoom    = 6
+attrs       = [
+  { name = "name" },
+  { name = "kind" },
+  { name = "elev_m", expr = "elevation_m" },
+]

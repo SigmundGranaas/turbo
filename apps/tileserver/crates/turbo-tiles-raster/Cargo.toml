@@ -1,0 +1,21 @@
+[package]
+name = "turbo-tiles-raster"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+turbo-tiles-core.workspace = true
+turbo-tiles-db.workspace = true
+turbo-tiles-mvt.workspace = true
+sqlx.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+geo.workspace = true
+geozero.workspace = true
+# CPU rasteriser + glyph rendering for the raster fallback tiles.
+tiny-skia = { version = "0.11", features = ["png-format"] }
+ab_glyph = "0.2"
+turbo-tiles-elev.workspace = true

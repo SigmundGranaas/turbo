@@ -583,7 +583,11 @@ fn encode_fkb_type(s: Option<&str>) -> u8 {
         // Legacy / future surface kinds — map to "trail-ish" by
         // default so they aren't accidentally treated as roads.
         "sti_terreng" => 1,
-        "traktorvei" | "skogsvei" => 2,
+        "traktorvei" | "skogsvei" | "sykkelvei" => 2,
+        // Defensive aliases for the legacy "veg" spellings, in case any
+        // pre-normalisation FKB rows survive in the DB. Ingest now emits the
+        // "vei" forms (fkb_wfs::normalize_fkb_type), so these should be rare.
+        "traktorveg" | "skogsbilveg" | "skogsveg" | "sykkelveg" => 2,
         _ => 0,
     }
 }

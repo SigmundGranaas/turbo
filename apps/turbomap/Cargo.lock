@@ -3771,6 +3771,7 @@ dependencies = [
  "rayon",
  "reqwest",
  "turbomap-core",
+ "turbomap-style-maplibre",
  "turbomap-tiles-http",
  "wgpu",
  "winit",
@@ -3868,6 +3869,15 @@ dependencies = [
  "turbomap-golden",
  "turbomap-mvt",
  "turbomap-scene",
+]
+
+[[package]]
+name = "turbomap-style-maplibre"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror 1.0.69",
+ "turbomap-core",
 ]
 
 [[package]]
