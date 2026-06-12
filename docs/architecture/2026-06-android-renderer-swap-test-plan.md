@@ -504,3 +504,10 @@ manager lives on the IO side off the UI thread.
   reconcile-to-empty assert); a stale-tile cancellation test (fast pan cancels
   off-screen fetches); a forced-failure tile is retried and eventually present;
   offline-region tiles serve with no network.
+
+### Hardening status (2026-06-12)
+- ✅ **Stage 0** — declarative tile reconciler (commit on main).
+- ✅ **Stage 1** — fail-fast + `nativeLastError` + visible error surface.
+- ✅ **Stage 2** — dedicated render thread + `Mutex<OnScreen>` (concurrency stress test).
+- ✅ **Stage 3** — render-on-demand + camera-only overlay tick.
+- ⬜ **Stage 4** (shared GPU device), **Stage 0b** (OfflineTileManager cache), **Stage 6** (memory/telemetry), **Stage 7** (device golden + differential gates) — remaining.
