@@ -324,6 +324,46 @@ internal class TurbomapSurfaceController {
         requestReconcile()
     }
 
+    // ── Weather-cloud overlay ───────────────────────────────────────────────
+    // Thin forwarders to the native overlay. The engine is serialised by a
+    // Mutex inside the FFI, so these are safe to call from the main thread
+    // while the render thread draws — they just contend briefly for the lock,
+    // like the tile reconciler.
+
+    /** Enable the cloud overlay with a [gridW]×[gridH] radar grid. */
+    fun enableClouds(gridW: Int, gridH: Int) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeEnableClouds(handle, gridW, gridH)
+        requestRender(cameraMoved = false)
+    }
+
+    /** Hide/show the overlay without discarding uploaded frames. */
+    fun setCloudsVisible(visible: Boolean) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeSetCloudsVisible(handle, visible)
+        requestRender(cameraMoved = false)
+    }
+
+    /**
+     * Upload a radar frame into [slot] (0 = current timestep, 1 = next) from
+     * two [gridW]×[gridH] byte planes — [precip] and [coverage], each 0..255.
+     */
+    fun ingestRadarFrame(slot: Int, gridW: Int, gridH: Int, precip: ByteArray, coverage: ByteArray) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeIngestRadarFrame(handle, slot, gridW, gridH, precip, coverage)
+        requestRender(cameraMoved = false)
+    }
+
+    /**
+     * Set the cloud animation clock ([time], seconds) and the slot-0→slot-1
+     * crossfade ([blend], 0..1) — what the time slider scrubs. Redraws.
+     */
+    fun setCloudTime(time: Float, blend: Float) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeSetCloudTime(handle, time, blend)
+        requestRender(cameraMoved = false)
+    }
+
     fun onTransform(panX: Float, panY: Float, zoomFactor: Float) {
         if (handle == 0L) return
         val unp = NativeSurfaceMap.nativeUnproject(handle, width / 2.0 - panX, height / 2.0 - panY)

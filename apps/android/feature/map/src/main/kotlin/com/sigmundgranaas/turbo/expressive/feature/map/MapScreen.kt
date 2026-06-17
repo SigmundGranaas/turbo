@@ -80,6 +80,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.core.turbomap.android.TurbomapMapView
+import com.sigmundgranaas.turbo.expressive.feature.map.radar.RadarOverlayControls
 import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -576,6 +577,17 @@ fun MapScreen(
                 onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
                 modifier = Modifier.fillMaxSize(),
             )
+            }
+
+            // Procedural weather-cloud overlay + time slider — wgpu engine only
+            // (the controls render nothing if the engine can't draw clouds).
+            if (state.experimentalWgpuMap) {
+                RadarOverlayControls(
+                    engine = ui.controller,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 96.dp, start = 16.dp, end = 16.dp),
+                )
             }
 
             // No silent blank: if the wgpu engine failed to start, say so.
