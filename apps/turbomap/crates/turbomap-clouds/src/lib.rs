@@ -18,8 +18,75 @@
 use bytemuck::{Pod, Zeroable};
 
 pub mod data;
+pub mod metrics;
 
 pub use data::{Cell, RadarFrame, SyntheticStorm};
+
+/// Which quantity the shader writes out, for diagnostics. [`DebugView::Final`]
+/// is the real overlay; every other variant isolates one internal stage of
+/// the pipeline as an opaque greyscale (or colour) image, so the look can be
+/// decomposed and measured. Mirrors the `debug_view` switch in `clouds.wgsl`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum DebugView {
+    /// The production premultiplied-alpha composite.
+    Final,
+    /// De-blocked radar precipitation channel (drives darkness).
+    RadarPrecip,
+    /// De-blocked radar coverage channel (drives where cloud exists).
+    RadarCoverage,
+    /// Raw domain-warped fractal cloud field, before thresholding.
+    CloudField,
+    /// Density after the coverage-driven threshold (the silhouette).
+    Density,
+    /// Relief lighting term (sun slope + self-shadow + rim), normalised.
+    Light,
+    /// Final composited opacity.
+    Alpha,
+    /// Lit, tinted, rain-coloured albedo (opaque).
+    Albedo,
+}
+
+impl DebugView {
+    /// All views in pipeline order — handy for a decomposition montage.
+    pub const ALL: [DebugView; 8] = [
+        DebugView::Final,
+        DebugView::RadarPrecip,
+        DebugView::RadarCoverage,
+        DebugView::CloudField,
+        DebugView::Density,
+        DebugView::Light,
+        DebugView::Alpha,
+        DebugView::Albedo,
+    ];
+
+    /// The `debug_view` code passed to the shader.
+    pub fn code(self) -> u32 {
+        match self {
+            DebugView::Final => 0,
+            DebugView::RadarPrecip => 1,
+            DebugView::RadarCoverage => 2,
+            DebugView::CloudField => 3,
+            DebugView::Density => 4,
+            DebugView::Light => 5,
+            DebugView::Alpha => 6,
+            DebugView::Albedo => 7,
+        }
+    }
+
+    /// Short human label for montage captions / logs.
+    pub fn label(self) -> &'static str {
+        match self {
+            DebugView::Final => "final",
+            DebugView::RadarPrecip => "radar precip",
+            DebugView::RadarCoverage => "radar coverage",
+            DebugView::CloudField => "cloud field",
+            DebugView::Density => "density",
+            DebugView::Light => "light",
+            DebugView::Alpha => "alpha",
+            DebugView::Albedo => "albedo",
+        }
+    }
+}
 
 /// GPU-side per-frame parameters, mirrored exactly by the `Uniforms`
 /// block in `clouds.wgsl`.
@@ -35,6 +102,8 @@ struct Uniforms {
     erosion: f32,
     softness: f32,
     intensity: f32,
+    debug_view: u32,
+    _pad: [u32; 3],
 }
 
 /// Tunable look of the cloud overlay for one rendered frame.
@@ -60,6 +129,10 @@ pub struct CloudParams {
     pub softness: f32,
     /// Overall opacity of the overlay.
     pub intensity: f32,
+    /// Diagnostic output selector. [`DebugView::Final`] renders the real
+    /// overlay; other variants emit an internal pipeline stage so it can be
+    /// inspected and measured. Always [`DebugView::Final`] in production.
+    pub debug_view: DebugView,
 }
 
 impl Default for CloudParams {
@@ -74,6 +147,7 @@ impl Default for CloudParams {
             erosion: 0.5,
             softness: 0.5,
             intensity: 0.95,
+            debug_view: DebugView::Final,
         }
     }
 }
@@ -318,6 +392,8 @@ impl CloudScene {
             erosion: params.erosion,
             softness: params.softness,
             intensity: params.intensity,
+            debug_view: params.debug_view.code(),
+            _pad: [0; 3],
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 

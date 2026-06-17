@@ -19,6 +19,10 @@ struct Uniforms {
     erosion    : f32,   // high-freq edge erosion strength
     softness   : f32,   // alpha edge width
     intensity  : f32,   // overall opacity
+    debug_view : u32,   // 0 = production; >0 = output an internal stage (AOV)
+    _pad0      : u32,
+    _pad1      : u32,
+    _pad2      : u32,
 };
 
 @group(0) @binding(0) var<uniform> U : Uniforms;
@@ -156,15 +160,24 @@ fn rain_albedo(precip : f32) -> vec3<f32> {
     return c;
 }
 
-@fragment
-fn fs(in : VsOut) -> @location(0) vec4<f32> {
-    let uv = in.uv;
+// All intermediate quantities of one shaded fragment. Computed once in
+// `shade()` so the production path and the diagnostic AOV branch see
+// exactly the same numbers — the debug views never lie about what the
+// final pixel was built from.
+struct Shade {
+    precip   : f32,
+    coverage : f32,
+    field    : f32, // cloud_field f0 (the silhouette + lighting source)
+    density  : f32, // shape_to_density(field, coverage)
+    light    : f32, // relief lighting term, ~0.15..1.8
+    alpha    : f32, // final composited opacity
+    col      : vec3<f32>, // lit, tinted, rain-coloured albedo
+};
+
+fn shade(uv : vec2<f32>) -> Shade {
     let rv = radar_value(uv);
     let precip = rv.r;
     let coverage = rv.g;
-    if (coverage <= 0.02) {
-        return vec4<f32>(0.0);
-    }
 
     // Sample the cloud field at the pixel and two steps toward the sun.
     // The difference along the light direction IS the relief: where the
@@ -177,9 +190,6 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
     let f2 = cloud_field(uv + sun_step * 2.4);
 
     let d = shape_to_density(f0, coverage);
-    if (d <= 0.004) {
-        return vec4<f32>(0.0);
-    }
 
     // Relief lighting: slope toward the sun, plus a soft Beer self-shadow
     // from the further sample (cloud "above" in light dir occludes).
@@ -209,6 +219,55 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
     alpha = max(alpha, storm);
     alpha = clamp(alpha * U.intensity, 0.0, 0.97);
 
-    // Premultiplied output.
-    return vec4<f32>(col * alpha, alpha);
+    var s : Shade;
+    s.precip = precip;
+    s.coverage = coverage;
+    s.field = f0;
+    s.density = d;
+    s.light = light;
+    s.alpha = alpha;
+    s.col = col;
+    return s;
+}
+
+// Pack a scalar as an opaque greyscale pixel for an AOV readback. Written
+// through the sRGB target, so the harness sRGB-decodes it back to linear.
+fn gray(v : f32) -> vec4<f32> {
+    let c = clamp(v, 0.0, 1.0);
+    return vec4<f32>(c, c, c, 1.0);
+}
+
+// Diagnostic "arbitrary output variable" views — each isolates one stage
+// of the pipeline so a human (and the fidelity metrics) can see where the
+// look comes from. Selected by `U.debug_view`; `0` is the real overlay.
+fn debug_aov(s : Shade) -> vec4<f32> {
+    switch (U.debug_view) {
+        case 1u: { return gray(s.precip); }                       // radar precip (de-blocked)
+        case 2u: { return gray(s.coverage); }                     // radar coverage (de-blocked)
+        case 3u: { return gray(s.field); }                        // raw cloud_field
+        case 4u: { return gray(s.density); }                      // thresholded density
+        case 5u: { return gray(s.light / 1.8); }                  // relief lighting term
+        case 6u: { return gray(s.alpha); }                        // final opacity
+        case 7u: { return vec4<f32>(s.col, 1.0); }                // lit/tinted albedo (opaque)
+        default: { return vec4<f32>(s.col * s.alpha, s.alpha); }  // production composite
+    }
+}
+
+@fragment
+fn fs(in : VsOut) -> @location(0) vec4<f32> {
+    let s = shade(in.uv);
+
+    if (U.debug_view > 0u) {
+        return debug_aov(s);
+    }
+
+    // Production path: bail on empty sky / sub-threshold density exactly
+    // as before, then composite premultiplied.
+    if (s.coverage <= 0.02) {
+        return vec4<f32>(0.0);
+    }
+    if (s.density <= 0.004) {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(s.col * s.alpha, s.alpha);
 }

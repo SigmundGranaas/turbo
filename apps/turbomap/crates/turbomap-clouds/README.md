@@ -32,6 +32,35 @@ The demo renders headless through the golden harness's software adapter
 (Lavapipe), so it produces deterministic screenshots with no window, no
 network, and no real GPU.
 
+## Diagnosing the look (`diagnose_clouds`)
+
+`render_clouds` is a *demo*; `diagnose_clouds` is an *instrument* for
+finding out **why** the clouds look wrong and tuning them against numbers
+instead of vibes:
+
+```sh
+cargo run --release -p turbomap-clouds --example diagnose_clouds /tmp/turbo-clouds-diag
+```
+
+It writes:
+
+- `debug_channels.png` — the shader decomposed into its internal stages
+  (radar precip/coverage → cloud field → density → light → alpha → albedo
+  → final), side by side. This is where you *see* which stage breaks the
+  look. Backed by a `debug_view` AOV switch in the shader (`DebugView`),
+  so production (`DebugView::Final`) is byte-for-byte unchanged.
+- `aov_*.png` — each stage full size.
+- `param_sweep.png` — the final look across a `map_scale × softness` grid.
+- `fidelity.txt` — a per-frame **fidelity scorecard** (also on stdout):
+  - `cov→alpha corr` (↑) — does cloud sit where the data says?
+  - `leak` (↓) — cloud painted over clear sky (the "spilled milk" number).
+  - `miss` (↓) — overcast that failed to render as cloud.
+  - `silhouette IoU` (↑) — overlap of the coverage and alpha masks.
+  - `precip→dark corr` (↑) — does heavier rain render darker?
+
+The scorecard math lives in [`metrics`](src/metrics.rs) — pure CPU, no GPU
+or image deps, unit-tested, so it can also gate regressions.
+
 ## How it looks 3D without raymarching
 
 It's a flat 2D field, shaded to fake volume — cheap enough for a mobile
