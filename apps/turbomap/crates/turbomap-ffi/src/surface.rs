@@ -17,7 +17,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use jni::objects::{JClass, JObject, JString};
-use jni::sys::{jboolean, jdouble, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jdouble, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use ndk::native_window::NativeWindow;
 use raw_window_handle::{
@@ -622,6 +622,92 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         })
     };
     if ok == Some(true) { JNI_TRUE } else { JNI_FALSE }
+}
+
+// ---- weather-cloud overlay ----------------------------------------------
+
+/// Enable the procedural cloud overlay with a `gridW × gridH` radar grid.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeEnableClouds(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    grid_w: jint,
+    grid_h: jint,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine
+                .enable_clouds(grid_w.max(0) as u32, grid_h.max(0) as u32);
+        });
+    }
+}
+
+/// Disable the overlay, or just hide it (`visible == false`) while keeping
+/// uploaded frames.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetCloudsVisible(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    visible: jboolean,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.set_clouds_visible(visible != JNI_FALSE);
+        });
+    }
+}
+
+/// Upload a radar frame into `slot` (0 = current, 1 = next) from two
+/// `gridW * gridH` byte planes — `precip` and `coverage`, each 0..=255.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeIngestRadarFrame(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    slot: jint,
+    grid_w: jint,
+    grid_h: jint,
+    precip: jni::objects::JByteArray,
+    coverage: jni::objects::JByteArray,
+) {
+    let precip = match env.convert_byte_array(&precip) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let coverage = match env.convert_byte_array(&coverage) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.ingest_radar_frame(
+                slot.max(0) as u32,
+                grid_w.max(0) as u32,
+                grid_h.max(0) as u32,
+                &precip,
+                &coverage,
+            );
+        });
+    }
+}
+
+/// Set the cloud animation clock (`time`, seconds) and the slot-0→slot-1
+/// crossfade (`blend`, 0..=1) — what the time slider scrubs.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetCloudTime(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    time: jfloat,
+    blend: jfloat,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.set_cloud_time(time, blend);
+        });
+    }
 }
 
 #[no_mangle]

@@ -14,7 +14,8 @@ use std::sync::Arc;
 use turbomap_core::{
     Camera, Color as CoreColor, Filter as CoreFilter, HillshadeStyle, HitResult,
     LatLng as CoreLatLng, Map, MapError, MapOptions, Marker, MarkerId, Paint as CorePaint,
-    PendingTile, Rule as CoreRule, TerrainOptions, TileId, TileSource, VectorStyle, VectorTileSource,
+    PendingTile, RadarFrame, Rule as CoreRule, TerrainOptions, TileId, TileSource, VectorStyle,
+    VectorTileSource,
 };
 use turbomap_scene::{
     diff, Capabilities, CameraState, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
@@ -481,6 +482,49 @@ impl TurbomapEngine {
     /// Tilt by `delta_deg` about `focus_px`, keeping that pixel anchored.
     pub fn pitch_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
         self.map.pitch_around(delta_deg, focus_px);
+    }
+
+    // ---- Weather-cloud overlay (passthrough to Map) -------------------
+
+    /// Enable the procedural cloud overlay with a radar grid sized
+    /// `grid_w × grid_h`. Push frames with [`ingest_radar_frame`] and drive
+    /// the time slider with [`set_cloud_time`].
+    ///
+    /// [`ingest_radar_frame`]: Self::ingest_radar_frame
+    /// [`set_cloud_time`]: Self::set_cloud_time
+    pub fn enable_clouds(&mut self, grid_w: u32, grid_h: u32) {
+        self.map.enable_clouds(grid_w, grid_h);
+    }
+
+    /// Tear the cloud overlay down, freeing its GPU resources.
+    pub fn disable_clouds(&mut self) {
+        self.map.disable_clouds();
+    }
+
+    /// Show/hide the overlay without discarding its state.
+    pub fn set_clouds_visible(&mut self, visible: bool) {
+        self.map.set_clouds_visible(visible);
+    }
+
+    /// Upload a radar frame into slot 0 (current timestep) or 1 (next),
+    /// from two `grid_w * grid_h` byte planes: `precip` and `coverage`,
+    /// each normalised to `0..=255`.
+    pub fn ingest_radar_frame(
+        &mut self,
+        slot: u32,
+        grid_w: u32,
+        grid_h: u32,
+        precip: &[u8],
+        coverage: &[u8],
+    ) {
+        let frame = RadarFrame::from_u8(grid_w, grid_h, precip, coverage);
+        self.map.ingest_radar_frame(slot, &frame);
+    }
+
+    /// Set the cloud animation clock (`time`, seconds) and the slot-0→slot-1
+    /// crossfade (`blend`, `0..=1`) — what a time slider scrubs.
+    pub fn set_cloud_time(&mut self, time: f32, blend: f32) {
+        self.map.set_cloud_time(time, blend);
     }
 
     /// Animated focus-invariant zoom over `duration` — the smooth double-tap
