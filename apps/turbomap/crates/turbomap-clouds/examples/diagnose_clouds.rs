@@ -113,6 +113,47 @@ fn main() {
         softs, scales
     );
 
+    // --- 4. Lighting sweep: sun elevation × extinction --------------------
+    let elevs = [0.12f32, 0.28, 0.5, 0.8];
+    let exts = [5.0f32, 9.0, 14.0];
+    let mut lsweep: Vec<RgbaImage> = Vec::new();
+    let mut llabels: Vec<String> = Vec::new();
+    for &ext in &exts {
+        for &el in &elevs {
+            let params = CloudParams {
+                sun_elevation: el,
+                extinction: ext,
+                light_extinction: ext + 3.0,
+                ..base
+            };
+            lsweep.push(render(&gpu, &scene, &params));
+            llabels.push(format!("el={el} ext={ext}"));
+        }
+    }
+    let lref: Vec<(&str, RgbaImage)> = lsweep
+        .iter()
+        .enumerate()
+        .map(|(i, img)| (llabels[i].as_str(), img.clone()))
+        .collect();
+    save_montage(&lref, elevs.len() as u32, out.join("lighting_sweep.png"));
+    eprintln!(
+        "lighting sweep -> {out_dir}/lighting_sweep.png (rows: ext {:?}, cols: sun-elev {:?})",
+        exts, elevs
+    );
+
+    // --- 5. Tilted "hero": the view raked through the slab (map pitched) --
+    // parallax 0 is top-down (flat); a nonzero value reveals the puff sides.
+    for (tag, px) in [("flat", 0.0f32), ("tilted", 0.35)] {
+        let params = CloudParams {
+            parallax: px,
+            ..base
+        };
+        render(&gpu, &scene, &params)
+            .save(out.join(format!("hero_{tag}.png")))
+            .expect("save hero");
+    }
+    eprintln!("hero -> {out_dir}/hero_flat.png + hero_tilted.png (parallax 0 vs 0.35)");
+
     eprintln!("done -> {out_dir}");
 }
 

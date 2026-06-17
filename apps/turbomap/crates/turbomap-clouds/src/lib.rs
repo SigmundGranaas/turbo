@@ -102,6 +102,10 @@ struct Uniforms {
     erosion: f32,
     softness: f32,
     intensity: f32,
+    parallax: f32,
+    sun_elevation: f32,
+    extinction: f32,
+    light_extinction: f32,
     debug_view: u32,
     _pad: [u32; 3],
 }
@@ -129,6 +133,19 @@ pub struct CloudParams {
     pub softness: f32,
     /// Overall opacity of the overlay.
     pub intensity: f32,
+    /// View parallax through the cloud layer, from the map camera's pitch.
+    /// `0` = straight-down (the cloud field renders flat, top-down); higher
+    /// = the view ray rakes through the slab and reveals the puff *sides*
+    /// (real 3D when the map is tilted). Roughly `tan(pitch) · layer_depth`.
+    pub parallax: f32,
+    /// Sun elevation above the horizon, `0` = grazing (long shadows), `1` =
+    /// overhead (flat). Low values give the strongest 3D relief from above.
+    pub sun_elevation: f32,
+    /// View-ray extinction coefficient — how fast the cloud becomes opaque
+    /// (edge crispness vs. translucency).
+    pub extinction: f32,
+    /// Light-ray extinction — strength of the self-shadowing toward the sun.
+    pub light_extinction: f32,
     /// Diagnostic output selector. [`DebugView::Final`] renders the real
     /// overlay; other variants emit an internal pipeline stage so it can be
     /// inspected and measured. Always [`DebugView::Final`] in production.
@@ -147,6 +164,10 @@ impl Default for CloudParams {
             erosion: 0.5,
             softness: 0.5,
             intensity: 0.95,
+            parallax: 0.0,
+            sun_elevation: 0.28,
+            extinction: 7.0,
+            light_extinction: 11.0,
             debug_view: DebugView::Final,
         }
     }
@@ -392,6 +413,10 @@ impl CloudScene {
             erosion: params.erosion,
             softness: params.softness,
             intensity: params.intensity,
+            parallax: params.parallax,
+            sun_elevation: params.sun_elevation,
+            extinction: params.extinction,
+            light_extinction: params.light_extinction,
             debug_view: params.debug_view.code(),
             _pad: [0; 3],
         };

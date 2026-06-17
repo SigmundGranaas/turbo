@@ -19,6 +19,10 @@ struct Uniforms {
     erosion    : f32,   // high-freq edge erosion strength
     softness   : f32,   // alpha edge width
     intensity  : f32,   // overall opacity
+    parallax   : f32,   // view sweep through the slab (map pitch); 0 = top-down
+    sun_elev   : f32,   // sun elevation 0=grazing .. 1=overhead
+    extinction : f32,   // view-ray extinction
+    light_ext  : f32,   // light-ray extinction (shadow strength)
     debug_view : u32,   // 0 = production; >0 = output an internal stage (AOV)
     _pad0      : u32,
     _pad1      : u32,
@@ -293,7 +297,7 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     // LOW sun: a near-horizon light rakes across the cloud tops so puffs
     // throw long shadows over their neighbours — the drama you only get at
     // a low sun angle is what reads as 3D form from straight above.
-    let sun = normalize(vec3<f32>(normalize(U.sun_dir), 0.28));
+    let sun = normalize(vec3<f32>(normalize(U.sun_dir), U.sun_elev));
 
     // Lit cloud reads near-white; shadowed sides/crevices fall to a cool
     // sky-blue. Ambient is graded by height (more sky light up top).
@@ -302,11 +306,18 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     let sky_bot = vec3<f32>(0.26, 0.31, 0.42);
 
     let dz = 1.0 / f32(PRIMARY_STEPS);
-    let ext = 7.0;     // view-ray extinction (opacity build-up)
+    let ext = U.extinction; // view-ray extinction (opacity build-up)
     // Light march reaches a couple of puff widths toward the low sun so a
     // puff shadows its NEIGHBOURS (crisp inter-puff shadows), not itself.
     let lstep = 2.4 / (U.map_scale * f32(LIGHT_STEPS));
-    let lext = 11.0;   // light extinction (shadow strength)
+    let lext = U.light_ext; // light extinction (shadow strength)
+
+    // View ray rakes through the slab when the map is pitched: as we descend
+    // from the slab top, the sample point slides "north" (screen-up). At
+    // parallax 0 this is a straight-down column (top-down); with parallax the
+    // ray sees the puff SIDES → real 3D. Centred on the slab mid-plane so the
+    // overlay stays roughly registered to the map.
+    let ray_az = vec2<f32>(0.0, 1.0);
 
     var transmit = 1.0;
     var scattered = vec3<f32>(0.0);
@@ -318,7 +329,8 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
             break;
         }
         let z = 1.0 - (f32(i) + 0.5) * dz;
-        let d = cloud_density(uv, z);
+        let suv = uv + ray_az * (U.parallax * (0.5 - z));
+        let d = cloud_density(suv, z);
         if (d <= 0.002) {
             continue;
         }
@@ -327,7 +339,7 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
         var ld = 0.0;
         for (var j = 1; j <= LIGHT_STEPS; j = j + 1) {
             let t = lstep * f32(j);
-            ld += cloud_density(uv + sun.xy * t, z + sun.z * t);
+            ld += cloud_density(suv + sun.xy * t, z + sun.z * t);
         }
 
         // Beer–Lambert shadow toward the sun, with a low multi-scatter floor
