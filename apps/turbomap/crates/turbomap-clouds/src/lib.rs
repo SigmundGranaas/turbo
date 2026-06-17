@@ -42,7 +42,7 @@ pub enum DebugView {
     Light,
     /// Final composited opacity.
     Alpha,
-    /// Lit, tinted, rain-coloured albedo (opaque).
+    /// Unlit rain-coloured albedo (precip → darkness), before lighting.
     Albedo,
 }
 

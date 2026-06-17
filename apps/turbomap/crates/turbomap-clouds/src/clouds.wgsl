@@ -139,24 +139,32 @@ fn cloud_field(uv : vec2<f32>) -> f32 {
 }
 
 // Turn the continuous field into a soft cloud density for a given cloud
-// coverage. Coverage lowers the threshold and the band stays WIDE, so
-// edges feather out fractally (wispy) instead of cutting to hard blobs.
+// coverage. Coverage drives the threshold the fractal field has to clear;
+// the band is NARROW so the field's own valleys punch real sky gaps
+// through the cloud (billows, not a flat overcast sheet) while the edges
+// still feather over a few pixels. A faint floor keeps wisps at the rim.
 fn shape_to_density(f : f32, coverage : f32) -> f32 {
-    let lo = mix(0.95, 0.18, coverage);
-    return clamp(smoothstep(lo, lo + 0.40, f), 0.0, 1.0);
+    // c≈0 → high threshold (almost nothing clears it); c≈1 → low threshold
+    // (most of the field is cloud, but the deepest valleys still gap).
+    let threshold = mix(0.80, 0.26, coverage);
+    let band = 0.16;
+    return clamp(smoothstep(threshold, threshold + band, f), 0.0, 1.0);
 }
 
-// Base albedo from rain intensity: dry cloud is bright white, drizzle
-// greys it down, heavy rain drives it to near-black charcoal.
+// Base albedo from rain intensity. Cloud stays BRIGHT WHITE until the rain
+// is genuinely moderate — the old low-end boost greyed almost everything
+// down to dirty smoke ("spilled milk"). Now only real precipitation darkens
+// it: white cumulus → grey → charcoal storm core, with a dead-zone at the
+// bottom so fair-weather cloud reads clean and white.
 fn rain_albedo(precip : f32) -> vec3<f32> {
     let c_dry   = vec3<f32>(0.98, 0.99, 1.00); // bright cumulus
-    let c_light = vec3<f32>(0.68, 0.71, 0.78); // light rain grey
-    let c_mid   = vec3<f32>(0.34, 0.37, 0.45); // steady rain
+    let c_light = vec3<f32>(0.66, 0.69, 0.77); // light rain grey
+    let c_mid   = vec3<f32>(0.32, 0.35, 0.43); // steady rain
     let c_heavy = vec3<f32>(0.09, 0.10, 0.14); // charcoal storm core
-    let p = pow(clamp(precip, 0.0, 1.0), 0.75); // boost low end
-    var c = mix(c_dry, c_light, smoothstep(0.02, 0.30, p));
-    c = mix(c, c_mid, smoothstep(0.30, 0.60, p));
-    c = mix(c, c_heavy, smoothstep(0.60, 1.0, p));
+    let p = clamp(precip, 0.0, 1.0);
+    var c = mix(c_dry, c_light, smoothstep(0.15, 0.45, p));
+    c = mix(c, c_mid, smoothstep(0.45, 0.70, p));
+    c = mix(c, c_heavy, smoothstep(0.70, 0.95, p));
     return c;
 }
 
@@ -171,7 +179,8 @@ struct Shade {
     density  : f32, // shape_to_density(field, coverage)
     light    : f32, // relief lighting term, ~0.15..1.8
     alpha    : f32, // final composited opacity
-    col      : vec3<f32>, // lit, tinted, rain-coloured albedo
+    albedo   : vec3<f32>, // UNLIT rain-coloured albedo (precip → darkness)
+    col      : vec3<f32>, // final lit + tinted colour
 };
 
 fn shade(uv : vec2<f32>) -> Shade {
@@ -191,18 +200,25 @@ fn shade(uv : vec2<f32>) -> Shade {
 
     let d = shape_to_density(f0, coverage);
 
-    // Relief lighting: slope toward the sun, plus a soft Beer self-shadow
-    // from the further sample (cloud "above" in light dir occludes).
-    // High base level so sunlit cloud reads bright white; the slope term
-    // sculpts bright tops vs. shadowed undersides for fluffy 3D form.
-    let slope = (f0 - f1) * 6.0;
-    let self_shadow = exp(-max(f2 - f0, 0.0) * 2.0);
-    var light = (0.9 + slope) * self_shadow;
+    // Relief lighting. The field doubles as a height proxy: stepping toward
+    // the sun, a FALLING field means this face tilts into the light (bright
+    // sunlit top); a rising one means it tilts away (shadowed underside).
+    // `dlight` is that signed slope; the strong gain + low ambient floor is
+    // what gives fluffy 3D form instead of the old flat ~0.9 haze.
+    let dlight = f0 - f1;
+    // Ambient occlusion: deep field valleys are cloud interior/crevices and
+    // read dark; the high parts (tops) catch full light.
+    let ao = smoothstep(0.12, 0.62, f0);
+    // Directional sun term, centred so flat areas sit mid-bright.
+    let sun = clamp(0.5 + dlight * 9.0, 0.0, 1.5);
+    // Cast self-shadow: cloud further toward the sun occludes us (Beer).
+    let self_shadow = exp(-max(f2 - f0, 0.0) * 3.0);
+    var light = (0.32 + 0.9 * sun * ao) * self_shadow;
 
-    // Thin edges catch a bright silver lining where they face the sun.
-    let rim = smoothstep(0.55, 0.0, d) * clamp(slope + 0.2, 0.0, 1.0);
-    light = light + rim * 0.5;
-    light = clamp(light, 0.15, 1.8);
+    // Thin edges facing the sun catch a bright silver lining.
+    let rim = smoothstep(0.5, 0.0, d) * clamp(dlight * 8.0, 0.0, 1.0);
+    light = light + rim * 0.6;
+    light = clamp(light, 0.12, 1.9);
 
     // Cool shadow / warm highlight tint for atmospheric depth.
     let albedo = rain_albedo(precip);
@@ -226,6 +242,7 @@ fn shade(uv : vec2<f32>) -> Shade {
     s.density = d;
     s.light = light;
     s.alpha = alpha;
+    s.albedo = albedo;
     s.col = col;
     return s;
 }
@@ -248,7 +265,7 @@ fn debug_aov(s : Shade) -> vec4<f32> {
         case 4u: { return gray(s.density); }                      // thresholded density
         case 5u: { return gray(s.light / 1.8); }                  // relief lighting term
         case 6u: { return gray(s.alpha); }                        // final opacity
-        case 7u: { return vec4<f32>(s.col, 1.0); }                // lit/tinted albedo (opaque)
+        case 7u: { return vec4<f32>(s.albedo, 1.0); }             // unlit rain albedo (opaque)
         default: { return vec4<f32>(s.col * s.alpha, s.alpha); }  // production composite
     }
 }
