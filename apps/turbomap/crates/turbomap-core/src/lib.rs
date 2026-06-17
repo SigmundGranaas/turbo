@@ -28,8 +28,8 @@ pub use dem::{decode_elevation, DemEncoding};
 pub use error::{MapError, TileError};
 pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
 pub use map::{
-    HitFeature, HitMarker, HitResult, Map, MapOptions, Marker, MarkerId, PendingTile,
-    PublicTerrainOptions as TerrainOptions,
+    CloudParams, HitFeature, HitMarker, HitResult, Map, MapOptions, Marker, MarkerId, PendingTile,
+    PublicTerrainOptions as TerrainOptions, RadarFrame,
 };
 pub use scene::Scene;
 pub use source::{RasterFormat, RasterTile, TileSource};

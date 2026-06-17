@@ -53,6 +53,27 @@ impl RadarFrame {
         }
     }
 
+    /// Build a frame from two `width * height` byte planes — the shape a
+    /// host hands across an FFI boundary after sampling MET radar/nowcast
+    /// (precip) and cloud-cover (coverage) rasters and normalising each to
+    /// `0..=255`. Lengths shorter than `width * height` are zero-padded;
+    /// extra bytes are ignored.
+    pub fn from_u8(width: u32, height: u32, precip: &[u8], coverage: &[u8]) -> Self {
+        let n = (width * height) as usize;
+        let cells = (0..n)
+            .map(|i| Cell {
+                precip: precip.get(i).copied().unwrap_or(0) as f32 / 255.0,
+                coverage: coverage.get(i).copied().unwrap_or(0) as f32 / 255.0,
+            })
+            .collect();
+        Self {
+            width,
+            height,
+            minutes: 0.0,
+            cells,
+        }
+    }
+
     /// Pack into the `Rgba8Unorm` layout the shader samples: `R` =
     /// precip, `G` = coverage. `B`/`A` are reserved (kept at 255) so the
     /// texture stays renderable/inspectable as an ordinary image.

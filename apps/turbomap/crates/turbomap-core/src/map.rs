@@ -44,6 +44,18 @@ use crate::{
 };
 
 pub use crate::render::terrain::TerrainOptions as PublicTerrainOptions;
+pub use turbomap_clouds::{CloudParams, RadarFrame};
+
+/// The procedural weather-cloud overlay, drawn after the map's frame
+/// pass. Holds the GPU pipeline state plus the current per-frame
+/// parameters (animation clock + A→B radar crossfade) the host updates.
+struct CloudOverlay {
+    scene: turbomap_clouds::CloudScene,
+    params: CloudParams,
+    /// Radar grid dimensions the two data textures were allocated for.
+    grid: (u32, u32),
+    enabled: bool,
+}
 
 /// The one camera animation in flight. `Map` samples whichever is active in
 /// `tick`; they are mutually exclusive — starting any one replaces the rest.
@@ -322,6 +334,10 @@ pub struct Map {
     /// Multisampled colour target the frame pass renders into; resolved to
     /// the surface at pass end. Recreated alongside the depth view.
     msaa_color_view: wgpu::TextureView,
+    /// Optional procedural weather-cloud overlay. Drawn in its own pass
+    /// over the resolved surface (it's a single-sampled, depth-less
+    /// fullscreen composite, so it can't share the MSAA frame pass).
+    clouds: Option<CloudOverlay>,
 }
 
 struct Terrain {
@@ -372,7 +388,82 @@ impl Map {
             depth_view,
             msaa_color_view,
             depth_size: initial_size,
+            clouds: None,
         })
+    }
+
+    // ---- Procedural weather-cloud overlay -----------------------------
+
+    /// Turn on the procedural cloud overlay, allocating its two radar
+    /// data textures at `grid_w × grid_h`. Idempotent for a given grid
+    /// size; calling with a new size rebuilds the textures (and clears any
+    /// uploaded frames). Upload radar frames with [`Map::ingest_radar_frame`]
+    /// and drive the animation with [`Map::set_cloud_time`].
+    pub fn enable_clouds(&mut self, grid_w: u32, grid_h: u32) {
+        if let Some(c) = &mut self.clouds {
+            if c.grid == (grid_w, grid_h) {
+                c.enabled = true;
+                return;
+            }
+        }
+        let scene =
+            turbomap_clouds::CloudScene::new(&self.device, self.surface_format, grid_w, grid_h);
+        self.clouds = Some(CloudOverlay {
+            scene,
+            params: CloudParams::default(),
+            grid: (grid_w, grid_h),
+            enabled: true,
+        });
+    }
+
+    /// Show/hide the overlay without discarding its GPU state or uploaded
+    /// frames. No-op if clouds were never enabled.
+    pub fn set_clouds_visible(&mut self, visible: bool) {
+        if let Some(c) = &mut self.clouds {
+            c.enabled = visible;
+        }
+    }
+
+    /// Tear the overlay down entirely, freeing its GPU resources.
+    pub fn disable_clouds(&mut self) {
+        self.clouds = None;
+    }
+
+    /// Whether the overlay is currently enabled and will draw.
+    pub fn clouds_enabled(&self) -> bool {
+        self.clouds.as_ref().map(|c| c.enabled).unwrap_or(false)
+    }
+
+    /// Upload a radar frame into slot 0 (current timestep) or 1 (next).
+    /// The frame's dimensions must match the grid passed to
+    /// [`Map::enable_clouds`]. No-op if clouds aren't enabled.
+    pub fn ingest_radar_frame(&mut self, slot: u32, frame: &RadarFrame) {
+        if let Some(c) = &self.clouds {
+            c.scene.upload(&self.queue, slot as usize, frame);
+        }
+    }
+
+    /// Set the per-frame animation state: `time` is a free-running clock
+    /// (seconds) driving cloud drift/boil; `blend` in `0..=1` crossfades
+    /// the slot-0 radar frame into the slot-1 frame — this is what a time
+    /// slider scrubs (and can run backward). No-op if clouds aren't enabled.
+    pub fn set_cloud_time(&mut self, time: f32, blend: f32) {
+        if let Some(c) = &mut self.clouds {
+            c.params.time = time;
+            c.params.blend = blend.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Replace the cloud overlay's full look parameters (wind, sun, feature
+    /// scale, opacity, …). `resolution` is overwritten per frame from the
+    /// viewport, so its value here is ignored. No-op if clouds aren't enabled.
+    pub fn set_cloud_params(&mut self, params: CloudParams) {
+        if let Some(c) = &mut self.clouds {
+            let (time, blend) = (c.params.time, c.params.blend);
+            c.params = params;
+            c.params.time = time;
+            c.params.blend = blend;
+        }
     }
 
     /// Enable 3D terrain. Future ground-plane draws will displace
@@ -1372,6 +1463,18 @@ impl Map {
 
             if let Some(p) = &prepared_markers {
                 self.marker_pipeline.draw(p, &mut pass);
+            }
+        }
+
+        // Weather-cloud overlay: a separate, single-sampled, depth-less
+        // fullscreen composite over the already-resolved surface. It can't
+        // join the MSAA frame pass above (sample-count / depth mismatch),
+        // so it pays one extra fullscreen pass — acceptable for an overlay.
+        if let Some(c) = &mut self.clouds {
+            if c.enabled {
+                c.params.resolution = [self.viewport_px.0 as f32, self.viewport_px.1 as f32];
+                c.scene
+                    .render(&self.queue, encoder, target, &c.params, false);
             }
         }
 

@@ -3839,6 +3839,7 @@ dependencies = [
  "lyon",
  "rustybuzz",
  "thiserror 1.0.69",
+ "turbomap-clouds",
  "turbomap-mvt",
  "unicode-bidi",
  "wgpu",

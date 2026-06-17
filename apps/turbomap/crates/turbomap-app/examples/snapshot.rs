@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use image::{ImageEncoder, RgbaImage};
 use turbomap_core::{
-    Camera, HillshadeStyle, LatLng, Map, MapOptions, PendingTile, RasterFormat, RasterTile,
-    TileError, TileId, TileSource,
+    Camera, HillshadeStyle, LatLng, Map, MapOptions, PendingTile, RadarFrame, RasterFormat,
+    RasterTile, TileError, TileId, TileSource,
 };
 
 const WIDTH: u32 = 1024;
@@ -166,6 +166,29 @@ impl TileSource for GaussianTerrainSource {
     }
 }
 
+/// A coarse synthetic radar grid (precip + coverage), like the blocky
+/// raster MET serves. A drifting frontal band carries the rain; broad
+/// cloud surrounds it. `phase` (0..1) slides the band so two frames differ.
+fn synthetic_radar(w: u32, h: u32, phase: f32) -> RadarFrame {
+    let mut precip = vec![0u8; (w * h) as usize];
+    let mut coverage = vec![0u8; (w * h) as usize];
+    let front = -0.2 + phase * 1.3;
+    for y in 0..h {
+        for x in 0..w {
+            let nx = (x as f32 + 0.5) / w as f32;
+            let ny = (y as f32 + 0.5) / h as f32;
+            let band = (-((nx + (ny - 0.5) * 0.3 - front).powi(2)) / (2.0 * 0.10 * 0.10)).exp();
+            let mass = (-((nx - 0.7).powi(2) + (ny - 0.35).powi(2)) / (2.0 * 0.16 * 0.16)).exp();
+            let cov = (band * 0.85 + mass * 0.8).clamp(0.0, 1.0);
+            let pr = (band * band * 0.7).clamp(0.0, 1.0);
+            let i = (y * w + x) as usize;
+            coverage[i] = (cov * 255.0) as u8;
+            precip[i] = (pr * 255.0) as u8;
+        }
+    }
+    RadarFrame::from_u8(w, h, &precip, &coverage)
+}
+
 fn encode_png(img: &RgbaImage) -> Vec<u8> {
     let mut out = Vec::with_capacity(8 * 1024);
     {
@@ -315,9 +338,27 @@ fn main() {
         Some(url) => Arc::new(HttpDemSource::new(url.clone())),
         None => Arc::new(GaussianTerrainSource::bergen()),
     };
+    let clouds_mode = std::env::var("CLOUDS").is_ok();
     map.add_raster_layer("basemap", basemap.clone());
-    map.set_terrain_source(dem.clone(), turbomap_core::TerrainOptions::default());
-    map.add_hillshade_layer("hillshade", HillshadeStyle::default());
+    // The cloud verification only needs the basemap underneath; skip
+    // terrain/hillshade so its tile loop (terrain requests are ignored
+    // here) doesn't dominate the run.
+    if !clouds_mode {
+        map.set_terrain_source(dem.clone(), turbomap_core::TerrainOptions::default());
+        map.add_hillshade_layer("hillshade", HillshadeStyle::default());
+    }
+
+    // `CLOUDS=1` exercises the weather-cloud overlay end-to-end through the
+    // real Map render path: enable it, push two synthetic radar frames, and
+    // park the time slider mid-crossfade.
+    if clouds_mode {
+        const GW: u32 = 64;
+        const GH: u32 = 42;
+        map.enable_clouds(GW, GH);
+        map.ingest_radar_frame(0, &synthetic_radar(GW, GH, 0.40));
+        map.ingest_radar_frame(1, &synthetic_radar(GW, GH, 0.55));
+        map.set_cloud_time(7.0, 0.5);
+    }
 
     // Drive the host loop synchronously: keep pulling pending tiles
     // until the Map stops asking for more, then render. Both sources
