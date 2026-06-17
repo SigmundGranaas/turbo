@@ -98,6 +98,41 @@ fn fbm4(p_in : vec2<f32>) -> f32 {
     return sum / norm;
 }
 
+// --- Worley / cellular noise → rounded "cauliflower" billows ---
+// F1 nearest-feature distance over a jittered grid. `1 - F1` peaks at the
+// feature points, giving the rounded lumps that read as puffy cumulus from
+// above (pure fBm can only make wispy turbulence, never round puffs).
+fn worley(p : vec2<f32>) -> f32 {
+    let ip = floor(p);
+    let fp = fract(p);
+    var d = 8.0;
+    for (var j = -1; j <= 1; j = j + 1) {
+        for (var i = -1; i <= 1; i = i + 1) {
+            let g = vec2<f32>(f32(i), f32(j));
+            let o = hash22(ip + g);
+            let r = g + o - fp;
+            d = min(d, dot(r, r));
+        }
+    }
+    return sqrt(d);
+}
+
+// Fractal billow noise in ~`0..1`: stacked inverted-Worley octaves. Big
+// lumps with smaller lumps riding on them — the self-similar puff cluster.
+fn billow_fbm(p_in : vec2<f32>) -> f32 {
+    var p = p_in;
+    var amp = 0.6;
+    var sum = 0.0;
+    var norm = 0.0;
+    for (var i = 0; i < 3; i = i + 1) {
+        sum += amp * (1.0 - worley(p));
+        norm += amp;
+        amp *= 0.5;
+        p = ROT * p * 2.0 + vec2<f32>(11.3, 7.7);
+    }
+    return clamp(sum / norm, 0.0, 1.0);
+}
+
 // Smoothstep-bilinear sampling: de-blocks the radar grid for ~1 tap.
 fn sample_radar(tex : texture_2d<f32>, uv : vec2<f32>) -> vec2<f32> {
     let dim = vec2<f32>(textureDimensions(tex));
@@ -120,12 +155,12 @@ fn radar_value(uv : vec2<f32>) -> vec2<f32> {
     return mix(a, b, t);
 }
 
-// Continuous cloud-shape field in `0..1`: domain-warped fractal noise.
-// The warp (fbm of an fbm offset) is what gives natural, billowy,
-// wispy cloud forms — no Worley cells, so no round-blob "popcorn".
-// This single field drives BOTH the silhouette and the lighting, so the
-// shading always matches the shapes you see.
-fn cloud_field(uv : vec2<f32>) -> f32 {
+// Cloud "height" field in ~`0..1` — a proxy for how tall/thick the cloud
+// bulges up toward a viewer looking straight DOWN. Warped fractal billows:
+// fBm warps the domain (natural drift/curl) and Worley billows give the
+// rounded cauliflower lumps that read as 3D cumulus from above. This is
+// the heightfield the lighting takes its normal + cast shadows from.
+fn cloud_height(uv : vec2<f32>) -> f32 {
     let drift = U.wind * U.time * 0.02;
     let evo = U.time * 0.05;
     let p = uv * U.map_scale + drift;
@@ -133,22 +168,54 @@ fn cloud_field(uv : vec2<f32>) -> f32 {
         fbm4(p + vec2<f32>(0.0, evo)),
         fbm4(p + vec2<f32>(5.2, 1.3) - evo),
     );
-    // Warp strength 3.5 → turbulent, curdled cumulus rather than smooth
-    // hills. One level keeps it affordable on mobile / software.
-    return fbm4(p + 3.5 * q);
+    // Warp the billow domain → clustered, organic puffs, not a regular
+    // cellular grid. Billows give the round tops; a touch of fBm softens.
+    let warped = p * 0.85 + 2.2 * q;
+    let lumps = billow_fbm(warped);
+    let soft = fbm4(p + 3.0 * q);
+    return clamp(lumps * 0.78 + soft * 0.22, 0.0, 1.0);
 }
 
-// Turn the continuous field into a soft cloud density for a given cloud
-// coverage. Coverage drives the threshold the fractal field has to clear;
-// the band is NARROW so the field's own valleys punch real sky gaps
-// through the cloud (billows, not a flat overcast sheet) while the edges
-// still feather over a few pixels. A faint floor keeps wisps at the rim.
-fn shape_to_density(f : f32, coverage : f32) -> f32 {
-    // c≈0 → high threshold (almost nothing clears it); c≈1 → low threshold
-    // (most of the field is cloud, but the deepest valleys still gap).
-    let threshold = mix(0.80, 0.26, coverage);
-    let band = 0.16;
-    return clamp(smoothstep(threshold, threshold + band, f), 0.0, 1.0);
+// Cloud layer geometry (normalised slab, z in 0..1, viewer looks down -z).
+const CLOUD_BASE : f32 = 0.12;
+
+// 3D extinction density at a world point — this is what makes the clouds
+// VOLUMETRIC rather than a flat card: a real σₜ sampled through a slab, so
+// the raymarch can integrate translucency, soft edges and light transport.
+//
+// Construction: radar coverage says WHERE cloud exists; the billow height
+// field is the bumpy TOP surface of the puffs; the layer is filled solid
+// from the base up to that surface (rounded off top and bottom); a
+// height-varying fBm erodes wispy 3D detail. Returns ~0..1.
+fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
+    let cov = radar_value(uv).g;
+    if (cov < 0.02) {
+        return 0.0;
+    }
+    let top_surf = cloud_height(uv); // billow height 0..1
+    // Only billow that clears the coverage threshold becomes cloud; a NARROW
+    // band separates the puffs into distinct lumps with real sky gaps rather
+    // than one diffuse misty sheet. Square it for a denser, harder core.
+    let mask = smoothstep(1.0 - cov, 1.0 - cov + 0.22, top_surf);
+    if (mask <= 0.001) {
+        return 0.0;
+    }
+    let body = mask * mask;
+    // Puff top altitude: clearly taller where billow + coverage are high, so
+    // tall puffs cast read-able shadows over their neighbours.
+    let cloud_top = CLOUD_BASE + 0.05 + top_surf * cov * 0.95;
+    // Vertical profile: ramp up off a soft base, round off under the top.
+    let v = smoothstep(CLOUD_BASE, CLOUD_BASE + 0.05, z)
+          * (1.0 - smoothstep(cloud_top - 0.14, cloud_top, z));
+    if (v <= 0.001) {
+        return 0.0;
+    }
+    // Wispy 3D erosion — z in the noise coords so the column varies with
+    // height (cauliflower interior). Bites deep so gaps open between puffs.
+    let drift = U.wind * U.time * 0.02;
+    let ero = fbm4(uv * U.map_scale * 2.1 + drift + vec2<f32>(z * 3.0, U.time * 0.04));
+    let d = body * v * smoothstep(0.25, 0.75, ero);
+    return clamp(d * 1.6, 0.0, 1.0);
 }
 
 // Base albedo from rain intensity. Cloud stays BRIGHT WHITE until the rain
@@ -175,75 +242,100 @@ fn rain_albedo(precip : f32) -> vec3<f32> {
 struct Shade {
     precip   : f32,
     coverage : f32,
-    field    : f32, // cloud_field f0 (the silhouette + lighting source)
-    density  : f32, // shape_to_density(field, coverage)
-    light    : f32, // relief lighting term, ~0.15..1.8
+    field    : f32, // billow top-surface height (AOV only)
+    density  : f32, // = final opacity (column-integrated extinction)
+    light    : f32, // mean scattered luminance (AOV only)
     alpha    : f32, // final composited opacity
-    albedo   : vec3<f32>, // UNLIT rain-coloured albedo (precip → darkness)
-    col      : vec3<f32>, // final lit + tinted colour
+    albedo   : vec3<f32>, // rain-coloured albedo (deferred — clouds are white for now)
+    col      : vec3<f32>, // final premultiplied scattered colour
 };
+
+const PRIMARY_STEPS : i32 = 32;
+const LIGHT_STEPS : i32 = 6;
+
+fn luminance_lin(c : vec3<f32>) -> f32 {
+    return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
+// Volumetric raymarch (Nubis-style): march a vertical view ray DOWN through
+// the cloud slab accumulating Beer–Lambert extinction (→ translucency &
+// soft edges), and at each lit sample take a short cone march toward the sun
+// for self-shadowing, fed through a multi-scatter energy approximation
+// (octaves of Beer) plus a powder term and a height-graded sky ambient.
+// Returns premultiplied (scattered colour, alpha).
+fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
+    let sun = normalize(vec3<f32>(normalize(U.sun_dir), 0.55));
+
+    // Lit cloud reads near-white; shadowed sides/crevices fall to a cool
+    // sky-blue. Ambient is graded by height (more sky light up top).
+    let sun_col = vec3<f32>(1.00, 0.97, 0.92);
+    let sky_top = vec3<f32>(0.62, 0.69, 0.84);
+    let sky_bot = vec3<f32>(0.30, 0.35, 0.46);
+
+    let dz = 1.0 / f32(PRIMARY_STEPS);
+    let ext = 7.0;     // view-ray extinction (opacity build-up)
+    let lstep = 0.10;  // light march step length
+    let lext = 8.0;    // light extinction (shadow strength)
+
+    var transmit = 1.0;
+    var scattered = vec3<f32>(0.0);
+    var lum_sum = 0.0;
+    var lum_w = 0.0;
+
+    for (var i = 0; i < PRIMARY_STEPS; i = i + 1) {
+        if (transmit < 0.02) {
+            break;
+        }
+        let z = 1.0 - (f32(i) + 0.5) * dz;
+        let d = cloud_density(uv, z);
+        if (d <= 0.002) {
+            continue;
+        }
+
+        // Cone march toward the sun → optical depth of cloud above us.
+        var ld = 0.0;
+        for (var j = 1; j <= LIGHT_STEPS; j = j + 1) {
+            let t = lstep * f32(j);
+            ld += cloud_density(uv + sun.xy * t, z + sun.z * t);
+        }
+
+        // Beer–Lambert shadow toward the sun, with a multi-scatter floor so
+        // deep shadow stays a soft grey-blue (not crushed black).
+        let shadow = exp(-ld * lstep * lext);
+        let ms = mix(0.32, 1.0, shadow);
+        // Powder: in-scatter probability gently darkens light-facing edges.
+        let powder = mix(0.78, 1.0, 1.0 - exp(-d * 2.0));
+        let lit = sun_col * 0.95 * ms * powder;
+        let ambient = mix(sky_bot, sky_top, z) * 0.4;
+        let scatter = lit + ambient;
+
+        let st = d * dz * ext;
+        let absorb = 1.0 - exp(-st);
+        scattered += transmit * absorb * scatter;
+        transmit = transmit * exp(-st);
+
+        lum_sum += luminance_lin(scatter) * absorb;
+        lum_w += absorb;
+    }
+
+    *lum_out = select(0.0, lum_sum / lum_w, lum_w > 0.0);
+    return vec4<f32>(scattered, clamp((1.0 - transmit) * U.intensity, 0.0, 1.0));
+}
 
 fn shade(uv : vec2<f32>) -> Shade {
     let rv = radar_value(uv);
-    let precip = rv.r;
-    let coverage = rv.g;
-
-    // Sample the cloud field at the pixel and two steps toward the sun.
-    // The difference along the light direction IS the relief: where the
-    // field rises toward the sun the surface faces the light (bright),
-    // where it falls away it's in shadow. Same field as the silhouette,
-    // so lighting and shape always agree — this is the whole trick.
-    let sun_step = normalize(U.sun_dir) * (0.85 / U.map_scale);
-    let f0 = cloud_field(uv);
-    let f1 = cloud_field(uv + sun_step);
-    let f2 = cloud_field(uv + sun_step * 2.4);
-
-    let d = shape_to_density(f0, coverage);
-
-    // Relief lighting. The field doubles as a height proxy: stepping toward
-    // the sun, a FALLING field means this face tilts into the light (bright
-    // sunlit top); a rising one means it tilts away (shadowed underside).
-    // `dlight` is that signed slope; the strong gain + low ambient floor is
-    // what gives fluffy 3D form instead of the old flat ~0.9 haze.
-    let dlight = f0 - f1;
-    // Ambient occlusion: deep field valleys are cloud interior/crevices and
-    // read dark; the high parts (tops) catch full light.
-    let ao = smoothstep(0.12, 0.62, f0);
-    // Directional sun term, centred so flat areas sit mid-bright.
-    let sun = clamp(0.5 + dlight * 9.0, 0.0, 1.5);
-    // Cast self-shadow: cloud further toward the sun occludes us (Beer).
-    let self_shadow = exp(-max(f2 - f0, 0.0) * 3.0);
-    var light = (0.32 + 0.9 * sun * ao) * self_shadow;
-
-    // Thin edges facing the sun catch a bright silver lining.
-    let rim = smoothstep(0.5, 0.0, d) * clamp(dlight * 8.0, 0.0, 1.0);
-    light = light + rim * 0.6;
-    light = clamp(light, 0.12, 1.9);
-
-    // Cool shadow / warm highlight tint for atmospheric depth.
-    let albedo = rain_albedo(precip);
-    let shadow_tint = vec3<f32>(0.80, 0.84, 0.95);
-    let light_tint  = vec3<f32>(1.06, 1.03, 0.97);
-    let tint = mix(shadow_tint, light_tint, smoothstep(0.5, 1.2, light));
-    let col = clamp(albedo * light * tint, vec3<f32>(0.0), vec3<f32>(1.0));
-
-    // Feathered alpha: because `d` is a wide smoothstep of a fractal
-    // field, its low contour is naturally wispy. Rain-bearing cloud is
-    // optically thick → push storms opaque so they don't read muddy.
-    var alpha = smoothstep(0.0, U.softness, d);
-    let storm = smoothstep(0.3, 0.75, precip) * smoothstep(0.05, 0.3, d);
-    alpha = max(alpha, storm);
-    alpha = clamp(alpha * U.intensity, 0.0, 0.97);
+    var lum = 0.0;
+    let vol = render_volume(uv, &lum);
 
     var s : Shade;
-    s.precip = precip;
-    s.coverage = coverage;
-    s.field = f0;
-    s.density = d;
-    s.light = light;
-    s.alpha = alpha;
-    s.albedo = albedo;
-    s.col = col;
+    s.precip = rv.r;
+    s.coverage = rv.g;
+    s.field = cloud_height(uv);
+    s.density = vol.a;
+    s.light = lum;
+    s.alpha = vol.a;
+    s.albedo = rain_albedo(rv.r);
+    s.col = vol.rgb;
     return s;
 }
 
@@ -266,7 +358,7 @@ fn debug_aov(s : Shade) -> vec4<f32> {
         case 5u: { return gray(s.light / 1.8); }                  // relief lighting term
         case 6u: { return gray(s.alpha); }                        // final opacity
         case 7u: { return vec4<f32>(s.albedo, 1.0); }             // unlit rain albedo (opaque)
-        default: { return vec4<f32>(s.col * s.alpha, s.alpha); }  // production composite
+        default: { return vec4<f32>(s.col, s.alpha); }            // production composite (premultiplied)
     }
 }
 
@@ -278,13 +370,10 @@ fn fs(in : VsOut) -> @location(0) vec4<f32> {
         return debug_aov(s);
     }
 
-    // Production path: bail on empty sky / sub-threshold density exactly
-    // as before, then composite premultiplied.
-    if (s.coverage <= 0.02) {
+    // Production path: empty sky → fully transparent. `s.col` is already
+    // premultiplied scattered radiance from the volume march.
+    if (s.coverage <= 0.02 || s.alpha <= 0.004) {
         return vec4<f32>(0.0);
     }
-    if (s.density <= 0.004) {
-        return vec4<f32>(0.0);
-    }
-    return vec4<f32>(s.col * s.alpha, s.alpha);
+    return vec4<f32>(s.col, s.alpha);
 }
