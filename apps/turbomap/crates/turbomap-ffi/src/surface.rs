@@ -130,8 +130,13 @@ fn build(
     // Fade newly-ingested tiles in over ~0.3 s instead of popping. The host keeps
     // rendering (render-on-demand) while `is_animating` is true so the fade
     // completes. Goldens keep the default 0 (deterministic, no time dependence).
+    // A tighter off-screen prefetch ring than the 256px default: the reconciler
+    // fetches nearest-first, so visible tiles still come in first, but a smaller
+    // margin roughly halves the per-view tile count on a slow connection — the
+    // visible area fills noticeably faster instead of competing with a wide ring.
     let options = MapOptions {
         fade_in_secs: 0.3,
+        prefetch_margin_px: 128,
         ..MapOptions::default()
     };
     let engine = TurbomapEngine::new(
@@ -356,6 +361,24 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
 ) {
     unsafe {
         with_map(handle, |map| map.engine.fling((vx, vy)));
+    }
+}
+
+/// Start a momentum **zoom** from a pinch release: `zoom_velocity` is in
+/// zoom-levels/second (positive = zooming in), gliding about the pinch focus
+/// `(fx, fy)`. Locked to the zoom axis — the focus pixel stays fixed, so the
+/// map doesn't pan/drift sideways while the zoom coasts to rest.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeZoomFling(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    zoom_velocity: jdouble,
+    fx: jdouble,
+    fy: jdouble,
+) {
+    unsafe {
+        with_map(handle, |map| map.engine.zoom_fling(zoom_velocity, (fx, fy)));
     }
 }
 
