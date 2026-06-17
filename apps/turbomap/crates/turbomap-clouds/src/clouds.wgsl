@@ -133,6 +133,22 @@ fn billow_fbm(p_in : vec2<f32>) -> f32 {
     return clamp(sum / norm, 0.0, 1.0);
 }
 
+// Linear remap of `x` from [a,b] into [c,d] (Nubis' workhorse for combining
+// noise + coverage). Unclamped — callers clamp where they need 0..1.
+fn remap(x : f32, a : f32, b : f32, c : f32, d : f32) -> f32 {
+    return c + (x - a) * (d - c) / (b - a);
+}
+
+// Perlin–Worley base cloud noise (Schneider/Guerrilla). Take Perlin fBm and
+// remap its low end UP toward the Worley-billow value: the billows fill in
+// the round, puffy bases while the Perlin keeps natural variation on top —
+// neither pure-Perlin (too wispy) nor pure-Worley (too cellular) alone.
+fn perlin_worley(p : vec2<f32>) -> f32 {
+    let perlin = fbm4(p);
+    let billow = billow_fbm(p);
+    return clamp(remap(perlin, billow - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
+}
+
 // Smoothstep-bilinear sampling: de-blocks the radar grid for ~1 tap.
 fn sample_radar(tex : texture_2d<f32>, uv : vec2<f32>) -> vec2<f32> {
     let dim = vec2<f32>(textureDimensions(tex));
@@ -192,30 +208,40 @@ fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
     if (cov < 0.02) {
         return 0.0;
     }
-    let top_surf = cloud_height(uv); // billow height 0..1
-    // Only billow that clears the coverage threshold becomes cloud; a NARROW
-    // band separates the puffs into distinct lumps with real sky gaps rather
-    // than one diffuse misty sheet. Square it for a denser, harder core.
-    let mask = smoothstep(1.0 - cov, 1.0 - cov + 0.22, top_surf);
-    if (mask <= 0.001) {
-        return 0.0;
-    }
-    let body = mask * mask;
-    // Puff top altitude: clearly taller where billow + coverage are high, so
-    // tall puffs cast read-able shadows over their neighbours.
-    let cloud_top = CLOUD_BASE + 0.05 + top_surf * cov * 0.95;
-    // Vertical profile: ramp up off a soft base, round off under the top.
-    let v = smoothstep(CLOUD_BASE, CLOUD_BASE + 0.05, z)
-          * (1.0 - smoothstep(cloud_top - 0.14, cloud_top, z));
-    if (v <= 0.001) {
-        return 0.0;
-    }
-    // Wispy 3D erosion — z in the noise coords so the column varies with
-    // height (cauliflower interior). Bites deep so gaps open between puffs.
     let drift = U.wind * U.time * 0.02;
-    let ero = fbm4(uv * U.map_scale * 2.1 + drift + vec2<f32>(z * 3.0, U.time * 0.04));
-    let d = body * v * smoothstep(0.25, 0.75, ero);
-    return clamp(d * 1.6, 0.0, 1.0);
+    let p = uv * U.map_scale + drift;
+
+    // Nubis base shape: Perlin–Worley, then apply coverage with a Remap so
+    // only noise above the (1−coverage) floor survives, rescaled to 0..1.
+    // This is the crisp coverage-driven silhouette (broken vs. solid).
+    var base = perlin_worley(p);
+    base = clamp(remap(base, 1.0 - cov, 1.0, 0.0, 1.0), 0.0, 1.0);
+    if (base <= 0.001) {
+        return 0.0;
+    }
+
+    // Denser puffs stand TALLER, so their domed tops cast read-able shadows
+    // on neighbours when seen from above (the key 3D cue top-down).
+    let cloud_top = CLOUD_BASE + 0.05 + base * 0.85;
+    if (z < CLOUD_BASE || z > cloud_top) {
+        return 0.0;
+    }
+    let hn = (z - CLOUD_BASE) / max(cloud_top - CLOUD_BASE, 1e-3); // 0..1 in slab
+
+    // Cumulus height gradient: rounded heavy base, billowy taper to the top.
+    let grad = smoothstep(0.0, 0.12, hn) * (1.0 - smoothstep(0.45, 1.0, hn));
+    var d = base * grad;
+    if (d <= 0.001) {
+        return 0.0;
+    }
+
+    // High-frequency Worley erosion carves the cauliflower edges; z in the
+    // coords makes it a 3D field (varies with height), and we erode harder
+    // toward the top where cumulus go wispy.
+    let detail = billow_fbm(p * 3.1 + vec2<f32>(z * 4.0, drift.y));
+    let ero = mix(0.36, 0.70, hn) * detail;
+    d = clamp(remap(d, ero, 1.0, 0.0, 1.0), 0.0, 1.0);
+    return d * 2.0;
 }
 
 // Base albedo from rain intensity. Cloud stays BRIGHT WHITE until the rain
@@ -264,18 +290,23 @@ fn luminance_lin(c : vec3<f32>) -> f32 {
 // (octaves of Beer) plus a powder term and a height-graded sky ambient.
 // Returns premultiplied (scattered colour, alpha).
 fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
-    let sun = normalize(vec3<f32>(normalize(U.sun_dir), 0.55));
+    // LOW sun: a near-horizon light rakes across the cloud tops so puffs
+    // throw long shadows over their neighbours — the drama you only get at
+    // a low sun angle is what reads as 3D form from straight above.
+    let sun = normalize(vec3<f32>(normalize(U.sun_dir), 0.28));
 
     // Lit cloud reads near-white; shadowed sides/crevices fall to a cool
     // sky-blue. Ambient is graded by height (more sky light up top).
-    let sun_col = vec3<f32>(1.00, 0.97, 0.92);
-    let sky_top = vec3<f32>(0.62, 0.69, 0.84);
-    let sky_bot = vec3<f32>(0.30, 0.35, 0.46);
+    let sun_col = vec3<f32>(1.02, 0.98, 0.92);
+    let sky_top = vec3<f32>(0.60, 0.67, 0.82);
+    let sky_bot = vec3<f32>(0.26, 0.31, 0.42);
 
     let dz = 1.0 / f32(PRIMARY_STEPS);
     let ext = 7.0;     // view-ray extinction (opacity build-up)
-    let lstep = 0.10;  // light march step length
-    let lext = 8.0;    // light extinction (shadow strength)
+    // Light march reaches a couple of puff widths toward the low sun so a
+    // puff shadows its NEIGHBOURS (crisp inter-puff shadows), not itself.
+    let lstep = 2.4 / (U.map_scale * f32(LIGHT_STEPS));
+    let lext = 11.0;   // light extinction (shadow strength)
 
     var transmit = 1.0;
     var scattered = vec3<f32>(0.0);
@@ -299,14 +330,14 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
             ld += cloud_density(uv + sun.xy * t, z + sun.z * t);
         }
 
-        // Beer–Lambert shadow toward the sun, with a multi-scatter floor so
-        // deep shadow stays a soft grey-blue (not crushed black).
+        // Beer–Lambert shadow toward the sun, with a low multi-scatter floor
+        // so shadowed sides genuinely darken (to a soft grey-blue, not black).
         let shadow = exp(-ld * lstep * lext);
-        let ms = mix(0.32, 1.0, shadow);
+        let ms = mix(0.16, 1.0, shadow);
         // Powder: in-scatter probability gently darkens light-facing edges.
         let powder = mix(0.78, 1.0, 1.0 - exp(-d * 2.0));
-        let lit = sun_col * 0.95 * ms * powder;
-        let ambient = mix(sky_bot, sky_top, z) * 0.4;
+        let lit = sun_col * 0.98 * ms * powder;
+        let ambient = mix(sky_bot, sky_top, z) * 0.32;
         let scatter = lit + ambient;
 
         let st = d * dz * ext;
