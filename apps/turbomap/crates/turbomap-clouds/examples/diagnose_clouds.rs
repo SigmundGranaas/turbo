@@ -38,6 +38,32 @@ fn main() {
     fs::create_dir_all(&out_dir).expect("create out dir");
     let out = Path::new(&out_dir);
 
+    // Fast CPU check of the per-pixel ray math (no GPU): print the parallax
+    // shift at a few sample pixels so a broken matrix/scale is obvious.
+    if std::env::var("CAM_DEBUG").is_ok() {
+        let aspect = WIDTH as f32 / HEIGHT as f32;
+        let (alt_top, w2uv) = (0.26f32, 1.5f32);
+        for pitch_deg in [0.0f32, 35.0, 55.0] {
+            let inv = glam::Mat4::from_cols_array_2d(&pitched_inv_view_proj(pitch_deg, aspect));
+            eprintln!("--- pitch {pitch_deg}° ---");
+            for (ux, uy) in [(0.5f32, 0.5f32), (0.5, 0.1), (0.5, 0.9), (0.1, 0.5)] {
+                let ndc = glam::vec2(ux * 2.0 - 1.0, 1.0 - 2.0 * uy);
+                let pn = inv * glam::vec4(ndc.x, ndc.y, 0.0, 1.0);
+                let pf = inv * glam::vec4(ndc.x, ndc.y, 1.0, 1.0);
+                let ro = pn.truncate() / pn.w;
+                let rd = (pf.truncate() / pf.w - ro).normalize();
+                let g = ro + rd * (-ro.z / rd.z);
+                let pt = ro + rd * ((alt_top - ro.z) / rd.z);
+                let shift = (pt.truncate() - g.truncate()) * w2uv;
+                eprintln!(
+                    "  uv=({ux},{uy}) ro=({:.2},{:.2},{:.2}) rd=({:.2},{:.2},{:.2}) g=({:.2},{:.2}) shift=({:.3},{:.3})",
+                    ro.x, ro.y, ro.z, rd.x, rd.y, rd.z, g.x, g.y, shift.x, shift.y
+                );
+            }
+        }
+        return;
+    }
+
     let Some(gpu) = gpu::headless() else {
         eprintln!("no wgpu adapter available; cannot render");
         std::process::exit(1);
@@ -176,6 +202,27 @@ fn main() {
             .expect("save cam hero");
     }
     eprintln!("camera-ray heroes -> {out_dir}/hero_cam_{{0,35,55}}deg.png (real pitched ray)");
+
+    // Isolation: use_camera_ray ON but world_to_uv=0 → shift forced to zero.
+    // Should be identical to flat top-down. If clouds vanish here, the bug is
+    // the use_ray FLAG path, not the shift; if clouds appear, it's the shift.
+    for pitch_deg in [0.0f32, 55.0] {
+        let params = CloudParams {
+            use_camera_ray: true,
+            inv_view_proj: pitched_inv_view_proj(pitch_deg, aspect),
+            cloud_alt_base: 0.10,
+            cloud_alt_top: 0.26,
+            world_to_uv: 1.5,
+            debug_view: DebugView::Parallax,
+            ..base
+        };
+        render(&gpu, &scene, &params)
+            .save(out.join(format!("parallax_dbg_{}deg.png", pitch_deg as u32)))
+            .expect("save");
+    }
+    eprintln!(
+        "parallax debug -> {out_dir}/parallax_dbg_{{0,55}}deg.png (R=shift.x G=shift.y grey=0)"
+    );
 
     eprintln!("done -> {out_dir}");
 }

@@ -1470,31 +1470,15 @@ impl Map {
         // fullscreen composite over the already-resolved surface. It can't
         // join the MSAA frame pass above (sample-count / depth mismatch),
         // so it pays one extra fullscreen pass — acceptable for an overlay.
-        let camera = self.camera;
-        let viewport = self.viewport_px;
         if let Some(c) = &mut self.clouds {
             if c.enabled {
-                let vh = viewport.1.max(1) as f32;
-                c.params.resolution = [viewport.0 as f32, vh];
-                // Feed the real camera ray so the cloud layer (at altitude)
-                // parallaxes when the map is pitched — tilting reveals the
-                // puff sides (3D). Only the cloud↔ground offset matters, so
-                // the absolute (origin-0) view-projection is fine. Below a
-                // tiny pitch we keep the flat top-down path (byte-identical).
-                let pitched = camera.pitch_deg > 0.5;
-                c.params.use_camera_ray = pitched;
-                if pitched {
-                    let vp = glam::Mat4::from_cols_array_2d(
-                        &camera.view_projection_matrix(viewport),
-                    );
-                    c.params.inv_view_proj = vp.inverse().to_cols_array_2d();
-                    // Pixel-equivalent altitudes → parallax stays consistent
-                    // across zoom (altitude·ppw is constant).
-                    let ppw = camera.pixels_per_world_unit() as f32;
-                    c.params.cloud_alt_base = 90.0 / ppw;
-                    c.params.cloud_alt_top = 240.0 / ppw;
-                    c.params.world_to_uv = ppw / vh;
-                }
+                c.params.resolution = [self.viewport_px.0 as f32, self.viewport_px.1 as f32];
+                // Camera-ray pitch parallax is gated OFF for now: the cloud
+                // field is screen-locked, so the parallax shift drops clouds
+                // out (see turbomap-clouds `view_parallax` + the parallax AOV).
+                // Real pitch 3D needs geo-registered world-space sampling.
+                // The flat top-down volumetric path is the shipping look.
+                c.params.use_camera_ray = false;
                 c.scene
                     .render(&self.queue, encoder, target, &c.params, false);
             }

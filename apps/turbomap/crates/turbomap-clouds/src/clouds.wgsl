@@ -292,6 +292,36 @@ fn luminance_lin(c : vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
+// Per-pixel parallax shift (screen-uv) at the slab top and bottom, packed as
+// (shift_top.xy, shift_bot.xy). The cloud sits at altitude above the ground
+// the basemap drew at this pixel; following the real view ray, the slab is
+// crossed at a different (x,y) than the ground point. The march samples the
+// field at this offset and lerps top→bottom, so a pitched map rakes through
+// the volume and reveals the puff sides. use_ray=0 → flat top-down fallback.
+fn view_parallax(uv : vec2<f32>) -> vec4<f32> {
+    if (U.use_ray != 1u) {
+        return vec4<f32>(vec2<f32>(0.0, -0.5) * U.parallax, vec2<f32>(0.0, 0.5) * U.parallax);
+    }
+    let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y);
+    let pn = U.inv_view_proj * vec4<f32>(ndc, 0.0, 1.0);
+    let pf = U.inv_view_proj * vec4<f32>(ndc, 1.0, 1.0);
+    let ro = pn.xyz / pn.w;
+    let rd = normalize(pf.xyz / pf.w - ro);
+    if (rd.z >= -1.0e-4) {
+        return vec4<f32>(0.0);
+    }
+    let g = ro + rd * (-ro.z / rd.z); // ray ∩ ground (z=0)
+    let p_top = ro + rd * ((U.cloud_alt_top - ro.z) / rd.z);
+    let p_bot = ro + rd * ((U.cloud_alt_base - ro.z) / rd.z);
+    var st = (p_top.xy - g.xy) * U.world_to_uv;
+    var sb = (p_bot.xy - g.xy) * U.world_to_uv;
+    // Field is screen-locked → clamp the shift so it can't sample off it.
+    let m = 0.20;
+    if (length(st) > m) { st = normalize(st) * m; }
+    if (length(sb) > m) { sb = normalize(sb) * m; }
+    return vec4<f32>(st, sb);
+}
+
 // Volumetric raymarch (Nubis-style): march a vertical view ray DOWN through
 // the cloud slab accumulating Beer–Lambert extinction (→ translucency &
 // soft edges), and at each lit sample take a short cone march toward the sun
@@ -304,11 +334,11 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     // a low sun angle is what reads as 3D form from straight above.
     let sun = normalize(vec3<f32>(normalize(U.sun_dir), U.sun_elev));
 
-    // Lit cloud reads near-white; shadowed sides/crevices fall to a cool
-    // sky-blue. Ambient is graded by height (more sky light up top).
-    let sun_col = vec3<f32>(1.02, 0.98, 0.92);
-    let sky_top = vec3<f32>(0.60, 0.67, 0.82);
-    let sky_bot = vec3<f32>(0.26, 0.31, 0.42);
+    // Lit cloud reads bright white; shadowed sides/crevices fall to a cool
+    // sky-blue but stay clearly visible. Ambient is graded by height.
+    let sun_col = vec3<f32>(1.15, 1.12, 1.06);
+    let sky_top = vec3<f32>(0.74, 0.80, 0.92);
+    let sky_bot = vec3<f32>(0.46, 0.52, 0.64);
 
     let dz = 1.0 / f32(PRIMARY_STEPS);
     let ext = U.extinction; // view-ray extinction (opacity build-up)
@@ -317,34 +347,10 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     let lstep = 2.4 / (U.map_scale * f32(LIGHT_STEPS));
     let lext = U.light_ext; // light extinction (shadow strength)
 
-    // Per-pixel parallax. The cloud sits at altitude ABOVE the ground the
-    // basemap drew at this pixel; following the real view ray, the slab is
-    // crossed at a different (x,y) than the ground point. We sample the cloud
-    // field at that ground↔cloud offset (shift), and the offset DIFFERS
-    // between the slab top and bottom — so the column rakes across the field
-    // and the ray sees the puff SIDES (true 3D when the map is pitched).
-    // `shift_top`/`shift_bot` are that offset (in screen-uv) at the slab top
-    // and bottom; the march lerps between them. use_ray=0 → flat top-down.
-    var shift_top = vec2<f32>(0.0);
-    var shift_bot = vec2<f32>(0.0);
-    if (U.use_ray == 1u) {
-        let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y);
-        let pn = U.inv_view_proj * vec4<f32>(ndc, 0.0, 1.0);
-        let pf = U.inv_view_proj * vec4<f32>(ndc, 1.0, 1.0);
-        let ro = pn.xyz / pn.w;
-        let rd = normalize(pf.xyz / pf.w - ro);
-        if (rd.z < -1.0e-4) {
-            let g = ro + rd * (-ro.z / rd.z); // ray ∩ ground (z=0)
-            let p_top = ro + rd * ((U.cloud_alt_top - ro.z) / rd.z);
-            let p_bot = ro + rd * ((U.cloud_alt_base - ro.z) / rd.z);
-            shift_top = (p_top.xy - g.xy) * U.world_to_uv;
-            shift_bot = (p_bot.xy - g.xy) * U.world_to_uv;
-        }
-    } else {
-        // Offscreen fallback: uniform sweep along screen-up.
-        shift_top = vec2<f32>(0.0, -0.5) * U.parallax;
-        shift_bot = vec2<f32>(0.0, 0.5) * U.parallax;
-    }
+    // Per-pixel parallax shift (top & bottom of the slab), in screen-uv.
+    let sp = view_parallax(uv);
+    let shift_top = sp.xy;
+    let shift_bot = sp.zw;
 
     var transmit = 1.0;
     var scattered = vec3<f32>(0.0);
@@ -372,11 +378,11 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
         // Beer–Lambert shadow toward the sun, with a low multi-scatter floor
         // so shadowed sides genuinely darken (to a soft grey-blue, not black).
         let shadow = exp(-ld * lstep * lext);
-        let ms = mix(0.16, 1.0, shadow);
+        let ms = mix(0.42, 1.0, shadow);
         // Powder: in-scatter probability gently darkens light-facing edges.
-        let powder = mix(0.78, 1.0, 1.0 - exp(-d * 2.0));
-        let lit = sun_col * 0.98 * ms * powder;
-        let ambient = mix(sky_bot, sky_top, z) * 0.32;
+        let powder = mix(0.85, 1.0, 1.0 - exp(-d * 2.0));
+        let lit = sun_col * ms * powder;
+        let ambient = mix(sky_bot, sky_top, z) * 0.6;
         let scatter = lit + ambient;
 
         let st = d * dz * ext;
@@ -434,6 +440,14 @@ fn debug_aov(s : Shade) -> vec4<f32> {
 
 @fragment
 fn fs(in : VsOut) -> @location(0) vec4<f32> {
+    // Parallax-debug AOV (code 8): visualise the per-pixel shift directly
+    // (R = shift.x, G = shift.y, biased to grey=zero), so a broken ray reads
+    // obviously wrong. Skips the expensive march.
+    if (U.debug_view == 8u) {
+        let sp = view_parallax(in.uv);
+        return vec4<f32>(sp.x * 2.5 + 0.5, sp.y * 2.5 + 0.5, 0.5, 1.0);
+    }
+
     let s = shade(in.uv);
 
     if (U.debug_view > 0u) {

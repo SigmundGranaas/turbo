@@ -44,6 +44,8 @@ pub enum DebugView {
     Alpha,
     /// Unlit rain-coloured albedo (precip → darkness), before lighting.
     Albedo,
+    /// Diagnostic: the per-pixel parallax shift (R=x, G=y, grey=zero).
+    Parallax,
 }
 
 impl DebugView {
@@ -70,6 +72,7 @@ impl DebugView {
             DebugView::Light => 5,
             DebugView::Alpha => 6,
             DebugView::Albedo => 7,
+            DebugView::Parallax => 8,
         }
     }
 
@@ -84,6 +87,7 @@ impl DebugView {
             DebugView::Light => "light",
             DebugView::Alpha => "alpha",
             DebugView::Albedo => "albedo",
+            DebugView::Parallax => "parallax",
         }
     }
 }
@@ -185,11 +189,11 @@ impl Default for CloudParams {
             map_scale: 6.0,
             erosion: 0.5,
             softness: 0.5,
-            intensity: 0.95,
+            intensity: 1.0,
             parallax: 0.0,
-            sun_elevation: 0.28,
-            extinction: 7.0,
-            light_extinction: 11.0,
+            sun_elevation: 0.45,
+            extinction: 12.0,
+            light_extinction: 10.0,
             use_camera_ray: false,
             inv_view_proj: IDENTITY4,
             cloud_alt_base: 0.0,
@@ -528,5 +532,30 @@ fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
             multisampled: false,
         },
         count: None,
+    }
+}
+
+#[cfg(test)]
+mod uniform_layout {
+    use super::Uniforms;
+    use std::mem::{offset_of, size_of};
+
+    // The WGSL `Uniforms` struct (std140-like) places each field at these
+    // byte offsets; the Rust mirror MUST match or writing one field corrupts
+    // another on the GPU. Verified against clouds.wgsl.
+    #[test]
+    fn matches_wgsl_layout() {
+        assert_eq!(size_of::<Uniforms>(), 160, "struct size");
+        assert_eq!(offset_of!(Uniforms, map_scale), 32);
+        assert_eq!(offset_of!(Uniforms, intensity), 44);
+        assert_eq!(offset_of!(Uniforms, parallax), 48);
+        assert_eq!(offset_of!(Uniforms, light_extinction), 60);
+        assert_eq!(offset_of!(Uniforms, debug_view), 64);
+        assert_eq!(offset_of!(Uniforms, use_ray), 68);
+        assert_eq!(offset_of!(Uniforms, cloud_alt_base), 72);
+        assert_eq!(offset_of!(Uniforms, cloud_alt_top), 76);
+        // mat4x4<f32> requires 16-byte alignment in WGSL → offset 80.
+        assert_eq!(offset_of!(Uniforms, inv_view_proj), 80);
+        assert_eq!(offset_of!(Uniforms, world_to_uv), 144);
     }
 }
