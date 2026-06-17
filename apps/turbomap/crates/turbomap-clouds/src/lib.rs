@@ -69,11 +69,11 @@ impl Default for CloudParams {
             time: 0.0,
             blend: 0.0,
             wind: [1.0, 0.25],
-            sun_dir: [0.55, -0.6],
-            map_scale: 9.5,
+            sun_dir: [0.7, -0.5],
+            map_scale: 4.0,
             erosion: 0.5,
-            softness: 0.26,
-            intensity: 0.97,
+            softness: 0.5,
+            intensity: 0.95,
         }
     }
 }

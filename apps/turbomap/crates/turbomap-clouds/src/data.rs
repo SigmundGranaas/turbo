@@ -109,15 +109,24 @@ impl SyntheticStorm {
 
                 // Frontal band: a soft diagonal line of rain sweeping
                 // west→east across the grid as `t` advances.
-                let front_x = -0.25 + t * 1.4; // normalised x of the band
+                let front_x = -0.2 + t * 1.35; // normalised x of the band
 
                 // A few convective cores riding the front, each drifting
-                // and pulsing on its own phase.
+                // and pulsing on its own phase. (phase, y, x0, amp)
                 let cores = [
-                    (0.10f32, 0.35f32, 0.95f32, 0.7f32),
-                    (-0.05, 0.62, 0.13, 0.55),
-                    (0.22, 0.78, 0.55, 0.5),
-                    (0.04, 0.20, 0.37, 0.45),
+                    (0.10f32, 0.38f32, 0.95f32, 0.85f32),
+                    (-0.05, 0.60, 0.18, 0.6),
+                    (0.22, 0.74, 0.55, 0.55),
+                ];
+
+                // Large, dry-ish fair-weather cloud masses with clear sky
+                // between them — drifting east. (y, x0, sigma, amp)
+                let masses = [
+                    (0.30f32, 0.78f32, 0.16f32, 0.85f32),
+                    (0.66, 0.30, 0.20, 0.95),
+                    (0.50, 0.05, 0.13, 0.7),
+                    (0.18, 0.50, 0.12, 0.6),
+                    (0.82, 0.62, 0.15, 0.75),
                 ];
 
                 for y in 0..self.height {
@@ -126,13 +135,24 @@ impl SyntheticStorm {
                         let ny = (y as f32 + 0.5) / h;
 
                         // Distance to the slanted frontal line.
-                        let band_pos = nx + (ny - 0.5) * 0.35;
-                        let band = gauss(band_pos - front_x, 0.12);
-                        // Coverage is broad cloud around the band plus a
-                        // calm ambient deck to the rear of the system.
-                        let mut coverage = band * 0.9 + ambient(nx, ny, t) * 0.5;
-                        // Precip only in the wetter heart of the band.
-                        let mut precip = band * band * 0.6;
+                        let band_pos = nx + (ny - 0.5) * 0.3;
+                        let band = gauss(band_pos - front_x, 0.10);
+
+                        // Coverage: the rainy frontal cloud, plus the dry
+                        // fair-weather masses, over an essentially clear
+                        // sky (small wandering ambient, not a uniform
+                        // deck — that was what produced the "rash").
+                        let mut coverage = band * 0.85 + ambient(nx, ny, t);
+                        // Precip lives only in the wettest heart of the
+                        // band; the fair-weather masses stay dry.
+                        let mut precip = band * band * 0.55;
+
+                        for (cy, cx0, sigma, amp) in masses {
+                            let cx = cx0 + t * 0.9 + 0.03 * (t * 4.0 + cy * 9.0).sin();
+                            let cyy = cy + 0.04 * (t * 3.0 + cx0 * 7.0).cos();
+                            let d = ((nx - cx).powi(2) + (ny - cyy).powi(2)).sqrt();
+                            coverage += gauss(d, sigma) * amp;
+                        }
 
                         for (phase, cy, cx0, amp) in cores {
                             // Each core drifts east with the front and
@@ -144,9 +164,9 @@ impl SyntheticStorm {
                             // and decay rather than just translate.
                             let pulse =
                                 0.55 + 0.45 * (t * 7.0 + phase * std::f32::consts::TAU).sin();
-                            let core = gauss(d, 0.07) * amp * pulse;
+                            let core = gauss(d, 0.06) * amp * pulse;
                             precip += core;
-                            coverage += core * 0.8;
+                            coverage += core * 0.9;
                         }
 
                         // Quantise to ~12 levels so the raw frame looks
@@ -170,10 +190,9 @@ fn gauss(d: f32, sigma: f32) -> f32 {
     (-(d * d) / (2.0 * sigma * sigma)).exp()
 }
 
-/// Low-frequency ambient cloud deck so the sky is never perfectly clear.
-/// Cheap sum-of-sines value field, drifting with `t`.
+/// Faint, slowly wandering wisps so the "clear" sky isn't dead flat —
+/// stays low (≈0..0.15) so it never fills in as a uniform overcast deck.
 fn ambient(x: f32, y: f32, t: f32) -> f32 {
-    let a = (x * 6.0 + t * 1.5).sin() * (y * 5.0 - t).cos();
-    let b = (x * 11.0 - t).sin() * (y * 9.0 + t * 0.7).cos();
-    (0.5 + 0.35 * a + 0.15 * b).clamp(0.0, 1.0)
+    let a = (x * 4.0 + t * 1.2).sin() * (y * 3.5 - t * 0.8).cos();
+    (0.06 + 0.09 * a).clamp(0.0, 0.18)
 }
