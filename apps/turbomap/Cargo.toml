@@ -8,6 +8,7 @@ members = [
     "crates/turbomap-tiles-http",
     "crates/turbomap-tiles-pmtiles",
     "crates/turbomap-app",
+    "crates/turbomap-clouds",
     "crates/turbomap-golden",
     "crates/turbomap-scene",
     "crates/turbomap-engine",
