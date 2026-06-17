@@ -19,14 +19,19 @@ struct Uniforms {
     erosion    : f32,   // high-freq edge erosion strength
     softness   : f32,   // alpha edge width
     intensity  : f32,   // overall opacity
-    parallax   : f32,   // view sweep through the slab (map pitch); 0 = top-down
+    parallax   : f32,   // uniform fallback sweep (offscreen approx) when use_ray=0
     sun_elev   : f32,   // sun elevation 0=grazing .. 1=overhead
     extinction : f32,   // view-ray extinction
     light_ext  : f32,   // light-ray extinction (shadow strength)
     debug_view : u32,   // 0 = production; >0 = output an internal stage (AOV)
-    _pad0      : u32,
-    _pad1      : u32,
-    _pad2      : u32,
+    use_ray    : u32,   // 1 = reconstruct the real per-pixel camera ray (pitch parallax)
+    cloud_alt_base : f32, // cloud layer bottom altitude, world units
+    cloud_alt_top  : f32, // cloud layer top altitude, world units
+    inv_view_proj : mat4x4<f32>, // clip → world, for per-pixel ray reconstruction
+    world_to_uv : f32,  // world units → screen-uv scale at the ground plane
+    _pad0      : f32,
+    _pad1      : f32,
+    _pad2      : f32,
 };
 
 @group(0) @binding(0) var<uniform> U : Uniforms;
@@ -312,12 +317,34 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     let lstep = 2.4 / (U.map_scale * f32(LIGHT_STEPS));
     let lext = U.light_ext; // light extinction (shadow strength)
 
-    // View ray rakes through the slab when the map is pitched: as we descend
-    // from the slab top, the sample point slides "north" (screen-up). At
-    // parallax 0 this is a straight-down column (top-down); with parallax the
-    // ray sees the puff SIDES → real 3D. Centred on the slab mid-plane so the
-    // overlay stays roughly registered to the map.
-    let ray_az = vec2<f32>(0.0, 1.0);
+    // Per-pixel parallax. The cloud sits at altitude ABOVE the ground the
+    // basemap drew at this pixel; following the real view ray, the slab is
+    // crossed at a different (x,y) than the ground point. We sample the cloud
+    // field at that ground↔cloud offset (shift), and the offset DIFFERS
+    // between the slab top and bottom — so the column rakes across the field
+    // and the ray sees the puff SIDES (true 3D when the map is pitched).
+    // `shift_top`/`shift_bot` are that offset (in screen-uv) at the slab top
+    // and bottom; the march lerps between them. use_ray=0 → flat top-down.
+    var shift_top = vec2<f32>(0.0);
+    var shift_bot = vec2<f32>(0.0);
+    if (U.use_ray == 1u) {
+        let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y);
+        let pn = U.inv_view_proj * vec4<f32>(ndc, 0.0, 1.0);
+        let pf = U.inv_view_proj * vec4<f32>(ndc, 1.0, 1.0);
+        let ro = pn.xyz / pn.w;
+        let rd = normalize(pf.xyz / pf.w - ro);
+        if (rd.z < -1.0e-4) {
+            let g = ro + rd * (-ro.z / rd.z); // ray ∩ ground (z=0)
+            let p_top = ro + rd * ((U.cloud_alt_top - ro.z) / rd.z);
+            let p_bot = ro + rd * ((U.cloud_alt_base - ro.z) / rd.z);
+            shift_top = (p_top.xy - g.xy) * U.world_to_uv;
+            shift_bot = (p_bot.xy - g.xy) * U.world_to_uv;
+        }
+    } else {
+        // Offscreen fallback: uniform sweep along screen-up.
+        shift_top = vec2<f32>(0.0, -0.5) * U.parallax;
+        shift_bot = vec2<f32>(0.0, 0.5) * U.parallax;
+    }
 
     var transmit = 1.0;
     var scattered = vec3<f32>(0.0);
@@ -329,7 +356,7 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
             break;
         }
         let z = 1.0 - (f32(i) + 0.5) * dz;
-        let suv = uv + ray_az * (U.parallax * (0.5 - z));
+        let suv = uv + mix(shift_bot, shift_top, z);
         let d = cloud_density(suv, z);
         if (d <= 0.002) {
             continue;

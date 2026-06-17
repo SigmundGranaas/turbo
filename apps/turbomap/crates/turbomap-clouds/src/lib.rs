@@ -107,7 +107,12 @@ struct Uniforms {
     extinction: f32,
     light_extinction: f32,
     debug_view: u32,
-    _pad: [u32; 3],
+    use_ray: u32,
+    cloud_alt_base: f32,
+    cloud_alt_top: f32,
+    inv_view_proj: [[f32; 4]; 4],
+    world_to_uv: f32,
+    _pad: [f32; 3],
 }
 
 /// Tunable look of the cloud overlay for one rendered frame.
@@ -146,6 +151,23 @@ pub struct CloudParams {
     pub extinction: f32,
     /// Light-ray extinction — strength of the self-shadowing toward the sun.
     pub light_extinction: f32,
+    /// When `true`, reconstruct the real per-pixel camera ray from
+    /// [`Self::inv_view_proj`] and shift the cloud field by the ground↔
+    /// cloud-altitude parallax — so a *pitched* map reveals the puff sides
+    /// (true 3D). When `false`, the flat top-down path is used (with the
+    /// [`Self::parallax`] uniform fallback). Set by the map from its camera.
+    pub use_camera_ray: bool,
+    /// Inverse view-projection (clip → world), column-major. Lets the shader
+    /// turn each screen pixel back into a world-space ray.
+    pub inv_view_proj: [[f32; 4]; 4],
+    /// Cloud layer bottom / top altitude in world units (same frame as
+    /// `inv_view_proj`). The slab the ray is intersected against.
+    pub cloud_alt_base: f32,
+    /// Cloud layer top altitude in world units.
+    pub cloud_alt_top: f32,
+    /// World-units → screen-uv scale at the ground plane (≈ pixels-per-world
+    /// / viewport height), converting the parallax offset into a field shift.
+    pub world_to_uv: f32,
     /// Diagnostic output selector. [`DebugView::Final`] renders the real
     /// overlay; other variants emit an internal pipeline stage so it can be
     /// inspected and measured. Always [`DebugView::Final`] in production.
@@ -168,10 +190,23 @@ impl Default for CloudParams {
             sun_elevation: 0.28,
             extinction: 7.0,
             light_extinction: 11.0,
+            use_camera_ray: false,
+            inv_view_proj: IDENTITY4,
+            cloud_alt_base: 0.0,
+            cloud_alt_top: 0.0,
+            world_to_uv: 0.0,
             debug_view: DebugView::Final,
         }
     }
 }
+
+/// Column-major 4×4 identity, the no-op default for `inv_view_proj`.
+const IDENTITY4: [[f32; 4]; 4] = [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0],
+];
 
 /// Owns the cloud + basemap pipelines and the two radar data textures.
 pub struct CloudScene {
@@ -418,7 +453,12 @@ impl CloudScene {
             extinction: params.extinction,
             light_extinction: params.light_extinction,
             debug_view: params.debug_view.code(),
-            _pad: [0; 3],
+            use_ray: params.use_camera_ray as u32,
+            cloud_alt_base: params.cloud_alt_base,
+            cloud_alt_top: params.cloud_alt_top,
+            inv_view_proj: params.inv_view_proj,
+            world_to_uv: params.world_to_uv,
+            _pad: [0.0; 3],
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 

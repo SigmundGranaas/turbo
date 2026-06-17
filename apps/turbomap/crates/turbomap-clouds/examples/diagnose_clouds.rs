@@ -22,6 +22,7 @@
 use std::fs;
 use std::path::Path;
 
+use glam::{Mat3, Mat4, Vec3};
 use image::{imageops, GenericImage, Rgba, RgbaImage};
 use turbomap_clouds::metrics::{self, Fidelity};
 use turbomap_clouds::{CloudParams, CloudScene, DebugView, RadarFrame, SyntheticStorm};
@@ -154,7 +155,45 @@ fn main() {
     }
     eprintln!("hero -> {out_dir}/hero_flat.png + hero_tilted.png (parallax 0 vs 0.35)");
 
+    // --- 6. Camera-ray heroes: the REAL per-pixel ray (map pitch) --------
+    // Build a representative pitched perspective camera (same look_at_lh /
+    // perspective_lh / +y-south convention as turbomap-core) and feed its
+    // inverse view-projection so the shader reconstructs each pixel's ray and
+    // rakes through the cloud slab — this is the production path validated.
+    let aspect = WIDTH as f32 / HEIGHT as f32;
+    for pitch_deg in [0.0f32, 35.0, 55.0] {
+        let inv_vp = pitched_inv_view_proj(pitch_deg, aspect);
+        let params = CloudParams {
+            use_camera_ray: true,
+            inv_view_proj: inv_vp,
+            cloud_alt_base: 0.10,
+            cloud_alt_top: 0.26,
+            world_to_uv: 1.5,
+            ..base
+        };
+        render(&gpu, &scene, &params)
+            .save(out.join(format!("hero_cam_{}deg.png", pitch_deg as u32)))
+            .expect("save cam hero");
+    }
+    eprintln!("camera-ray heroes -> {out_dir}/hero_cam_{{0,35,55}}deg.png (real pitched ray)");
+
     eprintln!("done -> {out_dir}");
+}
+
+/// Inverse view-projection for a camera over the origin, pitched back by
+/// `pitch_deg`, looking north — mirroring turbomap-core's `view_projection`
+/// (left-handed look-at + perspective, world +y = south, +z = up). Lets the
+/// harness drive the shader's real per-pixel ray path offscreen.
+fn pitched_inv_view_proj(pitch_deg: f32, aspect: f32) -> [[f32; 4]; 4] {
+    let fov_y = 0.6435f32; // matches core FOV_Y
+    let altitude = 1.0f32;
+    let pitch = pitch_deg.to_radians();
+    // Eye: (0,0,alt) pitched about X by -pitch (eye swings to +y/south), target at origin.
+    let eye = Mat3::from_rotation_x(-pitch) * Vec3::new(0.0, 0.0, altitude);
+    let up = Vec3::new(0.0, -1.0, 0.0); // world-north
+    let view = Mat4::look_at_lh(eye, Vec3::ZERO, up);
+    let proj = Mat4::perspective_lh(fov_y, aspect, altitude * 0.01, altitude * 100.0);
+    (proj * view).inverse().to_cols_array_2d()
 }
 
 /// Render one frame with the given params (basemap cleared underneath, so

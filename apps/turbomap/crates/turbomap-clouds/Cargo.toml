@@ -24,3 +24,6 @@ pollster.workspace = true
 # Animated-GIF encoder for the time-scrub artifact. Not pulled into the
 # library, only the demo binary, so it stays off the engine's dep graph.
 gif = "0.13"
+# Build a representative pitched camera matrix in the diagnostic harness so
+# the per-pixel-ray parallax path can be validated offscreen (demo only).
+glam.workspace = true
