@@ -58,6 +58,8 @@
     <!-- Foreground-service notification -->
     <string name="rec_notif_recording">Tar opp spor</string>
     <string name="rec_notif_paused">Opptak pauset</string>
+    <string name="rec_notif_nudge_title">Beveger du deg på pause?</string>
+    <string name="rec_notif_nudge_content">%1$s fanget · fortsett for å beholde det</string>
     <string name="rec_notif_content">%1$s · %2$s</string>
     <string name="rec_notif_channel">Sporopptak</string>
     <string name="rec_notif_channel_desc">Viser et pågående varsel mens et spor tas opp.</string>

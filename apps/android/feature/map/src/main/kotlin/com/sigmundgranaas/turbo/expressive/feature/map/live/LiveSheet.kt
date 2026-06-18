@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DirectionsWalk
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -253,6 +254,12 @@ fun LiveSheet(
             Column(
                 Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 14.dp, vertical = 12.dp),
             ) {
+                // Proactively catch "I forgot to unpause and kept walking" (US-4): a banner the
+                // moment buffered movement is meaningful, with a one-tap Resume.
+                if (stats.showResumeNudge) {
+                    ResumeNudgeBanner(stats.bufferedDistanceM, metric, onResume = onTogglePause)
+                    Spacer(Modifier.height(10.dp))
+                }
                 if (stats.recording) {
                     if (detent == LiveDetent.Peek || detent == LiveDetent.Mini) PrimaryStopRow(stats.paused, onTogglePause, onStop)
                     else FullActions(stats.paused, onTogglePause, onStop)
@@ -374,6 +381,36 @@ private fun PrimaryStopRow(paused: Boolean, onTogglePause: () -> Unit, onStop: (
             modifier = Modifier.width(64.dp).height(52.dp).pressScale(stopIs).testTag("liveFinish")
                 .clearAndSetSemantics { contentDescription = "Finish" },
         ) { Icon(Icons.Rounded.Stop, null, modifier = Modifier.size(22.dp)) }
+    }
+}
+
+/** "Still moving while paused?" — the proactive resume nudge (US-4). */
+@Composable
+private fun ResumeNudgeBanner(bufferedM: Double, metric: Boolean, onResume: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(cs.tertiaryContainer).padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+            .testTag("resumeNudge"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.DirectionsWalk, null, tint = cs.onTertiaryContainer, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                stringResource(R.string.live_nudge_title),
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.W700),
+                color = cs.onTertiaryContainer,
+            )
+            Text(
+                stringResource(R.string.live_nudge_body, Units.distance(bufferedM, metric)),
+                style = MaterialTheme.typography.labelSmall,
+                color = cs.onTertiaryContainer.copy(alpha = .8f),
+            )
+        }
+        FilledTonalButton(onClick = onResume, modifier = Modifier.testTag("resumeNudgeAction")) {
+            Text(stringResource(R.string.live_resume), fontWeight = FontWeight.W700)
+        }
     }
 }
 

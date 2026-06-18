@@ -66,8 +66,13 @@ class RecordingService : Service() {
                 if (mode == Mode.Following) teardown()
             }
             // Pause/resume straight from the notification (shade / lock screen) — like a
-            // music app. The session collector below re-posts with the flipped state.
-            ACTION_PAUSE -> controller.togglePause()
+            // music app. The session collector below re-posts with the flipped state. If you
+            // walked while paused (the nudge case), resuming from here KEEPS that walk (US-4) —
+            // discarding needs the explicit in-app prompt, never a single lock-screen tap.
+            ACTION_PAUSE -> {
+                val s = controller.session.value
+                if (s.paused && s.hasBufferedMovement) controller.resume(includeBuffered = true) else controller.togglePause()
+            }
             ACTION_FOLLOW -> startFollowing()
             else -> startRecording()
         }
@@ -146,9 +151,21 @@ class RecordingService : Service() {
             ACTION_PAUSE, reqCode = 1,
         )
         val stop = action(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.rec_notif_stop), ACTION_STOP, reqCode = 2)
+        // Proactive nudge (US-4): if you've walked while paused, the notification itself
+        // alerts you on the lock screen instead of silently sitting paused.
+        val title = when {
+            stats.showResumeNudge -> getString(R.string.rec_notif_nudge_title)
+            paused -> getString(R.string.rec_notif_paused)
+            else -> getString(R.string.rec_notif_recording)
+        }
+        val content = if (stats.showResumeNudge) {
+            getString(R.string.rec_notif_nudge_content, Units.distance(stats.bufferedDistanceM, metric))
+        } else {
+            getString(R.string.rec_notif_content, distance, elapsed)
+        }
         val builder = baseBuilder()
-            .setContentTitle(getString(if (paused) R.string.rec_notif_paused else R.string.rec_notif_recording))
-            .setContentText(getString(R.string.rec_notif_content, distance, elapsed))
+            .setContentTitle(title)
+            .setContentText(content)
             .setStyle(Notification.BigTextStyle().bigText(rich))
             .addAction(pauseResume)
             .addAction(stop)

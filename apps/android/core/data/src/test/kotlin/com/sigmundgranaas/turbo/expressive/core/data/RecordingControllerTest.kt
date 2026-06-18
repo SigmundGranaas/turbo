@@ -23,8 +23,8 @@ private class FakeLocationRepository(var permitted: Boolean = true) : LocationRe
 private class FakeDraftStore(var draft: RecordingDraft? = null) : RecordingDraftStore {
     var cleared = false
     override suspend fun load(): RecordingDraft? = draft
-    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int) {
-        draft = RecordingDraft(points, elevations, elapsedSec)
+    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int, pausedFromIndex: Int) {
+        draft = RecordingDraft(points, elevations, elapsedSec, pausedFromIndex)
     }
     override suspend fun clear() { draft = null; cleared = true }
 }
@@ -136,6 +136,27 @@ class RecordingControllerTest {
         // …but normal accumulation resumes from there.
         loc.emit(69.002, 18.0); runCurrent()
         assertTrue("walks from the new point count", controller.session.value.distanceM > 90.0)
+    }
+
+    @Test
+    fun `a kill while paused restores the track and the held buffer`() = runTest {
+        val loc = FakeLocationRepository()
+        val draft = FakeDraftStore()
+        val c1 = RecordingController(loc, draft, backgroundScope)
+        c1.start(); runCurrent()
+        loc.emit(69.0, 18.0); runCurrent()
+        loc.emit(69.001, 18.0); runCurrent() // ~111 m track, 2 points
+        c1.pause()
+        loc.emit(69.002, 18.0); runCurrent() // ~111 m walked while paused → buffer persisted
+        c1.stop() // session goes away, but the draft survives
+
+        // A fresh controller resumes from the same persisted draft.
+        val c2 = RecordingController(loc, draft, backgroundScope)
+        c2.start(); runCurrent()
+        val s = c2.session.value
+        assertTrue("restored paused", s.paused)
+        assertEquals("track restored without the buffer", 2, s.points.size)
+        assertTrue("buffer restored: ${s.bufferedDistanceM}", s.bufferedDistanceM > 90.0)
     }
 
     @Test

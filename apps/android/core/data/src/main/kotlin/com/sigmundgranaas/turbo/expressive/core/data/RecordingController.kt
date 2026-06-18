@@ -76,13 +76,32 @@ class RecordingController @Inject constructor(
         locationJob = scope.launch {
             // Resume any persisted draft (e.g. after a process kill) before collecting.
             draftStore.load()?.let { draft ->
-                _session.update {
-                    it.copy(
-                        points = draft.points,
-                        elevations = draft.elevations,
-                        distanceM = GeoMetrics.pathLengthMeters(draft.points),
-                        elapsedSec = draft.elapsedSec,
-                    )
+                val idx = draft.pausedFromIndex
+                if (idx in 0..draft.points.size) {
+                    // Killed while PAUSED: split the track from the held buffer and stay paused.
+                    val mainPts = draft.points.take(idx)
+                    val mainElev = draft.elevations.take(idx)
+                    val bufPts = draft.points.drop(idx)
+                    val bufElev = draft.elevations.drop(idx)
+                    pauseAnchor = mainPts.lastOrNull()
+                    pausedCapture = CapturedTrack(bufPts, bufElev, GeoMetrics.pathLengthMeters(bufPts))
+                    val join = pauseAnchor?.let { a -> bufPts.firstOrNull()?.let { GeoMetrics.haversineMeters(a, it) } } ?: 0.0
+                    _session.update {
+                        it.copy(
+                            points = mainPts, elevations = mainElev,
+                            distanceM = GeoMetrics.pathLengthMeters(mainPts), elapsedSec = draft.elapsedSec,
+                            paused = true, bufferedDistanceM = join + pausedCapture.distanceM,
+                        )
+                    }
+                } else {
+                    _session.update {
+                        it.copy(
+                            points = draft.points,
+                            elevations = draft.elevations,
+                            distanceM = GeoMetrics.pathLengthMeters(draft.points),
+                            elapsedSec = draft.elapsedSec,
+                        )
+                    }
                 }
             }
             location.samples().collect { sample ->
@@ -98,7 +117,15 @@ class RecordingController @Inject constructor(
                     val join = pauseAnchor?.let { a ->
                         pausedCapture.points.firstOrNull()?.let { GeoMetrics.haversineMeters(a, it) }
                     } ?: 0.0
-                    _session.update { it.copy(bufferedDistanceM = join + pausedCapture.distanceM) }
+                    val updated = _session.updateAndGet { it.copy(bufferedDistanceM = join + pausedCapture.distanceM) }
+                    // Persist the track AND the buffer (points past pausedFromIndex) so a
+                    // kill-while-paused doesn't lose the paused walk.
+                    draftStore.save(
+                        updated.points + pausedCapture.points,
+                        updated.elevations + pausedCapture.elevations,
+                        updated.elapsedSec,
+                        pausedFromIndex = updated.points.size,
+                    )
                     return@collect
                 }
                 val updated = _session.updateAndGet { s ->

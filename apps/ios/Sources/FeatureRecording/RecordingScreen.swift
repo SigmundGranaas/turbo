@@ -58,6 +58,25 @@ public struct RecordingScreen: View {
 
             Spacer()
 
+            // Proactive nudge (US-4): you walked while paused — catch it with a banner + Resume.
+            if controller.isPausedBuffering && controller.hasBufferedMovement {
+                HStack(spacing: 10) {
+                    Image(systemName: "figure.walk").foregroundStyle(t.label)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Still moving while paused?").font(.turboSubhead).foregroundStyle(t.label)
+                        Text("\(Int(controller.bufferedDistanceM)) m captured · resume to keep it")
+                            .font(.turboCaption).foregroundStyle(t.label2)
+                    }
+                    Spacer()
+                    Button("Resume") { showResumeBuffer = true }
+                        .font(.turboHeadline).foregroundStyle(t.label)
+                }
+                .padding(12)
+                .background(t.groupedCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.horizontal, 24)
+                .accessibilityIdentifier("recording.nudge")
+            }
+
             HStack(spacing: 12) {
                 // Pause keeps capturing into a buffer; resuming asks Include/Discard if you
                 // walked while paused (US-4). A one-tap resume with no buffer just continues.

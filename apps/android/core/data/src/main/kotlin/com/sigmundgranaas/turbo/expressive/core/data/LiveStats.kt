@@ -32,8 +32,13 @@ data class LiveStats(
     /** Progress along the route, 0..1 (following only). */
     val fraction: Double? = null,
     val kcal: Int = 0,
+    /** Distance (m) walked while paused, pending Include/Discard — drives the resume nudge (US-4). */
+    val bufferedDistanceM: Double = 0.0,
 ) {
     val recording: Boolean get() = mode == LiveMode.Recording
+
+    /** Show the "still moving while paused?" nudge — paused with a meaningful buffered walk. */
+    val showResumeNudge: Boolean get() = paused && bufferedDistanceM >= RESUME_PROMPT_M
 
     companion object {
         /** Build the live read-model for an active recording session. */
@@ -50,6 +55,7 @@ data class LiveStats(
                 descentM = desc,
                 altitudeM = session.elevations.lastOrNull { it != null },
                 kcal = GeoMetrics.estimateKcal(session.distanceM, asc),
+                bufferedDistanceM = session.bufferedDistanceM,
             )
         }
 

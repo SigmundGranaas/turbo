@@ -13,8 +13,17 @@ import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** A recording snapshot persisted across process death so a track survives a kill. */
-data class RecordingDraft(val points: List<LatLng>, val elevations: List<Double?>, val elapsedSec: Int)
+/**
+ * A recording snapshot persisted across process death so a track survives a kill.
+ * [pausedFromIndex] ≥ 0 means the session was paused: points before it are the track, points
+ * from it on are the paused buffer (US-4) — so a kill-while-paused doesn't lose that walk.
+ */
+data class RecordingDraft(
+    val points: List<LatLng>,
+    val elevations: List<Double?>,
+    val elapsedSec: Int,
+    val pausedFromIndex: Int = -1,
+)
 
 /**
  * Durable scratch store for the in-progress recording. The controller writes the
@@ -24,7 +33,7 @@ data class RecordingDraft(val points: List<LatLng>, val elevations: List<Double?
  */
 interface RecordingDraftStore {
     suspend fun load(): RecordingDraft?
-    suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int)
+    suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int, pausedFromIndex: Int = -1)
     suspend fun clear()
 }
 
@@ -39,6 +48,7 @@ class DataStoreRecordingDraftStore @Inject constructor(
         val POINTS = stringPreferencesKey("draft_points")
         val ELEVATIONS = stringPreferencesKey("draft_elevations")
         val ELAPSED = intPreferencesKey("draft_elapsed")
+        val PAUSED_FROM = intPreferencesKey("draft_paused_from")
     }
 
     override suspend fun load(): RecordingDraft? {
@@ -57,14 +67,15 @@ class DataStoreRecordingDraftStore @Inject constructor(
             ?.map { it.toDoubleOrNull() }
             ?.takeIf { it.size == points.size }
             ?: List(points.size) { null }
-        return RecordingDraft(points, elevations, prefs[Keys.ELAPSED] ?: 0)
+        return RecordingDraft(points, elevations, prefs[Keys.ELAPSED] ?: 0, prefs[Keys.PAUSED_FROM] ?: -1)
     }
 
-    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int) {
+    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int, pausedFromIndex: Int) {
         context.recordingDraftStore.edit { prefs ->
             prefs[Keys.POINTS] = points.joinToString(";") { "${it.lat},${it.lng}" }
             prefs[Keys.ELEVATIONS] = elevations.joinToString(";") { it?.toString().orEmpty() }
             prefs[Keys.ELAPSED] = elapsedSec
+            prefs[Keys.PAUSED_FROM] = pausedFromIndex
         }
     }
 

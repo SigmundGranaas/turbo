@@ -58,6 +58,8 @@
     <!-- Foreground-service notification -->
     <string name="rec_notif_recording">Recording track</string>
     <string name="rec_notif_paused">Recording paused</string>
+    <string name="rec_notif_nudge_title">Still moving while paused?</string>
+    <string name="rec_notif_nudge_content">%1$s captured · resume to keep it</string>
     <string name="rec_notif_content">%1$s · %2$s</string>
     <string name="rec_notif_channel">Track recording</string>
     <string name="rec_notif_channel_desc">Shows an ongoing notification while a track is being recorded.</string>

@@ -170,6 +170,14 @@ public final class RecordingController {
             pausedCapture = TrackCapture.append(pausedCapture, fix)
             let join = pauseAnchor.flatMap { a in pausedCapture.points.first.map { GeoMetrics.haversineMeters(a, $0) } } ?? 0
             bufferedDistanceM = join + pausedCapture.distanceM
+            // Persist the track AND the buffer so a kill-while-paused doesn't lose the walk.
+            let main = capture, buf = pausedCapture, elapsed = elapsedSeconds
+            Task {
+                await draftStore.save(RecordingDraft(
+                    points: main.points, elevations: main.elevations, elapsedSeconds: elapsed,
+                    paused: true, bufferPoints: buf.points, bufferElevations: buf.elevations
+                ))
+            }
             return
         }
         // After a Discard resume the first fix is detached so the gap isn't counted.
@@ -184,7 +192,7 @@ public final class RecordingController {
         // Persist the growing track so it survives process death.
         let snapshot = capture
         let elapsed = elapsedSeconds
-        Task { await draftStore.save(points: snapshot.points, elevations: snapshot.elevations, elapsedSeconds: elapsed) }
+        Task { await draftStore.save(RecordingDraft(points: snapshot.points, elevations: snapshot.elevations, elapsedSeconds: elapsed)) }
     }
 
     /// Restore a recording from a persisted draft after a relaunch — unless live fixes already
@@ -202,6 +210,20 @@ public final class RecordingController {
         startedAt = now().addingTimeInterval(-Double(draft.elapsedSeconds))
         elapsedSeconds = draft.elapsedSeconds
         publish(from: capture)
+        // Killed while PAUSED: restore the held buffer and stay paused (the clock stays frozen).
+        if draft.paused {
+            isPausedBuffering = true
+            pauseStartedAt = now()
+            pauseAnchor = capture.points.last
+            pausedCapture = CapturedTrack(
+                points: draft.bufferPoints,
+                elevations: draft.bufferElevations,
+                distanceM: GeoMetrics.pathLengthMeters(draft.bufferPoints),
+                currentAltitude: draft.bufferElevations.last
+            )
+            let join = pauseAnchor.flatMap { a in draft.bufferPoints.first.map { GeoMetrics.haversineMeters(a, $0) } } ?? 0
+            bufferedDistanceM = join + pausedCapture.distanceM
+        }
     }
 
     /// Pause the recording; capture continues into a side buffer (US-4). The clock freezes.
