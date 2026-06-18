@@ -38,6 +38,11 @@ struct Uniforms {
 @group(0) @binding(1) var radar_a : texture_2d<f32>;
 @group(0) @binding(2) var radar_b : texture_2d<f32>;
 @group(0) @binding(3) var radar_s : sampler;
+// Precomputed tileable 3D noise (R = Perlin-Worley base, G = hi-freq Worley
+// detail, B = mid). Sampled with Repeat addressing — replaces the per-step
+// analytic noise so the volumetric march is cheap enough for a mobile GPU.
+@group(0) @binding(4) var noise_vol : texture_3d<f32>;
+@group(0) @binding(5) var noise_samp : sampler;
 
 struct VsOut {
     @builtin(position) pos : vec4<f32>,
@@ -168,12 +173,6 @@ fn hash13(p_in : vec3<f32>) -> f32 {
     return fract((p3.x + p3.y) * p3.z);
 }
 
-fn hash33(p_in : vec3<f32>) -> vec3<f32> {
-    var p3 = fract(p_in * vec3<f32>(0.1031, 0.1030, 0.0973));
-    p3 += dot(p3, p3.yxz + 33.33);
-    return fract((p3.xxy + p3.yxx) * p3.zyx);
-}
-
 // Value noise in 3D, quintic-faded trilinear interpolation.
 fn noise3(p : vec3<f32>) -> f32 {
     let i = floor(p);
@@ -210,45 +209,8 @@ fn fbm3(p_in : vec3<f32>) -> f32 {
     return sum / norm;
 }
 
-// 3D Worley F1 (nearest feature over a 3×3×3 jittered grid).
-fn worley3(p : vec3<f32>) -> f32 {
-    let ip = floor(p);
-    let fp = fract(p);
-    var d = 9.0;
-    for (var k = -1; k <= 1; k = k + 1) {
-        for (var j = -1; j <= 1; j = j + 1) {
-            for (var i = -1; i <= 1; i = i + 1) {
-                let g = vec3<f32>(f32(i), f32(j), f32(k));
-                let o = hash33(ip + g);
-                let r = g + o - fp;
-                d = min(d, dot(r, r));
-            }
-        }
-    }
-    return sqrt(d);
-}
-
-// Fractal inverted-Worley billows in 3D — rounded cauliflower lumps.
-fn billow3(p_in : vec3<f32>) -> f32 {
-    var p = p_in;
-    var amp = 0.65;
-    var sum = 0.0;
-    var norm = 0.0;
-    for (var i = 0; i < 2; i = i + 1) {
-        sum += amp * (1.0 - worley3(p));
-        norm += amp;
-        amp *= 0.5;
-        p = ROT3 * p * 2.0 + vec3<f32>(7.3, 3.1, 5.7);
-    }
-    return clamp(sum / norm, 0.0, 1.0);
-}
-
-// Perlin–Worley in 3D (Schneider): 3D value-fBm remapped up toward 3D billows.
-fn perlin_worley3(p : vec3<f32>) -> f32 {
-    let per = fbm3(p);
-    let bil = billow3(p);
-    return clamp(remap(per, bil - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
-}
+// (3D Worley/billow/Perlin-Worley are now precomputed into the noise texture
+// and sampled in `cloud_density`; `fbm3`/`noise3` remain for `cloud_type`.)
 
 // Smoothstep-bilinear sampling: de-blocks the radar grid for ~1 tap.
 fn sample_radar(tex : texture_2d<f32>, uv : vec2<f32>) -> vec2<f32> {
@@ -379,8 +341,9 @@ fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
     let big_seed = clamp(seed + precip_seed(uv) * 0.7, 0.0, 1.0);
 
     // Primary big-shape field — low frequency, so it sets the major forms.
+    // Sampled from the precomputed tileable 3D noise (R = Perlin-Worley).
     let pp = vec3<f32>((uv * U.map_scale + drift) * 0.55, z * VHEIGHT * 0.55 + U.time * 0.04);
-    var primary = perlin_worley3(pp);
+    var primary = textureSampleLevel(noise_vol, noise_samp, pp * 0.5, 0.0).r;
     primary = clamp(remap(primary, 1.0 - big_seed, 1.0, 0.0, 1.0), 0.0, 1.0);
     if (primary <= 0.001) {
         return 0.0;
@@ -392,9 +355,11 @@ fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
         return 0.0;
     }
 
-    // High-frequency 3D billow detail erodes small puffs around the primary
-    // shape (stronger toward the top), then crisp the low-density fringe.
-    let detail = billow3(vec3<f32>(uv * U.map_scale + drift, z * VHEIGHT) * 2.2 + vec3<f32>(11.0, 5.0, 9.0));
+    // High-frequency detail erodes small puffs around the primary shape
+    // (stronger toward the top), sampled from the noise texture's G channel
+    // (hi-freq Worley billow) at a finer scale; then crisp the fringe.
+    let dc = vec3<f32>(uv * U.map_scale + drift, z * VHEIGHT) * 0.9 + vec3<f32>(3.1, 1.7, 2.3);
+    let detail = textureSampleLevel(noise_vol, noise_samp, dc, 0.0).g;
     d = clamp(remap(d, (1.0 - detail) * mix(0.28, 0.60, z), 1.0, 0.0, 1.0), 0.0, 1.0);
     d = clamp((d - 0.10) / 0.90, 0.0, 1.0);
     return d * 2.6;

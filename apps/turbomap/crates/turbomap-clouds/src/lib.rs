@@ -221,6 +221,9 @@ pub struct CloudScene {
     bind_group: wgpu::BindGroup,
     tex_a: wgpu::Texture,
     tex_b: wgpu::Texture,
+    /// Precomputed tileable 3D cloud noise, sampled by the shader (kept alive
+    /// for the bind group).
+    _noise_tex: wgpu::Texture,
     data_w: u32,
     data_h: u32,
 }
@@ -228,9 +231,11 @@ pub struct CloudScene {
 impl CloudScene {
     /// Build the scene for a given target colour `format` and radar grid
     /// dimensions. The two data textures are allocated up front and
-    /// refilled per frame via [`CloudScene::upload`].
+    /// refilled per frame via [`CloudScene::upload`]; the 3D noise volume is
+    /// generated + uploaded once here (needs `queue`).
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
         data_w: u32,
         data_h: u32,
@@ -254,6 +259,55 @@ impl CloudScene {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        // Precomputed tileable 3D noise — sampled in the shader instead of
+        // computing analytic Perlin-Worley/Worley per march step.
+        let noise_n = 64u32;
+        let noise_data = noise3d::generate(noise_n);
+        let noise_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("turbomap-clouds-noise3d"),
+            size: wgpu::Extent3d {
+                width: noise_n,
+                height: noise_n,
+                depth_or_array_layers: noise_n,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &noise_tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &noise_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(noise_n * 4),
+                rows_per_image: Some(noise_n),
+            },
+            wgpu::Extent3d {
+                width: noise_n,
+                height: noise_n,
+                depth_or_array_layers: noise_n,
+            },
+        );
+        let noise_view = noise_tex.create_view(&Default::default());
+        let noise_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("turbomap-clouds-noise-sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
@@ -288,6 +342,22 @@ impl CloudScene {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
 
@@ -310,6 +380,14 @@ impl CloudScene {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&noise_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&noise_sampler),
                 },
             ],
         });
@@ -396,6 +474,7 @@ impl CloudScene {
             bind_group,
             tex_a,
             tex_b,
+            _noise_tex: noise_tex,
             data_w,
             data_h,
         }

@@ -49,7 +49,13 @@ fn main() {
         storm.height
     );
 
-    let scene = CloudScene::new(&gpu.device, gpu::TARGET_FORMAT, storm.width, storm.height);
+    let scene = CloudScene::new(
+        &gpu.device,
+        &gpu.queue,
+        gpu::TARGET_FORMAT,
+        storm.width,
+        storm.height,
+    );
 
     // Fast tuning path: `CLOUDS_QUICK=1` renders a single mid-sequence
     // frame + the before/after so the look can be iterated in seconds.

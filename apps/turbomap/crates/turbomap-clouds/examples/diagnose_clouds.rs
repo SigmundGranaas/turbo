@@ -72,7 +72,13 @@ fn main() {
 
     let storm = SyntheticStorm::default();
     let frames = storm.generate();
-    let scene = CloudScene::new(&gpu.device, gpu::TARGET_FORMAT, storm.width, storm.height);
+    let scene = CloudScene::new(
+        &gpu.device,
+        &gpu.queue,
+        gpu::TARGET_FORMAT,
+        storm.width,
+        storm.height,
+    );
 
     // A representative mid-sequence frame: the front is crossing the grid
     // with convective cores embedded — the case the look has to nail.

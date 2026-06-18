@@ -406,8 +406,13 @@ impl Map {
                 return;
             }
         }
-        let scene =
-            turbomap_clouds::CloudScene::new(&self.device, self.surface_format, grid_w, grid_h);
+        let scene = turbomap_clouds::CloudScene::new(
+            &self.device,
+            &self.queue,
+            self.surface_format,
+            grid_w,
+            grid_h,
+        );
         self.clouds = Some(CloudOverlay {
             scene,
             params: CloudParams::default(),
@@ -472,11 +477,7 @@ impl Map {
     /// replaces it. Halo > 0 on the source is required so adjacent
     /// tile-edge vertices agree and the mesh doesn't crack at tile
     /// boundaries.
-    pub fn set_terrain_source(
-        &mut self,
-        source: Arc<dyn TileSource>,
-        options: TerrainOptions,
-    ) {
+    pub fn set_terrain_source(&mut self, source: Arc<dyn TileSource>, options: TerrainOptions) {
         let halo = source.dem_halo_px();
         let cache = TerrainCache::new(
             self.device.clone(),
@@ -512,13 +513,7 @@ impl Map {
     /// Host drives this from the same fetch pump it uses for raster
     /// tiles. Silently no-ops when no terrain source is registered
     /// (e.g. host sent us a stale tile after `clear_terrain`).
-    pub fn ingest_terrain_tile(
-        &mut self,
-        tile: TileId,
-        rgba: &[u8],
-        width: u32,
-        height: u32,
-    ) {
+    pub fn ingest_terrain_tile(&mut self, tile: TileId, rgba: &[u8], width: u32, height: u32) {
         if let Some(t) = self.terrain.as_mut() {
             t.cache.ingest(tile, rgba, width, height);
             t.scene.ingest(tile);
@@ -574,11 +569,7 @@ impl Map {
     /// registered yet, the pipeline is built against the placeholder
     /// layout — calling `set_terrain_source` later activates real
     /// displacement without recompiling the pipeline.
-    pub fn add_hillshade_layer(
-        &mut self,
-        id: impl Into<String>,
-        style: HillshadeStyle,
-    ) {
+    pub fn add_hillshade_layer(&mut self, id: impl Into<String>, style: HillshadeStyle) {
         let id = id.into();
         let halo = self
             .terrain
@@ -833,14 +824,18 @@ impl Map {
     /// centroid), keeping that pixel anchored.
     pub fn rotate_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
-        let c = self.camera.rotated_around(delta_deg, focus_px, (w as f64, h as f64));
+        let c = self
+            .camera
+            .rotated_around(delta_deg, focus_px, (w as f64, h as f64));
         self.set_camera(c);
     }
 
     /// Tilt by `delta_deg` about `focus_px`, keeping that pixel anchored.
     pub fn pitch_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
-        let c = self.camera.pitched_around(delta_deg, focus_px, (w as f64, h as f64));
+        let c = self
+            .camera
+            .pitched_around(delta_deg, focus_px, (w as f64, h as f64));
         self.set_camera(c);
     }
 
@@ -849,7 +844,9 @@ impl Map {
     /// same target [`Camera::zoom_around`] would snap to.
     pub fn zoom_around_animated(&mut self, factor: f64, focus_px: (f64, f64), duration: Duration) {
         let (w, h) = self.viewport_px;
-        let target = self.camera.zoomed_around(factor, focus_px, (w as f64, h as f64));
+        let target = self
+            .camera
+            .zoomed_around(factor, focus_px, (w as f64, h as f64));
         self.ease_to(target, duration);
     }
 
@@ -981,14 +978,7 @@ impl Map {
     /// the data goes to the shared terrain cache, so this just forwards
     /// to [`Map::ingest_terrain_tile`]. The `layer_id` argument is
     /// kept for source compatibility but ignored.
-    pub fn ingest_hillshade(
-        &mut self,
-        _layer_id: &str,
-        tile: TileId,
-        rgba: &[u8],
-        w: u32,
-        h: u32,
-    ) {
+    pub fn ingest_hillshade(&mut self, _layer_id: &str, tile: TileId, rgba: &[u8], w: u32, h: u32) {
         self.ingest_terrain_tile(tile, rgba, w, h);
     }
 
@@ -1253,8 +1243,7 @@ impl Map {
         // exaggeration is applied separately inside the shader.
         let lat = self.camera.center.lat.to_radians();
         let earth_circumference_m: f32 = 40_075_017.0;
-        let meters_to_world =
-            (lat.cos().abs() as f32 / earth_circumference_m).max(1e-12);
+        let meters_to_world = (lat.cos().abs() as f32 / earth_circumference_m).max(1e-12);
         // Terrain config for the raster pipeline. When terrain isn't
         // registered, `meters_to_world` is forced to 0 so the shader
         // displacement collapses and the mesh draws flat.
