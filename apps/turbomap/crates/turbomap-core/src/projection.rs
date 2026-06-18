@@ -259,6 +259,39 @@ mod tests {
     }
 
     #[test]
+    fn meridian_arc_matches_the_published_wgs84_quarter_meridian() {
+        // Authoritative absolute anchor (no network / external dependency):
+        // the WGS84 meridian quarter — equator to pole — is 10 001 965.729 m
+        // (IUGG / EPSG). Matching it pins the ellipsoid constants and the arc
+        // series in absolute metres, which the self-consistent round-trip and
+        // central-meridian invariants alone cannot.
+        let f = 1.0 / INV_FLATTENING;
+        let e2 = f * (2.0 - f);
+        let quarter = meridian_arc(std::f64::consts::FRAC_PI_2, SEMI_MAJOR_A, e2);
+        assert!(
+            (quarter - 10_001_965.729).abs() < 1.0,
+            "WGS84 quarter meridian = {quarter}, expected ~10001965.729",
+        );
+    }
+
+    #[test]
+    fn northing_on_the_central_meridian_applies_the_utm_scale_factor() {
+        // On the central meridian the northing is exactly k0 · (meridian arc
+        // to that latitude). This pins the 0.9996 UTM scale factor into the
+        // forward projection — the one constant the easting=500000 and
+        // equator=0 invariants leave free (both hold for any k0).
+        let f = 1.0 / INV_FLATTENING;
+        let e2 = f * (2.0 - f);
+        let lat = 60.0_f64;
+        let (_, northing) = LatLng::new(lat, 9.0).to_utm(Crs::Utm32N); // 9° = CM of zone 32
+        let expected = UTM_K0 * meridian_arc(lat.to_radians(), SEMI_MAJOR_A, e2);
+        assert!(
+            (northing - expected).abs() < 1e-6,
+            "northing {northing} should be k0·arc = {expected}",
+        );
+    }
+
+    #[test]
     fn east_of_the_central_meridian_increases_easting() {
         // A point east of the CM has E > 500 000; west has E < 500 000.
         // Guards against a sign flip in the longitude term.

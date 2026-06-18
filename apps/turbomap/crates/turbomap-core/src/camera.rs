@@ -1041,14 +1041,14 @@ mod tests {
         // The centre lifts up (smaller y) by ~inset/2.
         assert!(inset_y < plain_y, "{inset_y} should sit above {plain_y}");
         assert!(
-            ((plain_y - inset_y) as f64 - inset / 2.0).abs() < 1.0,
+            ((plain_y - inset_y) - inset / 2.0).abs() < 1.0,
             "lift {} ≈ {}",
             plain_y - inset_y,
             inset / 2.0
         );
 
         // Round-trip still holds with the inset applied.
-        let back = inset_cam.pixel_to_world((512.0, inset_y as f64), viewport);
+        let back = inset_cam.pixel_to_world((512.0, inset_y), viewport);
         assert_world_close(back, world, 1e-3);
     }
 
