@@ -51,7 +51,7 @@ fun RadarOverlayControls(
     // Load the sequence the first time the overlay is switched on.
     LaunchedEffect(active, eng) {
         if (active && !state.ready) {
-            state.setFrames(source.load(eng.visibleBounds(), frameCount = 12))
+            state.loadFrames(source.load(eng.visibleBounds(), frameCount = 12))
         }
         state.setVisible(active && state.ready)
     }

@@ -36,7 +36,7 @@ class RadarOverlayState(private val overlay: WeatherCloudOverlay) {
     val ready: Boolean get() = frames.size >= 2
 
     /** Install a freshly loaded sequence and show frame 0. */
-    fun setFrames(list: List<RadarFrameData>) {
+    fun loadFrames(list: List<RadarFrameData>) {
         frames = list
         loadedPairIdx = -1
         if (list.isNotEmpty()) {
