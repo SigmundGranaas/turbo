@@ -590,6 +590,7 @@ fun MapScreen(
             if (state.experimentalWgpuMap) {
                 RadarOverlayControls(
                     engine = ui.controller,
+                    source = viewModel.radarSource,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 96.dp, start = 16.dp, end = 16.dp),

@@ -6,8 +6,11 @@ import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.RadarRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
+import com.sigmundgranaas.turbo.expressive.feature.map.radar.MetRadarDataSource
+import com.sigmundgranaas.turbo.expressive.feature.map.radar.RadarDataSource
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -47,9 +50,13 @@ class MapViewModel @Inject constructor(
     private val reverseGeocode: ReverseGeocodeRepository,
     private val strings: StringProvider,
     private val settings: SettingsRepository,
+    radarRepository: RadarRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MapUiState())
     val state: StateFlow<MapUiState> = _state.asStateFlow()
+
+    /** Live cloud-overlay source (real MET weather, synthetic fallback offline). */
+    val radarSource: RadarDataSource = MetRadarDataSource(radarRepository)
 
     /** Reverse-geocoded description of the point a new marker is being dropped at. */
     private val _pointDescription = MutableStateFlow<LocationDescription?>(null)

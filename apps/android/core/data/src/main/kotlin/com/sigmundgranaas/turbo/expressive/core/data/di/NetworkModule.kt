@@ -16,6 +16,8 @@ import com.sigmundgranaas.turbo.expressive.core.data.SyntheticSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticTideRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SyntheticTrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.KartverketTideRepository
+import com.sigmundgranaas.turbo.expressive.core.data.HttpRadarRepository
+import com.sigmundgranaas.turbo.expressive.core.data.RadarRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TideRepository
 import com.sigmundgranaas.turbo.expressive.core.data.TrailSearchRepository
 import com.sigmundgranaas.turbo.expressive.core.data.BuildConfig
@@ -89,6 +91,16 @@ object NetworkModule {
             http: KartverketTideRepository,
             synthetic: SyntheticTideRepository,
         ): TideRepository = if (BuildConfig.DEBUG) synthetic else http
+
+        /**
+         * Gridded weather for the cloud overlay (MET locationforecast samples).
+         * Always the live impl — even in DEBUG — so the overlay shows real
+         * weather where there's a network; the feature layer falls back to its
+         * synthetic storm when a fetch fails (offline).
+         */
+        @Provides
+        @Singleton
+        fun provideRadarRepository(http: HttpRadarRepository): RadarRepository = http
 
         @Provides
         @Singleton
