@@ -25,6 +25,48 @@ struct RecordingControllerTests {
         #expect(vm.distanceMeters > 0)
     }
 
+    /// A longer, slower walk so a pause can land between fixes.
+    private func walk() -> SimulatedLocationProvider {
+        let fixes = (0...7).map { LocationFix(position: LatLng(lat: 69.60 + Double($0) * 0.001, lng: 19.90), altitude: 10) }
+        return SimulatedLocationProvider(fixes: fixes, interval: .milliseconds(40))
+    }
+
+    @Test("pausing buffers the walk instead of dropping it; Include merges it (US-4)")
+    func pauseInclude() async {
+        let vm = RecordingController(location: walk(), pathRepository: InMemoryPathRepository(seed: []))
+        vm.start()
+        try? await Task.sleep(for: .milliseconds(110))   // a couple of fixes land on the track
+        let trackDist = vm.distanceMeters
+        let trackPts = vm.pointCount
+        vm.pause()
+        #expect(vm.isPausedBuffering)
+        try? await Task.sleep(for: .milliseconds(240))   // the rest arrive while paused → buffer
+        #expect(vm.distanceMeters == trackDist)          // track untouched while paused
+        #expect(vm.pointCount == trackPts)
+        #expect(vm.bufferedDistanceM > 90)               // the paused walk was captured
+        #expect(vm.hasBufferedMovement)
+        vm.resume(includeBuffered: true)
+        #expect(vm.isPausedBuffering == false)
+        #expect(vm.bufferedDistanceM == 0)
+        #expect(vm.distanceMeters > trackDist)           // buffer stitched onto the track
+        #expect(vm.pointCount > trackPts)
+    }
+
+    @Test("pausing then Discard keeps the track as it was")
+    func pauseDiscard() async {
+        let vm = RecordingController(location: walk(), pathRepository: InMemoryPathRepository(seed: []))
+        vm.start()
+        try? await Task.sleep(for: .milliseconds(110))
+        let trackDist = vm.distanceMeters
+        let trackPts = vm.pointCount
+        vm.pause()
+        try? await Task.sleep(for: .milliseconds(240))
+        vm.resume(includeBuffered: false)
+        #expect(vm.isPausedBuffering == false)
+        #expect(vm.distanceMeters == trackDist)          // the paused walk was discarded
+        #expect(vm.pointCount == trackPts)
+    }
+
     @Test("stop keeps the captured track; save persists it as a SavedPath")
     func saveTrack() async {
         let repo = InMemoryPathRepository(seed: [])

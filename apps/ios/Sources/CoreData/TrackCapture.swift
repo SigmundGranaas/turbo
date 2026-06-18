@@ -50,13 +50,30 @@ public enum TrackCapture {
     /// the fix carries it. This is byte-for-byte what the record screen does, which is
     /// exactly the Follow = Record parity US-1 promises.
     public static func append(_ track: CapturedTrack, _ fix: LocationFix) -> CapturedTrack {
+        let prev = track.points.last
+        var t = folded(track, fix)
+        // Incremental distance (== pathLengthMeters for a continuous walk) so a detached
+        // segment after a paused-Discard can skip its connecting gap.
+        if let prev { t.distanceM += GeoMetrics.haversineMeters(prev, fix.position) }
+        return t
+    }
+
+    /// Like ``append`` but starts a fresh segment — the new point adds NO connecting distance
+    /// from the previous one. Used after a paused-buffer **Discard** (US-4) so the gap you
+    /// walked while paused isn't counted, even though the polyline still joins the two ends.
+    public static func appendDetached(_ track: CapturedTrack, _ fix: LocationFix) -> CapturedTrack {
+        folded(track, fix)
+    }
+
+    /// Shared fold: append the point/altitude/speed and recompute ascent/descent. Distance is
+    /// applied by the caller (``append`` adds the step; ``appendDetached`` leaves it).
+    private static func folded(_ track: CapturedTrack, _ fix: LocationFix) -> CapturedTrack {
         var t = track
         t.points.append(fix.position)
         if let altitude = fix.altitude {
             t.elevations.append(altitude)
             t.currentAltitude = altitude
         }
-        t.distanceM = GeoMetrics.pathLengthMeters(t.points)
         t.ascentM = GeoMetrics.ascentMeters(t.elevations) ?? t.ascentM
         t.descentM = GeoMetrics.descentMeters(t.elevations) ?? t.descentM
         if let speed = fix.speedMps {

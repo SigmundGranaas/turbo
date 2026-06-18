@@ -10,6 +10,7 @@ public struct RecordingScreen: View {
     @Environment(\.dismiss) private var dismiss
     private let controller: RecordingController
     @State private var showSave = false
+    @State private var showResumeBuffer = false
     @State private var name = ""
 
     public init(controller: RecordingController) {
@@ -34,8 +35,9 @@ public struct RecordingScreen: View {
             .padding(.top, 12)
 
             HStack(spacing: 8) {
-                Circle().fill(controller.isRecording ? t.red : t.orange).frame(width: 12, height: 12)
-                Text(controller.isRecording ? "Recording" : "Paused").font(.turboHeadline).foregroundStyle(t.label)
+                let paused = controller.isPausedBuffering || !controller.isRecording
+                Circle().fill(paused ? t.orange : t.red).frame(width: 12, height: 12)
+                Text(paused ? "Paused" : "Recording").font(.turboHeadline).foregroundStyle(t.label)
             }
 
             Text(elapsed)
@@ -56,18 +58,38 @@ public struct RecordingScreen: View {
 
             Spacer()
 
-            Button {
-                controller.stop()
-                name = ""
-                showSave = true
-            } label: {
-                Text("Stop")
-                    .font(.turboHeadline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(t.red, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            HStack(spacing: 12) {
+                // Pause keeps capturing into a buffer; resuming asks Include/Discard if you
+                // walked while paused (US-4). A one-tap resume with no buffer just continues.
+                Button {
+                    if controller.isPausedBuffering {
+                        if controller.hasBufferedMovement { showResumeBuffer = true } else { controller.resume(includeBuffered: false) }
+                    } else {
+                        controller.pause()
+                    }
+                } label: {
+                    Label(controller.isPausedBuffering ? "Resume" : "Pause",
+                          systemImage: controller.isPausedBuffering ? "play.fill" : "pause.fill")
+                        .font(.turboHeadline)
+                        .foregroundStyle(t.label)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .accessibilityIdentifier("recording.pause")
+
+                Button {
+                    controller.stop()
+                    name = ""
+                    showSave = true
+                } label: {
+                    Text("Stop")
+                        .font(.turboHeadline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(t.red, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .accessibilityIdentifier("recording.stop")
             }
-            .accessibilityIdentifier("recording.stop")
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
         }
@@ -80,6 +102,12 @@ public struct RecordingScreen: View {
             Button("Keep Recording", role: .cancel) { controller.resume() }
         } message: {
             Text("Name this track to save it to your paths.")
+        }
+        .alert("Moved while paused", isPresented: $showResumeBuffer) {
+            Button("Include") { controller.resume(includeBuffered: true) }
+            Button("Discard", role: .destructive) { controller.resume(includeBuffered: false) }
+        } message: {
+            Text("You covered \(Int(controller.bufferedDistanceM)) m while paused. Add it to your track?")
         }
     }
 

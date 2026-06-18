@@ -23,6 +23,13 @@ public final class RecordingController {
     public private(set) var currentAltitude: Double?
     public private(set) var currentSpeedMps: Double?
     public private(set) var maxSpeedMps: Double = 0
+    /// Paused but still capturing into a side buffer (US-4) — distinct from a stopped session.
+    public private(set) var isPausedBuffering = false
+    /// Distance (m) walked while paused, pending Include/Discard on resume.
+    public private(set) var bufferedDistanceM: Double = 0
+    /// Whether enough was walked while paused to be worth asking about on resume.
+    public var hasBufferedMovement: Bool { bufferedDistanceM >= Self.resumePromptM }
+    private static let resumePromptM = 25.0
 
     /// Average moving pace in seconds per kilometre, or nil before any distance.
     public var paceSecondsPerKm: Int? {
@@ -34,6 +41,13 @@ public final class RecordingController {
     /// same one a *followed* route records with, so the two can't drift (Follow = Record).
     private var capture = CapturedTrack()
     private var startedAt: Date?
+    // Pause buffer (US-4): captured while paused, held pending Include/Discard on resume.
+    private var pausedCapture = CapturedTrack()
+    private var pauseAnchor: LatLng?
+    private var penUpNext = false
+    // Paused time is excluded from the elapsed clock.
+    private var pausedTotal: TimeInterval = 0
+    private var pauseStartedAt: Date?
 
     private let location: LocationProvider
     private let pathRepository: PathRepository
@@ -64,6 +78,8 @@ public final class RecordingController {
     public func start() {
         guard !isRecording else { return }
         capture = CapturedTrack()
+        pausedCapture = CapturedTrack(); pauseAnchor = nil; penUpNext = false
+        isPausedBuffering = false; bufferedDistanceM = 0; pausedTotal = 0; pauseStartedAt = nil
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
         ascentMeters = 0; descentMeters = 0; currentAltitude = nil
         currentSpeedMps = nil; maxSpeedMps = 0
@@ -96,7 +112,9 @@ public final class RecordingController {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self, let started = self.startedAt, self.isRecording else { continue }
-                self.elapsedSeconds = Int(self.now().timeIntervalSince(started))
+                // Paused time is excluded — the clock freezes while buffering and resumes after.
+                let pausing = self.pauseStartedAt.map { self.now().timeIntervalSince($0) } ?? 0
+                self.elapsedSeconds = Int(self.now().timeIntervalSince(started) - self.pausedTotal - pausing)
                 self.activity.update(distanceMeters: self.distanceMeters, elapsedSeconds: self.elapsedSeconds)
             }
         }
@@ -122,6 +140,7 @@ public final class RecordingController {
                 points: capture.points,
                 source: .recording,
                 elevations: capture.elevations.isEmpty ? nil : capture.elevations,
+                distanceM: capture.distanceM, // explicit so a Discard pen-up gap isn't recounted
                 recordedAtEpochMs: startedAt.map { Int64($0.timeIntervalSince1970 * 1000) },
                 movingTimeSeconds: elapsedSeconds
             ),
@@ -137,20 +156,74 @@ public final class RecordingController {
 
     private func append(_ fix: LocationFix) {
         guard isRecording else { return }
-        capture = TrackCapture.append(capture, fix)
-        pointCount = capture.pointCount
-        distanceMeters = capture.distanceM
-        ascentMeters = capture.ascentM
-        descentMeters = capture.descentM
-        currentAltitude = capture.currentAltitude
-        currentSpeedMps = capture.currentSpeedMps
-        maxSpeedMps = capture.maxSpeedMps
+        if isPausedBuffering {
+            // US-4: keep capturing while paused into a side buffer (so a forgotten unpause
+            // doesn't silently lose the walk), but leave the track untouched. Buffered distance
+            // is measured from the pause anchor so the first fix counts.
+            pausedCapture = TrackCapture.append(pausedCapture, fix)
+            let join = pauseAnchor.flatMap { a in pausedCapture.points.first.map { GeoMetrics.haversineMeters(a, $0) } } ?? 0
+            bufferedDistanceM = join + pausedCapture.distanceM
+            return
+        }
+        // After a Discard resume the first fix is detached so the gap isn't counted.
+        if penUpNext {
+            penUpNext = false
+            capture = TrackCapture.appendDetached(capture, fix)
+        } else {
+            capture = TrackCapture.append(capture, fix)
+        }
+        publish(from: capture)
         activity.update(distanceMeters: distanceMeters, elapsedSeconds: elapsedSeconds)
+    }
+
+    /// Pause the recording; capture continues into a side buffer (US-4). The clock freezes.
+    public func pause() {
+        guard isRecording, !isPausedBuffering else { return }
+        isPausedBuffering = true
+        pauseAnchor = capture.points.last
+        pausedCapture = CapturedTrack()
+        bufferedDistanceM = 0
+        pauseStartedAt = now()
+    }
+
+    /// Resume from a pause. `includeBuffered` stitches the walk captured while paused onto the
+    /// track (it IS the path you walked); otherwise it's discarded and the pen lifted so the gap
+    /// isn't counted. Either way the buffer clears and the clock resumes.
+    public func resume(includeBuffered: Bool) {
+        guard isPausedBuffering else { return }
+        if includeBuffered, let first = pausedCapture.points.first {
+            let join = capture.points.last.map { GeoMetrics.haversineMeters($0, first) } ?? 0
+            capture.points += pausedCapture.points
+            capture.elevations += pausedCapture.elevations
+            capture.distanceM += join + pausedCapture.distanceM
+            capture.maxSpeedMps = max(capture.maxSpeedMps, pausedCapture.maxSpeedMps)
+            capture.ascentM = GeoMetrics.ascentMeters(capture.elevations) ?? capture.ascentM
+            capture.descentM = GeoMetrics.descentMeters(capture.elevations) ?? capture.descentM
+            capture.currentAltitude = pausedCapture.currentAltitude ?? capture.currentAltitude
+            publish(from: capture)
+        } else {
+            penUpNext = true
+        }
+        if let ps = pauseStartedAt { pausedTotal += now().timeIntervalSince(ps); pauseStartedAt = nil }
+        isPausedBuffering = false
+        pausedCapture = CapturedTrack(); pauseAnchor = nil; bufferedDistanceM = 0
+    }
+
+    private func publish(from c: CapturedTrack) {
+        pointCount = c.pointCount
+        distanceMeters = c.distanceM
+        ascentMeters = c.ascentM
+        descentMeters = c.descentM
+        currentAltitude = c.currentAltitude
+        currentSpeedMps = c.currentSpeedMps
+        maxSpeedMps = c.maxSpeedMps
     }
 
     private func reset() {
         stop()
         capture = CapturedTrack(); startedAt = nil
+        pausedCapture = CapturedTrack(); pauseAnchor = nil; penUpNext = false
+        isPausedBuffering = false; bufferedDistanceM = 0; pausedTotal = 0; pauseStartedAt = nil
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
         ascentMeters = 0; descentMeters = 0; currentAltitude = nil
         currentSpeedMps = nil; maxSpeedMps = 0
