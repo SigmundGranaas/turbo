@@ -85,6 +85,11 @@ data class PathEntity(
     val elevations: String? = null,
     /** Activity kind tag (ActivityKindId.name), null when untagged. */
     val activityKind: String? = null,
+    /** When this track came from a Follow (D1): the planned guide it followed, encoded
+     *  like [points] ("lat,lng;…"); null for plain recordings. */
+    val plannedRoute: String? = null,
+    /** Checkpoint splits recorded while following (D1), JSON-encoded; null/blank when none. */
+    val phaseSplits: String? = null,
     // ── sync fields (see [MarkerEntity]) ──
     val remoteId: String? = null,
     val version: Long? = null,
@@ -252,7 +257,7 @@ interface PhotoDao {
         MarkerEntity::class, PathEntity::class,
         CollectionEntity::class, CollectionItemEntity::class, PhotoEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class TurboDatabase : RoomDatabase() {

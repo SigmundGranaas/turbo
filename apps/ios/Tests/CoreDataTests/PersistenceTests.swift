@@ -64,4 +64,37 @@ struct PersistenceTests {
         await collections.upsert(MapCollection(id: "c1", name: "Trips", itemCount: 3))
         #expect(await SwiftDataCollectionRepository(container: container).current().count == 1)
     }
+
+    @Test("a followed track round-trips its planned route and phase splits")
+    func followedTrackRoundTrips() async throws {
+        let container = try TurboPersistence.inMemoryContainer()
+        let paths = SwiftDataPathRepository(container: container)
+        let followed = SavedPath(
+            id: "p-follow", name: "Cabin (followed)",
+            path: GeoPath(points: [LatLng(lat: 1, lng: 2), LatLng(lat: 1.1, lng: 2.1)], source: .recording),
+            activityKind: .hiking,
+            plannedRoute: [LatLng(lat: 1, lng: 2), LatLng(lat: 1.2, lng: 2.2)],
+            phaseSplits: [
+                PhaseSplit(index: 0, name: "B", crossedAtEpochMs: 1_700_000_100_000, splitDistanceM: 800, splitSeconds: 600),
+                PhaseSplit(index: 1, name: "Cabin", crossedAtEpochMs: 1_700_000_700_000, splitDistanceM: 1200, splitSeconds: 540),
+            ]
+        )
+        await paths.upsert(followed)
+        let loaded = try #require(await SwiftDataPathRepository(container: container).current().first { $0.id == "p-follow" })
+        #expect(loaded.plannedRoute?.count == 2)
+        #expect(loaded.plannedRoute?.last?.lng == 2.2)
+        #expect(loaded.phaseSplits.count == 2)
+        #expect(loaded.phaseSplits[1].name == "Cabin")
+        #expect(loaded.phaseSplits[1].splitSeconds == 540)
+    }
+
+    @Test("a plain recording has no planned route and empty splits")
+    func plainRecordingHasNoFollowMetadata() async throws {
+        let container = try TurboPersistence.inMemoryContainer()
+        let paths = SwiftDataPathRepository(container: container)
+        await paths.upsert(SavedPath(id: "p-rec", name: "Walk", path: GeoPath(points: [LatLng(lat: 1, lng: 2)], source: .recording)))
+        let loaded = try #require(await SwiftDataPathRepository(container: container).current().first { $0.id == "p-rec" })
+        #expect(loaded.plannedRoute == nil)
+        #expect(loaded.phaseSplits.isEmpty)
+    }
 }

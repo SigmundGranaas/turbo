@@ -23,7 +23,7 @@ public struct RouteProgress: Equatable, Sendable {
 /// A checkpoint crossing: when the cursor passed a planned-route phase (waypoint/marker), with
 /// the split (time + distance) since the previous phase — split-times like a running watch (US-3).
 /// Mirrors Android `PhaseSplit`.
-public struct PhaseSplit: Equatable, Sendable {
+public struct PhaseSplit: Equatable, Hashable, Sendable {
     public let index: Int
     public let name: String
     public let crossedAtEpochMs: Int64

@@ -193,8 +193,20 @@ class FollowController @Inject constructor(
             recordedAtEpochMs = System.currentTimeMillis(),
         )
         val name = s.name?.let { "$it (followed)" } ?: "Followed route ${s.capturedDistanceM.toInt()} m"
+        // Keep a reference to the planned guide + the checkpoint splits (D1), so the saved
+        // artifact can redraw the route it followed and the splits it logged.
+        val plannedRoute = s.plan?.geometry?.takeIf { it.size >= 2 }
         scope.launch {
-            paths.save(SavedPath(id = "p-${UUID.randomUUID()}", name = name, path = geo, activityKind = null))
+            paths.save(
+                SavedPath(
+                    id = "p-${UUID.randomUUID()}",
+                    name = name,
+                    path = geo,
+                    activityKind = null,
+                    plannedRoute = plannedRoute,
+                    phaseSplits = s.phaseSplits,
+                ),
+            )
         }
     }
 

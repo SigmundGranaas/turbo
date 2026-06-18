@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.rounded.TrendingDown
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Navigation
@@ -41,6 +42,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -72,6 +74,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import java.io.File
+import kotlin.math.roundToInt
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -309,6 +312,11 @@ fun PathDetailScreen(
                 ElevationCard(path, metric)
             }
 
+            if (path.phaseSplits.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                CheckpointSplitsCard(path.phaseSplits)
+            }
+
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = { onShowOnMap(path.id) },
@@ -406,6 +414,41 @@ private fun ElevationCard(path: SavedPath, metric: Boolean) {
         )
     }
 }
+
+/** Checkpoint splits captured while following the planned route (D1 / US-3): name + split time/distance. */
+@Composable
+private fun CheckpointSplitsCard(splits: List<com.sigmundgranaas.turbo.expressive.core.geo.PhaseSplit>) {
+    val cs = MaterialTheme.colorScheme
+    TurboCard(Modifier.fillMaxWidth()) {
+        SectionLabel(stringResource(R.string.paths_checkpoints))
+        Spacer(Modifier.height(8.dp))
+        splits.forEachIndexed { i, split ->
+            if (i > 0) HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.4f))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                Icon(Icons.Rounded.Flag, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(split.name, style = MaterialTheme.typography.bodyLarge, color = cs.onSurface)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "${formatSplitClock(split.splitSeconds)} · ${formatSplitDistance(split.splitDistanceM)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Seconds → "m:ss" (or "h:mm:ss" past an hour). */
+private fun formatSplitClock(seconds: Int): String {
+    val s = seconds.coerceAtLeast(0)
+    val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}
+
+/** Metres → "1.8 km" past a kilometre, else "740 m". */
+private fun formatSplitDistance(meters: Double): String =
+    if (meters >= 1000) "%.1f km".format(meters / 1000) else "${meters.roundToInt()} m"
 
 /** Filled elevation curve over point index; null altitudes are bridged across. */
 @Composable

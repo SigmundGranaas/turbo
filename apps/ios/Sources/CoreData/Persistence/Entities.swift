@@ -61,9 +61,14 @@ final class PathEntity {
     /// Encoded `[LatLng]` + `[Double]?` so the geometry rides along.
     var pointsJSON: Data
     var elevationsJSON: Data?
+    /// Follow-mode metadata (D1): the planned guide `[LatLng]` and the checkpoint splits,
+    /// JSON-encoded; nil for plain recordings. Optional → SwiftData lightweight-migrates.
+    var plannedRouteJSON: Data?
+    var phaseSplitsJSON: Data?
 
     init(id: String, name: String, activityKey: String?, source: String, distanceM: Double,
-         ascentM: Double?, recordedAtEpochMs: Int?, movingTimeSeconds: Int?, pointsJSON: Data, elevationsJSON: Data?) {
+         ascentM: Double?, recordedAtEpochMs: Int?, movingTimeSeconds: Int?, pointsJSON: Data, elevationsJSON: Data?,
+         plannedRouteJSON: Data? = nil, phaseSplitsJSON: Data? = nil) {
         self.id = id
         self.name = name
         self.activityKey = activityKey
@@ -74,6 +79,8 @@ final class PathEntity {
         self.movingTimeSeconds = movingTimeSeconds
         self.pointsJSON = pointsJSON
         self.elevationsJSON = elevationsJSON
+        self.plannedRouteJSON = plannedRouteJSON
+        self.phaseSplitsJSON = phaseSplitsJSON
     }
 
     convenience init(_ p: SavedPath) {
@@ -83,7 +90,9 @@ final class PathEntity {
             recordedAtEpochMs: p.path.recordedAtEpochMs.map(Int.init),
             movingTimeSeconds: p.path.movingTimeSeconds,
             pointsJSON: (try? JSONEncoder().encode(p.path.points)) ?? Data(),
-            elevationsJSON: p.path.elevations.flatMap { try? JSONEncoder().encode($0) }
+            elevationsJSON: p.path.elevations.flatMap { try? JSONEncoder().encode($0) },
+            plannedRouteJSON: p.plannedRoute.flatMap { try? JSONEncoder().encode($0) },
+            phaseSplitsJSON: p.phaseSplits.isEmpty ? nil : try? JSONEncoder().encode(p.phaseSplits.map(PhaseSplitDTO.init))
         )
     }
 
@@ -94,11 +103,17 @@ final class PathEntity {
         movingTimeSeconds = p.path.movingTimeSeconds
         pointsJSON = (try? JSONEncoder().encode(p.path.points)) ?? Data()
         elevationsJSON = p.path.elevations.flatMap { try? JSONEncoder().encode($0) }
+        plannedRouteJSON = p.plannedRoute.flatMap { try? JSONEncoder().encode($0) }
+        phaseSplitsJSON = p.phaseSplits.isEmpty ? nil : try? JSONEncoder().encode(p.phaseSplits.map(PhaseSplitDTO.init))
     }
 
     var domain: SavedPath {
         let points = (try? JSONDecoder().decode([LatLng].self, from: pointsJSON)) ?? []
         let elevations = elevationsJSON.flatMap { try? JSONDecoder().decode([Double].self, from: $0) }
+        let plannedRoute = plannedRouteJSON.flatMap { try? JSONDecoder().decode([LatLng].self, from: $0) }
+        let splits = phaseSplitsJSON
+            .flatMap { try? JSONDecoder().decode([PhaseSplitDTO].self, from: $0) }?
+            .map(\.model) ?? []
         return SavedPath(
             id: id, name: name,
             path: GeoPath(
@@ -110,8 +125,29 @@ final class PathEntity {
                 recordedAtEpochMs: recordedAtEpochMs.map(Int64.init),
                 movingTimeSeconds: movingTimeSeconds
             ),
-            activityKind: activityKey.flatMap(ActivityKindId.fromKey)
+            activityKind: activityKey.flatMap(ActivityKindId.fromKey),
+            plannedRoute: plannedRoute,
+            phaseSplits: splits
         )
+    }
+}
+
+/// Codable wire shape for a persisted checkpoint split (D1). Mirrors ``PhaseSplit``.
+private struct PhaseSplitDTO: Codable {
+    let index: Int
+    let name: String
+    let crossedAtEpochMs: Int64
+    let splitDistanceM: Double
+    let splitSeconds: Int
+
+    init(_ s: PhaseSplit) {
+        index = s.index; name = s.name; crossedAtEpochMs = s.crossedAtEpochMs
+        splitDistanceM = s.splitDistanceM; splitSeconds = s.splitSeconds
+    }
+
+    var model: PhaseSplit {
+        PhaseSplit(index: index, name: name, crossedAtEpochMs: crossedAtEpochMs,
+                   splitDistanceM: splitDistanceM, splitSeconds: splitSeconds)
     }
 }
 

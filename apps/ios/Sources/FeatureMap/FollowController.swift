@@ -137,6 +137,9 @@ public final class FollowController {
     private func autoSave() {
         guard capture.points.count >= 2, capture.distanceM >= Self.minSaveM else { return }
         let elevations = capture.elevations.isEmpty ? nil : capture.elevations
+        // Keep a reference to the planned guide + the checkpoint splits (D1), so the saved
+        // artifact can redraw the route it followed and the splits it logged.
+        let plannedRoute = route.map { $0.geometry.count >= 2 ? $0.geometry : nil } ?? nil
         let saved = SavedPath(
             id: "follow-\(UUID().uuidString)",
             name: name.map { "\($0) (followed)" } ?? "Followed route \(Int(capture.distanceM)) m",
@@ -147,7 +150,9 @@ public final class FollowController {
                 recordedAtEpochMs: startedAt.map { Int64($0.timeIntervalSince1970 * 1000) },
                 movingTimeSeconds: elapsedSeconds
             ),
-            activityKind: .hiking
+            activityKind: .hiking,
+            plannedRoute: plannedRoute,
+            phaseSplits: phaseSplits
         )
         let repository = pathRepository
         Task { await repository.upsert(saved) }

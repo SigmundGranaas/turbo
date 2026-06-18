@@ -28,6 +28,7 @@
     <string name="paths_ascent">Stigning</string>
     <string name="paths_time">Tid</string>
     <string name="paths_elevation">Høyde</string>
+    <string name="paths_checkpoints">Sjekkpunkter</string>
     <string name="paths_export">Eksporter spor</string>
     <string name="paths_export_format">Eksporter %1$s</string>
     <string name="paths_share_format">Del %1$s</string>

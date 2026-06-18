@@ -37,6 +37,21 @@ public struct HikeDetailScreen: View {
                     statTile("Avg Pace", stats.formattedPace ?? "—", "speedometer")
                 }
 
+                // Checkpoint splits captured while following the planned route (D1 / US-3).
+                if !path.phaseSplits.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Checkpoints").font(.turboFootnote).foregroundStyle(t.label2).textCase(.uppercase)
+                        VStack(spacing: 0) {
+                            ForEach(Array(path.phaseSplits.enumerated()), id: \.offset) { index, split in
+                                if index > 0 { Divider().overlay(t.separator) }
+                                splitRow(split)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .background(t.groupedCard, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    }
+                }
+
                 if let onFollow, path.path.points.count >= 2 {
                     Button(action: onFollow) {
                         Label("Follow This Track", systemImage: "location.north.fill")
@@ -75,6 +90,31 @@ public struct HikeDetailScreen: View {
             .frame(maxWidth: .infinity, minHeight: 50)
             .background(t.fill3, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .foregroundStyle(t.blue)
+    }
+
+    /// One checkpoint split: name on the left, time + distance since the previous one on the right.
+    private func splitRow(_ split: PhaseSplit) -> some View {
+        HStack {
+            Image(systemName: "flag.checkered").font(.footnote).foregroundStyle(tint)
+            Text(split.name).font(.turboBody).foregroundStyle(t.label)
+            Spacer()
+            Text("\(formatClock(split.splitSeconds)) · \(formatDistance(split.splitDistanceM))")
+                .font(.turboFootnote).foregroundStyle(t.label2)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    /// Seconds → "m:ss" (or "h:mm:ss" past an hour).
+    private func formatClock(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
+    }
+
+    /// Metres → "1.8 km" past a kilometre, else "740 m".
+    private func formatDistance(_ meters: Double) -> String {
+        meters >= 1000 ? String(format: "%.1f km", meters / 1000) : "\(Int(meters.rounded())) m"
     }
 
     private func statTile(_ label: String, _ value: String, _ symbol: String) -> some View {

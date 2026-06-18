@@ -87,6 +87,36 @@ class PathRepositoryTest {
     }
 
     @Test
+    fun `a followed track round-trips its planned route and phase splits`() = runTest {
+        val repo = RoomPathRepository(FakePathDao())
+        val followed = sample.copy(
+            id = "p-follow",
+            plannedRoute = listOf(LatLng(69.6480, 18.9560), LatLng(69.6620, 18.9820)),
+            phaseSplits = listOf(
+                com.sigmundgranaas.turbo.expressive.core.geo.PhaseSplit(0, "B", 1_700_000_100_000L, 800.0, 600),
+                com.sigmundgranaas.turbo.expressive.core.geo.PhaseSplit(1, "Cabin", 1_700_000_700_000L, 1200.0, 540),
+            ),
+        )
+        repo.save(followed)
+        val loaded = repo.byId("p-follow")!!
+        assertEquals(2, loaded.plannedRoute!!.size)
+        assertEquals(18.9820, loaded.plannedRoute!![1].lng, 1e-9)
+        assertEquals(2, loaded.phaseSplits.size)
+        assertEquals("Cabin", loaded.phaseSplits[1].name)
+        assertEquals(540, loaded.phaseSplits[1].splitSeconds)
+        assertEquals(800.0, loaded.phaseSplits[0].splitDistanceM, 1e-6)
+    }
+
+    @Test
+    fun `a plain recording has no planned route and empty splits`() = runTest {
+        val repo = RoomPathRepository(FakePathDao())
+        repo.save(sample)
+        val loaded = repo.byId("p-1")!!
+        assertNull(loaded.plannedRoute)
+        assertEquals(0, loaded.phaseSplits.size)
+    }
+
+    @Test
     fun `observeAll reflects saves and deletes`() = runTest {
         val repo = RoomPathRepository(FakePathDao())
         repo.save(sample)

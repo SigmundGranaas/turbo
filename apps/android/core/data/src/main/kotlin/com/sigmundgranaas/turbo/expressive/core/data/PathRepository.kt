@@ -4,10 +4,13 @@ import com.sigmundgranaas.turbo.expressive.core.data.database.PathDao
 import com.sigmundgranaas.turbo.expressive.core.data.database.PathEntity
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
+import com.sigmundgranaas.turbo.expressive.core.geo.PhaseSplit
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.SavedPath
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 /** Offline-first store of recorded tracks / saved routes. */
@@ -69,6 +72,32 @@ private fun decodePoints(encoded: String): List<LatLng> =
         }
     }
 
+/** Wire shape for a persisted checkpoint split (D1). Mirrors [PhaseSplit]. */
+@Serializable
+private data class PhaseSplitDto(
+    val index: Int,
+    val name: String,
+    val crossedAtEpochMs: Long,
+    val splitDistanceM: Double,
+    val splitSeconds: Int,
+)
+
+private val splitsJson = Json { ignoreUnknownKeys = true }
+
+private fun encodeSplits(splits: List<PhaseSplit>): String? =
+    if (splits.isEmpty()) null
+    else splitsJson.encodeToString(
+        splits.map { PhaseSplitDto(it.index, it.name, it.crossedAtEpochMs, it.splitDistanceM, it.splitSeconds) },
+    )
+
+private fun decodeSplits(encoded: String?): List<PhaseSplit> =
+    encoded?.takeIf { it.isNotBlank() }?.let { json ->
+        runCatching {
+            splitsJson.decodeFromString<List<PhaseSplitDto>>(json)
+                .map { PhaseSplit(it.index, it.name, it.crossedAtEpochMs, it.splitDistanceM, it.splitSeconds) }
+        }.getOrDefault(emptyList())
+    } ?: emptyList()
+
 /** Decode ";"-joined elevations, keeping them parallel to [pointCount]; null if absent. */
 private fun decodeElevations(encoded: String?, pointCount: Int): List<Double?>? {
     val parts = encoded?.takeIf { it.isNotBlank() }?.split(";") ?: return null
@@ -81,6 +110,8 @@ internal fun PathEntity.toDomain(): SavedPath = SavedPath(
     id = id,
     name = name,
     activityKind = activityKind?.let { k -> runCatching { com.sigmundgranaas.turbo.expressive.domain.ActivityKindId.valueOf(k) }.getOrNull() },
+    plannedRoute = plannedRoute?.takeIf { it.isNotBlank() }?.let(::decodePoints),
+    phaseSplits = decodeSplits(phaseSplits),
     path = decodePoints(points).let { pts ->
         GeoPath(
             points = pts,
@@ -107,4 +138,6 @@ internal fun SavedPath.toEntity(): PathEntity = PathEntity(
     createdAtEpochMs = path.recordedAtEpochMs ?: 0L,
     elevations = path.elevations?.joinToString(";") { it?.toString().orEmpty() },
     activityKind = activityKind?.name,
+    plannedRoute = plannedRoute?.takeIf { it.isNotEmpty() }?.let(::encodePoints),
+    phaseSplits = encodeSplits(phaseSplits),
 )
