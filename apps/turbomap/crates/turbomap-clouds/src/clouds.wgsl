@@ -357,12 +357,15 @@ fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
 
     // High-frequency detail erodes small puffs around the primary shape
     // (stronger toward the top), sampled from the noise texture's G channel
-    // (hi-freq Worley billow) at a finer scale; then crisp the fringe.
-    let dc = vec3<f32>(uv * U.map_scale + drift, z * VHEIGHT) * 0.9 + vec3<f32>(3.1, 1.7, 2.3);
+    // (hi-freq Worley billow) at a finer scale; then crisp the fringe. Kept
+    // coarser + gentler than before: the previous high frequency / strong
+    // erosion turned the (now darker) shadow interior into salt-and-pepper
+    // speckle rather than rounded billows.
+    let dc = vec3<f32>(uv * U.map_scale + drift, z * VHEIGHT) * 0.62 + vec3<f32>(3.1, 1.7, 2.3);
     let detail = textureSampleLevel(noise_vol, noise_samp, dc, 0.0).g;
-    d = clamp(remap(d, (1.0 - detail) * mix(0.28, 0.60, z), 1.0, 0.0, 1.0), 0.0, 1.0);
-    d = clamp((d - 0.10) / 0.90, 0.0, 1.0);
-    return d * 2.6;
+    d = clamp(remap(d, (1.0 - detail) * mix(0.18, 0.42, z), 1.0, 0.0, 1.0), 0.0, 1.0);
+    d = clamp((d - 0.08) / 0.92, 0.0, 1.0);
+    return d * 2.7;
 }
 
 // Base albedo from rain intensity. Cloud stays BRIGHT WHITE until the rain
@@ -510,14 +513,18 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
         // scatter octaves (decaying extinction/contribution) add a little fill
         // so the darkest interior is deep grey, not pure black — no flat floor.
         let optical = ld * lstep * lext;
+        // Tighter multi-scatter: the big fill octave was washing the shadows
+        // flat (milky, no form). Pull it down so thick cloud goes genuinely
+        // dark underneath — that sun→shade contrast is what reads as 3D volume.
         let ms = exp(-optical)
-            + 0.30 * exp(-optical * 0.25)
-            + 0.09 * exp(-optical * 0.06);
+            + 0.16 * exp(-optical * 0.25)
+            + 0.04 * exp(-optical * 0.06);
         // Powder: in-scatter probability darkens thin edges facing the light.
-        let powder = mix(0.55, 1.0, 1.0 - exp(-d * 2.0));
+        let powder = mix(0.45, 1.0, 1.0 - exp(-d * 2.2));
         let lit = sun_col * ms * powder;
-        // Small sky ambient so the deepest shadow stays a readable grey-blue.
-        let ambient = mix(sky_bot, sky_top, z) * 0.22;
+        // Small sky ambient so the deepest shadow stays a readable grey-blue
+        // without flattening the form.
+        let ambient = mix(sky_bot, sky_top, z) * 0.15;
         // Cooler shadows at sunset: the away-from-sun (low light) parts are
         // lit only by the cool upper sky → push them blue-purple, for a strong
         // warm-sun / cool-shade split rather than a uniform orange wash.
