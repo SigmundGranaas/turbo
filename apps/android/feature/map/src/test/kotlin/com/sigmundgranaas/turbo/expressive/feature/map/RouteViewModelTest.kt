@@ -250,6 +250,18 @@ class RouteViewModelTest {
     }
 
     @Test
+    fun `moving several waypoints in sequence holds each, none snaps back (US-7)`() = runTest(mainRule.dispatcher) {
+        val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        vm.planRoute(a, b); advanceUntilIdle()
+        vm.appendWaypoint(LatLng(69.02, 18.02)); advanceUntilIdle() // 3 waypoints now
+        // Tap-to-place / drag each waypoint, in sequence — every one must land and hold across
+        // the re-solve, not just the first.
+        val targets = listOf(LatLng(69.05, 18.0), LatLng(69.06, 18.01), LatLng(69.07, 18.02))
+        targets.forEachIndexed { i, p -> vm.moveWaypointTo(i, p); advanceUntilIdle() }
+        assertEquals(targets, vm.waypoints.value)
+    }
+
+    @Test
     fun `re-solving keeps the previously solved line until the new result lands`() = runTest(mainRule.dispatcher) {
         val vm = RouteViewModel(FakeRouteRepository(listOf(RouteStreamEvent.Result(plan))), FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
         vm.planRoute(a, b); advanceUntilIdle()

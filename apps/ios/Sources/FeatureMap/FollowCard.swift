@@ -21,8 +21,8 @@ struct FollowCard: View {
                     .foregroundStyle(t.label)
             }
 
-            ProgressView(value: controller.fraction)
-                .tint(controller.isOffRoute ? t.orange : t.blue)
+            // The wavy progress tracker (US-2): the covered portion waves, the rest is flat.
+            WavyProgressView(value: controller.fraction, tint: controller.isOffRoute ? t.orange : t.blue)
 
             // Follow = Record: accumulated distance + gain + loss you've actually covered,
             // always visible (US-1) — mirrors the Android follow hero's "Covered" line.
