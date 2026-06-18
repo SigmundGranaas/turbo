@@ -56,6 +56,9 @@ internal object NativeSurfaceMap {
     /** Start an inertial pan fling at screen-pixel velocity (drag-release). */
     external fun nativeFling(handle: Long, vx: Double, vy: Double)
 
+    /** Start a momentum zoom at [zoomVelocity] (zoom-levels/s, +=in) about ([fx],[fy]). */
+    external fun nativeZoomFling(handle: Long, zoomVelocity: Double, fx: Double, fy: Double)
+
     /** Ease the camera to a pose over [durationMs] (accel/decel). */
     external fun nativeEaseTo(handle: Long, lat: Double, lng: Double, zoom: Double, bearingDeg: Double, durationMs: Int)
 

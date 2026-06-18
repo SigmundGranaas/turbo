@@ -129,6 +129,7 @@ fun TurbomapMapView(
                         onDown = { controller.onGestureDown() },
                         onTransform = { panX, panY, zoom -> controller.onTransform(panX, panY, zoom) },
                         onFling = { vx, vy -> controller.onFling(vx, vy) },
+                        onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },
                     )
                 }
                 .pointerInput(onMapTap, onMapLongClick) {
@@ -201,6 +202,7 @@ internal class TurbomapSurfaceController {
     private var reconcileLoop: Job? = null
     private var lastStatsLogMs = 0L
     private var lastAnimReconcileMs = 0L
+    private var lastPendingCount = 0
     private val http = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
@@ -396,6 +398,13 @@ internal class TurbomapSurfaceController {
         requestRender(cameraMoved = true) // kick the loop so it ticks the fling
     }
 
+    /** Pinch release: coast the zoom about ([fx],[fy]) at [zv] levels/s (no pan drift). */
+    fun onZoomFling(zv: Float, fx: Float, fy: Float) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeZoomFling(handle, zv.toDouble(), fx.toDouble(), fy.toDouble())
+        requestRender(cameraMoved = true) // kick the loop so it ticks the zoom fling
+    }
+
     /** Geographic point under a screen pixel, or null before the map is ready. */
     fun unproject(xPx: Float, yPx: Float): LatLng? {
         if (handle == 0L) return null
@@ -426,19 +435,23 @@ internal class TurbomapSurfaceController {
         }
     }
 
-    /** While tiles are loading, log GPU-texture memory + eviction telemetry (throttled). */
+    /** While tiles are outstanding, log pending/in-flight + cache telemetry (throttled). */
     private fun logStatsThrottled() {
-        if (handle == 0L || inFlight.isEmpty()) return
+        if (handle == 0L || (inFlight.isEmpty() && lastPendingCount == 0)) return
         val now = SystemClock.uptimeMillis()
         if (now - lastStatsLogMs < STATS_LOG_INTERVAL_MS) return
         lastStatsLogMs = now
-        android.util.Log.d("TurbomapTiles", "inflight=${inFlight.size} stats=${NativeSurfaceMap.nativeStats(handle)}")
+        android.util.Log.d(
+            "TurbomapTiles",
+            "pending=$lastPendingCount inflight=${inFlight.size} backoff=${retryAt.size} stats=${NativeSurfaceMap.nativeStats(handle)}",
+        )
     }
 
     private fun reconcile() {
         if (handle == 0L) return
         val arr = runCatching { JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle)) }.getOrNull() ?: return
         val desired = (0 until arr.length()).mapNotNull { parsePendingRaster(arr.optJSONObject(it)) }
+        lastPendingCount = desired.size
         val byKey = desired.associateBy { it.key }
         val decision = planReconcile(
             desiredOrdered = desired.map { it.key },
