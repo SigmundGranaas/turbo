@@ -473,8 +473,13 @@ fun MapScreen(
         val onMapTapForMode: (LatLng) -> Unit = { p ->
             when (ui.trackMode) {
                 TrackMode.Route -> when {
-                    // A selected stop → an empty-map tap deselects it (stop taps are consumed by their marker).
-                    ui.selectedWaypoint != null -> ui.selectedWaypoint = null
+                    // Tap-to-place (US-7): with a stop selected, an empty-map tap RELOCATES it
+                    // there and keeps it selected so you can keep refining. Tap its own marker
+                    // to deselect. (Marker taps are consumed by the marker, not seen here.)
+                    ui.selectedWaypoint != null -> {
+                        haptics.toggle(true)
+                        routeViewModel.moveWaypointTo(ui.selectedWaypoint!!, p)
+                    }
                     // Route exists → each further tap EXTENDS it, in tap order.
                     routeViewModel.waypoints.value.size >= 2 -> { haptics.toggle(true); routeViewModel.appendWaypoint(p) }
                     // First tap = start, second = destination.
