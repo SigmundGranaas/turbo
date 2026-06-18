@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.ViewInAr
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -105,6 +106,8 @@ fun MapControlRail(
     onCreateTrack: (() -> Unit)? = null,
     onZoomIn: () -> Unit = {},
     onZoomOut: () -> Unit = {},
+    threeD: Boolean = false,
+    onToggle3D: (() -> Unit)? = null,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // Discoverable "add a place" — drops a new marker at the map centre. Long-press
@@ -116,6 +119,10 @@ fun MapControlRail(
         // (in the inset rail) instead of MapLibre's off-screen default widget.
         if (onCompass != null && kotlin.math.abs(bearing) > 0.5f) {
             RailButton(Icons.Rounded.Explore, stringResource(R.string.ds_compass), rotation = -bearing, onClick = onCompass)
+        }
+        // 2D/3D toggle — only supplied by the wgpu map; active = 3D (orbit gestures).
+        if (onToggle3D != null) {
+            RailButton(Icons.Rounded.ViewInAr, stringResource(R.string.ds_toggle_3d), active = threeD, onClick = onToggle3D)
         }
         RailButton(Icons.Rounded.Layers, stringResource(R.string.ds_map_layers), onClick = onLayers)
         if (onCreateTrack != null) {

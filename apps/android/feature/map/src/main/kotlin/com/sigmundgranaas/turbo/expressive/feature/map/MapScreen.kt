@@ -511,6 +511,9 @@ fun MapScreen(
                         else -> emptyList()
                     },
                     userLocation = state.userLocation,
+                    // 3D mode: 1-finger orbit about the user location, two
+                    // fingers pan. Only meaningful on this wgpu engine.
+                    threeDMode = state.threeDMode,
                     markers = state.markers,
                     selectedMarkerId = ui.selectionState.selection?.id,
                     photoPins = photoClusters.map {
@@ -708,6 +711,14 @@ fun MapScreen(
                     },
                     onZoomIn = { ui.controller?.zoomIn() },
                     onZoomOut = { ui.controller?.zoomOut() },
+                    // 2D/3D toggle — only on the wgpu engine (the only one with
+                    // orbit + tilt). Hidden on MapLibre.
+                    threeD = state.threeDMode,
+                    onToggle3D = if (state.experimentalWgpuMap) {
+                        { viewModel.setThreeDMode(!state.threeDMode) }
+                    } else {
+                        null
+                    },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .windowInsetsPadding(WindowInsets.statusBars)

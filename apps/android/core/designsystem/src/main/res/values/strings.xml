@@ -25,6 +25,7 @@
     <!-- Map controls + chrome (TalkBack labels) -->
     <string name="ds_menu">Menu</string>
     <string name="ds_map_layers">Map layers</string>
+    <string name="ds_toggle_3d">Toggle 3D view</string>
     <string name="ds_measure_distance">Measure distance</string>
     <string name="ds_create_track">Create track</string>
     <string name="ds_my_location">My location</string>

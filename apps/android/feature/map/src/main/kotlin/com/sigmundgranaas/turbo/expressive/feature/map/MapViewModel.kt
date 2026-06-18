@@ -40,6 +40,12 @@ data class MapUiState(
     val locationNotice: LocationNotice? = null,
     /** Experimental: render with the wgpu engine instead of MapLibre (Settings toggle). */
     val experimentalWgpuMap: Boolean = false,
+    /**
+     * 3D map mode (wgpu engine only): a 1-finger drag orbits about the user
+     * location, two fingers pan. Off = the legacy 2D pan/zoom. Session state —
+     * the toggle only appears when [experimentalWgpuMap] is on.
+     */
+    val threeDMode: Boolean = false,
 )
 
 /** Holds the map home's UI state; markers + live location come from repositories. */
@@ -121,6 +127,9 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch { settings.setBaseLayer(layer) }
     }
     fun setFollowing(value: Boolean) = _state.update { it.copy(following = value) }
+
+    /** Toggle 3D map mode (orbit gestures). No-op effect unless the wgpu engine is active. */
+    fun setThreeDMode(value: Boolean) = _state.update { it.copy(threeDMode = value) }
 
     /** Resolve a human label for [point] (used to pre-fill a new marker's name). */
     fun describePoint(point: LatLng) {

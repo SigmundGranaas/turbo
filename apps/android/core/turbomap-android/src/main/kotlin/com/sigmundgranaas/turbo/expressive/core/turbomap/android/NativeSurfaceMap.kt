@@ -72,6 +72,9 @@ internal object NativeSurfaceMap {
      */
     external fun nativeOrbitAround(handle: Long, dBearingDeg: Double, dPitchDeg: Double, fx: Double, fy: Double)
 
+    /** Ease only the tilt to [pitchDeg] over [durationMs] (2D↔3D transition). */
+    external fun nativeEasePitch(handle: Long, pitchDeg: Double, durationMs: Int)
+
     /** Catch any in-flight camera animation, freezing the camera where it is. */
     external fun nativeCancelAnimation(handle: Long)
 

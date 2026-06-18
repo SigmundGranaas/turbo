@@ -71,6 +71,9 @@ import kotlin.math.ln
  * All native calls are marshalled to the main thread (the on-screen engine isn't
  * internally locked); only tile HTTP runs off-main, ingesting back on main.
  */
+/** Tilt eased in when 3D mode is entered — reads as 3D + gives clouds their rake. */
+private const val DEFAULT_3D_PITCH_DEG = 45.0
+
 @Composable
 @Suppress("LongParameterList")
 fun TurbomapMapView(
@@ -117,6 +120,13 @@ fun TurbomapMapView(
     // recreating the detector.
     val threeDState = rememberUpdatedState(threeDMode)
     val userLocationState = rememberUpdatedState(userLocation)
+
+    // 2D↔3D transition: ease into a default tilt on entering 3D (so it reads as
+    // 3D immediately + the cloud overlay gets its camera-ray side-reveal), back
+    // to flat on leaving. The orbit gesture takes over from there.
+    LaunchedEffect(threeDMode) {
+        controller.easePitch(if (threeDMode) DEFAULT_3D_PITCH_DEG else 0.0)
+    }
 
     Box(modifier.fillMaxSize()) {
         AndroidView(
@@ -429,6 +439,13 @@ internal class TurbomapSurfaceController {
         )
         requestRender(cameraMoved = true)
         requestReconcile()
+    }
+
+    /** Ease the tilt to [pitchDeg] over [durationMs] — the 2D↔3D transition. */
+    fun easePitch(pitchDeg: Double, durationMs: Int = 350) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeEasePitch(handle, pitchDeg, durationMs)
+        requestRender(cameraMoved = true)
     }
 
     /** Finger down: catch any in-flight fling/ease so the map stops where it is. */

@@ -422,6 +422,28 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// Ease only the pitch (tilt) to `pitch_deg` over `duration_ms`, keeping the
+/// current centre/zoom/bearing. Used for the 2D↔3D mode transition (ease into
+/// a tilt on entering 3D, back to flat on leaving). Pitch is clamped to the
+/// engine limit inside the camera.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeEasePitch(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    pitch_deg: jdouble,
+    duration_ms: jint,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            let mut target = map.engine.camera();
+            target.pitch_deg = pitch_deg;
+            map.engine
+                .ease_to(target, std::time::Duration::from_millis(duration_ms.max(0) as u64));
+        });
+    }
+}
+
 /// Animate a focus-invariant zoom by `factor` about `(fx, fy)` over `duration_ms`.
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeZoomAroundAnimated(
