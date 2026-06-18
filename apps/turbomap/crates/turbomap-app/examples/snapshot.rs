@@ -365,7 +365,14 @@ fn main() {
         // falls back to the flat screen-locked path and `--pitch` would test
         // nothing about 3D parallax. Box sized to comfortably fill the view.
         let (clat, clng) = (cli.center.lat, cli.center.lng);
-        map.set_cloud_geo_bounds(clng - 4.0, clat - 2.0, clng + 4.0, clat + 2.0);
+        // CLOUD_BOX_HALF = box half-height in degrees latitude (lng half = 2×).
+        // Sweep it to find the box size that keeps puffs screen-sized at a given
+        // zoom (the fix for the zoomed-in white wash).
+        let half = std::env::var("CLOUD_BOX_HALF")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(2.0);
+        map.set_cloud_geo_bounds(clng - half * 2.0, clat - half, clng + half * 2.0, clat + half);
         // Render any internal pipeline stage instead of the final composite,
         // for headless diagnosis at a given pitch:
         //   CLOUD_DEBUG_VIEW=parallax CLOUDS=1 cargo run ... --pitch 25

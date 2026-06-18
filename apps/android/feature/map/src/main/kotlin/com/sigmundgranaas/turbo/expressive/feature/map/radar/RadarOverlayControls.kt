@@ -30,7 +30,6 @@ import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
 import kotlinx.coroutines.delay
 import kotlin.math.cos
-import kotlin.math.max
 
 /**
  * Self-contained weather-radar overlay control: a toggle that, when on, loads a
@@ -66,7 +65,7 @@ fun RadarOverlayControls(
         }
         while (true) {
             val view = eng.visibleBounds()
-            if (loadedBox == null || !boxCovers(loadedBox!!, view)) {
+            if (loadedBox == null || !boxStillGood(loadedBox!!, view)) {
                 val box = fixedBoxAround(view)
                 state.loadFrames(source.load(box, frameCount = 12), box)
                 loadedBox = box
@@ -130,29 +129,33 @@ fun RadarOverlayControls(
     }
 }
 
-/** How often to re-check whether the camera has left the loaded radar box. */
+/** How often to re-check whether the loaded box still suits the camera. */
 private const val RELOAD_POLL_MS = 600L
 
-/** Minimum half-extent of the loaded box (degrees of latitude). Big enough that
- *  at typical hiking zooms the box is FIXED in the world, so the cloud field is
- *  world-locked (zooming shows fewer, bigger puffs). */
-private const val BASE_HALF_LAT_DEG = 1.5
+/** The loaded box is sized to this multiple of the *view* half-extent, so the
+ *  on-screen puff count (≈ field-frequency · view/box) stays constant at every
+ *  zoom. A FIXED-degree box (the old approach) made the box ~330 km, so zooming
+ *  in to hiking range put the whole screen inside one puff → a flat white wash.
+ *  Bigger margin → more pan room before a reload, but fewer puffs on screen. */
+private const val BOX_VIEW_MARGIN = 6.0
+
+/** Clamp the box half-height (deg lat) so it's neither absurdly tiny at max zoom
+ *  nor continent-spanning when zoomed right out. */
+private const val MIN_HALF_LAT_DEG = 0.03
+private const val MAX_HALF_LAT_DEG = 3.0
 
 /**
- * A geo box centred on [view] that the radar is loaded for. At least
- * [BASE_HALF_LAT_DEG] half-height, and at least 1.6× the view so there's pan
- * margin before a reload; when zoomed far out it grows with the view. The
- * longitude half-span is widened by 1/cos(lat) so the box is ~square on the
- * ground (and so the procedural puffs come out roughly round, not stretched).
+ * A geo box centred on [view], sized [BOX_VIEW_MARGIN]× the view so puffs stay
+ * screen-sized at any zoom. Square on the ground (lng half = lat half / cos lat)
+ * so the procedural puffs come out round, not stretched.
  */
 private fun fixedBoxAround(view: GeoBounds): GeoBounds {
     val cLat = (view.south + view.north) / 2.0
     val cLng = (view.west + view.east) / 2.0
     val viewHalfLat = (view.north - view.south) / 2.0
-    val viewHalfLng = (view.east - view.west) / 2.0
     val cosLat = cos(Math.toRadians(cLat)).coerceAtLeast(0.2)
-    val halfLat = max(BASE_HALF_LAT_DEG, viewHalfLat * 1.6)
-    val halfLng = max(BASE_HALF_LAT_DEG / cosLat, viewHalfLng * 1.6)
+    val halfLat = (viewHalfLat * BOX_VIEW_MARGIN).coerceIn(MIN_HALF_LAT_DEG, MAX_HALF_LAT_DEG)
+    val halfLng = halfLat / cosLat
     return GeoBounds(
         south = cLat - halfLat,
         west = cLng - halfLng,
@@ -161,7 +164,20 @@ private fun fixedBoxAround(view: GeoBounds): GeoBounds {
     )
 }
 
-/** Whether [box] still strictly contains [view] — i.e. no reload needed yet. */
-private fun boxCovers(box: GeoBounds, view: GeoBounds): Boolean =
-    view.south > box.south && view.north < box.north &&
+/**
+ * Whether the loaded [box] still suits [view] — no reload needed. Reload when the
+ * camera has panned out of the box (its old job) OR when zoom has drifted far
+ * enough that the box no longer matches the view: too big (zoomed in) re-creates
+ * the white wash, too small (zoomed out) loses pan margin. The accepted band is
+ * `[MARGIN/2, MARGIN·2]`, so you can zoom ~1 level either way before a reload
+ * re-tightens — which is what makes the clouds scale as you zoom.
+ */
+private fun boxStillGood(box: GeoBounds, view: GeoBounds): Boolean {
+    val inside = view.south > box.south && view.north < box.north &&
         view.west > box.west && view.east < box.east
+    if (!inside) return false
+    val boxHalfLat = (box.north - box.south) / 2.0
+    val viewHalfLat = ((view.north - view.south) / 2.0).coerceAtLeast(1e-9)
+    val ratio = boxHalfLat / viewHalfLat
+    return ratio >= BOX_VIEW_MARGIN * 0.5 && ratio <= BOX_VIEW_MARGIN * 2.0
+}
