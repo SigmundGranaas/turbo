@@ -48,7 +48,7 @@ private class FakePathRepository : PathRepository {
 
 private class NoopDraftStore : RecordingDraftStore {
     override suspend fun load(): RecordingDraft? = null
-    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int) = Unit
+    override suspend fun save(points: List<LatLng>, elevations: List<Double?>, elapsedSec: Int, pausedFromIndex: Int) = Unit
     override suspend fun clear() = Unit
 }
 
