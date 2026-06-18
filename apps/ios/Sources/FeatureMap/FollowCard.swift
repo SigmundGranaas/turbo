@@ -33,6 +33,30 @@ struct FollowCard: View {
                 Spacer()
             }
 
+            // Checkpoints with split times (US-3): crossed ones + the next one.
+            if !controller.phaseSplits.isEmpty || controller.nextPhaseName != nil {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(controller.phaseSplits, id: \.index) { split in
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(t.green)
+                            Text(split.name).font(.turboCaption).foregroundStyle(t.label)
+                            Spacer()
+                            Text("\(distText(split.splitDistanceM)) · \(timeText(split.splitSeconds))")
+                                .font(.turboCaption).foregroundStyle(t.label2)
+                        }
+                    }
+                    if let next = controller.nextPhaseName {
+                        HStack(spacing: 6) {
+                            Image(systemName: "circle").font(.system(size: 13)).foregroundStyle(t.label3)
+                            Text("Next · \(next)").font(.turboCaption).foregroundStyle(t.label2)
+                            Spacer()
+                            Text(distText(controller.nextPhaseDistanceM ?? 0)).font(.turboCaption).foregroundStyle(t.label)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("follow.checkpoints")
+            }
+
             HStack(spacing: 10) {
                 Text(distanceText).font(.turboSubhead).foregroundStyle(t.label2)
                 if controller.isOffRoute {
@@ -50,6 +74,15 @@ struct FollowCard: View {
         }
         .padding(14)
         .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous), elevated: true)
+    }
+
+    private func distText(_ m: Double) -> String {
+        m >= 1000 ? String(format: "%.1f km", m / 1000) : "\(Int(m)) m"
+    }
+
+    private func timeText(_ s: Int) -> String {
+        s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+                  : String(format: "%d:%02d", s / 60, s % 60)
     }
 
     private var dotColor: Color {

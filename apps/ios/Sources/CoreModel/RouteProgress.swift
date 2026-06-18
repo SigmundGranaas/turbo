@@ -20,6 +20,25 @@ public struct RouteProgress: Equatable, Sendable {
     }
 }
 
+/// A checkpoint crossing: when the cursor passed a planned-route phase (waypoint/marker), with
+/// the split (time + distance) since the previous phase — split-times like a running watch (US-3).
+/// Mirrors Android `PhaseSplit`.
+public struct PhaseSplit: Equatable, Sendable {
+    public let index: Int
+    public let name: String
+    public let crossedAtEpochMs: Int64
+    public let splitDistanceM: Double
+    public let splitSeconds: Int
+
+    public init(index: Int, name: String, crossedAtEpochMs: Int64, splitDistanceM: Double, splitSeconds: Int) {
+        self.index = index
+        self.name = name
+        self.crossedAtEpochMs = crossedAtEpochMs
+        self.splitDistanceM = splitDistanceM
+        self.splitSeconds = splitSeconds
+    }
+}
+
 /// Tracks a position along a planned route using a **monotonic arc-length
 /// cursor**. Each fix is matched to the nearest route point *within a forward
 /// window* around the cursor — not the global nearest — so returning to a start
@@ -40,6 +59,13 @@ public final class RouteProgressTracker {
     private var cursor: Double = 0
     private var offRouteStreak = 0
 
+    /// Arc-length of each phase (its projection onto the route), in input order (US-3).
+    public let phaseArcLengths: [Double]
+    /// How many phases the monotonic cursor has passed so far.
+    public private(set) var passedPhaseCount = 0
+    /// Index of the next not-yet-crossed phase (== how many are crossed).
+    public var nextPhaseIndex: Int { passedPhaseCount }
+
     public var fraction: Double { total > 0 ? min(max(cursor / total, 0), 1) : 0 }
 
     public init(
@@ -49,7 +75,8 @@ public final class RouteProgressTracker {
         windowAheadM: Double = 400,
         offRouteM: Double = 50,
         arriveEndM: Double = 30,
-        offRouteStreakNeeded: Int = 3
+        offRouteStreakNeeded: Int = 3,
+        phasePositions: [LatLng] = []
     ) {
         self.route = route
         self.ascentM = ascentM
@@ -66,6 +93,26 @@ public final class RouteProgressTracker {
         }
         self.cumulative = cum
         self.total = cum.last ?? 0
+        self.phaseArcLengths = phasePositions.map { Self.arcLengthOf($0, route: route, cumulative: cum) }
+    }
+
+    /// Arc-length of `p`'s nearest projection onto the route (where a phase sits along it).
+    private static func arcLengthOf(_ p: LatLng, route: [LatLng], cumulative: [Double]) -> Double {
+        guard route.count >= 2 else { return 0 }
+        var bestDist = Double.greatestFiniteMagnitude
+        var bestArc = 0.0
+        for i in 0..<(route.count - 1) {
+            let (proj, t) = GeoMetrics.projectFraction(route[i], route[i + 1], p)
+            let d = GeoMetrics.haversineMeters(p, proj)
+            if d < bestDist { bestDist = d; bestArc = cumulative[i] + (cumulative[i + 1] - cumulative[i]) * t }
+        }
+        return bestArc
+    }
+
+    /// Distance (m) still to run to reach phase `index`, or nil if no such phase.
+    public func distanceToPhase(_ index: Int) -> Double? {
+        guard index >= 0, index < phaseArcLengths.count else { return nil }
+        return max(0, phaseArcLengths[index] - cursor)
     }
 
     /// Advance the cursor with a new position and return the resulting progress.
@@ -91,6 +138,7 @@ public final class RouteProgressTracker {
         }
 
         cursor = max(cursor, bestS)   // monotonic; small backtracks don't yo-yo the number
+        passedPhaseCount = phaseArcLengths.filter { $0 <= cursor }.count
 
         let onRoute = bestDist <= offRouteM
         offRouteStreak = onRoute ? 0 : offRouteStreak + 1

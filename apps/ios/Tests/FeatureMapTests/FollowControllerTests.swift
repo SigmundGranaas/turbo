@@ -82,6 +82,22 @@ struct FollowControllerTests {
         #expect((saved.first?.path.points.count ?? 0) >= 8)
     }
 
+    @Test("crossing a checkpoint logs a split (US-3)")
+    func checkpoint() async {
+        let routeWithStops = FollowRoute(
+            geometry: [LatLng(lat: 0, lng: 0), LatLng(lat: 0, lng: 0.036)],
+            distanceM: 4000, ascentM: 0, name: "Test",
+            waypoints: [LatLng(lat: 0, lng: 0), LatLng(lat: 0, lng: 0.018), LatLng(lat: 0, lng: 0.036)]
+        )
+        let lngs = (0...8).map { (0.0, Double($0) * 0.003) } // 0 … 0.024 — past the mid stop (0.018)
+        let follow = FollowController(location: provider(lngs), pathRepository: InMemoryPathRepository(seed: []))
+        follow.start(routeWithStops)
+        try? await Task.sleep(for: .milliseconds(300))
+        #expect(!follow.phaseSplits.isEmpty)
+        #expect(follow.phaseSplits.first?.name == "B")
+        #expect(follow.nextPhaseName == "C")
+    }
+
     @Test("a trivially short follow is not auto-saved")
     func skipsTrivial() async {
         // Two fixes ~22 m apart — under the 50 m save floor.

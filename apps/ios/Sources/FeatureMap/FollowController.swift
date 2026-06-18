@@ -48,6 +48,11 @@ public final class FollowController {
     public private(set) var capturedDescentM: Double = 0
     /// Moving time since the follow started (s).
     public private(set) var elapsedSeconds: Int = 0
+    /// Checkpoints crossed so far with split times (US-3).
+    public private(set) var phaseSplits: [PhaseSplit] = []
+    /// The next checkpoint's name + distance to it, or nil when all are crossed.
+    public private(set) var nextPhaseName: String?
+    public private(set) var nextPhaseDistanceM: Double?
 
     private let location: LocationProvider
     private let pathRepository: PathRepository
@@ -60,6 +65,10 @@ public final class FollowController {
     /// The real travelled track captured while following (Follow = Record).
     private var capture = CapturedTrack()
     private var startedAt: Date?
+    // Phase (checkpoint) state (US-3).
+    private var phaseNames: [String] = []
+    private var lastPhaseDistanceM: Double = 0
+    private var lastPhaseSec = 0
 
     public init(location: LocationProvider, pathRepository: PathRepository) {
         self.location = location
@@ -75,6 +84,7 @@ public final class FollowController {
         isFollowing = true; arrived = false; isOffRoute = false
         // Fresh capture for this follow (Follow = Record).
         capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0; capturedPoints = []
+        phaseSplits = []; nextPhaseName = nil; nextPhaseDistanceM = nil; lastPhaseDistanceM = 0; lastPhaseSec = 0
         elapsedSeconds = 0; startedAt = Date()
         location.requestAlwaysAuthorization()
         location.setBackgroundUpdates(true)
@@ -105,6 +115,7 @@ public final class FollowController {
         geometry = []; name = nil; distanceRemainingM = 0; etaSeconds = nil
         fraction = 0; isOffRoute = false; arrived = false; userPosition = nil
         capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0; capturedPoints = []
+        phaseSplits = []; nextPhaseName = nil; nextPhaseDistanceM = nil; lastPhaseDistanceM = 0; lastPhaseSec = 0
         elapsedSeconds = 0; startedAt = nil
     }
 
@@ -135,8 +146,11 @@ public final class FollowController {
         geometry = route.geometry
         name = route.name
         distanceRemainingM = route.distanceM
+        // Checkpoints = the stops after the origin (US-3), labelled by their on-map letter.
+        let stops = Array(route.waypoints.dropFirst())
+        phaseNames = stops.indices.map { String(UnicodeScalar(UInt8(65 + 1 + $0))) } // B, C, …
         // Fresh arc-length cursor for this route (also reset on reroute).
-        tracker = RouteProgressTracker(route: route.geometry, ascentM: route.ascentM)
+        tracker = RouteProgressTracker(route: route.geometry, ascentM: route.ascentM, phasePositions: stops)
     }
 
     private func onFix(_ fix: LocationFix) {
@@ -155,6 +169,23 @@ public final class FollowController {
         capturedDistanceM = capture.distanceM
         capturedAscentM = capture.ascentM
         capturedDescentM = capture.descentM
+        // Record a split for each checkpoint the cursor just passed (US-3).
+        if tracker.passedPhaseCount > phaseSplits.count {
+            for i in phaseSplits.count..<tracker.passedPhaseCount {
+                phaseSplits.append(PhaseSplit(
+                    index: i,
+                    name: i < phaseNames.count ? phaseNames[i] : "Checkpoint \(i + 1)",
+                    crossedAtEpochMs: Int64(Date().timeIntervalSince1970 * 1000),
+                    splitDistanceM: capturedDistanceM - lastPhaseDistanceM,
+                    splitSeconds: elapsedSeconds - lastPhaseSec
+                ))
+                lastPhaseDistanceM = capturedDistanceM
+                lastPhaseSec = elapsedSeconds
+            }
+        }
+        let nextIdx = tracker.nextPhaseIndex
+        nextPhaseName = nextIdx < phaseNames.count ? phaseNames[nextIdx] : nil
+        nextPhaseDistanceM = nextPhaseName != nil ? tracker.distanceToPhase(nextIdx) : nil
         maybeReroute(from: fix.position)
     }
 
