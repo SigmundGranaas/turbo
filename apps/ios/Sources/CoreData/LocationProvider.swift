@@ -124,10 +124,18 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
 
     private var lastAltitude: Double?
     private var lastSpeed: Double?
+    /// Drops inaccurate / stale / teleporting fixes before any consumer sees them
+    /// (so the dot doesn't jump on resume). Accessed only from the CL delegate,
+    /// which fires serially.
+    private let filter = LocationFilter()
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
         let position = LatLng(lat: loc.coordinate.latitude, lng: loc.coordinate.longitude)
+        let ageMs = -loc.timestamp.timeIntervalSinceNow * 1000
+        // horizontalAccuracy < 0 means an invalid fix; treat as worst accuracy.
+        let accuracyM = loc.horizontalAccuracy < 0 ? .greatestFiniteMagnitude : loc.horizontalAccuracy
+        guard filter.accept(position: position, accuracyM: accuracyM, ageMs: ageMs) else { return }
         lock.withLock {
             lastPosition = position
             lastAltitude = loc.altitude

@@ -30,4 +30,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
+    testImplementation(libs.kotlinx.serialization.json) // loads the shared filter fixtures
 }
