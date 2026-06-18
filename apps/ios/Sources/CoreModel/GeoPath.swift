@@ -75,6 +75,58 @@ public enum GeoMetrics {
             .reduce(0) { $0 + max(0, $1.0 - $1.1) }
     }
 
+    /// The covered **prefix** of `route` up to `fraction` (0…1) of its length, including the
+    /// interpolated split point at the cursor. Empty when ≤ 0; the whole route when ≥ 1. Used to
+    /// dim the already-walked portion of a followed guide (US-3). Mirrors Android `routePrefix`.
+    public static func routePrefix(_ route: [LatLng], _ fraction: Double) -> [LatLng] {
+        guard route.count >= 2, fraction > 0 else { return [] }
+        let total = pathLengthMeters(route)
+        guard total > 0 else { return [] }
+        if fraction >= 1 { return route }
+        let target = total * fraction
+        var out = [route[0]]
+        var cum = 0.0
+        for i in 1..<route.count {
+            let seg = haversineMeters(route[i - 1], route[i])
+            if cum + seg < target {
+                out.append(route[i]); cum += seg
+            } else {
+                let t = seg > 0 ? (target - cum) / seg : 0
+                let a = route[i - 1], b = route[i]
+                out.append(LatLng(lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t))
+                break
+            }
+        }
+        return out
+    }
+
+    /// The remaining **suffix** of `route` from `fraction` onward, meeting `routePrefix` exactly
+    /// at the cursor so the guide draws as two segments (covered dim + remaining bright, US-3).
+    public static func routeSuffix(_ route: [LatLng], _ fraction: Double) -> [LatLng] {
+        guard route.count >= 2, fraction < 1 else { return [] }
+        if fraction <= 0 { return route }
+        let total = pathLengthMeters(route)
+        guard total > 0 else { return route }
+        let target = total * fraction
+        var out: [LatLng] = []
+        var cum = 0.0
+        var started = false
+        for i in 1..<route.count {
+            let seg = haversineMeters(route[i - 1], route[i])
+            if !started, cum + seg >= target {
+                let t = seg > 0 ? (target - cum) / seg : 0
+                let a = route[i - 1], b = route[i]
+                out.append(LatLng(lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t))
+                out.append(b)
+                started = true
+            } else if started {
+                out.append(route[i])
+            }
+            cum += seg
+        }
+        return out
+    }
+
     // MARK: - Follow-mode progress helpers (the cursor lives in RouteProgress.swift)
 
     /// Naismith + Langmuir time estimate: 1 h per 5 km flat, plus 1 h per 600 m ascent.

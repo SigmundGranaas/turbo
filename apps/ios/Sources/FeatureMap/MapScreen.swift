@@ -93,11 +93,24 @@ public struct MapScreen: View {
     // session starts, off the moment the user pans (US-6).
     private var mapFollowing: Bool { viewModel.following }
 
-    /// The polyline drawn on the map: the followed route, else the route/measure tool.
+    /// The bright polyline drawn on the map: while following the road AHEAD (cursor → end),
+    /// else the full route/measure-tool line.
     private var drawnGeometry: [LatLng] {
-        if isFollowing { return follow?.geometry ?? [] }
+        if isFollowing, let f = follow { return GeoMetrics.routeSuffix(f.geometry, f.fraction) }
         if let routing { return routing.geometry }
         return []
+    }
+
+    /// While following, the dim already-walked prefix of the guide (US-3).
+    private var coveredGeometry: [LatLng] {
+        guard isFollowing, let f = follow else { return [] }
+        return GeoMetrics.routePrefix(f.geometry, f.fraction)
+    }
+
+    /// While following, the real travelled track over the guide (Follow = Record, US-3).
+    private var travelledGeometry: [LatLng] {
+        guard isFollowing, let f = follow else { return [] }
+        return f.capturedPoints
     }
 
     /// Start following the currently-planned route, with auto-reroute via `solveRoute`.
@@ -201,6 +214,8 @@ public struct MapScreen: View {
             focus: viewModel.focusedPlace?.position,
             resetBearingToken: compassResetToken,
             routeGeometry: drawnGeometry,
+            coveredGeometry: coveredGeometry,
+            trackGeometry: travelledGeometry,
             onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
             onVisibleBoundsChange: { viewModel.updateVisibleBounds($0) },

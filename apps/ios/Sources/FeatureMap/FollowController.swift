@@ -39,6 +39,8 @@ public final class FollowController {
     public private(set) var isOffRoute = false
     public private(set) var arrived = false
     public private(set) var userPosition: LatLng?
+    /// The real travelled polyline captured while following (US-3 — drawn over the guide).
+    public private(set) var capturedPoints: [LatLng] = []
     /// Distance actually travelled so far (m) — the captured track, not the planned route.
     public private(set) var capturedDistanceM: Double = 0
     /// Accumulated climb / drop (m) over the travelled track (Follow = Record).
@@ -72,7 +74,7 @@ public final class FollowController {
         self.reroute = reroute
         isFollowing = true; arrived = false; isOffRoute = false
         // Fresh capture for this follow (Follow = Record).
-        capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0
+        capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0; capturedPoints = []
         elapsedSeconds = 0; startedAt = Date()
         location.requestAlwaysAuthorization()
         location.setBackgroundUpdates(true)
@@ -102,7 +104,7 @@ public final class FollowController {
         route = nil; reroute = nil
         geometry = []; name = nil; distanceRemainingM = 0; etaSeconds = nil
         fraction = 0; isOffRoute = false; arrived = false; userPosition = nil
-        capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0
+        capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0; capturedPoints = []
         elapsedSeconds = 0; startedAt = nil
     }
 
@@ -149,6 +151,7 @@ public final class FollowController {
         // Capture the real travelled track with the SAME engine recording uses, so the
         // saved follow is identical to a recording of the same fixes (Follow = Record).
         capture = TrackCapture.append(capture, fix)
+        capturedPoints = capture.points
         capturedDistanceM = capture.distanceM
         capturedAscentM = capture.ascentM
         capturedDescentM = capture.descentM

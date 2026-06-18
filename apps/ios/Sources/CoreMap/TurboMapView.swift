@@ -18,6 +18,9 @@ public struct TurboMapView: UIViewRepresentable {
     private let focus: LatLng?
     private let resetBearingToken: Int
     private let routeGeometry: [LatLng]
+    /// While following: the dim already-walked prefix, and the real travelled track (US-3).
+    private let coveredGeometry: [LatLng]
+    private let trackGeometry: [LatLng]
     private let onLongPress: ((LatLng) -> Void)?
     private let onRegionChange: ((LatLng, Double) -> Void)?
     private let onVisibleBoundsChange: ((GeoBounds) -> Void)?
@@ -37,6 +40,8 @@ public struct TurboMapView: UIViewRepresentable {
         focus: LatLng? = nil,
         resetBearingToken: Int = 0,
         routeGeometry: [LatLng] = [],
+        coveredGeometry: [LatLng] = [],
+        trackGeometry: [LatLng] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
         onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
@@ -52,6 +57,8 @@ public struct TurboMapView: UIViewRepresentable {
         self.focus = focus
         self.resetBearingToken = resetBearingToken
         self.routeGeometry = routeGeometry
+        self.coveredGeometry = coveredGeometry
+        self.trackGeometry = trackGeometry
         self.onLongPress = onLongPress
         self.onRegionChange = onRegionChange
         self.onVisibleBoundsChange = onVisibleBoundsChange
@@ -96,6 +103,8 @@ public struct TurboMapView: UIViewRepresentable {
         context.coordinator.syncOverlay(on: map, base: baseLayer)
         context.coordinator.syncDataOverlays(on: map, overlays: overlays)
         context.coordinator.syncRoute(on: map, geometry: routeGeometry)
+        context.coordinator.syncCovered(on: map, geometry: coveredGeometry)
+        context.coordinator.syncTrack(on: map, geometry: trackGeometry)
         context.coordinator.syncAnnotations(on: map, pins: pins)
         context.coordinator.applyBearingReset(on: map, token: resetBearingToken)
         // Always show the blue user-location dot; follow mode only changes whether
@@ -122,10 +131,14 @@ public struct TurboMapView: UIViewRepresentable {
         private var tileOverlay: MKTileOverlay?
         private var dataOverlays: [OverlayId: MKTileOverlay] = [:]
         private var routeOverlay: MKPolyline?
+        private var coveredOverlay: MKPolyline?
+        private var trackOverlay: MKPolyline?
         /// Pins currently being dragged — their coordinate must not be reset by a
         /// `syncAnnotations` pass mid-drag (or the marker snaps back).
         private var draggingPinIds: Set<String> = []
         private var lastRouteCount = -1
+        private var lastCoveredCount = -1
+        private var lastTrackCount = -1
         private var lastFocus: LatLng?
         private var lastBearingToken = 0
 
@@ -139,6 +152,30 @@ public struct TurboMapView: UIViewRepresentable {
             let line = MKPolyline(coordinates: coords, count: coords.count)
             map.addOverlay(line, level: .aboveLabels)
             routeOverlay = line
+        }
+
+        /// The dim already-walked prefix of the guide (US-3), under the bright remaining route.
+        func syncCovered(on map: MKMapView, geometry: [LatLng]) {
+            guard geometry.count != lastCoveredCount || (geometry.isEmpty && coveredOverlay != nil) else { return }
+            lastCoveredCount = geometry.count
+            if let old = coveredOverlay { map.removeOverlay(old); coveredOverlay = nil }
+            guard geometry.count >= 2 else { return }
+            let coords = geometry.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+            let line = MKPolyline(coordinates: coords, count: coords.count)
+            map.addOverlay(line, level: .aboveLabels)
+            coveredOverlay = line
+        }
+
+        /// The real travelled track over the guide while following (Follow = Record, US-3).
+        func syncTrack(on map: MKMapView, geometry: [LatLng]) {
+            guard geometry.count != lastTrackCount || (geometry.isEmpty && trackOverlay != nil) else { return }
+            lastTrackCount = geometry.count
+            if let old = trackOverlay { map.removeOverlay(old); trackOverlay = nil }
+            guard geometry.count >= 2 else { return }
+            let coords = geometry.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+            let line = MKPolyline(coordinates: coords, count: coords.count)
+            map.addOverlay(line, level: .aboveLabels)
+            trackOverlay = line
         }
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -269,10 +306,17 @@ public struct TurboMapView: UIViewRepresentable {
             }
             if let line = overlay as? MKPolyline {
                 let renderer = MKPolylineRenderer(polyline: line)
-                renderer.strokeColor = UIColor(red: 0.04, green: 0.52, blue: 1.0, alpha: 0.9)  // system blue
                 renderer.lineWidth = 5
                 renderer.lineJoin = .round
                 renderer.lineCap = .round
+                if line === coveredOverlay {
+                    renderer.strokeColor = UIColor(red: 0.60, green: 0.63, blue: 0.65, alpha: 0.9) // dim grey — walked
+                    renderer.lineWidth = 4
+                } else if line === trackOverlay {
+                    renderer.strokeColor = UIColor(red: 0.0, green: 0.41, blue: 0.43, alpha: 0.95) // teal — real track
+                } else {
+                    renderer.strokeColor = UIColor(red: 0.04, green: 0.52, blue: 1.0, alpha: 0.9)  // system blue — route ahead
+                }
                 return renderer
             }
             return MKOverlayRenderer(overlay: overlay)
@@ -342,6 +386,8 @@ public struct TurboMapView: View {
         focus: LatLng? = nil,
         resetBearingToken: Int = 0,
         routeGeometry: [LatLng] = [],
+        coveredGeometry: [LatLng] = [],
+        trackGeometry: [LatLng] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
         onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
