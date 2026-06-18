@@ -66,6 +66,8 @@ class MapScreenState {
     var showRecSave by mutableStateOf(false)
     var showFollowStopSave by mutableStateOf(false)
     var confirmReplaceFollow by mutableStateOf(false)
+    /** "You moved while paused — include it?" prompt on resume (US-4). */
+    var showResumeBufferPrompt by mutableStateOf(false)
 
     // ── Markers + on-map long-press ──
     var newMarkerAt by mutableStateOf<LatLng?>(null)

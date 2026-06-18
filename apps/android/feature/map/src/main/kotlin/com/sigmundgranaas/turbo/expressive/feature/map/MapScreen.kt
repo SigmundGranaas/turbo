@@ -763,7 +763,15 @@ fun MapScreen(
                     title = com.sigmundgranaas.turbo.expressive.feature.map.live.formatLiveClock(recSession.elapsedSec),
                     detent = ui.recDetent,
                     onDetentChange = { ui.recDetent = it },
-                    onTogglePause = { haptics.toggle(recState.paused); recordingViewModel.togglePause() },
+                    onTogglePause = {
+                        haptics.toggle(recState.paused)
+                        when {
+                            !recSession.paused -> recordingViewModel.pause()
+                            // Forgot to unpause and kept walking? Ask before resuming (US-4).
+                            recSession.hasBufferedMovement -> ui.showResumeBufferPrompt = true
+                            else -> recordingViewModel.resume(include = false)
+                        }
+                    },
                     onStop = { haptics.confirm(); recordingViewModel.stop(); ui.showRecSave = true },
                     elevations = recSession.elevations.filterNotNull(),
                     modifier = Modifier.align(Alignment.BottomCenter),

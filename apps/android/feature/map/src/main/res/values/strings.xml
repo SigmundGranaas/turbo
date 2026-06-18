@@ -10,6 +10,10 @@
     <string name="live_ascent_up">ascent ↑</string>
     <string name="live_descent_down">descent ↓</string>
     <string name="live_covered">Covered %1$s · ↑ %2$s · ↓ %3$s</string>
+    <string name="live_resume_buffer_title">Moved while paused</string>
+    <string name="live_resume_buffer_body">You covered %1$s while paused. Add it to your track?</string>
+    <string name="live_resume_include">Include</string>
+    <string name="live_resume_discard">Discard</string>
     <string name="live_arrival">arrival · %1$s</string>
     <string name="live_arrival_label">arrival</string>
     <string name="live_progress">%1$s of %2$s done</string>

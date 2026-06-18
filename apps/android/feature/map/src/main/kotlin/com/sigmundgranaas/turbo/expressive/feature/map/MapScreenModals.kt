@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.feature.map
 
 import android.widget.Toast
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DirectionsWalk
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -206,6 +207,20 @@ internal fun MapScreenModals(
             onSave = { name, kind -> recordingViewModel.save(name, kind) {}; ui.showRecSave = false },
             onDiscard = { recordingViewModel.discard {}; ui.showRecSave = false },
             onDismiss = { ui.showRecSave = false },
+        )
+    }
+    // Resumed after walking while paused — keep the buffered walk or drop it (US-4). Include
+    // is the prominent choice so a forgotten unpause never silently loses the track.
+    if (ui.showResumeBufferPrompt) {
+        val recSession by recordingViewModel.session.collectAsStateWithLifecycle()
+        TurboConfirmDialog(
+            title = stringResource(R.string.live_resume_buffer_title),
+            body = stringResource(R.string.live_resume_buffer_body, Units.distance(recSession.bufferedDistanceM, metric)),
+            confirmLabel = stringResource(R.string.live_resume_include),
+            dismissLabel = stringResource(R.string.live_resume_discard),
+            icon = Icons.Rounded.DirectionsWalk,
+            onConfirm = { recordingViewModel.resume(include = true); ui.showResumeBufferPrompt = false },
+            onDismiss = { recordingViewModel.resume(include = false); ui.showResumeBufferPrompt = false },
         )
     }
 }

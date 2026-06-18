@@ -77,17 +77,65 @@ class RecordingControllerTest {
     }
 
     @Test
-    fun `paused recording drops new fixes`() = runTest {
+    fun `paused recording buffers new fixes instead of dropping them`() = runTest {
         val loc = FakeLocationRepository()
         val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
         controller.start()
         runCurrent()
         loc.emit(69.0, 18.0); runCurrent()
-        controller.togglePause()
-        loc.emit(69.001, 18.0); runCurrent()
+        controller.pause()
+        loc.emit(69.001, 18.0); runCurrent() // ~111 m walked while paused
 
+        val s = controller.session.value
+        assertEquals("track untouched while paused", 1, s.points.size)
+        assertTrue(s.paused)
+        assertTrue("buffered the paused walk but was ${s.bufferedDistanceM}", s.bufferedDistanceM > 90.0)
+        assertTrue(s.hasBufferedMovement)
+    }
+
+    @Test
+    fun `resume including the buffer stitches the paused walk onto the track`() = runTest {
+        val loc = FakeLocationRepository()
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
+        controller.start()
+        runCurrent()
+        loc.emit(69.0, 18.0); runCurrent()
+        controller.pause()
+        loc.emit(69.001, 18.0); runCurrent() // ~111 m walked while paused
+        loc.emit(69.002, 18.0); runCurrent() // ~222 m total walked while paused
+        controller.resume(includeBuffered = true)
+        runCurrent()
+
+        val s = controller.session.value
+        assertFalse(s.paused)
+        assertEquals("the paused walk is now part of the track", 3, s.points.size)
+        assertEquals(0.0, s.bufferedDistanceM, 1e-9)
+        assertTrue("distance counts the full paused walk but was ${s.distanceM}", s.distanceM > 200.0)
+    }
+
+    @Test
+    fun `resume discarding the buffer drops the walk and does not count the gap`() = runTest {
+        val loc = FakeLocationRepository()
+        val controller = RecordingController(loc, FakeDraftStore(), backgroundScope)
+        controller.start()
+        runCurrent()
+        loc.emit(69.0, 18.0); runCurrent()
+        controller.pause()
+        loc.emit(69.001, 18.0); runCurrent() // ~111 m walked while paused (to be discarded)
+        controller.resume(includeBuffered = false)
+        runCurrent()
+
+        // The discarded walk is gone, and resuming hasn't yet added anything.
         assertEquals(1, controller.session.value.points.size)
-        assertTrue(controller.session.value.paused)
+        assertEquals(0.0, controller.session.value.distanceM, 1e-9)
+
+        // The first fix after a discard is detached: the gap back to the old point isn't counted.
+        loc.emit(69.001, 18.0); runCurrent()
+        assertEquals(2, controller.session.value.points.size)
+        assertEquals("no gap distance counted", 0.0, controller.session.value.distanceM, 1e-9)
+        // …but normal accumulation resumes from there.
+        loc.emit(69.002, 18.0); runCurrent()
+        assertTrue("walks from the new point count", controller.session.value.distanceM > 90.0)
     }
 
     @Test

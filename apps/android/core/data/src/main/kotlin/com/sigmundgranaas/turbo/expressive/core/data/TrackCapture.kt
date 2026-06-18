@@ -50,4 +50,18 @@ object TrackCapture {
             speedMps = speedMps, maxSpeedMps = maxSpeed,
         )
     }
+
+    /**
+     * Like [append] but starts a fresh segment — the new point adds NO connecting distance
+     * from the previous one. Used after a paused-buffer **Discard** (US-4) so the gap you
+     * walked while paused isn't counted, even though the polyline still joins the two ends.
+     */
+    fun appendDetached(track: CapturedTrack, position: LatLng, altitude: Double?, speedMps: Double?): CapturedTrack {
+        val maxSpeed = if (speedMps != null) maxOf(track.maxSpeedMps, speedMps) else track.maxSpeedMps
+        return track.copy(
+            points = track.points + position,
+            elevations = track.elevations + altitude,
+            speedMps = speedMps, maxSpeedMps = maxSpeed,
+        )
+    }
 }

@@ -75,6 +75,12 @@ class RecordingViewModel @Inject constructor(
 
     fun togglePause() = controller.togglePause()
 
+    /** Pause; capture keeps buffering while paused (US-4). */
+    fun pause() = controller.pause()
+
+    /** Resume from a pause, [include]ing or discarding the walk captured while paused (US-4). */
+    fun resume(include: Boolean) = controller.resume(include)
+
     fun stop() {
         launcher.stop()
     }

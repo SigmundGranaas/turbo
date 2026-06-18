@@ -27,9 +27,21 @@ data class RecordingSession(
     val speedMps: Double? = null,
     /** Fastest instantaneous speed seen this session (m/s). */
     val maxSpeedMps: Double = 0.0,
+    /**
+     * Distance (m) of movement captured *while paused* and not yet folded into the track
+     * (US-4). The UI watches this to nudge "you're moving while paused" and to ask
+     * Include/Discard on resume; 0 when there's nothing buffered.
+     */
+    val bufferedDistanceM: Double = 0.0,
 ) {
     val userLocation: LatLng? get() = points.lastOrNull()
+
+    /** Whether enough was walked while paused to be worth asking about on resume. */
+    val hasBufferedMovement: Boolean get() = bufferedDistanceM >= RESUME_PROMPT_M
 }
+
+/** Buffered walking past this (m) prompts Include/Discard on resume; below it, just resume. */
+const val RESUME_PROMPT_M = 25.0
 
 /**
  * App-scoped recording engine: collects GPS fixes, accumulates distance + moving
@@ -50,9 +62,17 @@ class RecordingController @Inject constructor(
     private var locationJob: Job? = null
     private var timerJob: Job? = null
 
+    /** Movement captured while paused, held pending Include/Discard on resume (US-4). */
+    private var pausedCapture = CapturedTrack()
+    /** The track point at the moment of pausing — buffered distance is measured from here. */
+    private var pauseAnchor: LatLng? = null
+    /** Set by a Discard resume so the next live fix starts a fresh segment (no gap distance). */
+    private var penUpNext = false
+
     fun start() {
         if (_session.value.active || !location.hasPermission()) return
         _session.value = RecordingSession(active = true)
+        pausedCapture = CapturedTrack(); pauseAnchor = null; penUpNext = false
         locationJob = scope.launch {
             // Resume any persisted draft (e.g. after a process kill) before collecting.
             draftStore.load()?.let { draft ->
@@ -68,13 +88,30 @@ class RecordingController @Inject constructor(
             location.samples().collect { sample ->
                 // Drop wildly inaccurate fixes (e.g. cold-start / indoor) before they pollute the track.
                 if (!RecordingFilter.acceptAccuracy(sample.accuracyM)) return@collect
+                val s0 = _session.value
+                if (!s0.active) return@collect
+                if (s0.paused) {
+                    // US-4: keep capturing while paused into a side buffer (so a forgotten
+                    // unpause doesn't silently lose the walk), but leave the track untouched.
+                    // Buffered distance is measured from the pause anchor so the first fix counts.
+                    pausedCapture = TrackCapture.append(pausedCapture, sample.position, sample.altitude, sample.speedMps)
+                    val join = pauseAnchor?.let { a ->
+                        pausedCapture.points.firstOrNull()?.let { GeoMetrics.haversineMeters(a, it) }
+                    } ?: 0.0
+                    _session.update { it.copy(bufferedDistanceM = join + pausedCapture.distanceM) }
+                    return@collect
+                }
                 val updated = _session.updateAndGet { s ->
                     if (!s.active || s.paused) return@updateAndGet s
-                    // The same shared capture engine that powers Follow = Record.
-                    val next = TrackCapture.append(
-                        CapturedTrack(s.points, s.elevations, s.distanceM, s.speedMps, s.maxSpeedMps),
-                        sample.position, sample.altitude, sample.speedMps,
-                    )
+                    val cur = CapturedTrack(s.points, s.elevations, s.distanceM, s.speedMps, s.maxSpeedMps)
+                    // The same shared capture engine that powers Follow = Record. After a
+                    // Discard resume the first fix is detached so the gap isn't counted.
+                    val next = if (penUpNext) {
+                        penUpNext = false
+                        TrackCapture.appendDetached(cur, sample.position, sample.altitude, sample.speedMps)
+                    } else {
+                        TrackCapture.append(cur, sample.position, sample.altitude, sample.speedMps)
+                    }
                     s.copy(
                         points = next.points, elevations = next.elevations,
                         distanceM = next.distanceM, speedMps = next.speedMps, maxSpeedMps = next.maxSpeedMps,
@@ -92,7 +129,54 @@ class RecordingController @Inject constructor(
         }
     }
 
-    fun togglePause() = _session.update { if (it.active) it.copy(paused = !it.paused) else it }
+    /** Pause the recording; capture continues into a side buffer (US-4). */
+    fun pause() {
+        val s = _session.value
+        if (!s.active || s.paused) return
+        pauseAnchor = s.points.lastOrNull()
+        _session.update { if (it.active && !it.paused) it.copy(paused = true) else it }
+    }
+
+    /**
+     * Resume from a pause. [includeBuffered] = true stitches the walk captured while paused
+     * onto the track (it IS the path you walked); false discards it and lifts the pen so the
+     * gap isn't counted. Either way the buffer is cleared.
+     */
+    fun resume(includeBuffered: Boolean) {
+        val buffered = pausedCapture
+        _session.update { s ->
+            if (!s.active || !s.paused) return@update s
+            if (includeBuffered && buffered.points.isNotEmpty()) {
+                val join = if (s.points.isNotEmpty()) {
+                    GeoMetrics.haversineMeters(s.points.last(), buffered.points.first())
+                } else {
+                    0.0
+                }
+                s.copy(
+                    paused = false,
+                    points = s.points + buffered.points,
+                    elevations = s.elevations + buffered.elevations,
+                    distanceM = s.distanceM + join + buffered.distanceM,
+                    maxSpeedMps = maxOf(s.maxSpeedMps, buffered.maxSpeedMps),
+                    bufferedDistanceM = 0.0,
+                )
+            } else {
+                penUpNext = true
+                s.copy(paused = false, bufferedDistanceM = 0.0)
+            }
+        }
+        pausedCapture = CapturedTrack(); pauseAnchor = null
+    }
+
+    /**
+     * One-tap pause/resume for the simple case. Pausing starts buffering; resuming this way
+     * DISCARDS any buffer (the UI routes a significant buffer through [resume] with a prompt).
+     */
+    fun togglePause() {
+        val s = _session.value
+        if (!s.active) return
+        if (s.paused) resume(includeBuffered = false) else pause()
+    }
 
     /** Stop collecting; keeps the captured session so the UI can offer "save". */
     fun stop() {
