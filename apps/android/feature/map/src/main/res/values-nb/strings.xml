@@ -8,6 +8,7 @@
     <string name="live_km">km</string>
     <string name="live_km_left">igjen</string>
     <string name="live_ascent_up">stigning ↑</string>
+    <string name="live_descent_down">nedstigning ↓</string>
     <string name="live_arrival">ankomst · %1$s</string>
     <string name="live_arrival_label">ankomst</string>
     <string name="live_progress">%1$s av %2$s fullført</string>

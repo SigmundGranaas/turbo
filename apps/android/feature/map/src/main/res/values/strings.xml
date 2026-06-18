@@ -8,6 +8,7 @@
     <string name="live_km">km</string>
     <string name="live_km_left">left</string>
     <string name="live_ascent_up">ascent ↑</string>
+    <string name="live_descent_down">descent ↓</string>
     <string name="live_arrival">arrival · %1$s</string>
     <string name="live_arrival_label">arrival</string>
     <string name="live_progress">%1$s of %2$s done</string>

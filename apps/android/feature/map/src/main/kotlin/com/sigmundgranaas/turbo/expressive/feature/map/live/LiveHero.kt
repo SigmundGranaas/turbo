@@ -45,6 +45,14 @@ import androidx.compose.ui.res.stringResource
 /** Accent palette for a live surface — red while recording, green while following. */
 private data class LiveAccent(val accent: Color, val onAccent: Color)
 
+/** How fast the wave crawls along the live strip. Deliberately slow (was 6.dp, "crazy
+ *  fast") so the strip reads as a calm, near-static progress signal, not thrash. */
+private val WaveSpeed = 1.5.dp
+
+/** Fixed wave amplitude for the determinate (following) progress strip — a gentle,
+ *  legible ripple over the covered portion; the road ahead stays flat. */
+private const val WaveAmplitude = 0.42f
+
 @Composable
 private fun liveAccent(recording: Boolean): LiveAccent {
     val cs = MaterialTheme.colorScheme
@@ -131,23 +139,38 @@ fun LiveHero(
         }
         Spacer(Modifier.height(14.dp))
 
-        // Row C — the M3 Expressive wavy indicator as a live-GPS motif. Its amplitude
-        // tracks speed: nearly flat at rest, gently growing as you move — so it reads as
-        // a real signal, not decorative thrash. (Was full amplitude, always.)
-        val targetAmp = waveAmplitudeForSpeed(stats.speedMps)
-        val amplitude by animateFloatAsState(
-            targetValue = targetAmp,
-            animationSpec = MaterialTheme.motionScheme.slowEffectsSpec(),
-            label = "waveAmp",
-        )
+        // Row C — ONE M3 Expressive wavy strip, and it carries meaning. While FOLLOWING it
+        // IS the route-progress tracker: a *determinate* indicator whose covered portion
+        // waves and the road ahead lies flat, the wave crawling slowly so it reads as
+        // steady progress, not decoration. While RECORDING (open-ended, no route to
+        // complete) it falls back to a calm live-GPS motif whose amplitude breathes with
+        // speed. Either way the wave is slow — never the old crazy-fast thrash. There is no
+        // second bar: Row D below is just this strip's labels.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            LinearWavyProgressIndicator(
-                modifier = Modifier.weight(1f).height(14.dp).testTag("liveWave"),
-                color = cs.primary,
-                trackColor = onContainer.copy(alpha = .14f),
-                amplitude = amplitude,
-                waveSpeed = 6.dp,
-            )
+            if (stats.recording) {
+                val amplitude by animateFloatAsState(
+                    targetValue = waveAmplitudeForSpeed(stats.speedMps),
+                    animationSpec = MaterialTheme.motionScheme.slowEffectsSpec(),
+                    label = "waveAmp",
+                )
+                LinearWavyProgressIndicator(
+                    modifier = Modifier.weight(1f).height(14.dp).testTag("liveWave"),
+                    color = cs.primary,
+                    trackColor = onContainer.copy(alpha = .14f),
+                    amplitude = amplitude,
+                    waveSpeed = WaveSpeed,
+                )
+            } else {
+                val fraction = (stats.fraction ?: 0.0).toFloat().coerceIn(0f, 1f)
+                LinearWavyProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.weight(1f).height(14.dp).testTag("liveProgressFill"),
+                    color = cs.primary,
+                    trackColor = onContainer.copy(alpha = .14f),
+                    amplitude = { WaveAmplitude },
+                    waveSpeed = WaveSpeed,
+                )
+            }
             Spacer(Modifier.width(12.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
@@ -165,10 +188,11 @@ fun LiveHero(
             }
         }
 
-        // Row D — route progress (following only).
+        // Row D — following only: the distance/percent readout *under* the single progress
+        // strip above. The strip is the bar; these are just its labels — no second slider.
         if (!stats.recording) {
-            Spacer(Modifier.height(14.dp))
-            FollowProgress(stats, metric, onContainer)
+            Spacer(Modifier.height(10.dp))
+            FollowProgressLabels(stats, metric, onContainer)
         }
     }
 }
@@ -207,15 +231,15 @@ private fun StatusChip(recording: Boolean, accent: LiveAccent) {
 
 @Composable
 private fun RightBlock(stats: LiveStats, metric: Boolean, onContainer: Color) {
-    Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(bottom = 3.dp)) {
-        if (stats.recording) {
-            Text(
-                Units.elevation(stats.ascentM ?: 0.0, metric),
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.W800),
-                color = onContainer,
-            )
-            Text(stringResource(R.string.live_ascent_up), style = MaterialTheme.typography.labelSmall, color = onContainer.copy(alpha = .75f))
-        } else {
+    if (stats.recording) {
+        // Recording always surfaces the accumulated climb AND drop next to the distance
+        // hero — gain and loss are primary readouts, never tucked behind a detent.
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            ClimbStat(Units.elevation(stats.ascentM ?: 0.0, metric), stringResource(R.string.live_ascent_up), onContainer)
+            ClimbStat(Units.elevation(stats.descentM ?: 0.0, metric), stringResource(R.string.live_descent_down), onContainer)
+        }
+    } else {
+        Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(bottom = 3.dp)) {
             Text(
                 formatShortDuration(stats.etaSeconds ?: 0),
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.W800),
@@ -229,27 +253,32 @@ private fun RightBlock(stats: LiveStats, metric: Boolean, onContainer: Color) {
     }
 }
 
+/** A compact end-aligned elevation stat — value over caption — for the hero's gain/loss pair. */
 @Composable
-private fun FollowProgress(stats: LiveStats, metric: Boolean, onContainer: Color) {
-    val cs = MaterialTheme.colorScheme
+private fun ClimbStat(value: String, caption: String, onContainer: Color) {
+    Column(horizontalAlignment = Alignment.End) {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W800),
+            color = onContainer,
+        )
+        Text(caption, style = MaterialTheme.typography.labelSmall, color = onContainer.copy(alpha = .75f))
+    }
+}
+
+/** The labels under the single wavy progress strip (following): distance done / total + %.
+ *  No bar of its own — the wavy indicator above IS the bar. */
+@Composable
+private fun FollowProgressLabels(stats: LiveStats, metric: Boolean, onContainer: Color) {
     val fraction = (stats.fraction ?: 0.0).toFloat().coerceIn(0f, 1f)
     val total = stats.routeDistanceM ?: 0.0
     val done = total * fraction
-    Column {
-        Box(
-            Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp))
-                .background(onContainer.copy(alpha = .16f)),
-        ) {
-            Box(Modifier.fillMaxWidth(fraction).height(10.dp).clip(RoundedCornerShape(5.dp)).background(cs.primary).testTag("liveProgressFill"))
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                stringResource(R.string.live_progress, Units.distance(done, metric), Units.distance(total, metric)),
-                style = MaterialTheme.typography.labelSmall, color = onContainer.copy(alpha = .75f),
-            )
-            Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.W800), color = onContainer)
-        }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(
+            stringResource(R.string.live_progress, Units.distance(done, metric), Units.distance(total, metric)),
+            style = MaterialTheme.typography.labelSmall, color = onContainer.copy(alpha = .75f),
+        )
+        Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.W800), color = onContainer)
     }
 }
 
