@@ -213,6 +213,15 @@ const IDENTITY4: [[f32; 4]; 4] = [
     [0.0, 0.0, 0.0, 1.0],
 ];
 
+/// A lazily-(re)allocated half-resolution cloud target plus the bind group
+/// that samples it in the upscale pass. Recreated when the viewport resizes.
+struct HalfResTarget {
+    _tex: wgpu::Texture,
+    view: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
+    size: (u32, u32),
+}
+
 /// Owns the cloud + basemap pipelines and the two radar data textures.
 pub struct CloudScene {
     basemap_pipeline: wgpu::RenderPipeline,
@@ -226,6 +235,19 @@ pub struct CloudScene {
     _noise_tex: wgpu::Texture,
     data_w: u32,
     data_h: u32,
+    /// Cheap cloneable device handle, kept so the live overlay path can
+    /// (re)allocate its half-res target on viewport resize.
+    device: wgpu::Device,
+    /// Surface colour format — also used for the half-res cloud target so the
+    /// same `cloud_pipeline` renders into both.
+    format: wgpu::TextureFormat,
+    upscale_pipeline: wgpu::RenderPipeline,
+    upscale_bgl: wgpu::BindGroupLayout,
+    upscale_sampler: wgpu::Sampler,
+    /// The half-res offscreen cloud buffer for the live overlay path; `None`
+    /// until the first `render_overlay_downsampled` call (and the diagnostic
+    /// full-res `render` path never touches it).
+    half_res: Option<HalfResTarget>,
 }
 
 impl CloudScene {
@@ -467,6 +489,80 @@ impl CloudScene {
             cache: None,
         });
 
+        // ---- Half-res upscale-composite path -----------------------------
+        // The march runs into a half-res offscreen target (same `format`, so it
+        // reuses `cloud_pipeline`); this pass samples it bilinearly and
+        // composites onto the full-res surface. Keeps the live overlay cheap
+        // enough for mobile / software GPUs without changing the look.
+        let upscale_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("turbomap-clouds-upscale-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("upscale.wgsl").into()),
+        });
+        let upscale_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("turbomap-clouds-upscale-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+        let upscale_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("turbomap-clouds-upscale-bgl"),
+            entries: &[
+                texture_entry(0),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let upscale_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("turbomap-clouds-upscale-layout"),
+            bind_group_layouts: &[Some(&upscale_bgl)],
+            immediate_size: 0,
+        });
+        let upscale_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("turbomap-clouds-upscale-pipeline"),
+            layout: Some(&upscale_layout),
+            vertex: wgpu::VertexState {
+                module: &upscale_shader,
+                entry_point: Some("vs"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &upscale_shader,
+                entry_point: Some("fs"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    // Same premultiplied composite as the direct cloud pass.
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         Self {
             basemap_pipeline,
             cloud_pipeline,
@@ -477,6 +573,12 @@ impl CloudScene {
             _noise_tex: noise_tex,
             data_w,
             data_h,
+            device: device.clone(),
+            format,
+            upscale_pipeline,
+            upscale_bgl,
+            upscale_sampler,
+            half_res: None,
         }
     }
 
@@ -582,6 +684,147 @@ impl CloudScene {
         pass.set_pipeline(&self.cloud_pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.draw(0..3, 0..1);
+    }
+
+    /// Live-overlay path: run the volumetric march into a **half-resolution**
+    /// offscreen buffer, then upscale-composite it onto `target`. The march
+    /// dominates cost (≈28×5 noise-textured samples per pixel), so quartering
+    /// the pixel count keeps it within budget on mobile / software GPUs while
+    /// the bilinear upscale preserves the soft look. `target` keeps whatever it
+    /// already holds (the live map) and the cloud layer composites over it.
+    ///
+    /// `scale` is the linear downsample factor (`2` = half-res, quarter the
+    /// pixels); the diagnostic full-res look is unchanged via [`Self::render`].
+    pub fn render_overlay_downsampled(
+        &mut self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        params: &CloudParams,
+        scale: u32,
+    ) {
+        let scale = scale.max(1);
+        let full_w = params.resolution[0].max(1.0) as u32;
+        let full_h = params.resolution[1].max(1.0) as u32;
+        let hw = full_w.div_ceil(scale).max(1);
+        let hh = full_h.div_ceil(scale).max(1);
+
+        // The march samples the field in uv space, so the uniforms (incl. the
+        // full-res `resolution`) are identical to the direct path — only the
+        // sampling density drops. Write them once for the cloud pass.
+        let uniforms = Uniforms {
+            resolution: params.resolution,
+            time: params.time,
+            blend: params.blend.clamp(0.0, 1.0),
+            wind: params.wind,
+            sun_dir: params.sun_dir,
+            map_scale: params.map_scale,
+            erosion: params.erosion,
+            softness: params.softness,
+            intensity: params.intensity,
+            parallax: params.parallax,
+            sun_elevation: params.sun_elevation,
+            extinction: params.extinction,
+            light_extinction: params.light_extinction,
+            debug_view: params.debug_view.code(),
+            use_ray: params.use_camera_ray as u32,
+            cloud_alt_base: params.cloud_alt_base,
+            cloud_alt_top: params.cloud_alt_top,
+            inv_view_proj: params.inv_view_proj,
+            world_to_uv: params.world_to_uv,
+            _pad: [0.0; 3],
+        };
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+
+        // (Re)allocate the half-res target when the viewport size changes. The
+        // target uses the surface `format`, so `cloud_pipeline` renders into it
+        // and the upscale pass samples it back (sRGB round-trips premultiplied
+        // colour correctly; alpha is linear in both directions).
+        if self.half_res.as_ref().map(|h| h.size) != Some((hw, hh)) {
+            let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("turbomap-clouds-halfres-target"),
+                size: wgpu::Extent3d {
+                    width: hw,
+                    height: hh,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let view = tex.create_view(&Default::default());
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("turbomap-clouds-upscale-bg"),
+                layout: &self.upscale_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.upscale_sampler),
+                    },
+                ],
+            });
+            self.half_res = Some(HalfResTarget {
+                _tex: tex,
+                view,
+                bind_group,
+                size: (hw, hh),
+            });
+        }
+        let hr = self.half_res.as_ref().expect("half-res target just set");
+
+        // Pass A — march into the half-res buffer (cleared to transparent).
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("turbomap-clouds-halfres-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &hr.view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.cloud_pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+
+        // Pass B — upscale-composite the half-res cloud onto the live surface.
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("turbomap-clouds-upscale-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.upscale_pipeline);
+            pass.set_bind_group(0, &hr.bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
     }
 }
 

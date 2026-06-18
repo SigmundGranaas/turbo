@@ -41,7 +41,11 @@ class SyntheticRadarDataSource(
             val t = fi.toFloat() / (n - 1)
             val precip = ByteArray(gridW * gridH)
             val coverage = ByteArray(gridW * gridH)
-            val front = -0.2f + t * 1.3f
+            // Sweep the rain band left→right but keep it within the viewport the
+            // whole sequence, so the very first frame (shown the instant the
+            // overlay is enabled) already has weather on screen rather than an
+            // empty sky with the front still off the left edge.
+            val front = 0.2f + t * 0.6f
             for (y in 0 until gridH) {
                 for (x in 0 until gridW) {
                     val nx = (x + 0.5f) / gridW

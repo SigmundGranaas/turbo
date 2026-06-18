@@ -1468,8 +1468,11 @@ impl Map {
                 // Real pitch 3D needs geo-registered world-space sampling.
                 // The flat top-down volumetric path is the shipping look.
                 c.params.use_camera_ray = false;
+                // Half-res cloud buffer: the volumetric march is the cost, so
+                // render it at half resolution and upscale-composite — keeps
+                // the live overlay within budget on mobile / software GPUs.
                 c.scene
-                    .render(&self.queue, encoder, target, &c.params, false);
+                    .render_overlay_downsampled(&self.queue, encoder, target, &c.params, 2);
             }
         }
 

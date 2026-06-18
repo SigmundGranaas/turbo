@@ -39,6 +39,20 @@ fn set_error(msg: impl Into<String>) {
     }
 }
 
+/// Route the `log` facade (ours + wgpu's) to logcat once, so GPU/pipeline
+/// errors and render-path diagnostics are visible on device. No-op off Android.
+fn init_logging() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Info)
+                .with_tag("Turbomap"),
+        );
+        log::info!("turbomap logging initialised");
+    });
+}
+
 /// Best-effort string for a caught panic payload.
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     payload
@@ -231,6 +245,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     lng: jdouble,
     zoom: jdouble,
 ) -> jlong {
+    init_logging();
     let raw_env = env.get_raw();
     let result = catch_unwind(AssertUnwindSafe(|| -> Result<OnScreen, String> {
         // Safety: `surface` is a live android.view.Surface for this call.
