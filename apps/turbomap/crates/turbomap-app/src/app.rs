@@ -6,9 +6,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use turbomap_core::{
-    Camera, Color, Filter, HitResult, LatLng, Map, MapOptions, Marker, MarkerId, Paint, Rule,
-    TileSource, VectorStyle, VectorTileSource,
+    Camera, CloudParams, Color, Filter, HitResult, LatLng, Map, MapOptions, Marker, MarkerId,
+    Paint, RadarFrame, Rule, TileSource, VectorStyle, VectorTileSource,
 };
+use turbomap_clouds::{DebugView, SyntheticStorm};
 
 use winit::{
     application::ApplicationHandler,
@@ -79,6 +80,12 @@ struct RunningState {
     /// framebuffer-dump filename when `TURBOMAP_DUMP_DIR` is
     /// set in the environment.
     frame_counter: u32,
+    /// Synthetic radar sequence backing the cloud debug scene. Generated
+    /// once at startup; the panel's frame-A/B sliders pick pairs out of it.
+    cloud_frames: Vec<RadarFrame>,
+    /// Which `(frame_a, frame_b)` pair is currently uploaded to the GPU,
+    /// so `apply_clouds` only re-uploads textures when the selection moves.
+    cloud_uploaded: Option<(usize, usize)>,
 }
 
 /// UI-bound state. Cached so the panel survives across frames; the
@@ -97,6 +104,8 @@ struct UiState {
     /// jitter. We sample at ~5 Hz and pad the formatted
     /// string to a fixed width so the panel is layout-stable.
     metrics_display: MetricsDisplay,
+    /// Procedural cloud-overlay debug controls. See [`CloudUiState`].
+    clouds: CloudUiState,
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +119,48 @@ struct MetricsDisplay {
     gpu_sum_ms: f64,
     sample_count: u32,
     gpu_sample_count: u32,
+}
+
+/// Mirror of the procedural cloud overlay's debug-scene controls. The Map
+/// owns the real `CloudParams`; this struct holds what the panel edits and
+/// `RunningState::apply_clouds` pushes into the Map each frame. The
+/// camera-driven fields (world-lock affine, inv-view-proj, slab altitude)
+/// are recomputed inside `Map::render` from the live camera, so the look
+/// knobs we set here are never clobbered.
+#[derive(Debug, Clone)]
+struct CloudUiState {
+    /// Master on/off (drives `Map::set_clouds_visible`).
+    enabled: bool,
+    /// Auto-advance the drift/boil clock each frame (`time`).
+    animate: bool,
+    /// Multiplier on the per-frame `time` advance when `animate`.
+    speed: f32,
+    /// Drift/boil clock in seconds (scrubbable; auto-advanced when animating).
+    time: f32,
+    /// Crossfade `0..1` between synthetic radar frame A (slot 0) and B (slot 1).
+    blend: f32,
+    /// Index into the synthetic storm sequence uploaded to slot 0.
+    frame_a: usize,
+    /// Index into the synthetic storm sequence uploaded to slot 1.
+    frame_b: usize,
+    /// Look knobs + debug-view selector. Camera/affine fields are ignored
+    /// (overwritten per frame by `Map::render`).
+    params: CloudParams,
+}
+
+impl Default for CloudUiState {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            animate: true,
+            speed: 1.0,
+            time: 0.0,
+            blend: 0.0,
+            frame_a: 0,
+            frame_b: 1,
+            params: CloudParams::default(),
+        }
+    }
 }
 
 impl MetricsDisplay {
@@ -178,6 +229,7 @@ impl Default for UiState {
             // as a flicker source.
             fade_in_secs: 0.0,
             metrics_display: MetricsDisplay::new(),
+            clouds: CloudUiState::default(),
         }
     }
 }
@@ -277,6 +329,22 @@ impl ApplicationHandler for TurbomapApp {
             });
         }
 
+        // Procedural cloud overlay — enabled on startup so the debug scene
+        // shows weather immediately. The synthetic storm is the same one the
+        // headless `render_clouds`/`diagnose_clouds` harnesses use, so the
+        // window reproduces those artifacts interactively. We geo-register
+        // the radar to a generous box around the initial camera so panning /
+        // zooming exercises world-lock, and the pitch slider exercises the
+        // camera-ray 3D parallax — all without booting a device.
+        let storm = SyntheticStorm::default();
+        let cloud_frames = storm.generate();
+        map.enable_clouds(storm.width, storm.height);
+        let last = cloud_frames.len().saturating_sub(1);
+        map.ingest_radar_frame(0, &cloud_frames[0]);
+        map.ingest_radar_frame(1, &cloud_frames[1.min(last)]);
+        let c = self.initial_camera.center;
+        map.set_cloud_geo_bounds(c.lng - 4.0, c.lat - 2.0, c.lng + 4.0, c.lat + 2.0);
+
         let host = crate::map_host::build(
             map,
             self.vector_source.clone(),
@@ -301,6 +369,8 @@ impl ApplicationHandler for TurbomapApp {
             ui_state: UiState::default(),
             egui_wants_pointer: false,
             frame_counter: 0,
+            cloud_frames,
+            cloud_uploaded: Some((0, 1.min(last))),
         });
         window.request_redraw();
     }
@@ -578,6 +648,13 @@ impl RunningState {
                     label: Some("turbomap-frame"),
                 });
 
+        // 3b. Sync the cloud debug-scene panel state into the Map (frame
+        //     upload on selection change, look knobs, animation clock)
+        //     BEFORE rendering, so this frame draws with the current panel
+        //     values. The camera-driven cloud fields are recomputed inside
+        //     `Map::render`, so the order is safe.
+        self.apply_clouds();
+
         // 4. Render the map onto the drawable.
         self.host.render(&mut encoder, &frame.view);
 
@@ -587,6 +664,7 @@ impl RunningState {
         //    `PendingUi` that we must hand back to
         //    `ui.present` AFTER the queue submit so the GPU
         //    isn't still sampling textures we're freeing.
+        let cloud_frame_count = self.cloud_frames.len();
         let ui_state = &mut self.ui_state;
         let map_for_ui = self.host.map_mut();
         let pending = self.ui.frame(
@@ -596,7 +674,7 @@ impl RunningState {
             &mut encoder,
             &frame.view,
             frame.size,
-            |ctx| build_ui(ctx, ui_state, map_for_ui),
+            |ctx| build_ui(ctx, ui_state, map_for_ui, cloud_frame_count),
         );
 
         // 6. Submit, present, then let UI free retired
@@ -616,6 +694,48 @@ impl RunningState {
         if self.ui.present(pending) {
             self.scheduler.notice_egui_repaint();
         }
+
+        // Cloud drift/boil animation isn't part of `Map::is_animating`
+        // (which tracks camera + tile fades), so it won't keep the
+        // scheduler awake on its own. Drive a fresh frame directly while
+        // the panel's animate toggle is on.
+        if self.ui_state.clouds.enabled && self.ui_state.clouds.animate {
+            self.window.request_redraw();
+        }
+    }
+
+    /// Push the cloud debug-panel state into the Map for this frame.
+    ///
+    /// Re-uploads the radar texture pair only when the frame-A/B selection
+    /// changes (texture upload is the one non-trivial cost here), advances
+    /// the drift clock when animating, and forwards the look knobs +
+    /// debug-view selector. The world-lock affine, inverse-view-projection
+    /// and slab altitude are deliberately *not* set here — `Map::render`
+    /// recomputes them from the live camera every frame.
+    fn apply_clouds(&mut self) {
+        let map = self.host.map_mut();
+        map.set_clouds_visible(self.ui_state.clouds.enabled);
+        if !self.ui_state.clouds.enabled || self.cloud_frames.is_empty() {
+            return;
+        }
+
+        let last = self.cloud_frames.len() - 1;
+        let a = self.ui_state.clouds.frame_a.min(last);
+        let b = self.ui_state.clouds.frame_b.min(last);
+        if self.cloud_uploaded != Some((a, b)) {
+            map.ingest_radar_frame(0, &self.cloud_frames[a]);
+            map.ingest_radar_frame(1, &self.cloud_frames[b]);
+            self.cloud_uploaded = Some((a, b));
+        }
+
+        if self.ui_state.clouds.animate {
+            // Fixed per-frame step (panel renders at vsync while animating).
+            // Exact rate is irrelevant for a look-debug tool; `speed` scales it.
+            self.ui_state.clouds.time += 0.016 * self.ui_state.clouds.speed;
+        }
+
+        map.set_cloud_params(self.ui_state.clouds.params);
+        map.set_cloud_time(self.ui_state.clouds.time, self.ui_state.clouds.blend);
     }
 }
 
@@ -630,7 +750,7 @@ const VECTOR_LAYER_ID_PUB: &str = crate::map_host::VECTOR_LAYER_ID;
 /// Builds the egui side panel. Called inside `Context::run` so the
 /// widget tree is rebuilt each frame from the current state. Mutates
 /// the Map directly on slider/checkbox change — no diff step.
-fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map) {
+fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_count: usize) {
     // Custom frame with NO shadow + fully opaque background.
     // egui's default Window has a soft drop-shadow rendered as
     // an alpha gradient that, when blended against the map
@@ -750,6 +870,102 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map) {
                     map.set_layer_fade_in(VECTOR_LAYER_ID_PUB, ui.fade_in_secs);
                 }
             });
+
+            panel.separator();
+            build_cloud_controls(panel, &mut ui.clouds, cloud_frame_count);
+        });
+}
+
+/// The procedural-cloud debug-scene controls. Edits `CloudUiState` only;
+/// `RunningState::apply_clouds` pushes the values into the Map each frame.
+/// Lives in its own fn so the giant `build_ui` closure stays readable.
+fn build_cloud_controls(panel: &mut egui::Ui, c: &mut CloudUiState, frame_count: usize) {
+    egui::CollapsingHeader::new("weather clouds")
+        .default_open(true)
+        .show(panel, |ui| {
+            ui.checkbox(&mut c.enabled, "enabled");
+            if !c.enabled {
+                return;
+            }
+
+            ui.label(
+                egui::RichText::new(
+                    "tilt (pitch slider / W,S) → 3D parallax · pan + zoom → world-lock",
+                )
+                .weak()
+                .small(),
+            );
+
+            // --- time / radar sequence ---
+            ui.separator();
+            ui.horizontal(|row| {
+                row.checkbox(&mut c.animate, "animate");
+                row.add(
+                    egui::Slider::new(&mut c.speed, 0.0..=4.0)
+                        .text("speed")
+                        .step_by(0.05),
+                );
+            });
+            ui.add(egui::Slider::new(&mut c.time, 0.0..=120.0).text("time (drift/boil)"));
+            ui.add(egui::Slider::new(&mut c.blend, 0.0..=1.0).text("crossfade A→B"));
+            if frame_count > 1 {
+                let last = frame_count - 1;
+                ui.horizontal(|row| {
+                    row.label("radar frame");
+                    row.add(egui::Slider::new(&mut c.frame_a, 0..=last).text("A"));
+                    row.add(egui::Slider::new(&mut c.frame_b, 0..=last).text("B"));
+                });
+            }
+
+            // --- debug view: isolate any pipeline stage ---
+            ui.separator();
+            const VIEWS: [DebugView; 9] = [
+                DebugView::Final,
+                DebugView::RadarPrecip,
+                DebugView::RadarCoverage,
+                DebugView::CloudField,
+                DebugView::Density,
+                DebugView::Light,
+                DebugView::Alpha,
+                DebugView::Albedo,
+                DebugView::Parallax,
+            ];
+            egui::ComboBox::from_label("debug view")
+                .selected_text(c.params.debug_view.label())
+                .show_ui(ui, |combo| {
+                    for v in VIEWS {
+                        combo.selectable_value(&mut c.params.debug_view, v, v.label());
+                    }
+                });
+
+            // --- look knobs (mirror CloudParams) ---
+            ui.separator();
+            let p = &mut c.params;
+            ui.add(egui::Slider::new(&mut p.intensity, 0.0..=1.5).text("intensity (opacity)"));
+            ui.add(egui::Slider::new(&mut p.map_scale, 1.0..=24.0).text("feature scale"));
+            ui.add(egui::Slider::new(&mut p.softness, 0.0..=1.0).text("edge softness"));
+            ui.add(egui::Slider::new(&mut p.erosion, 0.0..=1.0).text("edge erosion"));
+            ui.add(egui::Slider::new(&mut p.sun_elevation, 0.0..=1.0).text("sun elevation"));
+            ui.add(egui::Slider::new(&mut p.extinction, 1.0..=40.0).text("view extinction"));
+            ui.add(
+                egui::Slider::new(&mut p.light_extinction, 1.0..=40.0).text("light extinction"),
+            );
+            ui.horizontal(|row| {
+                row.label("wind");
+                row.add(egui::Slider::new(&mut p.wind[0], -3.0..=3.0).text("x"));
+                row.add(egui::Slider::new(&mut p.wind[1], -3.0..=3.0).text("y"));
+            });
+            ui.horizontal(|row| {
+                row.label("sun dir");
+                row.add(egui::Slider::new(&mut p.sun_dir[0], -1.0..=1.0).text("x"));
+                row.add(egui::Slider::new(&mut p.sun_dir[1], -1.0..=1.0).text("y"));
+            });
+
+            if ui.button("reset look").clicked() {
+                let keep_view = c.params.debug_view;
+                c.params = CloudParams::default();
+                c.params.debug_view = keep_view;
+            }
         });
 }
 

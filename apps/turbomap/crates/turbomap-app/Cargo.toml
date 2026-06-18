@@ -16,6 +16,10 @@ workspace = true
 
 [dependencies]
 turbomap-core = { path = "../turbomap-core" }
+# Direct dep (already transitive via core) so the desktop "Clouds" debug
+# panel can build a synthetic radar sequence + select pipeline debug views
+# without booting a device. See `app.rs`.
+turbomap-clouds = { path = "../turbomap-clouds" }
 turbomap-tiles-http = { path = "../turbomap-tiles-http" }
 turbomap-style-maplibre = { path = "../turbomap-style-maplibre" }
 wgpu.workspace = true
