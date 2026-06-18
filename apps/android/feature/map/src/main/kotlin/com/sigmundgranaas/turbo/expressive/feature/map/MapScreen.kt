@@ -543,7 +543,21 @@ fun MapScreen(
                 initialCamera = MapDefaults.fallbackCamera,
                 initialZoom = MapDefaults.fallbackZoom,
                 markers = state.markers,
-                route = routeState.polyline.takeIf { it.isNotEmpty() },
+                // While following, the guide is drawn as two segments split at the arc-cursor:
+                // `route` is the bright REMAINING road ahead, `routeCovered` the dim walked part
+                // (US-3). The two meet exactly at the cursor so there's no gap or overlap.
+                route = if (routeState is RouteUiState.Following) {
+                    GeoMetrics.routeSuffix(routeState.polyline, followSession.progress?.fraction ?: 0.0)
+                        .takeIf { it.size > 1 } ?: routeState.polyline.takeIf { it.isNotEmpty() }
+                } else {
+                    routeState.polyline.takeIf { it.isNotEmpty() }
+                },
+                routeCovered = if (routeState is RouteUiState.Following) {
+                    GeoMetrics.routePrefix(routeState.polyline, followSession.progress?.fraction ?: 0.0)
+                        .takeIf { it.size > 1 }
+                } else {
+                    null
+                },
                 // Editable A/B/C… stops while the Route builder is active: tap selects,
                 // dragging the selected one moves it, long-press removes it.
                 waypoints = if (ui.trackMode == TrackMode.Route) toolWaypoints else emptyList(),
@@ -558,6 +572,8 @@ fun MapScreen(
                 // saved track the user opened ("Show on map").
                 track = when {
                     recState.recording -> recState.points.takeIf { it.size > 1 }
+                    // Follow = Record: show the real travelled line over the dimmed guide.
+                    routeState is RouteUiState.Following -> followSession.points.takeIf { it.size > 1 }
                     ui.trackMode == TrackMode.Line -> ui.linePoints.takeIf { it.size > 1 }?.toList()
                     ui.trackMode == TrackMode.Draw -> ui.drawPoints.takeIf { it.size > 1 }?.toList()
                     else -> ui.displayedTrack

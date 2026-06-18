@@ -140,6 +140,8 @@ fun TurboMap(
     markers: List<Marker> = emptyList(),
     route: List<LatLng>? = null,
     routeColor: Color = Color(0xFF8F4C38),
+    /** The already-walked prefix of [route] while following — drawn dim over the guide (US-3). */
+    routeCovered: List<LatLng>? = null,
     track: List<LatLng>? = null,
     trackColor: Color = Color(0xFF00696D),
     measurePoints: List<LatLng> = emptyList(),
@@ -254,10 +256,11 @@ fun TurboMap(
         }
 
         // Push current geometry into the native sources whenever the data (or style) changes.
-        LaunchedEffect(style, track, route, measurePoints, userLocation) {
+        LaunchedEffect(style, track, route, routeCovered, measurePoints, userLocation) {
             val s = style ?: return@LaunchedEffect
             s.getSourceAs<GeoJsonSource>(SRC_TRACK)?.setGeoJson(lineFc(track))
             s.getSourceAs<GeoJsonSource>(SRC_ROUTE)?.setGeoJson(lineFc(route))
+            s.getSourceAs<GeoJsonSource>(SRC_ROUTE_COVERED)?.setGeoJson(lineFc(routeCovered))
             s.getSourceAs<GeoJsonSource>(SRC_MEASURE_LINE)?.setGeoJson(lineFc(measurePoints))
             s.getSourceAs<GeoJsonSource>(SRC_MEASURE_PTS)?.setGeoJson(pointsFc(measurePoints))
             s.getSourceAs<GeoJsonSource>(SRC_USER)?.setGeoJson(pointsFc(listOfNotNull(userLocation)))
@@ -324,6 +327,8 @@ fun TurboMap(
 
 private const val SRC_TRACK = "turbo-track-src"
 private const val SRC_ROUTE = "turbo-route-src"
+private const val SRC_ROUTE_COVERED = "turbo-route-covered-src"
+private const val ROUTE_COVERED_GRAY = 0xFF9AA0A6.toInt()
 private const val SRC_MEASURE_LINE = "turbo-measure-line-src"
 private const val SRC_MEASURE_PTS = "turbo-measure-pts-src"
 private const val SRC_USER = "turbo-user-src"
@@ -340,7 +345,8 @@ private fun Style.installTurboLayers(
     measureColor: Color,
 ) {
     if (getSource(SRC_TRACK) != null) return
-    listOf(SRC_TRACK, SRC_ROUTE, SRC_MEASURE_LINE, SRC_MEASURE_PTS, SRC_USER).forEach { addSource(GeoJsonSource(it)) }
+    listOf(SRC_TRACK, SRC_ROUTE, SRC_ROUTE_COVERED, SRC_MEASURE_LINE, SRC_MEASURE_PTS, SRC_USER)
+        .forEach { addSource(GeoJsonSource(it)) }
 
     // MapLibre line-width / circle-radius are in density-independent (logical) pixels —
     // the renderer applies the display pixel-ratio itself, so these are dp-equivalent and
@@ -351,8 +357,20 @@ private fun Style.installTurboLayers(
         PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
         PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
     )
-    addLayer(line("turbo-track-layer", SRC_TRACK, trackColor, 4f))
     addLayer(line("turbo-route-layer", SRC_ROUTE, routeColor, 4f))
+    // The covered prefix of the guide, drawn dim ABOVE the bright route so the walked
+    // portion reads as "done" while the road ahead stays highlighted (US-3).
+    addLayer(
+        LineLayer("turbo-route-covered-layer", SRC_ROUTE_COVERED).withProperties(
+            PropertyFactory.lineColor(ROUTE_COVERED_GRAY),
+            PropertyFactory.lineWidth(4f),
+            PropertyFactory.lineOpacity(0.9f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ),
+    )
+    // The real travelled track sits on top of both, so you always see where you actually went.
+    addLayer(line("turbo-track-layer", SRC_TRACK, trackColor, 4f))
     addLayer(line("turbo-measure-line-layer", SRC_MEASURE_LINE, measureColor, 3f))
     addLayer(
         CircleLayer("turbo-measure-pts-layer", SRC_MEASURE_PTS).withProperties(

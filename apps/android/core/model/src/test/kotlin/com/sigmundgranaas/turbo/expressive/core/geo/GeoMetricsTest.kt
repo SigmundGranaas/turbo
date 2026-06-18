@@ -42,6 +42,31 @@ class GeoMetricsTest {
     }
 
     @Test
+    fun `routePrefix splits the guide at the cursor fraction`() {
+        val route = listOf(LatLng(0.0, 0.0), LatLng(0.0, 1.0), LatLng(0.0, 2.0)) // 2 units long
+        assertTrue("empty at the start", GeoMetrics.routePrefix(route, 0.0).isEmpty())
+        assertEquals("whole route at the end", route, GeoMetrics.routePrefix(route, 1.0))
+        val half = GeoMetrics.routePrefix(route, 0.5)
+        // Half-way is the middle vertex (lng ~1.0): start + the split point.
+        assertEquals(2, half.size)
+        assertEquals(0.0, half.first().lng, 1e-6)
+        assertTrue("ends near the midpoint but was ${half.last().lng}", kotlin.math.abs(half.last().lng - 1.0) < 0.02)
+    }
+
+    @Test
+    fun `routeSuffix is the complement of routePrefix and they meet at the cursor`() {
+        val route = listOf(LatLng(0.0, 0.0), LatLng(0.0, 1.0), LatLng(0.0, 2.0))
+        assertEquals("whole route at the start", route, GeoMetrics.routeSuffix(route, 0.0))
+        assertTrue("empty at the end", GeoMetrics.routeSuffix(route, 1.0).isEmpty())
+        val prefix = GeoMetrics.routePrefix(route, 0.5)
+        val suffix = GeoMetrics.routeSuffix(route, 0.5)
+        // The covered prefix's last point == the remaining suffix's first point (the cursor).
+        assertEquals(prefix.last().lng, suffix.first().lng, 1e-9)
+        assertEquals(prefix.last().lat, suffix.first().lat, 1e-9)
+        assertTrue("suffix runs to the end", kotlin.math.abs(suffix.last().lng - 2.0) < 1e-9)
+    }
+
+    @Test
     fun `distanceToPath is ~0 on the line and large when off it`() {
         val route = listOf(LatLng(69.0, 18.0), LatLng(69.0, 18.01))
         // A point on the segment.

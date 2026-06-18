@@ -75,6 +75,68 @@ object GeoMetrics {
         return (flat + climb).toInt()
     }
 
+    /**
+     * The covered **prefix** of [route] up to [fraction] (0..1) of its total length, including
+     * the interpolated split point at the cursor. Empty when fraction ≤ 0; the whole route when
+     * ≥ 1. Used to dim the already-walked portion of a followed guide (US-3). Pure + tested.
+     */
+    fun routePrefix(route: List<LatLng>, fraction: Double): List<LatLng> {
+        if (route.size < 2 || fraction <= 0.0) return emptyList()
+        val total = pathLengthMeters(route)
+        if (total <= 0.0) return emptyList()
+        if (fraction >= 1.0) return route
+        val target = total * fraction
+        val out = ArrayList<LatLng>(route.size)
+        out.add(route[0])
+        var cum = 0.0
+        for (i in 1 until route.size) {
+            val seg = haversineMeters(route[i - 1], route[i])
+            if (cum + seg < target) {
+                out.add(route[i])
+                cum += seg
+            } else {
+                val t = if (seg > 0.0) (target - cum) / seg else 0.0
+                val a = route[i - 1]
+                val b = route[i]
+                out.add(LatLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t))
+                break
+            }
+        }
+        return out
+    }
+
+    /**
+     * The remaining **suffix** of [route] from [fraction] (0..1) onward, including the
+     * interpolated split point at the cursor. The whole route when fraction ≤ 0; empty when
+     * ≥ 1. Complements [routePrefix] so the guide can be drawn as two segments — covered
+     * (dim) + remaining (bright) — that meet exactly at the cursor (US-3). Pure + tested.
+     */
+    fun routeSuffix(route: List<LatLng>, fraction: Double): List<LatLng> {
+        if (route.size < 2 || fraction >= 1.0) return emptyList()
+        if (fraction <= 0.0) return route
+        val total = pathLengthMeters(route)
+        if (total <= 0.0) return route
+        val target = total * fraction
+        val out = ArrayList<LatLng>(route.size)
+        var cum = 0.0
+        var started = false
+        for (i in 1 until route.size) {
+            val seg = haversineMeters(route[i - 1], route[i])
+            if (!started && cum + seg >= target) {
+                val t = if (seg > 0.0) (target - cum) / seg else 0.0
+                val a = route[i - 1]
+                val b = route[i]
+                out.add(LatLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t))
+                out.add(b)
+                started = true
+            } else if (started) {
+                out.add(route[i])
+            }
+            cum += seg
+        }
+        return out
+    }
+
     /** Shortest distance (metres) from [position] to the polyline [points]; ∞ if degenerate. */
     fun distanceToPath(points: List<LatLng>, position: LatLng): Double {
         if (points.isEmpty()) return Double.MAX_VALUE
