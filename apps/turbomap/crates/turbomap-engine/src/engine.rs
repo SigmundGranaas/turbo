@@ -506,6 +506,12 @@ impl TurbomapEngine {
         self.map.set_clouds_visible(visible);
     }
 
+    /// Geo-register the radar to the `west/south/east/north` lat-lng box it
+    /// covers, so the overlay is world-locked (pans + zooms with the map).
+    pub fn set_cloud_geo_bounds(&mut self, west: f64, south: f64, east: f64, north: f64) {
+        self.map.set_cloud_geo_bounds(west, south, east, north);
+    }
+
     /// Upload a radar frame into slot 0 (current timestep) or 1 (next),
     /// from two `grid_w * grid_h` byte planes: `precip` and `coverage`,
     /// each normalised to `0..=255`.

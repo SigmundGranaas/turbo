@@ -32,4 +32,12 @@ interface WeatherCloudOverlay {
      * slot-0→slot-1 crossfade ([blend], `0..1`).
      */
     fun setCloudTime(timeSeconds: Float, blend: Float)
+
+    /**
+     * Geo-register the radar to the lat/lng box it covers so the overlay is
+     * **world-locked** — the clouds pan and zoom with the terrain instead of
+     * staying fixed to the screen. Pass the bounds the frames were sampled for.
+     * Default no-op for engines that only draw a screen-locked field.
+     */
+    fun setCloudGeoBounds(west: Double, south: Double, east: Double, north: Double) {}
 }

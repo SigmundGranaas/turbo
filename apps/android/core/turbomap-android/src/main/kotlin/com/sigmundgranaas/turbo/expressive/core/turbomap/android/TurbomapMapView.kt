@@ -344,6 +344,13 @@ internal class TurbomapSurfaceController {
         requestRender(cameraMoved = false)
     }
 
+    /** Geo-register the radar to its lat/lng box → world-locked overlay. */
+    fun setCloudGeoBounds(west: Double, south: Double, east: Double, north: Double) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeSetCloudGeoBounds(handle, west, south, east, north)
+        requestRender(cameraMoved = false)
+    }
+
     /**
      * Upload a radar frame into [slot] (0 = current timestep, 1 = next) from
      * two [gridW]×[gridH] byte planes — [precip] and [coverage], each 0..255.

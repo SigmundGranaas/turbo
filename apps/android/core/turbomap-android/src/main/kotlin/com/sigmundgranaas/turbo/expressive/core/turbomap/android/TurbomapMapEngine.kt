@@ -136,6 +136,11 @@ class TurbomapMapEngine(
         onMutated()
     }
 
+    override fun setCloudGeoBounds(west: Double, south: Double, east: Double, north: Double) {
+        NativeSurfaceMap.nativeSetCloudGeoBounds(handle, west, south, east, north)
+        onMutated()
+    }
+
     override fun ingestRadarFrame(slot: Int, gridW: Int, gridH: Int, precip: ByteArray, coverage: ByteArray) {
         NativeSurfaceMap.nativeIngestRadarFrame(handle, slot, gridW, gridH, precip, coverage)
         onMutated()

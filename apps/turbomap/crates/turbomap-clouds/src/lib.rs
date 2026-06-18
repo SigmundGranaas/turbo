@@ -117,7 +117,10 @@ struct Uniforms {
     cloud_alt_top: f32,
     inv_view_proj: [[f32; 4]; 4],
     world_to_uv: f32,
-    _pad: [f32; 3],
+    _pad0: f32,
+    fuv_origin: [f32; 2],
+    fuv_dx: [f32; 2],
+    fuv_dy: [f32; 2],
 }
 
 /// Tunable look of the cloud overlay for one rendered frame.
@@ -177,6 +180,14 @@ pub struct CloudParams {
     /// overlay; other variants emit an internal pipeline stage so it can be
     /// inspected and measured. Always [`DebugView::Final`] in production.
     pub debug_view: DebugView,
+    /// Screen-uv → field-uv affine that world-locks the cloud field:
+    /// `field_uv = origin + uv.x·dx + uv.y·dy`. Identity
+    /// (`[0,0] / [1,0] / [0,1]`) leaves the field screen-locked (offscreen /
+    /// golden); the live map fills it from its camera + the radar's geo box so
+    /// the clouds pan and zoom with the terrain. See [`field_uv`] in the shader.
+    pub field_uv_origin: [f32; 2],
+    pub field_uv_dx: [f32; 2],
+    pub field_uv_dy: [f32; 2],
 }
 
 impl Default for CloudParams {
@@ -201,6 +212,10 @@ impl Default for CloudParams {
             cloud_alt_top: 0.0,
             world_to_uv: 0.0,
             debug_view: DebugView::Final,
+            // Identity affine → field_uv == screen uv (screen-locked default).
+            field_uv_origin: [0.0, 0.0],
+            field_uv_dx: [1.0, 0.0],
+            field_uv_dy: [0.0, 1.0],
         }
     }
 }
@@ -644,7 +659,10 @@ impl CloudScene {
             cloud_alt_top: params.cloud_alt_top,
             inv_view_proj: params.inv_view_proj,
             world_to_uv: params.world_to_uv,
-            _pad: [0.0; 3],
+            _pad0: 0.0,
+            fuv_origin: params.field_uv_origin,
+            fuv_dx: params.field_uv_dx,
+            fuv_dy: params.field_uv_dy,
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
@@ -732,7 +750,10 @@ impl CloudScene {
             cloud_alt_top: params.cloud_alt_top,
             inv_view_proj: params.inv_view_proj,
             world_to_uv: params.world_to_uv,
-            _pad: [0.0; 3],
+            _pad0: 0.0,
+            fuv_origin: params.field_uv_origin,
+            fuv_dx: params.field_uv_dx,
+            fuv_dy: params.field_uv_dy,
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
@@ -868,7 +889,7 @@ mod uniform_layout {
     // another on the GPU. Verified against clouds.wgsl.
     #[test]
     fn matches_wgsl_layout() {
-        assert_eq!(size_of::<Uniforms>(), 160, "struct size");
+        assert_eq!(size_of::<Uniforms>(), 176, "struct size");
         assert_eq!(offset_of!(Uniforms, map_scale), 32);
         assert_eq!(offset_of!(Uniforms, intensity), 44);
         assert_eq!(offset_of!(Uniforms, parallax), 48);
@@ -880,5 +901,10 @@ mod uniform_layout {
         // mat4x4<f32> requires 16-byte alignment in WGSL → offset 80.
         assert_eq!(offset_of!(Uniforms, inv_view_proj), 80);
         assert_eq!(offset_of!(Uniforms, world_to_uv), 144);
+        // vec2<f32> requires 8-byte alignment in WGSL; after world_to_uv (144)
+        // + _pad0 (148) the next vec2 lands at 152, then 160, 168.
+        assert_eq!(offset_of!(Uniforms, fuv_origin), 152);
+        assert_eq!(offset_of!(Uniforms, fuv_dx), 160);
+        assert_eq!(offset_of!(Uniforms, fuv_dy), 168);
     }
 }

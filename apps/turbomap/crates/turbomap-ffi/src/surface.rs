@@ -674,6 +674,25 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// Geo-register the radar to the `west/south/east/north` lat-lng box it covers
+/// → the cloud overlay world-locks (pans + zooms with the map).
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetCloudGeoBounds(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    west: jdouble,
+    south: jdouble,
+    east: jdouble,
+    north: jdouble,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.set_cloud_geo_bounds(west, south, east, north);
+        });
+    }
+}
+
 /// Upload a radar frame into `slot` (0 = current, 1 = next) from two
 /// `gridW * gridH` byte planes — `precip` and `coverage`, each 0..=255.
 #[no_mangle]

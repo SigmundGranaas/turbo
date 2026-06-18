@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -35,12 +36,15 @@ class RadarOverlayState(private val overlay: WeatherCloudOverlay) {
     val frameCount: Int get() = frames.size
     val ready: Boolean get() = frames.size >= 2
 
-    /** Install a freshly loaded sequence and show frame 0. */
-    fun loadFrames(list: List<RadarFrameData>) {
+    /** Install a freshly loaded sequence and show frame 0. [bounds] is the
+     *  lat/lng box the frames cover; passing it world-locks the overlay so the
+     *  clouds pan and zoom with the map (null keeps the screen-locked field). */
+    fun loadFrames(list: List<RadarFrameData>, bounds: GeoBounds? = null) {
         frames = list
         loadedPairIdx = -1
         if (list.isNotEmpty()) {
             overlay.enableClouds(list.first().gridW, list.first().gridH)
+            bounds?.let { overlay.setCloudGeoBounds(it.west, it.south, it.east, it.north) }
             overlay.setCloudsVisible(true)
             seek(0f)
         }

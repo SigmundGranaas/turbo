@@ -25,8 +25,12 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
+import kotlinx.coroutines.delay
+import kotlin.math.cos
+import kotlin.math.max
 
 /**
  * Self-contained weather-radar overlay control: a toggle that, when on, loads a
@@ -47,13 +51,29 @@ fun RadarOverlayControls(
     val overlay = eng as? WeatherCloudOverlay ?: return
     val state = remember(overlay) { RadarOverlayState(overlay) }
     var active by remember(overlay) { mutableStateOf(false) }
+    // The geo box the loaded radar covers. A fixed-span box (not the viewport)
+    // so the procedural cloud field is world-locked: zooming shows fewer, bigger
+    // puffs rather than a screen-fixed texture. Reloaded when the camera pans
+    // out of it (below).
+    var loadedBox by remember(overlay) { mutableStateOf<GeoBounds?>(null) }
 
-    // Load the sequence the first time the overlay is switched on.
+    // Load (and re-load) the sequence: first time on, then whenever the camera
+    // pans far enough that the current box no longer comfortably covers the view.
     LaunchedEffect(active, eng) {
-        if (active && !state.ready) {
-            state.loadFrames(source.load(eng.visibleBounds(), frameCount = 12))
+        if (!active) {
+            state.setVisible(false)
+            return@LaunchedEffect
         }
-        state.setVisible(active && state.ready)
+        while (true) {
+            val view = eng.visibleBounds()
+            if (loadedBox == null || !boxCovers(loadedBox!!, view)) {
+                val box = fixedBoxAround(view)
+                state.loadFrames(source.load(box, frameCount = 12), box)
+                loadedBox = box
+            }
+            state.setVisible(state.ready)
+            delay(RELOAD_POLL_MS) // cheap re-check of the camera box
+        }
     }
 
     // Playback: advance the timeline each frame while playing.
@@ -109,3 +129,39 @@ fun RadarOverlayControls(
         }
     }
 }
+
+/** How often to re-check whether the camera has left the loaded radar box. */
+private const val RELOAD_POLL_MS = 600L
+
+/** Minimum half-extent of the loaded box (degrees of latitude). Big enough that
+ *  at typical hiking zooms the box is FIXED in the world, so the cloud field is
+ *  world-locked (zooming shows fewer, bigger puffs). */
+private const val BASE_HALF_LAT_DEG = 1.5
+
+/**
+ * A geo box centred on [view] that the radar is loaded for. At least
+ * [BASE_HALF_LAT_DEG] half-height, and at least 1.6× the view so there's pan
+ * margin before a reload; when zoomed far out it grows with the view. The
+ * longitude half-span is widened by 1/cos(lat) so the box is ~square on the
+ * ground (and so the procedural puffs come out roughly round, not stretched).
+ */
+private fun fixedBoxAround(view: GeoBounds): GeoBounds {
+    val cLat = (view.south + view.north) / 2.0
+    val cLng = (view.west + view.east) / 2.0
+    val viewHalfLat = (view.north - view.south) / 2.0
+    val viewHalfLng = (view.east - view.west) / 2.0
+    val cosLat = cos(Math.toRadians(cLat)).coerceAtLeast(0.2)
+    val halfLat = max(BASE_HALF_LAT_DEG, viewHalfLat * 1.6)
+    val halfLng = max(BASE_HALF_LAT_DEG / cosLat, viewHalfLng * 1.6)
+    return GeoBounds(
+        south = cLat - halfLat,
+        west = cLng - halfLng,
+        north = cLat + halfLat,
+        east = cLng + halfLng,
+    )
+}
+
+/** Whether [box] still strictly contains [view] — i.e. no reload needed yet. */
+private fun boxCovers(box: GeoBounds, view: GeoBounds): Boolean =
+    view.south > box.south && view.north < box.north &&
+        view.west > box.west && view.east < box.east

@@ -30,8 +30,15 @@ struct Uniforms {
     inv_view_proj : mat4x4<f32>, // clip → world, for per-pixel ray reconstruction
     world_to_uv : f32,  // world units → screen-uv scale at the ground plane
     _pad0      : f32,
-    _pad1      : f32,
-    _pad2      : f32,
+    // Screen-uv → FIELD-uv affine, so the cloud field is locked to the WORLD
+    // (geography) rather than the screen: panning/zooming the map moves and
+    // scales the clouds with the terrain. `fuv = fuv_origin + uv.x*fuv_dx +
+    // uv.y*fuv_dy`. The map fills these from its camera + the radar's geo box;
+    // the offscreen/golden path leaves them at identity (origin=0, dx=(1,0),
+    // dy=(0,1)) so `fuv == uv` and the screen-locked look is byte-identical.
+    fuv_origin : vec2<f32>,
+    fuv_dx     : vec2<f32>,
+    fuv_dy     : vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> U : Uniforms;
@@ -545,15 +552,23 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     return vec4<f32>(scattered, clamp((1.0 - transmit) * U.intensity, 0.0, 1.0));
 }
 
+// Map a screen-uv to the FIELD-uv the cloud is sampled in. Identity by default
+// (offscreen/golden), and the world-locked affine when the map sets it — so the
+// clouds pan and zoom with the terrain instead of being painted on the glass.
+fn field_uv(uv : vec2<f32>) -> vec2<f32> {
+    return U.fuv_origin + uv.x * U.fuv_dx + uv.y * U.fuv_dy;
+}
+
 fn shade(uv : vec2<f32>) -> Shade {
-    let rv = radar_value(uv);
+    let fuv = field_uv(uv);
+    let rv = radar_value(fuv);
     var lum = 0.0;
-    let vol = render_volume(uv, &lum);
+    let vol = render_volume(fuv, &lum);
 
     var s : Shade;
     s.precip = rv.r;
     s.coverage = rv.g;
-    s.field = cloud_height(uv);
+    s.field = cloud_height(fuv);
     s.density = vol.a;
     s.light = lum;
     s.alpha = vol.a;
