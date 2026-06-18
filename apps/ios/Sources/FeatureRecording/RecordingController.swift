@@ -29,7 +29,7 @@ public final class RecordingController {
     public private(set) var bufferedDistanceM: Double = 0
     /// Whether enough was walked while paused to be worth asking about on resume.
     public var hasBufferedMovement: Bool { bufferedDistanceM >= Self.resumePromptM }
-    private static let resumePromptM = 25.0
+    private static let resumePromptM = 80.0 // D4
 
     /// Average moving pace in seconds per kilometre, or nil before any distance.
     public var paceSecondsPerKm: Int? {

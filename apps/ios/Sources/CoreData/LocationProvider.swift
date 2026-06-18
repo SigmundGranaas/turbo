@@ -128,6 +128,7 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
     /// (so the dot doesn't jump on resume). Accessed only from the CL delegate,
     /// which fires serially.
     private let filter = LocationFilter()
+    private var lastFixTime: Date?
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
@@ -135,7 +136,9 @@ public final class CoreLocationProvider: NSObject, LocationProvider, CLLocationM
         let ageMs = -loc.timestamp.timeIntervalSinceNow * 1000
         // horizontalAccuracy < 0 means an invalid fix; treat as worst accuracy.
         let accuracyM = loc.horizontalAccuracy < 0 ? .greatestFiniteMagnitude : loc.horizontalAccuracy
-        guard filter.accept(position: position, accuracyM: accuracyM, ageMs: ageMs) else { return }
+        let intervalMs = lastFixTime.map { max(loc.timestamp.timeIntervalSince($0) * 1000, 1) } ?? 1000
+        lastFixTime = loc.timestamp
+        guard filter.accept(position: position, accuracyM: accuracyM, ageMs: ageMs, intervalMs: intervalMs) else { return }
         lock.withLock {
             lastPosition = position
             lastAltitude = loc.altitude

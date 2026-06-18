@@ -40,8 +40,8 @@ data class RecordingSession(
     val hasBufferedMovement: Boolean get() = bufferedDistanceM >= RESUME_PROMPT_M
 }
 
-/** Buffered walking past this (m) prompts Include/Discard on resume; below it, just resume. */
-const val RESUME_PROMPT_M = 25.0
+/** Buffered walking past this (m) prompts Include/Discard on resume; below it, just resume (D4). */
+const val RESUME_PROMPT_M = 80.0
 
 /**
  * App-scoped recording engine: collects GPS fixes, accumulates distance + moving

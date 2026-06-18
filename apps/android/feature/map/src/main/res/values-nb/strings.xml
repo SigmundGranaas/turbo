@@ -9,7 +9,7 @@
     <string name="live_km_left">igjen</string>
     <string name="live_ascent_up">stigning ↑</string>
     <string name="live_descent_down">nedstigning ↓</string>
-    <string name="live_covered">Tilbakelagt %1$s · ↑ %2$s · ↓ %3$s</string>
+    <string name="live_covered">Tilbakelagt %1$s · ↑ %2$s · ↓ %3$s · %4$s</string>
     <string name="live_resume_buffer_title">Beveget deg på pause</string>
     <string name="live_resume_buffer_body">Du gikk %1$s mens du var på pause. Legge det til i sporet?</string>
     <string name="live_resume_include">Ta med</string>

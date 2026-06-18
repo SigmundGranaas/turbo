@@ -85,10 +85,13 @@ class AndroidLocationRepository @Inject constructor(
         // Drop inaccurate / stale / teleporting fixes before anyone sees them — in
         // particular the (often stale) last-known seed below, the resume-teleport source.
         val filter = LocationFilter()
+        var lastFixTime = 0L
         fun emitIfAccepted(location: Location) {
             val accuracyM = if (location.hasAccuracy()) location.accuracy.toDouble() else Double.MAX_VALUE
             val ageMs = (System.currentTimeMillis() - location.time).toDouble().coerceAtLeast(0.0)
-            if (filter.accept(LatLng(location.latitude, location.longitude), accuracyM, ageMs)) {
+            val intervalMs = if (lastFixTime > 0L) (location.time - lastFixTime).toDouble().coerceAtLeast(1.0) else 1000.0
+            lastFixTime = location.time
+            if (filter.accept(LatLng(location.latitude, location.longitude), accuracyM, ageMs, intervalMs)) {
                 trySend(location.toSample())
             }
         }

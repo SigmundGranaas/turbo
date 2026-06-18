@@ -75,10 +75,14 @@ struct FollowCard: View {
         return controller.arrived ? "You've reached the end" : "\(value) left"
     }
 
-    /// "Covered 4.1 km · ↑ 412 m · ↓ 138 m" — the real travelled stats, always shown.
+    /// "Covered 4.1 km · ↑ 412 m · ↓ 138 m · 1:24" — the real travelled stats incl. moving
+    /// time, always shown (US-1).
     private var coveredText: String {
         let d = controller.capturedDistanceM
         let dist = d >= 1000 ? String(format: "%.1f km", d / 1000) : "\(Int(d)) m"
-        return "Covered \(dist) · ↑ \(Int(controller.capturedAscentM)) m · ↓ \(Int(controller.capturedDescentM)) m"
+        let s = controller.elapsedSeconds
+        let time = s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+                             : String(format: "%d:%02d", s / 60, s % 60)
+        return "Covered \(dist) · ↑ \(Int(controller.capturedAscentM)) m · ↓ \(Int(controller.capturedDescentM)) m · \(time)"
     }
 }

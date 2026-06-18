@@ -202,6 +202,7 @@ fun LiveHero(
                     Units.distance(stats.distanceM, metric),
                     Units.elevation(stats.ascentM ?: 0.0, metric),
                     Units.elevation(stats.descentM ?: 0.0, metric),
+                    formatLiveClock(stats.elapsedSec ?: 0), // moving time — always visible (US-1)
                 ),
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.W600),
                 color = onContainer.copy(alpha = .8f),
