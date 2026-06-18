@@ -846,7 +846,7 @@ fun MapScreen(
                         if (viewModel.hasLocationPermission()) {
                             viewModel.enableLocation()
                             viewModel.setFollowing(true)
-                            routeViewModel.follow()
+                            routeViewModel.follow(nearbyCheckpoints(routeState, state.markers))
                         } else {
                             locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         }
@@ -978,7 +978,7 @@ fun MapScreen(
                         onSave = { haptics.toggle(true); ui.showTrackSave = true },
                         onFollow = {
                             haptics.confirm()
-                            if (mode == TrackMode.Route) routeViewModel.follow()
+                            if (mode == TrackMode.Route) routeViewModel.follow(nearbyCheckpoints(routeState, state.markers))
                             else routeViewModel.followTrack(geometry, distM, 0.0, 0.0)
                             if (viewModel.hasLocationPermission()) {
                                 viewModel.enableLocation(); viewModel.setFollowing(true)
@@ -1136,6 +1136,20 @@ fun MapScreen(
     )
 }
 
+
+/** How close a saved marker must sit to the planned route to count as a checkpoint (D3). */
+private const val CHECKPOINT_NEAR_M = 40.0
+
+/**
+ * Saved markers within [CHECKPOINT_NEAR_M] of the solved route, as (position, name) checkpoints
+ * (D3). [RouteViewModel.follow] merges these with the route stops and orders both by arc-length.
+ */
+private fun nearbyCheckpoints(state: RouteUiState, markers: List<Marker>): List<Pair<LatLng, String>> {
+    val geometry = (state as? RouteUiState.Done)?.plan?.geometry ?: return emptyList()
+    return markers
+        .filter { GeoMetrics.distanceToPath(geometry, it.position) <= CHECKPOINT_NEAR_M }
+        .map { it.position to it.name }
+}
 
 /** Export a single marker as a .geojson file and fire a share chooser. */
 private fun shareMarkerGeoJson(context: android.content.Context, marker: Marker) {

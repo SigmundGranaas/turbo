@@ -129,6 +129,37 @@ public enum GeoMetrics {
 
     // MARK: - Follow-mode progress helpers (the cursor lives in RouteProgress.swift)
 
+    /// Arc-length (m) of `position`'s nearest projection onto `route` — where it sits along it.
+    /// Mirrors Android `arcLengthAlong`.
+    public static func arcLengthAlong(_ route: [LatLng], _ position: LatLng) -> Double {
+        guard route.count >= 2 else { return 0 }
+        var bestDist = Double.greatestFiniteMagnitude
+        var bestArc = 0.0
+        var cum = 0.0
+        for i in 1..<route.count {
+            let seg = haversineMeters(route[i - 1], route[i])
+            let (proj, t) = projectFraction(route[i - 1], route[i], position)
+            let d = haversineMeters(position, proj)
+            if d < bestDist { bestDist = d; bestArc = cum + seg * t }
+            cum += seg
+        }
+        return bestArc
+    }
+
+    /// Shortest distance (m) from `position` to the polyline `points`; ∞ if degenerate.
+    /// Mirrors Android `distanceToPath`.
+    public static func distanceToPath(_ points: [LatLng], _ position: LatLng) -> Double {
+        if points.isEmpty { return Double.greatestFiniteMagnitude }
+        if points.count == 1 { return haversineMeters(points[0], position) }
+        var best = Double.greatestFiniteMagnitude
+        for i in 1..<points.count {
+            let (proj, _) = projectFraction(points[i - 1], points[i], position)
+            let d = haversineMeters(position, proj)
+            if d < best { best = d }
+        }
+        return best
+    }
+
     /// Naismith + Langmuir time estimate: 1 h per 5 km flat, plus 1 h per 600 m ascent.
     public static func etaSeconds(distanceM: Double, ascentM: Double?) -> Int {
         let flat = distanceM / 5000 * 3600

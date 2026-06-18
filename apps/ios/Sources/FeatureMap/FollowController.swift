@@ -12,13 +12,21 @@ public struct FollowRoute: Equatable, Sendable {
     public let ascentM: Double
     public let name: String?
     public let waypoints: [LatLng]
+    /// Explicit checkpoints (US-3 / D3): the route stops merged with saved markers near the route,
+    /// ordered by arc-length. When empty, checkpoints fall back to the stops in `waypoints` named
+    /// B, C, … — so saved-track follows and reroutes keep working unchanged.
+    public let phasePositions: [LatLng]
+    public let phaseNames: [String]
 
-    public init(geometry: [LatLng], distanceM: Double, ascentM: Double, name: String? = nil, waypoints: [LatLng] = []) {
+    public init(geometry: [LatLng], distanceM: Double, ascentM: Double, name: String? = nil,
+                waypoints: [LatLng] = [], phasePositions: [LatLng] = [], phaseNames: [String] = []) {
         self.geometry = geometry
         self.distanceM = distanceM
         self.ascentM = ascentM
         self.name = name
         self.waypoints = waypoints
+        self.phasePositions = phasePositions
+        self.phaseNames = phaseNames
     }
 }
 
@@ -54,11 +62,10 @@ public final class FollowController {
     public private(set) var nextPhaseName: String?
     public private(set) var nextPhaseDistanceM: Double?
 
-    /// On-map checkpoints with their crossed state (US-3): the route's stops, crossed up to
-    /// however many splits have been recorded.
+    /// On-map checkpoints with their crossed state (US-3): the route's stops (plus any saved
+    /// markers near the route, D3), crossed up to however many splits have been recorded.
     public var phaseMarkers: [(position: LatLng, crossed: Bool)] {
-        let stops = Array((route?.waypoints ?? []).dropFirst())
-        return stops.enumerated().map { ($0.element, $0.offset < phaseSplits.count) }
+        phasePositions.enumerated().map { ($0.element, $0.offset < phaseSplits.count) }
     }
 
     private let location: LocationProvider
@@ -73,6 +80,7 @@ public final class FollowController {
     private var capture = CapturedTrack()
     private var startedAt: Date?
     // Phase (checkpoint) state (US-3).
+    private var phasePositions: [LatLng] = []
     private var phaseNames: [String] = []
     private var lastPhaseDistanceM: Double = 0
     private var lastPhaseSec = 0
@@ -153,11 +161,18 @@ public final class FollowController {
         geometry = route.geometry
         name = route.name
         distanceRemainingM = route.distanceM
-        // Checkpoints = the stops after the origin (US-3), labelled by their on-map letter.
-        let stops = Array(route.waypoints.dropFirst())
-        phaseNames = stops.indices.map { String(UnicodeScalar(UInt8(65 + 1 + $0))) } // B, C, …
+        // Checkpoints (US-3): explicit positions+names when supplied (stops + nearby saved markers,
+        // arc-length ordered, D3); otherwise the stops after the origin, lettered B, C, ….
+        if !route.phasePositions.isEmpty {
+            phasePositions = route.phasePositions
+            phaseNames = route.phaseNames
+        } else {
+            let stops = Array(route.waypoints.dropFirst())
+            phasePositions = stops
+            phaseNames = stops.indices.map { String(UnicodeScalar(UInt8(65 + 1 + $0))) } // B, C, …
+        }
         // Fresh arc-length cursor for this route (also reset on reroute).
-        tracker = RouteProgressTracker(route: route.geometry, ascentM: route.ascentM, phasePositions: stops)
+        tracker = RouteProgressTracker(route: route.geometry, ascentM: route.ascentM, phasePositions: phasePositions)
     }
 
     private func onFix(_ fix: LocationFix) {

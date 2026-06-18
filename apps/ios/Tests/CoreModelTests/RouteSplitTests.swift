@@ -26,4 +26,15 @@ struct RouteSplitTests {
         #expect(prefix.last?.lat == suffix.first?.lat)
         #expect(abs((suffix.last?.lng ?? 0) - 2) < 1e-9)
     }
+
+    @Test("arcLengthAlong returns where a point projects along the route")
+    func arcLength() {
+        let total = GeoMetrics.pathLengthMeters(route)
+        #expect(GeoMetrics.arcLengthAlong(route, LatLng(lat: 0, lng: 0)) < 1)
+        #expect(abs(GeoMetrics.arcLengthAlong(route, LatLng(lat: 0, lng: 2)) - total) < 1)
+        #expect(abs(GeoMetrics.arcLengthAlong(route, LatLng(lat: 0, lng: 1)) - total / 2) < 1)
+        // An off-route point projects to its nearest along-track position, not 0.
+        let off = GeoMetrics.arcLengthAlong(route, LatLng(lat: 0.0005, lng: 1))
+        #expect(abs(off - total / 2) < 200)
+    }
 }

@@ -77,6 +77,19 @@ class GeoMetricsTest {
     }
 
     @Test
+    fun `arcLengthAlong returns where a point projects along the route`() {
+        val route = listOf(LatLng(69.0, 18.0), LatLng(69.0, 18.01))
+        val total = GeoMetrics.pathLengthMeters(route)
+        // Start projects to ~0, end to ~total, midpoint to ~half.
+        assertTrue(GeoMetrics.arcLengthAlong(route, LatLng(69.0, 18.0)) < 1.0)
+        assertEquals(total, GeoMetrics.arcLengthAlong(route, LatLng(69.0, 18.01)), 1.0)
+        assertEquals(total / 2, GeoMetrics.arcLengthAlong(route, LatLng(69.0, 18.005)), 1.0)
+        // An off-route point projects to its nearest along-track position, not 0.
+        val off = GeoMetrics.arcLengthAlong(route, LatLng(69.001, 18.005))
+        assertEquals(total / 2, off, 5.0)
+    }
+
+    @Test
     fun `estimateKcal grows with distance and ascent and is zero when idle`() {
         assertEquals(0, GeoMetrics.estimateKcal(0.0, 0.0))
         // 5 km flat for a 70 kg hiker ≈ 0.5 * 70 * 5 = 175 kcal.

@@ -113,18 +113,37 @@ public struct MapScreen: View {
         return f.capturedPoints
     }
 
+    /// How close a saved marker must sit to the planned route to count as a checkpoint (D3).
+    private static let checkpointNearM = 40.0
+
     /// Start following the currently-planned route, with auto-reroute via `solveRoute`.
     private func startFollowingPlannedRoute() {
         guard let routing, let plan = routing.plan, let follow else { return }
         let waypoints = routing.waypoints
+        // Checkpoints (US-3): the route stops (B, C, …) merged with saved markers within
+        // CHECKPOINT_NEAR_M of the route (D3), ordered by arc-length so splits fire in travel order.
+        let stops = Array(waypoints.dropFirst())
+        var checkpoints: [(pos: LatLng, name: String)] = stops.enumerated().map {
+            ($0.element, String(UnicodeScalar(UInt8(66 + $0.offset)))) // B, C, …
+        }
+        for marker in viewModel.markers where GeoMetrics.distanceToPath(plan.geometry, marker.position) <= Self.checkpointNearM {
+            checkpoints.append((marker.position, marker.name))
+        }
+        checkpoints.sort { GeoMetrics.arcLengthAlong(plan.geometry, $0.pos) < GeoMetrics.arcLengthAlong(plan.geometry, $1.pos) }
         let route = FollowRoute(geometry: plan.geometry, distanceM: plan.distanceM,
-                                ascentM: plan.ascentM, name: "Route", waypoints: waypoints)
+                                ascentM: plan.ascentM, name: "Route", waypoints: waypoints,
+                                phasePositions: checkpoints.map(\.pos), phaseNames: checkpoints.map(\.name))
         var reroute: (@Sendable ([LatLng]) async -> FollowRoute?)?
         if let solver = solveRoute {
+            let phasePositions = checkpoints.map(\.pos)
+            let phaseNames = checkpoints.map(\.name)
             reroute = { points in
                 guard let plan = await solver(points) else { return nil }
+                // Re-solving changes the geometry but not the checkpoints — carry them across so
+                // splits and on-map markers survive a reroute (D3).
                 return FollowRoute(geometry: plan.geometry, distanceM: plan.distanceM,
-                                   ascentM: plan.ascentM, name: "Route", waypoints: points)
+                                   ascentM: plan.ascentM, name: "Route", waypoints: points,
+                                   phasePositions: phasePositions, phaseNames: phaseNames)
             }
         }
         follow.start(route, reroute: reroute)

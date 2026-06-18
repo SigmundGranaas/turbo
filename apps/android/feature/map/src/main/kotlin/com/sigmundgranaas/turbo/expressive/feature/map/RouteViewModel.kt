@@ -202,16 +202,21 @@ class RouteViewModel @Inject constructor(
     /** Load a saved track by id (for "open on map"). */
     suspend fun pathById(id: String): com.sigmundgranaas.turbo.expressive.domain.SavedPath? = paths.byId(id)
 
-    fun follow() {
+    fun follow(nearbyCheckpoints: List<Pair<LatLng, String>> = emptyList()) {
         (_state.value as? RouteUiState.Done)?.let {
             _state.value = RouteUiState.Following(it.plan)
             // Checkpoints = the stops after the origin (US-3), labelled by their on-map letter
-            // (B, C, …) so the split list matches the waypoint badges.
+            // (B, C, …) so the split list matches the waypoint badges. Saved markers that sit near
+            // the route are folded in as extra checkpoints (D3), then everything is ordered by
+            // arc-length along the route so splits fire in travel order regardless of source.
             val stops = _waypoints.value.drop(1)
+            val stopCps = stops.mapIndexed { i, p -> p to ('B' + i).toString() }
+            val merged = (stopCps + nearbyCheckpoints)
+                .sortedBy { (pos, _) -> GeoMetrics.arcLengthAlong(it.plan.geometry, pos) }
             follow.start(
                 it.plan,
-                phasePoints = stops,
-                phaseNames = stops.indices.map { i -> ('B' + i).toString() },
+                phasePoints = merged.map { (pos, _) -> pos },
+                phaseNames = merged.map { (_, name) -> name },
             )
         }
     }

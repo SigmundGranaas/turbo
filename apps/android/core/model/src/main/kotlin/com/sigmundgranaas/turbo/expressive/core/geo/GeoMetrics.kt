@@ -137,6 +137,22 @@ object GeoMetrics {
         return out
     }
 
+    /** Arc-length (m) of [position]'s nearest projection onto [route] — where it sits along it. */
+    fun arcLengthAlong(route: List<LatLng>, position: LatLng): Double {
+        if (route.size < 2) return 0.0
+        var bestDist = Double.MAX_VALUE
+        var bestArc = 0.0
+        var cum = 0.0
+        for (i in 1 until route.size) {
+            val seg = haversineMeters(route[i - 1], route[i])
+            val (proj, t) = projectFraction(route[i - 1], route[i], position)
+            val d = haversineMeters(position, proj)
+            if (d < bestDist) { bestDist = d; bestArc = cum + seg * t }
+            cum += seg
+        }
+        return bestArc
+    }
+
     /** Shortest distance (metres) from [position] to the polyline [points]; ∞ if degenerate. */
     fun distanceToPath(points: List<LatLng>, position: LatLng): Double {
         if (points.isEmpty()) return Double.MAX_VALUE
