@@ -80,6 +80,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.SearchPill
 import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.core.turbomap.android.TurbomapMapView
+import com.sigmundgranaas.turbo.expressive.feature.map.radar.RadarOverlayControls
 import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -224,8 +225,12 @@ fun MapScreen(
     // it now — so the map can recentre on the user's real position (below) rather than
     // sitting on the country-level fallback.
     LaunchedEffect(Unit) {
-        if (viewModel.hasLocationPermission()) viewModel.beginInitialLocate()
-        else startLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (viewModel.hasLocationPermission()) {
+            viewModel.beginInitialLocate()
+            viewModel.setFollowing(true) // auto-follow on open (US-6); released on manual pan
+        } else {
+            startLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
     }
 
     // One-shot: the first time a real fix arrives, fly there (unless the user is already
@@ -574,8 +579,21 @@ fun MapScreen(
                 // Fired on every camera-idle; also bump the idle tick so camera-reading
                 // chrome (the offline-coverage chip) recomposes after a pan, not only rotation.
                 onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
+                // A manual pan/zoom/rotate releases camera-follow (US-6).
+                onUserPanned = { viewModel.setFollowing(false) },
                 modifier = Modifier.fillMaxSize(),
             )
+            }
+
+            // Procedural weather-cloud overlay + time slider — wgpu engine only
+            // (the controls render nothing if the engine can't draw clouds).
+            if (state.experimentalWgpuMap) {
+                RadarOverlayControls(
+                    engine = ui.controller,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 96.dp, start = 16.dp, end = 16.dp),
+                )
             }
 
             // No silent blank: if the wgpu engine failed to start, say so.

@@ -89,7 +89,9 @@ public struct MapScreen: View {
     }
 
     private var isFollowing: Bool { follow?.isFollowing ?? false }
-    private var mapFollowing: Bool { viewModel.following || isFollowing }
+    // Camera-follow is a single flag: on at app open + when a record/follow
+    // session starts, off the moment the user pans (US-6).
+    private var mapFollowing: Bool { viewModel.following }
 
     /// The polyline drawn on the map: the followed route, else the route/measure tool.
     private var drawnGeometry: [LatLng] {
@@ -204,7 +206,8 @@ public struct MapScreen: View {
             onVisibleBoundsChange: { viewModel.updateVisibleBounds($0) },
             onSelectPin: handleSelectPin,
             onTap: tapHandler,
-            onPinMoved: handlePinMoved
+            onPinMoved: handlePinMoved,
+            onFollowDisengaged: { viewModel.setFollowing(false) }
         )
         .ignoresSafeArea()
         .overlay { drawLayer }   // below the chrome so the card stays interactive
@@ -220,12 +223,15 @@ public struct MapScreen: View {
         .hideNavigationBar()
         .task {
             viewModel.start()
-            viewModel.enableLocation()   // show the user's location dot from the start
+            viewModel.setFollowing(true)   // auto-follow on open (US-6); releases on manual pan
             if let vm = makeWeatherViewModel?(currentCenter) {
                 await vm.load()
                 conditions = vm.state.value
             }
         }
+        // Re-arm camera-follow when a follow/record session begins (still releases on pan).
+        .onChange(of: isFollowing) { _, now in if now { viewModel.setFollowing(true) } }
+        .onChange(of: recording?.isRecording ?? false) { _, now in if now { viewModel.setFollowing(true) } }
         .sheet(item: $editorTarget) { target in
             switch target {
             case let .new(position, name):

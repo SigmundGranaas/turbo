@@ -349,6 +349,53 @@ impl TurboMap {
             .ingest_mvt(&layer_id, TileId::new(z, x, y), &bytes)
     }
 
+    // ---- weather-cloud overlay --------------------------------------------
+
+    /// Enable the procedural cloud overlay with a radar grid of
+    /// `grid_w × grid_h` cells. Push frames with [`ingest_radar_frame`] and
+    /// scrub the time slider with [`set_cloud_time`]. The overlay draws on
+    /// every subsequent `render`/on-screen frame until disabled.
+    ///
+    /// [`ingest_radar_frame`]: Self::ingest_radar_frame
+    /// [`set_cloud_time`]: Self::set_cloud_time
+    pub fn enable_clouds(&self, grid_w: u32, grid_h: u32) {
+        self.lock().engine.enable_clouds(grid_w, grid_h);
+    }
+
+    /// Tear the cloud overlay down, freeing its GPU resources.
+    pub fn disable_clouds(&self) {
+        self.lock().engine.disable_clouds();
+    }
+
+    /// Show/hide the overlay without discarding uploaded frames.
+    pub fn set_clouds_visible(&self, visible: bool) {
+        self.lock().engine.set_clouds_visible(visible);
+    }
+
+    /// Upload a radar frame into `slot` 0 (current timestep) or 1 (next),
+    /// from two `grid_w * grid_h` byte planes — `precip` and `coverage`,
+    /// each `0..=255`. The host samples MET radar/cloud rasters for the
+    /// viewport and normalises them to this grid.
+    pub fn ingest_radar_frame(
+        &self,
+        slot: u32,
+        grid_w: u32,
+        grid_h: u32,
+        precip: Vec<u8>,
+        coverage: Vec<u8>,
+    ) {
+        self.lock()
+            .engine
+            .ingest_radar_frame(slot, grid_w, grid_h, &precip, &coverage);
+    }
+
+    /// Set the cloud animation clock (`time`, seconds — drives drift/boil)
+    /// and the slot-0→slot-1 crossfade (`blend`, `0..=1`). A time slider
+    /// drives `blend`; it can run forward or backward.
+    pub fn set_cloud_time(&self, time: f32, blend: f32) {
+        self.lock().engine.set_cloud_time(time, blend);
+    }
+
     /// Drain sources that need no IO (inline GeoJSON) in-process. Remote
     /// tiles are untouched — they stay in `pendingTiles()` for the host.
     pub fn pump_local_tiles(&self) -> DrainStats {

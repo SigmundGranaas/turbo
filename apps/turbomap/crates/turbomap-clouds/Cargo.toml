@@ -1,0 +1,29 @@
+[package]
+name = "turbomap-clouds"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Procedural GPU cloud overlay for precipitation / cloud-coverage radar data."
+
+[lints]
+workspace = true
+
+[dependencies]
+wgpu.workspace = true
+bytemuck.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+# Reuse the headless software-GPU readback harness the golden suite uses,
+# so the demo renders deterministically without a window or a real GPU.
+turbomap-golden = { path = "../turbomap-golden" }
+image.workspace = true
+pollster.workspace = true
+# Animated-GIF encoder for the time-scrub artifact. Not pulled into the
+# library, only the demo binary, so it stays off the engine's dep graph.
+gif = "0.13"
+# Build a representative pitched camera matrix in the diagnostic harness so
+# the per-pixel-ray parallax path can be validated offscreen (demo only).
+glam.workspace = true

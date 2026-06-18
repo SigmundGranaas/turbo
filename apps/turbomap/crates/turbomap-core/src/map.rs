@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use crate::{
     camera::{Camera, CameraAnimation, FlingAnimation, ZoomBounds, ZoomFlingAnimation},
     error::MapError,
-    geo::LatLng,
+    geo::{LatLng, WorldPoint},
     hit::geometry_hit,
     render::{
         cache::CacheStats,
@@ -44,6 +44,57 @@ use crate::{
 };
 
 pub use crate::render::terrain::TerrainOptions as PublicTerrainOptions;
+pub use turbomap_clouds::{CloudParams, RadarFrame};
+
+/// The procedural weather-cloud overlay, drawn after the map's frame
+/// pass. Holds the GPU pipeline state plus the current per-frame
+/// parameters (animation clock + A→B radar crossfade) the host updates.
+struct CloudOverlay {
+    scene: turbomap_clouds::CloudScene,
+    params: CloudParams,
+    /// Radar grid dimensions the two data textures were allocated for.
+    grid: (u32, u32),
+    enabled: bool,
+    /// Geographic box the radar covers, in normalised-Mercator world coords
+    /// `(min, max)` (x: west→east, y: north→south). When set, the overlay is
+    /// world-locked: each screen pixel is mapped into this box so the clouds
+    /// pan and zoom with the terrain. `None` → screen-locked (the field affine
+    /// stays identity, the legacy look).
+    radar_geo: Option<(WorldPoint, WorldPoint)>,
+}
+
+/// Cloud slab thickness as a fraction of the radar box (mercator). Sets the
+/// pitch-parallax magnitude: at a moderate tilt the view ray rakes ~this much
+/// of the field between the slab floor and ceiling, revealing the puff sides.
+/// Scaled by the box so the depth feels the same at any zoom.
+const CLOUD_SLAB_FRAC: f64 = 0.15;
+
+/// Screen-uv → radar-box-uv affine for the cloud overlay. Samples the real
+/// camera projection at three viewport corners (exact for top-down; bearing-
+/// and inset-correct via [`Camera::pixel_to_world`]) and expresses them in the
+/// radar's geo box `[min, max]` (normalised Mercator). The shader then samples
+/// the field at `origin + uv.x·dx + uv.y·dy`, so a fixed world point lands at
+/// the same field-uv under any camera — i.e. the clouds are world-locked
+/// (pan + zoom with the terrain). Returns `(origin, dx, dy)`.
+fn cloud_field_affine(
+    cam: Camera,
+    viewport: (f64, f64),
+    min: WorldPoint,
+    max: WorldPoint,
+) -> ([f32; 2], [f32; 2], [f32; 2]) {
+    let (vw, vh) = viewport;
+    // Non-zero span (signed) so a degenerate box can't divide by zero.
+    let sx = (max.x - min.x).abs().max(1e-12) * (max.x - min.x).signum();
+    let sy = (max.y - min.y).abs().max(1e-12) * (max.y - min.y).signum();
+    let w00 = cam.pixel_to_world((0.0, 0.0), (vw, vh));
+    let w10 = cam.pixel_to_world((vw, 0.0), (vw, vh));
+    let w01 = cam.pixel_to_world((0.0, vh), (vw, vh));
+    (
+        [((w00.x - min.x) / sx) as f32, ((w00.y - min.y) / sy) as f32],
+        [((w10.x - w00.x) / sx) as f32, ((w10.y - w00.y) / sy) as f32],
+        [((w01.x - w00.x) / sx) as f32, ((w01.y - w00.y) / sy) as f32],
+    )
+}
 
 /// The one camera animation in flight. `Map` samples whichever is active in
 /// `tick`; they are mutually exclusive — starting any one replaces the rest.
@@ -331,6 +382,10 @@ pub struct Map {
     /// Multisampled colour target the frame pass renders into; resolved to
     /// the surface at pass end. Recreated alongside the depth view.
     msaa_color_view: wgpu::TextureView,
+    /// Optional procedural weather-cloud overlay. Drawn in its own pass
+    /// over the resolved surface (it's a single-sampled, depth-less
+    /// fullscreen composite, so it can't share the MSAA frame pass).
+    clouds: Option<CloudOverlay>,
 }
 
 struct Terrain {
@@ -383,7 +438,102 @@ impl Map {
             depth_view,
             msaa_color_view,
             depth_size: initial_size,
+            clouds: None,
         })
+    }
+
+    // ---- Procedural weather-cloud overlay -----------------------------
+
+    /// Turn on the procedural cloud overlay, allocating its two radar
+    /// data textures at `grid_w × grid_h`. Idempotent for a given grid
+    /// size; calling with a new size rebuilds the textures (and clears any
+    /// uploaded frames). Upload radar frames with [`Map::ingest_radar_frame`]
+    /// and drive the animation with [`Map::set_cloud_time`].
+    pub fn enable_clouds(&mut self, grid_w: u32, grid_h: u32) {
+        if let Some(c) = &mut self.clouds {
+            if c.grid == (grid_w, grid_h) {
+                c.enabled = true;
+                return;
+            }
+        }
+        let scene = turbomap_clouds::CloudScene::new(
+            &self.device,
+            &self.queue,
+            self.surface_format,
+            grid_w,
+            grid_h,
+        );
+        // Preserve any geo box across a grid-size rebuild so world-lock sticks.
+        let radar_geo = self.clouds.as_ref().and_then(|c| c.radar_geo);
+        self.clouds = Some(CloudOverlay {
+            scene,
+            params: CloudParams::default(),
+            grid: (grid_w, grid_h),
+            enabled: true,
+            radar_geo,
+        });
+    }
+
+    /// Geo-register the radar to the lat/lng box it covers, so the overlay is
+    /// world-locked (pans + zooms with the map). Pass the bounds the radar
+    /// frames were sampled for. No-op if clouds aren't enabled.
+    pub fn set_cloud_geo_bounds(&mut self, west: f64, south: f64, east: f64, north: f64) {
+        if let Some(c) = &mut self.clouds {
+            // Mercator y grows southward, so north is the min-y corner.
+            let min = LatLng::new(north, west).to_world();
+            let max = LatLng::new(south, east).to_world();
+            c.radar_geo = Some((min, max));
+        }
+    }
+
+    /// Show/hide the overlay without discarding its GPU state or uploaded
+    /// frames. No-op if clouds were never enabled.
+    pub fn set_clouds_visible(&mut self, visible: bool) {
+        if let Some(c) = &mut self.clouds {
+            c.enabled = visible;
+        }
+    }
+
+    /// Tear the overlay down entirely, freeing its GPU resources.
+    pub fn disable_clouds(&mut self) {
+        self.clouds = None;
+    }
+
+    /// Whether the overlay is currently enabled and will draw.
+    pub fn clouds_enabled(&self) -> bool {
+        self.clouds.as_ref().map(|c| c.enabled).unwrap_or(false)
+    }
+
+    /// Upload a radar frame into slot 0 (current timestep) or 1 (next).
+    /// The frame's dimensions must match the grid passed to
+    /// [`Map::enable_clouds`]. No-op if clouds aren't enabled.
+    pub fn ingest_radar_frame(&mut self, slot: u32, frame: &RadarFrame) {
+        if let Some(c) = &self.clouds {
+            c.scene.upload(&self.queue, slot as usize, frame);
+        }
+    }
+
+    /// Set the per-frame animation state: `time` is a free-running clock
+    /// (seconds) driving cloud drift/boil; `blend` in `0..=1` crossfades
+    /// the slot-0 radar frame into the slot-1 frame — this is what a time
+    /// slider scrubs (and can run backward). No-op if clouds aren't enabled.
+    pub fn set_cloud_time(&mut self, time: f32, blend: f32) {
+        if let Some(c) = &mut self.clouds {
+            c.params.time = time;
+            c.params.blend = blend.clamp(0.0, 1.0);
+        }
+    }
+
+    /// Replace the cloud overlay's full look parameters (wind, sun, feature
+    /// scale, opacity, …). `resolution` is overwritten per frame from the
+    /// viewport, so its value here is ignored. No-op if clouds aren't enabled.
+    pub fn set_cloud_params(&mut self, params: CloudParams) {
+        if let Some(c) = &mut self.clouds {
+            let (time, blend) = (c.params.time, c.params.blend);
+            c.params = params;
+            c.params.time = time;
+            c.params.blend = blend;
+        }
     }
 
     /// Enable 3D terrain. Future ground-plane draws will displace
@@ -392,11 +542,7 @@ impl Map {
     /// replaces it. Halo > 0 on the source is required so adjacent
     /// tile-edge vertices agree and the mesh doesn't crack at tile
     /// boundaries.
-    pub fn set_terrain_source(
-        &mut self,
-        source: Arc<dyn TileSource>,
-        options: TerrainOptions,
-    ) {
+    pub fn set_terrain_source(&mut self, source: Arc<dyn TileSource>, options: TerrainOptions) {
         let halo = source.dem_halo_px();
         let cache = TerrainCache::new(
             self.device.clone(),
@@ -432,13 +578,7 @@ impl Map {
     /// Host drives this from the same fetch pump it uses for raster
     /// tiles. Silently no-ops when no terrain source is registered
     /// (e.g. host sent us a stale tile after `clear_terrain`).
-    pub fn ingest_terrain_tile(
-        &mut self,
-        tile: TileId,
-        rgba: &[u8],
-        width: u32,
-        height: u32,
-    ) {
+    pub fn ingest_terrain_tile(&mut self, tile: TileId, rgba: &[u8], width: u32, height: u32) {
         if let Some(t) = self.terrain.as_mut() {
             t.cache.ingest(tile, rgba, width, height);
             t.scene.ingest(tile);
@@ -495,11 +635,7 @@ impl Map {
     /// registered yet, the pipeline is built against the placeholder
     /// layout — calling `set_terrain_source` later activates real
     /// displacement without recompiling the pipeline.
-    pub fn add_hillshade_layer(
-        &mut self,
-        id: impl Into<String>,
-        style: HillshadeStyle,
-    ) {
+    pub fn add_hillshade_layer(&mut self, id: impl Into<String>, style: HillshadeStyle) {
         let id = id.into();
         let halo = self
             .terrain
@@ -796,14 +932,18 @@ impl Map {
     /// centroid), keeping that pixel anchored.
     pub fn rotate_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
-        let c = self.camera.rotated_around(delta_deg, focus_px, (w as f64, h as f64));
+        let c = self
+            .camera
+            .rotated_around(delta_deg, focus_px, (w as f64, h as f64));
         self.set_camera(c);
     }
 
     /// Tilt by `delta_deg` about `focus_px`, keeping that pixel anchored.
     pub fn pitch_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
-        let c = self.camera.pitched_around(delta_deg, focus_px, (w as f64, h as f64));
+        let c = self
+            .camera
+            .pitched_around(delta_deg, focus_px, (w as f64, h as f64));
         self.set_camera(c);
     }
 
@@ -812,7 +952,9 @@ impl Map {
     /// same target [`Camera::zoom_around`] would snap to.
     pub fn zoom_around_animated(&mut self, factor: f64, focus_px: (f64, f64), duration: Duration) {
         let (w, h) = self.viewport_px;
-        let target = self.camera.zoomed_around(factor, focus_px, (w as f64, h as f64));
+        let target = self
+            .camera
+            .zoomed_around(factor, focus_px, (w as f64, h as f64));
         self.ease_to(target, duration);
     }
 
@@ -945,14 +1087,7 @@ impl Map {
     /// the data goes to the shared terrain cache, so this just forwards
     /// to [`Map::ingest_terrain_tile`]. The `layer_id` argument is
     /// kept for source compatibility but ignored.
-    pub fn ingest_hillshade(
-        &mut self,
-        _layer_id: &str,
-        tile: TileId,
-        rgba: &[u8],
-        w: u32,
-        h: u32,
-    ) {
+    pub fn ingest_hillshade(&mut self, _layer_id: &str, tile: TileId, rgba: &[u8], w: u32, h: u32) {
         self.ingest_terrain_tile(tile, rgba, w, h);
     }
 
@@ -1217,8 +1352,7 @@ impl Map {
         // exaggeration is applied separately inside the shader.
         let lat = self.camera.center.lat.to_radians();
         let earth_circumference_m: f32 = 40_075_017.0;
-        let meters_to_world =
-            (lat.cos().abs() as f32 / earth_circumference_m).max(1e-12);
+        let meters_to_world = (lat.cos().abs() as f32 / earth_circumference_m).max(1e-12);
         // Terrain config for the raster pipeline. When terrain isn't
         // registered, `meters_to_world` is forced to 0 so the shader
         // displacement collapses and the mesh draws flat.
@@ -1430,6 +1564,65 @@ impl Map {
             }
         }
 
+        // Weather-cloud overlay: a separate, single-sampled, depth-less
+        // fullscreen composite over the already-resolved surface. It can't
+        // join the MSAA frame pass above (sample-count / depth mismatch),
+        // so it pays one extra fullscreen pass — acceptable for an overlay.
+        let cam = self.camera;
+        let (vw, vh) = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
+        if let Some(c) = &mut self.clouds {
+            if c.enabled {
+                c.params.resolution = [vw as f32, vh as f32];
+                // World-lock: map each screen pixel into the radar's geo box so
+                // the clouds pan + zoom with the terrain. Sample the real camera
+                // projection at three viewport corners (exact for top-down,
+                // bearing/inset-correct via `pixel_to_world`) → screen-uv→field-uv
+                // affine. No geo box yet → identity (screen-locked legacy look).
+                match c.radar_geo {
+                    Some((min, max)) => {
+                        let (o, dx, dy) = cloud_field_affine(cam, (vw, vh), min, max);
+                        c.params.field_uv_origin = o;
+                        c.params.field_uv_dx = dx;
+                        c.params.field_uv_dy = dy;
+
+                        // Pitch-3D: when the map is tilted, feed the real camera
+                        // ray so the march rakes through the world-locked volume
+                        // and reveals the puff sides. Off (flat) at pitch ~0 so
+                        // the top-down path stays byte-identical.
+                        if cam.pitch_deg > 0.5 {
+                            let sx = (max.x - min.x).abs().max(1e-12);
+                            let sy = (max.y - min.y).abs().max(1e-12);
+                            c.params.world_to_field = [(1.0 / sx) as f32, (1.0 / sy) as f32];
+                            // Slab altitude in world (mercator) units, scaled to
+                            // the box so the parallax magnitude is zoom-stable:
+                            // ~`CLOUD_SLAB_FRAC` of the box gives a few-puff rake
+                            // at a moderate tilt.
+                            c.params.cloud_alt_base = 0.0;
+                            c.params.cloud_alt_top = (CLOUD_SLAB_FRAC * sy) as f32;
+                            let vp = cam.view_projection_matrix(self.viewport_px);
+                            let inv = glam::Mat4::from_cols_array_2d(&vp).inverse();
+                            c.params.inv_view_proj = inv.to_cols_array_2d();
+                            c.params.use_camera_ray = true;
+                        } else {
+                            c.params.use_camera_ray = false;
+                        }
+                    }
+                    None => {
+                        c.params.field_uv_origin = [0.0, 0.0];
+                        c.params.field_uv_dx = [1.0, 0.0];
+                        c.params.field_uv_dy = [0.0, 1.0];
+                        c.params.use_camera_ray = false;
+                    }
+                }
+
+                // Half-res cloud buffer: the volumetric march is the cost, so
+                // render it at half resolution and upscale-composite — keeps
+                // the live overlay within budget on mobile / software GPUs.
+                c.scene
+                    .render_overlay_downsampled(&self.queue, encoder, target, &c.params, 2);
+            }
+        }
+
         if let Some(ts) = self.gpu_timestamps.as_mut() {
             ts.end(encoder);
         }
@@ -1568,6 +1761,108 @@ mod tests {
     //! here cover the parts of the API that don't need GPU: `MarkerId`
     //! generation and `PendingTile` shapes.
     use super::*;
+
+    // Evaluate the cloud field-uv affine at the screen position where world
+    // point `p` currently sits (top-down ortho world→screen), so we can assert
+    // a fixed world point maps to the same field-uv under any camera.
+    fn field_uv_of(
+        cam: Camera,
+        vp: (f64, f64),
+        min: WorldPoint,
+        max: WorldPoint,
+        p: WorldPoint,
+    ) -> (f64, f64) {
+        let (o, dx, dy) = cloud_field_affine(cam, vp, min, max);
+        let ppw = cam.pixels_per_world_unit();
+        let c = cam.center.to_world();
+        let uvx = 0.5 + (p.x - c.x) * ppw / vp.0;
+        let uvy = 0.5 + (p.y - c.y) * ppw / vp.1;
+        (
+            o[0] as f64 + uvx * dx[0] as f64 + uvy * dy[0] as f64,
+            o[1] as f64 + uvx * dx[1] as f64 + uvy * dy[1] as f64,
+        )
+    }
+
+    #[test]
+    fn cloud_field_world_locks_under_pan() {
+        // Radar box over southern Norway (min = NW corner, max = SE corner).
+        let vp = (1080.0, 2400.0);
+        let min = LatLng::new(63.0, 8.0).to_world();
+        let max = LatLng::new(60.0, 12.0).to_world();
+        // A fixed world point (a peak the cloud should stay glued to).
+        let peak = LatLng::new(61.5, 10.0).to_world();
+        // Its field-uv is camera-independent by construction: (peak - min)/span.
+        let want = (
+            (peak.x - min.x) / (max.x - min.x),
+            (peak.y - min.y) / (max.y - min.y),
+        );
+
+        let cam_a = Camera::new(LatLng::new(61.5, 10.0), 9.0); // peak at centre
+        let cam_b = Camera::new(LatLng::new(61.2, 10.6), 9.0); // panned SE, same zoom
+        let a = field_uv_of(cam_a, vp, min, max, peak);
+        let b = field_uv_of(cam_b, vp, min, max, peak);
+
+        // Same world point → same field-uv under both cameras (world-locked),
+        // and equal to the geo-derived target.
+        assert!(
+            (a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).abs() < 1e-4,
+            "pan: {a:?} vs {b:?}"
+        );
+        assert!(
+            (a.0 - want.0).abs() < 1e-4 && (a.1 - want.1).abs() < 1e-4,
+            "geo: {a:?} vs {want:?}"
+        );
+    }
+
+    #[test]
+    fn cloud_field_world_locks_under_bearing() {
+        // Rotating the map (bearing) must keep the field geo-pinned: the screen
+        // centre always shows the camera centre, so its field-uv must equal the
+        // camera centre's geo position regardless of bearing. `pixel_to_world`
+        // carries the rotation, so the corner-sampled affine handles it.
+        let vp = (1080.0, 2400.0);
+        let min = LatLng::new(63.0, 8.0).to_world();
+        let max = LatLng::new(60.0, 12.0).to_world();
+        let centre = LatLng::new(61.5, 10.0);
+        let cw = centre.to_world();
+        let want = (
+            (cw.x - min.x) / (max.x - min.x),
+            (cw.y - min.y) / (max.y - min.y),
+        );
+        for bearing in [0.0, 30.0, 90.0, 215.0] {
+            let cam = Camera::new(centre, 10.0).with_bearing(bearing);
+            let (o, dx, dy) = cloud_field_affine(cam, vp, min, max);
+            // field_uv at screen centre (uv = 0.5, 0.5).
+            let cx = o[0] as f64 + 0.5 * dx[0] as f64 + 0.5 * dy[0] as f64;
+            let cy = o[1] as f64 + 0.5 * dx[1] as f64 + 0.5 * dy[1] as f64;
+            // Tolerance ~1e-3 of the box (≈a few hundred m over a ~300 km box):
+            // the residual is the perspective projection's tiny non-linearity at
+            // pitch 0 (corner-sampling an affine), not a geo-lock error — well
+            // below a pixel on screen.
+            assert!(
+                (cx - want.0).abs() < 2e-3 && (cy - want.1).abs() < 2e-3,
+                "bearing {bearing}: centre field-uv ({cx},{cy}) != geo {want:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cloud_field_scales_with_zoom() {
+        // Zooming IN must shrink the field-uv the viewport spans (fewer, bigger
+        // puffs) — the world-locked zoom behaviour.
+        let vp = (1080.0, 2400.0);
+        let min = LatLng::new(63.0, 8.0).to_world();
+        let max = LatLng::new(60.0, 12.0).to_world();
+        let centre = LatLng::new(61.5, 10.0);
+        let (_, dx_out, _) = cloud_field_affine(Camera::new(centre, 8.0), vp, min, max);
+        let (_, dx_in, _) = cloud_field_affine(Camera::new(centre, 11.0), vp, min, max);
+        assert!(
+            dx_in[0].abs() < dx_out[0].abs() * 0.5,
+            "zoom-in should shrink field span: in={} out={}",
+            dx_in[0],
+            dx_out[0]
+        );
+    }
 
     #[test]
     fn marker_id_zero_means_auto_assign() {

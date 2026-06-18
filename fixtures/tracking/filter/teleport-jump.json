@@ -1,0 +1,13 @@
+{
+  "name": "teleport-jump",
+  "description": "A single isolated ~6 km jump (accurate + fresh, but implausible for one step) is rejected; returning near the previous position is accepted. A jump CONFIRMED by a second consistent fix would instead be accepted (genuine fast move) — see the trailing pair.",
+  "params": { "accuracyMaxM": 50, "stalenessMaxMs": 5000, "jumpMaxM": 200 },
+  "fixes": [
+    { "lat": 69.6000, "lng": 19.9000, "accuracyM": 8, "ageMs": 500 },
+    { "lat": 69.6500, "lng": 19.9500, "accuracyM": 8, "ageMs": 500 },
+    { "lat": 69.6001, "lng": 19.9001, "accuracyM": 8, "ageMs": 500 },
+    { "lat": 69.7000, "lng": 20.0000, "accuracyM": 8, "ageMs": 500 },
+    { "lat": 69.7001, "lng": 20.0001, "accuracyM": 8, "ageMs": 500 }
+  ],
+  "acceptedIndices": [0, 2, 4]
+}

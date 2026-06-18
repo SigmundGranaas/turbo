@@ -83,4 +83,39 @@ internal object NativeSurfaceMap {
 
     /** Push a fetched raster tile (encoded image bytes); false if it didn't decode. */
     external fun nativeIngestRaster(handle: Long, layerId: String, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
+
+    // ── Weather-cloud overlay ───────────────────────────────────────────────
+    /** Enable the procedural cloud overlay with a [gridW]×[gridH] radar grid. */
+    external fun nativeEnableClouds(handle: Long, gridW: Int, gridH: Int)
+
+    /** Hide/show the overlay without discarding uploaded frames. */
+    external fun nativeSetCloudsVisible(handle: Long, visible: Boolean)
+
+    /** Geo-register the radar to its lat/lng box → world-locked overlay. */
+    external fun nativeSetCloudGeoBounds(
+        handle: Long,
+        west: Double,
+        south: Double,
+        east: Double,
+        north: Double,
+    )
+
+    /**
+     * Upload a radar frame into [slot] (0 = current timestep, 1 = next) from two
+     * [gridW]×[gridH] byte planes — [precip] and [coverage], each 0..255.
+     */
+    external fun nativeIngestRadarFrame(
+        handle: Long,
+        slot: Int,
+        gridW: Int,
+        gridH: Int,
+        precip: ByteArray,
+        coverage: ByteArray,
+    )
+
+    /**
+     * Set the cloud animation clock ([time], seconds) and the slot-0→slot-1
+     * crossfade ([blend], 0..1) — what a time slider scrubs (forward or back).
+     */
+    external fun nativeSetCloudTime(handle: Long, time: Float, blend: Float)
 }

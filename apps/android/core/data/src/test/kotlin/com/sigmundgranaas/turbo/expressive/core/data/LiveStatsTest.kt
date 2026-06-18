@@ -1,6 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.core.data
 
-import com.sigmundgranaas.turbo.expressive.core.geo.JourneyProgress
+import com.sigmundgranaas.turbo.expressive.core.geo.RouteProgress
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
 import org.junit.Assert.assertEquals
@@ -42,7 +42,7 @@ class LiveStatsTest {
         val session = FollowSession(
             active = true,
             plan = plan,
-            progress = JourneyProgress(fraction = 0.62, distanceRemainingM = 4_100.0, etaSeconds = 2_520),
+            progress = RouteProgress(fraction = 0.62, distanceRemainingM = 4_100.0, etaSeconds = 2_520, offRoute = false, arrived = false),
             speedMps = 2.5,
         )
         val stats = LiveStats.of(session)

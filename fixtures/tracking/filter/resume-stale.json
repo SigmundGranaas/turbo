@@ -1,0 +1,11 @@
+{
+  "name": "resume-stale",
+  "description": "On app resume CoreLocation/Android may deliver a CACHED fix first. The stale fix (age 8 s) is dropped so the dot doesn't teleport-then-snap-back; the next fresh fix near the real position is accepted.",
+  "params": { "accuracyMaxM": 50, "stalenessMaxMs": 5000, "jumpMaxM": 200 },
+  "fixes": [
+    { "lat": 69.6000, "lng": 19.9000, "accuracyM": 8,  "ageMs": 500 },
+    { "lat": 69.6500, "lng": 19.9500, "accuracyM": 8,  "ageMs": 8000 },
+    { "lat": 69.6001, "lng": 19.9001, "accuracyM": 9,  "ageMs": 500 }
+  ],
+  "acceptedIndices": [0, 2]
+}

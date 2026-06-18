@@ -82,10 +82,18 @@ class AndroidLocationRepository @Inject constructor(
             if (hasAccuracy()) accuracy.toDouble() else null,
             if (hasSpeed()) speed.toDouble() else null,
         )
-        val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) {
+        // Drop inaccurate / stale / teleporting fixes before anyone sees them — in
+        // particular the (often stale) last-known seed below, the resume-teleport source.
+        val filter = LocationFilter()
+        fun emitIfAccepted(location: Location) {
+            val accuracyM = if (location.hasAccuracy()) location.accuracy.toDouble() else Double.MAX_VALUE
+            val ageMs = (System.currentTimeMillis() - location.time).toDouble().coerceAtLeast(0.0)
+            if (filter.accept(LatLng(location.latitude, location.longitude), accuracyM, ageMs)) {
                 trySend(location.toSample())
             }
+        }
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) = emitIfAccepted(location)
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
             override fun onProviderEnabled(provider: String) = Unit
             override fun onProviderDisabled(provider: String) = Unit
@@ -95,9 +103,10 @@ class AndroidLocationRepository @Inject constructor(
             if (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) add(LocationManager.GPS_PROVIDER)
             if (manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) add(LocationManager.NETWORK_PROVIDER)
         }
-        // Seed with the last known fix so the dot appears immediately.
+        // Seed with the last known fix so the dot appears immediately — but only
+        // if it's fresh/accurate enough (the filter drops a stale seed → no teleport).
         providers.firstNotNullOfOrNull { manager.getLastKnownLocation(it) }
-            ?.let { trySend(it.toSample()) }
+            ?.let { emitIfAccepted(it) }
 
         providers.forEach { provider ->
             manager.requestLocationUpdates(provider, MIN_INTERVAL_MS, MIN_DISTANCE_M, listener, context.mainLooper)

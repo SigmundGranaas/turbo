@@ -1,7 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.core.data
 
-import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
-import com.sigmundgranaas.turbo.expressive.core.geo.JourneyProgress
+import com.sigmundgranaas.turbo.expressive.core.geo.RouteProgress
+import com.sigmundgranaas.turbo.expressive.core.geo.RouteProgressTracker
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
 import kotlinx.coroutines.CoroutineScope
@@ -28,24 +28,22 @@ data class FollowSession(
     val name: String? = null,
     /** Latest fix along the route. */
     val position: LatLng? = null,
-    /** Live progress projection, recomputed on every fix. */
-    val progress: JourneyProgress? = null,
+    /** Live arc-length-cursor progress, recomputed on every fix. */
+    val progress: RouteProgress? = null,
     /** Latest instantaneous ground speed (m/s); null until a fix carries speed. */
     val speedMps: Double? = null,
 ) {
     /** Whether the hiker has effectively reached the end of the route. */
-    val arrived: Boolean get() = active && (progress?.distanceRemainingM ?: Double.MAX_VALUE) <= ARRIVAL_M
-
-    private companion object {
-        const val ARRIVAL_M = 40.0
-    }
+    val arrived: Boolean get() = active && (progress?.arrived ?: false)
 }
 
 /**
  * App-scoped follow engine: holds the followed route and projects the live GPS
- * position onto it (fraction done, distance/ETA remaining) via the same pure
- * [GeoMetrics.progress] the UI uses. A [Singleton] so a follow survives the UI
- * being backgrounded; the foreground service keeps the process alive.
+ * position onto it (fraction done, distance/ETA remaining, off-route, arrived)
+ * via the monotonic arc-length [RouteProgressTracker] — correct on loops /
+ * out-and-back, unlike the old global-nearest projection. A [Singleton] so a
+ * follow survives the UI being backgrounded; the foreground service keeps the
+ * process alive.
  */
 @Singleton
 class FollowController @Inject constructor(
@@ -56,18 +54,21 @@ class FollowController @Inject constructor(
     val session: StateFlow<FollowSession> = _session.asStateFlow()
 
     private var locationJob: Job? = null
+    private var tracker: RouteProgressTracker? = null
 
     fun start(plan: RoutePlan, name: String? = null) {
         _session.value = FollowSession(active = true, plan = plan, name = name)
+        tracker = RouteProgressTracker(route = plan.geometry, ascentM = plan.ascentM)
         if (!location.hasPermission()) return
         locationJob?.cancel()
         locationJob = scope.launch {
             location.samples().collect { sample ->
+                val progress = tracker?.update(sample.position)
                 _session.update { s ->
-                    val p = s.plan ?: return@update s
+                    if (s.plan == null) return@update s
                     s.copy(
                         position = sample.position,
-                        progress = GeoMetrics.progress(p.geometry, sample.position, p.ascentM),
+                        progress = progress,
                         speedMps = sample.speedMps ?: s.speedMps,
                     )
                 }
@@ -77,6 +78,7 @@ class FollowController @Inject constructor(
 
     fun stop() {
         locationJob?.cancel(); locationJob = null
+        tracker = null
         _session.value = FollowSession()
     }
 }

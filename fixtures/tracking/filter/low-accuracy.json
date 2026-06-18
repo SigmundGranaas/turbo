@@ -1,0 +1,11 @@
+{
+  "name": "low-accuracy",
+  "description": "A poor-signal fix with 120 m accuracy is dropped; the accurate fixes around it pass.",
+  "params": { "accuracyMaxM": 50, "stalenessMaxMs": 5000, "jumpMaxM": 200 },
+  "fixes": [
+    { "lat": 69.6000, "lng": 19.9000, "accuracyM": 8,   "ageMs": 500 },
+    { "lat": 69.6001, "lng": 19.9001, "accuracyM": 120, "ageMs": 500 },
+    { "lat": 69.6002, "lng": 19.9002, "accuracyM": 9,   "ageMs": 500 }
+  ],
+  "acceptedIndices": [0, 2]
+}

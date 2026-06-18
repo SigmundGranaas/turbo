@@ -24,6 +24,7 @@ public struct TurboMapView: UIViewRepresentable {
     private let onSelectPin: ((String) -> Void)?
     private let onTap: ((LatLng) -> Void)?
     private let onPinMoved: ((String, LatLng) -> Void)?
+    private let onFollowDisengaged: (() -> Void)?
 
     /// Default camera — the Lyngen/Tromsø region, so topo tiles show on launch.
     private static let defaultCenter = CLLocationCoordinate2D(latitude: 69.58, longitude: 19.95)
@@ -41,7 +42,8 @@ public struct TurboMapView: UIViewRepresentable {
         onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil,
         onTap: ((LatLng) -> Void)? = nil,
-        onPinMoved: ((String, LatLng) -> Void)? = nil
+        onPinMoved: ((String, LatLng) -> Void)? = nil,
+        onFollowDisengaged: (() -> Void)? = nil
     ) {
         self.baseLayer = baseLayer
         self.overlays = overlays
@@ -56,6 +58,7 @@ public struct TurboMapView: UIViewRepresentable {
         self.onSelectPin = onSelectPin
         self.onTap = onTap
         self.onPinMoved = onPinMoved
+        self.onFollowDisengaged = onFollowDisengaged
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator(onLongPress: onLongPress) }
@@ -87,6 +90,7 @@ public struct TurboMapView: UIViewRepresentable {
         context.coordinator.onRegionChange = onRegionChange
         context.coordinator.onVisibleBoundsChange = onVisibleBoundsChange
         context.coordinator.onPinMoved = onPinMoved
+        context.coordinator.onFollowDisengaged = onFollowDisengaged
         context.coordinator.onSelectPin = onSelectPin
         context.coordinator.onTap = onTap
         context.coordinator.syncOverlay(on: map, base: baseLayer)
@@ -111,6 +115,7 @@ public struct TurboMapView: UIViewRepresentable {
         var onRegionChange: ((LatLng, Double) -> Void)?
         var onVisibleBoundsChange: ((GeoBounds) -> Void)?
         var onPinMoved: ((String, LatLng) -> Void)?
+        var onFollowDisengaged: (() -> Void)?
         var onSelectPin: ((String) -> Void)?
         var onTap: ((LatLng) -> Void)?
         private var currentBase: BaseLayer?
@@ -187,6 +192,12 @@ public struct TurboMapView: UIViewRepresentable {
 
         public func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             if let pin = view.annotation as? PinAnnotation { onSelectPin?(pin.pin.id) }
+        }
+
+        /// MapKit drops user-tracking to `.none` when the user pans/zooms during
+        /// follow — the clean signal to release camera-follow (US-6).
+        public func mapView(_ mapView: MKMapView, didChange mode: MKUserTrackingMode, animated: Bool) {
+            if mode == .none { onFollowDisengaged?() }
         }
 
         public func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
@@ -336,7 +347,8 @@ public struct TurboMapView: View {
         onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
         onSelectPin: ((String) -> Void)? = nil,
         onTap: ((LatLng) -> Void)? = nil,
-        onPinMoved: ((String, LatLng) -> Void)? = nil
+        onPinMoved: ((String, LatLng) -> Void)? = nil,
+        onFollowDisengaged: (() -> Void)? = nil
     ) {}
 
     public var body: some View {

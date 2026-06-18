@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
+import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
 
 /**
  * The wgpu/Rust implementation of [MapEngine] — the second engine behind the
@@ -18,7 +19,7 @@ class TurbomapMapEngine(
     private val handle: Long,
     private var widthPx: Int,
     private var heightPx: Int,
-) : MapEngine {
+) : MapEngine, WeatherCloudOverlay {
 
     /**
      * Invoked after any camera/projection mutation so the host can request a
@@ -119,6 +120,35 @@ class TurbomapMapEngine(
                 )
             }
         }
+    }
+
+    // ── WeatherCloudOverlay ─────────────────────────────────────────────────
+    // Straight to the native overlay; each redraws via [onMutated] so the
+    // render-on-demand loop picks up the new frame/time.
+
+    override fun enableClouds(gridW: Int, gridH: Int) {
+        NativeSurfaceMap.nativeEnableClouds(handle, gridW, gridH)
+        onMutated()
+    }
+
+    override fun setCloudsVisible(visible: Boolean) {
+        NativeSurfaceMap.nativeSetCloudsVisible(handle, visible)
+        onMutated()
+    }
+
+    override fun setCloudGeoBounds(west: Double, south: Double, east: Double, north: Double) {
+        NativeSurfaceMap.nativeSetCloudGeoBounds(handle, west, south, east, north)
+        onMutated()
+    }
+
+    override fun ingestRadarFrame(slot: Int, gridW: Int, gridH: Int, precip: ByteArray, coverage: ByteArray) {
+        NativeSurfaceMap.nativeIngestRadarFrame(handle, slot, gridW, gridH, precip, coverage)
+        onMutated()
+    }
+
+    override fun setCloudTime(timeSeconds: Float, blend: Float) {
+        NativeSurfaceMap.nativeSetCloudTime(handle, timeSeconds, blend)
+        onMutated()
     }
 
     private companion object {
