@@ -163,19 +163,14 @@ private fun fixedBoxAround(view: GeoBounds): GeoBounds {
 }
 
 /**
- * Whether the loaded [box] still suits [view] — no reload needed. Reload when the
- * camera has panned out of the box (its old job) OR when zoom has drifted far
- * enough that the box no longer matches the view: too big (zoomed in) re-creates
- * the white wash, too small (zoomed out) loses pan margin. The accepted band is
- * `[MARGIN/2, MARGIN·2]`, so you can zoom ~1 level either way before a reload
- * re-tightens — which is what makes the clouds scale as you zoom.
+ * Whether the loaded [box] still suits [view] — no reload needed. Reload ONLY
+ * when the camera has panned out of the box. We deliberately do NOT reload on
+ * zoom: re-loading re-anchors/rescales the field, which made the clouds visibly
+ * jump while moving (and thrashed the fetch/upload path, a likely crash source).
+ * Zoom-in is handled by translucency instead of re-tightening — the field stays
+ * put. The box is sized BOX_VIEW_MARGIN× the view at load, giving generous pan
+ * room before any reload.
  */
-private fun boxStillGood(box: GeoBounds, view: GeoBounds): Boolean {
-    val inside = view.south > box.south && view.north < box.north &&
+private fun boxStillGood(box: GeoBounds, view: GeoBounds): Boolean =
+    view.south > box.south && view.north < box.north &&
         view.west > box.west && view.east < box.east
-    if (!inside) return false
-    val boxHalfLat = (box.north - box.south) / 2.0
-    val viewHalfLat = ((view.north - view.south) / 2.0).coerceAtLeast(1e-9)
-    val ratio = boxHalfLat / viewHalfLat
-    return ratio >= BOX_VIEW_MARGIN * 0.5 && ratio <= BOX_VIEW_MARGIN * 2.0
-}

@@ -201,7 +201,10 @@ impl Default for CloudParams {
             map_scale: 8.0,
             erosion: 0.5,
             softness: 0.5,
-            intensity: 1.0,
+            // Translucent overlay, not an opaque cover: you should see the map
+            // (and terrain) through the weather. Was 1.0 (fully opaque) which
+            // read as "clouds cover the whole screen" over real overcast data.
+            intensity: 0.55,
             parallax: 0.0,
             sun_elevation: 0.35,
             extinction: 15.0,

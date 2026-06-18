@@ -406,8 +406,12 @@ struct Shade {
     col      : vec3<f32>, // final premultiplied scattered colour
 };
 
-const PRIMARY_STEPS : i32 = 28;
-const LIGHT_STEPS : i32 = 5;
+// Step counts dropped from 28/5 to cut the fullscreen-march GPU cost ~40% on
+// mobile (it stacks on the terrain mesh + tiles in 3D mode — a likely
+// device-lost/OOM crash source). With the translucent overlay the slightly
+// coarser march isn't noticeable.
+const PRIMARY_STEPS : i32 = 16;
+const LIGHT_STEPS : i32 = 4;
 
 fn luminance_lin(c : vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
