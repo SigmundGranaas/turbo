@@ -62,12 +62,14 @@ class RouteProgressTracker(
         for (i in 0 until route.size - 1) {
             val segStart = cumulative[i]
             val segEnd = cumulative[i + 1]
-            if (segEnd < lo || segStart > hi) continue
+            if (segEnd < lo || segStart > hi) continue // skip segments outside the window
             val (proj, t) = GeoMetrics.projectFraction(route[i], route[i + 1], position)
             val sHere = segStart + (segEnd - segStart) * t
-            if (sHere < lo || sHere > hi) continue
             val d = GeoMetrics.haversineMeters(proj, position)
-            if (d < bestDist) { bestDist = d; bestS = sHere }
+            if (sHere in lo..hi && d < bestDist) {
+                bestDist = d
+                bestS = sHere
+            }
         }
 
         cursor = max(cursor, bestS) // monotonic; small backtracks don't yo-yo the number

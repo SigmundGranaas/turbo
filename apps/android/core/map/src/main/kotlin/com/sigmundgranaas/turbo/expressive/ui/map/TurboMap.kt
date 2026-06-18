@@ -161,7 +161,11 @@ fun TurboMap(
     onMapTap: ((LatLng) -> Unit)? = null,
     onMapReady: (MapEngine) -> Unit = {},
     onBearingChange: (Double) -> Unit = {},
+    /// Fired when the USER pans/zooms/rotates the map (not a programmatic move) —
+    /// the signal to release camera-follow (US-6).
+    onUserPanned: () -> Unit = {},
 ) {
+    val userPanned by rememberUpdatedState(onUserPanned)
     val longClick by rememberUpdatedState(onMapLongClick)
     val tap by rememberUpdatedState(onMapTap)
     val context = LocalContext.current
@@ -201,7 +205,12 @@ fun TurboMap(
                     // base map in lockstep. The listeners just gate that loop + keep a final
                     // frame on idle; bumping cameraTick straight from the move listener lands
                     // a frame late, which is what made the overlay float/drift.
-                    ml.addOnCameraMoveStartedListener { moving.value = true }
+                    ml.addOnCameraMoveStartedListener { reason ->
+                        moving.value = true
+                        // 1 == OnCameraMoveStartedListener.REASON_API_GESTURE (user-initiated);
+                        // programmatic follow/flyTo uses other reasons, so it won't self-cancel.
+                        if (reason == 1) userPanned()
+                    }
                     ml.addOnCameraMoveListener { onBearingChange(ml.cameraPosition.bearing) }
                     ml.addOnCameraIdleListener {
                         moving.value = false

@@ -88,8 +88,15 @@ public final class MapViewModel {
     }
 
     public func toggleFollowing() {
-        following.toggle()
-        if following { enableLocation() }
+        setFollowing(!following)
+    }
+
+    /// Set camera-follow explicitly — true on app open and when a record/follow
+    /// session starts; false the moment the user pans the map (US-6).
+    public func setFollowing(_ value: Bool) {
+        guard following != value else { return }
+        following = value
+        if value { enableLocation() }
     }
 
     /// Record the map's current visible rectangle (from the map view's region).
