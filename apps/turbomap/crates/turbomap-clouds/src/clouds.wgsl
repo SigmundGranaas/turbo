@@ -247,10 +247,13 @@ fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
     // High-frequency Worley erosion carves the cauliflower edges; z in the
     // coords makes it a 3D field (varies with height), and we erode harder
     // toward the top where cumulus go wispy.
-    let detail = billow_fbm(p * 3.1 + vec2<f32>(z * 4.0, drift.y));
+    let detail = billow_fbm(p * 3.6 + vec2<f32>(z * 4.0, drift.y));
     let ero = mix(0.36, 0.70, hn) * detail;
     d = clamp(remap(d, ero, 1.0, 0.0, 1.0), 0.0, 1.0);
-    return d * 2.0;
+    // Cut the feathery low-density fringe so the silhouette reads CRISP
+    // (not a soft halo), then rescale so the body stays solid.
+    d = clamp((d - 0.14) / 0.86, 0.0, 1.0);
+    return d * 2.4;
 }
 
 // Base albedo from rain intensity. Cloud stays BRIGHT WHITE until the rain
@@ -375,14 +378,21 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
             ld += cloud_density(suv + sun.xy * t, z + sun.z * t);
         }
 
-        // Beer–Lambert shadow toward the sun, with a low multi-scatter floor
-        // so shadowed sides genuinely darken (to a soft grey-blue, not black).
-        let shadow = exp(-ld * lstep * lext);
-        let ms = mix(0.42, 1.0, shadow);
-        // Powder: in-scatter probability gently darkens light-facing edges.
-        let powder = mix(0.85, 1.0, 1.0 - exp(-d * 2.0));
+        // Beer–Lambert light transmittance toward the sun. `ld` is the cloud
+        // optical depth between this sample and the sun, so the deeper/thicker
+        // the cloud above it, the less light reaches it — that IS the internal
+        // shadow, and it's what makes thick cloud read dark. Three multi-
+        // scatter octaves (decaying extinction/contribution) add a little fill
+        // so the darkest interior is deep grey, not pure black — no flat floor.
+        let optical = ld * lstep * lext;
+        let ms = exp(-optical)
+            + 0.30 * exp(-optical * 0.25)
+            + 0.09 * exp(-optical * 0.06);
+        // Powder: in-scatter probability darkens thin edges facing the light.
+        let powder = mix(0.55, 1.0, 1.0 - exp(-d * 2.0));
         let lit = sun_col * ms * powder;
-        let ambient = mix(sky_bot, sky_top, z) * 0.6;
+        // Small sky ambient so the deepest shadow stays a readable grey-blue.
+        let ambient = mix(sky_bot, sky_top, z) * 0.22;
         let scatter = lit + ambient;
 
         let st = d * dz * ext;

@@ -86,6 +86,40 @@ fn main() {
         ..Default::default()
     };
 
+    // Curated variety of cloud looks for visual evaluation (full-size, over
+    // the basemap). `CLOUD_SAMPLES=1` renders just these and exits.
+    if std::env::var("CLOUD_SAMPLES").is_ok() {
+        // (name, map_scale, sun_elev, extinction, light_ext, softness, intensity)
+        let looks: [(&str, f32, f32, f32, f32, f32, f32); 9] = [
+            ("01_balanced", 8.0, 0.35, 15.0, 14.0, 0.5, 1.0),
+            ("02_big_puffs", 4.0, 0.35, 15.0, 14.0, 0.5, 1.0),
+            ("03_fine_detail", 12.0, 0.35, 16.0, 15.0, 0.4, 1.0),
+            ("04_low_sun_shadow", 8.0, 0.16, 15.0, 18.0, 0.45, 1.0),
+            ("05_high_sun_flat", 8.0, 0.8, 14.0, 10.0, 0.5, 1.0),
+            ("06_thin_translucent", 9.0, 0.35, 7.0, 12.0, 0.5, 0.9),
+            ("07_dense_opaque", 7.0, 0.3, 22.0, 16.0, 0.4, 1.0),
+            ("08_deep_shadow", 8.0, 0.25, 18.0, 22.0, 0.4, 1.0),
+            ("09_storm_thick", 5.0, 0.28, 20.0, 18.0, 0.45, 1.0),
+        ];
+        for (name, ms, el, ext, lext, soft, inten) in looks {
+            let params = CloudParams {
+                map_scale: ms,
+                sun_elevation: el,
+                extinction: ext,
+                light_extinction: lext,
+                softness: soft,
+                intensity: inten,
+                ..base
+            };
+            render(&gpu, &scene, &params)
+                .save(out.join(format!("sample_{name}.png")))
+                .expect("save sample");
+            eprintln!("  sample {name}: scale={ms} sun={el} ext={ext} lext={lext} soft={soft} int={inten}");
+        }
+        eprintln!("samples -> {out_dir}/sample_*.png");
+        return;
+    }
+
     // --- 1. AOV decomposition --------------------------------------------
     let mut labelled: Vec<(&str, RgbaImage)> = Vec::new();
     for view in DebugView::ALL {
