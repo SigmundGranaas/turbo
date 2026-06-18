@@ -52,7 +52,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -61,6 +65,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
@@ -171,6 +176,28 @@ fun LiveSheet(
                 animationSpec = settleSpec,
             ),
         )
+        // …and let the scrollable readout drag the sheet too (US-8) via the standard nested-
+        // scroll bridge: an up-swipe grows the sheet before its content scrolls; a down-swipe at
+        // the top collapses it; on release we settle to the nearest detent. Safe-additive — the
+        // header drag and normal content scrolling are untouched. (Note: Compose drag gestures
+        // can't be driven by `adb input swipe`, so this needs a real-device glance.)
+        val sheetNestedScroll = remember(dragState, settleSpec) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    val delta = available.y
+                    return if (delta < 0f) Offset(0f, dragState.dispatchRawDelta(delta)) else Offset.Zero
+                }
+
+                override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                    Offset(0f, dragState.dispatchRawDelta(available.y))
+
+                override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                    // Commit the swipe to the nearest detent (raw deltas alone spring back).
+                    dragState.animateTo(dragState.targetValue, settleSpec)
+                    return available
+                }
+            }
+        }
         val expandLabel = stringResource(R.string.live_expand)
 
         Column(
@@ -208,9 +235,12 @@ fun LiveSheet(
                 }
             }
 
-            // Scrollable readout (bento + elevation); the action bar is pinned below.
+            // Scrollable readout (bento + elevation); the action bar is pinned below. The nested-
+            // scroll bridge lets a swipe here resize the sheet too (US-8), not just the header.
             Column(
-                Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
+                Modifier.fillMaxWidth().weight(1f)
+                    .nestedScroll(sheetNestedScroll)
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 14.dp),
             ) {
                 Spacer(Modifier.height(12.dp))
