@@ -373,9 +373,10 @@ fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
     }
     let drift = U.wind * U.time * 0.02;
     let ct = cloud_type(uv);
-    // Precip pulls the primary shape LARGER + denser (storm cells are big
-    // masses), while the procedural field keeps the actual form unique.
-    let big_seed = clamp(seed + precip_seed(uv) * 0.4, 0.0, 1.0);
+    // Precip pulls the primary shape markedly LARGER + denser (storm cells
+    // are big towering masses), while the procedural field keeps each cell's
+    // actual form unique.
+    let big_seed = clamp(seed + precip_seed(uv) * 0.7, 0.0, 1.0);
 
     // Primary big-shape field — low frequency, so it sets the major forms.
     let pp = vec3<f32>((uv * U.map_scale + drift) * 0.55, z * VHEIGHT * 0.55 + U.time * 0.04);
@@ -484,10 +485,10 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     // not one flat orange: warm white high up → gold → orange → deep red as
     // it grazes the horizon (Rayleigh reddening of the low-angle beam).
     let e = clamp(U.sun_elev, 0.0, 1.0);
-    let c_red = vec3<f32>(1.50, 0.32, 0.16);
-    let c_orange = vec3<f32>(1.50, 0.60, 0.28);
-    let c_gold = vec3<f32>(1.42, 0.95, 0.62);
-    let c_white = vec3<f32>(1.13, 1.10, 1.04);
+    let c_red = vec3<f32>(1.40, 0.44, 0.30);
+    let c_orange = vec3<f32>(1.40, 0.72, 0.44);
+    let c_gold = vec3<f32>(1.34, 0.98, 0.72);
+    let c_white = vec3<f32>(1.12, 1.10, 1.05);
     var sun_col = mix(c_red, c_orange, smoothstep(0.04, 0.14, e));
     sun_col = mix(sun_col, c_gold, smoothstep(0.14, 0.26, e));
     sun_col = mix(sun_col, c_white, smoothstep(0.26, 0.46, e));
@@ -499,8 +500,8 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     let sunset = 1.0 - smoothstep(0.10, 0.42, U.sun_elev);
     // sky_bot = horizon, sky_top = zenith; the per-sample mix(sky_bot, sky_top, z)
     // sweeps warm-horizon → cool-zenith (through mauve) over cloud altitude.
-    let sky_top = mix(vec3<f32>(0.60, 0.69, 0.86), vec3<f32>(0.24, 0.26, 0.48), sunset);
-    let sky_bot = mix(vec3<f32>(0.42, 0.46, 0.55), vec3<f32>(0.72, 0.42, 0.34), sunset);
+    let sky_top = mix(vec3<f32>(0.60, 0.69, 0.86), vec3<f32>(0.20, 0.24, 0.50), sunset);
+    let sky_bot = mix(vec3<f32>(0.42, 0.46, 0.55), vec3<f32>(0.58, 0.44, 0.50), sunset);
 
     let dz = 1.0 / f32(PRIMARY_STEPS);
     let ext = U.extinction; // view-ray extinction (opacity build-up)
@@ -552,7 +553,12 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
         let lit = sun_col * ms * powder;
         // Small sky ambient so the deepest shadow stays a readable grey-blue.
         let ambient = mix(sky_bot, sky_top, z) * 0.22;
-        let scatter = lit + ambient;
+        // Cooler shadows at sunset: the away-from-sun (low light) parts are
+        // lit only by the cool upper sky → push them blue-purple, for a strong
+        // warm-sun / cool-shade split rather than a uniform orange wash.
+        let shade_amt = (1.0 - clamp(ms, 0.0, 1.0)) * sunset;
+        let cool_shadow = vec3<f32>(0.30, 0.38, 0.66) * shade_amt * 0.20;
+        let scatter = lit + ambient + cool_shadow;
 
         let st = d * dz * ext;
         let absorb = 1.0 - exp(-st);
