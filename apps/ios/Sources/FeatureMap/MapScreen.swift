@@ -216,6 +216,7 @@ public struct MapScreen: View {
             routeGeometry: drawnGeometry,
             coveredGeometry: coveredGeometry,
             trackGeometry: travelledGeometry,
+            checkpoints: isFollowing ? (follow?.phaseMarkers ?? []) : [],
             onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
             onVisibleBoundsChange: { viewModel.updateVisibleBounds($0) },

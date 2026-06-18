@@ -576,6 +576,13 @@ fun MapScreen(
                     haptics.reject(); routeViewModel.removeWaypoint(it); ui.selectedWaypoint = null
                 },
                 onWaypointMoved = { i, p -> ui.selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
+                // While following, draw the checkpoints as on-map markers — crossed ones filled
+                // and checked, upcoming ones outlined (US-3).
+                checkpoints = if (routeState is RouteUiState.Following) {
+                    followSession.phaseMarkers.map { it.position to it.crossed }
+                } else {
+                    emptyList()
+                },
                 // The track overlay shows, in priority: the live recording trail, the
                 // Line/Draw geometry being built in the Create track tool, else whatever
                 // saved track the user opened ("Show on map").

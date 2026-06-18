@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -76,9 +77,22 @@ fun MapOverlay(
     onWaypointTap: (Int) -> Unit = {},
     onWaypointLongPress: (Int) -> Unit = {},
     onWaypointMoved: (Int, LatLng) -> Unit = { _, _ -> },
+    /** Follow-mode checkpoints (position → crossed): filled+checked when passed, else outlined (US-3). */
+    checkpoints: List<Pair<LatLng, Boolean>> = emptyList(),
 ) {
     val density = LocalDensity.current
     Box(modifier.fillMaxSize()) {
+        checkpoints.forEach { (pos, crossed) ->
+            val boxPx = with(density) { 22.dp.toPx() }
+            CheckpointPin(
+                crossed = crossed,
+                modifier = Modifier.offset {
+                    @Suppress("UNUSED_EXPRESSION") cameraTick
+                    val (x, y) = engine.toScreen(pos)
+                    IntOffset((x - boxPx / 2f).roundToInt(), (y - boxPx / 2f).roundToInt())
+                },
+            )
+        }
         photoPins.forEach { pin ->
             val boxPx = with(density) { 56.dp.toPx() }
             Box(
@@ -128,6 +142,23 @@ fun MapOverlay(
 
 private val WpStart = Color(0xFF2E7D32)
 private val WpEnd = Color(0xFFC0392B)
+
+/** A follow-mode checkpoint dot: a filled, checked circle once crossed, an outlined ring ahead. */
+@Composable
+private fun CheckpointPin(crossed: Boolean, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        modifier.size(22.dp).clip(CircleShape)
+            .background(if (crossed) cs.primary else cs.surface)
+            .border(2.dp, cs.primary, CircleShape)
+            .testTag(if (crossed) "checkpointCrossed" else "checkpointAhead"),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (crossed) {
+            Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+        }
+    }
+}
 
 /**
  * An on-map route waypoint: an A/B/C… letter badge (flag for the destination), start

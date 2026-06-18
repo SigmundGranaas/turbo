@@ -21,6 +21,8 @@ public struct TurboMapView: UIViewRepresentable {
     /// While following: the dim already-walked prefix, and the real travelled track (US-3).
     private let coveredGeometry: [LatLng]
     private let trackGeometry: [LatLng]
+    /// Follow-mode checkpoints (position, crossed) drawn as on-map markers (US-3).
+    private let checkpoints: [(position: LatLng, crossed: Bool)]
     private let onLongPress: ((LatLng) -> Void)?
     private let onRegionChange: ((LatLng, Double) -> Void)?
     private let onVisibleBoundsChange: ((GeoBounds) -> Void)?
@@ -42,6 +44,7 @@ public struct TurboMapView: UIViewRepresentable {
         routeGeometry: [LatLng] = [],
         coveredGeometry: [LatLng] = [],
         trackGeometry: [LatLng] = [],
+        checkpoints: [(position: LatLng, crossed: Bool)] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
         onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,
@@ -59,6 +62,7 @@ public struct TurboMapView: UIViewRepresentable {
         self.routeGeometry = routeGeometry
         self.coveredGeometry = coveredGeometry
         self.trackGeometry = trackGeometry
+        self.checkpoints = checkpoints
         self.onLongPress = onLongPress
         self.onRegionChange = onRegionChange
         self.onVisibleBoundsChange = onVisibleBoundsChange
@@ -106,6 +110,7 @@ public struct TurboMapView: UIViewRepresentable {
         context.coordinator.syncCovered(on: map, geometry: coveredGeometry)
         context.coordinator.syncTrack(on: map, geometry: trackGeometry)
         context.coordinator.syncAnnotations(on: map, pins: pins)
+        context.coordinator.syncCheckpoints(on: map, checkpoints: checkpoints)
         context.coordinator.applyBearingReset(on: map, token: resetBearingToken)
         // Always show the blue user-location dot; follow mode only changes whether
         // the camera tracks it.
@@ -293,6 +298,17 @@ public struct TurboMapView: UIViewRepresentable {
             if !toAdd.isEmpty { map.addAnnotations(toAdd) }
         }
 
+        private var checkpointAnnotations: [CheckpointAnnotation] = []
+
+        /// Replace the follow-mode checkpoint markers (US-3) — small, cheap, so rebuild on change.
+        func syncCheckpoints(on map: MKMapView, checkpoints: [(position: LatLng, crossed: Bool)]) {
+            guard checkpoints.count != checkpointAnnotations.count
+                || zip(checkpoints, checkpointAnnotations).contains(where: { $0.0.crossed != $0.1.crossed }) else { return }
+            if !checkpointAnnotations.isEmpty { map.removeAnnotations(checkpointAnnotations) }
+            checkpointAnnotations = checkpoints.map { CheckpointAnnotation(position: $0.position, crossed: $0.crossed) }
+            if !checkpointAnnotations.isEmpty { map.addAnnotations(checkpointAnnotations) }
+        }
+
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard gesture.state == .began, let map = gesture.view as? MKMapView else { return }
             let point = gesture.location(in: map)
@@ -323,6 +339,20 @@ public struct TurboMapView: UIViewRepresentable {
         }
 
         public func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let cp = annotation as? CheckpointAnnotation {
+                let id = "turbo-checkpoint"
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: id)
+                    ?? MKAnnotationView(annotation: cp, reuseIdentifier: id)
+                view.annotation = cp
+                view.canShowCallout = false
+                view.frame = CGRect(x: 0, y: 0, width: 18, height: 18)
+                view.layer.cornerRadius = 9
+                view.layer.borderWidth = 2
+                let blue = UIColor(red: 0.04, green: 0.52, blue: 1.0, alpha: 1)
+                view.layer.borderColor = blue.cgColor
+                view.backgroundColor = cp.crossed ? blue : .white   // filled once crossed, outlined ahead
+                return view
+            }
             guard let pinAnnotation = annotation as? PinAnnotation else { return nil }
             let id = "turbo-pin"
             let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
@@ -362,6 +392,16 @@ public struct TurboMapView: UIViewRepresentable {
     /// Bridges a ``MapPin`` to MapKit's `MKAnnotation`. `coordinate` is settable
     /// (and KVO-compliant via `@objc dynamic`) so MapKit can move it during a drag
     /// and so `syncAnnotations` can update it in place when a waypoint moves.
+    /// A follow-mode checkpoint marker (US-3): a small dot, filled once crossed, outlined ahead.
+    final class CheckpointAnnotation: NSObject, MKAnnotation {
+        let crossed: Bool
+        let coordinate: CLLocationCoordinate2D
+        init(position: LatLng, crossed: Bool) {
+            self.crossed = crossed
+            self.coordinate = CLLocationCoordinate2D(latitude: position.lat, longitude: position.lng)
+        }
+    }
+
     final class PinAnnotation: NSObject, MKAnnotation {
         let pin: MapPin
         @objc dynamic var coordinate: CLLocationCoordinate2D
@@ -388,6 +428,7 @@ public struct TurboMapView: View {
         routeGeometry: [LatLng] = [],
         coveredGeometry: [LatLng] = [],
         trackGeometry: [LatLng] = [],
+        checkpoints: [(position: LatLng, crossed: Bool)] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
         onVisibleBoundsChange: ((GeoBounds) -> Void)? = nil,

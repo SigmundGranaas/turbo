@@ -54,6 +54,13 @@ public final class FollowController {
     public private(set) var nextPhaseName: String?
     public private(set) var nextPhaseDistanceM: Double?
 
+    /// On-map checkpoints with their crossed state (US-3): the route's stops, crossed up to
+    /// however many splits have been recorded.
+    public var phaseMarkers: [(position: LatLng, crossed: Bool)] {
+        let stops = Array((route?.waypoints ?? []).dropFirst())
+        return stops.enumerated().map { ($0.element, $0.offset < phaseSplits.count) }
+    }
+
     private let location: LocationProvider
     private let pathRepository: PathRepository
     private var route: FollowRoute?

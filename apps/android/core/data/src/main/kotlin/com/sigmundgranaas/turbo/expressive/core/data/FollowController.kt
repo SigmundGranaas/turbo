@@ -59,10 +59,19 @@ data class FollowSession(
     /** The next checkpoint's name + distance to it, or null when all are crossed. */
     val nextPhaseName: String? = null,
     val nextPhaseDistanceM: Double? = null,
+    /** Checkpoint positions in route order (for on-map markers); crossed = index < phaseSplits.size. */
+    val phasePositions: List<LatLng> = emptyList(),
 ) {
     /** Whether the hiker has effectively reached the end of the route. */
     val arrived: Boolean get() = active && (progress?.arrived ?: false)
+
+    /** On-map checkpoints with their crossed state (US-3). */
+    val phaseMarkers: List<PhaseMarker>
+        get() = phasePositions.mapIndexed { i, p -> PhaseMarker(p, i < phaseSplits.size) }
 }
+
+/** A checkpoint to draw on the map: its position + whether the cursor has passed it. */
+data class PhaseMarker(val position: LatLng, val crossed: Boolean)
 
 /**
  * App-scoped follow engine: holds the followed route, projects the live GPS
@@ -101,7 +110,7 @@ class FollowController @Inject constructor(
         phasePoints: List<LatLng> = emptyList(),
         phaseNames: List<String> = emptyList(),
     ) {
-        _session.value = FollowSession(active = true, plan = plan, name = name)
+        _session.value = FollowSession(active = true, plan = plan, name = name, phasePositions = phasePoints)
         tracker = RouteProgressTracker(route = plan.geometry, ascentM = plan.ascentM, phasePositions = phasePoints)
         this.phaseNames = phaseNames
         lastPhaseDistanceM = 0.0

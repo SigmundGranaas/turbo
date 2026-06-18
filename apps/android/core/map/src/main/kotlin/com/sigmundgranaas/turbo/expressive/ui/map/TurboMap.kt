@@ -154,6 +154,8 @@ fun TurboMap(
     // A/B/C… + flag markers along [route]; tap = select, drag the selected one = move,
     // long-press = remove. Empty unless the route builder is active.
     waypoints: List<LatLng> = emptyList(),
+    /** Follow-mode checkpoints (position → crossed) drawn as on-map markers (US-3). */
+    checkpoints: List<Pair<LatLng, Boolean>> = emptyList(),
     selectedWaypoint: Int? = null,
     onWaypointTap: (Int) -> Unit = {},
     onWaypointLongPress: (Int) -> Unit = {},
@@ -320,6 +322,7 @@ fun TurboMap(
                 onWaypointTap = onWaypointTap,
                 onWaypointLongPress = onWaypointLongPress,
                 onWaypointMoved = onWaypointMoved,
+                checkpoints = checkpoints,
             )
         }
     }
