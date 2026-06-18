@@ -10,7 +10,7 @@ Kartverket Turkart raster tiles, and lets you pan and zoom around Norway.
 
 | Crate | Role |
 | --- | --- |
-| `turbomap-core` | The renderer library. Knows about `wgpu`. Has no I/O, no HTTP, no winit. The FFI-ready boundary. |
+| `turbomap-core` | The renderer library. Knows about `wgpu`. Has no I/O, no HTTP, no winit. The FFI-ready boundary. Includes the `projection` module (translate ETRS89/UTM ⇄ WGS84 so non-Mercator data lines up on the map) and the camera `ZoomBounds` lock (clamp zoom to the active sources' accuracy). |
 | `turbomap-tiles-http` | A `TileSource` implementation over `reqwest::blocking`. Includes preconfigured Kartverket raster + Turbo basemap (`/v1/basemap`) sources. |
 | `turbomap-style-maplibre` | Lowers a MapLibre Style Spec subset (the tileserver's `/v1/basemap/style.json`) onto `turbomap-core`'s `VectorStyle`. One style document, every renderer. |
 | `turbomap-app` | The desktop binary. winit window + wgpu surface + tile fetch pump. |

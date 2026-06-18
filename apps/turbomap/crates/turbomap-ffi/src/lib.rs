@@ -57,6 +57,32 @@ pub struct GeoPoint {
     pub lng: f64,
 }
 
+/// The camera's locked zoom range, `[min, max]`.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct ZoomRange {
+    pub min: f64,
+    pub max: f64,
+}
+
+/// A supported ETRS89/UTM zone for coordinate translation. Maps to
+/// [`turbomap_core::Crs`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum UtmZone {
+    /// EPSG:25832 — central meridian 9°E.
+    Zone32N,
+    /// EPSG:25833 — central meridian 15°E (Kartverket's primary projection).
+    Zone33N,
+}
+
+impl UtmZone {
+    fn to_crs(self) -> turbomap_core::Crs {
+        match self {
+            UtmZone::Zone32N => turbomap_core::Crs::Utm32N,
+            UtmZone::Zone33N => turbomap_core::Crs::Utm33N,
+        }
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct Hit {
     pub layer_id: String,
@@ -194,6 +220,27 @@ impl TurboMap {
 
     pub fn camera(&self) -> Camera {
         from_camera_state(self.lock().engine.camera())
+    }
+
+    /// Lock the camera's zoom to `[min, max]` so the user can't zoom past
+    /// the map's accuracy (past where real tiles exist, the raster
+    /// upsamples and overlays drift). The current zoom is clamped into range
+    /// immediately. Call [`clear_zoom_bounds`](Self::clear_zoom_bounds) to
+    /// return to tracking the active tile sources automatically.
+    pub fn set_zoom_bounds(&self, min: f64, max: f64) {
+        self.lock().engine.set_zoom_bounds(Some((min, max)));
+    }
+
+    /// Drop the manual zoom lock and track the active tile sources' declared
+    /// zoom ranges automatically (the default).
+    pub fn clear_zoom_bounds(&self) {
+        self.lock().engine.set_zoom_bounds(None);
+    }
+
+    /// The zoom range the camera is currently locked to.
+    pub fn zoom_bounds(&self) -> ZoomRange {
+        let (min, max) = self.lock().engine.zoom_bounds();
+        ZoomRange { min, max }
     }
 
     /// Animate to `target` over `duration_ms`; call `tick()` every frame
@@ -342,6 +389,36 @@ impl TurboMap {
         // A panic while holding the lock leaves the map unusable either
         // way; recover the guard rather than poisoning every later call.
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+// ---- projection helpers -----------------------------------------------------
+
+/// Translate an ETRS89/UTM `easting`/`northing` (metres) into WGS84 lat/lng.
+/// Markers, the camera centre, and the Scene IR all speak lat/lng, so a host
+/// holding coordinates from a Norwegian UTM dataset runs them through here
+/// once and they place on the Web-Mercator map exactly where the basemap
+/// puts that location — no drift.
+#[uniffi::export]
+pub fn utm_to_lat_lng(easting: f64, northing: f64, zone: UtmZone) -> GeoPoint {
+    let ll = turbomap_core::Crs::to_lat_lng(zone.to_crs(), easting, northing);
+    GeoPoint {
+        lat: ll.lat,
+        lng: ll.lng,
+    }
+}
+
+/// Project a WGS84 lat/lng to ETRS89/UTM `(easting, northing)` metres in
+/// `zone`. Inverse of [`utm_to_lat_lng`].
+#[uniffi::export]
+pub fn lat_lng_to_utm(geo: GeoPoint, zone: UtmZone) -> Point {
+    let (easting, northing) = turbomap_core::Crs::from_lat_lng(
+        zone.to_crs(),
+        turbomap_core::LatLng::new(geo.lat, geo.lng),
+    );
+    Point {
+        x: easting,
+        y: northing,
     }
 }
 

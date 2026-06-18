@@ -9,9 +9,19 @@ Kotlin (Android) and Swift (iOS) hosts talk to.
 | --- | --- |
 | Scene (as Scene-IR JSON) via `applyScene` | Surface creation (`ANativeWindow` / `CAMetalLayer`) |
 | Camera get/set/animate (`easeTo` + `tick`) | The vsync render loop (Choreographer / CADisplayLink) |
+| Zoom lock: `setZoomBounds` / `clearZoomBounds` / `zoomBounds` | |
+| Projection translation: `utmToLatLng` / `latLngToUtm` (ETRS89/UTM 32N, 33N) | |
 | `project` / `unproject` / `hitTest` | |
 | Pull/push tile IO: `pendingTiles` → host fetch → `ingest*Tile` | |
 | `renderPng` offscreen snapshot (verification from any language) | |
+
+The zoom lock keeps the camera inside the active tile sources' real zoom
+range by default (so you can't zoom past the map's accuracy and watch the
+raster blur out from under sharp overlays); `setZoomBounds(min, max)`
+overrides it. The projection helpers translate ETRS89/UTM coordinates (the
+projections Norwegian datasets ship in) to and from WGS84 lat/lng, so a
+UTM-sourced marker lands on the Web-Mercator basemap exactly where that
+location is — no drift.
 
 Tile IO is **host-driven** by design: the engine lists what it needs, the
 host fetches (it owns auth, caching, offline) and pushes the encoded bytes

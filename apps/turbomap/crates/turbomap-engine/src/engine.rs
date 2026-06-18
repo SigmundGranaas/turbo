@@ -15,6 +15,7 @@ use turbomap_core::{
     Camera, Color as CoreColor, Filter as CoreFilter, HillshadeStyle, HitResult,
     LatLng as CoreLatLng, Map, MapError, MapOptions, Marker, MarkerId, Paint as CorePaint,
     PendingTile, Rule as CoreRule, TerrainOptions, TileId, TileSource, VectorStyle, VectorTileSource,
+    ZoomBounds,
 };
 use turbomap_scene::{
     diff, Capabilities, CameraState, Color, Filter, FilterValue, Hit, LatLng, Layer, MapEngine,
@@ -445,6 +446,22 @@ impl TurbomapEngine {
     /// map) — shifts projection + rendering up by `bottom_px/2`. 0 = none.
     pub fn set_viewport_inset(&mut self, bottom_px: f64) {
         self.map.set_viewport_inset(bottom_px);
+    }
+
+    /// Lock the camera's zoom so the user can't zoom past the map's
+    /// accuracy. Pass an explicit `(min, max)` to override, or `None` to
+    /// track the active tile sources automatically (the default — bounds
+    /// follow each layer's declared zoom range). The current zoom is clamped
+    /// into range immediately.
+    pub fn set_zoom_bounds(&mut self, bounds: Option<(f64, f64)>) {
+        self.map
+            .set_zoom_bounds(bounds.map(|(min, max)| ZoomBounds::new(min, max)));
+    }
+
+    /// The zoom range the camera is currently locked to, as `(min, max)`.
+    pub fn zoom_bounds(&self) -> (f64, f64) {
+        let b = self.map.zoom_bounds();
+        (b.min, b.max)
     }
 
     /// Zoom by `factor` (2.0 = one level in) about `focus_px`, keeping that
