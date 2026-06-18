@@ -56,6 +56,13 @@ public final class FollowController {
     public private(set) var capturedDescentM: Double = 0
     /// Moving time since the follow started (s).
     public private(set) var elapsedSeconds: Int = 0
+    /// Paused but still capturing into a side buffer (US-4, Follow = Record) — the route guide
+    /// and splits freeze while paused.
+    public private(set) var isPausedBuffering = false
+    /// Distance (m) walked while paused, pending Include/Discard on resume.
+    public private(set) var bufferedDistanceM: Double = 0
+    /// Whether enough was walked while paused to be worth asking about on resume.
+    public var hasBufferedMovement: Bool { bufferedDistanceM >= CaptureSession.resumePromptM }
     /// Checkpoints crossed so far with split times (US-3).
     public private(set) var phaseSplits: [PhaseSplit] = []
     /// The next checkpoint's name + distance to it, or nil when all are crossed.
@@ -76,9 +83,13 @@ public final class FollowController {
     private var observation: Task<Void, Never>?
     private var ticker: Task<Void, Never>?
     private var rerouting = false
-    /// The real travelled track captured while following (Follow = Record).
-    private var capture = CapturedTrack()
+    /// The real travelled track + pause-buffer captured while following — the SAME engine
+    /// recording uses (Follow = Record, US-4).
+    private var capture = CaptureSession()
     private var startedAt: Date?
+    // Paused time is excluded from the elapsed clock (it freezes while buffering, US-4).
+    private var pausedTotal: TimeInterval = 0
+    private var pauseStartedAt: Date?
     // Phase (checkpoint) state (US-3).
     private var phasePositions: [LatLng] = []
     private var phaseNames: [String] = []
@@ -98,7 +109,8 @@ public final class FollowController {
         self.reroute = reroute
         isFollowing = true; arrived = false; isOffRoute = false
         // Fresh capture for this follow (Follow = Record).
-        capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0; capturedPoints = []
+        capture = CaptureSession(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0; capturedPoints = []
+        isPausedBuffering = false; bufferedDistanceM = 0; pausedTotal = 0; pauseStartedAt = nil
         phaseSplits = []; nextPhaseName = nil; nextPhaseDistanceM = nil; lastPhaseDistanceM = 0; lastPhaseSec = 0
         elapsedSeconds = 0; startedAt = Date()
         location.requestAlwaysAuthorization()
@@ -112,9 +124,40 @@ public final class FollowController {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self, self.isFollowing, let started = self.startedAt else { continue }
-                self.elapsedSeconds = Int(Date().timeIntervalSince(started))
+                // Paused time is excluded — the clock freezes while buffering and resumes after.
+                let pausing = self.pauseStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+                self.elapsedSeconds = Int(Date().timeIntervalSince(started) - self.pausedTotal - pausing)
             }
         }
+    }
+
+    /// Pause the follow; capture keeps running into a side buffer and the clock freezes (US-4).
+    public func pause() {
+        guard isFollowing, !isPausedBuffering else { return }
+        capture = capture.paused()
+        isPausedBuffering = true
+        bufferedDistanceM = 0
+        pauseStartedAt = Date()
+    }
+
+    /// Resume a paused follow. `includeBuffered` stitches the walk captured while paused onto the
+    /// travelled track; otherwise it's discarded and the pen lifted so the gap isn't counted (US-4).
+    public func resume(includeBuffered: Bool) {
+        guard isPausedBuffering else { return }
+        capture = capture.resuming(include: includeBuffered)
+        capturedPoints = capture.track.points
+        capturedDistanceM = capture.track.distanceM
+        capturedAscentM = capture.track.ascentM
+        capturedDescentM = capture.track.descentM
+        if let ps = pauseStartedAt { pausedTotal += Date().timeIntervalSince(ps); pauseStartedAt = nil }
+        isPausedBuffering = false
+        bufferedDistanceM = 0
+    }
+
+    /// One-tap pause/resume; resuming this way DISCARDS the buffer (a big buffer is prompted in UI).
+    public func togglePause() {
+        guard isFollowing else { return }
+        if isPausedBuffering { resume(includeBuffered: false) } else { pause() }
     }
 
     /// Stop following and AUTO-SAVE the travelled track (D1) — unless it's too short to be
@@ -129,22 +172,23 @@ public final class FollowController {
         route = nil; reroute = nil
         geometry = []; name = nil; distanceRemainingM = 0; etaSeconds = nil
         fraction = 0; isOffRoute = false; arrived = false; userPosition = nil
-        capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0; capturedPoints = []
+        capture = CaptureSession(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0; capturedPoints = []
+        isPausedBuffering = false; bufferedDistanceM = 0; pausedTotal = 0; pauseStartedAt = nil
         phaseSplits = []; nextPhaseName = nil; nextPhaseDistanceM = nil; lastPhaseDistanceM = 0; lastPhaseSec = 0
         elapsedSeconds = 0; startedAt = nil
     }
 
     private func autoSave() {
-        guard capture.points.count >= 2, capture.distanceM >= Self.minSaveM else { return }
-        let elevations = capture.elevations.isEmpty ? nil : capture.elevations
+        guard capture.track.points.count >= 2, capture.track.distanceM >= Self.minSaveM else { return }
+        let elevations = capture.track.elevations.isEmpty ? nil : capture.track.elevations
         // Keep a reference to the planned guide + the checkpoint splits (D1), so the saved
         // artifact can redraw the route it followed and the splits it logged.
         let plannedRoute = route.map { $0.geometry.count >= 2 ? $0.geometry : nil } ?? nil
         let saved = SavedPath(
             id: "follow-\(UUID().uuidString)",
-            name: name.map { "\($0) (followed)" } ?? "Followed route \(Int(capture.distanceM)) m",
+            name: name.map { "\($0) (followed)" } ?? "Followed route \(Int(capture.track.distanceM)) m",
             path: GeoPath(
-                points: capture.points,
+                points: capture.track.points,
                 source: .recording,
                 elevations: elevations,
                 recordedAtEpochMs: startedAt.map { Int64($0.timeIntervalSince1970 * 1000) },
@@ -183,19 +227,23 @@ public final class FollowController {
     private func onFix(_ fix: LocationFix) {
         guard isFollowing, let tracker else { return }
         userPosition = fix.position
+        // Capture the real travelled track with the SAME engine recording uses (Follow = Record):
+        // while paused the fix folds into the side buffer, freezing the route guide + splits (US-4).
+        capture = capture.appending(fix)
+        if isPausedBuffering {
+            bufferedDistanceM = capture.bufferedDistanceM
+            return
+        }
         let p = tracker.update(fix.position)
         fraction = p.fraction
         distanceRemainingM = p.distanceRemainingM
         etaSeconds = p.etaSeconds
         isOffRoute = p.offRoute
         arrived = p.arrived
-        // Capture the real travelled track with the SAME engine recording uses, so the
-        // saved follow is identical to a recording of the same fixes (Follow = Record).
-        capture = TrackCapture.append(capture, fix)
-        capturedPoints = capture.points
-        capturedDistanceM = capture.distanceM
-        capturedAscentM = capture.ascentM
-        capturedDescentM = capture.descentM
+        capturedPoints = capture.track.points
+        capturedDistanceM = capture.track.distanceM
+        capturedAscentM = capture.track.ascentM
+        capturedDescentM = capture.track.descentM
         // Record a split for each checkpoint the cursor just passed (US-3).
         if tracker.passedPhaseCount > phaseSplits.count {
             for i in phaseSplits.count..<tracker.passedPhaseCount {

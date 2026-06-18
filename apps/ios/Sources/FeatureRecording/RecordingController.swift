@@ -28,8 +28,7 @@ public final class RecordingController {
     /// Distance (m) walked while paused, pending Include/Discard on resume.
     public private(set) var bufferedDistanceM: Double = 0
     /// Whether enough was walked while paused to be worth asking about on resume.
-    public var hasBufferedMovement: Bool { bufferedDistanceM >= Self.resumePromptM }
-    private static let resumePromptM = 80.0 // D4
+    public var hasBufferedMovement: Bool { bufferedDistanceM >= CaptureSession.resumePromptM } // D4
 
     /// Average moving pace in seconds per kilometre, or nil before any distance.
     public var paceSecondsPerKm: Int? {
@@ -37,14 +36,11 @@ public final class RecordingController {
         return Int(Double(elapsedSeconds) / (distanceMeters / 1000))
     }
 
-    /// The travelled track, accumulated by the shared ``TrackCapture`` engine — the
-    /// same one a *followed* route records with, so the two can't drift (Follow = Record).
-    private var capture = CapturedTrack()
+    /// The travelled track + pause-buffer, driven by the shared ``CaptureSession`` engine — the
+    /// SAME one a *followed* route records with, so recording and following can't drift and pause
+    /// behaves identically in both (Follow = Record, US-4).
+    private var session = CaptureSession()
     private var startedAt: Date?
-    // Pause buffer (US-4): captured while paused, held pending Include/Discard on resume.
-    private var pausedCapture = CapturedTrack()
-    private var pauseAnchor: LatLng?
-    private var penUpNext = false
     // Paused time is excluded from the elapsed clock.
     private var pausedTotal: TimeInterval = 0
     private var pauseStartedAt: Date?
@@ -80,8 +76,7 @@ public final class RecordingController {
     /// Begin a new recording.
     public func start() {
         guard !isRecording else { return }
-        capture = CapturedTrack()
-        pausedCapture = CapturedTrack(); pauseAnchor = nil; penUpNext = false
+        session = CaptureSession()
         isPausedBuffering = false; bufferedDistanceM = 0; pausedTotal = 0; pauseStartedAt = nil
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
         ascentMeters = 0; descentMeters = 0; currentAltitude = nil
@@ -139,15 +134,16 @@ public final class RecordingController {
     /// Persist the captured track. Blank names fall back to a dated default.
     public func save(name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !capture.points.isEmpty else { reset(); return }
+        let track = session.track
+        guard !track.points.isEmpty else { reset(); return }
         let path = SavedPath(
             id: "rec-\(UUID().uuidString)",
             name: trimmed.isEmpty ? "Recorded track" : trimmed,
             path: GeoPath(
-                points: capture.points,
+                points: track.points,
                 source: .recording,
-                elevations: capture.elevations.isEmpty ? nil : capture.elevations,
-                distanceM: capture.distanceM, // explicit so a Discard pen-up gap isn't recounted
+                elevations: track.elevations.isEmpty ? nil : track.elevations,
+                distanceM: track.distanceM, // explicit so a Discard pen-up gap isn't recounted
                 recordedAtEpochMs: startedAt.map { Int64($0.timeIntervalSince1970 * 1000) },
                 movingTimeSeconds: elapsedSeconds
             ),
@@ -163,15 +159,13 @@ public final class RecordingController {
 
     private func append(_ fix: LocationFix) {
         guard isRecording else { return }
-        if isPausedBuffering {
-            // US-4: keep capturing while paused into a side buffer (so a forgotten unpause
-            // doesn't silently lose the walk), but leave the track untouched. Buffered distance
-            // is measured from the pause anchor so the first fix counts.
-            pausedCapture = TrackCapture.append(pausedCapture, fix)
-            let join = pauseAnchor.flatMap { a in pausedCapture.points.first.map { GeoMetrics.haversineMeters(a, $0) } } ?? 0
-            bufferedDistanceM = join + pausedCapture.distanceM
+        // The shared engine folds the fix into the track, or — while paused — into the side
+        // buffer (so a forgotten unpause never silently loses the walk, US-4).
+        session = session.appending(fix)
+        if session.paused {
+            bufferedDistanceM = session.bufferedDistanceM
             // Persist the track AND the buffer so a kill-while-paused doesn't lose the walk.
-            let main = capture, buf = pausedCapture, elapsed = elapsedSeconds
+            let main = session.track, buf = session.buffer, elapsed = elapsedSeconds
             Task {
                 await draftStore.save(RecordingDraft(
                     points: main.points, elevations: main.elevations, elapsedSeconds: elapsed,
@@ -180,17 +174,10 @@ public final class RecordingController {
             }
             return
         }
-        // After a Discard resume the first fix is detached so the gap isn't counted.
-        if penUpNext {
-            penUpNext = false
-            capture = TrackCapture.appendDetached(capture, fix)
-        } else {
-            capture = TrackCapture.append(capture, fix)
-        }
-        publish(from: capture)
+        publish(from: session.track)
         activity.update(distanceMeters: distanceMeters, elapsedSeconds: elapsedSeconds)
         // Persist the growing track so it survives process death.
-        let snapshot = capture
+        let snapshot = session.track
         let elapsed = elapsedSeconds
         Task { await draftStore.save(RecordingDraft(points: snapshot.points, elevations: snapshot.elevations, elapsedSeconds: elapsed)) }
     }
@@ -198,8 +185,8 @@ public final class RecordingController {
     /// Restore a recording from a persisted draft after a relaunch — unless live fixes already
     /// landed (don't clobber them). The clock continues from the draft's elapsed time.
     private func restore(from draft: RecordingDraft) {
-        guard capture.points.isEmpty, !draft.points.isEmpty else { return }
-        capture = CapturedTrack(
+        guard session.track.points.isEmpty, !draft.points.isEmpty else { return }
+        let track = CapturedTrack(
             points: draft.points,
             elevations: draft.elevations,
             distanceM: GeoMetrics.pathLengthMeters(draft.points),
@@ -207,31 +194,30 @@ public final class RecordingController {
             descentM: GeoMetrics.descentMeters(draft.elevations) ?? 0,
             currentAltitude: draft.elevations.last
         )
+        session = CaptureSession(track: track)
         startedAt = now().addingTimeInterval(-Double(draft.elapsedSeconds))
         elapsedSeconds = draft.elapsedSeconds
-        publish(from: capture)
+        publish(from: session.track)
         // Killed while PAUSED: restore the held buffer and stay paused (the clock stays frozen).
         if draft.paused {
-            isPausedBuffering = true
-            pauseStartedAt = now()
-            pauseAnchor = capture.points.last
-            pausedCapture = CapturedTrack(
+            let buffer = CapturedTrack(
                 points: draft.bufferPoints,
                 elevations: draft.bufferElevations,
                 distanceM: GeoMetrics.pathLengthMeters(draft.bufferPoints),
                 currentAltitude: draft.bufferElevations.last
             )
-            let join = pauseAnchor.flatMap { a in draft.bufferPoints.first.map { GeoMetrics.haversineMeters(a, $0) } } ?? 0
-            bufferedDistanceM = join + pausedCapture.distanceM
+            session = CaptureSession(track: track, paused: true, buffer: buffer, pauseAnchor: track.points.last)
+            isPausedBuffering = true
+            pauseStartedAt = now()
+            bufferedDistanceM = session.bufferedDistanceM
         }
     }
 
     /// Pause the recording; capture continues into a side buffer (US-4). The clock freezes.
     public func pause() {
         guard isRecording, !isPausedBuffering else { return }
+        session = session.paused()
         isPausedBuffering = true
-        pauseAnchor = capture.points.last
-        pausedCapture = CapturedTrack()
         bufferedDistanceM = 0
         pauseStartedAt = now()
     }
@@ -241,22 +227,11 @@ public final class RecordingController {
     /// isn't counted. Either way the buffer clears and the clock resumes.
     public func resume(includeBuffered: Bool) {
         guard isPausedBuffering else { return }
-        if includeBuffered, let first = pausedCapture.points.first {
-            let join = capture.points.last.map { GeoMetrics.haversineMeters($0, first) } ?? 0
-            capture.points += pausedCapture.points
-            capture.elevations += pausedCapture.elevations
-            capture.distanceM += join + pausedCapture.distanceM
-            capture.maxSpeedMps = max(capture.maxSpeedMps, pausedCapture.maxSpeedMps)
-            capture.ascentM = GeoMetrics.ascentMeters(capture.elevations) ?? capture.ascentM
-            capture.descentM = GeoMetrics.descentMeters(capture.elevations) ?? capture.descentM
-            capture.currentAltitude = pausedCapture.currentAltitude ?? capture.currentAltitude
-            publish(from: capture)
-        } else {
-            penUpNext = true
-        }
+        session = session.resuming(include: includeBuffered)
+        publish(from: session.track)
         if let ps = pauseStartedAt { pausedTotal += now().timeIntervalSince(ps); pauseStartedAt = nil }
         isPausedBuffering = false
-        pausedCapture = CapturedTrack(); pauseAnchor = nil; bufferedDistanceM = 0
+        bufferedDistanceM = 0
     }
 
     private func publish(from c: CapturedTrack) {
@@ -272,8 +247,7 @@ public final class RecordingController {
     private func reset() {
         stop()
         Task { await draftStore.clear() }
-        capture = CapturedTrack(); startedAt = nil
-        pausedCapture = CapturedTrack(); pauseAnchor = nil; penUpNext = false
+        session = CaptureSession(); startedAt = nil
         isPausedBuffering = false; bufferedDistanceM = 0; pausedTotal = 0; pauseStartedAt = nil
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
         ascentMeters = 0; descentMeters = 0; currentAltitude = nil

@@ -9,9 +9,25 @@ struct FollowCard: View {
     @Environment(\.turbo) private var t
     @Bindable var controller: FollowController
     let onStop: () -> Void
+    @State private var showResumePrompt = false
 
     var body: some View {
         VStack(spacing: 10) {
+            // US-4: caught "you forgot to unpause and kept walking" — one-tap resume.
+            if controller.isPausedBuffering && controller.hasBufferedMovement {
+                Button { showResumePrompt = true } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "figure.walk.motion")
+                        Text("Still moving? You've walked \(distText(controller.bufferedDistanceM)) while paused")
+                            .font(.turboCaption).multilineTextAlignment(.leading)
+                        Spacer()
+                    }
+                    .foregroundStyle(t.label)
+                    .padding(10)
+                    .background(t.orange.opacity(0.18), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .accessibilityIdentifier("follow.resumeNudge")
+            }
             HStack(spacing: 8) {
                 Circle().fill(dotColor).frame(width: 10, height: 10)
                 Text(title).font(.turboHeadline).foregroundStyle(t.label).lineLimit(1)
@@ -64,6 +80,14 @@ struct FollowCard: View {
                         .font(.turboCaption).foregroundStyle(t.orange)
                 }
                 Spacer()
+                // Follow = Record: Pause buffers the paused walk exactly like recording (US-4).
+                Button { togglePause() } label: {
+                    Image(systemName: controller.isPausedBuffering ? "play.fill" : "pause.fill")
+                        .font(.turboHeadline).foregroundStyle(t.blue)
+                        .frame(width: 36, height: 36)
+                        .background(t.fill3, in: Capsule())
+                }
+                .accessibilityIdentifier("follow.pause")
                 Button { onStop() } label: {
                     Text("Stop").font(.turboHeadline).foregroundStyle(.white)
                         .padding(.horizontal, 18).frame(height: 36)
@@ -74,6 +98,26 @@ struct FollowCard: View {
         }
         .padding(14)
         .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous), elevated: true)
+        .confirmationDialog(
+            "You walked \(distText(controller.bufferedDistanceM)) while paused",
+            isPresented: $showResumePrompt, titleVisibility: .visible
+        ) {
+            Button("Include it") { controller.resume(includeBuffered: true) }
+            Button("Discard it", role: .destructive) { controller.resume(includeBuffered: false) }
+        } message: {
+            Text("Add the distance you covered while paused to your track?")
+        }
+    }
+
+    /// Pause buffers the paused walk; resuming with a meaningful buffer asks Include/Discard (US-4).
+    private func togglePause() {
+        if !controller.isPausedBuffering {
+            controller.pause()
+        } else if controller.hasBufferedMovement {
+            showResumePrompt = true
+        } else {
+            controller.resume(includeBuffered: false)
+        }
     }
 
     private func distText(_ m: Double) -> String {

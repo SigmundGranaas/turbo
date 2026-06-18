@@ -98,6 +98,23 @@ struct FollowControllerTests {
         #expect(follow.nextPhaseName == "C")
     }
 
+    @Test("pausing a follow buffers the walk and freezes the track; resume restores (US-4)")
+    func pauseBuffers() async {
+        let lngs = (0...4).map { (0.0, Double($0) * 0.003) }
+        let follow = FollowController(location: provider(lngs), pathRepository: InMemoryPathRepository(seed: []))
+        follow.start(route)
+        try? await Task.sleep(for: .milliseconds(150))
+        let walked = follow.capturedDistanceM
+        follow.pause()
+        #expect(follow.isPausedBuffering)
+        // The committed distance never shrinks while paused (the track is frozen).
+        try? await Task.sleep(for: .milliseconds(80))
+        #expect(follow.capturedDistanceM == walked)
+        follow.togglePause() // discard-resume
+        #expect(!follow.isPausedBuffering)
+        #expect(follow.bufferedDistanceM == 0)
+    }
+
     @Test("a trivially short follow is not auto-saved")
     func skipsTrivial() async {
         // Two fixes ~22 m apart — under the 50 m save floor.
