@@ -232,9 +232,9 @@ fn main() {
         let params = CloudParams {
             use_camera_ray: true,
             inv_view_proj: inv_vp,
-            cloud_alt_base: 0.10,
-            cloud_alt_top: 0.26,
-            world_to_uv: 1.5,
+            cloud_alt_base: 0.0,
+            cloud_alt_top: 0.11,
+            world_to_field: [1.5, 1.5],
             ..base
         };
         render(&gpu, &scene, &params)
@@ -243,16 +243,16 @@ fn main() {
     }
     eprintln!("camera-ray heroes -> {out_dir}/hero_cam_{{0,35,55}}deg.png (real pitched ray)");
 
-    // Isolation: use_camera_ray ON but world_to_uv=0 → shift forced to zero.
+    // Isolation: use_camera_ray ON but world_to_field=0 → shift forced to zero.
     // Should be identical to flat top-down. If clouds vanish here, the bug is
     // the use_ray FLAG path, not the shift; if clouds appear, it's the shift.
     for pitch_deg in [0.0f32, 55.0] {
         let params = CloudParams {
             use_camera_ray: true,
             inv_view_proj: pitched_inv_view_proj(pitch_deg, aspect),
-            cloud_alt_base: 0.10,
-            cloud_alt_top: 0.26,
-            world_to_uv: 1.5,
+            cloud_alt_base: 0.0,
+            cloud_alt_top: 0.11,
+            world_to_field: [1.5, 1.5],
             debug_view: DebugView::Parallax,
             ..base
         };

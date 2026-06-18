@@ -116,8 +116,7 @@ struct Uniforms {
     cloud_alt_base: f32,
     cloud_alt_top: f32,
     inv_view_proj: [[f32; 4]; 4],
-    world_to_uv: f32,
-    _pad0: f32,
+    world_to_field: [f32; 2],
     fuv_origin: [f32; 2],
     fuv_dx: [f32; 2],
     fuv_dy: [f32; 2],
@@ -173,9 +172,10 @@ pub struct CloudParams {
     pub cloud_alt_base: f32,
     /// Cloud layer top altitude in world units.
     pub cloud_alt_top: f32,
-    /// World-units → screen-uv scale at the ground plane (≈ pixels-per-world
-    /// / viewport height), converting the parallax offset into a field shift.
-    pub world_to_uv: f32,
+    /// World (mercator) → field-uv scale, per axis (`= 1/radar_span`). Converts
+    /// the camera-ray's world-space parallax offset into a field-uv shift so a
+    /// pitched map rakes through the (world-locked) cloud volume.
+    pub world_to_field: [f32; 2],
     /// Diagnostic output selector. [`DebugView::Final`] renders the real
     /// overlay; other variants emit an internal pipeline stage so it can be
     /// inspected and measured. Always [`DebugView::Final`] in production.
@@ -210,7 +210,7 @@ impl Default for CloudParams {
             inv_view_proj: IDENTITY4,
             cloud_alt_base: 0.0,
             cloud_alt_top: 0.0,
-            world_to_uv: 0.0,
+            world_to_field: [0.0, 0.0],
             debug_view: DebugView::Final,
             // Identity affine → field_uv == screen uv (screen-locked default).
             field_uv_origin: [0.0, 0.0],
@@ -658,8 +658,7 @@ impl CloudScene {
             cloud_alt_base: params.cloud_alt_base,
             cloud_alt_top: params.cloud_alt_top,
             inv_view_proj: params.inv_view_proj,
-            world_to_uv: params.world_to_uv,
-            _pad0: 0.0,
+            world_to_field: params.world_to_field,
             fuv_origin: params.field_uv_origin,
             fuv_dx: params.field_uv_dx,
             fuv_dy: params.field_uv_dy,
@@ -749,8 +748,7 @@ impl CloudScene {
             cloud_alt_base: params.cloud_alt_base,
             cloud_alt_top: params.cloud_alt_top,
             inv_view_proj: params.inv_view_proj,
-            world_to_uv: params.world_to_uv,
-            _pad0: 0.0,
+            world_to_field: params.world_to_field,
             fuv_origin: params.field_uv_origin,
             fuv_dx: params.field_uv_dx,
             fuv_dy: params.field_uv_dy,
@@ -900,9 +898,8 @@ mod uniform_layout {
         assert_eq!(offset_of!(Uniforms, cloud_alt_top), 76);
         // mat4x4<f32> requires 16-byte alignment in WGSL → offset 80.
         assert_eq!(offset_of!(Uniforms, inv_view_proj), 80);
-        assert_eq!(offset_of!(Uniforms, world_to_uv), 144);
-        // vec2<f32> requires 8-byte alignment in WGSL; after world_to_uv (144)
-        // + _pad0 (148) the next vec2 lands at 152, then 160, 168.
+        // vec2<f32>s (8-byte aligned) packed after the mat4 (ends at 144).
+        assert_eq!(offset_of!(Uniforms, world_to_field), 144);
         assert_eq!(offset_of!(Uniforms, fuv_origin), 152);
         assert_eq!(offset_of!(Uniforms, fuv_dx), 160);
         assert_eq!(offset_of!(Uniforms, fuv_dy), 168);

@@ -63,6 +63,12 @@ struct CloudOverlay {
     radar_geo: Option<(WorldPoint, WorldPoint)>,
 }
 
+/// Cloud slab thickness as a fraction of the radar box (mercator). Sets the
+/// pitch-parallax magnitude: at a moderate tilt the view ray rakes ~this much
+/// of the field between the slab floor and ceiling, revealing the puff sides.
+/// Scaled by the box so the depth feels the same at any zoom.
+const CLOUD_SLAB_FRAC: f64 = 0.15;
+
 /// Screen-uv → radar-box-uv affine for the cloud overlay. Samples the real
 /// camera projection at three viewport corners (exact for top-down; bearing-
 /// and inset-correct via [`Camera::pixel_to_world`]) and expresses them in the
@@ -1512,11 +1518,6 @@ impl Map {
         if let Some(c) = &mut self.clouds {
             if c.enabled {
                 c.params.resolution = [vw as f32, vh as f32];
-                // Camera-ray pitch parallax is gated OFF for now: real pitch 3D
-                // needs world-space *volume* sampling (deeper than this 2.5D
-                // field). The flat top-down volumetric path is the shipping look.
-                c.params.use_camera_ray = false;
-
                 // World-lock: map each screen pixel into the radar's geo box so
                 // the clouds pan + zoom with the terrain. Sample the real camera
                 // projection at three viewport corners (exact for top-down,
@@ -1528,11 +1529,34 @@ impl Map {
                         c.params.field_uv_origin = o;
                         c.params.field_uv_dx = dx;
                         c.params.field_uv_dy = dy;
+
+                        // Pitch-3D: when the map is tilted, feed the real camera
+                        // ray so the march rakes through the world-locked volume
+                        // and reveals the puff sides. Off (flat) at pitch ~0 so
+                        // the top-down path stays byte-identical.
+                        if cam.pitch_deg > 0.5 {
+                            let sx = (max.x - min.x).abs().max(1e-12);
+                            let sy = (max.y - min.y).abs().max(1e-12);
+                            c.params.world_to_field = [(1.0 / sx) as f32, (1.0 / sy) as f32];
+                            // Slab altitude in world (mercator) units, scaled to
+                            // the box so the parallax magnitude is zoom-stable:
+                            // ~`CLOUD_SLAB_FRAC` of the box gives a few-puff rake
+                            // at a moderate tilt.
+                            c.params.cloud_alt_base = 0.0;
+                            c.params.cloud_alt_top = (CLOUD_SLAB_FRAC * sy) as f32;
+                            let vp = cam.view_projection_matrix(self.viewport_px);
+                            let inv = glam::Mat4::from_cols_array_2d(&vp).inverse();
+                            c.params.inv_view_proj = inv.to_cols_array_2d();
+                            c.params.use_camera_ray = true;
+                        } else {
+                            c.params.use_camera_ray = false;
+                        }
                     }
                     None => {
                         c.params.field_uv_origin = [0.0, 0.0];
                         c.params.field_uv_dx = [1.0, 0.0];
                         c.params.field_uv_dy = [0.0, 1.0];
+                        c.params.use_camera_ray = false;
                     }
                 }
 

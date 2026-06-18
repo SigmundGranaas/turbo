@@ -28,8 +28,7 @@ struct Uniforms {
     cloud_alt_base : f32, // cloud layer bottom altitude, world units
     cloud_alt_top  : f32, // cloud layer top altitude, world units
     inv_view_proj : mat4x4<f32>, // clip → world, for per-pixel ray reconstruction
-    world_to_uv : f32,  // world units → screen-uv scale at the ground plane
-    _pad0      : f32,
+    world_to_field : vec2<f32>, // world (mercator) → field-uv scale (= 1/radar_span)
     // Screen-uv → FIELD-uv affine, so the cloud field is locked to the WORLD
     // (geography) rather than the screen: panning/zooming the map moves and
     // scales the clouds with the terrain. `fuv = fuv_origin + uv.x*fuv_dx +
@@ -414,17 +413,19 @@ fn luminance_lin(c : vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
-// Per-pixel parallax shift (screen-uv) at the slab top and bottom, packed as
-// (shift_top.xy, shift_bot.xy). The cloud sits at altitude above the ground
-// the basemap drew at this pixel; following the real view ray, the slab is
-// crossed at a different (x,y) than the ground point. The march samples the
-// field at this offset and lerps top→bottom, so a pitched map rakes through
-// the volume and reveals the puff sides. use_ray=0 → flat top-down fallback.
-fn view_parallax(uv : vec2<f32>) -> vec4<f32> {
+// Per-pixel parallax shift in FIELD-uv at the slab top and bottom, packed as
+// (shift_top.xy, shift_bot.xy). `scr` is the SCREEN uv (the ray comes from the
+// camera, not the world-locked field). The cloud sits at altitude above the
+// ground the basemap drew at this pixel; following the real view ray, the slab
+// is crossed at a different world (x,y) than the ground point. That world
+// offset is converted to field-uv via `world_to_field` (= 1/radar_span) and the
+// march lerps top→bottom, so a pitched map rakes through the volume and reveals
+// the puff SIDES. use_ray=0 → flat top-down (no shift).
+fn view_parallax(scr : vec2<f32>) -> vec4<f32> {
     if (U.use_ray != 1u) {
-        return vec4<f32>(vec2<f32>(0.0, -0.5) * U.parallax, vec2<f32>(0.0, 0.5) * U.parallax);
+        return vec4<f32>(0.0);
     }
-    let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - 2.0 * uv.y);
+    let ndc = vec2<f32>(scr.x * 2.0 - 1.0, 1.0 - 2.0 * scr.y);
     let pn = U.inv_view_proj * vec4<f32>(ndc, 0.0, 1.0);
     let pf = U.inv_view_proj * vec4<f32>(ndc, 1.0, 1.0);
     let ro = pn.xyz / pn.w;
@@ -435,10 +436,10 @@ fn view_parallax(uv : vec2<f32>) -> vec4<f32> {
     let g = ro + rd * (-ro.z / rd.z); // ray ∩ ground (z=0)
     let p_top = ro + rd * ((U.cloud_alt_top - ro.z) / rd.z);
     let p_bot = ro + rd * ((U.cloud_alt_base - ro.z) / rd.z);
-    var st = (p_top.xy - g.xy) * U.world_to_uv;
-    var sb = (p_bot.xy - g.xy) * U.world_to_uv;
-    // Field is screen-locked → clamp the shift so it can't sample off it.
-    let m = 0.20;
+    var st = (p_top.xy - g.xy) * U.world_to_field;
+    var sb = (p_bot.xy - g.xy) * U.world_to_field;
+    // Clamp the shift so a near-horizon ray can't sample wildly off the field.
+    let m = 0.35;
     if (length(st) > m) { st = normalize(st) * m; }
     if (length(sb) > m) { sb = normalize(sb) * m; }
     return vec4<f32>(st, sb);
@@ -450,7 +451,7 @@ fn view_parallax(uv : vec2<f32>) -> vec4<f32> {
 // for self-shadowing, fed through a multi-scatter energy approximation
 // (octaves of Beer) plus a powder term and a height-graded sky ambient.
 // Returns premultiplied (scattered colour, alpha).
-fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
+fn render_volume(uv : vec2<f32>, scr : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     // LOW sun: a near-horizon light rakes across the cloud tops so puffs
     // throw long shadows over their neighbours — the drama you only get at
     // a low sun angle is what reads as 3D form from straight above.
@@ -485,8 +486,9 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     let lstep = 2.4 / (U.map_scale * f32(LIGHT_STEPS));
     let lext = U.light_ext; // light extinction (shadow strength)
 
-    // Per-pixel parallax shift (top & bottom of the slab), in screen-uv.
-    let sp = view_parallax(uv);
+    // Per-pixel parallax shift (top & bottom of the slab), in field-uv, from
+    // the real camera ray (screen uv). Zero when the map is top-down.
+    let sp = view_parallax(scr);
     let shift_top = sp.xy;
     let shift_bot = sp.zw;
 
@@ -563,7 +565,7 @@ fn shade(uv : vec2<f32>) -> Shade {
     let fuv = field_uv(uv);
     let rv = radar_value(fuv);
     var lum = 0.0;
-    let vol = render_volume(fuv, &lum);
+    let vol = render_volume(fuv, uv, &lum);
 
     var s : Shade;
     s.precip = rv.r;
