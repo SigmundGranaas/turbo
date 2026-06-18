@@ -1717,6 +1717,38 @@ mod tests {
     }
 
     #[test]
+    fn cloud_field_world_locks_under_bearing() {
+        // Rotating the map (bearing) must keep the field geo-pinned: the screen
+        // centre always shows the camera centre, so its field-uv must equal the
+        // camera centre's geo position regardless of bearing. `pixel_to_world`
+        // carries the rotation, so the corner-sampled affine handles it.
+        let vp = (1080.0, 2400.0);
+        let min = LatLng::new(63.0, 8.0).to_world();
+        let max = LatLng::new(60.0, 12.0).to_world();
+        let centre = LatLng::new(61.5, 10.0);
+        let cw = centre.to_world();
+        let want = (
+            (cw.x - min.x) / (max.x - min.x),
+            (cw.y - min.y) / (max.y - min.y),
+        );
+        for bearing in [0.0, 30.0, 90.0, 215.0] {
+            let cam = Camera::new(centre, 10.0).with_bearing(bearing);
+            let (o, dx, dy) = cloud_field_affine(cam, vp, min, max);
+            // field_uv at screen centre (uv = 0.5, 0.5).
+            let cx = o[0] as f64 + 0.5 * dx[0] as f64 + 0.5 * dy[0] as f64;
+            let cy = o[1] as f64 + 0.5 * dx[1] as f64 + 0.5 * dy[1] as f64;
+            // Tolerance ~1e-3 of the box (≈a few hundred m over a ~300 km box):
+            // the residual is the perspective projection's tiny non-linearity at
+            // pitch 0 (corner-sampling an affine), not a geo-lock error — well
+            // below a pixel on screen.
+            assert!(
+                (cx - want.0).abs() < 2e-3 && (cy - want.1).abs() < 2e-3,
+                "bearing {bearing}: centre field-uv ({cx},{cy}) != geo {want:?}"
+            );
+        }
+    }
+
+    #[test]
     fn cloud_field_scales_with_zoom() {
         // Zooming IN must shrink the field-uv the viewport spans (fewer, bigger
         // puffs) — the world-locked zoom behaviour.
