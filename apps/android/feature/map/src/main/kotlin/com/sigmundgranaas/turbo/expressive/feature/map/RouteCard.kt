@@ -36,9 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.Units
-import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePreset
 import com.sigmundgranaas.turbo.expressive.ui.theme.LocalMetricUnits
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -49,7 +47,6 @@ import kotlin.math.roundToInt
 internal fun RouteCard(
     state: RouteUiState,
     preset: RoutePreset,
-    userLocation: LatLng?,
     onSelectPreset: (RoutePreset) -> Unit,
     onFollow: () -> Unit,
     onSave: () -> Unit,
@@ -116,41 +113,9 @@ internal fun RouteCard(
                         TextButton(onClick = onClear) { Text(stringResource(R.string.route_clear)) }
                     }
                 }
-                is RouteUiState.Following -> {
-                    val progress = userLocation?.let { GeoMetrics.progress(state.plan.geometry, it, state.plan.ascentM) }
-                    val arrived = progress != null && progress.distanceRemainingM <= ARRIVAL_M
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            if (arrived) Icons.Rounded.CheckCircle else Icons.Rounded.Navigation,
-                            null,
-                            tint = cs.primary,
-                            modifier = Modifier.size(22.dp),
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                if (arrived) stringResource(R.string.route_arrived) else stringResource(R.string.route_following),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = cs.onSurface,
-                            )
-                            if (!arrived) {
-                                Text(
-                                    text = progress?.let {
-                                        stringResource(R.string.route_left, Units.distance(it.distanceRemainingM, metric)) +
-                                            (it.etaSeconds?.let { s -> " · ${formatDuration(s.toDouble())}" } ?: "")
-                                    } ?: stringResource(R.string.route_waiting_gps),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = cs.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        // Keep the route you're following — saving doesn't stop the follow.
-                        IconButton(onClick = onSave) {
-                            Icon(Icons.Rounded.Bookmark, stringResource(R.string.route_save_action), tint = cs.primary)
-                        }
-                        TextButton(onClick = onClear) { Text(stringResource(if (arrived) R.string.route_done else R.string.route_stop)) }
-                    }
-                }
+                // Following is rendered by the live sheet (LiveSheet), not this card — see
+                // MapScreen, which short-circuits to the sheet before RouteCard while following.
+                is RouteUiState.Following -> Unit
                 RouteUiState.Idle -> Unit
             }
         }
@@ -251,9 +216,6 @@ private fun RouteStat(value: String, label: String) {
         Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
     }
 }
-
-/** Distance (m) within which the destination is considered reached. */
-private const val ARRIVAL_M = 30.0
 
 internal fun formatDuration(seconds: Double): String {
     val total = seconds.roundToInt()

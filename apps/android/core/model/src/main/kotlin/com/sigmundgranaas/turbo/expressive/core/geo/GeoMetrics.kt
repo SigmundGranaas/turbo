@@ -8,16 +8,11 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** Live progress of a position along a path. */
-data class JourneyProgress(
-    val fraction: Double,
-    val distanceRemainingM: Double,
-    val etaSeconds: Int?,
-)
-
 /**
  * Single source of truth for path geometry math: haversine distance, elevation
- * gain/loss, ETA (Naismith-ish), and progress projection. Pure + testable.
+ * gain/loss, ETA (Naismith-ish), and off-path distance. Pure + testable. Live
+ * route progress lives in [RouteProgressTracker] (a monotonic arc-length cursor,
+ * loop-safe) — the old global-nearest `progress`/`JourneyProgress` was removed.
  */
 object GeoMetrics {
     private const val EARTH_RADIUS_M = 6_371_000.0
@@ -78,35 +73,6 @@ object GeoMetrics {
         val flat = distanceM / 5000.0 * 3600.0
         val climb = (ascentM ?: 0.0) / 600.0 * 3600.0
         return (flat + climb).toInt()
-    }
-
-    /** Project [position] onto [points], returning fractional progress + remaining distance. */
-    fun progress(points: List<LatLng>, position: LatLng, ascentM: Double? = null): JourneyProgress? {
-        if (points.size < 2) return null
-        val total = pathLengthMeters(points)
-        if (total <= 0.0) return null
-        var bestDist = Double.MAX_VALUE
-        var bestAlong = 0.0
-        var cum = 0.0
-        for (i in 1 until points.size) {
-            val a = points[i - 1]
-            val b = points[i]
-            val seg = haversineMeters(a, b)
-            val (proj, t) = projectFraction(a, b, position)
-            val d = haversineMeters(position, proj)
-            if (d < bestDist) {
-                bestDist = d
-                bestAlong = cum + seg * t
-            }
-            cum += seg
-        }
-        val fraction = (bestAlong / total).coerceIn(0.0, 1.0)
-        val remaining = total - bestAlong
-        return JourneyProgress(
-            fraction = fraction,
-            distanceRemainingM = remaining,
-            etaSeconds = etaSeconds(remaining, ascentM?.let { it * (1 - fraction) }),
-        )
     }
 
     /** Shortest distance (metres) from [position] to the polyline [points]; ∞ if degenerate. */

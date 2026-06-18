@@ -1,7 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.feature.map
 
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -35,7 +34,6 @@ class RouteCardTest {
             RouteCard(
                 state = RouteUiState.Done(plan),
                 preset = RoutePreset.Balanced,
-                userLocation = null,
                 onSelectPreset = {}, onFollow = {}, onSave = {}, onClear = {},
             )
         }
@@ -51,7 +49,6 @@ class RouteCardTest {
             RouteCard(
                 state = RouteUiState.Done(plan),
                 preset = RoutePreset.Balanced,
-                userLocation = null,
                 onSelectPreset = { picked = it }, onFollow = {}, onSave = {}, onClear = {},
             )
         }
@@ -66,7 +63,6 @@ class RouteCardTest {
             RouteCard(
                 state = RouteUiState.Done(plan),
                 preset = RoutePreset.Balanced,
-                userLocation = null,
                 onSelectPreset = {}, onFollow = { followed = true }, onSave = {}, onClear = {},
             )
         }
@@ -74,35 +70,8 @@ class RouteCardTest {
         assert(followed)
     }
 
-    @Test
-    fun `following state shows remaining distance from the fix`() {
-        composeRule.setContent {
-            RouteCard(
-                state = RouteUiState.Following(plan),
-                preset = RoutePreset.Balanced,
-                userLocation = LatLng(69.0, 18.0), // at the start → ~full distance remaining
-                onSelectPreset = {}, onFollow = {}, onSave = {}, onClear = {},
-            )
-        }
-        composeRule.onNodeWithText("Following route").assertExists()
-        composeRule.onNodeWithText("Stop").assertExists()
-        composeRule.onNodeWithText("km left", substring = true).assertExists()
-    }
-
-    @Test
-    fun `following state exposes a save action that keeps the follow`() {
-        var saved = false
-        composeRule.setContent {
-            RouteCard(
-                state = RouteUiState.Following(plan),
-                preset = RoutePreset.Balanced,
-                userLocation = LatLng(69.0, 18.0),
-                onSelectPreset = {}, onFollow = {}, onSave = { saved = true }, onClear = {},
-            )
-        }
-        composeRule.onNodeWithContentDescription("Save route").performClick()
-        assert(saved)
-    }
+    // Following is rendered by LiveSheet now (see LiveSheetTest), not RouteCard — the
+    // card's Following branch was removed, so its old follow-card tests went with it.
 
     @Test
     fun `error state shows the message and dismiss`() {
@@ -110,7 +79,6 @@ class RouteCardTest {
             RouteCard(
                 state = RouteUiState.Error("No route found"),
                 preset = RoutePreset.Balanced,
-                userLocation = null,
                 onSelectPreset = {}, onFollow = {}, onSave = {}, onClear = {},
             )
         }

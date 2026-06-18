@@ -42,15 +42,6 @@ class GeoMetricsTest {
     }
 
     @Test
-    fun `progress at start is zero and near end approaches one`() {
-        val pts = listOf(LatLng(0.0, 0.0), LatLng(0.0, 1.0), LatLng(0.0, 2.0))
-        val atStart = GeoMetrics.progress(pts, LatLng(0.0, 0.0))!!
-        val nearEnd = GeoMetrics.progress(pts, LatLng(0.0, 1.99))!!
-        assertEquals(0.0, atStart.fraction, 1e-3)
-        assertTrue(nearEnd.fraction > 0.9)
-    }
-
-    @Test
     fun `distanceToPath is ~0 on the line and large when off it`() {
         val route = listOf(LatLng(69.0, 18.0), LatLng(69.0, 18.01))
         // A point on the segment.

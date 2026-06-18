@@ -794,7 +794,6 @@ fun MapScreen(
                 RouteCard(
                     state = routeState,
                     preset = routePreset,
-                    userLocation = state.userLocation,
                     waypointCount = routeWaypoints.size,
                     onRemoveStop = { index -> routeViewModel.removeWaypoint(index) },
                     onSelectPreset = { routeViewModel.selectPreset(it) },
