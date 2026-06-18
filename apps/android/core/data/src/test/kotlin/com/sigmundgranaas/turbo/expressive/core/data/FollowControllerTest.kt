@@ -139,6 +139,41 @@ class FollowControllerTest {
     }
 
     @Test
+    fun `pausing a follow buffers the walk instead of advancing the track (US-4)`() = runTest {
+        val loc = FakeLocation()
+        val controller = FollowController(loc, FakePaths(), backgroundScope)
+        controller.start(plan)
+        runCurrent()
+        loc.emit(69.00, 18.0); runCurrent()
+        controller.pause()
+        loc.emit(69.003, 18.0); runCurrent() // ~333 m walked while paused
+        val s = controller.session.value
+        assertTrue(s.paused)
+        assertEquals("track frozen while paused", 1, s.points.size)
+        assertTrue("buffered the paused walk: ${s.bufferedDistanceM}", s.bufferedDistanceM > 90.0)
+        assertTrue(s.hasBufferedMovement)
+    }
+
+    @Test
+    fun `resuming a follow with include stitches the paused walk onto the track`() = runTest {
+        val loc = FakeLocation()
+        val controller = FollowController(loc, FakePaths(), backgroundScope)
+        controller.start(plan)
+        runCurrent()
+        loc.emit(69.00, 18.0); runCurrent()
+        controller.pause()
+        loc.emit(69.003, 18.0); runCurrent()
+        loc.emit(69.006, 18.0); runCurrent()
+        controller.resume(includeBuffered = true)
+        runCurrent()
+        val s = controller.session.value
+        assertFalse(s.paused)
+        assertEquals(3, s.points.size)
+        assertEquals(0.0, s.bufferedDistanceM, 1e-9)
+        assertTrue("counts the paused walk: ${s.capturedDistanceM}", s.capturedDistanceM > 500.0)
+    }
+
+    @Test
     fun `a trivially short follow is not auto-saved`() = runTest {
         val loc = FakeLocation()
         val paths = FakePaths()

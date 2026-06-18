@@ -78,6 +78,7 @@ data class LiveStats(
             val (asc, desc) = GeoMetrics.gainLoss(session.elevations)
             return LiveStats(
                 mode = LiveMode.Following,
+                paused = session.paused,
                 distanceM = session.capturedDistanceM,
                 distanceRemainingM = session.progress?.distanceRemainingM ?: plan?.distanceM,
                 routeDistanceM = plan?.distanceM,
@@ -91,6 +92,7 @@ data class LiveStats(
                 etaSeconds = session.progress?.etaSeconds,
                 fraction = fraction,
                 kcal = plan?.let { GeoMetrics.estimateKcal(it.distanceM, it.ascentM) } ?: 0,
+                bufferedDistanceM = session.bufferedDistanceM,
                 phaseSplits = session.phaseSplits,
                 nextPhaseName = session.nextPhaseName,
                 nextPhaseDistanceM = session.nextPhaseDistanceM,

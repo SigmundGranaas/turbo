@@ -227,4 +227,17 @@ internal fun MapScreenModals(
             onDismiss = { recordingViewModel.resume(include = false); ui.showResumeBufferPrompt = false },
         )
     }
+    // Same Include/Discard choice when resuming a paused FOLLOW (Follow = Record, US-4).
+    if (ui.showFollowResumeBufferPrompt) {
+        val followSession by routeViewModel.followSession.collectAsStateWithLifecycle()
+        TurboConfirmDialog(
+            title = stringResource(R.string.live_resume_buffer_title),
+            body = stringResource(R.string.live_resume_buffer_body, Units.distance(followSession.bufferedDistanceM, metric)),
+            confirmLabel = stringResource(R.string.live_resume_include),
+            dismissLabel = stringResource(R.string.live_resume_discard),
+            icon = Icons.Rounded.DirectionsWalk,
+            onConfirm = { routeViewModel.resumeFollow(include = true); ui.showFollowResumeBufferPrompt = false },
+            onDismiss = { routeViewModel.resumeFollow(include = false); ui.showFollowResumeBufferPrompt = false },
+        )
+    }
 }

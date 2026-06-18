@@ -54,6 +54,10 @@ data class FollowSession(
     val maxSpeedMps: Double = 0.0,
     /** Moving time (s) since the follow started. */
     val elapsedSec: Int = 0,
+    /** Whether the follow is paused; capture continues into a side buffer (US-4, Follow = Record). */
+    val paused: Boolean = false,
+    /** Distance (m) walked while paused, not yet folded into the track (US-4); 0 when idle. */
+    val bufferedDistanceM: Double = 0.0,
     /** Checkpoints crossed so far, with split times (US-3). */
     val phaseSplits: List<PhaseSplit> = emptyList(),
     /** The next checkpoint's name + distance to it, or null when all are crossed. */
@@ -64,6 +68,9 @@ data class FollowSession(
 ) {
     /** Whether the hiker has effectively reached the end of the route. */
     val arrived: Boolean get() = active && (progress?.arrived ?: false)
+
+    /** Whether enough was walked while paused to be worth asking about on resume (US-4). */
+    val hasBufferedMovement: Boolean get() = bufferedDistanceM >= RESUME_PROMPT_M
 
     /** On-map checkpoints with their crossed state (US-3). */
     val phaseMarkers: List<PhaseMarker>
@@ -94,6 +101,8 @@ class FollowController @Inject constructor(
     private var locationJob: Job? = null
     private var timerJob: Job? = null
     private var tracker: RouteProgressTracker? = null
+    /** The travelled track + pause-buffer — the SAME engine recording uses (Follow = Record, US-4). */
+    private var capture = CaptureSession()
     // Phase (checkpoint) state (US-3): names parallel to the tracker's phase positions, plus the
     // captured distance/time at the last crossing (so each split is "since the previous phase").
     private var phaseNames: List<String> = emptyList()
@@ -113,6 +122,7 @@ class FollowController @Inject constructor(
         _session.value = FollowSession(active = true, plan = plan, name = name, phasePositions = phasePoints)
         tracker = RouteProgressTracker(route = plan.geometry, ascentM = plan.ascentM, phasePositions = phasePoints)
         this.phaseNames = phaseNames
+        capture = CaptureSession()
         lastPhaseDistanceM = 0.0
         lastPhaseSec = 0
         if (!location.hasPermission()) return
@@ -120,15 +130,16 @@ class FollowController @Inject constructor(
         locationJob = scope.launch {
             location.samples().collect { sample ->
                 val t = tracker ?: return@collect
-                val progress = t.update(sample.position)
                 val s = _session.value
                 if (s.plan == null) return@collect
-                // Capture the travelled track with the SAME engine recording uses,
-                // so the saved follow is byte-for-byte what a recording would be.
-                val next = TrackCapture.append(
-                    CapturedTrack(s.points, s.elevations, s.capturedDistanceM, s.speedMps, s.maxSpeedMps),
-                    sample.position, sample.altitude, sample.speedMps,
-                )
+                // Capture the travelled track with the SAME engine recording uses (Follow = Record):
+                // while paused the fix folds into the side buffer, freezing the route guide + splits.
+                capture = capture.fix(sample.position, sample.altitude, sample.speedMps)
+                if (s.paused) {
+                    _session.value = s.copy(position = sample.position, bufferedDistanceM = capture.bufferedDistanceM)
+                    return@collect
+                }
+                val progress = t.update(sample.position)
                 // Record a split for each checkpoint the cursor just passed.
                 var splits = s.phaseSplits
                 if (t.passedPhaseCount > splits.size) {
@@ -138,10 +149,10 @@ class FollowController @Inject constructor(
                             index = i,
                             name = phaseNames.getOrElse(i) { "Checkpoint ${i + 1}" },
                             crossedAtEpochMs = System.currentTimeMillis(),
-                            splitDistanceM = next.distanceM - lastPhaseDistanceM,
+                            splitDistanceM = capture.distanceM - lastPhaseDistanceM,
                             splitSeconds = s.elapsedSec - lastPhaseSec,
                         )
-                        lastPhaseDistanceM = next.distanceM
+                        lastPhaseDistanceM = capture.distanceM
                         lastPhaseSec = s.elapsedSec
                     }
                     splits = acc
@@ -152,10 +163,10 @@ class FollowController @Inject constructor(
                     position = sample.position,
                     progress = progress,
                     speedMps = sample.speedMps ?: s.speedMps,
-                    points = next.points,
-                    elevations = next.elevations,
-                    capturedDistanceM = next.distanceM,
-                    maxSpeedMps = next.maxSpeedMps,
+                    points = capture.points,
+                    elevations = capture.elevations,
+                    capturedDistanceM = capture.distanceM,
+                    maxSpeedMps = capture.maxSpeedMps,
                     phaseSplits = splits,
                     nextPhaseName = nextName,
                     nextPhaseDistanceM = if (nextName != null) t.distanceToPhase(nextIdx) else null,
@@ -166,9 +177,43 @@ class FollowController @Inject constructor(
         timerJob = scope.launch {
             while (true) {
                 delay(1_000)
-                _session.update { if (it.active) it.copy(elapsedSec = it.elapsedSec + 1) else it }
+                _session.update { if (it.active && !it.paused) it.copy(elapsedSec = it.elapsedSec + 1) else it }
             }
         }
+    }
+
+    /** Pause the follow; capture keeps running into a side buffer (US-4, mirrors recording). */
+    fun pause() {
+        val s = _session.value
+        if (!s.active || s.paused) return
+        capture = capture.pause()
+        _session.value = s.copy(paused = true)
+    }
+
+    /**
+     * Resume a paused follow. [includeBuffered] stitches the walk captured while paused onto the
+     * travelled track (it IS the path you walked); otherwise it's discarded and the pen lifted so
+     * the gap isn't counted. Either way the buffer clears.
+     */
+    fun resume(includeBuffered: Boolean) {
+        val s = _session.value
+        if (!s.active || !s.paused) return
+        capture = capture.resume(includeBuffered)
+        _session.value = s.copy(
+            paused = false,
+            points = capture.points,
+            elevations = capture.elevations,
+            capturedDistanceM = capture.distanceM,
+            maxSpeedMps = capture.maxSpeedMps,
+            bufferedDistanceM = 0.0,
+        )
+    }
+
+    /** One-tap pause/resume; resuming this way DISCARDS the buffer (a big buffer is prompted in UI). */
+    fun togglePause() {
+        val s = _session.value
+        if (!s.active) return
+        if (s.paused) resume(includeBuffered = false) else pause()
     }
 
     /**
@@ -181,6 +226,7 @@ class FollowController @Inject constructor(
         timerJob?.cancel(); timerJob = null
         tracker = null
         autoSave(_session.value)
+        capture = CaptureSession()
         _session.value = FollowSession()
     }
 

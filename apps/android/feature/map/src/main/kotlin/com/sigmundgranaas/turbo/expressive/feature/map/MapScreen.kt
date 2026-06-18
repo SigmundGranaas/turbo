@@ -822,7 +822,15 @@ fun MapScreen(
                     title = followName ?: stringResource(R.string.route_following),
                     detent = ui.followDetent,
                     onDetentChange = { ui.followDetent = it },
-                    onTogglePause = {},
+                    onTogglePause = {
+                        haptics.toggle(followSession.paused)
+                        when {
+                            !followSession.paused -> routeViewModel.pauseFollow()
+                            // Forgot to unpause and kept walking? Ask before resuming (US-4).
+                            followSession.hasBufferedMovement -> ui.showFollowResumeBufferPrompt = true
+                            else -> routeViewModel.resumeFollow(include = false)
+                        }
+                    },
                     onStop = { ui.showFollowStopSave = true },
                     nextWaypoint = followName?.let {
                         stringResource(

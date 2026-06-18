@@ -1,6 +1,5 @@
 package com.sigmundgranaas.turbo.expressive.core.data
 
-import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -40,9 +39,6 @@ data class RecordingSession(
     val hasBufferedMovement: Boolean get() = bufferedDistanceM >= RESUME_PROMPT_M
 }
 
-/** Buffered walking past this (m) prompts Include/Discard on resume; below it, just resume (D4). */
-const val RESUME_PROMPT_M = 80.0
-
 /**
  * App-scoped recording engine: collects GPS fixes, accumulates distance + moving
  * time, and exposes one [session] flow. Lives for the whole process (a
@@ -62,90 +58,40 @@ class RecordingController @Inject constructor(
     private var locationJob: Job? = null
     private var timerJob: Job? = null
 
-    /** Movement captured while paused, held pending Include/Discard on resume (US-4). */
-    private var pausedCapture = CapturedTrack()
-    /** The track point at the moment of pausing — buffered distance is measured from here. */
-    private var pauseAnchor: LatLng? = null
-    /** Set by a Discard resume so the next live fix starts a fresh segment (no gap distance). */
-    private var penUpNext = false
+    /**
+     * The shared capture engine (track + pause-buffer) — the SAME state machine
+     * [FollowController] uses, so pause/resume behave identically in both modes (US-4).
+     */
+    private var capture = CaptureSession()
 
     fun start() {
         if (_session.value.active || !location.hasPermission()) return
         _session.value = RecordingSession(active = true)
-        pausedCapture = CapturedTrack(); pauseAnchor = null; penUpNext = false
+        capture = CaptureSession()
         locationJob = scope.launch {
             // Resume any persisted draft (e.g. after a process kill) before collecting.
             draftStore.load()?.let { draft ->
-                val idx = draft.pausedFromIndex
-                if (idx in 0..draft.points.size) {
-                    // Killed while PAUSED: split the track from the held buffer and stay paused.
-                    val mainPts = draft.points.take(idx)
-                    val mainElev = draft.elevations.take(idx)
-                    val bufPts = draft.points.drop(idx)
-                    val bufElev = draft.elevations.drop(idx)
-                    pauseAnchor = mainPts.lastOrNull()
-                    pausedCapture = CapturedTrack(bufPts, bufElev, GeoMetrics.pathLengthMeters(bufPts))
-                    val join = pauseAnchor?.let { a -> bufPts.firstOrNull()?.let { GeoMetrics.haversineMeters(a, it) } } ?: 0.0
-                    _session.update {
-                        it.copy(
-                            points = mainPts, elevations = mainElev,
-                            distanceM = GeoMetrics.pathLengthMeters(mainPts), elapsedSec = draft.elapsedSec,
-                            paused = true, bufferedDistanceM = join + pausedCapture.distanceM,
-                        )
-                    }
-                } else {
-                    _session.update {
-                        it.copy(
-                            points = draft.points,
-                            elevations = draft.elevations,
-                            distanceM = GeoMetrics.pathLengthMeters(draft.points),
-                            elapsedSec = draft.elapsedSec,
-                        )
-                    }
-                }
+                capture = CaptureSession.restore(draft.points, draft.elevations, draft.pausedFromIndex)
+                publish { it.copy(elapsedSec = draft.elapsedSec) }
             }
             location.samples().collect { sample ->
                 // Drop wildly inaccurate fixes (e.g. cold-start / indoor) before they pollute the track.
                 if (!RecordingFilter.acceptAccuracy(sample.accuracyM)) return@collect
-                val s0 = _session.value
-                if (!s0.active) return@collect
-                if (s0.paused) {
-                    // US-4: keep capturing while paused into a side buffer (so a forgotten
-                    // unpause doesn't silently lose the walk), but leave the track untouched.
-                    // Buffered distance is measured from the pause anchor so the first fix counts.
-                    pausedCapture = TrackCapture.append(pausedCapture, sample.position, sample.altitude, sample.speedMps)
-                    val join = pauseAnchor?.let { a ->
-                        pausedCapture.points.firstOrNull()?.let { GeoMetrics.haversineMeters(a, it) }
-                    } ?: 0.0
-                    val updated = _session.updateAndGet { it.copy(bufferedDistanceM = join + pausedCapture.distanceM) }
-                    // Persist the track AND the buffer (points past pausedFromIndex) so a
-                    // kill-while-paused doesn't lose the paused walk.
+                if (!_session.value.active) return@collect
+                capture = capture.fix(sample.position, sample.altitude, sample.speedMps)
+                val updated = publish()
+                // Persist the track (and, while paused, the held buffer past pausedFromIndex) so
+                // a process death never loses the walk.
+                if (capture.paused) {
                     draftStore.save(
-                        updated.points + pausedCapture.points,
-                        updated.elevations + pausedCapture.elevations,
+                        capture.track.points + capture.buffer.points,
+                        capture.track.elevations + capture.buffer.elevations,
                         updated.elapsedSec,
-                        pausedFromIndex = updated.points.size,
+                        pausedFromIndex = capture.track.points.size,
                     )
-                    return@collect
+                } else {
+                    draftStore.save(updated.points, updated.elevations, updated.elapsedSec)
                 }
-                val updated = _session.updateAndGet { s ->
-                    if (!s.active || s.paused) return@updateAndGet s
-                    val cur = CapturedTrack(s.points, s.elevations, s.distanceM, s.speedMps, s.maxSpeedMps)
-                    // The same shared capture engine that powers Follow = Record. After a
-                    // Discard resume the first fix is detached so the gap isn't counted.
-                    val next = if (penUpNext) {
-                        penUpNext = false
-                        TrackCapture.appendDetached(cur, sample.position, sample.altitude, sample.speedMps)
-                    } else {
-                        TrackCapture.append(cur, sample.position, sample.altitude, sample.speedMps)
-                    }
-                    s.copy(
-                        points = next.points, elevations = next.elevations,
-                        distanceM = next.distanceM, speedMps = next.speedMps, maxSpeedMps = next.maxSpeedMps,
-                    )
-                }
-                // Persist the growing track so it survives process death.
-                draftStore.save(updated.points, updated.elevations, updated.elapsedSec)
             }
         }
         timerJob = scope.launch {
@@ -158,10 +104,9 @@ class RecordingController @Inject constructor(
 
     /** Pause the recording; capture continues into a side buffer (US-4). */
     fun pause() {
-        val s = _session.value
-        if (!s.active || s.paused) return
-        pauseAnchor = s.points.lastOrNull()
-        _session.update { if (it.active && !it.paused) it.copy(paused = true) else it }
+        if (!_session.value.active || capture.paused) return
+        capture = capture.pause()
+        publish()
     }
 
     /**
@@ -170,29 +115,9 @@ class RecordingController @Inject constructor(
      * gap isn't counted. Either way the buffer is cleared.
      */
     fun resume(includeBuffered: Boolean) {
-        val buffered = pausedCapture
-        _session.update { s ->
-            if (!s.active || !s.paused) return@update s
-            if (includeBuffered && buffered.points.isNotEmpty()) {
-                val join = if (s.points.isNotEmpty()) {
-                    GeoMetrics.haversineMeters(s.points.last(), buffered.points.first())
-                } else {
-                    0.0
-                }
-                s.copy(
-                    paused = false,
-                    points = s.points + buffered.points,
-                    elevations = s.elevations + buffered.elevations,
-                    distanceM = s.distanceM + join + buffered.distanceM,
-                    maxSpeedMps = maxOf(s.maxSpeedMps, buffered.maxSpeedMps),
-                    bufferedDistanceM = 0.0,
-                )
-            } else {
-                penUpNext = true
-                s.copy(paused = false, bufferedDistanceM = 0.0)
-            }
-        }
-        pausedCapture = CapturedTrack(); pauseAnchor = null
+        if (!_session.value.active || !capture.paused) return
+        capture = capture.resume(includeBuffered)
+        publish()
     }
 
     /**
@@ -200,9 +125,8 @@ class RecordingController @Inject constructor(
      * DISCARDS any buffer (the UI routes a significant buffer through [resume] with a prompt).
      */
     fun togglePause() {
-        val s = _session.value
-        if (!s.active) return
-        if (s.paused) resume(includeBuffered = false) else pause()
+        if (!_session.value.active) return
+        if (capture.paused) resume(includeBuffered = false) else pause()
     }
 
     /** Stop collecting; keeps the captured session so the UI can offer "save". */
@@ -215,9 +139,26 @@ class RecordingController @Inject constructor(
     /** Clear the session after it has been saved or discarded. */
     fun reset() {
         stop()
+        capture = CaptureSession()
         _session.value = RecordingSession()
         scope.launch { draftStore.clear() }
     }
+
+    /** Project the [capture] engine's fields into the public [session] flow (preserving active/elapsed). */
+    private fun publish(extra: (RecordingSession) -> RecordingSession = { it }): RecordingSession =
+        _session.updateAndGet { s ->
+            extra(
+                s.copy(
+                    paused = capture.paused,
+                    points = capture.points,
+                    elevations = capture.elevations,
+                    distanceM = capture.distanceM,
+                    speedMps = capture.speedMps,
+                    maxSpeedMps = capture.maxSpeedMps,
+                    bufferedDistanceM = capture.bufferedDistanceM,
+                ),
+            )
+        }
 }
 
 /** Pure sample-quality gating for recording, isolated for testability. */

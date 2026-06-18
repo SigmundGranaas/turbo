@@ -224,6 +224,15 @@ class RouteViewModel @Inject constructor(
     /** The live follow session backing the lock-screen widget; same source the sheet reads. */
     val followSession get() = follow.session
 
+    /** Pause the follow — capture keeps buffering (US-4, Follow = Record). */
+    fun pauseFollow() = follow.pause()
+
+    /** Resume a paused follow; [include] stitches the paused-buffer walk onto the track (US-4). */
+    fun resumeFollow(include: Boolean) = follow.resume(include)
+
+    /** One-tap pause/resume (resuming this way discards the buffer; the UI prompts a big one). */
+    fun toggleFollowPause() = follow.togglePause()
+
     /**
      * Follow an already-saved track's geometry (no solve) — used by "Follow" on a
      * saved track opened on the map, so following works for recorded/imported lines

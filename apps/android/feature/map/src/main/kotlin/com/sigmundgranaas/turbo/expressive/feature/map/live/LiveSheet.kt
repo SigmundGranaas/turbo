@@ -266,7 +266,9 @@ fun LiveSheet(
                     if (detent == LiveDetent.Peek || detent == LiveDetent.Mini) PrimaryStopRow(stats.paused, onTogglePause, onStop)
                     else FullActions(stats.paused, onTogglePause, onStop)
                 } else {
-                    StopFollowingButton(onStop)
+                    // Follow = Record: the same Pause/Resume + Stop pair, so a follow can be
+                    // paused (and the paused walk buffered) exactly like a recording (US-4).
+                    FollowActions(stats.paused, onTogglePause, onStop)
                 }
             }
         }
@@ -484,19 +486,32 @@ private fun FullActions(paused: Boolean, onTogglePause: () -> Unit, onStop: () -
     }
 }
 
+/** Follow controls: Pause/Resume (buffers the paused walk, US-4) beside Stop following. */
 @Composable
-private fun StopFollowingButton(onStop: () -> Unit) {
+private fun FollowActions(paused: Boolean, onTogglePause: () -> Unit, onStop: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val pauseIs = remember { MutableInteractionSource() }
     val stopIs = remember { MutableInteractionSource() }
-    Button(
-        onClick = onStop,
-        colors = ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = Color.White),
-        interactionSource = stopIs,
-        modifier = Modifier.fillMaxWidth().height(56.dp).pressScale(stopIs).testTag("liveStop"),
-    ) {
-        Icon(Icons.Rounded.Close, null, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(9.dp))
-        Text(stringResource(R.string.live_stop_following), fontWeight = FontWeight.W700)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        FilledTonalButton(
+            onClick = onTogglePause,
+            interactionSource = pauseIs,
+            modifier = Modifier.weight(1f).height(56.dp).pressScale(pauseIs).testTag("livePause"),
+        ) {
+            Icon(if (paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(if (paused) R.string.live_resume else R.string.live_pause), fontWeight = FontWeight.W700)
+        }
+        Button(
+            onClick = onStop,
+            colors = ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = Color.White),
+            interactionSource = stopIs,
+            modifier = Modifier.weight(1f).height(56.dp).pressScale(stopIs).testTag("liveStop"),
+        ) {
+            Icon(Icons.Rounded.Close, null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(9.dp))
+            Text(stringResource(R.string.live_stop_following), fontWeight = FontWeight.W700)
+        }
     }
 }
 
