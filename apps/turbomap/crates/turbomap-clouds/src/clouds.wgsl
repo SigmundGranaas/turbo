@@ -438,8 +438,12 @@ fn view_parallax(scr : vec2<f32>) -> vec4<f32> {
     let p_bot = ro + rd * ((U.cloud_alt_base - ro.z) / rd.z);
     var st = (p_top.xy - g.xy) * U.world_to_field;
     var sb = (p_bot.xy - g.xy) * U.world_to_field;
-    // Clamp the shift so a near-horizon ray can't sample wildly off the field.
-    let m = 0.35;
+    // Clamp the shift so a near-horizon ray can't rake wildly across the field.
+    // Near the top of a tilted view rd.z -> 0 so rd.xy/rd.z blows up; without a
+    // tight cap the march sweeps several puffs and averages the cloud/gap
+    // structure into a flat white wash. ~0.10 keeps even the grazing band under
+    // one puff (a puff is ~0.125 of the field at map_scale 8).
+    let m = 0.10;
     if (length(st) > m) { st = normalize(st) * m; }
     if (length(sb) > m) { sb = normalize(sb) * m; }
     return vec4<f32>(st, sb);

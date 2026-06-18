@@ -64,10 +64,15 @@ struct CloudOverlay {
 }
 
 /// Cloud slab thickness as a fraction of the radar box (mercator). Sets the
-/// pitch-parallax magnitude: at a moderate tilt the view ray rakes ~this much
-/// of the field between the slab floor and ceiling, revealing the puff sides.
-/// Scaled by the box so the depth feels the same at any zoom.
-const CLOUD_SLAB_FRAC: f64 = 0.15;
+/// pitch-parallax magnitude: the per-pixel field-uv rake between the slab floor
+/// and ceiling is `(ray.xy/ray.z) · CLOUD_SLAB_FRAC` (the box scale cancels into
+/// `world_to_field`, so the depth feels the same at any zoom). At map_scale 8 a
+/// puff is ~0.125 of the field, so this is kept to a fraction of a puff: 0.15
+/// (the old proxy-matrix value) raked ~3 puffs near the grazing top of a tilted
+/// view and averaged the cloud/gap structure into a flat white wash. 0.04 gives
+/// a subtle, structure-preserving side-reveal. Pair with the shift clamp in
+/// `clouds.wgsl` (`view_parallax`) that caps the grazing-ray blow-up.
+const CLOUD_SLAB_FRAC: f64 = 0.04;
 
 /// Screen-uv → radar-box-uv affine for the cloud overlay. Samples the real
 /// camera projection at three viewport corners (exact for top-down; bearing-
@@ -1599,7 +1604,7 @@ impl Map {
                         // Until that's fixed, the flat top-down field stays
                         // world-locked under tilt (clouds pan/zoom correctly, just
                         // no side-reveal). Flip to `true` to re-enable.
-                        const ENABLE_CAMERA_RAY: bool = false;
+                        const ENABLE_CAMERA_RAY: bool = true;
                         if ENABLE_CAMERA_RAY && cam.pitch_deg > 0.5 {
                             let sx = (max.x - min.x).abs().max(1e-12);
                             let sy = (max.y - min.y).abs().max(1e-12);
