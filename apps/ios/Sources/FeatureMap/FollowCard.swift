@@ -24,6 +24,15 @@ struct FollowCard: View {
             ProgressView(value: controller.fraction)
                 .tint(controller.isOffRoute ? t.orange : t.blue)
 
+            // Follow = Record: accumulated distance + gain + loss you've actually covered,
+            // always visible (US-1) — mirrors the Android follow hero's "Covered" line.
+            HStack(spacing: 4) {
+                Text(coveredText)
+                    .font(.turboCaption).foregroundStyle(t.label2)
+                    .accessibilityIdentifier("follow.covered")
+                Spacer()
+            }
+
             HStack(spacing: 10) {
                 Text(distanceText).font(.turboSubhead).foregroundStyle(t.label2)
                 if controller.isOffRoute {
@@ -64,5 +73,12 @@ struct FollowCard: View {
         let m = controller.distanceRemainingM
         let value = m >= 1000 ? String(format: "%.1f km", m / 1000) : "\(Int(m)) m"
         return controller.arrived ? "You've reached the end" : "\(value) left"
+    }
+
+    /// "Covered 4.1 km · ↑ 412 m · ↓ 138 m" — the real travelled stats, always shown.
+    private var coveredText: String {
+        let d = controller.capturedDistanceM
+        let dist = d >= 1000 ? String(format: "%.1f km", d / 1000) : "\(Int(d)) m"
+        return "Covered \(dist) · ↑ \(Int(controller.capturedAscentM)) m · ↓ \(Int(controller.capturedDescentM)) m"
     }
 }

@@ -41,6 +41,9 @@ public final class FollowController {
     public private(set) var userPosition: LatLng?
     /// Distance actually travelled so far (m) — the captured track, not the planned route.
     public private(set) var capturedDistanceM: Double = 0
+    /// Accumulated climb / drop (m) over the travelled track (Follow = Record).
+    public private(set) var capturedAscentM: Double = 0
+    public private(set) var capturedDescentM: Double = 0
     /// Moving time since the follow started (s).
     public private(set) var elapsedSeconds: Int = 0
 
@@ -69,7 +72,8 @@ public final class FollowController {
         self.reroute = reroute
         isFollowing = true; arrived = false; isOffRoute = false
         // Fresh capture for this follow (Follow = Record).
-        capture = CapturedTrack(); capturedDistanceM = 0; elapsedSeconds = 0; startedAt = Date()
+        capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0
+        elapsedSeconds = 0; startedAt = Date()
         location.requestAlwaysAuthorization()
         location.setBackgroundUpdates(true)
         observation?.cancel()
@@ -98,7 +102,8 @@ public final class FollowController {
         route = nil; reroute = nil
         geometry = []; name = nil; distanceRemainingM = 0; etaSeconds = nil
         fraction = 0; isOffRoute = false; arrived = false; userPosition = nil
-        capture = CapturedTrack(); capturedDistanceM = 0; elapsedSeconds = 0; startedAt = nil
+        capture = CapturedTrack(); capturedDistanceM = 0; capturedAscentM = 0; capturedDescentM = 0
+        elapsedSeconds = 0; startedAt = nil
     }
 
     private func autoSave() {
@@ -145,6 +150,8 @@ public final class FollowController {
         // saved follow is identical to a recording of the same fixes (Follow = Record).
         capture = TrackCapture.append(capture, fix)
         capturedDistanceM = capture.distanceM
+        capturedAscentM = capture.ascentM
+        capturedDescentM = capture.descentM
         maybeReroute(from: fix.position)
     }
 

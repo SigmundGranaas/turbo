@@ -30,8 +30,8 @@ class LiveSheetTest {
     )
 
     private val followStats = LiveStats(
-        mode = LiveMode.Following, distanceRemainingM = 4_100.0, routeDistanceM = 10_300.0,
-        speedMps = 2.5, ascentM = 460.0, ascentRemainingM = 175.0, etaSeconds = 2_520, fraction = 0.62, kcal = 486,
+        mode = LiveMode.Following, distanceM = 6_200.0, distanceRemainingM = 4_100.0, routeDistanceM = 10_300.0,
+        speedMps = 2.5, ascentM = 460.0, descentM = 180.0, ascentRemainingM = 175.0, etaSeconds = 2_520, fraction = 0.62, kcal = 486,
     )
 
     @Test
@@ -101,6 +101,8 @@ class LiveSheetTest {
         }
         composeRule.onNodeWithTag("liveStatus").assertIsDisplayed() // On route
         composeRule.onNodeWithTag("liveProgressFill").assertIsDisplayed()
+        // Accumulated distance + gain + loss are always visible in the follow glance (US-1).
+        composeRule.onNodeWithTag("liveCovered").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("To climb: 175 m").assertIsDisplayed()
         composeRule.onNodeWithTag("liveStop").assertIsDisplayed()
     }

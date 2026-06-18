@@ -193,6 +193,20 @@ fun LiveHero(
         if (!stats.recording) {
             Spacer(Modifier.height(10.dp))
             FollowProgressLabels(stats, metric, onContainer)
+            // Row E — Follow = Record: the accumulated distance + gain + loss you've actually
+            // covered, always visible in the glance (US-1), mirroring the recording hero.
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(
+                    R.string.live_covered,
+                    Units.distance(stats.distanceM, metric),
+                    Units.elevation(stats.ascentM ?: 0.0, metric),
+                    Units.elevation(stats.descentM ?: 0.0, metric),
+                ),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.W600),
+                color = onContainer.copy(alpha = .8f),
+                modifier = Modifier.fillMaxWidth().testTag("liveCovered"),
+            )
         }
     }
 }
