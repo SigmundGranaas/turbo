@@ -21,6 +21,10 @@ use crate::resolver::{ResolvedSource, SourceResolver};
 struct RemoteRasterStub {
     min_zoom: u8,
     max_zoom: u8,
+    /// DEM halo (px) the host bakes into each tile; 0 for plain rasters. The
+    /// terrain mesh reads this so it crops to the interior 256² and uses the
+    /// halo ring to stitch crack-free edges across tile boundaries.
+    dem_halo: u32,
 }
 
 impl TileSource for RemoteRasterStub {
@@ -34,6 +38,9 @@ impl TileSource for RemoteRasterStub {
     }
     fn max_zoom(&self) -> u8 {
         self.max_zoom
+    }
+    fn dem_halo_px(&self) -> u32 {
+        self.dem_halo
     }
 }
 
@@ -68,12 +75,17 @@ impl SourceResolver for HostDrivenResolver {
             } => ResolvedSource::Raster(Arc::new(RemoteRasterStub {
                 min_zoom: *min_zoom,
                 max_zoom: *max_zoom,
+                dem_halo: 0,
             })),
             SourceDef::DemXyz {
-                min_zoom, max_zoom, ..
+                min_zoom,
+                max_zoom,
+                halo,
+                ..
             } => ResolvedSource::Dem(Arc::new(RemoteRasterStub {
                 min_zoom: *min_zoom,
                 max_zoom: *max_zoom,
+                dem_halo: *halo,
             })),
             SourceDef::VectorXyz {
                 min_zoom, max_zoom, ..

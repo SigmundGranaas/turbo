@@ -76,6 +76,12 @@ pub enum SourceDef {
         min_zoom: u8,
         #[serde(default = "default_max_zoom")]
         max_zoom: u8,
+        /// Per-tile halo (px) the server bakes in: each tile is `256 + 2·halo`
+        /// and the outer ring is the neighbours' elevation, so adjacent terrain
+        /// mesh edges agree and the surface doesn't crack at tile boundaries.
+        /// 0 = no halo (visible seams under tilt).
+        #[serde(default)]
+        halo: u32,
     },
 }
 

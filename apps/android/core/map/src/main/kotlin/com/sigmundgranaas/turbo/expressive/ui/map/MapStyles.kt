@@ -39,9 +39,11 @@ object MapStyles {
     private const val SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 
     /** Mapbox-Terrain-RGB DEM from our tileserver — the heightmap that elevates
-     *  the ground in 3D mode (wgpu engine only). No halo (256px tiles match the
-     *  host-backed terrain source); minor tile-edge seams are acceptable. */
-    const val TERRAIN_DEM_URL = "https://kart-api.sandring.no/v1/dem/rgb/{z}/{x}/{y}.png"
+     *  the ground in 3D mode (wgpu engine only). `?halo=1` bakes a 1px ring of
+     *  the neighbours' elevation into each tile (258px) so adjacent terrain mesh
+     *  edges agree and the surface doesn't crack at tile boundaries; MUST match
+     *  the `halo` the scene declares (TurbomapScene.TERRAIN_HALO_PX). */
+    const val TERRAIN_DEM_URL = "https://kart-api.sandring.no/v1/dem/rgb/{z}/{x}/{y}.png?halo=1"
 
     private fun baseTiles(base: BaseLayer): Pair<String, String> = when (base) {
         BaseLayer.Norgeskart -> "norgeskart" to NORGESKART_URL

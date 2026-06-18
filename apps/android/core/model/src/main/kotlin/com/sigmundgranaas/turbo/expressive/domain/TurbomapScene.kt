@@ -61,7 +61,11 @@ object TurbomapScene {
         // heightmap, so the whole ground displaces; the layer itself adds relief
         // shading over the basemap. Placed after the rasters, under the vectors.
         if (demUrl != null) {
-            sources += "\"dem\": { \"type\": \"dem-xyz\", \"tiles\": [\"$demUrl\"], \"encoding\": \"mapbox-rgb\" }"
+            // halo MUST match the `?halo=N` the host fetches (MapStyles): each
+            // tile is 256+2N px with the neighbours' elevation in the ring, so
+            // adjacent terrain mesh edges agree and the surface doesn't crack.
+            sources += "\"dem\": { \"type\": \"dem-xyz\", \"tiles\": [\"$demUrl\"], " +
+                "\"encoding\": \"mapbox-rgb\", \"halo\": $TERRAIN_HALO_PX }"
             layers += "{ \"type\": \"hillshade\", \"id\": \"hillshade\", \"source\": \"dem\", " +
                 "\"exaggeration\": $TERRAIN_EXAGGERATION }"
         }
@@ -116,4 +120,8 @@ object TurbomapScene {
     /** Vertical exaggeration for 3D terrain. 1.0 = true scale; a touch over so
      *  relief reads clearly at hiking zooms without looking caricatured. */
     private const val TERRAIN_EXAGGERATION = 1.3
+
+    /** DEM tile halo (px) — must equal the `?halo=N` the host fetches (MapStyles).
+     *  Stitches adjacent terrain tiles crack-free. */
+    private const val TERRAIN_HALO_PX = 1
 }

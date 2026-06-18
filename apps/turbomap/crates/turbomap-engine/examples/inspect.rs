@@ -115,6 +115,7 @@ fn default_scene() -> Scene {
             encoding: DemEncoding::MapboxRgb,
             min_zoom: 0,
             max_zoom: 22,
+            halo: 0,
         },
     );
     s.layers.push(Layer::Raster {
