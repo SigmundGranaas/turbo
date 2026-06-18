@@ -1585,11 +1585,22 @@ impl Map {
                         c.params.field_uv_dx = dx;
                         c.params.field_uv_dy = dy;
 
-                        // Pitch-3D: when the map is tilted, feed the real camera
-                        // ray so the march rakes through the world-locked volume
-                        // and reveals the puff sides. Off (flat) at pitch ~0 so
-                        // the top-down path stays byte-identical.
-                        if cam.pitch_deg > 0.5 {
+                        // Pitch-3D camera-ray parallax: feed the real camera ray
+                        // so the march rakes through the world-locked volume and
+                        // reveals the puff sides. WIRED but GATED OFF — validated
+                        // via the desktop debug scene (turbomap-app snapshot,
+                        // `CLOUD_DEBUG_VIEW=light --pitch 25/45`) that the
+                        // camera-ray branch of `render_volume` collapses the
+                        // lighting/shadow contrast at moderate tilt: the Light AOV
+                        // goes near-uniform pale and the final composite washes to
+                        // flat white — worse than the flat look it replaces. The
+                        // parallax *shift* itself is sane (bounded, zero at pitch
+                        // 0); the bug is in the camera-ray lighting integration.
+                        // Until that's fixed, the flat top-down field stays
+                        // world-locked under tilt (clouds pan/zoom correctly, just
+                        // no side-reveal). Flip to `true` to re-enable.
+                        const ENABLE_CAMERA_RAY: bool = false;
+                        if ENABLE_CAMERA_RAY && cam.pitch_deg > 0.5 {
                             let sx = (max.x - min.x).abs().max(1e-12);
                             let sy = (max.y - min.y).abs().max(1e-12);
                             c.params.world_to_field = [(1.0 / sx) as f32, (1.0 / sy) as f32];

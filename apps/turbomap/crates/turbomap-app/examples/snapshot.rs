@@ -11,9 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use image::{ImageEncoder, RgbaImage};
+use turbomap_clouds::DebugView;
 use turbomap_core::{
-    Camera, HillshadeStyle, LatLng, Map, MapOptions, PendingTile, RadarFrame, RasterFormat,
-    RasterTile, TileError, TileId, TileSource,
+    Camera, CloudParams, HillshadeStyle, LatLng, Map, MapOptions, PendingTile, RadarFrame,
+    RasterFormat, RasterTile, TileError, TileId, TileSource,
 };
 
 const WIDTH: u32 = 1024;
@@ -358,6 +359,35 @@ fn main() {
         map.ingest_radar_frame(0, &synthetic_radar(GW, GH, 0.40));
         map.ingest_radar_frame(1, &synthetic_radar(GW, GH, 0.55));
         map.set_cloud_time(7.0, 0.5);
+        // Geo-register the radar so the world-locked field-uv affine engages
+        // and, crucially, so `use_camera_ray` (camera-ray pitch parallax)
+        // turns on when the camera is tilted. Without a geo box the overlay
+        // falls back to the flat screen-locked path and `--pitch` would test
+        // nothing about 3D parallax. Box sized to comfortably fill the view.
+        let (clat, clng) = (cli.center.lat, cli.center.lng);
+        map.set_cloud_geo_bounds(clng - 4.0, clat - 2.0, clng + 4.0, clat + 2.0);
+        // Render any internal pipeline stage instead of the final composite,
+        // for headless diagnosis at a given pitch:
+        //   CLOUD_DEBUG_VIEW=parallax CLOUDS=1 cargo run ... --pitch 25
+        if let Ok(v) = std::env::var("CLOUD_DEBUG_VIEW") {
+            let view = match v.as_str() {
+                "final" => DebugView::Final,
+                "precip" => DebugView::RadarPrecip,
+                "coverage" => DebugView::RadarCoverage,
+                "field" => DebugView::CloudField,
+                "density" => DebugView::Density,
+                "light" => DebugView::Light,
+                "alpha" => DebugView::Alpha,
+                "albedo" => DebugView::Albedo,
+                "parallax" => DebugView::Parallax,
+                other => panic!("unknown CLOUD_DEBUG_VIEW {other:?}"),
+            };
+            let params = CloudParams {
+                debug_view: view,
+                ..CloudParams::default()
+            };
+            map.set_cloud_params(params);
+        }
     }
 
     // Drive the host loop synchronously: keep pulling pending tiles
