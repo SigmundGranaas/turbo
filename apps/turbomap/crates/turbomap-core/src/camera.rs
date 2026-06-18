@@ -362,9 +362,19 @@ impl Camera {
                 (world.y - centre.y) * ppw + viewport_px.1 * 0.5 - inset_y,
             ));
         }
-        let vp = self.view_projection((viewport_px.0 as u32, viewport_px.1 as u32));
-        let clip =
-            vp * glam::Vec4::new(world.x as f32, world.y as f32, 0.0, 1.0);
+        // RTC frame (translated to the camera centre) so the f32 matrix carries
+        // small origin-relative magnitudes — same high-zoom precision fix as
+        // `pixel_to_world`; keeps overlays/markers from shimmering under tilt.
+        let origin = self.center.to_world();
+        let vp =
+            self.view_projection_from_origin(origin, (viewport_px.0 as u32, viewport_px.1 as u32));
+        let clip = vp
+            * glam::Vec4::new(
+                (world.x - origin.x) as f32,
+                (world.y - origin.y) as f32,
+                0.0,
+                1.0,
+            );
         if clip.w <= 0.0 {
             return None;
         }
@@ -400,7 +410,14 @@ impl Camera {
                 center.y + (pixel.1 - viewport_px.1 * 0.5 + self.viewport_inset_px * 0.5) / ppw,
             );
         }
-        let vp = self.view_projection((viewport_px.0 as u32, viewport_px.1 as u32));
+        // Unproject in a frame translated to the camera centre (RTC): the f32
+        // matrix then carries small origin-relative magnitudes instead of the
+        // absolute ~0.5 Mercator coords, whose f32 quantisation (~6e-8 world ≈
+        // several px at z16+) made the orbit re-pin jitter at high zoom. The
+        // absolute coord is restored by adding the f64 origin back.
+        let origin = self.center.to_world();
+        let vp =
+            self.view_projection_from_origin(origin, (viewport_px.0 as u32, viewport_px.1 as u32));
         let inv = vp.inverse();
         let ndc_x = (2.0 * pixel.0 / viewport_px.0 - 1.0) as f32;
         let ndc_y = (1.0 - 2.0 * pixel.1 / viewport_px.1) as f32;
@@ -412,7 +429,7 @@ impl Camera {
         }
         let t = -near.z / dir.z;
         let ground = near + dir * t;
-        WorldPoint::new(ground.x as f64, ground.y as f64)
+        WorldPoint::new(origin.x + ground.x as f64, origin.y + ground.y as f64)
     }
 
     /// Linear interpolation between two cameras. Centre is interpolated in
@@ -913,6 +930,23 @@ mod tests {
         assert!((orbited.bearing_deg - 12.0).abs() < 1e-9);
         assert!((orbited.pitch_deg - 15.0).abs() < 1e-9);
         assert_world_close(orbited.pixel_to_world(focus, viewport), pivot_world, 1e-5);
+    }
+
+    #[test]
+    fn orbit_at_high_zoom_keeps_focus_anchored_without_jitter() {
+        // Regression: the orbit re-pin unprojected through the ABSOLUTE-frame f32
+        // view-projection, whose ~0.5 Mercator coords quantise to ~6e-8 world —
+        // several px at z18 — so the pivot jittered each frame when zoomed in
+        // (smooth zoomed out, where ppw is small). The RTC unproject (frame
+        // translated to the camera centre) keeps the residual sub-pixel.
+        let viewport = (1080.0, 2160.0);
+        let focus = (540.0, 800.0);
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 18.0).with_pitch(45.0);
+        let pivot = cam.pixel_to_world(focus, viewport);
+        let orbited = cam.rotated_around(20.0, focus, viewport);
+        // 1px at z18 ≈ 1.5e-8 world; assert well under that. The old f32 absolute
+        // frame drifted ~6e-8 here (≈4 px), which read as jitter.
+        assert_world_close(orbited.pixel_to_world(focus, viewport), pivot, 5e-9);
     }
 
     #[test]
