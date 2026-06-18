@@ -205,7 +205,14 @@ class RouteViewModel @Inject constructor(
     fun follow() {
         (_state.value as? RouteUiState.Done)?.let {
             _state.value = RouteUiState.Following(it.plan)
-            follow.start(it.plan)
+            // Checkpoints = the stops after the origin (US-3), labelled by their on-map letter
+            // (B, C, …) so the split list matches the waypoint badges.
+            val stops = _waypoints.value.drop(1)
+            follow.start(
+                it.plan,
+                phasePoints = stops,
+                phaseNames = stops.indices.map { i -> ('B' + i).toString() },
+            )
         }
     }
 

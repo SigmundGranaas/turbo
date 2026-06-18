@@ -1,6 +1,7 @@
 package com.sigmundgranaas.turbo.expressive.core.data
 
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
+import com.sigmundgranaas.turbo.expressive.core.geo.PhaseSplit
 
 /** Whether the live surface is capturing a track or following a planned route. */
 enum class LiveMode { Recording, Following }
@@ -34,6 +35,11 @@ data class LiveStats(
     val kcal: Int = 0,
     /** Distance (m) walked while paused, pending Include/Discard — drives the resume nudge (US-4). */
     val bufferedDistanceM: Double = 0.0,
+    /** Checkpoints crossed so far with split times (following, US-3). */
+    val phaseSplits: List<PhaseSplit> = emptyList(),
+    /** Next checkpoint name + distance to it (following), or null when none remain. */
+    val nextPhaseName: String? = null,
+    val nextPhaseDistanceM: Double? = null,
 ) {
     val recording: Boolean get() = mode == LiveMode.Recording
 
@@ -85,6 +91,9 @@ data class LiveStats(
                 etaSeconds = session.progress?.etaSeconds,
                 fraction = fraction,
                 kcal = plan?.let { GeoMetrics.estimateKcal(it.distanceM, it.ascentM) } ?: 0,
+                phaseSplits = session.phaseSplits,
+                nextPhaseName = session.nextPhaseName,
+                nextPhaseDistanceM = session.nextPhaseDistanceM,
             )
         }
     }

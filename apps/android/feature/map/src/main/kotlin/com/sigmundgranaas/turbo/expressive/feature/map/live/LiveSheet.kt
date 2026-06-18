@@ -27,11 +27,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DirectionsWalk
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Stop
@@ -329,12 +331,52 @@ private fun FollowBody(
             LiveMetricTile(Icons.Rounded.LocalFireDepartment, stringResource(R.string.live_energy), "${stats.kcal}", unit = stringResource(R.string.live_kcal), tone = MetricTone.Tertiary, modifier = Modifier.weight(1f))
         }
         ElevationCard(elevations, stats, metric)
-        if (nextWaypoint != null) {
+        if (stats.phaseSplits.isNotEmpty() || stats.nextPhaseName != null) {
+            Spacer(Modifier.height(10.dp))
+            CheckpointsCard(stats, metric)
+        } else if (nextWaypoint != null) {
             Spacer(Modifier.height(10.dp))
             NextWaypointRow(caption = nextWaypoint.first, name = nextWaypoint.second)
         }
     } else {
         SwipeHint(R.string.live_swipe_more)
+    }
+}
+
+/** Split-times like a running watch (US-3): crossed checkpoints + their splits, then the next. */
+@Composable
+private fun CheckpointsCard(stats: LiveStats, metric: Boolean) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(cs.surfaceContainerHighest)
+            .padding(horizontal = 14.dp, vertical = 12.dp).testTag("liveCheckpoints"),
+    ) {
+        Text(
+            stringResource(R.string.live_checkpoints),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.W800),
+            color = cs.onSurfaceVariant,
+        )
+        stats.phaseSplits.forEach { split ->
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.CheckCircle, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(split.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.W700), color = cs.onSurface, modifier = Modifier.weight(1f))
+                Text(
+                    "${Units.distance(split.splitDistanceM, metric)} · ${formatLiveClock(split.splitSeconds)}",
+                    style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant,
+                )
+            }
+        }
+        stats.nextPhaseName?.let { name ->
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.RadioButtonUnchecked, null, tint = cs.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.live_next_checkpoint, name), style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, modifier = Modifier.weight(1f))
+                Text(Units.distance(stats.nextPhaseDistanceM ?: 0.0, metric), style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.W700), color = cs.onSurface)
+            }
+        }
     }
 }
 

@@ -119,6 +119,26 @@ class FollowControllerTest {
     }
 
     @Test
+    fun `crossing a checkpoint logs a split (US-3)`() = runTest {
+        val loc = FakeLocation()
+        val controller = FollowController(loc, FakePaths(), backgroundScope)
+        // A checkpoint at the route midpoint, plus the end.
+        controller.start(
+            plan, name = "Skåla Loop",
+            phasePoints = listOf(LatLng(69.025, 18.0), LatLng(69.05, 18.0)),
+            phaseNames = listOf("B", "C"),
+        )
+        runCurrent()
+        // Walk past the midpoint checkpoint.
+        for (i in 0..10) { loc.emit(69.00 + i * 0.003, 18.0); runCurrent() } // 69.00 … 69.03
+        val s = controller.session.value
+        assertTrue("crossed at least the midpoint checkpoint", s.phaseSplits.isNotEmpty())
+        assertEquals("B", s.phaseSplits.first().name)
+        assertTrue("split has a distance", s.phaseSplits.first().splitDistanceM > 0.0)
+        assertEquals("next checkpoint is C", "C", s.nextPhaseName)
+    }
+
+    @Test
     fun `a trivially short follow is not auto-saved`() = runTest {
         val loc = FakeLocation()
         val paths = FakePaths()

@@ -10,6 +10,8 @@
     <string name="live_ascent_up">ascent ↑</string>
     <string name="live_descent_down">descent ↓</string>
     <string name="live_covered">Covered %1$s · ↑ %2$s · ↓ %3$s · %4$s</string>
+    <string name="live_checkpoints">Checkpoints</string>
+    <string name="live_next_checkpoint">Next · %1$s</string>
     <string name="live_nudge_title">Still moving while paused?</string>
     <string name="live_nudge_body">%1$s captured · resume to keep it</string>
     <string name="live_resume_buffer_title">Moved while paused</string>

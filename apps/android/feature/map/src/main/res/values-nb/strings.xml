@@ -10,6 +10,8 @@
     <string name="live_ascent_up">stigning ↑</string>
     <string name="live_descent_down">nedstigning ↓</string>
     <string name="live_covered">Tilbakelagt %1$s · ↑ %2$s · ↓ %3$s · %4$s</string>
+    <string name="live_checkpoints">Sjekkpunkter</string>
+    <string name="live_next_checkpoint">Neste · %1$s</string>
     <string name="live_nudge_title">Beveger du deg på pause?</string>
     <string name="live_nudge_body">%1$s fanget · fortsett for å beholde det</string>
     <string name="live_resume_buffer_title">Beveget deg på pause</string>

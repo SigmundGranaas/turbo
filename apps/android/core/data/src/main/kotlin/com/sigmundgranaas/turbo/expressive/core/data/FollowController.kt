@@ -2,6 +2,7 @@ package com.sigmundgranaas.turbo.expressive.core.data
 
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
+import com.sigmundgranaas.turbo.expressive.core.geo.PhaseSplit
 import com.sigmundgranaas.turbo.expressive.core.geo.RouteProgress
 import com.sigmundgranaas.turbo.expressive.core.geo.RouteProgressTracker
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
@@ -53,6 +54,11 @@ data class FollowSession(
     val maxSpeedMps: Double = 0.0,
     /** Moving time (s) since the follow started. */
     val elapsedSec: Int = 0,
+    /** Checkpoints crossed so far, with split times (US-3). */
+    val phaseSplits: List<PhaseSplit> = emptyList(),
+    /** The next checkpoint's name + distance to it, or null when all are crossed. */
+    val nextPhaseName: String? = null,
+    val nextPhaseDistanceM: Double? = null,
 ) {
     /** Whether the hiker has effectively reached the end of the route. */
     val arrived: Boolean get() = active && (progress?.arrived ?: false)
@@ -79,33 +85,72 @@ class FollowController @Inject constructor(
     private var locationJob: Job? = null
     private var timerJob: Job? = null
     private var tracker: RouteProgressTracker? = null
+    // Phase (checkpoint) state (US-3): names parallel to the tracker's phase positions, plus the
+    // captured distance/time at the last crossing (so each split is "since the previous phase").
+    private var phaseNames: List<String> = emptyList()
+    private var lastPhaseDistanceM = 0.0
+    private var lastPhaseSec = 0
 
-    fun start(plan: RoutePlan, name: String? = null) {
+    /**
+     * Begin following [plan]. [phasePoints] (typically the route's waypoints) + [phaseNames]
+     * become checkpoints whose crossings are split-timed (US-3).
+     */
+    fun start(
+        plan: RoutePlan,
+        name: String? = null,
+        phasePoints: List<LatLng> = emptyList(),
+        phaseNames: List<String> = emptyList(),
+    ) {
         _session.value = FollowSession(active = true, plan = plan, name = name)
-        tracker = RouteProgressTracker(route = plan.geometry, ascentM = plan.ascentM)
+        tracker = RouteProgressTracker(route = plan.geometry, ascentM = plan.ascentM, phasePositions = phasePoints)
+        this.phaseNames = phaseNames
+        lastPhaseDistanceM = 0.0
+        lastPhaseSec = 0
         if (!location.hasPermission()) return
         locationJob?.cancel()
         locationJob = scope.launch {
             location.samples().collect { sample ->
-                val progress = tracker?.update(sample.position)
-                _session.update { s ->
-                    if (s.plan == null) return@update s
-                    // Capture the travelled track with the SAME engine recording uses,
-                    // so the saved follow is byte-for-byte what a recording would be.
-                    val next = TrackCapture.append(
-                        CapturedTrack(s.points, s.elevations, s.capturedDistanceM, s.speedMps, s.maxSpeedMps),
-                        sample.position, sample.altitude, sample.speedMps,
-                    )
-                    s.copy(
-                        position = sample.position,
-                        progress = progress,
-                        speedMps = sample.speedMps ?: s.speedMps,
-                        points = next.points,
-                        elevations = next.elevations,
-                        capturedDistanceM = next.distanceM,
-                        maxSpeedMps = next.maxSpeedMps,
-                    )
+                val t = tracker ?: return@collect
+                val progress = t.update(sample.position)
+                val s = _session.value
+                if (s.plan == null) return@collect
+                // Capture the travelled track with the SAME engine recording uses,
+                // so the saved follow is byte-for-byte what a recording would be.
+                val next = TrackCapture.append(
+                    CapturedTrack(s.points, s.elevations, s.capturedDistanceM, s.speedMps, s.maxSpeedMps),
+                    sample.position, sample.altitude, sample.speedMps,
+                )
+                // Record a split for each checkpoint the cursor just passed.
+                var splits = s.phaseSplits
+                if (t.passedPhaseCount > splits.size) {
+                    val acc = splits.toMutableList()
+                    for (i in splits.size until t.passedPhaseCount) {
+                        acc += PhaseSplit(
+                            index = i,
+                            name = phaseNames.getOrElse(i) { "Checkpoint ${i + 1}" },
+                            crossedAtEpochMs = System.currentTimeMillis(),
+                            splitDistanceM = next.distanceM - lastPhaseDistanceM,
+                            splitSeconds = s.elapsedSec - lastPhaseSec,
+                        )
+                        lastPhaseDistanceM = next.distanceM
+                        lastPhaseSec = s.elapsedSec
+                    }
+                    splits = acc
                 }
+                val nextIdx = t.nextPhaseIndex
+                val nextName = phaseNames.getOrNull(nextIdx)
+                _session.value = s.copy(
+                    position = sample.position,
+                    progress = progress,
+                    speedMps = sample.speedMps ?: s.speedMps,
+                    points = next.points,
+                    elevations = next.elevations,
+                    capturedDistanceM = next.distanceM,
+                    maxSpeedMps = next.maxSpeedMps,
+                    phaseSplits = splits,
+                    nextPhaseName = nextName,
+                    nextPhaseDistanceM = if (nextName != null) t.distanceToPhase(nextIdx) else null,
+                )
             }
         }
         timerJob?.cancel()
