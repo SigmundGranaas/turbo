@@ -55,7 +55,7 @@ class SyntheticRadarDataSource(
                     var mass = 0f
                     mass += gauss(dist(nx, ny, 0.78f + t * 0.9f, 0.32f), 0.16f) * 0.85f
                     mass += gauss(dist(nx, ny, 0.30f + t * 0.9f, 0.66f), 0.18f) * 0.9f
-                    val cov = (band * 0.85f + mass).coerceIn(0f, 1f)
+                    val cov = (0.28f + band * 0.85f + mass).coerceIn(0f, 1f) // TEMP floor for pitch-3D device test
                     val pr = (band * band * 0.7f).coerceIn(0f, 1f)
                     coverage[y * gridW + x] = (cov * 255f).toInt().toByte()
                     precip[y * gridW + x] = (pr * 255f).toInt().toByte()

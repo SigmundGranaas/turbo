@@ -123,7 +123,7 @@ object GeoMetrics {
     }
 
     // Planar approximation of the closest point on segment a→b to p (fine at trail scale).
-    private fun projectFraction(a: LatLng, b: LatLng, p: LatLng): Pair<LatLng, Double> {
+    internal fun projectFraction(a: LatLng, b: LatLng, p: LatLng): Pair<LatLng, Double> {
         val ax = a.lng; val ay = a.lat
         val bx = b.lng; val by = b.lat
         val px = p.lng; val py = p.lat

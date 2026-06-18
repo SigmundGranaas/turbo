@@ -347,16 +347,18 @@ class RouteViewModelTest {
         assertTrue(vm.state.value is RouteUiState.Following)
         assertTrue(vm.followSession.value.active)
 
-        // Walk to the midpoint → the LiveStats the sheet AND the lock notification format from.
-        loc.emit(69.025, 18.0, speed = 1.5); runCurrent()
+        // Walk to ~midpoint in ~333 m steps (the cursor must be walked, not teleported)
+        // → the LiveStats the sheet AND the lock notification format from.
+        for (i in 0..8) { loc.emit(69.00 + i * 0.003, 18.0, speed = 1.5); runCurrent() }
         val mid = LiveStats.of(vm.followSession.value)
         assertEquals(LiveMode.Following, mid.mode)
         assertTrue("fraction ~0.5 but was ${mid.fraction}", (mid.fraction ?: 0.0) in 0.4..0.6)
-        assertTrue("remaining ~2.75 km but was ${mid.distanceRemainingM}", mid.distanceRemainingM!! in 2_000.0..3_500.0)
+        assertTrue("remaining but was ${mid.distanceRemainingM}", mid.distanceRemainingM!! in 2_000.0..3_500.0)
         assertEquals(1.5, mid.speedMps!!, 1e-6)
 
-        // Walk to the end → arrival latches.
-        loc.emit(69.0499, 18.0); runCurrent()
+        // Continue to the end → arrival latches.
+        for (i in 9..16) { loc.emit(69.00 + i * 0.003, 18.0); runCurrent() }
+        loc.emit(69.05, 18.0); runCurrent()
         assertTrue(vm.followSession.value.arrived)
     }
 }

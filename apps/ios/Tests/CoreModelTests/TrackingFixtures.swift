@@ -55,6 +55,27 @@ enum TrackingFixtures {
     }
 }
 
+@Suite("RouteProgress cursor")
+struct RouteProgressFixtureTests {
+    @Test("straight line") func straight() { run("straight") }
+    @Test("out-and-back (start == end loop bug)") func outAndBack() { run("out-and-back") }
+
+    private func run(_ name: String) {
+        let fx = TrackingFixtures.progress(name)
+        let tracker = RouteProgressTracker(
+            route: fx.routePoints,
+            windowBackM: fx.params.windowBackM, windowAheadM: fx.params.windowAheadM,
+            offRouteM: fx.params.offRouteM, arriveEndM: fx.params.arriveEndM)
+        for (i, fix) in fx.fixPoints.enumerated() {
+            let p = tracker.update(fix)
+            let e = fx.expect[i]
+            #expect(abs(p.fraction - e.fraction) < 0.02, "\(name) fix \(i): fraction \(p.fraction) != \(e.fraction)")
+            #expect(p.arrived == e.arrived, "\(name) fix \(i): arrived \(p.arrived) != \(e.arrived)")
+            #expect(p.offRoute == e.offRoute, "\(name) fix \(i): offRoute \(p.offRoute) != \(e.offRoute)")
+        }
+    }
+}
+
 @Suite("Tracking fixtures load")
 struct TrackingFixtureLoadingTests {
     @Test("progress fixtures parse with matching expect counts")
@@ -62,7 +83,7 @@ struct TrackingFixtureLoadingTests {
         let straight = TrackingFixtures.progress("straight")
         #expect(straight.route.count == 2)
         #expect(straight.fixes.count == straight.expect.count)
-        #expect(straight.params.windowAheadM == 400)
+        #expect(straight.params.windowAheadM == 1500)
 
         let oab = TrackingFixtures.progress("out-and-back")
         #expect(oab.route.count == 3)

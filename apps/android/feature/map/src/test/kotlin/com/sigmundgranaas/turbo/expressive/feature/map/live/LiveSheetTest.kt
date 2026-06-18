@@ -8,7 +8,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.sigmundgranaas.turbo.expressive.core.data.LiveMode
 import com.sigmundgranaas.turbo.expressive.core.data.LiveStats
-import com.sigmundgranaas.turbo.expressive.core.geo.JourneyProgress
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

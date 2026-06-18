@@ -67,13 +67,36 @@ object TrackingFixtures {
     }
 }
 
+class RouteProgressFixtureTest {
+    @Test fun `straight line`() = run("straight")
+    @Test fun `out-and-back (start == end loop bug)`() = run("out-and-back")
+
+    private fun run(name: String) {
+        val fx = TrackingFixtures.progress(name)
+        val tracker = RouteProgressTracker(
+            route = fx.route,
+            windowBackM = fx.params.windowBackM,
+            windowAheadM = fx.params.windowAheadM,
+            offRouteM = fx.params.offRouteM,
+            arriveEndM = fx.params.arriveEndM,
+        )
+        fx.fixes.forEachIndexed { i, fix ->
+            val p = tracker.update(fix)
+            val e = fx.expect[i]
+            assertEquals("$name fix $i fraction", e.fraction, p.fraction, 0.02)
+            assertEquals("$name fix $i arrived", e.arrived, p.arrived)
+            assertEquals("$name fix $i offRoute", e.offRoute, p.offRoute)
+        }
+    }
+}
+
 class TrackingFixtureLoadingTest {
     @Test
     fun `progress fixtures parse with matching expect counts`() {
         val straight = TrackingFixtures.progress("straight")
         assertEquals(2, straight.route.size)
         assertEquals(straight.fixes.size, straight.expect.size)
-        assertEquals(400.0, straight.params.windowAheadM, 0.0)
+        assertEquals(1500.0, straight.params.windowAheadM, 0.0)
 
         val oab = TrackingFixtures.progress("out-and-back")
         assertEquals(3, oab.route.size)

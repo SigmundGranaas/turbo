@@ -42,12 +42,10 @@ public final class FollowController {
 
     private let location: LocationProvider
     private var route: FollowRoute?
+    private var tracker: RouteProgressTracker?
     private var reroute: (@Sendable ([LatLng]) async -> FollowRoute?)?
     private var observation: Task<Void, Never>?
     private var rerouting = false
-
-    static let offRouteThresholdM = 50.0
-    static let arrivalM = 40.0
 
     public init(location: LocationProvider) { self.location = location }
 
@@ -79,18 +77,19 @@ public final class FollowController {
         geometry = route.geometry
         name = route.name
         distanceRemainingM = route.distanceM
+        // Fresh arc-length cursor for this route (also reset on reroute).
+        tracker = RouteProgressTracker(route: route.geometry, ascentM: route.ascentM)
     }
 
     private func onFix(_ fix: LocationFix) {
-        guard isFollowing, let route else { return }
+        guard isFollowing, let tracker else { return }
         userPosition = fix.position
-        isOffRoute = GeoMetrics.distanceToPath(route.geometry, fix.position) > Self.offRouteThresholdM
-        if let p = GeoMetrics.progress(route.geometry, position: fix.position, ascentM: route.ascentM) {
-            fraction = p.fraction
-            distanceRemainingM = p.distanceRemainingM
-            etaSeconds = p.etaSeconds
-        }
-        arrived = distanceRemainingM <= Self.arrivalM
+        let p = tracker.update(fix.position)
+        fraction = p.fraction
+        distanceRemainingM = p.distanceRemainingM
+        etaSeconds = p.etaSeconds
+        isOffRoute = p.offRoute
+        arrived = p.arrived
         maybeReroute(from: fix.position)
     }
 

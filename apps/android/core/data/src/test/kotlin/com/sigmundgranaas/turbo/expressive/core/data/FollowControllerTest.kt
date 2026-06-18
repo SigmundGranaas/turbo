@@ -38,20 +38,21 @@ class FollowControllerTest {
         assertTrue(controller.session.value.active)
         assertEquals("Skåla Loop", controller.session.value.name)
 
-        // A fix near the midpoint → ~50 % progress.
-        loc.emit(69.025, 18.0, speed = 2.5); runCurrent()
+        // The cursor must be WALKED — feed fixes in ~333 m steps to the midpoint.
+        for (i in 0..8) { loc.emit(69.00 + i * 0.003, 18.0, speed = 2.5); runCurrent() }
         val p = controller.session.value.progress!!
         assertTrue("fraction ~0.5 but was ${p.fraction}", p.fraction in 0.4..0.6)
         assertEquals(2.5, controller.session.value.speedMps!!, 1e-6)
     }
 
     @Test
-    fun `arrived flips true near the end of the route`() = runTest {
+    fun `arrived flips true after walking to the end`() = runTest {
         val loc = FakeLocation()
         val controller = FollowController(loc, backgroundScope)
         controller.start(plan)
         runCurrent()
-        loc.emit(69.0499, 18.0); runCurrent() // ~11 m from the end
+        for (i in 0..16) { loc.emit(69.00 + i * 0.003, 18.0); runCurrent() } // ~69.048
+        loc.emit(69.05, 18.0); runCurrent() // the end
         assertTrue(controller.session.value.arrived)
     }
 

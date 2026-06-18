@@ -1,7 +1,7 @@
 {
   "name": "straight",
-  "description": "A 0.04deg east-west line at the equator (~4448 m). Fixes walk it end to end; fraction is the simple proportion, arrived only at the final point.",
-  "params": { "windowBackM": 60, "windowAheadM": 400, "offRouteM": 50, "arriveEndM": 30 },
+  "description": "A 0.04deg east-west line at the equator (~4448 m). Fixes walk it end to end; fraction is the simple proportion, arrived only at the final point. The fixes are spaced ~1112 m apart for clean fractions, so windowAheadM is widened to suit (production uses ~400 m for 1-second GPS).",
+  "params": { "windowBackM": 60, "windowAheadM": 1500, "offRouteM": 50, "arriveEndM": 30 },
   "route": [[0.0, 0.0], [0.0, 0.04]],
   "fixes": [
     [0.0, 0.0],
