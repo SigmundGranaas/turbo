@@ -19,6 +19,7 @@ use bytemuck::{Pod, Zeroable};
 
 pub mod data;
 pub mod metrics;
+pub mod noise3d;
 
 pub use data::{Cell, RadarFrame, SyntheticStorm};
 
