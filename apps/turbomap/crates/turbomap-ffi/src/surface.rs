@@ -663,7 +663,11 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
                         PendingTile::Raster { layer_id, tile } => ("raster", layer_id, tile),
                         PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id, tile),
                         PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
-                        PendingTile::Terrain { .. } => return None,
+                        // Map-level DEM heightmap (no layer). The host maps the
+                        // "terrain" kind to its DEM URL and pushes bytes back via
+                        // `nativeIngestTerrain`. Surfaced (was dropped) so 3D mode
+                        // can displace the ground by real elevation.
+                        PendingTile::Terrain { tile } => ("terrain", "__terrain".to_string(), tile),
                     };
                     Some(format!(
                         "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
@@ -703,6 +707,34 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         with_map(handle, |map| {
             map.engine
                 .ingest_raster_encoded(&layer, TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32), &data)
+        })
+    };
+    if ok == Some(true) { JNI_TRUE } else { JNI_FALSE }
+}
+
+/// Push a fetched DEM tile (encoded Mapbox-Terrain-RGB PNG) into the shared
+/// heightmap, so the ground-plane pipelines displace by elevation (3D terrain).
+/// Returns false if it doesn't decode or the handle is gone.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeIngestTerrain(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    z: jint,
+    x: jint,
+    y: jint,
+    bytes: jni::objects::JByteArray,
+) -> jboolean {
+    let data = match env.convert_byte_array(&bytes) {
+        Ok(d) => d,
+        Err(_) => return JNI_FALSE,
+    };
+    let ok = unsafe {
+        with_map(handle, |map| {
+            map.engine.ingest_terrain_encoded(
+                TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32),
+                &data,
+            )
         })
     };
     if ok == Some(true) { JNI_TRUE } else { JNI_FALSE }

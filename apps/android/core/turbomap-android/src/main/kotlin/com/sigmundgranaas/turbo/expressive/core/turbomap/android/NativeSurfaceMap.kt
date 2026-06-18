@@ -94,6 +94,9 @@ internal object NativeSurfaceMap {
     /** Push a fetched raster tile (encoded image bytes); false if it didn't decode. */
     external fun nativeIngestRaster(handle: Long, layerId: String, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
 
+    /** Push a fetched DEM tile (Mapbox-Terrain-RGB PNG) into the shared heightmap (3D terrain). */
+    external fun nativeIngestTerrain(handle: Long, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
+
     // ── Weather-cloud overlay ───────────────────────────────────────────────
     /** Enable the procedural cloud overlay with a [gridW]×[gridH] radar grid. */
     external fun nativeEnableClouds(handle: Long, gridW: Int, gridH: Int)

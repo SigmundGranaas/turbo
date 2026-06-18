@@ -38,6 +38,11 @@ object TurbomapScene {
         route: List<LatLng>? = null,
         measure: List<LatLng> = emptyList(),
         user: LatLng? = null,
+        // When set, the engine loads this Mapbox-Terrain-RGB DEM as the shared
+        // heightmap and ALL ground layers (basemap raster, hillshade, vector)
+        // displace their vertices by elevation — real 3D terrain. The host
+        // fetches the DEM tiles (it owns this same URL template). null = flat.
+        demUrl: String? = null,
         trackColor: Rgba = TrackColor,
         routeColor: Rgba = RouteColor,
         measureColor: Rgba = MeasureColor,
@@ -49,6 +54,16 @@ object TurbomapScene {
             val src = "r_${r.id}"
             sources += "\"$src\": { \"type\": \"raster-xyz\", \"tiles\": [\"${r.tileUrlTemplate}\"] }"
             layers += "{ \"type\": \"raster\", \"id\": \"${r.id}\", \"source\": \"$src\" }"
+        }
+
+        // Terrain: a DEM source + hillshade layer. Declaring the hillshade layer
+        // (whose source resolves to a DEM) makes the engine set the shared
+        // heightmap, so the whole ground displaces; the layer itself adds relief
+        // shading over the basemap. Placed after the rasters, under the vectors.
+        if (demUrl != null) {
+            sources += "\"dem\": { \"type\": \"dem-xyz\", \"tiles\": [\"$demUrl\"], \"encoding\": \"mapbox-rgb\" }"
+            layers += "{ \"type\": \"hillshade\", \"id\": \"hillshade\", \"source\": \"dem\", " +
+                "\"exaggeration\": $TERRAIN_EXAGGERATION }"
         }
 
         fun line(id: String, pts: List<LatLng>?, color: Rgba, width: Double) {
@@ -97,4 +112,8 @@ object TurbomapScene {
     private const val MEASURE_WIDTH = 3.0
     private const val MEASURE_RADIUS = 4.0
     private const val USER_RADIUS = 7.0
+
+    /** Vertical exaggeration for 3D terrain. 1.0 = true scale; a touch over so
+     *  relief reads clearly at hiking zooms without looking caricatured. */
+    private const val TERRAIN_EXAGGERATION = 1.3
 }

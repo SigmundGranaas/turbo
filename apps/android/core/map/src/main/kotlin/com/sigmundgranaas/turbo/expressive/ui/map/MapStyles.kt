@@ -38,6 +38,11 @@ object MapStyles {
     private const val OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     private const val SATELLITE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 
+    /** Mapbox-Terrain-RGB DEM from our tileserver — the heightmap that elevates
+     *  the ground in 3D mode (wgpu engine only). No halo (256px tiles match the
+     *  host-backed terrain source); minor tile-edge seams are acceptable. */
+    const val TERRAIN_DEM_URL = "https://kart-api.sandring.no/v1/dem/rgb/{z}/{x}/{y}.png"
+
     private fun baseTiles(base: BaseLayer): Pair<String, String> = when (base) {
         BaseLayer.Norgeskart -> "norgeskart" to NORGESKART_URL
         BaseLayer.Osm -> "osm" to OSM_URL

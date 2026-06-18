@@ -100,6 +100,9 @@ fun TurbomapMapView(
     // location (or screen centre if it's off-screen) and two fingers pan + zoom.
     // Default false → unchanged 2D pan/zoom. See the 2D/3D mode design doc.
     threeDMode: Boolean = false,
+    // DEM tile URL template (Mapbox-Terrain-RGB, `{z}/{x}/{y}`). When non-null the
+    // ground displaces by real elevation (3D terrain). Pass it only in 3D mode.
+    demUrl: String? = null,
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
     onBearingChange: (Double) -> Unit = {},
@@ -113,7 +116,7 @@ fun TurbomapMapView(
     controller.onBearingChange = onBearingChange
     controller.onError = onEngineError
     controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles") }
-    fun scene() = TurbomapScene.build(rasters, track, route, measure, userLocation)
+    fun scene() = TurbomapScene.build(rasters, track, route, measure, userLocation, demUrl = demUrl)
 
     // Latest values read by the long-lived gesture lambda (pointerInput(Unit)
     // never restarts), so toggling 3D / moving the user dot takes effect without
@@ -135,7 +138,7 @@ fun TurbomapMapView(
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) = Unit
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            controller.attachOrResize(holder.surface, width, height, initialCamera, initialZoom, scene(), rasters, onMapReady)
+                            controller.attachOrResize(holder.surface, width, height, initialCamera, initialZoom, scene(), rasters, demUrl, onMapReady)
                         }
                         override fun surfaceDestroyed(holder: SurfaceHolder) = controller.detach()
                     })
@@ -195,8 +198,8 @@ fun TurbomapMapView(
         }
     }
 
-    LaunchedEffect(rasters, track, route, measure, userLocation) {
-        controller.applyScene(scene(), rasters)
+    LaunchedEffect(rasters, track, route, measure, userLocation, demUrl) {
+        controller.applyScene(scene(), rasters, demUrl)
     }
     DisposableEffect(Unit) { onDispose { controller.detach() } }
 }
@@ -221,6 +224,8 @@ internal class TurbomapSurfaceController {
     private var width = 0
     private var height = 0
     private var rasters: List<TurbomapScene.RasterSpec> = emptyList()
+    /** DEM tile URL template for 3D terrain ("terrain" pending tiles fetch this); null = flat. */
+    private var demUrl: String? = null
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
     private var lastBearing = Double.NaN
 
@@ -323,11 +328,13 @@ internal class TurbomapSurfaceController {
         zoom: Double,
         sceneJson: String,
         rasterSpecs: List<TurbomapScene.RasterSpec>,
+        demUrlTemplate: String?,
         onMapReady: (MapEngine) -> Unit,
     ) {
         width = w
         height = h
         rasters = rasterSpecs
+        demUrl = demUrlTemplate
         if (handle == 0L) {
             handle = NativeSurfaceMap.nativeCreate(surface, w, h, camera.lat, camera.lng, zoom)
             if (handle == 0L) {
@@ -353,9 +360,10 @@ internal class TurbomapSurfaceController {
         }
     }
 
-    fun applyScene(sceneJson: String, rasterSpecs: List<TurbomapScene.RasterSpec>) {
+    fun applyScene(sceneJson: String, rasterSpecs: List<TurbomapScene.RasterSpec>, demUrlTemplate: String?) {
         if (handle == 0L) return
         rasters = rasterSpecs
+        demUrl = demUrlTemplate
         NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
         NativeSurfaceMap.nativePumpLocal(handle)
         requestRender(cameraMoved = false)
@@ -527,18 +535,33 @@ internal class TurbomapSurfaceController {
         decision.toStart.forEach { key -> byKey[key]?.let { inFlight[key] = launchTileFetch(it) } }
     }
 
-    private data class TileFetch(val layer: String, val z: Int, val x: Int, val y: Int, val key: String, val url: String)
+    private data class TileFetch(
+        val layer: String,
+        val z: Int,
+        val x: Int,
+        val y: Int,
+        val key: String,
+        val url: String,
+        val terrain: Boolean = false,
+    )
 
-    /** Turn one pending-tiles entry into a fetchable raster request, or null. */
+    /** Turn one pending-tiles entry into a fetchable raster/DEM request, or null.
+     *  "terrain" entries use the DEM URL (3D heightmap) and ingest via the DEM
+     *  path; "raster" entries use their layer's template. */
     private fun parsePendingRaster(o: org.json.JSONObject?): TileFetch? {
-        if (o == null || o.optString("kind") != "raster") return null
+        if (o == null) return null
+        val kind = o.optString("kind")
         val layer = o.optString("layer")
-        val template = rasters.firstOrNull { it.id == layer }?.tileUrlTemplate ?: return null
+        val template = when (kind) {
+            "raster" -> rasters.firstOrNull { it.id == layer }?.tileUrlTemplate
+            "terrain" -> demUrl
+            else -> null
+        } ?: return null
         val z = o.optInt("z")
         val x = o.optInt("x")
         val y = o.optInt("y")
         val url = template.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
-        return TileFetch(layer, z, x, y, "$layer/$z/$x/$y", url)
+        return TileFetch(layer, z, x, y, "$layer/$z/$x/$y", url, terrain = kind == "terrain")
     }
 
     private fun launchTileFetch(t: TileFetch): Job {
@@ -558,7 +581,11 @@ internal class TurbomapSurfaceController {
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
                 }
                 handle == 0L -> Unit
-                NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes) -> {
+                (if (t.terrain) {
+                    NativeSurfaceMap.nativeIngestTerrain(handle, t.z, t.x, t.y, bytes)
+                } else {
+                    NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes)
+                }) -> {
                     requestRender(cameraMoved = false) // new tile → redraw, overlays unchanged
                 }
                 else -> {
