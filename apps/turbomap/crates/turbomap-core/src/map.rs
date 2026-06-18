@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::{
-    camera::{Camera, CameraAnimation, FlingAnimation, ZoomFlingAnimation},
+    camera::{Camera, CameraAnimation, FlingAnimation, ZoomBounds, ZoomFlingAnimation},
     error::MapError,
     geo::{LatLng, WorldPoint},
     hit::geometry_hit,
@@ -341,6 +341,15 @@ pub struct Map {
     /// Bottom viewport inset (px) — kept on `self.camera` across every camera
     /// update so the projection + render matrix stay inset-aware. 0 = none.
     viewport_inset_px: f64,
+    /// The zoom range the camera is locked to, stamped onto `self.camera` on
+    /// every update (like `viewport_inset_px`). Auto-derived from the active
+    /// tile sources unless `manual_zoom_bounds` is set — so the user cannot
+    /// zoom past the map's accuracy.
+    zoom_bounds: ZoomBounds,
+    /// Host override for [`zoom_bounds`](Self::zoom_bounds). When `Some`, it
+    /// wins over the source-derived range; when `None`, bounds track the
+    /// sources as layers are added/removed.
+    manual_zoom_bounds: Option<ZoomBounds>,
     options: MapOptions,
     layers: Vec<LayerEntry>,
     /// Single text pipeline, shared across all vector layers.
@@ -413,6 +422,8 @@ impl Map {
             camera: initial_camera,
             active: None,
             viewport_inset_px: initial_camera.viewport_inset_px,
+            zoom_bounds: initial_camera.zoom_bounds,
+            manual_zoom_bounds: None,
             options,
             layers: Vec::new(),
             text_pipeline,
@@ -616,6 +627,7 @@ impl Map {
             fade_in_secs: self.options.fade_in_secs,
             visible: true,
         })));
+        self.recompute_zoom_bounds();
     }
 
     /// Add a hillshade overlay. The hillshade pipeline samples the
@@ -679,6 +691,7 @@ impl Map {
             dash: None,
             width_scale: 1.0,
         })));
+        self.recompute_zoom_bounds();
     }
 
     /// Set (or clear) a vector layer's dash pattern, in screen pixels
@@ -731,6 +744,8 @@ impl Map {
             LayerEntry::Vector(v) => v.id != id,
             LayerEntry::Hillshade(h) => h.id != id,
         });
+        // Dropping a layer can widen or narrow the source-derived lock.
+        self.recompute_zoom_bounds();
     }
 
     pub fn layer_count(&self) -> usize {
@@ -796,7 +811,46 @@ impl Map {
         self.camera = camera;
         // The host sets a pose without an inset; keep the viewport inset sticky.
         self.camera.viewport_inset_px = self.viewport_inset_px;
+        // Likewise the zoom lock: the Map owns the authoritative bounds, so a
+        // host-supplied camera can't escape the map's accuracy. Stamping also
+        // clamps the incoming zoom into range.
+        self.camera.set_zoom_bounds(self.zoom_bounds);
         self.active = None;
+        self.sync_scenes();
+    }
+
+    /// The zoom range the camera is currently locked to.
+    pub fn zoom_bounds(&self) -> ZoomBounds {
+        self.zoom_bounds
+    }
+
+    /// Lock the camera's zoom to an explicit range, or pass `None` to track
+    /// the active tile sources automatically (the default). The current
+    /// camera is clamped into the new range immediately, so a map sitting on
+    /// an over-zoomed frame snaps back to the deepest accurate level.
+    pub fn set_zoom_bounds(&mut self, bounds: Option<ZoomBounds>) {
+        self.manual_zoom_bounds = bounds;
+        self.recompute_zoom_bounds();
+    }
+
+    /// Recompute the active zoom lock. With a manual override set, that
+    /// wins; otherwise the bounds are the union of every layer source's
+    /// declared `[min_zoom, max_zoom]` — the camera can reach the deepest
+    /// real tile any layer serves, but no further (past that the raster
+    /// upsamples and overlays appear to drift). Re-stamps the camera.
+    fn recompute_zoom_bounds(&mut self) {
+        let source_ranges = self.layers.iter().filter_map(|l| match l {
+            LayerEntry::Raster(r) => Some((r.source.min_zoom(), r.source.max_zoom())),
+            LayerEntry::Vector(v) => Some((v.source.min_zoom(), v.source.max_zoom())),
+            // Hillshade has no own source (it reads the shared terrain).
+            LayerEntry::Hillshade(_) => None,
+        });
+        let bounds = self
+            .manual_zoom_bounds
+            .unwrap_or_else(|| zoom_bounds_from_sources(source_ranges));
+        self.zoom_bounds = bounds;
+        self.camera.set_zoom_bounds(bounds);
+        // A clamp may have changed the zoom; keep the scenes in step.
         self.sync_scenes();
     }
 
@@ -916,6 +970,7 @@ impl Map {
         if let Some(anim) = self.active {
             self.camera = anim.sample(now);
             self.camera.viewport_inset_px = self.viewport_inset_px;
+            self.camera.set_zoom_bounds(self.zoom_bounds);
             self.sync_scenes();
             if anim.is_finished(now) {
                 self.active = None;
@@ -1670,6 +1725,25 @@ pub struct FrameMetrics {
     pub layers: Vec<LayerMetrics>,
 }
 
+/// Derive the camera's zoom lock from the active sources' declared
+/// `(min_zoom, max_zoom)` ranges: the union, so the camera can reach the
+/// deepest real tile any layer serves but no further, and zoom out only to
+/// the shallowest level still backed by data. With no sources (an empty map)
+/// the renderer-wide [`ZoomBounds::DEFAULT`] applies.
+fn zoom_bounds_from_sources(ranges: impl IntoIterator<Item = (u8, u8)>) -> ZoomBounds {
+    let mut union: Option<(u8, u8)> = None;
+    for (min_z, max_z) in ranges {
+        union = Some(match union {
+            Some((lo, hi)) => (lo.min(min_z), hi.max(max_z)),
+            None => (min_z, max_z),
+        });
+    }
+    match union {
+        Some((lo, hi)) => ZoomBounds::new(lo as f64, hi as f64),
+        None => ZoomBounds::DEFAULT,
+    }
+}
+
 fn srgb_color_to_linear_f32(c: Color) -> [f32; 4] {
     // Canonical decode lives on Color; backgrounds use the same contract
     // as vertex/text/marker colours.
@@ -1833,6 +1907,33 @@ mod tests {
             }
             _ => panic!("expected vector variant"),
         }
+    }
+
+    #[test]
+    fn zoom_lock_is_the_union_of_source_ranges() {
+        // A basemap serving z4..20 under an overlay serving z0..14: the lock
+        // spans the union, z0..20 — the camera can dive to the basemap's
+        // deepest tile and pull back to the overlay's shallowest, but never
+        // past either end into territory no source covers.
+        let b = zoom_bounds_from_sources([(4, 20), (0, 14)]);
+        assert_eq!((b.min, b.max), (0.0, 20.0));
+    }
+
+    #[test]
+    fn zoom_lock_falls_back_to_default_with_no_sources() {
+        // An empty map (no layers) has nothing to clamp to, so the
+        // renderer-wide default range applies.
+        let b = zoom_bounds_from_sources([]);
+        assert_eq!(b, ZoomBounds::DEFAULT);
+    }
+
+    #[test]
+    fn zoom_lock_pins_to_a_single_source_range() {
+        // One Kartverket topograatone raster (z4..18): you cannot zoom past
+        // z18, where its WMTS pyramid ends and the raster would upsample out
+        // from under the sharp overlays.
+        let b = zoom_bounds_from_sources([(4, 18)]);
+        assert_eq!((b.min, b.max), (4.0, 18.0));
     }
 
     #[test]

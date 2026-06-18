@@ -26,10 +26,54 @@ pub const TILE_SIZE_PX: f64 = 256.0;
 const FOV_Y: f32 = 0.6435; // ~36.87°
 const MAX_PITCH_DEG: f64 = 60.0;
 
-/// Zoom bounds. z0 is the whole world in one root tile; z24 is deeper than
-/// any tile source serves but lets the camera glide smoothly to the limit.
+/// Default zoom bounds. z0 is the whole world in one root tile; z24 is
+/// deeper than any tile source serves but lets the camera glide smoothly to
+/// the limit when no tighter limit is configured. A [`Camera`] clamps to
+/// these unless given its own [`ZoomBounds`] (which the [`Map`](crate::Map)
+/// derives from the active tile sources so you cannot zoom past where real
+/// tiles exist).
 pub const MIN_ZOOM: f64 = 0.0;
 pub const MAX_ZOOM: f64 = 24.0;
+
+/// The inclusive `[min, max]` zoom range a camera may occupy. Constructed
+/// from the active map sources' supported zoom (so the user cannot zoom
+/// past the map's accuracy and watch the raster blur out from under sharp,
+/// f64-projected overlays), or set explicitly by the host.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ZoomBounds {
+    pub min: f64,
+    pub max: f64,
+}
+
+impl ZoomBounds {
+    /// The renderer-wide default, [`MIN_ZOOM`]..=[`MAX_ZOOM`].
+    pub const DEFAULT: ZoomBounds = ZoomBounds {
+        min: MIN_ZOOM,
+        max: MAX_ZOOM,
+    };
+
+    /// A bound from an explicit range. The inputs are ordered (so
+    /// `new(10, 4)` is the same as `new(4, 10)`) and each end is clamped
+    /// into the absolute `[MIN_ZOOM, MAX_ZOOM]` envelope so a degenerate
+    /// request can never push the camera somewhere the tile math can't
+    /// represent.
+    pub fn new(min: f64, max: f64) -> Self {
+        let lo = min.min(max).clamp(MIN_ZOOM, MAX_ZOOM);
+        let hi = min.max(max).clamp(MIN_ZOOM, MAX_ZOOM);
+        ZoomBounds { min: lo, max: hi }
+    }
+
+    /// Clamp a zoom level into this range.
+    pub fn clamp(self, zoom: f64) -> f64 {
+        zoom.clamp(self.min, self.max)
+    }
+}
+
+impl Default for ZoomBounds {
+    fn default() -> Self {
+        ZoomBounds::DEFAULT
+    }
+}
 
 /// Camera state. `f64` zoom is continuous.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -48,6 +92,12 @@ pub struct Camera {
     /// Default 0 (no inset) — the offscreen/golden path never sets it, so its
     /// projection + matrix are unchanged.
     pub viewport_inset_px: f64,
+    /// The zoom range this camera may occupy. Interactive zoom
+    /// ([`zoomed_around`](Self::zoomed_around)) clamps to it, so the camera
+    /// can be locked to the active map's accuracy. Defaults to
+    /// [`ZoomBounds::DEFAULT`]; the offscreen/golden path leaves it at the
+    /// default so its clamp behaviour is unchanged.
+    pub zoom_bounds: ZoomBounds,
 }
 
 impl Camera {
@@ -58,7 +108,25 @@ impl Camera {
             pitch_deg: 0.0,
             bearing_deg: 0.0,
             viewport_inset_px: 0.0,
+            zoom_bounds: ZoomBounds::DEFAULT,
         }
+    }
+
+    /// Set the zoom range the camera may occupy and clamp the current zoom
+    /// into it. The lock that stops the user zooming past the map's
+    /// accuracy.
+    pub fn with_zoom_bounds(mut self, bounds: ZoomBounds) -> Self {
+        self.zoom_bounds = bounds;
+        self.zoom = bounds.clamp(self.zoom);
+        self
+    }
+
+    /// Replace the zoom bounds in place, clamping the current zoom into the
+    /// new range. Used by [`Map`](crate::Map) to keep the camera locked to
+    /// its sources as layers change.
+    pub fn set_zoom_bounds(&mut self, bounds: ZoomBounds) {
+        self.zoom_bounds = bounds;
+        self.zoom = bounds.clamp(self.zoom);
     }
 
     pub fn with_pitch(mut self, deg: f64) -> Self {
@@ -369,6 +437,10 @@ impl Camera {
             bearing_deg: (self.bearing_deg + delta_bearing * t).rem_euclid(360.0),
             // The inset is a viewport property, not a pose — keep it, don't interpolate.
             viewport_inset_px: self.viewport_inset_px,
+            // Bounds are a constraint on the camera, not an interpolated pose
+            // value; the start and target share them in practice (the Map
+            // stamps both), so carry the start's.
+            zoom_bounds: self.zoom_bounds,
         }
     }
 
@@ -381,8 +453,9 @@ impl Camera {
 
     /// Pure form of [`zoom_around`]: the camera after zooming by `factor`
     /// (multiplicative — 2.0 = one level in) about `focus_px`, with the
-    /// focus pixel kept over the same world point. Zoom is clamped to
-    /// `[MIN_ZOOM, MAX_ZOOM]`. Used both for the immediate setter and to
+    /// focus pixel kept over the same world point. Zoom is clamped to the
+    /// camera's [`ZoomBounds`] (the map-accuracy lock). Used both for the
+    /// immediate setter and to
     /// compute the *target* of an animated double-tap / scroll zoom.
     pub fn zoomed_around(
         mut self,
@@ -394,7 +467,7 @@ impl Camera {
             return self;
         }
         let focus_world_before = self.pixel_to_world(focus_px, viewport_px);
-        self.zoom = (self.zoom + factor.log2()).clamp(MIN_ZOOM, MAX_ZOOM);
+        self.zoom = self.zoom_bounds.clamp(self.zoom + factor.log2());
         // After the (clamped) zoom change, the same focus pixel maps to a
         // different world point. Shift the centre so the focus world point
         // lands back under the focus pixel. With tilt we re-unproject
@@ -845,6 +918,52 @@ mod tests {
     }
 
     #[test]
+    fn custom_zoom_bounds_lock_interactive_zoom() {
+        // The map-accuracy lock: a camera bounded to [4, 18] (e.g. a source
+        // whose deepest tile is z18) cannot be zoomed past 18, no matter how
+        // hard the user pinches — nor below 4 zooming out.
+        let viewport = (1024.0, 768.0);
+        let focus = (200.0, 200.0);
+        let bounds = ZoomBounds::new(4.0, 18.0);
+        let mut cam = Camera::new(LatLng::new(60.39, 5.32), 17.0).with_zoom_bounds(bounds);
+        cam.zoom_around(64.0, focus, viewport); // +6 levels requested → would be 23
+        assert!((cam.zoom - 18.0).abs() < 1e-12, "locked at source max: {}", cam.zoom);
+        cam.zoom_around(2f64.powi(-20), focus, viewport); // -20 levels requested
+        assert!((cam.zoom - 4.0).abs() < 1e-12, "locked at source min: {}", cam.zoom);
+    }
+
+    #[test]
+    fn with_zoom_bounds_clamps_an_out_of_range_starting_zoom() {
+        // Applying tighter bounds to a camera already past them pulls the
+        // zoom back into range immediately — the user doesn't stay parked on
+        // a blurry over-zoomed frame after the lock is installed.
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 22.0)
+            .with_zoom_bounds(ZoomBounds::new(4.0, 16.0));
+        assert!((cam.zoom - 16.0).abs() < 1e-12, "got {}", cam.zoom);
+    }
+
+    #[test]
+    fn zoom_bounds_new_orders_and_clamps_to_the_absolute_envelope() {
+        // Reversed inputs are tolerated, and neither end can escape the
+        // absolute [MIN_ZOOM, MAX_ZOOM] the tile math can represent.
+        let b = ZoomBounds::new(18.0, 4.0);
+        assert_eq!((b.min, b.max), (4.0, 18.0));
+        let clamped = ZoomBounds::new(-5.0, 99.0);
+        assert_eq!((clamped.min, clamped.max), (MIN_ZOOM, MAX_ZOOM));
+    }
+
+    #[test]
+    fn default_bounds_preserve_the_legacy_zero_to_24_clamp() {
+        // A camera with no explicit bounds behaves exactly as before the
+        // lock existed — the golden/offscreen path depends on this.
+        let viewport = (1024.0, 768.0);
+        let focus = (200.0, 200.0);
+        let mut cam = Camera::new(LatLng::new(60.39, 5.32), MAX_ZOOM - 0.5);
+        cam.zoom_around(64.0, focus, viewport);
+        assert!((cam.zoom - MAX_ZOOM).abs() < 1e-12, "got {}", cam.zoom);
+    }
+
+    #[test]
     fn animated_zoom_target_equals_the_immediate_zoom_result() {
         // The double-tap animation must ease toward exactly where an
         // immediate focus zoom would land — same target, just over time.
@@ -922,14 +1041,14 @@ mod tests {
         // The centre lifts up (smaller y) by ~inset/2.
         assert!(inset_y < plain_y, "{inset_y} should sit above {plain_y}");
         assert!(
-            ((plain_y - inset_y) as f64 - inset / 2.0).abs() < 1.0,
+            ((plain_y - inset_y) - inset / 2.0).abs() < 1.0,
             "lift {} ≈ {}",
             plain_y - inset_y,
             inset / 2.0
         );
 
         // Round-trip still holds with the inset applied.
-        let back = inset_cam.pixel_to_world((512.0, inset_y as f64), viewport);
+        let back = inset_cam.pixel_to_world((512.0, inset_y), viewport);
         assert_world_close(back, world, 1e-3);
     }
 

@@ -34,11 +34,15 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup Rust toolchain + Android target
+      - name: Setup Rust toolchain + Android targets
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.94.1
-          targets: x86_64-linux-android
+          # The Gradle module cross-compiles both ABIs (x86_64 for the
+          # emulator, arm64-v8a for real devices), so both Rust targets must
+          # be installed or `buildRustFfiAndroid` fails compiling its first
+          # dependency for aarch64.
+          targets: x86_64-linux-android, aarch64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
