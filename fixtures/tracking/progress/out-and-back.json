@@ -1,0 +1,28 @@
+{
+  "name": "out-and-back",
+  "description": "Up A->B then back B->A (start == end). The return-leg fix at lng 0.010 shares coordinates with the outbound fix at lng 0.010 but must report fraction 0.75, not 0.25. Returning to the start (== end) reads as 100% / arrived, NOT 0% / moving-away. windowAheadM is widened to 700 so the 556 m fix spacing stays inside the forward window; the 60 m BACK window is what stops the return matching the outbound.",
+  "params": { "windowBackM": 60, "windowAheadM": 700, "offRouteM": 50, "arriveEndM": 30 },
+  "route": [[0.0, 0.0], [0.0, 0.02], [0.0, 0.0]],
+  "fixes": [
+    [0.0, 0.0],
+    [0.0, 0.005],
+    [0.0, 0.010],
+    [0.0, 0.015],
+    [0.0, 0.020],
+    [0.0, 0.015],
+    [0.0, 0.010],
+    [0.0, 0.005],
+    [0.0, 0.0]
+  ],
+  "expect": [
+    { "fraction": 0.0,   "arrived": false, "offRoute": false },
+    { "fraction": 0.125, "arrived": false, "offRoute": false },
+    { "fraction": 0.25,  "arrived": false, "offRoute": false },
+    { "fraction": 0.375, "arrived": false, "offRoute": false },
+    { "fraction": 0.5,   "arrived": false, "offRoute": false },
+    { "fraction": 0.625, "arrived": false, "offRoute": false },
+    { "fraction": 0.75,  "arrived": false, "offRoute": false },
+    { "fraction": 0.875, "arrived": false, "offRoute": false },
+    { "fraction": 1.0,   "arrived": true,  "offRoute": false }
+  ]
+}

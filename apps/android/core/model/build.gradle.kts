@@ -15,4 +15,5 @@ kotlin {
 
 dependencies {
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.serialization.json) // loads the shared tracking fixtures
 }
