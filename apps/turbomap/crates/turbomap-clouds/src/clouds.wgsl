@@ -301,17 +301,43 @@ const CLOUD_BASE : f32 = 0.12;
 // cloud as it climbs toward the sun), not a 2D shape extruded.
 const VHEIGHT : f32 = 3.0;
 
+// MET coverage as a SMOOTH regional seed. The 64×42 radar grid is blurred
+// over several taps so its cell structure never imprints as a checkerboard —
+// the grid only biases *where* cloud roughly is; all visible structure is
+// procedural.
+fn coverage_seed(uv : vec2<f32>) -> f32 {
+    let r = 0.018;
+    var s = radar_value(uv).g * 0.36;
+    s += radar_value(uv + vec2<f32>(r, 0.0)).g * 0.16;
+    s += radar_value(uv - vec2<f32>(r, 0.0)).g * 0.16;
+    s += radar_value(uv + vec2<f32>(0.0, r)).g * 0.16;
+    s += radar_value(uv - vec2<f32>(0.0, r)).g * 0.16;
+    return s;
+}
+
+// Likewise a smoothed precip seed (drives storm size + height).
+fn precip_seed(uv : vec2<f32>) -> f32 {
+    let r = 0.018;
+    var s = radar_value(uv).r * 0.4;
+    s += radar_value(uv + vec2<f32>(r, 0.0)).r * 0.15;
+    s += radar_value(uv - vec2<f32>(r, 0.0)).r * 0.15;
+    s += radar_value(uv + vec2<f32>(0.0, r)).r * 0.15;
+    s += radar_value(uv - vec2<f32>(0.0, r)).r * 0.15;
+    return s;
+}
+
 // Per-region "cloud type" in 0..1 — a LOW-frequency field, biased by
 // precipitation, that gives clouds a variety of PRIMARY shapes instead of
 // one uniform height. 0 = flat low stratus, ~0.5 = rounded cumulus, 1 =
-// towering cumulonimbus. (Nubis carries this in the weather map's B channel;
-// we synthesise it procedurally + from MET precip.)
+// towering cumulonimbus. Precip pulls it UP (storms tower) but the procedural
+// field keeps every cell's actual form unique. (Nubis carries this in the
+// weather map's B channel; we synthesise it procedurally + from MET precip.)
 fn cloud_type(uv : vec2<f32>) -> f32 {
     let drift = U.wind * U.time * 0.02;
     let p = (uv * U.map_scale + drift) * 0.22; // much coarser than the detail
     let big = fbm3(vec3<f32>(p, 13.0));
-    let precip = radar_value(uv).r; // wetter → taller storm cells
-    return clamp(big * 1.35 - 0.18 + precip * 0.55, 0.0, 1.0);
+    let precip = precip_seed(uv); // wetter → taller storm cells
+    return clamp(big * 1.2 - 0.12 + precip * 0.85, 0.0, 1.0);
 }
 
 // Vertical density gradient for a cloud of type `ct` at normalised altitude
@@ -341,17 +367,20 @@ fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
     if (z <= 0.0 || z >= 1.0) {
         return 0.0;
     }
-    let seed = radar_value(uv).g;
+    let seed = coverage_seed(uv);
     if (seed < 0.03) {
         return 0.0;
     }
     let drift = U.wind * U.time * 0.02;
     let ct = cloud_type(uv);
+    // Precip pulls the primary shape LARGER + denser (storm cells are big
+    // masses), while the procedural field keeps the actual form unique.
+    let big_seed = clamp(seed + precip_seed(uv) * 0.4, 0.0, 1.0);
 
     // Primary big-shape field — low frequency, so it sets the major forms.
     let pp = vec3<f32>((uv * U.map_scale + drift) * 0.55, z * VHEIGHT * 0.55 + U.time * 0.04);
     var primary = perlin_worley3(pp);
-    primary = clamp(remap(primary, 1.0 - seed, 1.0, 0.0, 1.0), 0.0, 1.0);
+    primary = clamp(remap(primary, 1.0 - big_seed, 1.0, 0.0, 1.0), 0.0, 1.0);
     if (primary <= 0.001) {
         return 0.0;
     }
@@ -451,18 +480,27 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     // a low sun angle is what reads as 3D form from straight above.
     let sun = normalize(vec3<f32>(normalize(U.sun_dir), U.sun_elev));
 
-    // Sunset weighting: 1 when the sun is near the horizon, 0 when it's high.
-    // A low sun turns the direct light warm orange (sunlit/bright side) and
-    // the sky ambient that fills the shadows cool dusk-purple — so the whole
-    // scene reads as golden-hour rather than flat midday.
+    // Direct sunlight as a SPECTRUM that the sun travels through as it sets,
+    // not one flat orange: warm white high up → gold → orange → deep red as
+    // it grazes the horizon (Rayleigh reddening of the low-angle beam).
+    let e = clamp(U.sun_elev, 0.0, 1.0);
+    let c_red = vec3<f32>(1.50, 0.32, 0.16);
+    let c_orange = vec3<f32>(1.50, 0.60, 0.28);
+    let c_gold = vec3<f32>(1.42, 0.95, 0.62);
+    let c_white = vec3<f32>(1.13, 1.10, 1.04);
+    var sun_col = mix(c_red, c_orange, smoothstep(0.04, 0.14, e));
+    sun_col = mix(sun_col, c_gold, smoothstep(0.14, 0.26, e));
+    sun_col = mix(sun_col, c_white, smoothstep(0.26, 0.46, e));
+
+    // Sky ambient (fills the shadows) as a vertical SPECTRUM too — sampled by
+    // cloud altitude z. Day: blue zenith over paler horizon. Dusk: a deep
+    // blue-purple zenith grading down through mauve to a warm glowing horizon,
+    // so shadowed undersides catch the warm horizon and tops stay cool.
     let sunset = 1.0 - smoothstep(0.10, 0.42, U.sun_elev);
-    let sun_day = vec3<f32>(1.13, 1.10, 1.04); // clean midday white
-    let sun_dusk = vec3<f32>(1.40, 0.66, 0.36); // warm sunset orange
-    let sun_col = mix(sun_day, sun_dusk, sunset);
-    // Ambient sky (fills shadows), height-graded: day blue → dusk. At sunset
-    // the high sky goes cool purple and the horizon glows warm.
-    let sky_top = mix(vec3<f32>(0.62, 0.70, 0.86), vec3<f32>(0.34, 0.33, 0.52), sunset);
-    let sky_bot = mix(vec3<f32>(0.42, 0.47, 0.57), vec3<f32>(0.55, 0.40, 0.42), sunset);
+    // sky_bot = horizon, sky_top = zenith; the per-sample mix(sky_bot, sky_top, z)
+    // sweeps warm-horizon → cool-zenith (through mauve) over cloud altitude.
+    let sky_top = mix(vec3<f32>(0.60, 0.69, 0.86), vec3<f32>(0.24, 0.26, 0.48), sunset);
+    let sky_bot = mix(vec3<f32>(0.42, 0.46, 0.55), vec3<f32>(0.72, 0.42, 0.34), sunset);
 
     let dz = 1.0 / f32(PRIMARY_STEPS);
     let ext = U.extinction; // view-ray extinction (opacity build-up)
