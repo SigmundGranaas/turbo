@@ -80,7 +80,8 @@ public final class AppContainer {
         routeRepository = HttpRouteRepository()   // public routing API, no auth
         photoRepository = FilePhotoRepository()
         recordingController = RecordingController(
-            location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
+            location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter(),
+            draftStore: UserDefaultsRecordingDraftStore()
         )
         followController = FollowController(location: locationProvider, pathRepository: pathRepository)
         isOnline = config.isOnline
@@ -156,7 +157,8 @@ public final class AppContainer {
         self.photoRepository = photoRepository
         self.sharingRepository = sharingRepository
         self.recordingController = RecordingController(
-            location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
+            location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter(),
+            draftStore: UserDefaultsRecordingDraftStore()
         )
         self.followController = FollowController(location: locationProvider, pathRepository: pathRepository)
         self.isOnline = isOnline

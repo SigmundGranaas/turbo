@@ -52,6 +52,7 @@ public final class RecordingController {
     private let location: LocationProvider
     private let pathRepository: PathRepository
     private let activity: RecordingActivityPresenter
+    private let draftStore: RecordingDraftStore
     private let now: @Sendable () -> Date
     private var fixObservation: Task<Void, Never>?
     private var ticker: Task<Void, Never>?
@@ -60,11 +61,13 @@ public final class RecordingController {
         location: LocationProvider,
         pathRepository: PathRepository,
         activity: RecordingActivityPresenter = NoRecordingActivityPresenter(),
+        draftStore: RecordingDraftStore = NoopRecordingDraftStore(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.location = location
         self.pathRepository = pathRepository
         self.activity = activity
+        self.draftStore = draftStore
         self.now = now
     }
 
@@ -104,6 +107,10 @@ public final class RecordingController {
         activity.begin(title: "Recording")
 
         fixObservation = Task { [weak self, location] in
+            // Resume any persisted draft (after a process kill) before collecting new fixes.
+            if let draft = await self?.draftStore.load() {
+                self?.restore(from: draft)
+            }
             for await fix in location.fixes() {
                 self?.append(fix)
             }
@@ -174,6 +181,27 @@ public final class RecordingController {
         }
         publish(from: capture)
         activity.update(distanceMeters: distanceMeters, elapsedSeconds: elapsedSeconds)
+        // Persist the growing track so it survives process death.
+        let snapshot = capture
+        let elapsed = elapsedSeconds
+        Task { await draftStore.save(points: snapshot.points, elevations: snapshot.elevations, elapsedSeconds: elapsed) }
+    }
+
+    /// Restore a recording from a persisted draft after a relaunch — unless live fixes already
+    /// landed (don't clobber them). The clock continues from the draft's elapsed time.
+    private func restore(from draft: RecordingDraft) {
+        guard capture.points.isEmpty, !draft.points.isEmpty else { return }
+        capture = CapturedTrack(
+            points: draft.points,
+            elevations: draft.elevations,
+            distanceM: GeoMetrics.pathLengthMeters(draft.points),
+            ascentM: GeoMetrics.ascentMeters(draft.elevations) ?? 0,
+            descentM: GeoMetrics.descentMeters(draft.elevations) ?? 0,
+            currentAltitude: draft.elevations.last
+        )
+        startedAt = now().addingTimeInterval(-Double(draft.elapsedSeconds))
+        elapsedSeconds = draft.elapsedSeconds
+        publish(from: capture)
     }
 
     /// Pause the recording; capture continues into a side buffer (US-4). The clock freezes.
@@ -221,6 +249,7 @@ public final class RecordingController {
 
     private func reset() {
         stop()
+        Task { await draftStore.clear() }
         capture = CapturedTrack(); startedAt = nil
         pausedCapture = CapturedTrack(); pauseAnchor = nil; penUpNext = false
         isPausedBuffering = false; bufferedDistanceM = 0; pausedTotal = 0; pauseStartedAt = nil

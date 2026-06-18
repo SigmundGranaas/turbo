@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import CoreModel
 import CoreData
@@ -65,6 +66,30 @@ struct RecordingControllerTests {
         #expect(vm.isPausedBuffering == false)
         #expect(vm.distanceMeters == trackDist)          // the paused walk was discarded
         #expect(vm.pointCount == trackPts)
+    }
+
+    @Test("a persisted draft is resumed on start (process-death recovery)")
+    func draftResume() async {
+        let defaults = UserDefaults(suiteName: "draft.test.\(UUID().uuidString)")!
+        let store = UserDefaultsRecordingDraftStore(defaults: defaults)
+        await store.save(
+            points: [LatLng(lat: 69.0, lng: 18.0), LatLng(lat: 69.001, lng: 18.0)],
+            elevations: [10, 25], elapsedSeconds: 42
+        )
+        // Round-trips through UserDefaults…
+        let loaded = await store.load()
+        #expect(loaded?.points.count == 2)
+        #expect(loaded?.elevations == [10, 25])
+        #expect(loaded?.elapsedSeconds == 42)
+
+        // …and a controller started with it resumes the track + clock.
+        let vm = RecordingController(location: SimulatedLocationProvider(fixes: []),
+                                     pathRepository: InMemoryPathRepository(seed: []), draftStore: store)
+        vm.start()
+        try? await Task.sleep(for: .milliseconds(150))
+        #expect(vm.pointCount == 2)
+        #expect(vm.distanceMeters > 90)
+        #expect(vm.elapsedSeconds >= 42)
     }
 
     @Test("stop keeps the captured track; save persists it as a SavedPath")
