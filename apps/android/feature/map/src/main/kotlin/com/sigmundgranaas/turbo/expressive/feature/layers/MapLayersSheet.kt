@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Air
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Hiking
@@ -64,6 +65,11 @@ fun MapLayersSheet(
     onDismiss: () -> Unit,
     activeOverlays: Set<OverlayId> = emptySet(),
     onToggleOverlay: (OverlayId, Boolean) -> Unit = { _, _ -> },
+    // Procedural weather-clouds overlay (wgpu engine only). The row is hidden
+    // unless [cloudsAvailable]; toggling drives the bottom scrubber.
+    cloudsAvailable: Boolean = false,
+    cloudsOn: Boolean = false,
+    onToggleClouds: (Boolean) -> Unit = {},
 ) {
     val cs = MaterialTheme.colorScheme
     val haptics = rememberTurboHaptics()
@@ -104,6 +110,23 @@ fun MapLayersSheet(
                     Switch(
                         checked = overlay in activeOverlays,
                         onCheckedChange = { on -> haptics.toggle(on); onToggleOverlay(overlay, on) },
+                    )
+                }
+            }
+
+            // Procedural weather clouds (wgpu engine only) — the enable lives here
+            // now; the play/scrub control appears at the bottom of the map.
+            if (cloudsAvailable) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Icon(Icons.Rounded.Cloud, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.size(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.layers_clouds), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                        Text(stringResource(R.string.layers_clouds_sub), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = cloudsOn,
+                        onCheckedChange = { on -> haptics.toggle(on); onToggleClouds(on) },
                     )
                 }
             }

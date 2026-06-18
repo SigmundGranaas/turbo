@@ -8,7 +8,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,13 +42,14 @@ import kotlin.math.cos
 @Composable
 fun RadarOverlayControls(
     engine: MapEngine?,
+    active: Boolean,
+    onActiveChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     source: RadarDataSource = SyntheticRadarDataSource(),
 ) {
     val eng = engine ?: return
     val overlay = eng as? WeatherCloudOverlay ?: return
     val state = remember(overlay) { RadarOverlayState(overlay) }
-    var active by remember(overlay) { mutableStateOf(false) }
     // The geo box the loaded radar covers. A fixed-span box (not the viewport)
     // so the procedural cloud field is world-locked: zooming shows fewer, bigger
     // puffs rather than a screen-fixed texture. Reloaded when the camera pans
@@ -86,12 +86,10 @@ fun RadarOverlayControls(
         }
     }
 
-    if (!active) {
-        FilledTonalButton(onClick = { active = true }, modifier = modifier) {
-            Text("Radar")
-        }
-        return
-    }
+    // Enabling clouds is a Layers-menu option now (not a chip on the map), so
+    // when off this renders nothing; the call site places the scrubber at the
+    // bottom of the screen.
+    if (!active) return
 
     Surface(
         modifier = modifier.widthIn(max = 520.dp),
@@ -122,7 +120,7 @@ fun RadarOverlayControls(
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.widthIn(min = 44.dp),
             )
-            IconButton(onClick = { active = false }) {
+            IconButton(onClick = { onActiveChange(false) }) {
                 Icon(Icons.Filled.Close, contentDescription = "Hide radar")
             }
         }

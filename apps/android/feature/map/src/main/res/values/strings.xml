@@ -133,6 +133,8 @@
     <string name="layers_title">Map layers</string>
     <string name="layers_base">Base map</string>
     <string name="layers_overlays">Overlays</string>
+    <string name="layers_clouds">Weather clouds</string>
+    <string name="layers_clouds_sub">Forecast cloud cover · 3D overlay</string>
     <string name="layers_trails">Hiking trails</string>
     <string name="layers_trails_sub">Marked routes · Waymarked Trails</string>
     <string name="layers_avalanche">Avalanche terrain</string>

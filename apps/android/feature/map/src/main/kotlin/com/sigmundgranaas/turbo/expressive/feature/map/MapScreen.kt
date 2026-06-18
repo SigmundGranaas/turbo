@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -609,15 +610,20 @@ fun MapScreen(
             )
             }
 
-            // Procedural weather-cloud overlay + time slider — wgpu engine only
-            // (the controls render nothing if the engine can't draw clouds).
+            // Procedural weather-cloud overlay — enabled from the Layers sheet
+            // (ui.cloudsOn), wgpu engine only. The play/scrub control sits at the
+            // BOTTOM of the map (out from under the search bar); it renders
+            // nothing while off or on a non-cloud engine.
             if (state.experimentalWgpuMap) {
                 RadarOverlayControls(
                     engine = ui.controller,
+                    active = ui.cloudsOn,
+                    onActiveChange = { ui.cloudsOn = it },
                     source = viewModel.radarSource,
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 96.dp, start = 16.dp, end = 16.dp),
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 )
             }
 
@@ -1114,6 +1120,7 @@ fun MapScreen(
         recDistanceM = recState.distanceM,
         recPointCount = recState.points.size,
         baseLayer = state.baseLayer,
+        cloudsAvailable = state.experimentalWgpuMap,
         onOpenOffline = onOpenOffline,
         openTrackTool = openTrackTool,
     )

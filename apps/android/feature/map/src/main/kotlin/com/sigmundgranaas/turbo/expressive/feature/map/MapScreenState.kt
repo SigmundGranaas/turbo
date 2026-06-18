@@ -47,6 +47,9 @@ class MapScreenState {
     // ── Layers / overlays ──
     var showLayers by mutableStateOf(false)
     var activeOverlays by mutableStateOf<Set<OverlayId>>(emptySet())
+    /** Procedural weather-cloud overlay on/off (wgpu engine only). Toggled from
+     *  the Layers sheet; drives the bottom scrubber control. */
+    var cloudsOn by mutableStateOf(false)
     /** The captured viewport awaiting the "download this area" size-confirm dialog. */
     var pendingDownloadArea by mutableStateOf<PendingDownloadArea?>(null)
 

@@ -48,6 +48,7 @@ internal fun MapScreenModals(
     recDistanceM: Double,
     recPointCount: Int,
     baseLayer: BaseLayer,
+    cloudsAvailable: Boolean,
     onOpenOffline: () -> Unit,
     openTrackTool: (TrackMode) -> Unit,
 ) {
@@ -115,6 +116,9 @@ internal fun MapScreenModals(
             },
             activeOverlays = ui.activeOverlays,
             onToggleOverlay = { id, on -> ui.activeOverlays = if (on) ui.activeOverlays + id else ui.activeOverlays - id },
+            cloudsAvailable = cloudsAvailable,
+            cloudsOn = ui.cloudsOn,
+            onToggleClouds = { ui.cloudsOn = it },
             onDismiss = { ui.showLayers = false },
         )
     }
