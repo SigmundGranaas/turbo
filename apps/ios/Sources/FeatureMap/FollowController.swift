@@ -39,15 +39,27 @@ public final class FollowController {
     public private(set) var isOffRoute = false
     public private(set) var arrived = false
     public private(set) var userPosition: LatLng?
+    /// Distance actually travelled so far (m) — the captured track, not the planned route.
+    public private(set) var capturedDistanceM: Double = 0
+    /// Moving time since the follow started (s).
+    public private(set) var elapsedSeconds: Int = 0
 
     private let location: LocationProvider
+    private let pathRepository: PathRepository
     private var route: FollowRoute?
     private var tracker: RouteProgressTracker?
     private var reroute: (@Sendable ([LatLng]) async -> FollowRoute?)?
     private var observation: Task<Void, Never>?
+    private var ticker: Task<Void, Never>?
     private var rerouting = false
+    /// The real travelled track captured while following (Follow = Record).
+    private var capture = CapturedTrack()
+    private var startedAt: Date?
 
-    public init(location: LocationProvider) { self.location = location }
+    public init(location: LocationProvider, pathRepository: PathRepository) {
+        self.location = location
+        self.pathRepository = pathRepository
+    }
 
     /// Begin following `route`. `reroute` (optional) re-solves from a new origin
     /// when the user strays off-route; pass nil for saved-track follow.
@@ -56,21 +68,60 @@ public final class FollowController {
         apply(route)
         self.reroute = reroute
         isFollowing = true; arrived = false; isOffRoute = false
+        // Fresh capture for this follow (Follow = Record).
+        capture = CapturedTrack(); capturedDistanceM = 0; elapsedSeconds = 0; startedAt = Date()
         location.requestAlwaysAuthorization()
         location.setBackgroundUpdates(true)
         observation?.cancel()
         observation = Task { [weak self, location] in
             for await fix in location.fixes() { self?.onFix(fix) }
         }
+        ticker?.cancel()
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, self.isFollowing, let started = self.startedAt else { continue }
+                self.elapsedSeconds = Int(Date().timeIntervalSince(started))
+            }
+        }
     }
 
+    /// Stop following and AUTO-SAVE the travelled track (D1) — unless it's too short to be
+    /// worth keeping. What we persist is the real line walked, identical to a recording of
+    /// the same fixes; the planned route is untouched.
     public func stop() {
-        isFollowing = false; route = nil; reroute = nil
+        isFollowing = false
         location.setBackgroundUpdates(false)
         observation?.cancel(); observation = nil
+        ticker?.cancel(); ticker = nil
+        autoSave()
+        route = nil; reroute = nil
         geometry = []; name = nil; distanceRemainingM = 0; etaSeconds = nil
         fraction = 0; isOffRoute = false; arrived = false; userPosition = nil
+        capture = CapturedTrack(); capturedDistanceM = 0; elapsedSeconds = 0; startedAt = nil
     }
+
+    private func autoSave() {
+        guard capture.points.count >= 2, capture.distanceM >= Self.minSaveM else { return }
+        let elevations = capture.elevations.isEmpty ? nil : capture.elevations
+        let saved = SavedPath(
+            id: "follow-\(UUID().uuidString)",
+            name: name.map { "\($0) (followed)" } ?? "Followed route \(Int(capture.distanceM)) m",
+            path: GeoPath(
+                points: capture.points,
+                source: .recording,
+                elevations: elevations,
+                recordedAtEpochMs: startedAt.map { Int64($0.timeIntervalSince1970 * 1000) },
+                movingTimeSeconds: elapsedSeconds
+            ),
+            activityKind: .hiking
+        )
+        let repository = pathRepository
+        Task { await repository.upsert(saved) }
+    }
+
+    /// Skip auto-saving trivially short follows (you barely moved).
+    private static let minSaveM = 50.0
 
     private func apply(_ route: FollowRoute) {
         self.route = route
@@ -90,6 +141,10 @@ public final class FollowController {
         etaSeconds = p.etaSeconds
         isOffRoute = p.offRoute
         arrived = p.arrived
+        // Capture the real travelled track with the SAME engine recording uses, so the
+        // saved follow is identical to a recording of the same fixes (Follow = Record).
+        capture = TrackCapture.append(capture, fix)
+        capturedDistanceM = capture.distanceM
         maybeReroute(from: fix.position)
     }
 

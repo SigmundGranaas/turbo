@@ -30,8 +30,9 @@ public final class RecordingController {
         return Int(Double(elapsedSeconds) / (distanceMeters / 1000))
     }
 
-    private var points: [LatLng] = []
-    private var elevations: [Double] = []
+    /// The travelled track, accumulated by the shared ``TrackCapture`` engine — the
+    /// same one a *followed* route records with, so the two can't drift (Follow = Record).
+    private var capture = CapturedTrack()
     private var startedAt: Date?
 
     private let location: LocationProvider
@@ -62,7 +63,7 @@ public final class RecordingController {
     /// Begin a new recording.
     public func start() {
         guard !isRecording else { return }
-        points = []; elevations = []
+        capture = CapturedTrack()
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
         ascentMeters = 0; descentMeters = 0; currentAltitude = nil
         currentSpeedMps = nil; maxSpeedMps = 0
@@ -113,14 +114,14 @@ public final class RecordingController {
     /// Persist the captured track. Blank names fall back to a dated default.
     public func save(name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !points.isEmpty else { reset(); return }
+        guard !capture.points.isEmpty else { reset(); return }
         let path = SavedPath(
             id: "rec-\(UUID().uuidString)",
             name: trimmed.isEmpty ? "Recorded track" : trimmed,
             path: GeoPath(
-                points: points,
+                points: capture.points,
                 source: .recording,
-                elevations: elevations.isEmpty ? nil : elevations,
+                elevations: capture.elevations.isEmpty ? nil : capture.elevations,
                 recordedAtEpochMs: startedAt.map { Int64($0.timeIntervalSince1970 * 1000) },
                 movingTimeSeconds: elapsedSeconds
             ),
@@ -136,25 +137,20 @@ public final class RecordingController {
 
     private func append(_ fix: LocationFix) {
         guard isRecording else { return }
-        points.append(fix.position)
-        if let altitude = fix.altitude {
-            elevations.append(altitude)
-            currentAltitude = altitude
-        }
-        pointCount = points.count
-        distanceMeters = GeoMetrics.pathLengthMeters(points)
-        ascentMeters = GeoMetrics.ascentMeters(elevations) ?? ascentMeters
-        descentMeters = GeoMetrics.descentMeters(elevations) ?? descentMeters
-        if let speed = fix.speedMps {
-            currentSpeedMps = speed
-            maxSpeedMps = max(maxSpeedMps, speed)
-        }
+        capture = TrackCapture.append(capture, fix)
+        pointCount = capture.pointCount
+        distanceMeters = capture.distanceM
+        ascentMeters = capture.ascentM
+        descentMeters = capture.descentM
+        currentAltitude = capture.currentAltitude
+        currentSpeedMps = capture.currentSpeedMps
+        maxSpeedMps = capture.maxSpeedMps
         activity.update(distanceMeters: distanceMeters, elapsedSeconds: elapsedSeconds)
     }
 
     private func reset() {
         stop()
-        points = []; elevations = []; startedAt = nil
+        capture = CapturedTrack(); startedAt = nil
         pointCount = 0; distanceMeters = 0; elapsedSeconds = 0
         ascentMeters = 0; descentMeters = 0; currentAltitude = nil
         currentSpeedMps = nil; maxSpeedMps = 0

@@ -82,7 +82,7 @@ public final class AppContainer {
         recordingController = RecordingController(
             location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
         )
-        followController = FollowController(location: locationProvider)
+        followController = FollowController(location: locationProvider, pathRepository: pathRepository)
         isOnline = config.isOnline
 
         let syncStatus = SyncStatus()
@@ -158,7 +158,7 @@ public final class AppContainer {
         self.recordingController = RecordingController(
             location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter()
         )
-        self.followController = FollowController(location: locationProvider)
+        self.followController = FollowController(location: locationProvider, pathRepository: pathRepository)
         self.isOnline = isOnline
         let syncStatus = SyncStatus()
         self.syncStatus = syncStatus

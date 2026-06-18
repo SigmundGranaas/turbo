@@ -68,24 +68,16 @@ class RecordingController @Inject constructor(
             location.samples().collect { sample ->
                 // Drop wildly inaccurate fixes (e.g. cold-start / indoor) before they pollute the track.
                 if (!RecordingFilter.acceptAccuracy(sample.accuracyM)) return@collect
-                val fix = sample.position
                 val updated = _session.updateAndGet { s ->
                     if (!s.active || s.paused) return@updateAndGet s
-                    // Track speed on every accepted fix (even when the point itself is
-                    // dropped for being too close), so the live tiles stay responsive.
-                    val speed = sample.speedMps
-                    val maxSpeed = if (speed != null) maxOf(s.maxSpeedMps, speed) else s.maxSpeedMps
-                    if (s.points.isEmpty()) {
-                        return@updateAndGet s.copy(
-                            points = listOf(fix), elevations = listOf(sample.altitude),
-                            speedMps = speed, maxSpeedMps = maxSpeed,
-                        )
-                    }
-                    val step = GeoMetrics.haversineMeters(s.points.last(), fix)
-                    if (step < MIN_STEP_M) return@updateAndGet s.copy(speedMps = speed, maxSpeedMps = maxSpeed)
+                    // The same shared capture engine that powers Follow = Record.
+                    val next = TrackCapture.append(
+                        CapturedTrack(s.points, s.elevations, s.distanceM, s.speedMps, s.maxSpeedMps),
+                        sample.position, sample.altitude, sample.speedMps,
+                    )
                     s.copy(
-                        points = s.points + fix, elevations = s.elevations + sample.altitude,
-                        distanceM = s.distanceM + step, speedMps = speed, maxSpeedMps = maxSpeed,
+                        points = next.points, elevations = next.elevations,
+                        distanceM = next.distanceM, speedMps = next.speedMps, maxSpeedMps = next.maxSpeedMps,
                     )
                 }
                 // Persist the growing track so it survives process death.
@@ -114,10 +106,6 @@ class RecordingController @Inject constructor(
         stop()
         _session.value = RecordingSession()
         scope.launch { draftStore.clear() }
-    }
-
-    private companion object {
-        const val MIN_STEP_M = 3.0
     }
 }
 

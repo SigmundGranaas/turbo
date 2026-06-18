@@ -1,16 +1,21 @@
 package com.sigmundgranaas.turbo.expressive.core.data
 
+import com.sigmundgranaas.turbo.expressive.core.geo.GeoPath
+import com.sigmundgranaas.turbo.expressive.core.geo.GeoPathSource
 import com.sigmundgranaas.turbo.expressive.core.geo.RouteProgress
 import com.sigmundgranaas.turbo.expressive.core.geo.RouteProgressTracker
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
+import com.sigmundgranaas.turbo.expressive.domain.SavedPath
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,6 +24,11 @@ import javax.inject.Singleton
  * progress projected from their current GPS position. Process-lifetime, like
  * [RecordingSession], so the background service can surface a lock-screen Live
  * Update fed by the very same state the in-app sheet reads (they can't drift).
+ *
+ * Follow = Record: while you follow a route this session ALSO captures the real
+ * travelled track (the [points]/[elevations]/[capturedDistanceM]/[elapsedSec]
+ * fields), via the same [TrackCapture] engine recording uses — so finishing a
+ * follow auto-saves a genuine recording, not a thrown-away projection.
  */
 data class FollowSession(
     val active: Boolean = false,
@@ -32,28 +42,42 @@ data class FollowSession(
     val progress: RouteProgress? = null,
     /** Latest instantaneous ground speed (m/s); null until a fix carries speed. */
     val speedMps: Double? = null,
+    // --- Follow = Record: the actual track captured while following ---
+    /** The travelled polyline (NOT the planned route) captured from real fixes. */
+    val points: List<LatLng> = emptyList(),
+    /** Altitude (m) per captured point; parallel to [points]. */
+    val elevations: List<Double?> = emptyList(),
+    /** Cumulative travelled distance (m) — what you actually walked. */
+    val capturedDistanceM: Double = 0.0,
+    /** Fastest instantaneous speed seen (m/s). */
+    val maxSpeedMps: Double = 0.0,
+    /** Moving time (s) since the follow started. */
+    val elapsedSec: Int = 0,
 ) {
     /** Whether the hiker has effectively reached the end of the route. */
     val arrived: Boolean get() = active && (progress?.arrived ?: false)
 }
 
 /**
- * App-scoped follow engine: holds the followed route and projects the live GPS
+ * App-scoped follow engine: holds the followed route, projects the live GPS
  * position onto it (fraction done, distance/ETA remaining, off-route, arrived)
  * via the monotonic arc-length [RouteProgressTracker] — correct on loops /
- * out-and-back, unlike the old global-nearest projection. A [Singleton] so a
- * follow survives the UI being backgrounded; the foreground service keeps the
- * process alive.
+ * out-and-back, unlike the old global-nearest projection — AND captures the real
+ * travelled track alongside (Follow = Record). On [stop] it **auto-saves** that
+ * track (D1) unless it's too short to be worth keeping. A [Singleton] so a follow
+ * survives the UI being backgrounded; the foreground service keeps the process alive.
  */
 @Singleton
 class FollowController @Inject constructor(
     private val location: LocationRepository,
+    private val paths: PathRepository,
     private val scope: CoroutineScope,
 ) {
     private val _session = MutableStateFlow(FollowSession())
     val session: StateFlow<FollowSession> = _session.asStateFlow()
 
     private var locationJob: Job? = null
+    private var timerJob: Job? = null
     private var tracker: RouteProgressTracker? = null
 
     fun start(plan: RoutePlan, name: String? = null) {
@@ -66,19 +90,62 @@ class FollowController @Inject constructor(
                 val progress = tracker?.update(sample.position)
                 _session.update { s ->
                     if (s.plan == null) return@update s
+                    // Capture the travelled track with the SAME engine recording uses,
+                    // so the saved follow is byte-for-byte what a recording would be.
+                    val next = TrackCapture.append(
+                        CapturedTrack(s.points, s.elevations, s.capturedDistanceM, s.speedMps, s.maxSpeedMps),
+                        sample.position, sample.altitude, sample.speedMps,
+                    )
                     s.copy(
                         position = sample.position,
                         progress = progress,
                         speedMps = sample.speedMps ?: s.speedMps,
+                        points = next.points,
+                        elevations = next.elevations,
+                        capturedDistanceM = next.distanceM,
+                        maxSpeedMps = next.maxSpeedMps,
                     )
                 }
             }
         }
+        timerJob?.cancel()
+        timerJob = scope.launch {
+            while (true) {
+                delay(1_000)
+                _session.update { if (it.active) it.copy(elapsedSec = it.elapsedSec + 1) else it }
+            }
+        }
     }
 
+    /**
+     * Stop following and AUTO-SAVE the travelled track (D1) — unless it's too short to
+     * be worth keeping. What we persist is the real line walked, identical to a recording
+     * of the same fixes; the planned route is untouched.
+     */
     fun stop() {
         locationJob?.cancel(); locationJob = null
+        timerJob?.cancel(); timerJob = null
         tracker = null
+        autoSave(_session.value)
         _session.value = FollowSession()
+    }
+
+    private fun autoSave(s: FollowSession) {
+        if (s.points.size < 2 || s.capturedDistanceM < MIN_SAVE_M) return
+        // Only attach elevations when at least one fix actually carried altitude.
+        val elevations = s.elevations.takeIf { e -> e.any { it != null } }
+        val geo = GeoPath.fromPoints(s.points, GeoPathSource.Recording, elevations).copy(
+            movingTimeSeconds = s.elapsedSec,
+            recordedAtEpochMs = System.currentTimeMillis(),
+        )
+        val name = s.name?.let { "$it (followed)" } ?: "Followed route ${s.capturedDistanceM.toInt()} m"
+        scope.launch {
+            paths.save(SavedPath(id = "p-${UUID.randomUUID()}", name = name, path = geo, activityKind = null))
+        }
+    }
+
+    private companion object {
+        /** Skip auto-saving trivially short follows (you barely moved). */
+        const val MIN_SAVE_M = 50.0
     }
 }

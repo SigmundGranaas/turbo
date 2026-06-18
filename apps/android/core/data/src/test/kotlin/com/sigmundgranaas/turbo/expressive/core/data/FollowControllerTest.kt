@@ -2,9 +2,11 @@ package com.sigmundgranaas.turbo.expressive.core.data
 
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.RoutePlan
+import com.sigmundgranaas.turbo.expressive.domain.SavedPath
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -16,11 +18,21 @@ import org.junit.Test
 class FollowControllerTest {
 
     private class FakeLocation(var permitted: Boolean = true) : LocationRepository {
-        val feed = MutableSharedFlow<LocationSample>(extraBufferCapacity = 16)
+        val feed = MutableSharedFlow<LocationSample>(extraBufferCapacity = 64)
         override fun hasPermission(): Boolean = permitted
         override fun samples(): Flow<LocationSample> = feed
-        suspend fun emit(lat: Double, lng: Double, speed: Double? = null) =
-            feed.emit(LocationSample(LatLng(lat, lng), altitude = null, speedMps = speed))
+        suspend fun emit(lat: Double, lng: Double, speed: Double? = null, altitude: Double? = null) =
+            feed.emit(LocationSample(LatLng(lat, lng), altitude = altitude, speedMps = speed))
+    }
+
+    /** Captures auto-saved tracks so the Follow = Record + D1 auto-save can be asserted. */
+    private class FakePaths : PathRepository {
+        val saved = mutableListOf<SavedPath>()
+        override fun observeAll() = flowOf(emptyList<SavedPath>())
+        override suspend fun byId(id: String): SavedPath? = saved.firstOrNull { it.id == id }
+        override suspend fun save(path: SavedPath) { saved += path }
+        override suspend fun delete(id: String) { saved.removeAll { it.id == id } }
+        override suspend fun remoteId(id: String): String? = null
     }
 
     private val plan = RoutePlan(
@@ -32,7 +44,7 @@ class FollowControllerTest {
     @Test
     fun `start projects live position onto the route as progress`() = runTest {
         val loc = FakeLocation()
-        val controller = FollowController(loc, backgroundScope)
+        val controller = FollowController(loc, FakePaths(), backgroundScope)
         controller.start(plan, name = "Skåla Loop")
         runCurrent()
         assertTrue(controller.session.value.active)
@@ -48,7 +60,7 @@ class FollowControllerTest {
     @Test
     fun `arrived flips true after walking to the end`() = runTest {
         val loc = FakeLocation()
-        val controller = FollowController(loc, backgroundScope)
+        val controller = FollowController(loc, FakePaths(), backgroundScope)
         controller.start(plan)
         runCurrent()
         for (i in 0..16) { loc.emit(69.00 + i * 0.003, 18.0); runCurrent() } // ~69.048
@@ -59,7 +71,7 @@ class FollowControllerTest {
     @Test
     fun `stop clears the session`() = runTest {
         val loc = FakeLocation()
-        val controller = FollowController(loc, backgroundScope)
+        val controller = FollowController(loc, FakePaths(), backgroundScope)
         controller.start(plan)
         runCurrent()
         controller.stop()
@@ -70,10 +82,54 @@ class FollowControllerTest {
     @Test
     fun `holds the plan even without location permission`() = runTest {
         val loc = FakeLocation(permitted = false)
-        val controller = FollowController(loc, backgroundScope)
+        val controller = FollowController(loc, FakePaths(), backgroundScope)
         controller.start(plan)
         runCurrent()
         assertTrue(controller.session.value.active)
         assertEquals(null, controller.session.value.progress)
+    }
+
+    @Test
+    fun `following captures the real travelled track (Follow = Record)`() = runTest {
+        val loc = FakeLocation()
+        val controller = FollowController(loc, FakePaths(), backgroundScope)
+        controller.start(plan)
+        runCurrent()
+        for (i in 0..8) { loc.emit(69.00 + i * 0.003, 18.0, altitude = 100.0 + i * 10); runCurrent() }
+        val s = controller.session.value
+        // The travelled polyline + cumulative distance were captured, not just projected.
+        assertTrue("captured points but was ${s.points.size}", s.points.size >= 8)
+        assertTrue("captured distance but was ${s.capturedDistanceM}", s.capturedDistanceM > 2_000.0)
+    }
+
+    @Test
+    fun `finishing a real follow auto-saves the travelled track`() = runTest {
+        val loc = FakeLocation()
+        val paths = FakePaths()
+        val controller = FollowController(loc, paths, backgroundScope)
+        controller.start(plan, name = "Skåla Loop")
+        runCurrent()
+        for (i in 0..8) { loc.emit(69.00 + i * 0.003, 18.0, altitude = 100.0 + i * 10); runCurrent() }
+        controller.stop()
+        runCurrent()
+        assertEquals(1, paths.saved.size)
+        val track = paths.saved.single()
+        assertTrue("name carries the route", track.name.contains("Skåla Loop"))
+        assertTrue("a real polyline was saved", track.path.points.size >= 8)
+    }
+
+    @Test
+    fun `a trivially short follow is not auto-saved`() = runTest {
+        val loc = FakeLocation()
+        val paths = FakePaths()
+        val controller = FollowController(loc, paths, backgroundScope)
+        controller.start(plan)
+        runCurrent()
+        // Two fixes ~33 m apart — under the 50 m save floor.
+        loc.emit(69.00, 18.0); runCurrent()
+        loc.emit(69.0003, 18.0); runCurrent()
+        controller.stop()
+        runCurrent()
+        assertTrue("nothing saved for a trivial follow", paths.saved.isEmpty())
     }
 }

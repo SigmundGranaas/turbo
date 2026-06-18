@@ -53,19 +53,29 @@ data class LiveStats(
             )
         }
 
-        /** Build the live read-model for an active follow session. */
+        /**
+         * Build the live read-model for an active follow session. Follow = Record, so the
+         * accumulated travelled distance + captured ascent/descent/altitude come from the
+         * real track (same as a recording), while the route-relative fields (remaining,
+         * ETA, fraction, to-climb) come from the planned route + arc-cursor progress.
+         */
         fun of(session: FollowSession): LiveStats {
             val plan = session.plan
             val fraction = session.progress?.fraction
             val ascentRemaining = plan?.ascentM?.let { total -> fraction?.let { total * (1 - it) } ?: total }
+            val (asc, desc) = GeoMetrics.gainLoss(session.elevations)
             return LiveStats(
                 mode = LiveMode.Following,
+                distanceM = session.capturedDistanceM,
                 distanceRemainingM = session.progress?.distanceRemainingM ?: plan?.distanceM,
                 routeDistanceM = plan?.distanceM,
+                elapsedSec = session.elapsedSec,
                 speedMps = session.speedMps,
-                ascentM = plan?.ascentM,
+                maxSpeedMps = session.maxSpeedMps.takeIf { it > 0.0 },
+                ascentM = asc,
+                descentM = desc,
+                altitudeM = session.elevations.lastOrNull { it != null },
                 ascentRemainingM = ascentRemaining,
-                altitudeM = null,
                 etaSeconds = session.progress?.etaSeconds,
                 fraction = fraction,
                 kcal = plan?.let { GeoMetrics.estimateKcal(it.distanceM, it.ascentM) } ?: 0,
