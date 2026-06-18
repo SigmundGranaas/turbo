@@ -301,48 +301,73 @@ const CLOUD_BASE : f32 = 0.12;
 // cloud as it climbs toward the sun), not a 2D shape extruded.
 const VHEIGHT : f32 = 3.0;
 
-// TRUE 3D extinction density at a sample. `z` ∈ 0..1 is normalised altitude
-// in the cloud layer. The visible cloud is ENTIRELY procedural 3D noise; the
-// MET radar coverage is only a smooth regional *seed* that biases how much
-// of that procedural field survives (more cloud where it's wetter). The
-// 64×42 grid never defines a visible edge — all silhouette + interior
-// structure comes from the 3D Perlin-Worley / Worley field.
+// Per-region "cloud type" in 0..1 — a LOW-frequency field, biased by
+// precipitation, that gives clouds a variety of PRIMARY shapes instead of
+// one uniform height. 0 = flat low stratus, ~0.5 = rounded cumulus, 1 =
+// towering cumulonimbus. (Nubis carries this in the weather map's B channel;
+// we synthesise it procedurally + from MET precip.)
+fn cloud_type(uv : vec2<f32>) -> f32 {
+    let drift = U.wind * U.time * 0.02;
+    let p = (uv * U.map_scale + drift) * 0.22; // much coarser than the detail
+    let big = fbm3(vec3<f32>(p, 13.0));
+    let precip = radar_value(uv).r; // wetter → taller storm cells
+    return clamp(big * 1.35 - 0.18 + precip * 0.55, 0.0, 1.0);
+}
+
+// Vertical density gradient for a cloud of type `ct` at normalised altitude
+// `z`. The type sets the cloud TOP (flat→towering) and the gradient shape:
+// rounded heavy base, taper to the top; taller types taper more gently
+// (anvil-ish). This is what produces height variety across the field.
+fn height_gradient(z : f32, ct : f32) -> f32 {
+    let base = 0.05;
+    let top = mix(0.34, 0.96, ct); // flat stratus .. towering cumulonimbus
+    if (z < base || z > top) {
+        return 0.0;
+    }
+    let hn = (z - base) / max(top - base, 1e-3);
+    let bottom = smoothstep(0.0, 0.18, hn);
+    let taper = 1.0 - smoothstep(mix(0.5, 0.82, ct), 1.0, hn);
+    return bottom * taper;
+}
+
+// TRUE 3D extinction density at a sample. `z` ∈ 0..1 is normalised altitude.
+// The visible cloud is ENTIRELY procedural; MET coverage is only a smooth
+// regional *seed* biasing the threshold. Structured as Nubis does it:
+//  - a LOW-frequency primary 3D shape (the big cloud forms) × a type-driven
+//    height gradient → variety of primary shapes (flat → towering),
+//  - HIGH-frequency 3D Worley billows erode detail (the small puffs) AROUND
+//    that primary shape.
 fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
     if (z <= 0.0 || z >= 1.0) {
         return 0.0;
     }
-    // MET coverage as a smooth seed: a regional bias on the density threshold.
     let seed = radar_value(uv).g;
     if (seed < 0.03) {
         return 0.0;
     }
-
     let drift = U.wind * U.time * 0.02;
-    // 3D sample coords: xy at the feature frequency, z lifted into VHEIGHT
-    // noise cells + a slow "boil" so the volume evolves over time.
-    let p = vec3<f32>(uv * U.map_scale + drift, z * VHEIGHT + U.time * 0.05);
+    let ct = cloud_type(uv);
 
-    // Base 3D shape; the coverage seed sets how much clears the threshold.
-    var base = perlin_worley3(p);
-    base = clamp(remap(base, 1.0 - seed, 1.0, 0.0, 1.0), 0.0, 1.0);
-    if (base <= 0.001) {
+    // Primary big-shape field — low frequency, so it sets the major forms.
+    let pp = vec3<f32>((uv * U.map_scale + drift) * 0.55, z * VHEIGHT * 0.55 + U.time * 0.04);
+    var primary = perlin_worley3(pp);
+    primary = clamp(remap(primary, 1.0 - seed, 1.0, 0.0, 1.0), 0.0, 1.0);
+    if (primary <= 0.001) {
         return 0.0;
     }
 
-    // Cloud-layer vertical profile: rounded heavy base, billowy taper to the
-    // top (cumulus sit in a band, densest in the lower-middle).
-    let prof = smoothstep(0.0, 0.15, z) * (1.0 - smoothstep(0.55, 1.0, z));
-    var d = base * prof;
+    // Type-driven vertical gradient → the PRIMARY shape's height varies.
+    var d = primary * height_gradient(z, ct);
     if (d <= 0.001) {
         return 0.0;
     }
 
-    // 3D Worley erosion carves real cauliflower cavities through the body
-    // (stronger toward the top), then crisp the low-density fringe.
-    let detail = billow3(p * 3.0 + vec3<f32>(11.0, 5.0, 9.0));
-    d = clamp(remap(d, mix(0.30, 0.62, z) * (1.0 - detail), 1.0, 0.0, 1.0), 0.0, 1.0);
-    d = clamp((d - 0.12) / 0.88, 0.0, 1.0);
-    return d * 2.4;
+    // High-frequency 3D billow detail erodes small puffs around the primary
+    // shape (stronger toward the top), then crisp the low-density fringe.
+    let detail = billow3(vec3<f32>(uv * U.map_scale + drift, z * VHEIGHT) * 2.2 + vec3<f32>(11.0, 5.0, 9.0));
+    d = clamp(remap(d, (1.0 - detail) * mix(0.28, 0.60, z), 1.0, 0.0, 1.0), 0.0, 1.0);
+    d = clamp((d - 0.10) / 0.90, 0.0, 1.0);
+    return d * 2.6;
 }
 
 // Base albedo from rain intensity. Cloud stays BRIGHT WHITE until the rain
@@ -426,11 +451,18 @@ fn render_volume(uv : vec2<f32>, lum_out : ptr<function, f32>) -> vec4<f32> {
     // a low sun angle is what reads as 3D form from straight above.
     let sun = normalize(vec3<f32>(normalize(U.sun_dir), U.sun_elev));
 
-    // Lit cloud reads bright white; shadowed sides/crevices fall to a cool
-    // sky-blue but stay clearly visible. Ambient is graded by height.
-    let sun_col = vec3<f32>(1.15, 1.12, 1.06);
-    let sky_top = vec3<f32>(0.74, 0.80, 0.92);
-    let sky_bot = vec3<f32>(0.46, 0.52, 0.64);
+    // Sunset weighting: 1 when the sun is near the horizon, 0 when it's high.
+    // A low sun turns the direct light warm orange (sunlit/bright side) and
+    // the sky ambient that fills the shadows cool dusk-purple — so the whole
+    // scene reads as golden-hour rather than flat midday.
+    let sunset = 1.0 - smoothstep(0.10, 0.42, U.sun_elev);
+    let sun_day = vec3<f32>(1.13, 1.10, 1.04); // clean midday white
+    let sun_dusk = vec3<f32>(1.40, 0.66, 0.36); // warm sunset orange
+    let sun_col = mix(sun_day, sun_dusk, sunset);
+    // Ambient sky (fills shadows), height-graded: day blue → dusk. At sunset
+    // the high sky goes cool purple and the horizon glows warm.
+    let sky_top = mix(vec3<f32>(0.62, 0.70, 0.86), vec3<f32>(0.34, 0.33, 0.52), sunset);
+    let sky_bot = mix(vec3<f32>(0.42, 0.47, 0.57), vec3<f32>(0.55, 0.40, 0.42), sunset);
 
     let dz = 1.0 / f32(PRIMARY_STEPS);
     let ext = U.extinction; // view-ray extinction (opacity build-up)
