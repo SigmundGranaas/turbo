@@ -75,6 +75,20 @@ internal fun flingVelocity(vx: Float, vy: Float, wasPinch: Boolean): Pair<Float,
 internal fun shouldFling(vx: Float, vy: Float): Boolean = hypot(vx, vy) >= MIN_FLING_VELOCITY
 
 /**
+ * Which gesture grammar [detectMapGestures] applies. 2D is the legacy model
+ * (1-finger pan, pinch zoom). In 3D a 1-finger drag *orbits* about a pinned
+ * focus (horizontal → bearing, vertical → pitch) and two fingers pan + zoom.
+ * See docs/architecture/2026-06-2d-3d-map-mode-gestures.md.
+ */
+internal enum class MapGestureMode { TwoD, ThreeD }
+
+/** 3D orbit sensitivity, screen px → degrees. Horizontal drag spins the bearing. */
+internal const val ORBIT_BEARING_DEG_PER_PX = 0.30f
+
+/** 3D orbit sensitivity, screen px → degrees. Up-drag tilts toward the horizon. */
+internal const val ORBIT_PITCH_DEG_PER_PX = 0.25f
+
+/**
  * iPhone-style map gestures: one detector for pan + pinch-zoom + momentum.
  *
  * - **finger down** → [onDown] (the host catches any in-flight animation, so a
@@ -94,17 +108,25 @@ internal suspend fun PointerInputScope.detectMapGestures(
     onTransform: (panX: Float, panY: Float, zoom: Float) -> Unit,
     onFling: (vx: Float, vy: Float) -> Unit,
     onZoomFling: (zoomVelocity: Float, focusX: Float, focusY: Float) -> Unit = { _, _, _ -> },
+    // 3D mode (default off → identical 2D behaviour). `mode` is sampled ONCE at
+    // gesture start so a toggle mid-drag doesn't change the grammar underfoot.
+    mode: () -> MapGestureMode = { MapGestureMode.TwoD },
+    // The pinned orbit pivot in screen px; null → screen centre.
+    orbitFocus: () -> Offset? = { null },
+    onOrbit: (dBearingDeg: Float, dPitchDeg: Float, focusX: Float, focusY: Float) -> Unit = { _, _, _, _ -> },
 ) {
     awaitEachGesture {
         val tracker = VelocityTracker()
         val zoomTracker = ZoomVelocityTracker()
         val first = awaitFirstDown(requireUnconsumed = false)
         onDown()
+        val gestureMode = mode()
         tracker.addPosition(first.uptimeMillis, first.position)
         var prevCount = 1
         var prevCentroid = first.position
         var prevSpread = 0f
         var wasPinch = false
+        var wasOrbit = false
 
         while (true) {
             val event = awaitPointerEvent()
@@ -126,6 +148,27 @@ internal suspend fun PointerInputScope.detectMapGestures(
                 prevCount = pressed.size
                 tracker.resetTracking()
                 zoomTracker.reset()
+            } else if (gestureMode == MapGestureMode.ThreeD && pressed.size == 1) {
+                // 3D 1-finger → orbit about the pinned focus: horizontal spins
+                // the bearing, vertical tilts the pitch. Two fingers fall through
+                // to the pan + zoom path below (unchanged).
+                val pan = centroid - prevCentroid
+                if (pan != Offset.Zero) {
+                    wasOrbit = true
+                    // Pivot on the pinned focus (the user dot) while it's on
+                    // screen; once it's been panned out of the viewport, fall
+                    // back to the screen centre (re-pin rule).
+                    val f = orbitFocus()
+                    val onScreen = f != null &&
+                        f.x in 0f..size.width.toFloat() && f.y in 0f..size.height.toFloat()
+                    val focus = if (onScreen) f!! else Offset(size.width / 2f, size.height / 2f)
+                    onOrbit(
+                        pan.x * ORBIT_BEARING_DEG_PER_PX,
+                        -pan.y * ORBIT_PITCH_DEG_PER_PX,
+                        focus.x,
+                        focus.y,
+                    )
+                }
             } else {
                 val pan = centroid - prevCentroid
                 val zoom = if (pressed.size >= 2 && prevSpread > 0f && spread > 0f) spread / prevSpread else 1f
@@ -138,11 +181,14 @@ internal suspend fun PointerInputScope.detectMapGestures(
             event.changes.forEach { if (it.positionChanged()) it.consume() }
         }
 
-        // A pinch carries zoom momentum (locked to the zoom axis) and never a
-        // pan fling; a single-finger flick carries pan momentum. Either may rest.
+        // A pinch carries zoom momentum (locked to the zoom axis); a 2D
+        // single-finger flick carries pan momentum; a 3D orbit just rests (no
+        // bearing/pitch fling for now). Any of them may rest.
         if (wasPinch) {
             val zv = zoomTracker.velocity()
             if (shouldZoomFling(zv)) onZoomFling(zv, prevCentroid.x, prevCentroid.y) else onFling(0f, 0f)
+        } else if (wasOrbit) {
+            onFling(0f, 0f)
         } else {
             val v = tracker.calculateVelocity()
             val (fx, fy) = flingVelocity(v.x, v.y, wasPinch = false)

@@ -17,8 +17,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -91,6 +93,10 @@ fun TurbomapMapView(
     onWaypointLongPress: (Int) -> Unit = {},
     onWaypointMoved: (Int, LatLng) -> Unit = { _, _ -> },
     onMarkerClick: (Marker) -> Unit = {},
+    // When true the map is in 3D mode: a 1-finger drag orbits about the user
+    // location (or screen centre if it's off-screen) and two fingers pan + zoom.
+    // Default false → unchanged 2D pan/zoom. See the 2D/3D mode design doc.
+    threeDMode: Boolean = false,
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
     onBearingChange: (Double) -> Unit = {},
@@ -105,6 +111,12 @@ fun TurbomapMapView(
     controller.onError = onEngineError
     controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles") }
     fun scene() = TurbomapScene.build(rasters, track, route, measure, userLocation)
+
+    // Latest values read by the long-lived gesture lambda (pointerInput(Unit)
+    // never restarts), so toggling 3D / moving the user dot takes effect without
+    // recreating the detector.
+    val threeDState = rememberUpdatedState(threeDMode)
+    val userLocationState = rememberUpdatedState(userLocation)
 
     Box(modifier.fillMaxSize()) {
         AndroidView(
@@ -130,6 +142,20 @@ fun TurbomapMapView(
                         onTransform = { panX, panY, zoom -> controller.onTransform(panX, panY, zoom) },
                         onFling = { vx, vy -> controller.onFling(vx, vy) },
                         onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },
+                        mode = {
+                            if (threeDState.value) MapGestureMode.ThreeD else MapGestureMode.TwoD
+                        },
+                        orbitFocus = {
+                            val loc = userLocationState.value
+                            val eng = controller.engine
+                            if (loc != null && eng != null) {
+                                val (x, y) = eng.toScreen(loc)
+                                Offset(x, y)
+                            } else {
+                                null
+                            }
+                        },
+                        onOrbit = { db, dp, fx, fy -> controller.onOrbit(db, dp, fx, fy) },
                     )
                 }
                 .pointerInput(onMapTap, onMapLongClick) {
@@ -382,6 +408,25 @@ internal class TurbomapSurfaceController {
         var z = cam[2]
         if (zoomFactor != 1f) z = (z + ln(zoomFactor.toDouble()) / LN2).coerceIn(MIN_ZOOM, MAX_ZOOM)
         NativeSurfaceMap.nativeSetCamera(handle, newCenter.lat, newCenter.lng, z, cam[3])
+        requestRender(cameraMoved = true)
+        requestReconcile()
+    }
+
+    /**
+     * 3D-mode 1-finger drag step: orbit (rotate + tilt) about the pinned focus
+     * pixel ([focusX],[focusY]) — horizontal drag spins the bearing, vertical
+     * tilts the pitch. The focus stays over its world point, so the location
+     * being orbited stays glued to its screen spot.
+     */
+    fun onOrbit(dBearingDeg: Float, dPitchDeg: Float, focusX: Float, focusY: Float) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeOrbitAround(
+            handle,
+            dBearingDeg.toDouble(),
+            dPitchDeg.toDouble(),
+            focusX.toDouble(),
+            focusY.toDouble(),
+        )
         requestRender(cameraMoved = true)
         requestReconcile()
     }

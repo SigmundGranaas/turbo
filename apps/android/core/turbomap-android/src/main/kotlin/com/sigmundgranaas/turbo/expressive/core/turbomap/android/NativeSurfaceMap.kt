@@ -65,6 +65,13 @@ internal object NativeSurfaceMap {
     /** Animate a focus-invariant zoom by [factor] about ([fx],[fy]) over [durationMs]. */
     external fun nativeZoomAroundAnimated(handle: Long, factor: Double, fx: Double, fy: Double, durationMs: Int)
 
+    /**
+     * One 3D-mode orbit step: rotate the bearing by [dBearingDeg] and tilt by
+     * [dPitchDeg], both about the pinned focus pixel ([fx],[fy]) so that pixel
+     * stays over the same world point. Pitch is clamped to the engine limit.
+     */
+    external fun nativeOrbitAround(handle: Long, dBearingDeg: Double, dPitchDeg: Double, fx: Double, fy: Double)
+
     /** Catch any in-flight camera animation, freezing the camera where it is. */
     external fun nativeCancelAnimation(handle: Long)
 
