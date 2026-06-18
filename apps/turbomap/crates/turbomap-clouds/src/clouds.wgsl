@@ -158,6 +158,98 @@ fn perlin_worley(p : vec2<f32>) -> f32 {
     return clamp(remap(perlin, billow - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
 }
 
+// --- TRUE 3D noise: the volumetric basis. The density varies in x, y AND z,
+// so the light march samples genuinely different cloud along the sun ray →
+// real internal shadows + volume (not a 2D shape extruded into a slab). ---
+
+fn hash13(p_in : vec3<f32>) -> f32 {
+    var p3 = fract(p_in * 0.1031);
+    p3 += dot(p3, p3.zyx + 31.32);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn hash33(p_in : vec3<f32>) -> vec3<f32> {
+    var p3 = fract(p_in * vec3<f32>(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yxz + 33.33);
+    return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+
+// Value noise in 3D, quintic-faded trilinear interpolation.
+fn noise3(p : vec3<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let c000 = hash13(i + vec3<f32>(0.0, 0.0, 0.0));
+    let c100 = hash13(i + vec3<f32>(1.0, 0.0, 0.0));
+    let c010 = hash13(i + vec3<f32>(0.0, 1.0, 0.0));
+    let c110 = hash13(i + vec3<f32>(1.0, 1.0, 0.0));
+    let c001 = hash13(i + vec3<f32>(0.0, 0.0, 1.0));
+    let c101 = hash13(i + vec3<f32>(1.0, 0.0, 1.0));
+    let c011 = hash13(i + vec3<f32>(0.0, 1.0, 1.0));
+    let c111 = hash13(i + vec3<f32>(1.0, 1.0, 1.0));
+    let x00 = mix(c000, c100, u.x);
+    let x10 = mix(c010, c110, u.x);
+    let x01 = mix(c001, c101, u.x);
+    let x11 = mix(c011, c111, u.x);
+    return mix(mix(x00, x10, u.y), mix(x01, x11, u.y), u.z);
+}
+
+const ROT3 = mat3x3<f32>(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
+
+fn fbm3(p_in : vec3<f32>) -> f32 {
+    var p = p_in;
+    var amp = 0.5;
+    var sum = 0.0;
+    var norm = 0.0;
+    for (var i = 0; i < 4; i = i + 1) {
+        sum += amp * noise3(p);
+        norm += amp;
+        amp *= 0.5;
+        p = ROT3 * p * 2.0;
+    }
+    return sum / norm;
+}
+
+// 3D Worley F1 (nearest feature over a 3×3×3 jittered grid).
+fn worley3(p : vec3<f32>) -> f32 {
+    let ip = floor(p);
+    let fp = fract(p);
+    var d = 9.0;
+    for (var k = -1; k <= 1; k = k + 1) {
+        for (var j = -1; j <= 1; j = j + 1) {
+            for (var i = -1; i <= 1; i = i + 1) {
+                let g = vec3<f32>(f32(i), f32(j), f32(k));
+                let o = hash33(ip + g);
+                let r = g + o - fp;
+                d = min(d, dot(r, r));
+            }
+        }
+    }
+    return sqrt(d);
+}
+
+// Fractal inverted-Worley billows in 3D — rounded cauliflower lumps.
+fn billow3(p_in : vec3<f32>) -> f32 {
+    var p = p_in;
+    var amp = 0.65;
+    var sum = 0.0;
+    var norm = 0.0;
+    for (var i = 0; i < 2; i = i + 1) {
+        sum += amp * (1.0 - worley3(p));
+        norm += amp;
+        amp *= 0.5;
+        p = ROT3 * p * 2.0 + vec3<f32>(7.3, 3.1, 5.7);
+    }
+    return clamp(sum / norm, 0.0, 1.0);
+}
+
+// Perlin–Worley in 3D (Schneider): 3D value-fBm remapped up toward 3D billows.
+fn perlin_worley3(p : vec3<f32>) -> f32 {
+    let per = fbm3(p);
+    let bil = billow3(p);
+    return clamp(remap(per, bil - 1.0, 1.0, 0.0, 1.0), 0.0, 1.0);
+}
+
 // Smoothstep-bilinear sampling: de-blocks the radar grid for ~1 tap.
 fn sample_radar(tex : texture_2d<f32>, uv : vec2<f32>) -> vec2<f32> {
     let dim = vec2<f32>(textureDimensions(tex));
@@ -204,55 +296,52 @@ fn cloud_height(uv : vec2<f32>) -> f32 {
 // Cloud layer geometry (normalised slab, z in 0..1, viewer looks down -z).
 const CLOUD_BASE : f32 = 0.12;
 
-// 3D extinction density at a world point — this is what makes the clouds
-// VOLUMETRIC rather than a flat card: a real σₜ sampled through a slab, so
-// the raymarch can integrate translucency, soft edges and light transport.
-//
-// Construction: radar coverage says WHERE cloud exists; the billow height
-// field is the bumpy TOP surface of the puffs; the layer is filled solid
-// from the base up to that surface (rounded off top and bottom); a
-// height-varying fBm erodes wispy 3D detail. Returns ~0..1.
+// Number of vertical noise cells across the cloud layer — enough that the
+// field has real top-to-bottom structure (so the light march sees different
+// cloud as it climbs toward the sun), not a 2D shape extruded.
+const VHEIGHT : f32 = 3.0;
+
+// TRUE 3D extinction density at a sample. `z` ∈ 0..1 is normalised altitude
+// in the cloud layer. The visible cloud is ENTIRELY procedural 3D noise; the
+// MET radar coverage is only a smooth regional *seed* that biases how much
+// of that procedural field survives (more cloud where it's wetter). The
+// 64×42 grid never defines a visible edge — all silhouette + interior
+// structure comes from the 3D Perlin-Worley / Worley field.
 fn cloud_density(uv : vec2<f32>, z : f32) -> f32 {
-    let cov = radar_value(uv).g;
-    if (cov < 0.02) {
+    if (z <= 0.0 || z >= 1.0) {
         return 0.0;
     }
-    let drift = U.wind * U.time * 0.02;
-    let p = uv * U.map_scale + drift;
+    // MET coverage as a smooth seed: a regional bias on the density threshold.
+    let seed = radar_value(uv).g;
+    if (seed < 0.03) {
+        return 0.0;
+    }
 
-    // Nubis base shape: Perlin–Worley, then apply coverage with a Remap so
-    // only noise above the (1−coverage) floor survives, rescaled to 0..1.
-    // This is the crisp coverage-driven silhouette (broken vs. solid).
-    var base = perlin_worley(p);
-    base = clamp(remap(base, 1.0 - cov, 1.0, 0.0, 1.0), 0.0, 1.0);
+    let drift = U.wind * U.time * 0.02;
+    // 3D sample coords: xy at the feature frequency, z lifted into VHEIGHT
+    // noise cells + a slow "boil" so the volume evolves over time.
+    let p = vec3<f32>(uv * U.map_scale + drift, z * VHEIGHT + U.time * 0.05);
+
+    // Base 3D shape; the coverage seed sets how much clears the threshold.
+    var base = perlin_worley3(p);
+    base = clamp(remap(base, 1.0 - seed, 1.0, 0.0, 1.0), 0.0, 1.0);
     if (base <= 0.001) {
         return 0.0;
     }
 
-    // Denser puffs stand TALLER, so their domed tops cast read-able shadows
-    // on neighbours when seen from above (the key 3D cue top-down).
-    let cloud_top = CLOUD_BASE + 0.05 + base * 0.85;
-    if (z < CLOUD_BASE || z > cloud_top) {
-        return 0.0;
-    }
-    let hn = (z - CLOUD_BASE) / max(cloud_top - CLOUD_BASE, 1e-3); // 0..1 in slab
-
-    // Cumulus height gradient: rounded heavy base, billowy taper to the top.
-    let grad = smoothstep(0.0, 0.12, hn) * (1.0 - smoothstep(0.45, 1.0, hn));
-    var d = base * grad;
+    // Cloud-layer vertical profile: rounded heavy base, billowy taper to the
+    // top (cumulus sit in a band, densest in the lower-middle).
+    let prof = smoothstep(0.0, 0.15, z) * (1.0 - smoothstep(0.55, 1.0, z));
+    var d = base * prof;
     if (d <= 0.001) {
         return 0.0;
     }
 
-    // High-frequency Worley erosion carves the cauliflower edges; z in the
-    // coords makes it a 3D field (varies with height), and we erode harder
-    // toward the top where cumulus go wispy.
-    let detail = billow_fbm(p * 3.6 + vec2<f32>(z * 4.0, drift.y));
-    let ero = mix(0.36, 0.70, hn) * detail;
-    d = clamp(remap(d, ero, 1.0, 0.0, 1.0), 0.0, 1.0);
-    // Cut the feathery low-density fringe so the silhouette reads CRISP
-    // (not a soft halo), then rescale so the body stays solid.
-    d = clamp((d - 0.14) / 0.86, 0.0, 1.0);
+    // 3D Worley erosion carves real cauliflower cavities through the body
+    // (stronger toward the top), then crisp the low-density fringe.
+    let detail = billow3(p * 3.0 + vec3<f32>(11.0, 5.0, 9.0));
+    d = clamp(remap(d, mix(0.30, 0.62, z) * (1.0 - detail), 1.0, 0.0, 1.0), 0.0, 1.0);
+    d = clamp((d - 0.12) / 0.88, 0.0, 1.0);
     return d * 2.4;
 }
 
@@ -288,8 +377,8 @@ struct Shade {
     col      : vec3<f32>, // final premultiplied scattered colour
 };
 
-const PRIMARY_STEPS : i32 = 32;
-const LIGHT_STEPS : i32 = 6;
+const PRIMARY_STEPS : i32 = 28;
+const LIGHT_STEPS : i32 = 5;
 
 fn luminance_lin(c : vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
