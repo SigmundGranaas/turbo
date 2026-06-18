@@ -890,6 +890,32 @@ mod tests {
     }
 
     #[test]
+    fn orbit_around_focus_keeps_the_pivot_world_point_anchored() {
+        // The 3D-mode orbit is rotate-then-tilt about the SAME pinned focus
+        // — exactly what `nativeOrbitAround` does per drag step. After both
+        // edits the pivot pixel must still map to the same world point: that
+        // per-step anchoring is what keeps the user's location glued to its
+        // screen spot while the world spins + tilts around it. (The re-pin is
+        // a one-shot correction, so the residual is the perspective non-
+        // linearity over a SINGLE step — tiny; it's never re-derived from a
+        // drifted base because every drag frame re-pins from scratch.)
+        let viewport = (1080.0, 2160.0);
+        let focus = (540.0, 700.0); // off-centre: the user dot, not screen centre
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 13.0);
+        let pivot_world = cam.pixel_to_world(focus, viewport);
+
+        // One representative drag step: spin the bearing and tilt, both about
+        // the pinned focus.
+        let orbited = cam
+            .rotated_around(12.0, focus, viewport)
+            .pitched_around(15.0, focus, viewport);
+
+        assert!((orbited.bearing_deg - 12.0).abs() < 1e-9);
+        assert!((orbited.pitch_deg - 15.0).abs() < 1e-9);
+        assert_world_close(orbited.pixel_to_world(focus, viewport), pivot_world, 1e-5);
+    }
+
+    #[test]
     fn pitch_around_anchors_focus_and_clamps() {
         let viewport = (1024.0, 768.0);
         let focus = (300.0, 600.0);

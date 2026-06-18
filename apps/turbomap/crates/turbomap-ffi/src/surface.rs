@@ -444,6 +444,30 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// One 3D-mode orbit step: rotate the bearing by `d_bearing_deg` and tilt by
+/// `d_pitch_deg`, both pivoting about the pinned focus pixel `(fx, fy)` so that
+/// pixel stays over the same world point — the location the user is orbiting
+/// stays glued to its screen spot while the world spins/tilts around it. Pitch
+/// is clamped to the engine's limit. Driven per move-event by the 1-finger drag
+/// in 3D mode (see docs/architecture/2026-06-2d-3d-map-mode-gestures.md).
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeOrbitAround(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    d_bearing_deg: jdouble,
+    d_pitch_deg: jdouble,
+    fx: jdouble,
+    fy: jdouble,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.rotate_around(d_bearing_deg, (fx, fy));
+            map.engine.pitch_around(d_pitch_deg, (fx, fy));
+        });
+    }
+}
+
 /// Catch any in-flight camera animation, freezing the camera exactly where it
 /// is (finger-down stops the motion). `set_camera(current)` clears `active`.
 #[no_mangle]
