@@ -175,6 +175,77 @@ fn pan_session_stays_covered_and_settles_without_flicker() {
     }
 }
 
+#[test]
+fn heavy_roaming_under_a_tight_cache_budget_keeps_reloading_tiles() {
+    // Regression for the "grey tiles that never reload until you switch the
+    // map layer" bug. The GPU texture cache evicts tiles past its budget,
+    // but the engine's per-layer `ingested` set used to be insert-only — so
+    // an evicted tile stayed marked resident, dropped out of `pending`
+    // forever, and never got re-requested. Switching layers rebuilt the
+    // Scene (fresh `ingested`) which is why it "fixed itself".
+    //
+    // Here we pin a tight cache budget, roam across far-apart regions to
+    // force eviction of the start area, then return to the exact start. The
+    // map MUST fully re-paint — proving evicted-but-still-desired tiles get
+    // re-requested. Before the fix this returned a grey, hole-ridden frame.
+    let opts = MapOptions {
+        fade_in_secs: 0.0,
+        // ~48 tiles — comfortably holds one screen, but a fraction of what
+        // roaming across six regions loads, so eviction is guaranteed.
+        cache_budget_bytes: 16 * 1024 * 1024,
+        ..Default::default()
+    };
+    let Some(mut sim) = sim_or_skip(12.0, opts) else {
+        return;
+    };
+    sim.engine.apply(basemap_scene());
+
+    let start = sim.camera();
+    assert!(sim.run_until_stable(200, 0.002).is_some(), "start must settle");
+    let start_blank = sim.step().blank_frac;
+    assert!(start_blank < 0.05, "start should be covered, blank={start_blank:.3}");
+
+    // Roam far east across several distinct regions, settling at each so the
+    // cache fills with new tiles and the cold start-area tiles get evicted.
+    for region in 1..=6u32 {
+        let mut cam = start;
+        cam.center.lng += region as f64 * 0.4;
+        cam.center.lat += (region as f64 * 0.13).sin() * 0.2;
+        sim.engine.set_camera(cam);
+        assert!(
+            sim.run_until_stable(200, 0.003).is_some(),
+            "region {region} must settle"
+        );
+    }
+
+    // The test only means something if eviction actually happened.
+    let evictions: u64 = sim
+        .engine
+        .last_frame_metrics()
+        .layers
+        .iter()
+        .map(|l| l.cache.evictions)
+        .sum();
+    assert!(
+        evictions > 0,
+        "tight budget + roaming must force cache evictions (got {evictions})"
+    );
+
+    // Return to the exact start. The evicted start tiles must be re-fetched
+    // and the frame fully re-paints; the bug left permanent grey holes here.
+    sim.engine.set_camera(start);
+    assert!(
+        sim.run_until_stable(300, 0.003).is_some(),
+        "return must settle"
+    );
+    let back_blank = sim.step().blank_frac;
+    assert!(
+        back_blank < 0.05,
+        "returning after eviction must re-load tiles, blank={back_blank:.3} \
+         (regression: evicted tiles never re-requested → permanent grey)"
+    );
+}
+
 /// CameraState helper: lng without reaching through fields in asserts.
 trait LngOf {
     fn lng_of(&self) -> f64;

@@ -229,7 +229,14 @@ pub struct MapOptions {
 impl Default for MapOptions {
     fn default() -> Self {
         Self {
-            cache_budget_bytes: 128 * 1024 * 1024,
+            // Per-layer GPU texture budget. There are up to THREE live
+            // caches at once (raster + vector + terrain DEM), so this is
+            // ×3 of real VRAM. 128 MiB each (384 MiB total) risks OOM /
+            // ANR on a phone under sustained tilted 3D; 80 MiB (≈240 MiB
+            // total) is safe, and the eviction↔ingested coherence fix
+            // means a smaller cache just re-requests rather than greying
+            // out. Comfortably holds a screen's working set at any pitch.
+            cache_budget_bytes: 80 * 1024 * 1024,
             prefetch_margin_px: 256,
             pixel_ratio: 1.0,
             // Fade-in is currently DISABLED (0 = tiles snap to fully
@@ -635,8 +642,11 @@ impl Map {
     /// (e.g. host sent us a stale tile after `clear_terrain`).
     pub fn ingest_terrain_tile(&mut self, tile: TileId, rgba: &[u8], width: u32, height: u32) {
         if let Some(t) = self.terrain.as_mut() {
-            t.cache.ingest(tile, rgba, width, height);
+            let evicted = t.cache.ingest(tile, rgba, width, height);
             t.scene.ingest(tile);
+            for e in &evicted {
+                t.scene.un_ingest(e);
+            }
         }
     }
 
@@ -1150,8 +1160,14 @@ impl Map {
         for l in &mut self.layers {
             if let LayerEntry::Raster(r) = l {
                 if r.id == layer_id {
-                    r.cache.insert(tile, rgba, w, h);
+                    let evicted = r.cache.insert(tile, rgba, w, h);
                     r.scene.ingest(tile);
+                    // Keep the "ingested" set in step with what the cache
+                    // actually holds — evicted tiles must become re-
+                    // requestable, or they grey out permanently.
+                    for e in &evicted {
+                        r.scene.un_ingest(e);
+                    }
                     return;
                 }
             }
@@ -1171,8 +1187,11 @@ impl Map {
         for l in &mut self.layers {
             if let LayerEntry::Vector(v) = l {
                 if v.id == layer_id {
-                    v.cache.insert(tile, mesh, labels, icons, interactive);
+                    let evicted = v.cache.insert(tile, mesh, labels, icons, interactive);
                     v.scene.ingest(tile);
+                    for e in &evicted {
+                        v.scene.un_ingest(e);
+                    }
                     return;
                 }
             }

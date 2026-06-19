@@ -167,6 +167,21 @@ impl Scene {
         self.ingested.insert(id);
     }
 
+    /// Forget that `id` was ingested — called when the GPU cache evicts
+    /// the tile under memory pressure. Without this the `ingested` set
+    /// and the actual cache residency drift apart: `pending_tiles` keeps
+    /// excluding an evicted tile forever, so it's never re-requested and
+    /// shows as a permanent grey hole until the layer is rebuilt.
+    pub fn un_ingest(&mut self, id: &TileId) {
+        self.ingested.remove(id);
+    }
+
+    /// How many tiles the renderer believes are resident. Lets a stress
+    /// test assert the bookkeeping tracks the (budget-bounded) cache.
+    pub fn ingested_len(&self) -> usize {
+        self.ingested.len()
+    }
+
     /// World-space bounds of the current viewport. Used by the renderer to
     /// build its instance buffer.
     pub fn viewport_world_bounds(&self) -> (WorldPoint, WorldPoint) {
@@ -201,7 +216,14 @@ impl Scene {
         // (the frustum trapezoid gets larger faster than the cap
         // grows, but the cap still requests the closest tiles first
         // via `pending_tiles`' distance sort).
-        const MAX_TILES: usize = 256;
+        // Cap the per-level working set. Steep tilts (now up to 80°)
+        // project a frustum trapezoid that reaches far toward the horizon;
+        // without a cap that's thousands of tiles. 160 keeps the working
+        // set (visible + overview + prefetch, ×3 layer caches) inside the
+        // GPU budget so it doesn't thrash/OOM, while still covering the
+        // near ground the user is actually looking at (far tiles fade into
+        // haze/sky anyway). Closest-first via `pending_tiles`' distance sort.
+        const MAX_TILES: usize = 160;
         let n = 1u32 << z;
         let vw = self.viewport_px.0 as f64;
         let vh = self.viewport_px.1 as f64;
@@ -314,6 +336,26 @@ mod tests {
         assert!(
             scene.pending_tiles().is_empty(),
             "must be empty after ingest"
+        );
+    }
+
+    #[test]
+    fn un_ingest_makes_an_evicted_tile_pending_again() {
+        // The coherence contract behind the "grey tile that never reloads"
+        // bug: when the GPU cache evicts a tile under memory pressure, the
+        // host calls `un_ingest`, and the tile MUST reappear in `pending`
+        // so it gets re-fetched. Without this it greyed out permanently
+        // until the layer was rebuilt.
+        let mut scene = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 0.0), (100, 100), 0, 22);
+        let tile = TileId::new(0, 0, 0);
+        scene.ingest(tile);
+        assert!(scene.pending_tiles().is_empty(), "ingested → not pending");
+
+        scene.un_ingest(&tile); // simulate a cache eviction
+        assert_eq!(
+            scene.pending_tiles(),
+            vec![tile],
+            "an evicted (un-ingested) but still-desired tile must re-pend"
         );
     }
 

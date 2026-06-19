@@ -193,8 +193,17 @@ impl TerrainCache {
         self.halo_px
     }
 
-    pub(crate) fn ingest(&mut self, tile: TileId, rgba: &[u8], width: u32, height: u32) {
-        self.cache.insert(tile, rgba, width, height);
+    /// Ingest a DEM tile. Returns the ids evicted to stay within budget,
+    /// so the caller drops them from the terrain scene's "ingested" set
+    /// and they get re-requested when next desired.
+    pub(crate) fn ingest(
+        &mut self,
+        tile: TileId,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Vec<TileId> {
+        self.cache.insert(tile, rgba, width, height)
     }
 
     /// Age of the cached tile in seconds, or `None` if not present.

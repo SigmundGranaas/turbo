@@ -108,6 +108,9 @@ impl VectorMeshCache {
         self.entries.get(&id)
     }
 
+    /// Insert a tessellated tile, evicting LRU tiles past budget. Returns
+    /// the evicted ids so the caller can drop them from its "ingested"
+    /// set — otherwise an evicted tile is never re-requested.
     pub(crate) fn insert(
         &mut self,
         id: TileId,
@@ -115,10 +118,10 @@ impl VectorMeshCache {
         labels: Vec<LabelRequest>,
         icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
-    ) {
+    ) -> Vec<TileId> {
         if self.entries.contains_key(&id) {
             self.touch(id);
-            return;
+            return Vec::new();
         }
         if mesh.is_empty() && labels.is_empty() && icons.is_empty() && interactive.is_empty() {
             // Insert a zero-sized marker so the host knows the tile is
@@ -152,7 +155,7 @@ impl VectorMeshCache {
             );
             self.lru.push_back(id);
             self.bytes_used += 8;
-            return;
+            return Vec::new();
         }
 
         let (vertex_buffer, index_buffer, mesh_bytes) = if mesh.is_empty() {
@@ -233,7 +236,7 @@ impl VectorMeshCache {
         );
         self.lru.push_back(id);
         self.bytes_used += bytes;
-        self.evict_to_budget();
+        self.evict_to_budget()
     }
 
     fn touch(&mut self, id: TileId) {
@@ -243,14 +246,17 @@ impl VectorMeshCache {
         }
     }
 
-    fn evict_to_budget(&mut self) {
+    fn evict_to_budget(&mut self) -> Vec<TileId> {
+        let mut evicted = Vec::new();
         while self.bytes_used > self.budget_bytes && self.lru.len() > 1 {
             let Some(victim) = self.lru.pop_front() else {
                 break;
             };
             if let Some(entry) = self.entries.remove(&victim) {
                 self.bytes_used = self.bytes_used.saturating_sub(entry.bytes);
+                evicted.push(victim);
             }
         }
+        evicted
     }
 }

@@ -165,10 +165,21 @@ impl TextureCache {
         out
     }
 
-    pub(crate) fn insert(&mut self, id: TileId, rgba: &[u8], width: u32, height: u32) {
+    /// Insert a decoded tile, evicting LRU tiles if the budget is
+    /// exceeded. Returns the ids that were evicted so the caller can
+    /// drop them from its "ingested" bookkeeping — otherwise the scene
+    /// would believe an evicted tile is still resident and never
+    /// re-request it (the "grey tile that won't reload" bug).
+    pub(crate) fn insert(
+        &mut self,
+        id: TileId,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Vec<TileId> {
         if self.entries.contains_key(&id) {
             self.touch(id);
-            return;
+            return Vec::new();
         }
         let chain = if self.gen_mips {
             build_mip_chain(rgba, width, height, self.format)
@@ -244,7 +255,7 @@ impl TextureCache {
         self.lru.push_back(id);
         self.bytes_used += bytes;
         self.stat_inserts += 1;
-        self.evict_to_budget();
+        self.evict_to_budget()
     }
 
     fn touch(&mut self, id: TileId) {
@@ -254,7 +265,8 @@ impl TextureCache {
         }
     }
 
-    fn evict_to_budget(&mut self) {
+    fn evict_to_budget(&mut self) -> Vec<TileId> {
+        let mut evicted = Vec::new();
         while self.bytes_used > self.budget_bytes && self.lru.len() > 1 {
             let Some(victim) = self.lru.pop_front() else {
                 break;
@@ -262,8 +274,10 @@ impl TextureCache {
             if let Some(entry) = self.entries.remove(&victim) {
                 self.bytes_used = self.bytes_used.saturating_sub(entry.bytes);
                 self.stat_evictions += 1;
+                evicted.push(victim);
             }
         }
+        evicted
     }
 }
 
