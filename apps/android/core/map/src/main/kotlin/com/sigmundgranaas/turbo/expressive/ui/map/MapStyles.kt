@@ -51,6 +51,23 @@ object MapStyles {
         BaseLayer.Satellite -> "satellite" to SATELLITE_URL
     }
 
+    /** Deepest zoom each source's tile pyramid actually serves. Past this the
+     *  wgpu engine upsamples (over-zoom) rather than requesting tiles the
+     *  server 404s. Conservative globally-safe values; the WebMercator caches:
+     *  Kartverket topo → z18, OSM → z19, Esri World Imagery → z19 worldwide. */
+    private fun baseMaxZoom(base: BaseLayer): Int = when (base) {
+        BaseLayer.Norgeskart -> 18
+        BaseLayer.Osm -> 19
+        BaseLayer.Satellite -> 19
+    }
+
+    /** Native deepest zoom for each transparent overlay's tile cache. */
+    private fun overlayMaxZoom(overlay: OverlayId): Int = when (overlay) {
+        OverlayId.Trails -> 18 // Waymarked Trails hiking raster
+        OverlayId.Avalanche -> 17 // NVE Bratthet fused ArcGIS cache
+        OverlayId.Waves, OverlayId.Wind -> 16
+    }
+
     /**
      * The same base + overlay tile sources as [styleJson], but as turbomap
      * [TurbomapScene.RasterSpec]s (bottom→top). Lets the wgpu host fetch the
@@ -58,9 +75,11 @@ object MapStyles {
      */
     fun turbomapRasterSpecs(base: BaseLayer, overlays: Set<OverlayId> = emptySet()): List<TurbomapScene.RasterSpec> {
         val (id, url) = baseTiles(base)
-        val baseSpec = TurbomapScene.RasterSpec(id, url)
+        val baseSpec = TurbomapScene.RasterSpec(id, url, maxZoom = baseMaxZoom(base))
         val overlaySpecs = overlays.mapNotNull { ov ->
-            overlayTiles(ov)?.let { TurbomapScene.RasterSpec("ov_${ov.name}", it.first) }
+            overlayTiles(ov)?.let {
+                TurbomapScene.RasterSpec("ov_${ov.name}", it.first, maxZoom = overlayMaxZoom(ov))
+            }
         }
         return listOf(baseSpec) + overlaySpecs
     }

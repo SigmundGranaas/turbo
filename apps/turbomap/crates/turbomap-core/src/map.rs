@@ -1864,6 +1864,13 @@ pub struct FrameMetrics {
 /// deepest real tile any layer serves but no further, and zoom out only to
 /// the shallowest level still backed by data. With no sources (an empty map)
 /// the renderer-wide [`ZoomBounds::DEFAULT`] applies.
+/// How many zoom levels the camera may push *past* the deepest tile any
+/// source actually serves. The tile pyramid stays clamped to the real
+/// `max_zoom` (see [`Scene::tile_zoom`]) — those deepest tiles just get
+/// upsampled to fill the screen — so the user can keep zooming into detail
+/// instead of hitting a wall or, worse, requesting tiles the server 404s.
+const OVERZOOM_LEVELS: f64 = 3.0;
+
 fn zoom_bounds_from_sources(ranges: impl IntoIterator<Item = (u8, u8)>) -> ZoomBounds {
     let mut union: Option<(u8, u8)> = None;
     for (min_z, max_z) in ranges {
@@ -1873,7 +1880,9 @@ fn zoom_bounds_from_sources(ranges: impl IntoIterator<Item = (u8, u8)>) -> ZoomB
         });
     }
     match union {
-        Some((lo, hi)) => ZoomBounds::new(lo as f64, hi as f64),
+        // The camera ceiling is the deepest served level + an overzoom
+        // budget; `ZoomBounds::new` clamps it into the absolute envelope.
+        Some((lo, hi)) => ZoomBounds::new(lo as f64, hi as f64 + OVERZOOM_LEVELS),
         None => ZoomBounds::DEFAULT,
     }
 }
@@ -2046,11 +2055,11 @@ mod tests {
     #[test]
     fn zoom_lock_is_the_union_of_source_ranges() {
         // A basemap serving z4..20 under an overlay serving z0..14: the lock
-        // spans the union, z0..20 — the camera can dive to the basemap's
-        // deepest tile and pull back to the overlay's shallowest, but never
-        // past either end into territory no source covers.
+        // spans the union, pulling back to the overlay's shallowest (z0) and
+        // diving to the basemap's deepest served level plus the overzoom
+        // budget (20 + OVERZOOM_LEVELS) — past z20 the deepest tiles upsample.
         let b = zoom_bounds_from_sources([(4, 20), (0, 14)]);
-        assert_eq!((b.min, b.max), (0.0, 20.0));
+        assert_eq!((b.min, b.max), (0.0, 20.0 + OVERZOOM_LEVELS));
     }
 
     #[test]
@@ -2063,11 +2072,12 @@ mod tests {
 
     #[test]
     fn zoom_lock_pins_to_a_single_source_range() {
-        // One Kartverket topograatone raster (z4..18): you cannot zoom past
-        // z18, where its WMTS pyramid ends and the raster would upsample out
-        // from under the sharp overlays.
+        // One Kartverket topograatone raster (z4..18): the floor is the
+        // shallowest served level (z4); the ceiling is z18 plus the overzoom
+        // budget, where the WMTS pyramid ends and its deepest tiles upsample
+        // (instead of the camera hitting a wall or requesting 404 tiles).
         let b = zoom_bounds_from_sources([(4, 18)]);
-        assert_eq!((b.min, b.max), (4.0, 18.0));
+        assert_eq!((b.min, b.max), (4.0, 18.0 + OVERZOOM_LEVELS));
     }
 
     #[test]

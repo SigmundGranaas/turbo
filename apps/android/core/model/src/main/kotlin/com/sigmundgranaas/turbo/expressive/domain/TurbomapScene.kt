@@ -17,8 +17,19 @@ object TurbomapScene {
     /** sRGB colour for a paint `const`. */
     data class Rgba(val r: Int, val g: Int, val b: Int, val a: Int = 255)
 
-    /** A raster basemap/overlay: an XYZ tile URL template, bottom-to-top order. */
-    data class RasterSpec(val id: String, val tileUrlTemplate: String)
+    /**
+     * A raster basemap/overlay: an XYZ tile URL template, bottom-to-top order.
+     * [minZoom]/[maxZoom] are the source's *native* tile coverage — the engine
+     * only requests tiles in this range and upsamples the deepest level when
+     * the camera over-zooms past it, instead of requesting tiles the server
+     * 404s (which used to blank the map past the default ceiling).
+     */
+    data class RasterSpec(
+        val id: String,
+        val tileUrlTemplate: String,
+        val minZoom: Int = 0,
+        val maxZoom: Int = DEFAULT_RASTER_MAX_ZOOM,
+    )
 
     // Defaults match the MapLibre path (TurboMap.kt installTurboLayers).
     val TrackColor = Rgba(0, 105, 109)
@@ -52,7 +63,8 @@ object TurbomapScene {
 
         rasters.forEach { r ->
             val src = "r_${r.id}"
-            sources += "\"$src\": { \"type\": \"raster-xyz\", \"tiles\": [\"${r.tileUrlTemplate}\"] }"
+            sources += "\"$src\": { \"type\": \"raster-xyz\", \"tiles\": [\"${r.tileUrlTemplate}\"], " +
+                "\"min_zoom\": ${r.minZoom}, \"max_zoom\": ${r.maxZoom} }"
             layers += "{ \"type\": \"raster\", \"id\": \"${r.id}\", \"source\": \"$src\" }"
         }
 
@@ -112,17 +124,23 @@ object TurbomapScene {
     /** Escape a JSON document for embedding as the string `data` field. */
     private fun escape(json: String) = json.replace("\"", "\\\"")
 
+    /** Fallback native max zoom when a source doesn't state one. Kept modest
+     *  so an unspecified source doesn't claim depth the server lacks. */
+    const val DEFAULT_RASTER_MAX_ZOOM = 19
+
     private const val TRACK_WIDTH = 4.0
     private const val ROUTE_WIDTH = 4.0
     private const val MEASURE_WIDTH = 3.0
     private const val MEASURE_RADIUS = 4.0
     private const val USER_RADIUS = 7.0
 
-    /** Vertical exaggeration for 3D terrain. 1.0 = true scale; we push to a
-     *  dramatic, game-like 2.5 so relief really reads when tilted — paired
-     *  with sun-direction shading on the basemap, the height pops instead of
-     *  looking flat. Tunable; lower it if peaks feel caricatured. */
-    private const val TERRAIN_EXAGGERATION = 2.5
+    /** Vertical exaggeration for 3D terrain over true Mercator scale. Pushed
+     *  hard (6×) so the height genuinely reads on a tilted phone screen —
+     *  real proportions are correct but, framed against the huge horizontal
+     *  extent of a map, look flat without strong exaggeration. Paired with
+     *  sun-direction shading + a steep tilt, the relief becomes dramatic.
+     *  Tunable; lower it if peaks feel caricatured. */
+    private const val TERRAIN_EXAGGERATION = 6.0
 
     /** DEM tile halo (px) — must equal the `?halo=N` the host fetches (MapStyles).
      *  Stitches adjacent terrain tiles crack-free. */

@@ -24,7 +24,7 @@ pub const TILE_SIZE_PX: f64 = 256.0;
 /// legacy 2D orthographic transform when `pitch_deg == 0` — pixel-
 /// exact match, no spec change for callers that don't tilt.
 const FOV_Y: f32 = 0.6435; // ~36.87°
-const MAX_PITCH_DEG: f64 = 60.0;
+const MAX_PITCH_DEG: f64 = 80.0;
 
 /// Default zoom bounds. z0 is the whole world in one root tile; z24 is
 /// deeper than any tile source serves but lets the camera glide smoothly to
@@ -960,7 +960,7 @@ mod tests {
         assert_world_close(tilted.pixel_to_world(focus, viewport), focus_world, 1e-5);
         // Over-tilt clamps at the limit.
         let maxed = tilted.pitched_around(90.0, focus, viewport);
-        assert!((maxed.pitch_deg - 60.0).abs() < 1e-9);
+        assert!((maxed.pitch_deg - MAX_PITCH_DEG).abs() < 1e-9);
     }
 
     #[test]

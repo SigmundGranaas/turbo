@@ -72,7 +72,10 @@ import kotlin.math.ln
  * internally locked); only tile HTTP runs off-main, ingesting back on main.
  */
 /** Tilt eased in when 3D mode is entered — reads as 3D + gives clouds their rake. */
-private const val DEFAULT_3D_PITCH_DEG = 45.0
+// Entering 3D tilts steeply by default so the (exaggerated) relief reads
+// immediately. The engine allows up to 80°; 62° gives a dramatic, gamey
+// vantage while keeping the near ground legible.
+private const val DEFAULT_3D_PITCH_DEG = 62.0
 
 @Composable
 @Suppress("LongParameterList")
