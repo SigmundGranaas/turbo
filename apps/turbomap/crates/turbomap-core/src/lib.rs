@@ -33,7 +33,8 @@ pub use error::{MapError, TileError};
 pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
 pub use projection::{reproject, Crs};
 pub use map::{
-    CloudParams, HitFeature, HitMarker, HitResult, Map, MapOptions, Marker, MarkerId, PendingTile,
+    CloudParams, FrameMetrics, HitFeature, HitMarker, HitResult, LayerKind, LayerMetrics, Map,
+    MapOptions, Marker, MarkerId, PendingTile, PhaseTimings,
     PublicTerrainOptions as TerrainOptions, RadarFrame,
 };
 pub use scene::Scene;

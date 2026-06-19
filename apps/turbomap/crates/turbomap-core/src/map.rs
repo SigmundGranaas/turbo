@@ -1475,6 +1475,8 @@ impl Map {
         // borrow `self.layers` while still passing references into
         // `self.terrain`. `terrain_cell` is an Option<&mut Terrain>
         // we reborrow on a per-pipeline basis.
+        let prepare_started = Instant::now();
+        let mut tiles_drawn = 0usize;
         let mut terrain_cell = self.terrain.as_mut();
         let mut prepared_layers: Vec<(usize, PreparedLayer)> =
             Vec::with_capacity(self.layers.len());
@@ -1495,6 +1497,7 @@ impl Map {
                         frame.raster_terrain_cfg,
                         r.fade_in_secs,
                     );
+                    tiles_drawn += r.scene.visible_tiles().len();
                     prepared_layers.push((i, PreparedLayer::Raster(p)));
                 }
                 LayerEntry::Vector(v) if v.visible => {
@@ -1509,6 +1512,7 @@ impl Map {
                         frame.vec_terrain_encoding,
                         frame.vec_terrain_halo_uv,
                     );
+                    tiles_drawn += v.scene.visible_tiles().len();
                     prepared_layers.push((i, PreparedLayer::Vector(p)));
                     // Labels come from visible vector layers only —
                     // text on top of a hidden vector layer would look
@@ -1574,6 +1578,7 @@ impl Map {
             };
             Some(p)
         };
+        let prepare_time = prepare_started.elapsed();
 
         // ---- Phase B: frame clear colour -------------------------
         // Replicates the old "first visible layer clears" semantics:
@@ -1594,6 +1599,7 @@ impl Map {
         };
 
         // ---- Phase C: the single render pass ---------------------
+        let pass_started = Instant::now();
         {
             let terrain_cache = self.terrain.as_ref().map(|t| &t.cache);
             let placeholder_dem = &self.terrain_shared.placeholder_bind_group;
@@ -1665,11 +1671,13 @@ impl Map {
                 self.marker_pipeline.draw(p, &mut pass);
             }
         }
+        let pass_time = pass_started.elapsed();
 
         // Weather-cloud overlay: a separate, single-sampled, depth-less
         // fullscreen composite over the already-resolved surface. It can't
         // join the MSAA frame pass above (sample-count / depth mismatch),
         // so it pays one extra fullscreen pass — acceptable for an overlay.
+        let clouds_started = Instant::now();
         let cam = self.camera;
         let (vw, vh) = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
         if let Some(c) = &mut self.clouds {
@@ -1739,8 +1747,20 @@ impl Map {
         if let Some(ts) = self.gpu_timestamps.as_mut() {
             ts.end(encoder);
         }
+        let clouds_time = clouds_started.elapsed();
+        // sky + each drawn layer + icons + text + markers = the pass's draw calls.
+        let draw_calls = frame.sky_globals.is_some() as usize
+            + prepared_layers.len()
+            + prepared_icons.len()
+            + prepared_text.len()
+            + prepared_markers.is_some() as usize;
         self.last_frame_metrics = FrameMetrics {
             cpu_time: started.elapsed(),
+            phases: PhaseTimings {
+                prepare: prepare_time,
+                pass: pass_time,
+                clouds: clouds_time,
+            },
             gpu_time: self.gpu_timestamps.as_ref().and_then(|t| {
                 if t.last_duration_ns == 0 {
                     None
@@ -1750,6 +1770,9 @@ impl Map {
             }),
             layer_count: self.layers.len(),
             marker_count: self.markers.len(),
+            visible_layers: prepared_layers.len(),
+            draw_calls,
+            tiles_drawn,
             layers: self
                 .layers
                 .iter()
@@ -1825,9 +1848,30 @@ pub struct LayerMetrics {
     pub cache: CacheStats,
 }
 
+/// CPU wall-time of each render phase, measured every frame (a handful of
+/// `Instant` deltas — always on, negligible cost). Lets any host see *where*
+/// a frame's time goes, not just the total: a slow tilt is usually `prepare`
+/// (more visible tiles + label layout) or `clouds` (the extra fullscreen
+/// raymarch pass), and telling them apart is the whole point of profiling
+/// "at all points".
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PhaseTimings {
+    /// Phase A — CPU prep of every visible layer plus the text, icon and
+    /// marker pipelines (uniform/instance uploads, batch building, layout).
+    pub prepare: Duration,
+    /// Phase C — encoding the single frame render pass: sky, then each
+    /// layer's geometry, then icons, text and markers.
+    pub pass: Duration,
+    /// The separate weather-cloud overlay pass. `Duration::ZERO` when clouds
+    /// are disabled or absent.
+    pub clouds: Duration,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FrameMetrics {
     pub cpu_time: Duration,
+    /// Per-phase CPU breakdown of `cpu_time`. See [`PhaseTimings`].
+    pub phases: PhaseTimings,
     /// GPU wall time for the most recent COMPLETED frame's passes.
     /// `None` when the device lacks `Features::TIMESTAMP_QUERY`, or
     /// when no frame has finished yet (the readback arrives one
@@ -1835,6 +1879,13 @@ pub struct FrameMetrics {
     pub gpu_time: Option<Duration>,
     pub layer_count: usize,
     pub marker_count: usize,
+    /// Load this frame, for performance correlation: how many layers were
+    /// actually drawn (visible), the total draw-call count (sky + layers +
+    /// icons + text + markers), and the total visible tiles across all drawn
+    /// layers. These are the levers that move `cpu_time` as the camera tilts.
+    pub visible_layers: usize,
+    pub draw_calls: usize,
+    pub tiles_drawn: usize,
     pub layers: Vec<LayerMetrics>,
 }
 

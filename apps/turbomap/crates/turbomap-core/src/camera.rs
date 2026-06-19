@@ -855,6 +855,61 @@ mod tests {
 
     use super::*;
 
+    fn matrix_is_finite(m: &[[f32; 4]; 4]) -> bool {
+        m.iter().flatten().all(|v| v.is_finite())
+    }
+
+    #[test]
+    fn pitch_sweeps_the_full_allowed_range_with_finite_matrices() {
+        // The crash hunt was about steep-pitch NaN feeding the GPU. Walk pitch
+        // across EVERY allowed level in 0.5° steps (at a high latitude + a
+        // non-trivial bearing, the worst case for the projection) and assert
+        // both the plain and RTC view-projection matrices stay finite — i.e.
+        // no level the user can reach by tilting produces a NaN matrix.
+        let center = LatLng::new(67.25, 15.30); // Sjunkhatten
+        let origin = center.to_world();
+        let viewport = (1080u32, 2400u32); // tall phone
+        let mut deg = 0.0;
+        while deg <= MAX_PITCH_DEG {
+            let cam = Camera::new(center, 13.0)
+                .with_pitch(deg)
+                .with_bearing(31.0);
+            assert!(
+                (cam.pitch_deg - deg).abs() < 1e-9,
+                "pitch within range should be honoured: {deg}",
+            );
+            let vp = cam.view_projection_matrix(viewport);
+            assert!(matrix_is_finite(&vp), "non-finite VP at pitch {deg}");
+            let vp_rtc = cam.view_projection_matrix_rtc(origin, viewport);
+            assert!(matrix_is_finite(&vp_rtc), "non-finite RTC VP at pitch {deg}");
+            deg += 0.5;
+        }
+    }
+
+    #[test]
+    fn pitch_gesture_clamps_to_the_allowed_maximum() {
+        // A fast two-finger tilt (`pitch_by`) past the limit must clamp to
+        // MAX_PITCH_DEG, never tilt to the horizon where the projection
+        // degenerates.
+        let mut cam = Camera::new(LatLng::new(67.25, 15.30), 13.0);
+        cam.pitch_by(1000.0);
+        assert!((cam.pitch_deg - MAX_PITCH_DEG).abs() < 1e-9);
+    }
+
+    #[test]
+    fn matrix_clamps_pitch_so_an_out_of_range_pose_stays_finite() {
+        // `with_pitch` stores the raw value (the gesture/host clamps are the
+        // gatekeepers), but the projection itself clamps pitch into
+        // `[0, MAX_PITCH_DEG]` at use — so even a bogus 120° pose can't feed a
+        // degenerate, near-horizon matrix to the GPU.
+        let built = Camera::new(LatLng::new(67.25, 15.30), 13.0).with_pitch(120.0);
+        let vp = built.view_projection_matrix((1080, 2400));
+        assert!(matrix_is_finite(&vp));
+        // It matches the matrix at exactly the cap — i.e. the excess is clamped.
+        let capped = Camera::new(LatLng::new(67.25, 15.30), 13.0).with_pitch(MAX_PITCH_DEG);
+        assert_eq!(vp, capped.view_projection_matrix((1080, 2400)));
+    }
+
     #[test]
     fn zoom_bounds_from_sources_is_the_union_of_ranges() {
         // A basemap serving z4..20 under an overlay serving z0..14: the lock

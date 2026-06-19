@@ -280,10 +280,19 @@ fn build_steps(cli: &Cli) -> Vec<Step> {
         Camera::new(center, zoom).with_pitch(pitch).with_bearing(bearing)
     };
     steps.push(Step { label: "warmup-flat".into(), camera: cam(0.0, 0.0, cli.center, cli.zoom) });
-    // Ramp pitch 0 → max in 8 steps (the "tilt down" the user does).
-    for i in 1..=8 {
-        let p = cli.max_pitch * i as f64 / 8.0;
-        steps.push(Step { label: format!("pitch-{p:.0}"), camera: cam(p, cli.bearing, cli.center, cli.zoom) });
+    // Sweep pitch across EVERY allowed level in 5° increments (0 → max). The
+    // crash hunt + the profiling pass both care about behaviour at every tilt,
+    // not just the endpoints: this is where the steep-pitch footprint grows
+    // (more visible tiles → more prepare cost) and where any near-horizon NaN
+    // would surface. `max_pitch` is the camera's hard cap (default 80°).
+    let mut p = 5.0;
+    while p <= cli.max_pitch + 1e-6 {
+        let pitch = p.min(cli.max_pitch);
+        steps.push(Step {
+            label: format!("pitch-{pitch:.0}"),
+            camera: cam(pitch, cli.bearing, cli.center, cli.zoom),
+        });
+        p += 5.0;
     }
     // Orbit a full turn at max pitch (the 3D-mode 1-finger orbit).
     for i in 1..=12 {
@@ -541,6 +550,14 @@ fn main() {
     );
 
     let mut crashed = false;
+    // Per-step profiling: we snapshot the engine's always-on FrameMetrics
+    // after every render so we can table the load + timing at each pitch /
+    // orbit / zoom level and flag any slow frame. (label, pitch, metrics)
+    let mut profiles: Vec<(String, f64, turbomap_core::FrameMetrics)> = Vec::new();
+    eprintln!(
+        "  {:>3} {:<14} {:>5} | {:>7} {:>7} {:>7} {:>7} | {:>4} {:>4} {:>6}",
+        "#", "step", "pitch", "cpu ms", "prep", "pass", "cloud", "lyr", "dc", "tiles",
+    );
     for (i, step) in steps.iter().enumerate() {
         let path = format!("{}/{:03}-{}.png", cli.out_dir, i, step.label);
         let cam = step.camera;
@@ -566,7 +583,28 @@ fn main() {
             render_to_png(&mut map, &device, &queue, &target, &target_view, &path);
         }));
         match result {
-            Ok(()) => eprintln!("  [{i:>2}] {:<14} pitch={:>4.0} ok → {path}", step.label, map.camera().pitch_deg),
+            Ok(()) => {
+                let m = map.last_frame_metrics().clone();
+                let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+                let gpu = m
+                    .gpu_time
+                    .map(|g| format!(" gpu={:.2}ms", ms(g)))
+                    .unwrap_or_default();
+                eprintln!(
+                    "  {i:>3} {:<14} {:>5.0} | {:>7.2} {:>7.2} {:>7.2} {:>7.2} | {:>4} {:>4} {:>6}{}",
+                    step.label,
+                    map.camera().pitch_deg,
+                    ms(m.cpu_time),
+                    ms(m.phases.prepare),
+                    ms(m.phases.pass),
+                    ms(m.phases.clouds),
+                    m.visible_layers,
+                    m.draw_calls,
+                    m.tiles_drawn,
+                    gpu,
+                );
+                profiles.push((step.label.clone(), map.camera().pitch_deg, m));
+            }
             Err(_) => {
                 eprintln!(
                     "  [{i:>2}] {:<14} *** CRASHED *** requested pitch={:.0} bearing={:.0} zoom={:.1} center={:.4},{:.4}",
@@ -578,9 +616,64 @@ fn main() {
         }
     }
 
+    print_profile_summary(&profiles);
+
     if crashed {
         eprintln!("SCENARIO FAILED — reproduced a crash locally (see backtrace above).");
         std::process::exit(1);
     }
     eprintln!("SCENARIO OK — {} frames in {} (no panic, no non-finite camera).", steps.len(), cli.out_dir);
+}
+
+/// Roll up the per-step FrameMetrics into a load/performance summary: overall
+/// CPU min/avg/max, the slowest frame, and — because the user is hunting
+/// steep-pitch behaviour — the CPU cost at the flat (0°) vs. max-tilt frames,
+/// which is where the visible-tile footprint (and thus prepare cost) blows up.
+fn print_profile_summary(profiles: &[(String, f64, turbomap_core::FrameMetrics)]) {
+    if profiles.is_empty() {
+        return;
+    }
+    let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+    let cpu: Vec<f64> = profiles.iter().map(|(_, _, m)| ms(m.cpu_time)).collect();
+    let n = cpu.len() as f64;
+    let sum: f64 = cpu.iter().sum();
+    let min = cpu.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max = cpu.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let (slow_label, slow_pitch, slow_m) = profiles
+        .iter()
+        .max_by(|a, b| ms(a.2.cpu_time).partial_cmp(&ms(b.2.cpu_time)).unwrap())
+        .unwrap();
+    // Flat vs. steepest pitch frames, for the tilt-cost correlation.
+    let flattest = profiles.iter().min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    let steepest = profiles.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    eprintln!("\n  ── profile summary ({} frames) ──", profiles.len());
+    eprintln!(
+        "  cpu/frame: min {:.2}ms  avg {:.2}ms  max {:.2}ms",
+        min,
+        sum / n,
+        max
+    );
+    eprintln!(
+        "  slowest: '{}' @ pitch {:.0}° — cpu {:.2}ms (prep {:.2} / pass {:.2} / cloud {:.2}), {} tiles, {} draws",
+        slow_label,
+        slow_pitch,
+        ms(slow_m.cpu_time),
+        ms(slow_m.phases.prepare),
+        ms(slow_m.phases.pass),
+        ms(slow_m.phases.clouds),
+        slow_m.tiles_drawn,
+        slow_m.draw_calls,
+    );
+    if let (Some((_, fp, fm)), Some((_, sp, sm))) = (flattest, steepest) {
+        eprintln!(
+            "  tilt cost: pitch {:.0}° → {:.2}ms ({} tiles)   vs   pitch {:.0}° → {:.2}ms ({} tiles)",
+            fp,
+            ms(fm.cpu_time),
+            fm.tiles_drawn,
+            sp,
+            ms(sm.cpu_time),
+            sm.tiles_drawn,
+        );
+    }
 }
