@@ -6,7 +6,6 @@ import android.os.Looper
 import android.view.Choreographer
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -158,6 +157,7 @@ fun TurbomapMapView(
                         onTransform = { panX, panY, zoom -> controller.onTransform(panX, panY, zoom) },
                         onFling = { vx, vy -> controller.onFling(vx, vy) },
                         onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },
+                        onRotate = { deg, fx, fy -> controller.onRotate(deg, fx, fy) },
                         mode = {
                             if (threeDState.value) MapGestureMode.ThreeD else MapGestureMode.TwoD
                         },
@@ -175,7 +175,7 @@ fun TurbomapMapView(
                     )
                 }
                 .pointerInput(onMapTap, onMapLongClick) {
-                    detectTapGestures(
+                    detectTapAndLongPress(
                         onTap = { o -> controller.unproject(o.x, o.y)?.let { onMapTap?.invoke(it) } },
                         onLongPress = { o -> controller.unproject(o.x, o.y)?.let(onMapLongClick) },
                     )
@@ -448,6 +448,25 @@ internal class TurbomapSurfaceController {
             handle,
             dBearingDeg.toDouble(),
             dPitchDeg.toDouble(),
+            focusX.toDouble(),
+            focusY.toDouble(),
+        )
+        requestRender(cameraMoved = true)
+        requestReconcile()
+    }
+
+    /**
+     * 2D two-finger rotate step: spin the bearing by [dBearingDeg] about the
+     * gesture centroid ([focusX],[focusY]), keeping that pixel over its world
+     * point. It's an orbit with zero tilt — the same focus-anchored rotation 3D
+     * uses, minus the pitch.
+     */
+    fun onRotate(dBearingDeg: Float, focusX: Float, focusY: Float) {
+        if (handle == 0L) return
+        NativeSurfaceMap.nativeOrbitAround(
+            handle,
+            dBearingDeg.toDouble(),
+            0.0,
             focusX.toDouble(),
             focusY.toDouble(),
         )

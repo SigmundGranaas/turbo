@@ -179,6 +179,9 @@ internal fun MapLongPressMenu(
 private fun MiniWeather(state: ConditionsUiState, point: LatLng, placeLabel: String?, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val where = placeLabel ?: formatCoords(point)
+    // One fixed layout for every state — a 28 dp leading slot + a two-line column — so the
+    // row is exactly as tall while loading as it is once the weather arrives. Only the
+    // *contents* of the slots swap, so nothing below shifts when Loading → Content.
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
@@ -188,32 +191,38 @@ private fun MiniWeather(state: ConditionsUiState, point: LatLng, placeLabel: Str
             .testTag("lpWeather")
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
-        when (state) {
-            is ConditionsUiState.Content -> {
-                val w = state.conditions.weather
-                Icon(weatherIcon(w?.symbolCode), null, tint = cs.primary, modifier = Modifier.size(28.dp))
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        w?.temperatureC?.let { "${it.roundToInt()}°" } ?: "—",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W700),
-                        color = cs.onSurface,
-                    )
-                    Text(where, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1)
-                }
-                state.conditions.avalanche?.dangerLevel?.takeIf { it >= 3 }?.let { lvl ->
-                    Text("⚠ $lvl", style = MaterialTheme.typography.labelMedium, color = cs.error)
-                }
+        // Leading 28 dp slot: weather glyph, a spinner while loading, or the fallback glyph.
+        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+            when (state) {
+                is ConditionsUiState.Content ->
+                    Icon(weatherIcon(state.conditions.weather?.symbolCode), null, tint = cs.primary, modifier = Modifier.size(28.dp))
+                ConditionsUiState.Loading ->
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                ConditionsUiState.Error ->
+                    Icon(weatherIcon(null), null, tint = cs.onSurfaceVariant, modifier = Modifier.size(24.dp))
             }
-            ConditionsUiState.Loading -> {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
-                Text(stringResource(R.string.cond_header), style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(10.dp))
+        // Primary line is always titleMedium and the secondary always labelSmall, so the
+        // column height is identical regardless of state.
+        Column(Modifier.weight(1f)) {
+            val primary = when (state) {
+                is ConditionsUiState.Content ->
+                    state.conditions.weather?.temperatureC?.let { "${it.roundToInt()}°" } ?: "—"
+                ConditionsUiState.Loading -> stringResource(R.string.cond_header)
+                ConditionsUiState.Error -> "—"
             }
-            ConditionsUiState.Error -> {
-                Icon(weatherIcon(null), null, tint = cs.onSurfaceVariant, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(formatCoords(point), style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant)
+            Text(
+                primary,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.W700),
+                color = if (state is ConditionsUiState.Content) cs.onSurface else cs.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Text(where, style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1)
+        }
+        if (state is ConditionsUiState.Content) {
+            state.conditions.avalanche?.dangerLevel?.takeIf { it >= 3 }?.let { lvl ->
+                Text("⚠ $lvl", style = MaterialTheme.typography.labelMedium, color = cs.error)
             }
         }
     }

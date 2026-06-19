@@ -1,9 +1,11 @@
 package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 
+import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 class MapGestureTest {
 
@@ -41,6 +43,33 @@ class MapGestureTest {
         // so a zoom doesn't throw the map sideways afterward.
         assertEquals(0f to 0f, flingVelocity(900f, 600f, wasPinch = true))
         assertEquals(0f to 0f, flingVelocity(0f, 0f, wasPinch = true))
+    }
+
+    @Test
+    fun fling_gate_honours_a_custom_density_scaled_threshold() {
+        // The detector passes a higher, density-scaled px/s gate (≈160 dp/s). Verify the
+        // pure gate respects whatever threshold it's given: a release just under rests,
+        // just over flings — so "only real-velocity swipes drift".
+        assertFalse("just under the gate rests", shouldFling(400f, 0f, minVelocity = 440f))
+        assertTrue("a real flick over the gate flings", shouldFling(500f, 0f, minVelocity = 440f))
+        assertEquals(0f to 0f, flingVelocity(300f, 0f, wasPinch = false, minVelocity = 440f))
+        assertEquals(900f to 0f, flingVelocity(900f, 0f, wasPinch = false, minVelocity = 440f))
+    }
+
+    @Test
+    fun two_finger_angle_and_delta_track_a_twist() {
+        // Horizontal pair → 0°; rotate the far finger up-left a touch → angle grows
+        // (screen-y is down, so clockwise is positive). Delta wraps the seam.
+        val flat = twoFingerAngleDeg(Offset(0f, 0f), Offset(100f, 0f))
+        assertEquals(0f, flat, 1e-3f)
+        val tilted = twoFingerAngleDeg(Offset(0f, 0f), Offset(100f, 100f)) // 45° (y down)
+        assertEquals(45f, tilted, 1e-3f)
+        // wrapDeltaDeg keeps a frame-to-frame delta in (-180, 180].
+        assertEquals(10f, wrapDeltaDeg(10f), 1e-3f)
+        assertEquals(-10f, wrapDeltaDeg(350f), 1e-3f)
+        // Crossing the ±180 seam (170° → -175°, raw delta 345°) is a small -15°, not a ~360 jump.
+        assertEquals(-15f, wrapDeltaDeg(345f), 1e-3f)
+        assertTrue("near-seam delta stays small", abs(wrapDeltaDeg(170f - (-175f))) < 20f)
     }
 
     @Test
