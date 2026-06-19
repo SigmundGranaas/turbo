@@ -127,6 +127,7 @@ fn default_scene() -> Scene {
         id: "hillshade".into(),
         source: "dem".into(),
         exaggeration: 1.5,
+        height_only: false,
     });
     s
 }

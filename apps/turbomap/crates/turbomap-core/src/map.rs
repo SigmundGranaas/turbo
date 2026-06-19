@@ -29,6 +29,7 @@ use crate::{
         icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline, TerrainConfig},
+        sky::{SkyGlobals, SkyPipeline},
         terrain::{TerrainCache, TerrainOptions, TerrainShared},
         text::{PreparedText, TextPipeline},
         vector::{PreparedVector, VectorPipeline},
@@ -38,6 +39,7 @@ use crate::{
     scene::Scene,
     source::TileSource,
     style::{Color, HillshadeStyle, VectorStyle},
+    sun::{self, SunPosition},
     tessellate::{self, IconRequest, InteractiveFeature, LabelRequest, Mesh},
     tile::TileId,
     vector::{GeomType, Value as VectorValue, VectorTile, VectorTileSource},
@@ -362,6 +364,9 @@ pub struct Map {
     /// Single icon/sprite pipeline, shared across all vector layers.
     icon_pipeline: IconPipeline,
     marker_pipeline: MarkerPipeline,
+    /// Analytic atmosphere sky, drawn first in the frame pass when the
+    /// camera is tilted (so the horizon band shows behind the terrain).
+    sky_pipeline: SkyPipeline,
     markers: Vec<Marker>,
     next_marker_id: u64,
     last_frame_metrics: FrameMetrics,
@@ -391,6 +396,15 @@ pub struct Map {
     /// over the resolved surface (it's a single-sampled, depth-less
     /// fullscreen composite, so it can't share the MSAA frame pass).
     clouds: Option<CloudOverlay>,
+    /// When set, the sun (and therefore terrain shading + sky colour)
+    /// tracks this UTC instant at the camera's location — the scene's
+    /// light matches the real time of day. `None` → fall back to a
+    /// fixed default. See [`Map::set_sun_time`].
+    sun_time_unix: Option<f64>,
+    /// Explicit sun override (azimuth/altitude). Takes precedence over
+    /// `sun_time_unix` — used for deterministic goldens and manual
+    /// control. See [`Map::set_sun_position`].
+    fixed_sun: Option<SunPosition>,
 }
 
 struct Terrain {
@@ -415,6 +429,7 @@ impl Map {
         let text_pipeline = TextPipeline::new(device.clone(), queue.clone(), surface_format);
         let icon_pipeline = IconPipeline::new(device.clone(), queue.clone(), surface_format);
         let marker_pipeline = MarkerPipeline::new(device.clone(), queue.clone(), surface_format);
+        let sky_pipeline = SkyPipeline::new(device.clone(), queue.clone(), surface_format);
         let gpu_timestamps = GpuTimestamps::new(&device, &queue);
         let depth_view = create_depth_view(&device, initial_size);
         let msaa_color_view = create_msaa_color_view(&device, surface_format, initial_size);
@@ -434,6 +449,7 @@ impl Map {
             text_pipeline,
             icon_pipeline,
             marker_pipeline,
+            sky_pipeline,
             markers: Vec::new(),
             next_marker_id: 0,
             last_frame_metrics: FrameMetrics::default(),
@@ -444,6 +460,8 @@ impl Map {
             msaa_color_view,
             depth_size: initial_size,
             clouds: None,
+            sun_time_unix: None,
+            fixed_sun: None,
         })
     }
 
@@ -577,6 +595,38 @@ impl Map {
 
     pub fn has_terrain(&self) -> bool {
         self.terrain.is_some()
+    }
+
+    // ---- Sun / time-of-day --------------------------------------------
+
+    /// Make the sun (and therefore terrain shading, aerial perspective
+    /// and the sky) track a real instant in time. `unix_seconds` is UTC
+    /// seconds since the epoch; the position is solved per frame at the
+    /// camera's current location, so the light follows both the clock
+    /// and where the user is looking. `None` clears it (back to the
+    /// fixed default unless [`Map::set_sun_position`] is also set).
+    pub fn set_sun_time(&mut self, unix_seconds: Option<f64>) {
+        self.sun_time_unix = unix_seconds;
+    }
+
+    /// Pin the sun to an explicit azimuth/altitude, overriding any
+    /// time-based tracking. Used for deterministic goldens and manual
+    /// control. `None` clears the override.
+    pub fn set_sun_position(&mut self, sun: Option<SunPosition>) {
+        self.fixed_sun = sun;
+    }
+
+    /// The sun position used this frame: explicit override → real solar
+    /// position at the camera for the set time → fixed default.
+    fn effective_sun(&self) -> SunPosition {
+        if let Some(s) = self.fixed_sun {
+            return s;
+        }
+        if let Some(t) = self.sun_time_unix {
+            let c = self.camera.center;
+            return sun::solar_position(t, c.lat, c.lng);
+        }
+        SunPosition::DEFAULT
     }
 
     /// Push decoded RGBA back into the shared terrain heightmap.
@@ -1358,6 +1408,62 @@ impl Map {
         let lat = self.camera.center.lat.to_radians();
         let earth_circumference_m: f32 = 40_075_017.0;
         let meters_to_world = (lat.cos().abs() as f32 / earth_circumference_m).max(1e-12);
+
+        // Sun + time-of-day palette drive the terrain shading, the
+        // aerial-perspective haze and (later) the sky — one light for
+        // the whole scene. Computed once per frame at the camera.
+        let sun = self.effective_sun();
+        let atmos = sun::atmosphere(sun);
+
+        // Aerial-perspective density, made zoom-stable by expressing it
+        // per camera altitude (world units): far relief sits many
+        // altitudes away regardless of zoom. A pitch ramp keeps the
+        // flat 2D map (top-down) haze-free; haze only blooms as you tilt
+        // toward the horizon. The shader does `1 - exp(-dist·density)`.
+        let ppw = self.camera.pixels_per_world_unit() as f32;
+        let fov_y_half_tan = 0.337_f32; // tan(FOV_Y/2), FOV_Y ≈ 36.87°
+        let altitude_world = (self.viewport_px.1.max(1) as f32 * 0.5) / ppw / fov_y_half_tan;
+        let pitch_ramp = {
+            let p = self.camera.pitch_deg as f32;
+            let t = ((p - 5.0) / 35.0).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        let haze_density = (1.0 / altitude_world.max(1e-9)) * 0.30 * pitch_ramp;
+
+        // Sky: drawn first in the pass only when tilted enough to expose
+        // the horizon (pure top-down 2D stays untouched — byte-identical,
+        // so the flat-raster golden holds). One uniform: the inverse VP
+        // (for per-pixel ray dirs) + the shared time-of-day palette.
+        let draw_sky = self.camera.pitch_deg > 0.5;
+        let sky_globals = if draw_sky {
+            let origin = self.camera.center.to_world();
+            let vp = self
+                .camera
+                .view_projection_matrix_rtc(origin, self.viewport_px);
+            let inv_view_proj = glam::Mat4::from_cols_array_2d(&vp)
+                .inverse()
+                .to_cols_array_2d();
+            // Sun glow fades out as it sets (gone a touch below horizon).
+            let sun_intensity = {
+                let a = sun.altitude_deg;
+                let t = ((a + 3.0) / 9.0).clamp(0.0, 1.0);
+                t * t * (3.0 - 2.0 * t)
+            };
+            Some(SkyGlobals {
+                inv_view_proj,
+                sun_dir: sun.world_dir(),
+                sun_intensity,
+                zenith_color: atmos.zenith_color,
+                _p0: 0.0,
+                horizon_color: atmos.horizon_color,
+                _p1: 0.0,
+                sun_color: atmos.light_color,
+                _p2: 0.0,
+            })
+        } else {
+            None
+        };
+
         // Terrain config for the raster pipeline. When terrain isn't
         // registered, `meters_to_world` is forced to 0 so the shader
         // displacement collapses and the mesh draws flat.
@@ -1380,6 +1486,11 @@ impl Map {
                     crate::dem::DemEncoding::Terrarium => 1u32,
                 })
                 .unwrap_or(0),
+            sun_dir: sun.world_dir(),
+            ambient: atmos.ambient,
+            haze_color: atmos.haze_color,
+            haze_density,
+            light_color: atmos.light_color,
         };
         let first_visible = self.first_visible_layer_index();
 
@@ -1533,6 +1644,13 @@ impl Map {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+
+            // Atmosphere first, behind everything: a depth-disabled
+            // full-screen triangle. Terrain/vectors overdraw it, so it
+            // shows only at the horizon when the camera is tilted.
+            if let Some(g) = &sky_globals {
+                self.sky_pipeline.draw(g, &mut pass);
+            }
 
             for (i, prepared) in &prepared_layers {
                 match (&self.layers[*i], prepared) {

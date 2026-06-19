@@ -36,6 +36,21 @@ struct Globals {
     exaggeration: f32,
     /// 0 = Mapbox-Terrain-RGB, 1 = Terrarium. Matches `DemEncoding`.
     encoding: u32,
+    // --- Sun shading + aerial perspective (3D terrain) ---
+    // Layout is std140-compatible: every `vec3` starts on a 16-byte
+    // boundary with the trailing scalar packed into its 4th lane.
+    /// Unit direction towards the sun (world frame x=E, y=S, z=up).
+    sun_dir: [f32; 3],
+    /// Ambient floor in [0,1] — darkest a self-shadowed slope reaches.
+    ambient: f32,
+    /// Atmosphere colour distant terrain fades toward (aerial perspective).
+    haze_color: [f32; 3],
+    /// Pre-scaled haze density (folds 1/altitude + a pitch ramp).
+    haze_density: f32,
+    /// Sunlight colour (warm at golden hour, neutral midday).
+    light_color: [f32; 3],
+    /// 1 = sun-shade + haze the displaced terrain, 0 = flat texture.
+    terrain_lit: f32,
 }
 
 #[repr(C)]
@@ -108,6 +123,17 @@ pub(crate) struct TerrainConfig {
     pub exaggeration: f32,
     /// 0 = MapboxRgb, 1 = Terrarium. Matches `DemEncoding`.
     pub encoding: u32,
+    /// Unit direction towards the sun (world frame x=E, y=S, z=up).
+    pub sun_dir: [f32; 3],
+    /// Ambient floor in [0,1] for self-shadowed slopes.
+    pub ambient: f32,
+    /// Atmosphere/horizon colour distant terrain fades toward.
+    pub haze_color: [f32; 3],
+    /// Pre-scaled aerial-perspective density (already folds 1/altitude
+    /// and the pitch ramp, so it's zoom-stable and 0 when top-down).
+    pub haze_density: f32,
+    /// Sunlight colour for the time of day.
+    pub light_color: [f32; 3],
 }
 
 impl Default for TerrainConfig {
@@ -116,6 +142,11 @@ impl Default for TerrainConfig {
             meters_to_world: 0.0,
             exaggeration: 1.0,
             encoding: 0,
+            sun_dir: [0.0, 0.0, 1.0],
+            ambient: 0.35,
+            haze_color: [0.74, 0.80, 0.88],
+            haze_density: 0.0,
+            light_color: [1.0, 1.0, 1.0],
         }
     }
 }
@@ -171,7 +202,11 @@ impl RasterPipeline {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    // The fragment stage reads the lighting/haze fields
+                    // (sun, ambient, atmosphere) to shade the displaced
+                    // terrain; the vertex stage reads the displacement
+                    // fields. Visible to both.
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -447,6 +482,18 @@ impl RasterPipeline {
                 },
                 exaggeration: terrain_options.exaggeration,
                 encoding: terrain_options.encoding,
+                sun_dir: terrain_options.sun_dir,
+                ambient: terrain_options.ambient,
+                haze_color: terrain_options.haze_color,
+                // No DEM → no relief to shade or fade; collapse to the
+                // flat-texture path so the 2D map is untouched.
+                haze_density: if dem_present {
+                    terrain_options.haze_density
+                } else {
+                    0.0
+                },
+                light_color: terrain_options.light_color,
+                terrain_lit: if dem_present { 1.0 } else { 0.0 },
             }),
         );
 

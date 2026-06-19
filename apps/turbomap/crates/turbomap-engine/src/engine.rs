@@ -168,6 +168,7 @@ impl TurbomapEngine {
                 id,
                 source,
                 exaggeration,
+                height_only,
             } => {
                 if let Some(ResolvedSource::Dem(dem)) = self.resolve(scene, source) {
                     self.map.set_terrain_source(
@@ -177,7 +178,13 @@ impl TurbomapEngine {
                             ..Default::default()
                         },
                     );
-                    self.map.add_hillshade_layer(id.clone(), HillshadeStyle::default());
+                    // Height-only: the DEM just displaces the ground and
+                    // the basemap lights itself from the sun. Otherwise
+                    // also draw the classic relief-shading overlay.
+                    if !*height_only {
+                        self.map
+                            .add_hillshade_layer(id.clone(), HillshadeStyle::default());
+                    }
                     self.terrain_source = Some(dem);
                 }
             }
@@ -520,6 +527,13 @@ impl TurbomapEngine {
     /// Show/hide the overlay without discarding its state.
     pub fn set_clouds_visible(&mut self, visible: bool) {
         self.map.set_clouds_visible(visible);
+    }
+
+    /// Track the sun (terrain shading + sky colour) to a real UTC instant
+    /// at the camera location, so the scene's light matches the time of
+    /// day. `None` reverts to the fixed default.
+    pub fn set_sun_time(&mut self, unix_seconds: Option<f64>) {
+        self.map.set_sun_time(unix_seconds);
     }
 
     /// Geo-register the radar to the `west/south/east/north` lat-lng box it

@@ -97,6 +97,13 @@ internal object NativeSurfaceMap {
     /** Push a fetched DEM tile (Mapbox-Terrain-RGB PNG) into the shared heightmap (3D terrain). */
     external fun nativeIngestTerrain(handle: Long, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
 
+    /**
+     * Track the sun (terrain shading + sky colour) to a real UTC instant,
+     * so the scene's light matches the time of day. [unixSeconds] is UTC
+     * seconds since the epoch; a negative value reverts to a fixed default.
+     */
+    external fun nativeSetSunTime(handle: Long, unixSeconds: Double)
+
     // ── Weather-cloud overlay ───────────────────────────────────────────────
     /** Enable the procedural cloud overlay with a [gridW]×[gridH] radar grid. */
     external fun nativeEnableClouds(handle: Long, gridW: Int, gridH: Int)

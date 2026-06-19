@@ -223,6 +223,13 @@ pub enum Layer {
         source: String,
         #[serde(default = "default_exaggeration")]
         exaggeration: f32,
+        /// When true the DEM serves *only* as the heightmap that
+        /// displaces the ground — no relief-shading overlay is drawn.
+        /// The basemap raster lights itself from the sun instead (one
+        /// lit 3D surface), which is the "DEM is height, not a tile"
+        /// look. Default false = also draw the classic hillshade.
+        #[serde(default)]
+        height_only: bool,
     },
     /// A host-supplied render pass, portable across platforms. The IR only
     /// names it; the renderer binds the actual pass by `kind`.

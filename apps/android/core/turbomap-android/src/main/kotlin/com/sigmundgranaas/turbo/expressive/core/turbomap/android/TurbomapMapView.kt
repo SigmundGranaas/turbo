@@ -343,6 +343,9 @@ internal class TurbomapSurfaceController {
                 return
             }
             NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
+            // Light the scene by the real clock so terrain shading + the
+            // sky take on the current time-of-day colours.
+            NativeSurfaceMap.nativeSetSunTime(handle, System.currentTimeMillis() / 1000.0)
             NativeSurfaceMap.nativePumpLocal(handle)
             val eng = TurbomapMapEngine(handle, w, h)
             // Camera/inset changes from the rail/flyTo/sheet must redraw (render-on-demand).

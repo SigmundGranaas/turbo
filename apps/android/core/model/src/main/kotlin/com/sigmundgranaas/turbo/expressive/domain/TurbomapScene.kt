@@ -56,10 +56,11 @@ object TurbomapScene {
             layers += "{ \"type\": \"raster\", \"id\": \"${r.id}\", \"source\": \"$src\" }"
         }
 
-        // Terrain: a DEM source + hillshade layer. Declaring the hillshade layer
-        // (whose source resolves to a DEM) makes the engine set the shared
-        // heightmap, so the whole ground displaces; the layer itself adds relief
-        // shading over the basemap. Placed after the rasters, under the vectors.
+        // Terrain: a DEM source declared height-only. The engine loads it as
+        // the shared heightmap so the whole ground displaces, but draws NO
+        // relief overlay — the DEM is height, not a visible tile. The basemap
+        // raster lights itself from the sun instead (one lit 3D surface).
+        // Placed after the rasters, under the vectors.
         if (demUrl != null) {
             // halo MUST match the `?halo=N` the host fetches (MapStyles): each
             // tile is 256+2N px with the neighbours' elevation in the ring, so
@@ -67,7 +68,7 @@ object TurbomapScene {
             sources += "\"dem\": { \"type\": \"dem-xyz\", \"tiles\": [\"$demUrl\"], " +
                 "\"encoding\": \"mapbox-rgb\", \"halo\": $TERRAIN_HALO_PX }"
             layers += "{ \"type\": \"hillshade\", \"id\": \"hillshade\", \"source\": \"dem\", " +
-                "\"exaggeration\": $TERRAIN_EXAGGERATION }"
+                "\"exaggeration\": $TERRAIN_EXAGGERATION, \"height_only\": true }"
         }
 
         fun line(id: String, pts: List<LatLng>?, color: Rgba, width: Double) {
@@ -117,9 +118,11 @@ object TurbomapScene {
     private const val MEASURE_RADIUS = 4.0
     private const val USER_RADIUS = 7.0
 
-    /** Vertical exaggeration for 3D terrain. 1.0 = true scale; a touch over so
-     *  relief reads clearly at hiking zooms without looking caricatured. */
-    private const val TERRAIN_EXAGGERATION = 1.3
+    /** Vertical exaggeration for 3D terrain. 1.0 = true scale; we push to a
+     *  dramatic, game-like 2.5 so relief really reads when tilted — paired
+     *  with sun-direction shading on the basemap, the height pops instead of
+     *  looking flat. Tunable; lower it if peaks feel caricatured. */
+    private const val TERRAIN_EXAGGERATION = 2.5
 
     /** DEM tile halo (px) — must equal the `?halo=N` the host fetches (MapStyles).
      *  Stitches adjacent terrain tiles crack-free. */

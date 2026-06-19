@@ -45,6 +45,7 @@ fn hillshade_scene() -> Scene {
         id: "hillshade".to_string(),
         source: "dem".to_string(),
         exaggeration: 1.5,
+        height_only: false,
     });
     scene
 }

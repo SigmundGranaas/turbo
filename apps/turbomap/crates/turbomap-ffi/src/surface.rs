@@ -775,6 +775,28 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// Track the sun to a real UTC instant (`unix_seconds`) at the camera, so
+/// terrain shading + the sky colour match the time of day. A negative value
+/// reverts to the fixed default sun.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetSunTime(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    unix_seconds: jdouble,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            let t = if unix_seconds < 0.0 {
+                None
+            } else {
+                Some(unix_seconds)
+            };
+            map.engine.set_sun_time(t);
+        });
+    }
+}
+
 /// Geo-register the radar to the `west/south/east/north` lat-lng box it covers
 /// → the cloud overlay world-locks (pans + zooms with the map).
 #[no_mangle]
