@@ -25,10 +25,30 @@ use std::time::Duration;
 
 use image::{ImageEncoder, RgbaImage};
 use turbomap_core::{
-    Camera, Color, Feature, Filter, GeomType, Geometry, LatLng, Map, MapOptions, Paint, PendingTile,
-    RasterFormat, RasterTile, Rule, SunPosition, TileError, TileId, TileSource, VectorStyle,
-    VectorTile, VectorTileLayer, VectorTileSource,
+    Camera, Color, Feature, Filter, GeomType, Geometry, LatLng, Map, MapOptions, Marker, MarkerId,
+    Paint, PendingTile, RadarFrame, RasterFormat, RasterTile, Rule, SunPosition, TileError, TileId,
+    TileSource, VectorStyle, VectorTile, VectorTileLayer, VectorTileSource,
 };
+
+/// A coarse synthetic radar grid (precip + coverage) so the cloud overlay
+/// runs end-to-end — including the camera-ray pitch-parallax path that only
+/// engages when tilted + geo-registered (a known steep-pitch hazard).
+fn synthetic_radar(w: u32, h: u32, phase: f32) -> RadarFrame {
+    let mut precip = vec![0u8; (w * h) as usize];
+    let mut coverage = vec![0u8; (w * h) as usize];
+    let front = -0.2 + phase * 1.3;
+    for y in 0..h {
+        for x in 0..w {
+            let nx = (x as f32 + 0.5) / w as f32;
+            let ny = (y as f32 + 0.5) / h as f32;
+            let band = (-((nx + (ny - 0.5) * 0.3 - front).powi(2)) / (2.0 * 0.10 * 0.10)).exp();
+            let i = (y * w + x) as usize;
+            coverage[i] = (band.clamp(0.0, 1.0) * 230.0) as u8;
+            precip[i] = ((band * band).clamp(0.0, 1.0) * 200.0) as u8;
+        }
+    }
+    RadarFrame::from_u8(w, h, &precip, &coverage)
+}
 
 /// In-memory vector source: an "X" of two diagonal lines per tile, at every
 /// zoom. No network — deterministic + instant. Its only job is to push real
@@ -481,6 +501,39 @@ fn main() {
     // Fixed sun so frames are deterministic (no wall-clock dependence).
     map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
 
+    // Markers around the camera — exercises the marker pipeline + the
+    // elevation-aware projection (hit_test → lng_lat_to_screen → world_to_
+    // screen_z) on the 3D terrain, a path the raster+DEM-only run skipped.
+    for (i, (dlat, dlng)) in [(0.0, 0.0), (0.03, 0.02), (-0.02, 0.04), (0.05, -0.03)]
+        .iter()
+        .enumerate()
+    {
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_owned(), format!("m{i}"));
+        map.add_marker(Marker {
+            id: MarkerId(0),
+            lng_lat: LatLng::new(cli.center.lat + dlat, cli.center.lng + dlng),
+            radius_px: 10.0,
+            color: Color::rgb(0xE5, 0x39, 0x35),
+            data,
+        });
+    }
+
+    // Cloud overlay, geo-registered so the camera-ray parallax engages under
+    // tilt (otherwise the steep-pitch cloud path is never tested).
+    const GW: u32 = 64;
+    const GH: u32 = 48;
+    map.enable_clouds(GW, GH);
+    map.ingest_radar_frame(0, &synthetic_radar(GW, GH, 0.40));
+    map.ingest_radar_frame(1, &synthetic_radar(GW, GH, 0.55));
+    map.set_cloud_time(7.0, 0.5);
+    map.set_cloud_geo_bounds(
+        cli.center.lng - 1.2,
+        cli.center.lat - 0.6,
+        cli.center.lng + 1.2,
+        cli.center.lat + 0.6,
+    );
+
     let steps = build_steps(&cli);
     eprintln!(
         "scenario: {} steps @ {:.4},{:.4} z{} → pitch {}°, frames to {}",
@@ -505,6 +558,11 @@ fn main() {
                 );
             }
             drain_tiles(&mut map, &basemap, &dem, &vector);
+            // Hit-test a few screen points — drives marker reprojection through
+            // the elevation-aware path on the 3D surface.
+            for p in [(WIDTH as f64 * 0.5, HEIGHT as f64 * 0.5), (120.0, 200.0), (700.0, 1300.0)] {
+                let _ = map.hit_test(p, 16.0);
+            }
             render_to_png(&mut map, &device, &queue, &target, &target_view, &path);
         }));
         match result {
