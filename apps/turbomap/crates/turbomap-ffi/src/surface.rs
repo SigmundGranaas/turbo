@@ -466,6 +466,25 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// One immediate focus-invariant zoom step by `factor` about `(fx, fy)` — the live
+/// pinch-zoom. The world point under the fingers stays under the fingers (unlike a
+/// centre-anchored zoom). The animated variant above is for double-tap / scroll-wheel.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeZoomAround(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    factor: jdouble,
+    fx: jdouble,
+    fy: jdouble,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.zoom_around(factor, (fx, fy));
+        });
+    }
+}
+
 /// One 3D-mode orbit step: rotate the bearing by `d_bearing_deg` and tilt by
 /// `d_pitch_deg`, both pivoting about the pinned focus pixel `(fx, fy)` so that
 /// pixel stays over the same world point — the location the user is orbiting

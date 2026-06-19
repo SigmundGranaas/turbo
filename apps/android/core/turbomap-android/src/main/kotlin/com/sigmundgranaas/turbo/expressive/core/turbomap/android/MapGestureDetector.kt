@@ -155,7 +155,7 @@ internal const val ORBIT_PITCH_DEG_PER_PX = 0.25f
  */
 internal suspend fun PointerInputScope.detectMapGestures(
     onDown: () -> Unit,
-    onTransform: (panX: Float, panY: Float, zoom: Float) -> Unit,
+    onTransform: (panX: Float, panY: Float, zoom: Float, focusX: Float, focusY: Float) -> Unit,
     onFling: (vx: Float, vy: Float) -> Unit,
     onZoomFling: (zoomVelocity: Float, focusX: Float, focusY: Float) -> Unit = { _, _, _ -> },
     onRotate: (dBearingDeg: Float, focusX: Float, focusY: Float) -> Unit = { _, _, _ -> },
@@ -245,7 +245,7 @@ internal suspend fun PointerInputScope.detectMapGestures(
                 if (dragStarted) {
                     val pan = centroid - prevCentroid
                     if (pan != Offset.Zero) {
-                        onTransform(pan.x, pan.y, 1f)
+                        onTransform(pan.x, pan.y, 1f, centroid.x, centroid.y)
                         event.changes.forEach { if (it.positionChanged()) it.consume() }
                     }
                 }
@@ -254,7 +254,7 @@ internal suspend fun PointerInputScope.detectMapGestures(
                 val pan = centroid - prevCentroid
                 val zoom = if (prevSpread > 0f && spread > 0f) spread / prevSpread else 1f
                 if (zoom != 1f) zoomTracker.addRatio(t, zoom)
-                if (pan != Offset.Zero || zoom != 1f) onTransform(pan.x, pan.y, zoom)
+                if (pan != Offset.Zero || zoom != 1f) onTransform(pan.x, pan.y, zoom, centroid.x, centroid.y)
 
                 val (a, b) = twoSortedByY(pressed[0].position, pressed[1].position, pressed)
                 val angle = twoFingerAngleDeg(a, b)

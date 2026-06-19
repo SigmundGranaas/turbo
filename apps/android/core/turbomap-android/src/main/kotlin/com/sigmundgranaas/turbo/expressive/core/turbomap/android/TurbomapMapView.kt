@@ -54,7 +54,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.math.abs
-import kotlin.math.ln
 
 /**
  * On-screen wgpu map host (Stage E cutover, **experimental**, flag-gated).
@@ -154,7 +153,7 @@ fun TurbomapMapView(
                 .pointerInput(Unit) {
                     detectMapGestures(
                         onDown = { controller.onGestureDown() },
-                        onTransform = { panX, panY, zoom -> controller.onTransform(panX, panY, zoom) },
+                        onTransform = { panX, panY, zoom, fx, fy -> controller.onTransform(panX, panY, zoom, fx, fy) },
                         onFling = { vx, vy -> controller.onFling(vx, vy) },
                         onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },
                         onRotate = { deg, fx, fy -> controller.onRotate(deg, fx, fy) },
@@ -423,15 +422,21 @@ internal class TurbomapSurfaceController {
         requestRender(cameraMoved = false)
     }
 
-    fun onTransform(panX: Float, panY: Float, zoomFactor: Float) {
+    fun onTransform(panX: Float, panY: Float, zoomFactor: Float, focusX: Float, focusY: Float) {
         if (handle == 0L) return
-        val unp = NativeSurfaceMap.nativeUnproject(handle, width / 2.0 - panX, height / 2.0 - panY)
-        val cam = NativeSurfaceMap.nativeCamera(handle)
-        if (cam.size < 4) return
-        val newCenter = if (unp.size >= 3 && unp[2] == 1.0) LatLng(unp[0], unp[1]) else LatLng(cam[0], cam[1])
-        var z = cam[2]
-        if (zoomFactor != 1f) z = (z + ln(zoomFactor.toDouble()) / LN2).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        NativeSurfaceMap.nativeSetCamera(handle, newCenter.lat, newCenter.lng, z, cam[3])
+        // Pan: recenter so the world follows the finger translation (the centroid delta).
+        if (panX != 0f || panY != 0f) {
+            val unp = NativeSurfaceMap.nativeUnproject(handle, width / 2.0 - panX, height / 2.0 - panY)
+            if (unp.size >= 3 && unp[2] == 1.0) {
+                val cam = NativeSurfaceMap.nativeCamera(handle)
+                if (cam.size >= 4) NativeSurfaceMap.nativeSetCamera(handle, unp[0], unp[1], cam[2], cam[3])
+            }
+        }
+        // Zoom about the pinch FOCUS — the world point under the fingers stays put, instead of
+        // the map zooming toward the screen centre. The engine clamps the zoom into range.
+        if (zoomFactor != 1f) {
+            NativeSurfaceMap.nativeZoomAround(handle, zoomFactor.toDouble(), focusX.toDouble(), focusY.toDouble())
+        }
         requestRender(cameraMoved = true)
         requestReconcile()
     }
@@ -708,9 +713,6 @@ internal class TurbomapSurfaceController {
     }
 
     private companion object {
-        const val LN2 = 0.6931471805599453
-        const val MIN_ZOOM = 1.0
-        const val MAX_ZOOM = 20.0
         const val TIMEOUT_MS = 10_000
         const val BEARING_EPSILON = 0.01
         const val MAX_CONCURRENT_FETCHES = 8

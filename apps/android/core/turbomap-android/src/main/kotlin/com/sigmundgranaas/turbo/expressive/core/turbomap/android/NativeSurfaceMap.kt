@@ -65,6 +65,9 @@ internal object NativeSurfaceMap {
     /** Animate a focus-invariant zoom by [factor] about ([fx],[fy]) over [durationMs]. */
     external fun nativeZoomAroundAnimated(handle: Long, factor: Double, fx: Double, fy: Double, durationMs: Int)
 
+    /** Immediate focus-invariant zoom by [factor] about screen px ([fx],[fy]) — live pinch. */
+    external fun nativeZoomAround(handle: Long, factor: Double, fx: Double, fy: Double)
+
     /**
      * One 3D-mode orbit step: rotate the bearing by [dBearingDeg] and tilt by
      * [dPitchDeg], both about the pinned focus pixel ([fx],[fy]) so that pixel
