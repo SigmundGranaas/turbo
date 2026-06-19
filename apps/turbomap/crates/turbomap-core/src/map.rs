@@ -580,6 +580,7 @@ impl Map {
             &self.terrain_shared,
             self.options.cache_budget_bytes,
             halo,
+            options.encoding,
         );
         let scene = Scene::with_margin(
             self.camera,
@@ -1093,12 +1094,40 @@ impl Map {
     pub fn lng_lat_to_screen(&self, lng_lat: LatLng) -> (f64, f64) {
         let world = lng_lat.to_world();
         let (w, h) = self.viewport_px;
-        // Fall back to the camera centre for off-screen / behind-camera
-        // points so callers (e.g. hit-test on markers) get a deterministic
-        // value rather than panicking. The cull happens upstream.
-        self.camera
-            .world_to_screen(world, (w as f64, h as f64))
-            .unwrap_or((w as f64 * 0.5, h as f64 * 0.5))
+        let centre = (w as f64 * 0.5, h as f64 * 0.5);
+        // When 3D terrain is loaded, lift the point onto the surface so
+        // markers/waypoints/photo-pins sit *on* the relief, not on the
+        // flat z=0 plane (which makes them float or sink under tilt).
+        // `ground_world_z` is the same displaced-z the terrain mesh uses,
+        // so they land exactly where the ground is drawn.
+        let proj = if self.terrain.is_some() {
+            self.camera
+                .world_to_screen_z(world, self.ground_world_z(world), (w as f64, h as f64))
+        } else {
+            // Fall back to the camera centre for off-screen / behind-camera
+            // points so callers (e.g. hit-test on markers) get a deterministic
+            // value rather than panicking. The cull happens upstream.
+            self.camera.world_to_screen(world, (w as f64, h as f64))
+        };
+        proj.unwrap_or(centre)
+    }
+
+    /// World-space displaced height (z) of the ground at `world`, matching
+    /// the terrain mesh: `elevation · meters_to_world · exaggeration`. 0
+    /// when no terrain is registered or no covering DEM tile is resident
+    /// yet. `meters_to_world` is taken at the camera-centre latitude, the
+    /// same value the per-frame mesh displacement uses, so overlays align
+    /// with the drawn surface.
+    fn ground_world_z(&self, world: WorldPoint) -> f32 {
+        let Some(t) = self.terrain.as_ref() else {
+            return 0.0;
+        };
+        let Some(elev) = t.cache.elevation_at_world((world.x, world.y)) else {
+            return 0.0;
+        };
+        let lat = self.camera.center.lat.to_radians();
+        let m2w = (lat.cos().abs() as f32 / 40_075_017.0).max(1e-12);
+        elev * m2w * t.options.exaggeration
     }
 
     // ---- tile orchestration --------------------------------------------

@@ -386,6 +386,38 @@ impl Camera {
         ))
     }
 
+    /// Project a world point that sits at world-space height `world_z`
+    /// (the same displaced-z the terrain mesh uses: `elev_m ·
+    /// meters_to_world · exaggeration`) to screen pixels. This is what
+    /// anchors markers/labels onto the 3D surface instead of the flat
+    /// ground plane. Always uses the perspective RTC matrix (no z=0 fast
+    /// path) since the whole point is the non-zero height.
+    pub fn world_to_screen_z(
+        self,
+        world: WorldPoint,
+        world_z: f32,
+        viewport_px: (f64, f64),
+    ) -> Option<(f64, f64)> {
+        let origin = self.center.to_world();
+        let vp =
+            self.view_projection_from_origin(origin, (viewport_px.0 as u32, viewport_px.1 as u32));
+        let clip = vp
+            * glam::Vec4::new(
+                (world.x - origin.x) as f32,
+                (world.y - origin.y) as f32,
+                world_z,
+                1.0,
+            );
+        if clip.w <= 0.0 {
+            return None;
+        }
+        let ndc = clip.truncate() / clip.w;
+        Some((
+            ((ndc.x + 1.0) * 0.5) as f64 * viewport_px.0,
+            ((1.0 - ndc.y) * 0.5) as f64 * viewport_px.1,
+        ))
+    }
+
     /// Convert a screen pixel (relative to a viewport of `viewport_px`) to
     /// a world-space coordinate on the ground plane.
     ///
@@ -930,6 +962,29 @@ mod tests {
         assert!((orbited.bearing_deg - 12.0).abs() < 1e-9);
         assert!((orbited.pitch_deg - 15.0).abs() < 1e-9);
         assert_world_close(orbited.pixel_to_world(focus, viewport), pivot_world, 1e-5);
+    }
+
+    #[test]
+    fn world_to_screen_z_lifts_a_point_up_the_screen_when_pitched() {
+        // Anchoring markers on 3D terrain: a point raised to a positive
+        // world height (toward the sky) must project HIGHER on screen
+        // (smaller y) than the same point on the flat ground, once the
+        // camera is tilted. At pitch 0 the two coincide (straight down).
+        let viewport = (800.0, 600.0);
+        let cam = Camera::new(LatLng::new(60.39, 5.32), 13.0).with_pitch(55.0);
+        let centre = cam.center.to_world();
+        let flat = cam.world_to_screen(centre, viewport).expect("flat projects");
+        let lifted = cam
+            .world_to_screen_z(centre, 5.0e-6, viewport) // ~200 m of world-space height
+            .expect("lifted projects");
+        assert!(
+            (lifted.0 - flat.0).abs() < 1.0,
+            "x should barely move for a centred point: flat={flat:?} lifted={lifted:?}"
+        );
+        assert!(
+            lifted.1 < flat.1 - 1.0,
+            "raised point must move up the screen (smaller y): flat={flat:?} lifted={lifted:?}"
+        );
     }
 
     #[test]

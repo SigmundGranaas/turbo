@@ -14,12 +14,46 @@
 //! adjacent tile edges samples different DEM cells and the mesh
 //! cracks.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::dem::DemEncoding;
+use crate::dem::{decode_elevation, DemEncoding};
 use crate::tile::TileId;
 
 use super::cache::TextureCache;
+
+/// Resolution (per side) of the CPU-side elevation grid kept per DEM
+/// tile. The GPU keeps the full 256² texture for crisp displacement; the
+/// CPU only needs enough to anchor markers and drape paths on the
+/// surface, where the terrain is locally smooth. 64² = 16 KiB/tile.
+const CPU_HEIGHT_DIM: usize = 64;
+
+/// A downsampled, halo-trimmed elevation grid (metres) for one DEM tile,
+/// retained CPU-side so the host can ask "how high is the ground here?"
+/// without a GPU read-back. `CPU_HEIGHT_DIM × CPU_HEIGHT_DIM`, row-major,
+/// covering the tile's geographic interior in [0,1]² tile-local UV.
+struct HeightTile {
+    grid: Vec<f32>,
+}
+
+impl HeightTile {
+    /// Bilinearly sample the grid at tile-local `(u, v)` in [0,1].
+    fn sample(&self, u: f32, v: f32) -> f32 {
+        let n = CPU_HEIGHT_DIM;
+        let fx = (u.clamp(0.0, 1.0) * (n - 1) as f32).clamp(0.0, (n - 1) as f32);
+        let fy = (v.clamp(0.0, 1.0) * (n - 1) as f32).clamp(0.0, (n - 1) as f32);
+        let x0 = fx.floor() as usize;
+        let y0 = fy.floor() as usize;
+        let x1 = (x0 + 1).min(n - 1);
+        let y1 = (y0 + 1).min(n - 1);
+        let tx = fx - x0 as f32;
+        let ty = fy - y0 as f32;
+        let at = |x: usize, y: usize| self.grid[y * n + x];
+        let top = at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx;
+        let bot = at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx;
+        top * (1.0 - ty) + bot * ty
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TerrainOptions {
@@ -150,12 +184,21 @@ impl TerrainShared {
     }
 }
 
-#[allow(dead_code)] // Phase 4+ — held in place for raster/vector displacement.
 pub(crate) struct TerrainCache {
     cache: TextureCache,
+    // Held for symmetry with the Map-level shared resources; pipelines
+    // bind the `TerrainShared` copies, so these are currently unread.
+    #[allow(dead_code)]
     pub(crate) bind_group_layout: Arc<wgpu::BindGroupLayout>,
+    #[allow(dead_code)]
     pub(crate) sampler: Arc<wgpu::Sampler>,
     halo_px: u32,
+    /// DEM encoding, needed to decode raw bytes into the CPU height grid.
+    encoding: DemEncoding,
+    /// CPU-side elevations, kept in lock-step with the GPU cache (evicted
+    /// tiles are dropped here too). Lets the host anchor markers + drape
+    /// paths on the surface without a GPU read-back.
+    heights: HashMap<TileId, HeightTile>,
 }
 
 impl TerrainCache {
@@ -168,6 +211,7 @@ impl TerrainCache {
         shared: &TerrainShared,
         budget_bytes: usize,
         halo_px: u32,
+        encoding: DemEncoding,
     ) -> Self {
         let cache = TextureCache::new(
             device,
@@ -186,6 +230,8 @@ impl TerrainCache {
             bind_group_layout: shared.bind_group_layout.clone(),
             sampler: shared.sampler.clone(),
             halo_px,
+            encoding,
+            heights: HashMap::new(),
         }
     }
 
@@ -203,7 +249,57 @@ impl TerrainCache {
         width: u32,
         height: u32,
     ) -> Vec<TileId> {
-        self.cache.insert(tile, rgba, width, height)
+        let evicted = self.cache.insert(tile, rgba, width, height);
+        // Keep a CPU-side elevation grid in lock-step with the GPU cache.
+        if let Some(ht) = self.decode_height_tile(rgba, width, height) {
+            self.heights.insert(tile, ht);
+        }
+        for e in &evicted {
+            self.heights.remove(e);
+        }
+        evicted
+    }
+
+    /// Decode raw DEM bytes into a downsampled, halo-trimmed elevation
+    /// grid. `width`/`height` include the halo ring (e.g. 258 for a
+    /// 256-tile with 1 px halo); we sample the geographic interior only,
+    /// so adjacent tiles' grids line up at their shared edge.
+    fn decode_height_tile(&self, rgba: &[u8], width: u32, height: u32) -> Option<HeightTile> {
+        if width == 0 || height == 0 || rgba.len() < (width * height * 4) as usize {
+            return None;
+        }
+        let halo = self.halo_px;
+        // Interior pixel span (exclusive upper bound).
+        let lo = halo;
+        let hi_x = width.saturating_sub(halo);
+        let hi_y = height.saturating_sub(halo);
+        if hi_x <= lo || hi_y <= lo {
+            return None;
+        }
+        let span_x = (hi_x - lo) as f32;
+        let span_y = (hi_y - lo) as f32;
+        let n = CPU_HEIGHT_DIM;
+        let mut grid = vec![0.0f32; n * n];
+        for gy in 0..n {
+            // Map grid cell centre → interior pixel.
+            let py = lo + ((gy as f32 + 0.5) / n as f32 * span_y) as u32;
+            let py = py.min(hi_y - 1);
+            for gx in 0..n {
+                let px = lo + ((gx as f32 + 0.5) / n as f32 * span_x) as u32;
+                let px = px.min(hi_x - 1);
+                let i = ((py * width + px) * 4) as usize;
+                // Mapbox Terrain-RGB marks "no data" (sea / out of
+                // coverage) as alpha 0; treat as sea level so markers and
+                // paths over water sit at 0 m, not at a -10 km cliff.
+                let elev = if rgba[i + 3] < 128 {
+                    0.0
+                } else {
+                    decode_elevation(self.encoding, rgba[i], rgba[i + 1], rgba[i + 2])
+                };
+                grid[gy * n + gx] = elev;
+            }
+        }
+        Some(HeightTile { grid })
     }
 
     /// Age of the cached tile in seconds, or `None` if not present.
@@ -254,20 +350,60 @@ impl TerrainCache {
         })
     }
 
-    /// Decoded elevation at world-space `(x, y)` on the ground plane,
-    /// using whatever DEM tile currently covers that point. Used by
-    /// the CPU side for hit-testing + label anchoring.
-    #[allow(dead_code)] // Phase 6 stub — see body; wired with CPU heightmap later.
-    pub(crate) fn elevation_at_world(
-        &self,
-        _world: (f64, f64),
-        _encoding: DemEncoding,
-    ) -> Option<f32> {
-        // Stub for Phase 6. The cache holds compressed bind-group
-        // entries; we'd need to keep a parallel CPU-side height map
-        // to answer this cheaply. Hit-test ray-marching will be
-        // wired here.
+    /// Decoded elevation (metres) at world-space `(x, y)` on the ground
+    /// plane, sampled from the deepest DEM tile currently resident that
+    /// covers the point (so markers/paths anchor to the finest available
+    /// detail). `None` when no covering tile is loaded yet — the caller
+    /// then treats it as flat (z=0), same as the 2D map.
+    pub(crate) fn elevation_at_world(&self, world: (f64, f64)) -> Option<f32> {
+        let (wx, wy) = world;
+        if !(0.0..=1.0).contains(&wx) || !(0.0..=1.0).contains(&wy) {
+            return None;
+        }
+        // Deepest zoom first — finest resident detail wins.
+        for z in (0u8..=22u8).rev() {
+            let n = 1u32 << z as u32;
+            let nf = n as f64;
+            let tx = (wx * nf).floor().min((n - 1) as f64) as u32;
+            let ty = (wy * nf).floor().min((n - 1) as f64) as u32;
+            if let Some(ht) = self.heights.get(&TileId::new(z, tx, ty)) {
+                let u = (wx * nf - tx as f64) as f32;
+                let v = (wy * nf - ty as f64) as f32;
+                return Some(ht.sample(u, v));
+            }
+        }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HeightTile, CPU_HEIGHT_DIM};
+
+    /// A grid that ramps 0 → (n-1) west-to-east, constant north-south.
+    fn ramp_x() -> HeightTile {
+        let n = CPU_HEIGHT_DIM;
+        let mut grid = vec![0.0f32; n * n];
+        for y in 0..n {
+            for x in 0..n {
+                grid[y * n + x] = x as f32;
+            }
+        }
+        HeightTile { grid }
+    }
+
+    #[test]
+    fn height_sample_hits_corners_and_interpolates() {
+        let ht = ramp_x();
+        let n = (CPU_HEIGHT_DIM - 1) as f32;
+        // Corners map to the exact grid values.
+        assert!((ht.sample(0.0, 0.0) - 0.0).abs() < 1e-4);
+        assert!((ht.sample(1.0, 0.0) - n).abs() < 1e-4);
+        // Midpoint of the west→east ramp is the mean of the ends.
+        assert!((ht.sample(0.5, 0.5) - n * 0.5).abs() < 0.6);
+        // Out-of-range UV clamps rather than panicking.
+        assert!((ht.sample(-1.0, 2.0) - 0.0).abs() < 1e-4);
+        assert!((ht.sample(2.0, -1.0) - n).abs() < 1e-4);
     }
 }
 
