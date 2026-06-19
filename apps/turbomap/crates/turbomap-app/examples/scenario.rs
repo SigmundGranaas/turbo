@@ -1,0 +1,528 @@
+//! Headless 3D-terrain crash/inspection harness — runs the REAL engine
+//! against REAL Bodø/Sjunkhatten tiles + DEM over HTTP, drives a scripted
+//! camera session (tilt down hard, orbit, pan, over-zoom) that mirrors the
+//! on-device interactions, and after every step:
+//!   * wraps the work in `catch_unwind` so a Rust panic is reported with
+//!     the step + camera state (run with `RUST_BACKTRACE=1` for the trace),
+//!   * finite-checks the camera matrix (NaN here → the GPU gets NaN → driver
+//!     hang on device), and
+//!   * dumps the frame to `/tmp/turbomap-scenario/NNN.png` so it can be
+//!     eyeballed without a device.
+//!
+//! This is the local stand-in for shipping to a phone: it hits the same
+//! `Map` code paths the Android FFI does.
+//!
+//! Example:
+//!   RUST_BACKTRACE=1 cargo run -p turbomap-app --example scenario -- \
+//!     --center 67.23,15.30 --zoom 13 --pitch 80
+//!
+//! `--dem-url`/`--basemap-url` default to the prod tileserver + Kartverket.
+
+use std::collections::HashMap;
+use std::io::Cursor;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use image::{ImageEncoder, RgbaImage};
+use turbomap_core::{
+    Camera, Color, Feature, Filter, GeomType, Geometry, LatLng, Map, MapOptions, Paint, PendingTile,
+    RasterFormat, RasterTile, Rule, SunPosition, TileError, TileId, TileSource, VectorStyle,
+    VectorTile, VectorTileLayer, VectorTileSource,
+};
+
+/// In-memory vector source: an "X" of two diagonal lines per tile, at every
+/// zoom. No network — deterministic + instant. Its only job is to push real
+/// line geometry through the vector pipeline so the terrain-draping vertex
+/// shader (the DEM sample) actually runs with terrain present. This path is
+/// otherwise never exercised: the sim has no terrain (zscale 0 → sample
+/// branched out), and the device is the only place it's run before now.
+struct SyntheticVectors;
+
+impl VectorTileSource for SyntheticVectors {
+    fn request(&self, _tile: TileId) -> Result<VectorTile, TileError> {
+        let e = 4096i32;
+        Ok(VectorTile {
+            layers: vec![VectorTileLayer {
+                name: "streets".into(),
+                version: 2,
+                extent: e as u32,
+                features: vec![Feature {
+                    id: 1,
+                    geom_type: GeomType::LineString,
+                    geometry: Geometry::LineString(vec![
+                        vec![(e / 16, e / 16), (e * 15 / 16, e * 15 / 16)],
+                        vec![(e / 16, e * 15 / 16), (e * 15 / 16, e / 16)],
+                    ]),
+                    properties: std::collections::HashMap::new(),
+                }],
+            }],
+        })
+    }
+    fn min_zoom(&self) -> u8 {
+        0
+    }
+    fn max_zoom(&self) -> u8 {
+        18
+    }
+}
+
+/// Minimal vector style — one line rule + one fill — just enough to push
+/// real MVT geometry through the vector pipeline so its terrain-draping
+/// vertex shader (the DEM sample) actually executes with terrain present.
+fn demo_style() -> VectorStyle {
+    VectorStyle {
+        background: Color::rgba(0, 0, 0, 0),
+        rules: vec![
+            Rule {
+                source_layer: "streets".into(),
+                filter: Filter::Always,
+                paint: Paint::Line { color: Color::rgb(0xBD, 0xB3, 0xA1), width: 14.0 },
+                min_zoom: 6,
+                max_zoom: 22,
+                interactive: false,
+            },
+            Rule {
+                source_layer: "water_polygons".into(),
+                filter: Filter::Always,
+                paint: Paint::Fill { color: Color::rgb(0x9E, 0xC2, 0xDF) },
+                min_zoom: 6,
+                max_zoom: 22,
+                interactive: false,
+            },
+        ],
+    }
+}
+
+const WIDTH: u32 = 900;
+const HEIGHT: u32 = 1600; // tall, like a phone — exercises the steep-pitch footprint
+
+/// A blocking, in-process-cached HTTP tile source. One type serves both the
+/// basemap raster and the DEM (just different templates / halo). Caching
+/// keeps the multi-step scenario from re-fetching the same tile each time the
+/// camera revisits an area.
+struct HttpTiles {
+    /// URL template with `{z}`/`{x}`/`{y}` placeholders (order varies by server).
+    template: String,
+    min_zoom: u8,
+    max_zoom: u8,
+    halo_px: u32,
+    client: reqwest::blocking::Client,
+    cache: Mutex<HashMap<TileId, Option<Vec<u8>>>>,
+}
+
+impl HttpTiles {
+    fn new(template: String, min_zoom: u8, max_zoom: u8, halo_px: u32) -> Self {
+        Self {
+            template,
+            min_zoom,
+            max_zoom,
+            halo_px,
+            client: reqwest::blocking::Client::builder()
+                .user_agent("turbomap-scenario/0.1")
+                .timeout(Duration::from_secs(20))
+                .build()
+                .expect("http client"),
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl TileSource for HttpTiles {
+    fn request(&self, tile: TileId) -> Result<RasterTile, TileError> {
+        if let Some(hit) = self.cache.lock().unwrap().get(&tile) {
+            return match hit {
+                Some(bytes) => Ok(RasterTile {
+                    bytes: bytes.clone(),
+                    format: RasterFormat::Png,
+                }),
+                None => Err(TileError::Network("cached miss".into())),
+            };
+        }
+        let url = self
+            .template
+            .replace("{z}", &tile.z.to_string())
+            .replace("{x}", &tile.x.to_string())
+            .replace("{y}", &tile.y.to_string());
+        let fetched: Result<Vec<u8>, TileError> = (|| {
+            let resp = self
+                .client
+                .get(&url)
+                .send()
+                .map_err(|e| TileError::Network(e.to_string()))?;
+            if !resp.status().is_success() {
+                return Err(TileError::Network(format!("HTTP {} {url}", resp.status())));
+            }
+            Ok(resp
+                .bytes()
+                .map_err(|e| TileError::Network(e.to_string()))?
+                .to_vec())
+        })();
+        let mut cache = self.cache.lock().unwrap();
+        match fetched {
+            Ok(bytes) => {
+                cache.insert(tile, Some(bytes.clone()));
+                Ok(RasterTile {
+                    bytes,
+                    format: RasterFormat::Png,
+                })
+            }
+            Err(e) => {
+                // Cache the miss so a doomed tile (e.g. above coverage) isn't
+                // re-hammered every step; the harness tolerates misses.
+                cache.insert(tile, None);
+                Err(e)
+            }
+        }
+    }
+
+    fn min_zoom(&self) -> u8 {
+        self.min_zoom
+    }
+    fn max_zoom(&self) -> u8 {
+        self.max_zoom
+    }
+    fn dem_halo_px(&self) -> u32 {
+        self.halo_px
+    }
+}
+
+fn encode_png(img: &RgbaImage) -> Vec<u8> {
+    let mut out = Vec::with_capacity(64 * 1024);
+    image::codecs::png::PngEncoder::new(Cursor::new(&mut out))
+        .write_image(
+            img.as_raw(),
+            img.width(),
+            img.height(),
+            image::ExtendedColorType::Rgba8,
+        )
+        .expect("png encode");
+    out
+}
+
+struct Cli {
+    center: LatLng,
+    zoom: f64,
+    max_pitch: f64,
+    bearing: f64,
+    basemap_url: String,
+    dem_url: String,
+    out_dir: String,
+}
+
+fn parse_cli() -> Cli {
+    // Sjunkhatten (near Bodø): steep coastal fjord terrain at ~67°N.
+    let mut center = LatLng { lat: 67.23, lng: 15.30 };
+    let mut zoom = 13.0;
+    let mut max_pitch = 80.0;
+    let mut bearing = 20.0;
+    let api = std::env::var("TURBO_API_URL")
+        .unwrap_or_else(|_| "https://kart-api.sandring.no".into());
+    let mut basemap_url =
+        "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png"
+            .to_string();
+    let mut dem_url = format!("{}/v1/dem/rgb/{{z}}/{{x}}/{{y}}.png?halo=1", api.trim_end_matches('/'));
+    let mut out_dir = "/tmp/turbomap-scenario".to_string();
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--center" => {
+                let v = args.next().expect("--center LAT,LNG");
+                let (lat, lng) = v.split_once(',').expect("LAT,LNG");
+                center = LatLng {
+                    lat: lat.parse().expect("lat"),
+                    lng: lng.parse().expect("lng"),
+                };
+            }
+            "--zoom" => zoom = args.next().expect("--zoom").parse().expect("z"),
+            "--pitch" => max_pitch = args.next().expect("--pitch").parse().expect("deg"),
+            "--bearing" => bearing = args.next().expect("--bearing").parse().expect("deg"),
+            "--basemap-url" => basemap_url = args.next().expect("--basemap-url"),
+            "--dem-url" => dem_url = args.next().expect("--dem-url"),
+            "--out-dir" => out_dir = args.next().expect("--out-dir"),
+            other => panic!("unknown arg {other}"),
+        }
+    }
+    Cli { center, zoom, max_pitch, bearing, basemap_url, dem_url, out_dir }
+}
+
+/// One scripted camera pose + a human label for crash reports / frame names.
+struct Step {
+    label: String,
+    camera: Camera,
+}
+
+/// Build the session: warm up flat, ramp the pitch down hard, orbit a full
+/// turn at max tilt, pan across the terrain, then over-zoom in and back.
+/// This is the interaction sequence that crashes on device.
+fn build_steps(cli: &Cli) -> Vec<Step> {
+    let mut steps = Vec::new();
+    let cam = |pitch: f64, bearing: f64, center: LatLng, zoom: f64| {
+        Camera::new(center, zoom).with_pitch(pitch).with_bearing(bearing)
+    };
+    steps.push(Step { label: "warmup-flat".into(), camera: cam(0.0, 0.0, cli.center, cli.zoom) });
+    // Ramp pitch 0 → max in 8 steps (the "tilt down" the user does).
+    for i in 1..=8 {
+        let p = cli.max_pitch * i as f64 / 8.0;
+        steps.push(Step { label: format!("pitch-{p:.0}"), camera: cam(p, cli.bearing, cli.center, cli.zoom) });
+    }
+    // Orbit a full turn at max pitch (the 3D-mode 1-finger orbit).
+    for i in 1..=12 {
+        let b = cli.bearing + 360.0 * i as f64 / 12.0;
+        steps.push(Step { label: format!("orbit-{:.0}", b % 360.0), camera: cam(cli.max_pitch, b, cli.center, cli.zoom) });
+    }
+    // Pan north across fjord + peak at max pitch.
+    for i in 1..=6 {
+        let c = LatLng { lat: cli.center.lat + 0.02 * i as f64, lng: cli.center.lng + 0.01 * i as f64 };
+        steps.push(Step { label: format!("pan-{i}"), camera: cam(cli.max_pitch, cli.bearing, c, cli.zoom) });
+    }
+    // Over-zoom in past native max and back out (upsample path), staying tilted.
+    for i in 1..=5 {
+        let z = cli.zoom + i as f64;
+        steps.push(Step { label: format!("zoomin-{z:.0}"), camera: cam(cli.max_pitch, cli.bearing, cli.center, z) });
+    }
+    for i in (0..=5).rev() {
+        let z = cli.zoom + i as f64 - 3.0;
+        steps.push(Step { label: format!("zoomout-{z:.0}"), camera: cam(cli.max_pitch.min(60.0), cli.bearing, cli.center, z.max(5.0)) });
+    }
+    steps
+}
+
+/// Synchronously drain the engine's pending tiles via blocking HTTP. Tolerates
+/// misses (above-coverage / sea tiles) — those just stay unloaded, exactly as
+/// on device. Bounded so a runaway pending list surfaces rather than spins.
+fn drain_tiles(
+    map: &mut Map,
+    basemap: &Arc<dyn TileSource>,
+    dem: &Arc<dyn TileSource>,
+    vector: &Arc<dyn VectorTileSource>,
+) {
+    for _round in 0..40 {
+        let pending = map.pending_tiles();
+        if pending.is_empty() {
+            return;
+        }
+        let mut progressed = false;
+        for req in pending {
+            match req {
+                PendingTile::Raster { layer_id, tile } => {
+                    if let Ok(raw) = basemap.request(tile) {
+                        if let Ok(img) = image::load_from_memory(&raw.bytes) {
+                            let img = img.to_rgba8();
+                            let (w, h) = img.dimensions();
+                            map.ingest_raster(&layer_id, tile, img.as_raw(), w, h);
+                            progressed = true;
+                        }
+                    }
+                }
+                PendingTile::Terrain { tile } => {
+                    if let Ok(raw) = dem.request(tile) {
+                        if let Ok(img) = image::load_from_memory(&raw.bytes) {
+                            let img = img.to_rgba8();
+                            let (w, h) = img.dimensions();
+                            map.ingest_terrain_tile(tile, img.as_raw(), w, h);
+                            progressed = true;
+                        }
+                    }
+                }
+                PendingTile::Vector { layer_id, tile } => {
+                    if let Ok(vt) = vector.request(tile) {
+                        map.ingest_vector_tile(&layer_id, tile, &vt);
+                        progressed = true;
+                    }
+                }
+                PendingTile::Hillshade { .. } => {}
+            }
+        }
+        if !progressed {
+            // Everything left is a tolerated miss (sea / above coverage).
+            return;
+        }
+    }
+}
+
+/// Render the current Map state to a PNG. Single encoder: render +
+/// copy_texture_to_buffer, then poll the device until the readback maps.
+#[allow(clippy::too_many_arguments)]
+fn render_to_png(
+    map: &mut Map,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    target: &wgpu::Texture,
+    target_view: &wgpu::TextureView,
+    path: &str,
+) {
+    let mut encoder = device.create_command_encoder(&Default::default());
+    map.render(&mut encoder, target_view);
+    let bpp = 4u32;
+    let unpadded = WIDTH * bpp;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded = unpadded.div_ceil(align) * align;
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("scenario-readback"),
+        size: (padded * HEIGHT) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: target,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded),
+                rows_per_image: Some(HEIGHT),
+            },
+        },
+        wgpu::Extent3d { width: WIDTH, height: HEIGHT, depth_or_array_layers: 1 },
+    );
+    queue.submit([encoder.finish()]);
+    map.after_submit();
+
+    let slice = readback.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+    let started = std::time::Instant::now();
+    loop {
+        let _ = device.poll(wgpu::PollType::Poll);
+        if let Ok(Ok(())) = rx.recv_timeout(Duration::from_millis(10)) {
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(8) {
+            panic!("readback map timed out");
+        }
+    }
+    let data = slice.get_mapped_range();
+    let mut tight = Vec::with_capacity((unpadded * HEIGHT) as usize);
+    for row in 0..HEIGHT {
+        let s = (row * padded) as usize;
+        tight.extend_from_slice(&data[s..s + unpadded as usize]);
+    }
+    let img = RgbaImage::from_raw(WIDTH, HEIGHT, tight).expect("rgba");
+    std::fs::write(path, encode_png(&img)).expect("write png");
+}
+
+fn matrix_is_finite(m: &[[f32; 4]; 4]) -> bool {
+    m.iter().all(|row| row.iter().all(|v| v.is_finite()))
+}
+
+fn main() {
+    if std::env::var("RUST_BACKTRACE").is_err() {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Warn)
+        .init();
+    let cli = parse_cli();
+    std::fs::create_dir_all(&cli.out_dir).expect("mkdir out-dir");
+
+    let instance = wgpu::Instance::new({
+        let mut d = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        d.backends = wgpu::Backends::PRIMARY;
+        d
+    });
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::LowPower,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+    }))
+    .expect("no adapter");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("scenario-device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+        memory_hints: wgpu::MemoryHints::Performance,
+        experimental_features: wgpu::ExperimentalFeatures::default(),
+        trace: wgpu::Trace::Off,
+    }))
+    .expect("device");
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+
+    let target_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("scenario-target"),
+        size: wgpu::Extent3d { width: WIDTH, height: HEIGHT, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: target_format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let target_view = target.create_view(&Default::default());
+
+    let mut map = Map::new(
+        device.clone(),
+        queue.clone(),
+        target_format,
+        (WIDTH, HEIGHT),
+        Camera::new(cli.center, cli.zoom),
+        MapOptions { fade_in_secs: 0.0, ..Default::default() },
+    )
+    .expect("map");
+
+    let basemap: Arc<dyn TileSource> =
+        Arc::new(HttpTiles::new(cli.basemap_url.clone(), 0, 18, 0));
+    let dem: Arc<dyn TileSource> =
+        Arc::new(HttpTiles::new(cli.dem_url.clone(), 6, 14, 1));
+    // Public OSM vector tiles (no auth) + a minimal line/fill style, so the
+    // vector pipeline runs WITH terrain — exercising the draping vertex
+    // shader's DEM sample (the path that never executes in the sim, since the
+    // sim has no terrain → zscale 0 → the sample is branched out).
+    let vector: Arc<dyn VectorTileSource> = Arc::new(SyntheticVectors);
+    map.add_raster_layer("basemap", basemap.clone());
+    map.set_terrain_source(dem.clone(), turbomap_core::TerrainOptions::default());
+    map.add_vector_layer("osm", vector.clone(), demo_style());
+    // Fixed sun so frames are deterministic (no wall-clock dependence).
+    map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
+
+    let steps = build_steps(&cli);
+    eprintln!(
+        "scenario: {} steps @ {:.4},{:.4} z{} → pitch {}°, frames to {}",
+        steps.len(), cli.center.lat, cli.center.lng, cli.zoom, cli.max_pitch, cli.out_dir,
+    );
+
+    let mut crashed = false;
+    for (i, step) in steps.iter().enumerate() {
+        let path = format!("{}/{:03}-{}.png", cli.out_dir, i, step.label);
+        let cam = step.camera;
+        // Catch a Rust panic per step so we know exactly which interaction
+        // broke (and the backtrace prints above this line).
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            map.set_camera(cam);
+            // The clamp may have lowered the pitch; report what actually rendered.
+            let eff = map.camera();
+            let mat = eff.view_projection_matrix((WIDTH, HEIGHT));
+            if !eff.pitch_deg.is_finite() || !eff.zoom.is_finite() || !matrix_is_finite(&mat) {
+                panic!(
+                    "NON-FINITE camera at step {i} ({}): pitch={} zoom={} matrix_finite={}",
+                    step.label, eff.pitch_deg, eff.zoom, matrix_is_finite(&mat)
+                );
+            }
+            drain_tiles(&mut map, &basemap, &dem, &vector);
+            render_to_png(&mut map, &device, &queue, &target, &target_view, &path);
+        }));
+        match result {
+            Ok(()) => eprintln!("  [{i:>2}] {:<14} pitch={:>4.0} ok → {path}", step.label, map.camera().pitch_deg),
+            Err(_) => {
+                eprintln!(
+                    "  [{i:>2}] {:<14} *** CRASHED *** requested pitch={:.0} bearing={:.0} zoom={:.1} center={:.4},{:.4}",
+                    step.label, cam.pitch_deg, cam.bearing_deg, cam.zoom, cam.center.lat, cam.center.lng,
+                );
+                crashed = true;
+                break;
+            }
+        }
+    }
+
+    if crashed {
+        eprintln!("SCENARIO FAILED — reproduced a crash locally (see backtrace above).");
+        std::process::exit(1);
+    }
+    eprintln!("SCENARIO OK — {} frames in {} (no panic, no non-finite camera).", steps.len(), cli.out_dir);
+}
