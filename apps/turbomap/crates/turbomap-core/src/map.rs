@@ -24,12 +24,13 @@ use crate::{
     hit::geometry_hit,
     render::{
         cache::CacheStats,
+        frame::{RenderFrame, TerrainFrameInputs},
         gpu_timestamps::GpuTimestamps,
         hillshade::{HillshadePipeline, PreparedHillshade},
         icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
-        raster::{PreparedRaster, RasterPipeline, TerrainConfig},
-        sky::{SkyGlobals, SkyPipeline},
+        raster::{PreparedRaster, RasterPipeline},
+        sky::SkyPipeline,
         terrain::{TerrainCache, TerrainOptions, TerrainShared},
         text::{PreparedText, TextPipeline},
         vector::{PreparedVector, VectorPipeline},
@@ -41,7 +42,7 @@ use crate::{
     scene::Scene,
     source::TileSource,
     style::{Color, HillshadeStyle, VectorStyle},
-    sun::{self, SunPosition},
+    sun::SunPosition,
     tessellate::{self, IconRequest, InteractiveFeature, LabelRequest, Mesh},
     tile::TileId,
     vector::{GeomType, Value as VectorValue, VectorTile, VectorTileSource},
@@ -1444,119 +1445,29 @@ impl Map {
         //      lists in order: layer geometry, then text per visible
         //      vector layer, then markers.
         //
-        // Compute the metres-to-world conversion for vertex
-        // displacement now so hillshade (and future terrain consumers)
-        // can build their per-frame globals. Mercator-correct:
-        // `1 / (256 * 2^z_world)` is world units per pixel at zoom z;
-        // we want metres → world units. At a given latitude
-        //   metres_per_world = 2π·R / cos(lat)  (full world circumference at that lat)
-        // so `meters_to_world = 1 / metres_per_world`. The DEM
-        // exaggeration is applied separately inside the shader.
-        let lat = self.camera.center.lat.to_radians();
-        let earth_circumference_m: f32 = 40_075_017.0;
-        let meters_to_world = (lat.cos().abs() as f32 / earth_circumference_m).max(1e-12);
-
-        // Sun + time-of-day palette drive the terrain shading, the
-        // aerial-perspective haze and (later) the sky — one light for
-        // the whole scene. Computed once per frame at the camera.
-        let sun = self.effective_sun();
-        let atmos = sun::atmosphere(sun);
-
-        // Aerial-perspective density, made zoom-stable by expressing it
-        // per camera altitude (world units): far relief sits many
-        // altitudes away regardless of zoom. A pitch ramp keeps the
-        // flat 2D map (top-down) haze-free; haze only blooms as you tilt
-        // toward the horizon. The shader does `1 - exp(-dist·density)`.
-        let ppw = self.camera.pixels_per_world_unit() as f32;
-        let fov_y_half_tan = 0.337_f32; // tan(FOV_Y/2), FOV_Y ≈ 36.87°
-        let altitude_world = (self.viewport_px.1.max(1) as f32 * 0.5) / ppw / fov_y_half_tan;
-        let pitch_ramp = {
-            let p = self.camera.pitch_deg as f32;
-            let t = ((p - 5.0) / 35.0).clamp(0.0, 1.0);
-            t * t * (3.0 - 2.0 * t)
-        };
-        let haze_density = (1.0 / altitude_world.max(1e-9)) * 0.30 * pitch_ramp;
-
-        // Sky: drawn first in the pass only when tilted enough to expose
-        // the horizon (pure top-down 2D stays untouched — byte-identical,
-        // so the flat-raster golden holds). One uniform: the inverse VP
-        // (for per-pixel ray dirs) + the shared time-of-day palette.
-        let draw_sky = self.camera.pitch_deg > 0.5;
-        let sky_globals = if draw_sky {
-            let origin = self.camera.center.to_world();
-            let vp = self
-                .camera
-                .view_projection_matrix_rtc(origin, self.viewport_px);
-            let inv_view_proj = glam::Mat4::from_cols_array_2d(&vp)
-                .inverse()
-                .to_cols_array_2d();
-            // Sun glow fades out as it sets (gone a touch below horizon).
-            let sun_intensity = {
-                let a = sun.altitude_deg;
-                let t = ((a + 3.0) / 9.0).clamp(0.0, 1.0);
-                t * t * (3.0 - 2.0 * t)
-            };
-            Some(SkyGlobals {
-                inv_view_proj,
-                sun_dir: sun.world_dir(),
-                sun_intensity,
-                zenith_color: atmos.zenith_color,
-                _p0: 0.0,
-                horizon_color: atmos.horizon_color,
-                _p1: 0.0,
-                sun_color: atmos.light_color,
-                _p2: 0.0,
-            })
-        } else {
-            None
-        };
-
-        // Terrain config for the raster pipeline. When terrain isn't
-        // registered, `meters_to_world` is forced to 0 so the shader
-        // displacement collapses and the mesh draws flat.
-        let raster_terrain_cfg = TerrainConfig {
-            meters_to_world: if self.terrain.is_some() {
-                meters_to_world
-            } else {
-                0.0
+        // All per-frame render globals — metres-to-world, the sun-lit
+        // atmosphere, the aerial-perspective haze, the sky uniform and the
+        // raster/vector terrain configs — derived once from the camera +
+        // sun + terrain. See [`RenderFrame`].
+        let frame = RenderFrame::build(
+            &self.camera,
+            self.viewport_px,
+            self.effective_sun(),
+            TerrainFrameInputs {
+                present: self.terrain.is_some(),
+                exaggeration: self
+                    .terrain
+                    .as_ref()
+                    .map(|t| t.options.exaggeration)
+                    .unwrap_or(1.0),
+                encoding: self
+                    .terrain
+                    .as_ref()
+                    .map(|t| t.options.encoding)
+                    .unwrap_or(crate::dem::DemEncoding::MapboxRgb),
+                halo_px: self.terrain.as_ref().map(|t| t.cache.halo_px()).unwrap_or(0),
             },
-            exaggeration: self
-                .terrain
-                .as_ref()
-                .map(|t| t.options.exaggeration)
-                .unwrap_or(1.0),
-            encoding: self
-                .terrain
-                .as_ref()
-                .map(|t| match t.options.encoding {
-                    crate::dem::DemEncoding::MapboxRgb => 0u32,
-                    crate::dem::DemEncoding::Terrarium => 1u32,
-                })
-                .unwrap_or(0),
-            sun_dir: sun.world_dir(),
-            ambient: atmos.ambient,
-            haze_color: atmos.haze_color,
-            haze_density,
-            light_color: atmos.light_color,
-        };
-        // Terrain displacement params for the vector pipeline (lines/fills
-        // drape onto the relief): combined z-scale, encoding, and the DEM
-        // halo inset. Zero z-scale when no terrain → the vector shader
-        // leaves geometry flat.
-        let vec_terrain_zscale = raster_terrain_cfg.meters_to_world * raster_terrain_cfg.exaggeration;
-        let vec_terrain_encoding = raster_terrain_cfg.encoding;
-        let vec_terrain_halo_uv = self
-            .terrain
-            .as_ref()
-            .map(|t| {
-                let halo = t.cache.halo_px();
-                if halo == 0 {
-                    0.0
-                } else {
-                    halo as f32 / (256.0 + 2.0 * halo as f32)
-                }
-            })
-            .unwrap_or(0.0);
+        );
         let first_visible = self.first_visible_layer_index();
 
         // ---- Phase A: prepare ------------------------------------
@@ -1581,7 +1492,7 @@ impl Map {
                         &r.scene,
                         &mut r.cache,
                         terrain_cell.as_deref_mut().map(|t| &mut t.cache),
-                        raster_terrain_cfg,
+                        frame.raster_terrain_cfg,
                         r.fade_in_secs,
                     );
                     prepared_layers.push((i, PreparedLayer::Raster(p)));
@@ -1594,9 +1505,9 @@ impl Map {
                         v.paint_override,
                         v.dash,
                         v.width_scale,
-                        vec_terrain_zscale,
-                        vec_terrain_encoding,
-                        vec_terrain_halo_uv,
+                        frame.vec_terrain_zscale,
+                        frame.vec_terrain_encoding,
+                        frame.vec_terrain_halo_uv,
                     );
                     prepared_layers.push((i, PreparedLayer::Vector(p)));
                     // Labels come from visible vector layers only —
@@ -1629,7 +1540,7 @@ impl Map {
                             &mut t.cache,
                             h.style,
                             h.fade_in_secs,
-                            meters_to_world,
+                            frame.meters_to_world,
                         );
                         prepared_layers.push((i, PreparedLayer::Hillshade(p)));
                     }
@@ -1716,7 +1627,7 @@ impl Map {
             // Atmosphere first, behind everything: a depth-disabled
             // full-screen triangle. Terrain/vectors overdraw it, so it
             // shows only at the horizon when the camera is tilted.
-            if let Some(g) = &sky_globals {
+            if let Some(g) = &frame.sky_globals {
                 self.sky_pipeline.draw(g, &mut pass);
             }
 
