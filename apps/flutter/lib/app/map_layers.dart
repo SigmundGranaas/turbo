@@ -5,6 +5,7 @@ import 'package:turbo/features/curated_paths/api.dart';
 import 'package:turbo/features/external_vector_layers/api.dart';
 import 'package:turbo/features/journey/api.dart';
 import 'package:turbo/features/map_view/api.dart';
+import 'package:turbo/features/nasjonal_turbase/api.dart';
 import 'package:turbo/features/path_recording/api.dart';
 import 'package:turbo/features/photo_map/api.dart';
 import 'package:turbo/features/saved_paths/api.dart';
@@ -45,6 +46,19 @@ MapLayerRegistry buildDefaultMapLayerRegistry() {
           visible: _activeOverlayIds(ctx).contains('ocean_conditions'),
         ),
       ],
+    ),
+    // Nasjonal Turbase (ut.no / DNT) markers + animated route reveal. Both
+    // sub-layers are gated on the single overlay toggle; the route layer sits
+    // above the markers so the revealed hike draws over the pins.
+    MapLayerDescriptor(
+      id: 'nasjonal_turbase',
+      build: (ctx) {
+        final visible = _activeOverlayIds(ctx).contains(ntbOverlayId);
+        return [
+          NtbMarkerLayer(mapController: ctx.mapController, visible: visible),
+          NtbRouteLayer(mapController: ctx.mapController, visible: visible),
+        ];
+      },
     ),
     MapLayerDescriptor(
       id: 'viewport_markers',

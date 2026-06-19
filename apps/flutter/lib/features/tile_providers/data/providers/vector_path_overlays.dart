@@ -52,6 +52,25 @@ class N50StiOverlayConfig extends _VectorPathToggleConfig {
   String get attributions => '© Kartverket — N50 Kartdata';
 }
 
+/// Toggle for the Nasjonal Turbase (ut.no / DNT) POI overlay — cabins and
+/// trips fetched from `api.nasjonalturbase.no`, rendered as markers by
+/// `features/nasjonal_turbase/` (NtbMarkerLayer + NtbRouteLayer). Vector-only:
+/// `getActiveLayers` skips it; this entry just owns the on/off bit.
+class NasjonalTurbasePoisOverlayConfig extends _VectorPathToggleConfig {
+  @override
+  String get id => 'nasjonal_turbase_pois';
+
+  @override
+  String name(BuildContext context) => context.l10n.layerNameNasjonalTurbase;
+
+  @override
+  String description(BuildContext context) =>
+      context.l10n.layerDescriptionNasjonalTurbase;
+
+  @override
+  String get attributions => '© Nasjonal Turbase / DNT';
+}
+
 /// Curated MVT-served overlays from the self-hosted Turbo tileserver
 /// (`apps/tileserver`). One toggle per resource exposed by `/v1/catalog`.
 /// Geometry is rendered by `MvtDataLayer` from `features/curated_paths/`;

@@ -45,6 +45,7 @@ class TileRegistry extends Notifier<TileRegistryState> {
       TrailsOtherOverlayConfig(),
       OsmPathsOverlayConfig(),
       N50StiOverlayConfig(),
+      NasjonalTurbasePoisOverlayConfig(),
       CuratedHikingOverlayConfig(),
       CuratedSkiTracksOverlayConfig(),
       CuratedForestRoadsOverlayConfig(),

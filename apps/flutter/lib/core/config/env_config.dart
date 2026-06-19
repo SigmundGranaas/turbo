@@ -47,6 +47,16 @@ class EnvironmentConfig {
     }
   }
 
+  /// Developer API key for Nasjonal Turbase (`api.nasjonalturbase.no`).
+  ///
+  /// This is a *server credential*, not an end-user login — supply it with
+  /// `--dart-define=NTB_API_KEY=...`. When empty the NTB layer still builds
+  /// and renders nothing (the client degrades gracefully), so the app works
+  /// without a key; data only appears once a valid key is provided.
+  static const String _ntbApiKey = String.fromEnvironment('NTB_API_KEY');
+
+  static String get ntbApiKey => _ntbApiKey;
+
   static String get googleServerClientId {
     if (isDevelopment) {
       return '863382325847-l4s030g7ruif29o6no75ugb19c380an0.apps.googleusercontent.com';
