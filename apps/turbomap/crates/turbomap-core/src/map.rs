@@ -36,6 +36,8 @@ use crate::{
         vector_cache::VectorMeshCache,
         TextureCache, BACKGROUND_CLEAR,
     },
+    lighting::Lighting,
+    markers::MarkerManager,
     scene::Scene,
     source::TileSource,
     style::{Color, HillshadeStyle, VectorStyle},
@@ -374,8 +376,7 @@ pub struct Map {
     /// Analytic atmosphere sky, drawn first in the frame pass when the
     /// camera is tilted (so the horizon band shows behind the terrain).
     sky_pipeline: SkyPipeline,
-    markers: Vec<Marker>,
-    next_marker_id: u64,
+    markers: MarkerManager,
     last_frame_metrics: FrameMetrics,
     /// Optional GPU-side frame timing. Only present if the wgpu device
     /// negotiated `Features::TIMESTAMP_QUERY` at creation time. When
@@ -403,15 +404,10 @@ pub struct Map {
     /// over the resolved surface (it's a single-sampled, depth-less
     /// fullscreen composite, so it can't share the MSAA frame pass).
     clouds: Option<CloudOverlay>,
-    /// When set, the sun (and therefore terrain shading + sky colour)
-    /// tracks this UTC instant at the camera's location — the scene's
-    /// light matches the real time of day. `None` → fall back to a
-    /// fixed default. See [`Map::set_sun_time`].
-    sun_time_unix: Option<f64>,
-    /// Explicit sun override (azimuth/altitude). Takes precedence over
-    /// `sun_time_unix` — used for deterministic goldens and manual
-    /// control. See [`Map::set_sun_position`].
-    fixed_sun: Option<SunPosition>,
+    /// Scene lighting — the sun driving terrain shading, sky, aerial
+    /// perspective + clouds. One explicit mode (default / time-tracked /
+    /// fixed), see [`crate::lighting::Lighting`].
+    lighting: Lighting,
 }
 
 struct Terrain {
@@ -457,8 +453,7 @@ impl Map {
             icon_pipeline,
             marker_pipeline,
             sky_pipeline,
-            markers: Vec::new(),
-            next_marker_id: 0,
+            markers: MarkerManager::default(),
             last_frame_metrics: FrameMetrics::default(),
             gpu_timestamps,
             terrain: None,
@@ -467,8 +462,7 @@ impl Map {
             msaa_color_view,
             depth_size: initial_size,
             clouds: None,
-            sun_time_unix: None,
-            fixed_sun: None,
+            lighting: Lighting::default(),
         })
     }
 
@@ -614,27 +608,20 @@ impl Map {
     /// and where the user is looking. `None` clears it (back to the
     /// fixed default unless [`Map::set_sun_position`] is also set).
     pub fn set_sun_time(&mut self, unix_seconds: Option<f64>) {
-        self.sun_time_unix = unix_seconds;
+        self.lighting.set_time(unix_seconds);
     }
 
     /// Pin the sun to an explicit azimuth/altitude, overriding any
     /// time-based tracking. Used for deterministic goldens and manual
     /// control. `None` clears the override.
     pub fn set_sun_position(&mut self, sun: Option<SunPosition>) {
-        self.fixed_sun = sun;
+        self.lighting.set_fixed(sun);
     }
 
-    /// The sun position used this frame: explicit override → real solar
-    /// position at the camera for the set time → fixed default.
+    /// The sun position used this frame, resolved by the [`Lighting`] mode
+    /// at the camera's current location.
     fn effective_sun(&self) -> SunPosition {
-        if let Some(s) = self.fixed_sun {
-            return s;
-        }
-        if let Some(t) = self.sun_time_unix {
-            let c = self.camera.center;
-            return sun::solar_position(t, c.lat, c.lng);
-        }
-        SunPosition::DEFAULT
+        self.lighting.sun_at(self.camera.center)
     }
 
     /// Push decoded RGBA back into the shared terrain heightmap.
@@ -1350,24 +1337,12 @@ impl Map {
 
     // ---- markers -------------------------------------------------------
 
-    pub fn add_marker(&mut self, mut marker: Marker) -> MarkerId {
-        if marker.id == MarkerId(0) {
-            self.next_marker_id += 1;
-            marker.id = MarkerId(self.next_marker_id);
-        } else {
-            self.next_marker_id = self.next_marker_id.max(marker.id.0);
-        }
-        let id = marker.id;
-        if let Some(slot) = self.markers.iter_mut().find(|m| m.id == id) {
-            *slot = marker;
-        } else {
-            self.markers.push(marker);
-        }
-        id
+    pub fn add_marker(&mut self, marker: Marker) -> MarkerId {
+        self.markers.add(marker)
     }
 
     pub fn remove_marker(&mut self, id: MarkerId) {
-        self.markers.retain(|m| m.id != id);
+        self.markers.remove(id);
     }
 
     pub fn clear_markers(&mut self) {
@@ -1375,7 +1350,7 @@ impl Map {
     }
 
     pub fn markers(&self) -> &[Marker] {
-        &self.markers
+        self.markers.all()
     }
 
     // ---- hit testing ---------------------------------------------------
@@ -1384,18 +1359,11 @@ impl Map {
         let mut out: Vec<HitResult> = Vec::new();
 
         // Markers first (top z-order, newest-first within markers).
-        for marker in self.markers.iter().rev() {
-            let mp = self.lng_lat_to_screen(marker.lng_lat);
-            let dx = mp.0 - screen_px.0;
-            let dy = mp.1 - screen_px.1;
-            let r = (marker.radius_px as f64 + tolerance_px).max(0.0);
-            if dx * dx + dy * dy <= r * r {
-                out.push(HitResult::Marker(HitMarker {
-                    id: marker.id,
-                    lng_lat: marker.lng_lat,
-                    data: marker.data.clone(),
-                }));
-            }
+        for hit in self
+            .markers
+            .hit(screen_px, tolerance_px, |ll| self.lng_lat_to_screen(ll))
+        {
+            out.push(HitResult::Marker(hit));
         }
 
         // Then vector-tile features, top-most layer first.
@@ -1692,13 +1660,13 @@ impl Map {
                 LayerEntry::Hillshade(_) => None,
             });
             let p = if let Some(scene) = scene_from_layer {
-                self.marker_pipeline.prepare(scene, &self.markers)
+                self.marker_pipeline.prepare(scene, self.markers.all())
             } else if let Some(t) = self.terrain.as_ref() {
-                self.marker_pipeline.prepare(&t.scene, &self.markers)
+                self.marker_pipeline.prepare(&t.scene, self.markers.all())
             } else {
                 // No layers — build a one-off Scene from the Map's state.
                 let scene = Scene::with_margin(self.camera, self.viewport_px, 0, 22, 0);
-                self.marker_pipeline.prepare(&scene, &self.markers)
+                self.marker_pipeline.prepare(&scene, self.markers.all())
             };
             Some(p)
         };

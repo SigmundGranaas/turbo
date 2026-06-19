@@ -11,7 +11,9 @@ pub mod dem;
 pub mod error;
 pub mod geo;
 pub mod hit;
+pub mod lighting;
 pub mod map;
+pub mod markers;
 pub mod projection;
 mod render;
 pub mod scene;
@@ -36,6 +38,7 @@ pub use map::{
 };
 pub use scene::Scene;
 pub use source::{RasterFormat, RasterTile, TileSource};
+pub use lighting::{Lighting, LightingMode};
 pub use sun::{atmosphere, solar_position, Atmosphere, SunPosition};
 pub use style::{Color, Filter, HillshadeStyle, IconSpec, Paint, Rule, VectorStyle};
 pub use tessellate::{
