@@ -256,6 +256,25 @@ impl Scene {
         let min_y = (min_world_y * n as f64).floor() as i64;
         let max_y = (max_world_y * n as f64).ceil() as i64 - 1;
 
+        // Clear distance cap: never request tiles more than `ring` tiles
+        // from the camera-centre tile in ANY direction. A steep-pitch
+        // frustum reaches to the horizon — without this it asks for a long
+        // thin strip of far tiles that bloats the fetch/upload load and
+        // (with three layer caches) can OOM the device. The far field is
+        // sky/haze anyway, so cap to the on-screen footprint + a little
+        // look-ahead. Derived from the viewport so a big screen still gets
+        // its whole view, with a hard ceiling so a tiny-zoom view can't
+        // explode.
+        let centre = self.camera.center.to_world();
+        let cxr = (centre.x * n as f64).floor() as i64;
+        let cyr = (centre.y * n as f64).floor() as i64;
+        let view_tiles = (vw.max(vh) / 256.0).ceil() as i64;
+        let ring = (view_tiles + 3).clamp(3, 8);
+        let min_x = min_x.max(cxr - ring);
+        let max_x = max_x.min(cxr + ring);
+        let min_y = min_y.max(cyr - ring);
+        let max_y = max_y.min(cyr + ring);
+
         let min_x = min_x.max(0).min((n - 1) as i64) as u32;
         let max_x = max_x.max(0).min((n - 1) as i64) as u32;
         let min_y = min_y.max(0).min((n - 1) as i64) as u32;

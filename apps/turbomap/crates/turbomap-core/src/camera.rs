@@ -240,6 +240,27 @@ impl Camera {
         self.view_projection_from_origin(WorldPoint::new(0.0, 0.0), viewport_px)
     }
 
+    /// Height of the camera eye above the z=0 ground plane, in world
+    /// units, for the given viewport. The eye sits at `altitude` along the
+    /// pitched view ray, so its vertical component is `altitude·cos(pitch)`
+    /// — used to keep the camera from dropping below the 3D terrain.
+    pub fn eye_world_z(self, viewport_px: (u32, u32)) -> f32 {
+        let vh = viewport_px.1.max(1) as f32;
+        let ppw = self.pixels_per_world_unit() as f32;
+        let altitude = (vh * 0.5) / ppw / (FOV_Y * 0.5).tan();
+        let pitch = (self.pitch_deg.clamp(0.0, MAX_PITCH_DEG) as f32).to_radians();
+        altitude * pitch.cos()
+    }
+
+    /// The full camera altitude (eye distance along the view ray) for the
+    /// given viewport — independent of pitch. Used to size a terrain
+    /// clearance margin.
+    pub fn altitude_world(self, viewport_px: (u32, u32)) -> f32 {
+        let vh = viewport_px.1.max(1) as f32;
+        let ppw = self.pixels_per_world_unit() as f32;
+        (vh * 0.5) / ppw / (FOV_Y * 0.5).tan()
+    }
+
     fn view_projection_from_origin(self, origin: WorldPoint, viewport_px: (u32, u32)) -> Mat4 {
         let vw = viewport_px.0.max(1) as f32;
         let vh = viewport_px.1.max(1) as f32;
