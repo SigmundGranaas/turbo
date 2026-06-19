@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -210,6 +211,65 @@ class RouteViewModelTest {
 
         assertEquals(2, repo.calls)
         assertTrue(vm.state.value is RouteUiState.Following)
+    }
+
+    @Test
+    fun `rerouting while following stays in Following the whole time (silent background re-solve)`() =
+        runTest(mainRule.dispatcher) {
+            // The initial plan resolves at once; the reroute streams through a gate we control,
+            // so we can observe the state mid-solve.
+            val gate = MutableSharedFlow<RouteStreamEvent>(extraBufferCapacity = 8)
+            val repo = object : RouteRepository {
+                var calls = 0
+                override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String): Flow<RouteStreamEvent> {
+                    calls++
+                    return if (calls == 1) flowOf(RouteStreamEvent.Result(plan)) else gate
+                }
+            }
+            val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+            vm.planRoute(a, b); advanceUntilIdle(); vm.follow()
+            assertTrue(vm.state.value is RouteUiState.Following)
+
+            val seen = mutableListOf<RouteUiState>()
+            val collector = backgroundScope.launch { vm.state.collect { seen.add(it) } }
+
+            vm.reroute(LatLng(69.5, 18.5))
+            runCurrent()
+            // A progress frame arrives mid-solve — the view must NOT flip to Solving.
+            gate.emit(RouteStreamEvent.Progress(listOf(LatLng(69.5, 18.5), b)))
+            runCurrent()
+            assertTrue("stays Following during the background re-solve", vm.state.value is RouteUiState.Following)
+
+            val plan2 = plan.copy(distanceM = 999.0, geometry = listOf(LatLng(69.5, 18.5), b))
+            gate.emit(RouteStreamEvent.Result(plan2))
+            runCurrent()
+            assertEquals(plan2, (vm.state.value as RouteUiState.Following).plan)
+
+            collector.cancel()
+            assertTrue("never showed Solving mid-reroute", seen.none { it is RouteUiState.Solving })
+        }
+
+    @Test
+    fun `a second reroute is ignored while one is already in flight`() = runTest(mainRule.dispatcher) {
+        val gate = MutableSharedFlow<RouteStreamEvent>(extraBufferCapacity = 8)
+        val repo = object : RouteRepository {
+            var calls = 0
+            override fun planStream(points: List<LatLng>, preset: RoutePreset, profile: String): Flow<RouteStreamEvent> {
+                calls++
+                return if (calls == 1) flowOf(RouteStreamEvent.Result(plan)) else gate
+            }
+        }
+        val vm = RouteViewModel(repo, FakePathRepository(), FakeOfflineTileManager(), follow(backgroundScope))
+        vm.planRoute(a, b); advanceUntilIdle(); vm.follow()
+
+        vm.reroute(LatLng(69.5, 18.5)); runCurrent()
+        vm.reroute(LatLng(69.6, 18.6)); runCurrent() // off-route again before the first finished
+        assertEquals("only one re-solve in flight", 2, repo.calls)
+
+        gate.emit(RouteStreamEvent.Result(plan)); runCurrent()
+        // After it lands, a fresh reroute is allowed again.
+        vm.reroute(LatLng(69.7, 18.7)); runCurrent()
+        assertEquals(3, repo.calls)
     }
 
     @Test

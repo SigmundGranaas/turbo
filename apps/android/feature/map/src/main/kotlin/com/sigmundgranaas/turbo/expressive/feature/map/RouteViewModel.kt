@@ -154,31 +154,46 @@ class RouteViewModel @Inject constructor(
         val points = _waypoints.value
         if (points.size < 2) return
         job?.cancel()
-        // Graceful re-route: if a route is already solved (e.g. the user nudged a stop),
-        // keep its line on screen — and ignore intermediate solve progress — until the new
-        // result lands, so the path doesn't snap to a straight line and back. Only the very
-        // first solve (no prior geometry) shows the live straight-line→refined progress.
-        val previous = when (val s = _state.value) {
-            is RouteUiState.Done -> s.plan.geometry
-            is RouteUiState.Following -> s.plan.geometry
+        val current = _state.value
+        // An off-route reroute while FOLLOWING must be INVISIBLE: re-solving in the background
+        // and only swapping the route LINE in when the new plan lands. Dropping to Solving
+        // here would tear down the live follow sheet, reset the map's bottom inset and un-dim
+        // the covered line — a jarring view change mid-navigation. So while following we keep
+        // showing Following(oldPlan) for the whole re-solve and ignore intermediate progress.
+        // [resumeFollowing] is set by [reroute]; a first-time follow or a stop edit is unaffected.
+        val silentFollow = resumeFollowing && current is RouteUiState.Following
+        // Graceful re-route for a solved/following route: keep the current line on screen until
+        // the new result lands, so the path doesn't snap to a straight line and back. Only the
+        // very first solve (no prior geometry) shows the live straight-line→refined progress.
+        val previous = when (current) {
+            is RouteUiState.Done -> current.plan.geometry
+            is RouteUiState.Following -> current.plan.geometry
             else -> null
         }
-        _state.value = RouteUiState.Solving(previous ?: points)
+        if (!silentFollow) _state.value = RouteUiState.Solving(previous ?: points)
         job = viewModelScope.launch {
             if (debounce) kotlinx.coroutines.delay(DEBOUNCE_MS)
             try {
                 routes.planStream(points, _preset.value).collect { event ->
-                    _state.value = when (event) {
+                    when (event) {
                         is RouteStreamEvent.Progress ->
-                            if (previous != null) RouteUiState.Solving(previous) else RouteUiState.Solving(event.coordinates)
+                            if (!silentFollow) {
+                                _state.value =
+                                    if (previous != null) RouteUiState.Solving(previous)
+                                    else RouteUiState.Solving(event.coordinates)
+                            } // following: stay on the old line, no flicker
                         is RouteStreamEvent.Result ->
-                            if (resumeFollowing) { resumeFollowing = false; RouteUiState.Following(event.plan) }
-                            else RouteUiState.Done(event.plan)
-                        is RouteStreamEvent.Failure -> RouteUiState.Error(event.message)
+                            _state.value =
+                                if (resumeFollowing) { resumeFollowing = false; RouteUiState.Following(event.plan) }
+                                else RouteUiState.Done(event.plan)
+                        is RouteStreamEvent.Failure ->
+                            // A failed reroute must not blow away the live view — keep following
+                            // the existing line; only a normal solve surfaces the error.
+                            if (!silentFollow) _state.value = RouteUiState.Error(event.message) else resumeFollowing = false
                     }
                 }
             } catch (t: Throwable) {
-                _state.value = RouteUiState.Error("Couldn't reach the router.")
+                if (!silentFollow) _state.value = RouteUiState.Error("Couldn't reach the router.") else resumeFollowing = false
             }
         }
     }
@@ -187,6 +202,10 @@ class RouteViewModel @Inject constructor(
     fun reroute(from: LatLng) {
         val current = _waypoints.value
         if (current.size < 2 || _state.value !is RouteUiState.Following) return
+        // One reroute at a time: the off-route check keeps seeing Following (the view never
+        // leaves follow mode), so without this guard each new fix while off-route would pile
+        // on another re-solve.
+        if (resumeFollowing) return
         resumeFollowing = true
         // Replace the origin with the live position, keep the stops + destination.
         setWaypoints(listOf(from) + current.drop(1), debounce = false)
