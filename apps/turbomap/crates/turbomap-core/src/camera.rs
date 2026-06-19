@@ -67,11 +67,82 @@ impl ZoomBounds {
     pub fn clamp(self, zoom: f64) -> f64 {
         zoom.clamp(self.min, self.max)
     }
+
+    /// The bounds implied by a set of tile sources' `[min_zoom, max_zoom]`
+    /// ranges: min is the shallowest any source serves, max is the deepest
+    /// served level plus an overzoom budget ([`OVERZOOM_LEVELS`]) so the
+    /// camera can dip slightly past the sharpest tile before it's purely
+    /// upsampling. An empty set falls back to [`ZoomBounds::DEFAULT`].
+    pub fn from_sources(ranges: impl IntoIterator<Item = (u8, u8)>) -> Self {
+        let mut union: Option<(u8, u8)> = None;
+        for (min_z, max_z) in ranges {
+            union = Some(match union {
+                Some((lo, hi)) => (lo.min(min_z), hi.max(max_z)),
+                None => (min_z, max_z),
+            });
+        }
+        match union {
+            Some((lo, hi)) => ZoomBounds::new(lo as f64, hi as f64 + OVERZOOM_LEVELS),
+            None => ZoomBounds::DEFAULT,
+        }
+    }
 }
 
 impl Default for ZoomBounds {
     fn default() -> Self {
         ZoomBounds::DEFAULT
+    }
+}
+
+/// How far past the deepest real tile the camera may zoom before it's just
+/// upsampling. Added to the source-derived max by [`ZoomBounds::from_sources`].
+pub const OVERZOOM_LEVELS: f64 = 3.0;
+
+/// The camera's zoom lock: the range the camera is clamped to, plus an
+/// optional host override.
+///
+/// Replaces the `Map`'s old `zoom_bounds: ZoomBounds` + `manual_zoom_bounds:
+/// Option<ZoomBounds>` pair — two fields encoding one decision. Without an
+/// override the [`active`](Self::active) range tracks the union of the active
+/// tile sources (so the user can't zoom past the map's accuracy); with one,
+/// the host's range wins. The "which applies?" question has a single answer:
+/// re-[`resolve`](Self::resolve) and read [`active`](Self::active).
+#[derive(Debug, Clone, Copy)]
+pub struct ZoomLock {
+    /// Host override. `Some` wins over the source-derived range.
+    manual: Option<ZoomBounds>,
+    /// The range the camera is currently clamped to.
+    active: ZoomBounds,
+}
+
+impl ZoomLock {
+    /// A lock starting at `initial`, tracking sources (no override).
+    pub fn new(initial: ZoomBounds) -> Self {
+        Self {
+            manual: None,
+            active: initial,
+        }
+    }
+
+    /// The range the camera is currently locked to.
+    pub fn active(&self) -> ZoomBounds {
+        self.active
+    }
+
+    /// Set or clear the host override. Call [`resolve`](Self::resolve)
+    /// afterwards to recompute and apply the active range.
+    pub fn set_manual(&mut self, bounds: Option<ZoomBounds>) {
+        self.manual = bounds;
+    }
+
+    /// Recompute the active range: a host override wins; otherwise the union
+    /// of the given source ranges via [`ZoomBounds::from_sources`]. Returns
+    /// the new active range.
+    pub fn resolve(&mut self, source_ranges: impl IntoIterator<Item = (u8, u8)>) -> ZoomBounds {
+        self.active = self
+            .manual
+            .unwrap_or_else(|| ZoomBounds::from_sources(source_ranges));
+        self.active
     }
 }
 
@@ -783,6 +854,51 @@ mod tests {
     //! and gets it wrong.
 
     use super::*;
+
+    #[test]
+    fn zoom_bounds_from_sources_is_the_union_of_ranges() {
+        // A basemap serving z4..20 under an overlay serving z0..14: the lock
+        // spans the union, pulling back to the overlay's shallowest (z0) and
+        // diving to the basemap's deepest served level plus the overzoom
+        // budget (20 + OVERZOOM_LEVELS) — past z20 the deepest tiles upsample.
+        let b = ZoomBounds::from_sources([(4, 20), (0, 14)]);
+        assert_eq!((b.min, b.max), (0.0, 20.0 + OVERZOOM_LEVELS));
+    }
+
+    #[test]
+    fn zoom_bounds_from_sources_falls_back_to_default_when_empty() {
+        // No sources → nothing to clamp to → the renderer-wide default range.
+        let b = ZoomBounds::from_sources([]);
+        assert_eq!(b, ZoomBounds::DEFAULT);
+    }
+
+    #[test]
+    fn zoom_bounds_from_sources_pins_a_single_range() {
+        // One Kartverket topograatone raster (z4..18): floor is the shallowest
+        // served level (z4); ceiling is z18 plus the overzoom budget, where the
+        // WMTS pyramid ends and its deepest tiles upsample.
+        let b = ZoomBounds::from_sources([(4, 18)]);
+        assert_eq!((b.min, b.max), (4.0, 18.0 + OVERZOOM_LEVELS));
+    }
+
+    #[test]
+    fn zoom_lock_override_wins_over_sources_until_cleared() {
+        let mut lock = ZoomLock::new(ZoomBounds::DEFAULT);
+        // Tracking sources: resolves to the source union.
+        let tracked = lock.resolve([(4, 18)]);
+        assert_eq!((tracked.min, tracked.max), (4.0, 18.0 + OVERZOOM_LEVELS));
+
+        // Host override pins an explicit range regardless of the sources.
+        lock.set_manual(Some(ZoomBounds::new(8.0, 12.0)));
+        let pinned = lock.resolve([(4, 18)]);
+        assert_eq!((pinned.min, pinned.max), (8.0, 12.0));
+        assert_eq!(lock.active(), pinned);
+
+        // Clearing the override resumes source tracking.
+        lock.set_manual(None);
+        let again = lock.resolve([(4, 18)]);
+        assert_eq!((again.min, again.max), (4.0, 18.0 + OVERZOOM_LEVELS));
+    }
 
     fn assert_world_close(a: WorldPoint, b: WorldPoint, eps: f64) {
         assert!(

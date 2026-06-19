@@ -27,7 +27,7 @@ pub mod text;
 pub mod tile;
 pub mod vector;
 
-pub use camera::{Camera, CameraAnimation, ZoomBounds, TILE_SIZE_PX};
+pub use camera::{Camera, CameraAnimation, ZoomBounds, ZoomLock, TILE_SIZE_PX};
 pub use dem::{decode_elevation, DemEncoding};
 pub use error::{MapError, TileError};
 pub use geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
