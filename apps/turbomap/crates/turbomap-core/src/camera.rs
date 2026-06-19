@@ -226,22 +226,44 @@ impl Camera {
     /// envelope; zoom clamped to `[MIN_ZOOM, MAX_ZOOM]`; pitch to
     /// `[0, MAX_PITCH_DEG]`; bearing wrapped to `[0, 360)`; inset ≥ 0.
     pub fn sanitized(self) -> Self {
-        let lat = FiniteF64::or(self.center.lat, 0.0).clamp(-MAX_LATITUDE_DEG, MAX_LATITUDE_DEG);
-        let lng = FiniteF64::or(self.center.lng, 0.0);
-        let bearing = {
-            let b = FiniteF64::or(self.bearing_deg, 0.0) % 360.0;
-            if b < 0.0 {
-                b + 360.0
+        // Wrap a helper that also bounds the magnitude: a *finite* value can
+        // still be absurd (e.g. 1e177), and anything past `f32::MAX` becomes
+        // `Inf` the moment the projection casts it to f32 — the same driver
+        // hazard as a raw NaN. Every field below is brought into a domain
+        // whose downstream f32 cast is comfortably finite.
+        let wrap_360 = |v: f64| {
+            // `rem_euclid` handles negatives; the `>= 360` guard catches the
+            // float-rounding edge where a tiny-negative input rounds up to
+            // exactly 360.0 (which must read as 0, not escape the range).
+            let b = FiniteF64::or(v, 0.0).rem_euclid(360.0);
+            if b >= 360.0 || !b.is_finite() {
+                0.0
             } else {
                 b
+            }
+        };
+        let lat = FiniteF64::or(self.center.lat, 0.0).clamp(-MAX_LATITUDE_DEG, MAX_LATITUDE_DEG);
+        // A camera centre is a point on the globe — normalise longitude into
+        // [-180, 180) so an over-pan (or a wild host value) can't push world-x
+        // out of f32 range.
+        let lng = {
+            let l = (FiniteF64::or(self.center.lng, 0.0) + 180.0).rem_euclid(360.0) - 180.0;
+            // rem_euclid keeps it in [-180, 180); guard the exact-360 edge.
+            if l.is_finite() {
+                l
+            } else {
+                0.0
             }
         };
         Self {
             center: LatLng::new(lat, lng),
             zoom: FiniteF64::or(self.zoom, MIN_ZOOM).clamp(MIN_ZOOM, MAX_ZOOM),
             pitch_deg: FiniteF64::or(self.pitch_deg, 0.0).clamp(0.0, MAX_PITCH_DEG),
-            bearing_deg: bearing,
-            viewport_inset_px: FiniteF64::or(self.viewport_inset_px, 0.0).max(0.0),
+            bearing_deg: wrap_360(self.bearing_deg),
+            // No real viewport/sheet inset approaches 100k px; clamp there so a
+            // garbage value can't shift the projection's principal point out of
+            // f32 range.
+            viewport_inset_px: FiniteF64::or(self.viewport_inset_px, 0.0).clamp(0.0, 100_000.0),
             zoom_bounds: self.zoom_bounds,
         }
     }
@@ -960,6 +982,54 @@ mod tests {
         assert!((s.zoom - 13.0).abs() < 1e-9);
         assert!((s.pitch_deg - 45.0).abs() < 1e-9);
         assert!((s.bearing_deg - 31.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fuzz_any_bit_pattern_pose_sanitizes_to_a_finite_matrix() {
+        // The capstone: for ANY f64 a host could hand us — including every
+        // NaN/Inf/subnormal/huge bit pattern — `sanitized()` followed by the
+        // projection must never panic and must produce a finite matrix (the
+        // value the GPU finite gate then waves through). Deterministic LCG so
+        // it's reproducible; `f64::from_bits` walks the whole float space,
+        // which a hand-picked value list can't.
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            state
+        };
+        for _ in 0..50_000 {
+            let cam = Camera {
+                center: LatLng::new(f64::from_bits(next()), f64::from_bits(next())),
+                zoom: f64::from_bits(next()),
+                pitch_deg: f64::from_bits(next()),
+                bearing_deg: f64::from_bits(next()),
+                viewport_inset_px: f64::from_bits(next()),
+                zoom_bounds: ZoomBounds::DEFAULT,
+            }
+            .sanitized();
+
+            // Every field came out finite + in-domain.
+            assert!(cam.center.lat.is_finite() && cam.center.lng.is_finite());
+            assert!((MIN_ZOOM..=MAX_ZOOM).contains(&cam.zoom));
+            assert!((0.0..=MAX_PITCH_DEG).contains(&cam.pitch_deg));
+            assert!((0.0..360.0).contains(&cam.bearing_deg));
+
+            // And both projection matrices are finite at a few viewports
+            // (incl. the degenerate 1×1).
+            let origin = cam.center.to_world();
+            for vp in [(1u32, 1u32), (1080, 2400), (3840, 2160)] {
+                assert!(
+                    matrix_is_finite(&cam.view_projection_matrix(vp)),
+                    "non-finite VP for sanitized {cam:?} at {vp:?}"
+                );
+                assert!(
+                    matrix_is_finite(&cam.view_projection_matrix_rtc(origin, vp)),
+                    "non-finite RTC VP for sanitized {cam:?} at {vp:?}"
+                );
+            }
+        }
     }
 
     #[test]
