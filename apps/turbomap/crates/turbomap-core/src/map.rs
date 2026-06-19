@@ -1429,6 +1429,34 @@ impl Map {
 
     pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
         let started = Instant::now();
+
+        // ---- Master finite gate -----------------------------------------
+        // The single chokepoint every GPU upload sits behind. If the camera
+        // can't produce a finite view-projection — a NaN/Inf slipped past the
+        // input guards, or steep-pitch/zoom math degenerated — DON'T encode
+        // the frame: a mobile driver hangs on a NaN matrix where desktop Metal
+        // shrugs. Drop the frame (the last presented surface stays on screen)
+        // and record it, so a host watching `last_frame_metrics` can see the
+        // map is shedding frames rather than silently wedging.
+        let gate_vp = self.camera.view_projection_matrix(self.viewport_px);
+        if !crate::render::mat4_is_finite(&gate_vp)
+            || !self.camera.pitch_deg.is_finite()
+            || !self.camera.zoom.is_finite()
+        {
+            log::warn!(
+                "turbomap: dropping non-finite frame (pitch={}, zoom={}, vp_finite={})",
+                self.camera.pitch_deg,
+                self.camera.zoom,
+                crate::render::mat4_is_finite(&gate_vp),
+            );
+            self.last_frame_metrics = FrameMetrics {
+                cpu_time: started.elapsed(),
+                frame_dropped: true,
+                ..Default::default()
+            };
+            return;
+        }
+
         if let Some(ts) = self.gpu_timestamps.as_mut() {
             ts.try_drain();
             ts.begin(encoder);
@@ -1721,9 +1749,16 @@ impl Map {
                             c.params.cloud_alt_base = 0.0;
                             c.params.cloud_alt_top = (CLOUD_SLAB_FRAC * sy) as f32;
                             let vp = cam.view_projection_matrix(self.viewport_px);
-                            let inv = glam::Mat4::from_cols_array_2d(&vp).inverse();
-                            c.params.inv_view_proj = inv.to_cols_array_2d();
-                            c.params.use_camera_ray = true;
+                            let inv = glam::Mat4::from_cols_array_2d(&vp).inverse().to_cols_array_2d();
+                            // Guard the inverse: a degenerate VP → NaN → the
+                            // cloud raymarch would hang the driver. Fall back to
+                            // the world-locked flat field (no camera ray).
+                            if crate::render::mat4_is_finite(&inv) {
+                                c.params.inv_view_proj = inv;
+                                c.params.use_camera_ray = true;
+                            } else {
+                                c.params.use_camera_ray = false;
+                            }
                         } else {
                             c.params.use_camera_ray = false;
                         }
@@ -1756,6 +1791,7 @@ impl Map {
             + prepared_markers.is_some() as usize;
         self.last_frame_metrics = FrameMetrics {
             cpu_time: started.elapsed(),
+            frame_dropped: false,
             phases: PhaseTimings {
                 prepare: prepare_time,
                 pass: pass_time,
@@ -1870,6 +1906,12 @@ pub struct PhaseTimings {
 #[derive(Debug, Clone, Default)]
 pub struct FrameMetrics {
     pub cpu_time: Duration,
+    /// `true` when the renderer's finite gate rejected this frame (a
+    /// non-finite camera/view-projection) and skipped encoding it entirely —
+    /// the previous surface stays on screen. A host seeing this set is
+    /// shedding frames, not wedged; sustained drops point at an upstream
+    /// camera-math bug. See `Map::render`.
+    pub frame_dropped: bool,
     /// Per-phase CPU breakdown of `cpu_time`. See [`PhaseTimings`].
     pub phases: PhaseTimings,
     /// GPU wall time for the most recent COMPLETED frame's passes.

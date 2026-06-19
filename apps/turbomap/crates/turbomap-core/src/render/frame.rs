@@ -91,23 +91,30 @@ impl RenderFrame {
             let inv_view_proj = glam::Mat4::from_cols_array_2d(&vp)
                 .inverse()
                 .to_cols_array_2d();
-            // Sun glow fades out as it sets (gone a touch below horizon).
-            let sun_intensity = {
-                let a = sun.altitude_deg;
-                let t = ((a + 3.0) / 9.0).clamp(0.0, 1.0);
-                t * t * (3.0 - 2.0 * t)
-            };
-            Some(SkyGlobals {
-                inv_view_proj,
-                sun_dir: sun.world_dir(),
-                sun_intensity,
-                zenith_color: atmos.zenith_color,
-                _p0: 0.0,
-                horizon_color: atmos.horizon_color,
-                _p1: 0.0,
-                sun_color: atmos.light_color,
-                _p2: 0.0,
-            })
+            // A near-singular VP can invert to NaN; never feed that to the sky
+            // shader (mobile drivers hang). Skip the sky pass this frame —
+            // terrain/vectors overdraw it anyway except at the horizon.
+            if !super::mat4_is_finite(&inv_view_proj) {
+                None
+            } else {
+                // Sun glow fades out as it sets (gone a touch below horizon).
+                let sun_intensity = {
+                    let a = sun.altitude_deg;
+                    let t = ((a + 3.0) / 9.0).clamp(0.0, 1.0);
+                    t * t * (3.0 - 2.0 * t)
+                };
+                Some(SkyGlobals {
+                    inv_view_proj,
+                    sun_dir: sun.world_dir(),
+                    sun_intensity,
+                    zenith_color: atmos.zenith_color,
+                    _p0: 0.0,
+                    horizon_color: atmos.horizon_color,
+                    _p1: 0.0,
+                    sun_color: atmos.light_color,
+                    _p2: 0.0,
+                })
+            }
         } else {
             None
         };

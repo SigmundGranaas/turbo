@@ -21,6 +21,19 @@ pub(crate) mod vector_cache;
 
 pub(crate) use cache::TextureCache;
 
+/// True iff every element of a 4×4 matrix is finite (no `NaN`/`Inf`).
+///
+/// The single safety predicate behind the renderer's finite gate: a `NaN`
+/// matrix is valid Rust and uploads fine, but a mobile Vulkan/GLES driver
+/// hangs the moment it's used in a draw (desktop Metal tolerates it, which is
+/// why the crash only shows on device). Every matrix bound for the GPU is
+/// checked with this before upload; a frame that fails is dropped rather than
+/// fed to the driver. See `Map::render`'s master gate and the sky/cloud
+/// inverse-projection guards.
+pub(crate) fn mat4_is_finite(m: &[[f32; 4]; 4]) -> bool {
+    m.iter().flatten().all(|v| v.is_finite())
+}
+
 /// First-frame clear colour, expressed in *linear* light space because
 /// wgpu interprets `wgpu::Color` as linear before the framebuffer's
 /// sRGB conversion. Black reads as a render bug to users; pure white
@@ -82,5 +95,29 @@ pub(crate) fn overlay_depth_state() -> wgpu::DepthStencilState {
         depth_compare: Some(wgpu::CompareFunction::Always),
         stencil: wgpu::StencilState::default(),
         bias: wgpu::DepthBiasState::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mat4_is_finite;
+
+    #[test]
+    fn finite_gate_accepts_real_matrices_and_rejects_nan_inf() {
+        let identity = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        assert!(mat4_is_finite(&identity));
+
+        let mut with_nan = identity;
+        with_nan[2][3] = f32::NAN;
+        assert!(!mat4_is_finite(&with_nan), "a single NaN must fail the gate");
+
+        let mut with_inf = identity;
+        with_inf[0][0] = f32::INFINITY;
+        assert!(!mat4_is_finite(&with_inf), "an Inf must fail the gate");
     }
 }
