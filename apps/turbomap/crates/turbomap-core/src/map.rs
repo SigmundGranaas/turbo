@@ -31,6 +31,7 @@ use crate::{
         marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline},
         sky::SkyPipeline,
+        targets::FrameTargets,
         terrain::{TerrainCache, TerrainOptions, TerrainShared},
         text::{PreparedText, TextPipeline},
         vector::{PreparedVector, VectorPipeline},
@@ -135,49 +136,6 @@ impl ActiveAnim {
 
 /// Build the depth attachment matching the surface size. Re-created
 /// on resize.
-fn create_depth_view(device: &wgpu::Device, size: (u32, u32)) -> wgpu::TextureView {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("turbomap-depth"),
-        size: wgpu::Extent3d {
-            width: size.0.max(1),
-            height: size.1.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: crate::render::MSAA_SAMPLES,
-        dimension: wgpu::TextureDimension::D2,
-        format: crate::render::DEPTH_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
-}
-
-/// Build the multisampled colour attachment the frame pass renders into,
-/// before resolving down to the (single-sample) surface. Re-created on
-/// resize; its format matches the surface so the resolve is valid.
-fn create_msaa_color_view(
-    device: &wgpu::Device,
-    format: wgpu::TextureFormat,
-    size: (u32, u32),
-) -> wgpu::TextureView {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("turbomap-msaa-color"),
-        size: wgpu::Extent3d {
-            width: size.0.max(1),
-            height: size.1.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: crate::render::MSAA_SAMPLES,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
-}
-
 // Re-export the marker/hit types that used to live on `VectorMap` — they
 // belong with the public Map facade now.
 
@@ -390,14 +348,9 @@ pub struct Map {
     /// into displacement can be created before any terrain source is
     /// registered — they just bind the placeholder and render flat.
     terrain_shared: TerrainShared,
-    /// Depth attachment, sized to the surface. Required for 3D
-    /// terrain so the back of a mountain doesn't overdraw the
-    /// front. All render passes share this texture.
-    depth_view: wgpu::TextureView,
-    depth_size: (u32, u32),
-    /// Multisampled colour target the frame pass renders into; resolved to
-    /// the surface at pass end. Recreated alongside the depth view.
-    msaa_color_view: wgpu::TextureView,
+    /// The frame's MSAA colour + depth attachments, sized to the surface and
+    /// recreated together on resize. See [`FrameTargets`].
+    targets: FrameTargets,
     /// Optional procedural weather-cloud overlay. Drawn in its own pass
     /// over the resolved surface (it's a single-sampled, depth-less
     /// fullscreen composite, so it can't share the MSAA frame pass).
@@ -432,8 +385,7 @@ impl Map {
         let marker_pipeline = MarkerPipeline::new(device.clone(), queue.clone(), surface_format);
         let sky_pipeline = SkyPipeline::new(device.clone(), queue.clone(), surface_format);
         let gpu_timestamps = GpuTimestamps::new(&device, &queue);
-        let depth_view = create_depth_view(&device, initial_size);
-        let msaa_color_view = create_msaa_color_view(&device, surface_format, initial_size);
+        let targets = FrameTargets::new(&device, surface_format, initial_size);
         let terrain_shared = TerrainShared::new(&device, &queue);
         Ok(Self {
             device,
@@ -455,9 +407,7 @@ impl Map {
             gpu_timestamps,
             terrain: None,
             terrain_shared,
-            depth_view,
-            msaa_color_view,
-            depth_size: initial_size,
+            targets,
             clouds: None,
             lighting: Lighting::default(),
         })
@@ -943,15 +893,11 @@ impl Map {
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.viewport_px = (width, height);
-        // Depth texture must match the colour target. Recreate when
-        // the surface changes size — Metal will assert otherwise on
-        // the next render.
-        if (width, height) != self.depth_size && width > 0 && height > 0 {
-            self.depth_view = create_depth_view(&self.device, (width, height));
-            self.msaa_color_view =
-                create_msaa_color_view(&self.device, self.surface_format, (width, height));
-            self.depth_size = (width, height);
-        }
+        // Depth + MSAA colour must match the surface size or Metal asserts on
+        // the next render; FrameTargets recreates both together (no-op when
+        // unchanged or degenerate).
+        self.targets
+            .resize(&self.device, self.surface_format, (width, height));
         self.sync_scenes();
     }
 
@@ -1639,7 +1585,7 @@ impl Map {
                 label: Some("turbomap-frame-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     // Render multisampled, then resolve down to the surface.
-                    view: &self.msaa_color_view,
+                    view: self.targets.color_view(),
                     resolve_target: Some(target),
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -1650,7 +1596,7 @@ impl Map {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: self.targets.depth_view(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
