@@ -246,6 +246,19 @@ mod tests {
     use crate::{decode, GeomType, Geometry};
 
     #[test]
+    fn zero_extent_is_normalized_to_the_default() {
+        // A tile claiming extent 0 would make tile-local→world projection
+        // divide by zero. Decode coerces it to the 4096 default.
+        let bytes = TileEncoder::new()
+            .layer("places", 0)
+            .point((1, 2), &[])
+            .finish()
+            .finish();
+        let tile = decode(&bytes).expect("decode");
+        assert_eq!(tile.layers[0].extent, 4096);
+    }
+
+    #[test]
     fn point_line_polygon_round_trip_through_the_decoder() {
         let bytes = TileEncoder::new()
             .layer("places", 4096)

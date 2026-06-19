@@ -96,7 +96,10 @@ pub fn decode(bytes: &[u8]) -> Result<VectorTile, DecodeError> {
 fn decode_layer(raw: proto::tile::Layer) -> Result<Layer, DecodeError> {
     let keys = raw.keys;
     let values: Vec<Value> = raw.values.into_iter().map(decode_value).collect();
-    let extent = raw.extent.unwrap_or(4096);
+    // Extent is the tile's coordinate grid size and the divisor when
+    // projecting tile-local coords to world space. A malformed tile claiming
+    // 0 would divide to NaN/Inf; coerce 0 (or absent) to the 4096 default.
+    let extent = raw.extent.filter(|&e| e > 0).unwrap_or(4096);
 
     let mut features = Vec::with_capacity(raw.features.len());
     for raw_feat in raw.features {

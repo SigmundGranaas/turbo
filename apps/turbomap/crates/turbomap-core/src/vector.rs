@@ -35,7 +35,11 @@ pub trait VectorTileSource: Send + Sync {
 /// rectangle.
 pub fn tile_local_to_world(tile: TileId, extent: u32, local: (i32, i32)) -> (f64, f64) {
     let n = (1u64 << tile.z) as f64;
-    let ext = extent as f64;
+    // `extent` is the tile's coordinate grid size; a malformed tile claiming
+    // 0 would divide to NaN/Inf and poison the vertex buffer (which the GPU
+    // finite gate doesn't cover). Treat 0 as 1 — decode also normalizes it to
+    // the 4096 default, so this is belt-and-braces.
+    let ext = extent.max(1) as f64;
     let fx = local.0 as f64 / ext;
     let fy = local.1 as f64 / ext;
     ((tile.x as f64 + fx) / n, (tile.y as f64 + fy) / n)
@@ -49,6 +53,14 @@ mod tests {
     //! the same world coord whether we got it from z=10 or z=12 tiles.
 
     use super::*;
+
+    #[test]
+    fn zero_extent_does_not_divide_by_zero() {
+        // A malformed tile claiming extent 0 must not poison the vertex buffer
+        // with NaN/Inf. The projection stays finite (extent treated as 1).
+        let (x, y) = tile_local_to_world(TileId::new(6, 3, 5), 0, (10, 20));
+        assert!(x.is_finite() && y.is_finite());
+    }
 
     #[test]
     fn tile_corners_project_to_tile_world_bounds() {
