@@ -246,6 +246,75 @@ fn heavy_roaming_under_a_tight_cache_budget_keeps_reloading_tiles() {
     );
 }
 
+#[test]
+fn long_roaming_session_keeps_caches_within_budget() {
+    // Soak regression for "crashes after frequent long use" — the OOM class.
+    // A long panning session churns the tile caches continuously (every move
+    // evicts + loads). If the LRU byte accounting ever drifted (e.g. an evict
+    // path that didn't decrement `bytes_used`), the cache would grow without
+    // bound across the session until the device ran out of GPU memory. Roam
+    // across many far-apart regions and assert EVERY layer cache stays at or
+    // under its byte budget the whole time — bounded memory, no leak.
+    let budget = 16 * 1024 * 1024usize;
+    let opts = MapOptions {
+        fade_in_secs: 0.0,
+        cache_budget_bytes: budget,
+        ..Default::default()
+    };
+    let Some(mut sim) = sim_or_skip(12.0, opts) else {
+        return;
+    };
+    sim.engine.apply(basemap_scene());
+
+    let start = sim.camera();
+    assert!(sim.run_until_stable(200, 0.002).is_some(), "start must settle");
+
+    // A long, churny session: 80 regions on a wandering path, each settled so
+    // the cache fully turns over. Far more tiles than the budget can hold.
+    let mut peak_bytes = 0usize;
+    let mut max_entries = 0usize;
+    for region in 1..=80u32 {
+        let r = region as f64;
+        let mut cam = start;
+        cam.center.lng += (r * 0.37).sin() * 1.5;
+        cam.center.lat += (r * 0.21).cos() * 0.8;
+        sim.engine.set_camera(cam);
+        sim.run_until_stable(120, 0.004);
+        sim.step();
+
+        // The invariant: no layer cache may exceed its budget at any point.
+        for layer in &sim.engine.last_frame_metrics().layers {
+            let c = &layer.cache;
+            peak_bytes = peak_bytes.max(c.bytes_used);
+            max_entries = max_entries.max(c.entries);
+            assert!(
+                c.bytes_used <= c.budget_bytes,
+                "region {region}: layer '{}' cache exceeded budget — \
+                 bytes_used={} > budget={} (LRU accounting leak → eventual OOM)",
+                layer.id,
+                c.bytes_used,
+                c.budget_bytes,
+            );
+        }
+    }
+
+    // Sanity: the session actually churned (evictions happened) and the cache
+    // did fill (so the budget assertion above was meaningful, not vacuous).
+    let evictions: u64 = sim
+        .engine
+        .last_frame_metrics()
+        .layers
+        .iter()
+        .map(|l| l.cache.evictions)
+        .sum();
+    assert!(evictions > 0, "long session must churn the cache");
+    assert!(peak_bytes > 0, "cache must have filled during the session");
+    assert!(
+        peak_bytes <= budget,
+        "peak cache bytes {peak_bytes} must stay within budget {budget}"
+    );
+}
+
 /// CameraState helper: lng without reaching through fields in asserts.
 trait LngOf {
     fn lng_of(&self) -> f64;

@@ -235,6 +235,15 @@ impl OnScreen {
         self.queue.submit([encoder.finish()]);
         frame.present();
         self.engine.after_submit();
+        // Reclaim deferred GPU resources. When the tile caches evict under
+        // budget (every pan/zoom drops textures + bind groups), wgpu queues the
+        // backing GPU memory for destruction and only frees it on a device
+        // maintain pass — `present()` does NOT guarantee one on Vulkan/GLES. A
+        // long session of tile churn would otherwise pile up freed-but-not-
+        // reclaimed textures until the device OOMs ("crashes after long use").
+        // `Poll` is non-blocking: it runs cleanup for already-completed work
+        // without stalling the frame.
+        let _ = self.device.poll(wgpu::PollType::Poll);
     }
 
     fn resize(&mut self, width: u32, height: u32) {
