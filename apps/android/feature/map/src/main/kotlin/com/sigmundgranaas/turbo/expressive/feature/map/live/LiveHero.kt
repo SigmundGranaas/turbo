@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.material3.Icon
@@ -139,28 +138,14 @@ fun LiveHero(
         }
         Spacer(Modifier.height(14.dp))
 
-        // Row C — ONE M3 Expressive wavy strip, and it carries meaning. While FOLLOWING it
-        // IS the route-progress tracker: a *determinate* indicator whose covered portion
-        // waves and the road ahead lies flat, the wave crawling slowly so it reads as
-        // steady progress, not decoration. While RECORDING (open-ended, no route to
-        // complete) it falls back to a calm live-GPS motif whose amplitude breathes with
-        // speed. Either way the wave is slow — never the old crazy-fast thrash. There is no
-        // second bar: Row D below is just this strip's labels.
+        // Row C — the live speed readout, and (FOLLOWING only) the route-progress strip.
+        // While following, the strip IS the progress tracker: a *determinate* M3 wavy
+        // indicator whose covered portion waves and the road ahead lies flat, the wave
+        // crawling slowly — a song-scrubber for the route. While RECORDING there's no route
+        // to complete, so there's no strip at all (the wavy bar was just noise there) — only
+        // the speed. Row D below is the follow strip's labels.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (stats.recording) {
-                val amplitude by animateFloatAsState(
-                    targetValue = waveAmplitudeForSpeed(stats.speedMps),
-                    animationSpec = MaterialTheme.motionScheme.slowEffectsSpec(),
-                    label = "waveAmp",
-                )
-                LinearWavyProgressIndicator(
-                    modifier = Modifier.weight(1f).height(14.dp).testTag("liveWave"),
-                    color = cs.primary,
-                    trackColor = onContainer.copy(alpha = .14f),
-                    amplitude = amplitude,
-                    waveSpeed = WaveSpeed,
-                )
-            } else {
+            if (!stats.recording) {
                 val fraction = (stats.fraction ?: 0.0).toFloat().coerceIn(0f, 1f)
                 LinearWavyProgressIndicator(
                     progress = { fraction },
@@ -170,8 +155,10 @@ fun LiveHero(
                     amplitude = { WaveAmplitude },
                     waveSpeed = WaveSpeed,
                 )
+                Spacer(Modifier.width(12.dp))
+            } else {
+                Spacer(Modifier.weight(1f))
             }
-            Spacer(Modifier.width(12.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     Units.speedValue(stats.speedMps ?: 0.0, metric),
@@ -309,17 +296,6 @@ private fun heroNumber(stats: LiveStats, metric: Boolean): Pair<String, String> 
 internal fun formatShortDuration(seconds: Int): String {
     val totalMin = seconds / 60
     return if (totalMin >= 60) "%d h %02d".format(totalMin / 60, totalMin % 60) else "$totalMin min"
-}
-
-/**
- * Wave amplitude (0..1) for the live-GPS indicator from current speed (m/s): a small
- * floor so it never reads as fully flat/broken, scaling to a calm cap around brisk
- * hiking/skiing pace (~6 m/s). Deliberately well under 1f (the old default) so the
- * wave is a gentle signal, not a thrash.
- */
-internal fun waveAmplitudeForSpeed(speedMps: Double?): Float {
-    val s = (speedMps ?: 0.0).coerceAtLeast(0.0)
-    return (0.1f + (s / 6.0).toFloat() * 0.45f).coerceIn(0.1f, 0.55f)
 }
 
 /** A running clock for the recording title: "MM:SS" (or "H:MM:SS" past an hour). */
