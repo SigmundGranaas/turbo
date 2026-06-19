@@ -49,8 +49,38 @@ fn init_logging() {
                 .with_max_level(log::LevelFilter::Info)
                 .with_tag("Turbomap"),
         );
+        install_panic_hook();
         log::info!("turbomap logging initialised");
     });
+}
+
+/// Route Rust panics to logcat *with location + backtrace*, at the panic site.
+///
+/// The `catch_unwind` firewalls (`with_map`, `nativeCreate`) recover the
+/// message so a caught panic doesn't wedge the map — but by the time they run,
+/// the stack has unwound and the origin is gone. This hook fires first, while
+/// the panicking frame is still live, and logs file:line + a forced backtrace
+/// to logcat (tag `Turbomap`). That's the device-side backtrace the crash hunt
+/// kept lacking: `adb logcat -s Turbomap:E` now shows exactly where a panic
+/// originated, not just that one happened.
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown location>".to_string());
+        let msg = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("<non-string panic payload>");
+        // `force_capture` ignores RUST_BACKTRACE (unset on devices) so we always
+        // get frames; symbolication depends on the shipped symbols, but the
+        // address trace + location already pin most bugs.
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        log::error!("RUST PANIC at {loc}: {msg}\nbacktrace:\n{backtrace}");
+    }));
 }
 
 /// Best-effort string for a caught panic payload.

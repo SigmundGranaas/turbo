@@ -265,41 +265,7 @@ impl TerrainCache {
     /// 256-tile with 1 px halo); we sample the geographic interior only,
     /// so adjacent tiles' grids line up at their shared edge.
     fn decode_height_tile(&self, rgba: &[u8], width: u32, height: u32) -> Option<HeightTile> {
-        if width == 0 || height == 0 || rgba.len() < (width * height * 4) as usize {
-            return None;
-        }
-        let halo = self.halo_px;
-        // Interior pixel span (exclusive upper bound).
-        let lo = halo;
-        let hi_x = width.saturating_sub(halo);
-        let hi_y = height.saturating_sub(halo);
-        if hi_x <= lo || hi_y <= lo {
-            return None;
-        }
-        let span_x = (hi_x - lo) as f32;
-        let span_y = (hi_y - lo) as f32;
-        let n = CPU_HEIGHT_DIM;
-        let mut grid = vec![0.0f32; n * n];
-        for gy in 0..n {
-            // Map grid cell centre → interior pixel.
-            let py = lo + ((gy as f32 + 0.5) / n as f32 * span_y) as u32;
-            let py = py.min(hi_y - 1);
-            for gx in 0..n {
-                let px = lo + ((gx as f32 + 0.5) / n as f32 * span_x) as u32;
-                let px = px.min(hi_x - 1);
-                let i = ((py * width + px) * 4) as usize;
-                // Mapbox Terrain-RGB marks "no data" (sea / out of
-                // coverage) as alpha 0; treat as sea level so markers and
-                // paths over water sit at 0 m, not at a -10 km cliff.
-                let elev = if rgba[i + 3] < 128 {
-                    0.0
-                } else {
-                    decode_elevation(self.encoding, rgba[i], rgba[i + 1], rgba[i + 2])
-                };
-                grid[gy * n + gx] = elev;
-            }
-        }
-        Some(HeightTile { grid })
+        decode_height_grid(rgba, width, height, self.halo_px, self.encoding)
     }
 
     /// Age of the cached tile in seconds, or `None` if not present.
@@ -397,9 +363,86 @@ pub(crate) struct TerrainBinding<'a> {
     pub halo_px: u32,
 }
 
+/// Pure DEM-bytes → elevation-grid decode (no GPU), extracted from
+/// `TerrainCache::decode_height_tile` so its bounds handling is unit-testable
+/// against adversarial dimensions. Returns `None` on any input that can't
+/// yield a valid interior grid — never panics, never indexes out of bounds.
+fn decode_height_grid(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    halo: u32,
+    encoding: DemEncoding,
+) -> Option<HeightTile> {
+    // Length check in `usize` — `width * height * 4` in u32 overflows for a
+    // malformed tile claiming huge dimensions (e.g. 65536² wraps to 0), which
+    // would pass a naive u32 guard and then index past the buffer below. usize
+    // math on 64-bit can't wrap here.
+    let required = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|px| px.checked_mul(4))?;
+    if width == 0 || height == 0 || rgba.len() < required {
+        return None;
+    }
+    // Interior pixel span (exclusive upper bound).
+    let lo = halo;
+    let hi_x = width.saturating_sub(halo);
+    let hi_y = height.saturating_sub(halo);
+    if hi_x <= lo || hi_y <= lo {
+        return None;
+    }
+    let span_x = (hi_x - lo) as f32;
+    let span_y = (hi_y - lo) as f32;
+    let n = CPU_HEIGHT_DIM;
+    let mut grid = vec![0.0f32; n * n];
+    for gy in 0..n {
+        // Map grid cell centre → interior pixel.
+        let py = lo + ((gy as f32 + 0.5) / n as f32 * span_y) as u32;
+        let py = py.min(hi_y - 1);
+        for gx in 0..n {
+            let px = lo + ((gx as f32 + 0.5) / n as f32 * span_x) as u32;
+            let px = px.min(hi_x - 1);
+            // usize index to match the usize length guard — a u32 `py * width`
+            // would overflow for a large (validated) width.
+            let i = (py as usize * width as usize + px as usize) * 4;
+            // Mapbox Terrain-RGB marks "no data" (sea / out of coverage) as
+            // alpha 0; treat as sea level so markers and paths over water sit
+            // at 0 m, not at a -10 km cliff.
+            let elev = if rgba[i + 3] < 128 {
+                0.0
+            } else {
+                decode_elevation(encoding, rgba[i], rgba[i + 1], rgba[i + 2])
+            };
+            grid[gy * n + gx] = elev;
+        }
+    }
+    Some(HeightTile { grid })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{HeightTile, CPU_HEIGHT_DIM};
+    use super::{decode_height_grid, DemEncoding, HeightTile, CPU_HEIGHT_DIM};
+
+    #[test]
+    fn decode_height_grid_rejects_malformed_dimensions_without_panicking() {
+        let enc = DemEncoding::MapboxRgb;
+        // Huge dims whose u32 byte-count (w*h*4) overflows to a small number —
+        // the bug a naive guard let through. Must be rejected, not indexed.
+        assert!(decode_height_grid(&[0u8; 16], 65536, 65536, 0, enc).is_none());
+        assert!(decode_height_grid(&[0u8; 16], u32::MAX, u32::MAX, 1, enc).is_none());
+        // Buffer shorter than the claimed dimensions.
+        assert!(decode_height_grid(&[0u8; 16], 256, 256, 0, enc).is_none());
+        // Degenerate dims.
+        assert!(decode_height_grid(&[0u8; 16], 0, 10, 0, enc).is_none());
+        assert!(decode_height_grid(&[0u8; 16], 10, 0, 0, enc).is_none());
+        // Halo larger than the tile → empty interior, rejected.
+        assert!(decode_height_grid(&[0u8; 258 * 258 * 4], 8, 8, 64, enc).is_none());
+        // A well-formed buffer decodes to a full grid.
+        let ok = decode_height_grid(&[10u8; 258 * 258 * 4], 258, 258, 1, enc);
+        assert!(ok.is_some());
+        assert_eq!(ok.unwrap().grid.len(), CPU_HEIGHT_DIM * CPU_HEIGHT_DIM);
+    }
+
 
     /// A grid that ramps 0 → (n-1) west-to-east, constant north-south.
     fn ramp_x() -> HeightTile {
