@@ -8,6 +8,7 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::{scene::Scene, tessellate::VectorVertex, tile::TileId};
 
+use super::terrain::TerrainCache;
 use super::vector_cache::VectorMeshCache;
 
 /// wgpu's `min_uniform_buffer_offset_alignment` is 256 on every backend we
@@ -64,6 +65,9 @@ impl VectorPipeline {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         surface_format: wgpu::TextureFormat,
+        // Shared terrain DEM bind-group layout (group 2) so vector
+        // features can drape onto the 3D terrain. Bound per tile at draw.
+        terrain_bgl: &wgpu::BindGroupLayout,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("turbomap-vector-shader"),
@@ -114,7 +118,7 @@ impl VectorPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("turbomap-vector-layout"),
-            bind_group_layouts: &[Some(&camera_bgl), Some(&tile_bgl)],
+            bind_group_layouts: &[Some(&camera_bgl), Some(&tile_bgl), Some(terrain_bgl)],
             immediate_size: 0,
         });
 
@@ -247,6 +251,7 @@ impl VectorPipeline {
     /// CPU half of a frame: camera + per-tile uniform writes (fade
     /// alpha, paint override at the same dynamic offsets `draw` will
     /// bind) and LRU touches for every tile in the draw list.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare(
         &mut self,
         scene: &Scene,
@@ -259,6 +264,12 @@ impl VectorPipeline {
         dash: Option<(f32, f32)>,
         // Per-frame multiplier on baked line widths (zoom curve); 1.0 = baked.
         width_scale: f32,
+        // 3D-terrain displacement for draping features onto the relief:
+        // (meters_to_world·exaggeration, DEM encoding, halo_uv). `zscale`
+        // is 0 when no terrain is registered → the shader leaves z flat.
+        terrain_zscale: f32,
+        terrain_encoding: u32,
+        terrain_halo_uv: f32,
     ) -> PreparedVector {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
@@ -267,7 +278,12 @@ impl VectorPipeline {
         let origin = camera.center.to_world();
         let uniform = CameraUniform {
             view_proj: camera.view_projection_matrix_rtc(origin, (vw, vh)),
-            params: [(256.0 * 2f64.powf(camera.zoom)) as f32, 0.0, 0.0, 0.0],
+            params: [
+                (256.0 * 2f64.powf(camera.zoom)) as f32,
+                terrain_zscale,
+                terrain_encoding as f32,
+                terrain_halo_uv,
+            ],
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
@@ -371,6 +387,10 @@ impl VectorPipeline {
         &self,
         prepared: &PreparedVector,
         cache: &VectorMeshCache,
+        // Terrain DEM (for draping) + the zero-elevation placeholder bound
+        // when no terrain is registered or the exact tile isn't resident.
+        terrain: Option<&TerrainCache>,
+        placeholder_dem: &wgpu::BindGroup,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
         if prepared.tiles.is_empty() {
@@ -386,6 +406,12 @@ impl VectorPipeline {
             }
             let offset = (idx as u64 * TILE_UNIFORM_STRIDE) as u32;
             pass.set_bind_group(1, &self.tile_bind_group, &[offset]);
+            // Drape: bind this tile's exact DEM, else the flat placeholder
+            // (the shader skips displacement when it samples zero/no-data).
+            let dem = terrain
+                .and_then(|t| t.exact_bind_group(*tile))
+                .unwrap_or(placeholder_dem);
+            pass.set_bind_group(2, dem, &[]);
             pass.set_vertex_buffer(0, entry.vertex_buffer.slice(..));
             pass.set_index_buffer(entry.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..entry.index_count, 0, 0..1);

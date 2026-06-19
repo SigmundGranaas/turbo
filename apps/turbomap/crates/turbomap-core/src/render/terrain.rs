@@ -324,6 +324,16 @@ impl TerrainCache {
         self.cache.peek(id)
     }
 
+    /// Bind group for the EXACT DEM tile `id` if it's resident (no
+    /// ancestor fallback), read-only. The vector pipeline binds this to
+    /// drape lines/fills, falling back to the zero-elevation placeholder
+    /// when the precise tile isn't loaded — keeping the binding simple
+    /// (no sub-UV remap) at the cost of leaving a not-yet-loaded tile's
+    /// features briefly flat.
+    pub(crate) fn exact_bind_group(&self, id: TileId) -> Option<&wgpu::BindGroup> {
+        self.cache.peek(id).map(|e| &e.bind_group)
+    }
+
     pub(crate) fn stats(&self) -> crate::render::cache::CacheStats {
         self.cache.stats()
     }
@@ -376,6 +386,17 @@ impl TerrainCache {
     }
 }
 
+/// What a pipeline binds when drawing one tile. `source_tile` may
+/// differ from the requested tile when an ancestor is being used as
+/// fallback — the shader uses that to map vertex UVs to the right
+/// sub-region of the ancestor's texture.
+#[allow(dead_code)]
+pub(crate) struct TerrainBinding<'a> {
+    pub bind_group: &'a wgpu::BindGroup,
+    pub source_tile: TileId,
+    pub halo_px: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{HeightTile, CPU_HEIGHT_DIM};
@@ -405,15 +426,4 @@ mod tests {
         assert!((ht.sample(-1.0, 2.0) - 0.0).abs() < 1e-4);
         assert!((ht.sample(2.0, -1.0) - n).abs() < 1e-4);
     }
-}
-
-/// What a pipeline binds when drawing one tile. `source_tile` may
-/// differ from the requested tile when an ancestor is being used as
-/// fallback — the shader uses that to map vertex UVs to the right
-/// sub-region of the ancestor's texture.
-#[allow(dead_code)]
-pub(crate) struct TerrainBinding<'a> {
-    pub bind_group: &'a wgpu::BindGroup,
-    pub source_tile: TileId,
-    pub halo_px: u32,
 }

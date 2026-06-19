@@ -734,8 +734,12 @@ impl Map {
         let id = id.into();
         let min_zoom = source.min_zoom();
         let max_zoom = source.max_zoom();
-        let pipeline =
-            VectorPipeline::new(self.device.clone(), self.queue.clone(), self.surface_format);
+        let pipeline = VectorPipeline::new(
+            self.device.clone(),
+            self.queue.clone(),
+            self.surface_format,
+            &self.terrain_shared.bind_group_layout,
+        );
         let cache = VectorMeshCache::new(self.device.clone(), self.options.cache_budget_bytes);
         let scene = Scene::with_margin(
             self.camera,
@@ -1569,6 +1573,24 @@ impl Map {
             haze_density,
             light_color: atmos.light_color,
         };
+        // Terrain displacement params for the vector pipeline (lines/fills
+        // drape onto the relief): combined z-scale, encoding, and the DEM
+        // halo inset. Zero z-scale when no terrain → the vector shader
+        // leaves geometry flat.
+        let vec_terrain_zscale = raster_terrain_cfg.meters_to_world * raster_terrain_cfg.exaggeration;
+        let vec_terrain_encoding = raster_terrain_cfg.encoding;
+        let vec_terrain_halo_uv = self
+            .terrain
+            .as_ref()
+            .map(|t| {
+                let halo = t.cache.halo_px();
+                if halo == 0 {
+                    0.0
+                } else {
+                    halo as f32 / (256.0 + 2.0 * halo as f32)
+                }
+            })
+            .unwrap_or(0.0);
         let first_visible = self.first_visible_layer_index();
 
         // ---- Phase A: prepare ------------------------------------
@@ -1606,6 +1628,9 @@ impl Map {
                         v.paint_override,
                         v.dash,
                         v.width_scale,
+                        vec_terrain_zscale,
+                        vec_terrain_encoding,
+                        vec_terrain_halo_uv,
                     );
                     prepared_layers.push((i, PreparedLayer::Vector(p)));
                     // Labels come from visible vector layers only —
@@ -1736,7 +1761,7 @@ impl Map {
                             .draw(p, &r.cache, terrain_cache, placeholder_dem, &mut pass);
                     }
                     (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
-                        v.pipeline.draw(p, &v.cache, &mut pass);
+                        v.pipeline.draw(p, &v.cache, terrain_cache, placeholder_dem, &mut pass);
                     }
                     (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
                         if let Some(tc) = terrain_cache {

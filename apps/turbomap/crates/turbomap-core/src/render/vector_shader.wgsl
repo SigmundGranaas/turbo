@@ -3,7 +3,12 @@
 // mat4 so tilt + bearing flow through transparently.
 struct CameraUniform {
     view_proj: mat4x4<f32>,
-    params: vec4<f32>,  // .x = pixels per world unit
+    // .x = pixels per world unit.
+    // .y = meters_to_world · exaggeration (0 ⇒ no 3D terrain → no
+    //      displacement, so the 2D map is byte-identical).
+    // .z = DEM encoding (0 = Mapbox-RGB, 1 = Terrarium).
+    // .w = halo_uv: fractional inset to the DEM tile's non-halo interior.
+    params: vec4<f32>,
 };
 
 struct TileUniform {
@@ -34,6 +39,22 @@ struct TileUniform {
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> tile: TileUniform;
+// DEM for THIS tile (or a 1×1 zero-elevation placeholder when no terrain /
+// the exact tile isn't resident) so lines + fills drape onto the 3D
+// terrain instead of floating at z=0.
+@group(2) @binding(0) var dem_tex: texture_2d<f32>;
+@group(2) @binding(1) var dem_samp: sampler;
+
+fn decode_elevation(enc: u32, rgb: vec3<f32>) -> f32 {
+    let r = rgb.r * 255.0;
+    let g = rgb.g * 255.0;
+    let b = rgb.b * 255.0;
+    if (enc == 1u) {
+        return r * 256.0 + g + b / 256.0 - 32768.0;  // Terrarium
+    } else {
+        return -10000.0 + (r * 256.0 * 256.0 + g * 256.0 + b) * 0.1;
+    }
+}
 
 struct VertexInput {
     @location(0) base: vec2<f32>,    // tile-local centerline ([0,1] across the tile)
@@ -65,9 +86,21 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // width_px 0 (fills) leaves the position untouched.
     let half_width_world = (in.width_px * tile.width_scale * 0.5) / camera.params.x;
     let world = tile.origin + in.base * tile.span + in.normal * half_width_world;
-    // `z` is the world height for extruded geometry; 0 for flat features,
-    // so they sit on the ground plane exactly as before.
-    out.clip_position = camera.view_proj * vec4<f32>(world, in.z, 1.0);
+    // `z` is the world height for extruded geometry; 0 for flat features.
+    // Drape onto the 3D terrain: sample THIS tile's DEM at the centerline
+    // position and add the ground elevation, so lines/fills follow the
+    // relief. `params.y == 0` (2D, no terrain) skips it → unchanged.
+    var wz = in.z;
+    let zscale = camera.params.y;
+    if (zscale > 0.0) {
+        let halo_uv = camera.params.w;
+        let dem_uv = vec2<f32>(halo_uv) + in.base * (1.0 - 2.0 * halo_uv);
+        let s = textureSampleLevel(dem_tex, dem_samp, dem_uv, 0.0);
+        if (s.a >= 0.5) {
+            wz = wz + decode_elevation(u32(camera.params.z), s.rgb) * zscale;
+        }
+    }
+    out.clip_position = camera.view_proj * vec4<f32>(world, wz, 1.0);
     out.color = in.color;
     out.edge_pos = in.edge_pos.x;
     // Tile-unit arc length → screen px (span × pixels-per-world).
