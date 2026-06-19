@@ -302,6 +302,169 @@ struct HillshadeLayer {
     visible: bool,
 }
 
+/// The ordered stack of render layers (raster basemaps, vector overlays,
+/// hillshade), bottom-to-top. Owns the `Vec<LayerEntry>` plus the by-id query
+/// and mutation logic that used to live as a dozen scanning loops on `Map`.
+///
+/// Derefs to the inner `Vec` so the render hot-loop, hit-test, ingest and
+/// metrics keep iterating/indexing it directly; the named methods give the
+/// layer *semantics* (find-by-id, visibility, source ranges) a single home.
+#[derive(Default)]
+struct LayerStack {
+    entries: Vec<LayerEntry>,
+}
+
+impl std::ops::Deref for LayerStack {
+    type Target = Vec<LayerEntry>;
+    fn deref(&self) -> &Self::Target {
+        &self.entries
+    }
+}
+impl std::ops::DerefMut for LayerStack {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.entries
+    }
+}
+
+impl LayerStack {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// The id of any layer kind.
+    fn id_of(entry: &LayerEntry) -> &str {
+        match entry {
+            LayerEntry::Raster(r) => &r.id,
+            LayerEntry::Vector(v) => &v.id,
+            LayerEntry::Hillshade(h) => &h.id,
+        }
+    }
+
+    fn contains(&self, id: &str) -> bool {
+        self.entries.iter().any(|l| Self::id_of(l) == id)
+    }
+
+    fn ids(&self) -> Vec<String> {
+        self.entries.iter().map(|l| Self::id_of(l).to_string()).collect()
+    }
+
+    /// Remove the layer with `id` (if any). Returns whether the stack changed
+    /// — the caller recomputes the zoom lock when a source leaves.
+    fn remove(&mut self, id: &str) -> bool {
+        let before = self.entries.len();
+        self.entries.retain(|l| Self::id_of(l) != id);
+        self.entries.len() != before
+    }
+
+    fn vector_source(&self, id: &str) -> Option<Arc<dyn VectorTileSource>> {
+        self.entries.iter().find_map(|l| match l {
+            LayerEntry::Vector(v) if v.id == id => Some(v.source.clone()),
+            _ => None,
+        })
+    }
+
+    fn raster_source(&self, id: &str) -> Option<Arc<dyn TileSource>> {
+        self.entries.iter().find_map(|l| match l {
+            LayerEntry::Raster(r) if r.id == id => Some(r.source.clone()),
+            _ => None,
+        })
+    }
+
+    fn vector_style(&self, id: &str) -> Option<VectorStyle> {
+        self.entries.iter().find_map(|l| match l {
+            LayerEntry::Vector(v) if v.id == id => Some(v.style.clone()),
+            _ => None,
+        })
+    }
+
+    fn visibility(&self, id: &str) -> Option<bool> {
+        self.entries.iter().find_map(|l| match l {
+            LayerEntry::Raster(r) if r.id == id => Some(r.visible),
+            LayerEntry::Vector(v) if v.id == id => Some(v.visible),
+            LayerEntry::Hillshade(h) if h.id == id => Some(h.visible),
+            _ => None,
+        })
+    }
+
+    fn set_visibility(&mut self, id: &str, visible: bool) -> bool {
+        for layer in self.entries.iter_mut() {
+            let (lid, lvis): (&str, &mut bool) = match layer {
+                LayerEntry::Raster(r) => (&r.id, &mut r.visible),
+                LayerEntry::Vector(v) => (&v.id, &mut v.visible),
+                LayerEntry::Hillshade(h) => (&h.id, &mut h.visible),
+            };
+            if lid == id {
+                *lvis = visible;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn set_fade_in(&mut self, id: &str, secs: f32) -> bool {
+        for layer in self.entries.iter_mut() {
+            let (lid, fade): (&str, &mut f32) = match layer {
+                LayerEntry::Raster(r) => (&r.id, &mut r.fade_in_secs),
+                LayerEntry::Vector(v) => (&v.id, &mut v.fade_in_secs),
+                LayerEntry::Hillshade(h) => (&h.id, &mut h.fade_in_secs),
+            };
+            if lid == id {
+                *fade = secs.max(0.0);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Run `f` on the vector layer with `id`; returns `false` if none matches.
+    fn with_vector_mut(&mut self, id: &str, f: impl FnOnce(&mut VectorLayer)) -> bool {
+        for layer in self.entries.iter_mut() {
+            if let LayerEntry::Vector(v) = layer {
+                if v.id == id {
+                    f(v);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Index of the first visible layer (the one that "clears" the frame), or
+    /// `None` if the stack is empty / all hidden.
+    fn first_visible_index(&self) -> Option<usize> {
+        self.entries.iter().position(|l| match l {
+            LayerEntry::Raster(r) => r.visible,
+            LayerEntry::Vector(v) => v.visible,
+            LayerEntry::Hillshade(h) => h.visible,
+        })
+    }
+
+    /// The `(min_zoom, max_zoom)` of every layer that owns a tile source —
+    /// the input to the camera's source-derived zoom lock. Hillshade has no
+    /// own source (it reads the shared terrain).
+    fn source_ranges(&self) -> Vec<(u8, u8)> {
+        self.entries
+            .iter()
+            .filter_map(|l| match l {
+                LayerEntry::Raster(r) => Some((r.source.min_zoom(), r.source.max_zoom())),
+                LayerEntry::Vector(v) => Some((v.source.min_zoom(), v.source.max_zoom())),
+                LayerEntry::Hillshade(_) => None,
+            })
+            .collect()
+    }
+
+    /// Any layer's `Scene` (they all sync from the same camera) — used as the
+    /// projection source for markers. Prefers raster/vector (which own a
+    /// scene); hillshade reads the shared terrain so contributes none.
+    fn marker_scene(&self) -> Option<&Scene> {
+        self.entries.iter().find_map(|l| match l {
+            LayerEntry::Raster(r) => Some(&r.scene),
+            LayerEntry::Vector(v) => Some(&v.scene),
+            LayerEntry::Hillshade(_) => None,
+        })
+    }
+}
+
 pub struct Map {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -323,7 +486,7 @@ pub struct Map {
     /// See [`ZoomLock`].
     zoom: ZoomLock,
     options: MapOptions,
-    layers: Vec<LayerEntry>,
+    layers: LayerStack,
     /// Single text pipeline, shared across all vector layers.
     text_pipeline: TextPipeline,
     /// Single icon/sprite pipeline, shared across all vector layers.
@@ -397,7 +560,7 @@ impl Map {
             viewport_inset_px: initial_camera.viewport_inset_px,
             zoom: ZoomLock::new(initial_camera.zoom_bounds),
             options,
-            layers: Vec::new(),
+            layers: LayerStack::new(),
             text_pipeline,
             icon_pipeline,
             marker_pipeline,
@@ -701,55 +864,28 @@ impl Map {
     /// Set (or clear) a vector layer's dash pattern, in screen pixels
     /// `(dash_len, gap_len)`. Returns `false` if no vector layer matches.
     pub fn set_vector_layer_dash(&mut self, id: &str, dash: Option<(f32, f32)>) -> bool {
-        for layer in &mut self.layers {
-            if let LayerEntry::Vector(v) = layer {
-                if v.id == id {
-                    v.dash = dash;
-                    return true;
-                }
-            }
-        }
-        false
+        self.layers.with_vector_mut(id, |v| v.dash = dash)
     }
 
     /// Set (or clear) a vector layer's per-frame paint colour override.
     /// `color` is linear RGBA in `[0,1]`. Returns `false` if no vector
     /// layer matches `id`.
     pub fn set_vector_layer_color(&mut self, id: &str, color: Option<[f32; 4]>) -> bool {
-        for layer in &mut self.layers {
-            if let LayerEntry::Vector(v) = layer {
-                if v.id == id {
-                    v.paint_override = color;
-                    return true;
-                }
-            }
-        }
-        false
+        self.layers.with_vector_mut(id, |v| v.paint_override = color)
     }
 
     /// Set a vector layer's per-frame line-width multiplier (the zoom curve).
     /// `1.0` is the baked width. No-op for fills/text (width_px = 0). Returns
     /// `false` if no vector layer matches `id`.
     pub fn set_vector_layer_width_scale(&mut self, id: &str, scale: f32) -> bool {
-        for layer in &mut self.layers {
-            if let LayerEntry::Vector(v) = layer {
-                if v.id == id {
-                    v.width_scale = scale;
-                    return true;
-                }
-            }
-        }
-        false
+        self.layers.with_vector_mut(id, |v| v.width_scale = scale)
     }
 
     pub fn remove_layer(&mut self, id: &str) {
-        self.layers.retain(|l| match l {
-            LayerEntry::Raster(r) => r.id != id,
-            LayerEntry::Vector(v) => v.id != id,
-            LayerEntry::Hillshade(h) => h.id != id,
-        });
         // Dropping a layer can widen or narrow the source-derived lock.
-        self.recompute_zoom_bounds();
+        if self.layers.remove(id) {
+            self.recompute_zoom_bounds();
+        }
     }
 
     pub fn layer_count(&self) -> usize {
@@ -757,38 +893,21 @@ impl Map {
     }
 
     pub fn has_layer(&self, id: &str) -> bool {
-        self.layers.iter().any(|l| match l {
-            LayerEntry::Raster(r) => r.id == id,
-            LayerEntry::Vector(v) => v.id == id,
-            LayerEntry::Hillshade(h) => h.id == id,
-        })
+        self.layers.contains(id)
     }
 
     pub fn layer_ids(&self) -> Vec<String> {
-        self.layers
-            .iter()
-            .map(|l| match l {
-                LayerEntry::Raster(r) => r.id.clone(),
-                LayerEntry::Vector(v) => v.id.clone(),
-                LayerEntry::Hillshade(h) => h.id.clone(),
-            })
-            .collect()
+        self.layers.ids()
     }
 
     /// Look up the vector source for a vector layer — useful for the host
     /// when constructing the fetch pump.
     pub fn vector_source(&self, id: &str) -> Option<Arc<dyn VectorTileSource>> {
-        self.layers.iter().find_map(|l| match l {
-            LayerEntry::Vector(v) if v.id == id => Some(v.source.clone()),
-            _ => None,
-        })
+        self.layers.vector_source(id)
     }
 
     pub fn raster_source(&self, id: &str) -> Option<Arc<dyn TileSource>> {
-        self.layers.iter().find_map(|l| match l {
-            LayerEntry::Raster(r) if r.id == id => Some(r.source.clone()),
-            _ => None,
-        })
+        self.layers.raster_source(id)
     }
 
     /// Terrain DEM source (Map-level since the 3D-terrain refactor;
@@ -799,10 +918,7 @@ impl Map {
     }
 
     pub fn vector_style(&self, id: &str) -> Option<VectorStyle> {
-        self.layers.iter().find_map(|l| match l {
-            LayerEntry::Vector(v) if v.id == id => Some(v.style.clone()),
-            _ => None,
-        })
+        self.layers.vector_style(id)
     }
 
     // ---- camera + viewport ---------------------------------------------
@@ -847,13 +963,7 @@ impl Map {
     /// real tile any layer serves, but no further (past that the raster
     /// upsamples and overlays appear to drift). Re-stamps the camera.
     fn recompute_zoom_bounds(&mut self) {
-        let source_ranges = self.layers.iter().filter_map(|l| match l {
-            LayerEntry::Raster(r) => Some((r.source.min_zoom(), r.source.max_zoom())),
-            LayerEntry::Vector(v) => Some((v.source.min_zoom(), v.source.max_zoom())),
-            // Hillshade has no own source (it reads the shared terrain).
-            LayerEntry::Hillshade(_) => None,
-        });
-        let bounds = self.zoom.resolve(source_ranges);
+        let bounds = self.zoom.resolve(self.layers.source_ranges());
         self.camera.set_zoom_bounds(bounds);
         // A clamp may have changed the zoom; keep the scenes in step.
         self.sync_scenes();
@@ -1031,7 +1141,7 @@ impl Map {
 
     fn sync_scenes(&mut self) {
         self.clamp_pitch_above_terrain();
-        for l in &mut self.layers {
+        for l in self.layers.iter_mut() {
             match l {
                 LayerEntry::Raster(r) => {
                     r.scene.set_camera(self.camera);
@@ -1106,7 +1216,7 @@ impl Map {
     /// back correctly.
     pub fn pending_tiles(&self) -> Vec<PendingTile> {
         let mut out = Vec::new();
-        for l in &self.layers {
+        for l in self.layers.iter() {
             match l {
                 LayerEntry::Raster(r) if r.visible => {
                     for tile in r.scene.pending_tiles() {
@@ -1139,11 +1249,7 @@ impl Map {
     }
 
     fn first_visible_layer_index(&self) -> Option<usize> {
-        self.layers.iter().position(|l| match l {
-            LayerEntry::Raster(r) => r.visible,
-            LayerEntry::Vector(v) => v.visible,
-            LayerEntry::Hillshade(h) => h.visible,
-        })
+        self.layers.first_visible_index()
     }
 
     /// Back-compat shim. Hillshade no longer owns its own DEM cache —
@@ -1155,7 +1261,7 @@ impl Map {
     }
 
     pub fn ingest_raster(&mut self, layer_id: &str, tile: TileId, rgba: &[u8], w: u32, h: u32) {
-        for l in &mut self.layers {
+        for l in self.layers.iter_mut() {
             if let LayerEntry::Raster(r) = l {
                 if r.id == layer_id {
                     let evicted = r.cache.insert(tile, rgba, w, h);
@@ -1182,7 +1288,7 @@ impl Map {
         icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
     ) {
-        for l in &mut self.layers {
+        for l in self.layers.iter_mut() {
             if let LayerEntry::Vector(v) = l {
                 if v.id == layer_id {
                     let evicted = v.cache.insert(tile, mesh, labels, icons, interactive);
@@ -1227,27 +1333,11 @@ impl Map {
     /// and the `pending_tiles` enumeration — no network traffic while
     /// hidden. Returns `false` if no layer matches the id.
     pub fn set_layer_visibility(&mut self, id: &str, visible: bool) -> bool {
-        for layer in &mut self.layers {
-            let (lid, lvis): (&str, &mut bool) = match layer {
-                LayerEntry::Raster(r) => (&r.id, &mut r.visible),
-                LayerEntry::Vector(v) => (&v.id, &mut v.visible),
-                LayerEntry::Hillshade(h) => (&h.id, &mut h.visible),
-            };
-            if lid == id {
-                *lvis = visible;
-                return true;
-            }
-        }
-        false
+        self.layers.set_visibility(id, visible)
     }
 
     pub fn layer_visibility(&self, id: &str) -> Option<bool> {
-        self.layers.iter().find_map(|l| match l {
-            LayerEntry::Raster(r) if r.id == id => Some(r.visible),
-            LayerEntry::Vector(v) if v.id == id => Some(v.visible),
-            LayerEntry::Hillshade(h) if h.id == id => Some(h.visible),
-            _ => None,
-        })
+        self.layers.visibility(id)
     }
 
     /// Set the per-layer fade-in duration. Lets the UI tune the
@@ -1255,18 +1345,7 @@ impl Map {
     /// (instant tile-pop), higher values smear arrivals into a
     /// longer crossfade.
     pub fn set_layer_fade_in(&mut self, id: &str, secs: f32) -> bool {
-        for layer in &mut self.layers {
-            let (lid, fade): (&str, &mut f32) = match layer {
-                LayerEntry::Raster(r) => (&r.id, &mut r.fade_in_secs),
-                LayerEntry::Vector(v) => (&v.id, &mut v.fade_in_secs),
-                LayerEntry::Hillshade(h) => (&h.id, &mut h.fade_in_secs),
-            };
-            if lid == id {
-                *fade = secs.max(0.0);
-                return true;
-            }
-        }
-        false
+        self.layers.set_fade_in(id, secs)
     }
 
     // ---- fonts ---------------------------------------------------------
@@ -1540,12 +1619,7 @@ impl Map {
         let prepared_markers = if self.markers.is_empty() {
             None
         } else {
-            let scene_from_layer = self.layers.iter().find_map(|l| match l {
-                LayerEntry::Raster(r) => Some(&r.scene),
-                LayerEntry::Vector(v) => Some(&v.scene),
-                LayerEntry::Hillshade(_) => None,
-            });
-            let p = if let Some(scene) = scene_from_layer {
+            let p = if let Some(scene) = self.layers.marker_scene() {
                 self.marker_pipeline.prepare(scene, self.markers.all())
             } else if let Some(t) = self.terrain.as_ref() {
                 self.marker_pipeline.prepare(&t.scene, self.markers.all())
