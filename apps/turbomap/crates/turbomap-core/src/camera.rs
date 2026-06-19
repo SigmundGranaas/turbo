@@ -482,6 +482,13 @@ impl Camera {
         }
         let t = -near.z / dir.z;
         let ground = near + dir * t;
+        // A near-singular VP (extreme pitch/zoom) can make `inverse()` —
+        // and thus `ground` — non-finite. Returning a NaN world point would
+        // poison the camera centre on a zoom-around and feed NaN to the GPU
+        // matrix (mobile-driver hang). Fall back to the camera centre.
+        if !ground.x.is_finite() || !ground.y.is_finite() {
+            return self.center.to_world();
+        }
         WorldPoint::new(origin.x + ground.x as f64, origin.y + ground.y as f64)
     }
 
@@ -533,7 +540,10 @@ impl Camera {
         focus_px: (f64, f64),
         viewport_px: (f64, f64),
     ) -> Camera {
-        if factor <= 0.0 {
+        // Reject non-finite + non-positive factors. A NaN factor slips past
+        // a bare `factor <= 0.0` (NaN compares false), and `log2(NaN)` would
+        // poison the zoom → a NaN view-projection → GPU driver hang on device.
+        if !factor.is_finite() || factor <= 0.0 {
             return self;
         }
         let focus_world_before = self.pixel_to_world(focus_px, viewport_px);
@@ -983,6 +993,20 @@ mod tests {
         assert!((orbited.bearing_deg - 12.0).abs() < 1e-9);
         assert!((orbited.pitch_deg - 15.0).abs() < 1e-9);
         assert_world_close(orbited.pixel_to_world(focus, viewport), pivot_world, 1e-5);
+    }
+
+    #[test]
+    fn zoom_around_rejects_nan_and_nonpositive_factors() {
+        // A NaN/≤0 zoom factor must be a no-op, not poison the zoom. A NaN
+        // zoom → NaN view-projection → mobile GPU driver hang.
+        let viewport = (800.0, 600.0);
+        let base = Camera::new(LatLng::new(67.25, 15.3), 13.0).with_pitch(70.0);
+        for bad in [f64::NAN, 0.0, -1.0, f64::INFINITY * 0.0] {
+            let z = base.zoomed_around(bad, (400.0, 300.0), viewport);
+            assert!(z.zoom.is_finite(), "zoom finite after factor {bad}");
+            assert!((z.zoom - base.zoom).abs() < 1e-9, "no-op for factor {bad}");
+            assert!(z.center.lat.is_finite() && z.center.lng.is_finite());
+        }
     }
 
     #[test]

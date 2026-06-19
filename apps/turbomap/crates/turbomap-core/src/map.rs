@@ -1086,7 +1086,12 @@ impl Map {
         }
         // Require eye_z = alt·cos(pitch) ≥ terrain_z + clearance.
         let clearance = 0.20 * alt;
-        let cos_max = ((terrain_z + clearance) / alt).min(1.0);
+        let cos_max = ((terrain_z + clearance) / alt).clamp(0.0, 1.0);
+        // Guard the acos domain: a non-finite ratio (e.g. terrain_z/alt NaN)
+        // would make pitch NaN → NaN view matrix → GPU hang. Skip if so.
+        if !cos_max.is_finite() {
+            return;
+        }
         let pitch_max = (cos_max.acos().to_degrees() as f64).max(0.0);
         if self.camera.pitch_deg > pitch_max {
             self.camera.pitch_deg = pitch_max;
