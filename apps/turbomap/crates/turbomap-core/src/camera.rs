@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use glam::{Mat3, Mat4, Vec3};
 
-use crate::geo::{LatLng, WorldPoint};
+use crate::geo::{LatLng, WorldPoint, MAX_LATITUDE_DEG};
 
 /// One tile is `TILE_SIZE_PX` pixels wide at its native zoom.
 pub const TILE_SIZE_PX: f64 = 256.0;
@@ -34,6 +34,36 @@ const MAX_PITCH_DEG: f64 = 80.0;
 /// tiles exist).
 pub const MIN_ZOOM: f64 = 0.0;
 pub const MAX_ZOOM: f64 = 24.0;
+
+/// An `f64` proven finite (no `NaN`/`Inf`) — the parse-don't-validate
+/// primitive for values crossing the untrusted host boundary (the FFI, a
+/// deserialized scene, a bad animation sample). You can't *construct* one
+/// from a `NaN`, so holding a `FiniteF64` is proof the value is safe to do
+/// projection math with. Use [`FiniteF64::or`] to coerce-with-fallback at a
+/// boundary that must not reject the whole update.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FiniteF64(f64);
+
+impl FiniteF64 {
+    /// `Some` iff `v` is finite. The only constructor — parse, don't validate.
+    pub fn new(v: f64) -> Option<Self> {
+        v.is_finite().then_some(Self(v))
+    }
+
+    /// `v` if finite, otherwise `fallback`. For sanitising untrusted input
+    /// in place without discarding the surrounding update.
+    pub fn or(v: f64, fallback: f64) -> f64 {
+        if v.is_finite() {
+            v
+        } else {
+            fallback
+        }
+    }
+
+    pub fn get(self) -> f64 {
+        self.0
+    }
+}
 
 /// The inclusive `[min, max]` zoom range a camera may occupy. Constructed
 /// from the active map sources' supported zoom (so the user cannot zoom
@@ -180,6 +210,39 @@ impl Camera {
             bearing_deg: 0.0,
             viewport_inset_px: 0.0,
             zoom_bounds: ZoomBounds::DEFAULT,
+        }
+    }
+
+    /// Coerce every field into its valid, finite domain — the sanitising
+    /// boundary for a camera pose arriving from an untrusted source (the host
+    /// FFI, a deserialized scene). A `NaN`/`Inf` centre, zoom, pitch, bearing
+    /// or inset is replaced with a safe value rather than propagated into the
+    /// projection, where it would produce the `NaN` matrix a mobile GPU driver
+    /// hangs on (see `Map::render`'s finite gate — this is the upstream half
+    /// of that defense: stop the bad value at the seam, and catch any that
+    /// still slip through at the GPU).
+    ///
+    /// Coercions: non-finite → safe default; latitude clamped to the Mercator
+    /// envelope; zoom clamped to `[MIN_ZOOM, MAX_ZOOM]`; pitch to
+    /// `[0, MAX_PITCH_DEG]`; bearing wrapped to `[0, 360)`; inset ≥ 0.
+    pub fn sanitized(self) -> Self {
+        let lat = FiniteF64::or(self.center.lat, 0.0).clamp(-MAX_LATITUDE_DEG, MAX_LATITUDE_DEG);
+        let lng = FiniteF64::or(self.center.lng, 0.0);
+        let bearing = {
+            let b = FiniteF64::or(self.bearing_deg, 0.0) % 360.0;
+            if b < 0.0 {
+                b + 360.0
+            } else {
+                b
+            }
+        };
+        Self {
+            center: LatLng::new(lat, lng),
+            zoom: FiniteF64::or(self.zoom, MIN_ZOOM).clamp(MIN_ZOOM, MAX_ZOOM),
+            pitch_deg: FiniteF64::or(self.pitch_deg, 0.0).clamp(0.0, MAX_PITCH_DEG),
+            bearing_deg: bearing,
+            viewport_inset_px: FiniteF64::or(self.viewport_inset_px, 0.0).max(0.0),
+            zoom_bounds: self.zoom_bounds,
         }
     }
 
@@ -857,6 +920,46 @@ mod tests {
 
     fn matrix_is_finite(m: &[[f32; 4]; 4]) -> bool {
         m.iter().flatten().all(|v| v.is_finite())
+    }
+
+    #[test]
+    fn finite_f64_parses_and_coerces() {
+        assert!(FiniteF64::new(1.5).is_some());
+        assert!(FiniteF64::new(f64::NAN).is_none());
+        assert!(FiniteF64::new(f64::INFINITY).is_none());
+        assert_eq!(FiniteF64::or(2.0, 9.0), 2.0);
+        assert_eq!(FiniteF64::or(f64::NAN, 9.0), 9.0);
+        assert_eq!(FiniteF64::or(f64::NEG_INFINITY, 9.0), 9.0);
+    }
+
+    #[test]
+    fn sanitized_coerces_every_nonfinite_field_and_clamps_domains() {
+        // A fully hostile pose: NaN centre, Inf zoom, NaN pitch, Inf bearing.
+        let bad = Camera {
+            center: LatLng::new(f64::NAN, f64::INFINITY),
+            zoom: f64::INFINITY,
+            pitch_deg: f64::NAN,
+            bearing_deg: f64::NEG_INFINITY,
+            viewport_inset_px: f64::NAN,
+            zoom_bounds: ZoomBounds::DEFAULT,
+        };
+        let c = bad.sanitized();
+        assert!(c.center.lat.is_finite() && c.center.lng.is_finite());
+        assert!(c.zoom.is_finite() && (MIN_ZOOM..=MAX_ZOOM).contains(&c.zoom));
+        assert!(c.pitch_deg.is_finite() && (0.0..=MAX_PITCH_DEG).contains(&c.pitch_deg));
+        assert!(c.bearing_deg.is_finite() && (0.0..360.0).contains(&c.bearing_deg));
+        assert!(c.viewport_inset_px.is_finite() && c.viewport_inset_px >= 0.0);
+        // And the resulting matrix is finite — the whole point.
+        assert!(matrix_is_finite(&c.view_projection_matrix((1080, 2400))));
+
+        // A good pose round-trips unchanged (within clamping no-ops).
+        let good = Camera::new(LatLng::new(67.25, 15.30), 13.0)
+            .with_pitch(45.0)
+            .with_bearing(31.0);
+        let s = good.sanitized();
+        assert!((s.zoom - 13.0).abs() < 1e-9);
+        assert!((s.pitch_deg - 45.0).abs() < 1e-9);
+        assert!((s.bearing_deg - 31.0).abs() < 1e-9);
     }
 
     #[test]

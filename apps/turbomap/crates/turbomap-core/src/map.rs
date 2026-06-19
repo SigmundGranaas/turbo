@@ -862,7 +862,11 @@ impl Map {
     }
 
     pub fn set_camera(&mut self, camera: Camera) {
-        self.camera = camera;
+        // Sanitise at the boundary: a host (or a bad animation sample) can hand
+        // us a NaN/Inf pose. Coerce it finite here so it can never reach the
+        // projection — parse-don't-validate, the upstream half of the GPU
+        // finite gate in `render`.
+        self.camera = camera.sanitized();
         // The host sets a pose without an inset; keep the viewport inset sticky.
         self.camera.viewport_inset_px = self.viewport_inset_px;
         // Likewise the zoom lock: the Map owns the authoritative bounds, so a
