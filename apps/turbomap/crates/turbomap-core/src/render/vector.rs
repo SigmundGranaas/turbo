@@ -369,11 +369,15 @@ impl VectorPipeline {
 
         // Touch every drawn tile so the LRU can't evict it before the
         // draw phase; `draw` then uses read-only `peek` lookups.
+        // Touch best-effort (keeps the tile resident through the draw). The
+        // tile stays in the list either way so its index keeps lining up with
+        // the per-tile uniform offsets written above; `draw` skips a slot whose
+        // mesh is gone rather than panic.
         let tiles: Vec<TileId> = to_draw
             .iter()
             .take(draw_count)
             .map(|(tile, _)| {
-                let _ = cache.get(*tile).expect("just verified above");
+                let _ = cache.get(*tile);
                 *tile
             })
             .collect();
@@ -400,7 +404,12 @@ impl VectorPipeline {
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
         for (idx, tile) in prepared.tiles.iter().enumerate() {
-            let entry = cache.peek(*tile).expect("prepare touched this tile");
+            // The LRU can evict between prepare and draw under budget pressure;
+            // skip this slot rather than panic (its uniform offset is keyed on
+            // `idx`, which is stable, so the remaining tiles still draw right).
+            let Some(entry) = cache.peek(*tile) else {
+                continue;
+            };
             if entry.index_count == 0 {
                 continue;
             }

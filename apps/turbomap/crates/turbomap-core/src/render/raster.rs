@@ -536,10 +536,13 @@ impl RasterPipeline {
 
             // Backdrop layer.
             if self_alpha < 1.0 {
-                if let Some(ancestor_id) = ancestor {
-                    let sub = tile
-                        .sub_uv_in(ancestor_id)
-                        .expect("nearest_ancestor must be a real ancestor");
+                // `ancestor` is the nearest cached ancestor, so `sub_uv_in`
+                // should always resolve; if a coordinate edge case makes it
+                // `None`, skip this backdrop quad rather than panic (the child
+                // tile still draws on top — worst case a one-frame seam).
+                if let Some((ancestor_id, sub)) =
+                    ancestor.and_then(|a| tile.sub_uv_in(a).map(|sub| (a, sub)))
+                {
                     let (dem_src, dem_uv_origin, dem_uv_size) =
                         resolve_dem_subuv(tile, terrain.as_deref_mut(), halo_uv);
                     push_instance(
@@ -639,16 +642,17 @@ impl RasterPipeline {
         // the frame draws. `draw` then uses read-only `peek` lookups.
         let mut prepared = Vec::with_capacity(batches.len());
         for b in &batches {
-            let _ = cache
-                .get(b.texture_id)
-                .expect("batch references uncached texture");
-            if let Some(src) = b.dem_source {
-                let t = terrain
-                    .as_deref_mut()
-                    .expect("dem_source set implies terrain present");
-                let _ = t
-                    .get_entry(src)
-                    .expect("dem_source was cached at resolve time");
+            // Touch the colour tile so the LRU keeps it through the draw. If
+            // it's somehow already gone (it was just resolved, so this is a
+            // belt-and-braces guard), drop the batch rather than panic — `draw`
+            // also skips a missing tile, so this just avoids the wasted bind.
+            if cache.get(b.texture_id).is_none() {
+                continue;
+            }
+            // Touch the DEM tile too (best-effort). A miss here means the draw
+            // falls back to the flat placeholder for this batch — no panic.
+            if let (Some(src), Some(t)) = (b.dem_source, terrain.as_deref_mut()) {
+                let _ = t.get_entry(src);
             }
             prepared.push(PreparedBatch {
                 texture_id: b.texture_id,
@@ -683,25 +687,24 @@ impl RasterPipeline {
 
         let mut start: u32 = 0;
         for b in &prepared.batches {
-            // Basemap colour texture.
-            let entry = cache
-                .peek(b.texture_id)
-                .expect("prepare touched this texture");
+            let end = start + b.instance_count;
+            // Basemap colour texture. `prepare` touched it, but under cache
+            // budget pressure the LRU can still evict between prepare and draw.
+            // Skip this batch's instances rather than panic — a missing tile is
+            // one grey quad for a frame; an `expect` here is a crash.
+            let Some(entry) = cache.peek(b.texture_id) else {
+                start = end;
+                continue;
+            };
             pass.set_bind_group(1, &entry.bind_group, &[]);
-            // DEM height texture. The batch already resolved which
-            // DEM source tile to use (self or nearest ancestor); we
-            // just rebind it. The per-instance dem_uv_origin/size
-            // narrows the sample window to each drawn tile's slice
-            // of that DEM source.
-            match b.dem_source {
-                Some(src) => {
-                    let t = terrain.expect("dem_source set implies terrain present");
-                    let entry = t.peek_entry(src).expect("prepare touched this DEM tile");
-                    pass.set_bind_group(2, &entry.bind_group, &[]);
-                }
+            // DEM height texture. The batch already resolved which DEM source
+            // tile to use; rebind it, or fall back to the flat placeholder if
+            // terrain is absent or the DEM tile was evicted (renders flat for
+            // this frame instead of crashing).
+            match b.dem_source.and_then(|src| terrain.and_then(|t| t.peek_entry(src))) {
+                Some(entry) => pass.set_bind_group(2, &entry.bind_group, &[]),
                 None => pass.set_bind_group(2, placeholder_dem, &[]),
             }
-            let end = start + b.instance_count;
             pass.draw_indexed(0..self.index_count, 0, start..end);
             start = end;
         }
@@ -747,9 +750,12 @@ fn resolve_dem_subuv(
         return (None, [0.0, 0.0], 1.0);
     };
     let source = binding.source_tile;
-    let sub = drawn_tile
-        .sub_uv_in(source)
-        .expect("TerrainCache::bind_for must return self or an ancestor");
+    // `bind_for` returns `drawn_tile` itself or an ancestor, so `sub_uv_in`
+    // should resolve; if a coordinate edge case makes it `None`, fall back to
+    // the flat no-DEM binding (matches the 1×1 placeholder) instead of panic.
+    let Some(sub) = drawn_tile.sub_uv_in(source) else {
+        return (None, [0.0, 0.0], 1.0);
+    };
     let origin = [
         halo_uv + sub.origin.x as f32 * interior,
         halo_uv + sub.origin.y as f32 * interior,
