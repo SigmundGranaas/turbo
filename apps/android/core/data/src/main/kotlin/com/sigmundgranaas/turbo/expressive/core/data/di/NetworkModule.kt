@@ -6,6 +6,9 @@ import com.sigmundgranaas.turbo.expressive.core.data.GeonorgeTrailSearchReposito
 import com.sigmundgranaas.turbo.expressive.core.data.HttpRouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.KartverketReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.KartverketSearchRepository
+import com.sigmundgranaas.turbo.expressive.core.data.NasjonalTurbaseRepository
+import com.sigmundgranaas.turbo.expressive.core.data.HttpNasjonalTurbaseRepository
+import com.sigmundgranaas.turbo.expressive.core.data.SyntheticNasjonalTurbaseRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RouteRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SearchRepository
@@ -101,6 +104,18 @@ object NetworkModule {
         @Provides
         @Singleton
         fun provideRadarRepository(http: HttpRadarRepository): RadarRepository = http
+
+        /**
+         * Nasjonal Turbase (ut.no/DNT) markers via the backend proxy. Synthetic
+         * in DEBUG (kart-api unreachable from the emulator) so the overlay, info
+         * sheet and route reveal can be driven offline; the real proxy in release.
+         */
+        @Provides
+        @Singleton
+        fun provideNasjonalTurbaseRepository(
+            http: HttpNasjonalTurbaseRepository,
+            synthetic: SyntheticNasjonalTurbaseRepository,
+        ): NasjonalTurbaseRepository = if (BuildConfig.DEBUG) synthetic else http
 
         @Provides
         @Singleton
