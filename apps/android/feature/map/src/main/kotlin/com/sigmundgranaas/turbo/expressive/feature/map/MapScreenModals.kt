@@ -116,6 +116,8 @@ internal fun MapScreenModals(
             },
             activeOverlays = ui.activeOverlays,
             onToggleOverlay = { id, on -> ui.activeOverlays = if (on) ui.activeOverlays + id else ui.activeOverlays - id },
+            cabinsOn = ui.showCabins,
+            onToggleCabins = { ui.showCabins = it },
             cloudsAvailable = cloudsAvailable,
             cloudsOn = ui.cloudsOn,
             onToggleClouds = { ui.cloudsOn = it },

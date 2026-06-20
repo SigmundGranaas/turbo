@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Air
+import androidx.compose.material.icons.rounded.Cabin
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Download
@@ -65,6 +66,10 @@ fun MapLayersSheet(
     onDismiss: () -> Unit,
     activeOverlays: Set<OverlayId> = emptySet(),
     onToggleOverlay: (OverlayId, Boolean) -> Unit = { _, _ -> },
+    // Nasjonal Turbase (ut.no / DNT) "Cabins & trips" POI overlay. A non-tile
+    // overlay (markers, not a raster), so it's a dedicated switch like the clouds row.
+    cabinsOn: Boolean = false,
+    onToggleCabins: (Boolean) -> Unit = {},
     // Procedural weather-clouds overlay (wgpu engine only). The row is hidden
     // unless [cloudsAvailable]; toggling drives the bottom scrubber.
     cloudsAvailable: Boolean = false,
@@ -112,6 +117,21 @@ fun MapLayersSheet(
                         onCheckedChange = { on -> haptics.toggle(on); onToggleOverlay(overlay, on) },
                     )
                 }
+            }
+
+            // Nasjonal Turbase cabins & trips — DNT cabins and UT.no trip suggestions
+            // as tappable pins; tapping a trip reveals its route on the map.
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Icon(Icons.Rounded.Cabin, null, tint = cs.primary, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.layers_cabins), style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                    Text(stringResource(R.string.layers_cabins_sub), style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                }
+                Switch(
+                    checked = cabinsOn,
+                    onCheckedChange = { on -> haptics.toggle(on); onToggleCabins(on) },
+                )
             }
 
             // Procedural weather clouds (wgpu engine only) — the enable lives here

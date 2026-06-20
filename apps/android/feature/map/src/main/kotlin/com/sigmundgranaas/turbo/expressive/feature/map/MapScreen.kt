@@ -43,7 +43,9 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,9 +68,12 @@ import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
 import com.sigmundgranaas.turbo.expressive.core.map.MapSelection
 import com.sigmundgranaas.turbo.expressive.core.map.defaultMapEntityActionRegistry
+import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.Marker
 import com.sigmundgranaas.turbo.expressive.domain.MapDefaults
+import com.sigmundgranaas.turbo.expressive.domain.NtbPoi
+import com.sigmundgranaas.turbo.expressive.domain.NtbPoiType
 import com.sigmundgranaas.turbo.expressive.feature.conditions.ConditionsBody
 import com.sigmundgranaas.turbo.expressive.feature.nav.DrawerDestination
 import com.sigmundgranaas.turbo.expressive.feature.nav.NavDrawerContent
@@ -393,6 +398,36 @@ fun MapScreen(
         ui.pendingPhotoAt = null
     }
 
+    // ── Nasjonal Turbase (ut.no / DNT) "Cabins & trips" overlay ──
+    // POIs ride the existing marker layer as pins with an "ntb:" id; a tap routes to
+    // the NTB info sheet instead of the user-marker editor (see onMarkerClick below).
+    val ntbMarkers = remember(state.ntbPois) { state.ntbPois.map { it.toNtbMarker() } }
+    val allMarkers = remember(state.markers, ntbMarkers) { state.markers + ntbMarkers }
+    // Reload in-view POIs on each camera-idle while the overlay is on; clear when off.
+    LaunchedEffect(ui.cameraIdleTick, ui.showCabins) {
+        if (ui.showCabins) ui.controller?.visibleBounds()?.let { viewModel.refreshCabins(it) }
+        else viewModel.clearCabins()
+    }
+    // A selected trip's route, revealed by growing the drawn prefix (the "draw-on"
+    // animation), and the camera framed to it so the reveal is on-screen.
+    val ntbFull = state.ntbRoute?.points.orEmpty()
+    val ntbReveal = remember { Animatable(0f) }
+    LaunchedEffect(state.ntbRoute?.id, ntbFull.size) {
+        if (ntbFull.size >= 2) {
+            ui.controller?.frameTo(ntbFull)
+            ntbReveal.snapTo(0f)
+            ntbReveal.animateTo(1f, tween(durationMillis = 1200))
+        } else {
+            ntbReveal.snapTo(0f)
+        }
+    }
+    val ntbRouteLine: List<LatLng>? = if (ntbFull.size >= 2) {
+        val n = (ntbReveal.value * ntbFull.size).toInt().coerceIn(2, ntbFull.size)
+        ntbFull.subList(0, n)
+    } else {
+        null
+    }
+
     // One selection model + detail host — the map shell no longer depends on the
     // markers feature for the info sheet; it routes through the :core:map seam.
     val actionRegistry = remember { defaultMapEntityActionRegistry() }
@@ -523,7 +558,7 @@ fun MapScreen(
                     // In 3D, displace the ground by the real DEM heightmap (the
                     // tileserver's Terrain-RGB). Null in 2D → flat, no DEM fetches.
                     demUrl = if (state.threeDMode) MapStyles.TERRAIN_DEM_URL else null,
-                    markers = state.markers,
+                    markers = allMarkers,
                     selectedMarkerId = ui.selectionState.selection?.id,
                     photoPins = photoClusters.map {
                         com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
@@ -534,7 +569,13 @@ fun MapScreen(
                     onWaypointTap = { ui.selectedWaypoint = if (ui.selectedWaypoint == it) null else it },
                     onWaypointLongPress = { haptics.reject(); routeViewModel.removeWaypoint(it); ui.selectedWaypoint = null },
                     onWaypointMoved = { i, p -> ui.selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
-                    onMarkerClick = { marker -> ui.selectionState.select(markerSelection(marker)) },
+                    onMarkerClick = { marker ->
+                    // NTB pins (id "ntb:…") open the Cabins & trips info sheet; user
+                    // markers route to the normal selection/detail host.
+                    val poi = state.ntbPois.firstOrNull { "ntb:${it.id}" == marker.id }
+                    if (poi != null) viewModel.selectNtb(poi)
+                    else ui.selectionState.select(markerSelection(marker))
+                },
                     onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
                     onMapTap = { p -> onMapTapForMode(p) },
                     onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
@@ -551,7 +592,9 @@ fun MapScreen(
                 overlays = ui.activeOverlays,
                 initialCamera = MapDefaults.fallbackCamera,
                 initialZoom = MapDefaults.fallbackZoom,
-                markers = state.markers,
+                markers = allMarkers,
+                // A selected Nasjonal Turbase trip's route, revealed prefix-by-prefix.
+                ntbRoute = ntbRouteLine,
                 // While following, the guide is drawn as two segments split at the arc-cursor:
                 // `route` is the bright REMAINING road ahead, `routeCovered` the dim walked part
                 // (US-3). The two meet exactly at the cursor so there's no gap or overlap.
@@ -600,7 +643,13 @@ fun MapScreen(
                     com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
                 },
                 onPhotoPinClick = { pin -> ui.openCluster = photoClusters.firstOrNull { it.id == pin.id } },
-                onMarkerClick = { marker -> ui.selectionState.select(markerSelection(marker)) },
+                onMarkerClick = { marker ->
+                    // NTB pins (id "ntb:…") open the Cabins & trips info sheet; user
+                    // markers route to the normal selection/detail host.
+                    val poi = state.ntbPois.firstOrNull { "ntb:${it.id}" == marker.id }
+                    if (poi != null) viewModel.selectNtb(poi)
+                    else ui.selectionState.select(markerSelection(marker))
+                },
                 // Dot overlay marks Line vertices, and the pending Route start (the first
                 // tap before a destination exists) so it doesn't look like nothing happened.
                 measurePoints = when (ui.trackMode) {
@@ -1114,6 +1163,27 @@ fun MapScreen(
                 }
             }
 
+            // ── Nasjonal Turbase (Cabins & trips) info sheet ──
+            // Opened by tapping an "ntb:" pin; for a trip its route is revealed on the map.
+            state.ntbSelected?.let { poi ->
+                NtbInfoSheet(
+                    poi = poi,
+                    route = state.ntbRoute,
+                    metric = metric,
+                    onOpenUt = { url ->
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(url),
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    },
+                    onDismiss = { viewModel.dismissNtb() },
+                )
+            }
+
             // The Save → Follow bridge snackbar floats above the map (bottom).
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -1144,6 +1214,20 @@ fun MapScreen(
     )
 }
 
+
+/** Map a Nasjonal Turbase POI onto the shared marker layer. The "ntb:" id prefix is
+ *  how [MapScreen]'s onMarkerClick tells these from user markers; cabins/trips/places
+ *  reuse the closest activity-kind pin visuals. */
+private fun NtbPoi.toNtbMarker(): Marker = Marker(
+    id = "ntb:$id",
+    name = title,
+    kind = when (type) {
+        NtbPoiType.Cabin -> ActivityKindId.Cabin
+        NtbPoiType.Trip -> ActivityKindId.Hiking
+        NtbPoiType.Place -> ActivityKindId.Viewpoint
+    },
+    position = position,
+)
 
 /** How close a saved marker must sit to the planned route to count as a checkpoint (D3). */
 private const val CHECKPOINT_NEAR_M = 40.0

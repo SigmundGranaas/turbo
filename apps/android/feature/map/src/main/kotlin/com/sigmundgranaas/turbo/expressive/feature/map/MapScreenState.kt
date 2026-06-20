@@ -50,6 +50,9 @@ class MapScreenState {
     /** Procedural weather-cloud overlay on/off (wgpu engine only). Toggled from
      *  the Layers sheet; drives the bottom scrubber control. */
     var cloudsOn by mutableStateOf(false)
+    /** Nasjonal Turbase (ut.no / DNT) "Cabins & trips" overlay on/off. Toggled
+     *  from the Layers sheet; drives the in-view POI fetch + on-map pins. */
+    var showCabins by mutableStateOf(false)
     /** The captured viewport awaiting the "download this area" size-confirm dialog. */
     var pendingDownloadArea by mutableStateOf<PendingDownloadArea?>(null)
 

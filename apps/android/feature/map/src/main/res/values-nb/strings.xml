@@ -139,6 +139,9 @@
     <string name="layers_overlays">Overlegg</string>
     <string name="layers_clouds">Værskyer</string>
     <string name="layers_clouds_sub">Varslet skydekke · 3D-overlegg</string>
+    <string name="layers_cabins">Hytter og turer</string>
+    <string name="layers_cabins_sub">DNT-hytter og turforslag fra UT.no · Nasjonal Turbase</string>
+    <string name="ntb_open_ut">Åpne i UT.no</string>
     <string name="layers_trails">Turstier</string>
     <string name="layers_trails_sub">Merkede ruter · Waymarked Trails</string>
     <string name="layers_avalanche">Skredterreng</string>

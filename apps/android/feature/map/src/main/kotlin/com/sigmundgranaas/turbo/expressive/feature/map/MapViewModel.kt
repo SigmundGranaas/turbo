@@ -6,6 +6,7 @@ import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
+import com.sigmundgranaas.turbo.expressive.core.data.NasjonalTurbaseRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RadarRepository
 import com.sigmundgranaas.turbo.expressive.core.data.ReverseGeocodeRepository
 import com.sigmundgranaas.turbo.expressive.core.data.SettingsRepository
@@ -13,9 +14,12 @@ import com.sigmundgranaas.turbo.expressive.feature.map.radar.MetRadarDataSource
 import com.sigmundgranaas.turbo.expressive.feature.map.radar.RadarDataSource
 import com.sigmundgranaas.turbo.expressive.domain.ActivityKindId
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
+import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.LocationDescription
 import com.sigmundgranaas.turbo.expressive.domain.Marker
+import com.sigmundgranaas.turbo.expressive.domain.NtbPoi
+import com.sigmundgranaas.turbo.expressive.domain.NtbRoute
 import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -46,6 +50,13 @@ data class MapUiState(
      * the toggle only appears when [experimentalWgpuMap] is on.
      */
     val threeDMode: Boolean = false,
+    // ── Nasjonal Turbase (ut.no / DNT) "Cabins & trips" overlay ──
+    /** POIs in view while the overlay is on (rendered as pins). Empty when off. */
+    val ntbPois: List<NtbPoi> = emptyList(),
+    /** The POI whose info sheet is open (null = none). */
+    val ntbSelected: NtbPoi? = null,
+    /** The selected trip's loaded route, revealed on the map (null until loaded). */
+    val ntbRoute: NtbRoute? = null,
 )
 
 /** Holds the map home's UI state; markers + live location come from repositories. */
@@ -56,6 +67,7 @@ class MapViewModel @Inject constructor(
     private val reverseGeocode: ReverseGeocodeRepository,
     private val strings: StringProvider,
     private val settings: SettingsRepository,
+    private val nasjonalTurbase: NasjonalTurbaseRepository,
     radarRepository: RadarRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MapUiState())
@@ -70,6 +82,8 @@ class MapViewModel @Inject constructor(
 
     private var locationJob: Job? = null
     private var describeJob: Job? = null
+    private var ntbJob: Job? = null
+    private var ntbRouteJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -178,8 +192,60 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch { markerRepository.delete(id) }
     }
 
+    // ── Nasjonal Turbase (ut.no / DNT) "Cabins & trips" overlay ──
+
+    /**
+     * Reload the in-view POIs for the "Cabins & trips" overlay. Called on each
+     * camera-idle while the overlay is on. Skips very large viewports (the proxy
+     * would return too much) and coalesces rapid pans (one in-flight job).
+     */
+    fun refreshCabins(bounds: GeoBounds) {
+        // At country zoom the bbox is huge and the markers would be meaningless —
+        // wait until the user is zoomed in enough for cabins/trips to be useful.
+        if (bounds.north - bounds.south > MAX_CABIN_SPAN_DEG || bounds.east - bounds.west > MAX_CABIN_SPAN_DEG) {
+            if (_state.value.ntbPois.isNotEmpty()) _state.update { it.copy(ntbPois = emptyList()) }
+            return
+        }
+        ntbJob?.cancel()
+        ntbJob = viewModelScope.launch {
+            val pois = nasjonalTurbase.pois(bounds)
+            _state.update { it.copy(ntbPois = pois) }
+        }
+    }
+
+    /** Toggle the overlay off: drop the pins, selection and revealed route. */
+    fun clearCabins() {
+        ntbJob?.cancel()
+        ntbRouteJob?.cancel()
+        _state.update { it.copy(ntbPois = emptyList(), ntbSelected = null, ntbRoute = null) }
+    }
+
+    /** Open the info sheet for [poi]; for a trip, fetch + reveal its route. */
+    fun selectNtb(poi: NtbPoi) {
+        ntbRouteJob?.cancel()
+        _state.update { it.copy(ntbSelected = poi, ntbRoute = null) }
+        if (poi.hasRoute) {
+            ntbRouteJob = viewModelScope.launch {
+                val route = nasjonalTurbase.route(poi.id)
+                // Ignore a late result if the user already moved on to another POI.
+                if (_state.value.ntbSelected?.id == poi.id) {
+                    _state.update { it.copy(ntbRoute = route) }
+                }
+            }
+        }
+    }
+
+    /** Dismiss the info sheet and hide the revealed route. */
+    fun dismissNtb() {
+        ntbRouteJob?.cancel()
+        _state.update { it.copy(ntbSelected = null, ntbRoute = null) }
+    }
+
     private companion object {
         /** How long to wait for the first fix before showing the slow-GPS notice. */
         const val LOCATE_TIMEOUT_MS = 12_000L
+
+        /** Above this viewport span (degrees) the cabins/trips overlay stays empty. */
+        const val MAX_CABIN_SPAN_DEG = 1.5
     }
 }
