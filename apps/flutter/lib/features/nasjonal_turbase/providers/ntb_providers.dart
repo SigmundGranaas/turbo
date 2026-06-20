@@ -14,11 +14,12 @@ const String ntbOverlayId = 'nasjonal_turbase_pois';
 /// Below this zoom the viewport is too wide to usefully query/scatter markers.
 const double ntbMinZoom = 9.0;
 
-/// Developer API key, overridable in tests.
-final ntbApiKeyProvider = Provider<String>((_) => EnvironmentConfig.ntbApiKey);
+/// Backend base URL (the Turbo API that hosts the NTB proxy), overridable in
+/// tests.
+final ntbBaseUrlProvider = Provider<String>((_) => EnvironmentConfig.apiBaseUrl);
 
 final ntbClientProvider = Provider<NtbClient>(
-  (ref) => NtbClient(apiKey: ref.watch(ntbApiKeyProvider)),
+  (ref) => NtbClient(baseUrl: ref.watch(ntbBaseUrlProvider)),
 );
 
 final ntbRepositoryProvider = Provider<NtbRepository>(

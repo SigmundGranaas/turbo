@@ -1,57 +1,28 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo/features/nasjonal_turbase/data/ntb_client.dart';
 import 'package:turbo/features/nasjonal_turbase/models/ntb_poi.dart';
 
 void main() {
-  group('buildListUri', () {
-    final client = NtbClient(apiKey: 'test-key');
+  group('poisUri', () {
+    final client = NtbClient(baseUrl: 'https://api.example.com');
 
-    test('targets the versioned endpoint with the api key and a near query', () {
-      final uri = client.buildListUri(
-        type: 'steder',
-        minLat: 59.0,
-        minLon: 10.0,
-        maxLat: 60.0,
-        maxLon: 11.0,
-      );
-      expect(uri.host, NtbClient.host);
-      expect(uri.path, '/${NtbClient.apiVersion}/steder');
-      expect(uri.queryParameters['api_key'], 'test-key');
-
-      final near = jsonDecode(uri.queryParameters['near']!) as Map;
-      final coords =
-          (near[r'$geometry'] as Map)['coordinates'] as List;
-      // GeoJSON order [lon, lat]; centre of the bbox.
-      expect(coords[0], closeTo(10.5, 1e-9));
-      expect(coords[1], closeTo(59.5, 1e-9));
-      expect(near[r'$maxDistance'], isPositive);
-    });
-
-    test('passes tag filters when provided', () {
-      final uri = client.buildListUri(
-        type: 'steder',
-        minLat: 59.0,
-        minLon: 10.0,
-        maxLat: 60.0,
-        maxLon: 11.0,
-        tags: const ['Hytte'],
-      );
-      expect(uri.queryParameters['tags'], 'Hytte');
+    test('targets the proxy with bbox query params', () {
+      final uri = client.poisUri(minLat: 59.0, minLon: 10.0, maxLat: 60.0, maxLon: 11.0);
+      expect(uri.path, '/api/places/ntb/pois');
+      expect(uri.queryParameters['minLat'], '59.0');
+      expect(uri.queryParameters['maxLon'], '11.0');
     });
   });
 
-  group('document projections', () {
-    test('poiFromSted classifies a Hytte tag as a cabin', () {
-      final poi = NtbClient.poiFromSted({
-        '_id': 'abc',
-        'navn': 'Test cabin',
-        'tags': ['Hytte'],
-        'geojson': {
-          'type': 'Point',
-          'coordinates': [10.0, 60.0],
-        },
+  group('poiFromJson', () {
+    test('maps a cabin DTO', () {
+      final poi = NtbClient.poiFromJson({
+        'id': 'abc',
+        'type': 'cabin',
+        'lat': 60.0,
+        'lng': 10.0,
+        'title': 'Test cabin',
+        'utUrl': 'https://ut.no/hytte/abc',
       });
       expect(poi, isNotNull);
       expect(poi!.type, NtbPoiType.cabin);
@@ -60,69 +31,53 @@ void main() {
       expect(poi.utUrl, 'https://ut.no/hytte/abc');
     });
 
-    test('poiFromSted without Hytte tag is a place', () {
-      final poi = NtbClient.poiFromSted({
-        '_id': 'p1',
-        'navn': 'Viewpoint',
-        'tags': ['Utsiktspunkt'],
-        'geojson': {
-          'type': 'Point',
-          'coordinates': [9.0, 61.0],
-        },
-      });
-      expect(poi!.type, NtbPoiType.place);
-    });
-
-    test('poiFromSted returns null without geometry', () {
-      expect(NtbClient.poiFromSted({'_id': 'x', 'navn': 'No geo'}), isNull);
-    });
-
-    test('poiFromTur is a trip and prefers an embedded ut.no link', () {
-      final poi = NtbClient.poiFromTur({
-        '_id': 't1',
-        'navn': 'A hike',
-        'lenker': [
-          {'url': 'https://ut.no/turforslag/999/a-hike'},
-        ],
-        'geojson': {
-          'type': 'Point',
-          'coordinates': [10.0, 60.0],
-        },
+    test('maps a trip DTO and reports hasRoute', () {
+      final poi = NtbClient.poiFromJson({
+        'id': 't1',
+        'type': 'trip',
+        'lat': 60.0,
+        'lng': 10.0,
+        'title': 'A hike',
       });
       expect(poi!.type, NtbPoiType.trip);
       expect(poi.hasRoute, isTrue);
-      expect(poi.utUrl, 'https://ut.no/turforslag/999/a-hike');
     });
 
-    test('routeFromTur extracts the polyline and metadata', () {
-      final route = NtbClient.routeFromTur({
-        '_id': 't2',
-        'navn': 'Long hike',
-        'distanse': 5400,
-        'gradering': 'Middels',
-        'geojson': {
-          'type': 'LineString',
-          'coordinates': [
-            [10.0, 60.0],
-            [10.1, 60.1],
-          ],
-        },
-      });
-      expect(route.points.length, 2);
-      expect(route.hasGeometry, isTrue);
-      expect(route.distanceMeters, 5400);
-      expect(route.grade, 'Middels');
+    test('unknown type falls back to place', () {
+      final poi = NtbClient.poiFromJson(
+          {'id': 'x', 'type': 'whatever', 'lat': 1.0, 'lng': 2.0, 'title': 'X'});
+      expect(poi!.type, NtbPoiType.place);
+    });
+
+    test('returns null without coordinates', () {
+      expect(NtbClient.poiFromJson({'id': 'x', 'title': 'No geo'}), isNull);
     });
   });
 
-  test('an unconfigured client fetches nothing', () async {
-    final client = NtbClient(apiKey: '');
-    expect(client.isConfigured, isFalse);
-    expect(
-      await client.fetchPois(
-          minLat: 59, minLon: 10, maxLat: 60, maxLon: 11),
-      isEmpty,
-    );
-    expect(await client.fetchRoute('anything'), isNull);
+  group('routeFromJson', () {
+    test('parses [lng,lat] points into LatLng and metadata', () {
+      final route = NtbClient.routeFromJson({
+        'id': 't2',
+        'title': 'Long hike',
+        'distanceMeters': 5400,
+        'grade': 'Middels',
+        'points': [
+          [10.0, 60.0],
+          [10.1, 60.1],
+        ],
+      });
+      expect(route.points.length, 2);
+      expect(route.hasGeometry, isTrue);
+      expect(route.points.first.latitude, 60.0);
+      expect(route.points.first.longitude, 10.0);
+      expect(route.distanceMeters, 5400);
+      expect(route.grade, 'Middels');
+    });
+
+    test('tolerates missing/garbage points', () {
+      final route = NtbClient.routeFromJson({'id': 'x', 'title': 'X'});
+      expect(route.points, isEmpty);
+      expect(route.hasGeometry, isFalse);
+    });
   });
 }
