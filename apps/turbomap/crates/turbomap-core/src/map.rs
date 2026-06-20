@@ -1661,7 +1661,14 @@ impl Map {
             dem_inserts,
         };
 
-        if self.shadow.key.as_ref() != Some(&key) {
+        // The horizon-march is a synchronous CPU cost on the RENDER THREAD, so
+        // never run it while the camera is animating: turning sun mode on flips
+        // to 3D (an ease) and streams tiles, and stacking a recompute every
+        // animating frame on top stalled the render thread → ANR/freeze on
+        // device. Compute only when the camera has SETTLED (and the key changed)
+        // — the shadow then snaps in a frame after motion stops.
+        let animating = self.cam.active.is_some();
+        if self.shadow.key.as_ref() != Some(&key) && !animating {
             // ~12 m of relief over the grazing ray fades a cell lit→shadowed:
             // a soft penumbra edge, but tight enough that real ridges produce a
             // crisp, dark shadow core rather than washing out to faint grey.
@@ -1673,22 +1680,21 @@ impl Map {
                 let ay = wy as f64 + cam_origin.y;
                 terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale
             });
-            if log::log_enabled!(log::Level::Debug) {
-                let shadowed = field.visibility.iter().filter(|&&v| v < 0.99).count();
-                log::debug!(
-                    "turbomap shadow: recompute size={size_f:.2e} zscale={zscale:.2e} sun={sun_dir:?} shadowed_cells={shadowed}/{}",
-                    field.visibility.len(),
-                );
-            }
             self.renderer.shadow_map.upload(&field);
             self.shadow.key = Some(key);
             self.shadow.origin_rtc = origin_rtc;
             self.shadow.world_size = size_f;
         }
 
-        frame.raster_terrain_cfg.shadow_origin = self.shadow.origin_rtc;
-        frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
-        frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
+        // Sample shadows only once a field has actually been computed (key set);
+        // until then `world_size` is 0 and strength stays off — no shadow during
+        // the flip-to-3D animation, which is exactly when the recompute is
+        // skipped above.
+        if self.shadow.key.is_some() {
+            frame.raster_terrain_cfg.shadow_origin = self.shadow.origin_rtc;
+            frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
+            frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
+        }
     }
 
     pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {

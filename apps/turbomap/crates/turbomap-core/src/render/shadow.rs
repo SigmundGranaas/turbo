@@ -25,17 +25,20 @@
 
 use std::sync::Arc;
 
-/// Per-side resolution of the shadow grid. 192² = 36 864 cells. Fine enough
-/// that a cell is a few metres at hiking zooms yet cheap to march on the CPU
-/// (the march is `O(dim² · MAX_MARCH_CELLS)`, recomputed only on change).
-pub(crate) const SHADOW_DIM: usize = 192;
+/// Per-side resolution of the shadow grid. 96² = 9 216 cells. The march is
+/// `O(dim² · MAX_MARCH_CELLS)` AND samples the cross-tile heightfield once per
+/// cell (a multi-level tile-cache walk), all synchronously on the render
+/// thread — so this is sized to stay a few-millisecond hitch on a phone, not
+/// the ~100 ms render-thread stall (→ ANR) that 192² caused on device. Still
+/// fine enough for soft terrain shadows at hiking zooms.
+pub(crate) const SHADOW_DIM: usize = 96;
 
 /// How many cells along the sun ray a cell looks for an occluder before giving
 /// up and calling itself lit. Bounds the march cost and reflects that a caster
 /// far enough away rarely shadows within a single screen at usable sun
 /// altitudes. `√2 · dim` would be full-diagonal coverage; this is a deliberate
-/// cap well below that.
-const MAX_MARCH_CELLS: usize = 128;
+/// cap well below that (also bounds the render-thread cost — see SHADOW_DIM).
+const MAX_MARCH_CELLS: usize = 48;
 
 /// A computed terrain shadow grid: square, axis-aligned in world-xy, holding a
 /// visibility value per cell. The renderer turns `visibility` into a texture
