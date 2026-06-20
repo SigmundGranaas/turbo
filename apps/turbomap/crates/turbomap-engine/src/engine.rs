@@ -536,6 +536,13 @@ impl TurbomapEngine {
         self.map.set_sun_time(unix_seconds);
     }
 
+    /// Enable terrain *cast* shadows (a peak shadows the valley behind it) at
+    /// the given `strength` in `[0,1]`. 0 disables the feature (zero per-frame
+    /// cost); only affects 3D terrain. See [`turbomap_core::Map::set_terrain_shadows`].
+    pub fn set_terrain_shadows(&mut self, strength: f32) {
+        self.map.set_terrain_shadows(strength);
+    }
+
     /// Geo-register the radar to the `west/south/east/north` lat-lng box it
     /// covers, so the overlay is world-locked (pans + zooms with the map).
     pub fn set_cloud_geo_bounds(&mut self, west: f64, south: f64, east: f64, north: f64) {

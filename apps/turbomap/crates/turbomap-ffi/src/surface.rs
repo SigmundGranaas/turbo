@@ -855,6 +855,23 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     }
 }
 
+/// Enable terrain cast shadows (a peak shadows the valley behind it) at
+/// `strength` in `[0,1]`; 0 disables the feature (zero per-frame cost). Only
+/// affects 3D terrain. Distinct from the always-on Lambertian self-shading.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetTerrainShadows(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    strength: jfloat,
+) {
+    unsafe {
+        with_map(handle, |map| {
+            map.engine.set_terrain_shadows(strength);
+        });
+    }
+}
+
 /// Geo-register the radar to the `west/south/east/north` lat-lng box it covers
 /// → the cloud overlay world-locks (pans + zooms with the map).
 #[no_mangle]

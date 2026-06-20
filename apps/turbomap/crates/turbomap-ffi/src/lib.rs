@@ -362,6 +362,13 @@ impl TurboMap {
         self.lock().engine.enable_clouds(grid_w, grid_h);
     }
 
+    /// Enable terrain cast shadows at `strength` in `[0,1]` (0 = off). Only
+    /// affects 3D terrain; off costs nothing. See
+    /// [`turbomap_engine::Engine::set_terrain_shadows`].
+    pub fn set_terrain_shadows(&self, strength: f32) {
+        self.lock().engine.set_terrain_shadows(strength);
+    }
+
     /// Tear the cloud overlay down, freeing its GPU resources.
     pub fn disable_clouds(&self) {
         self.lock().engine.disable_clouds();

@@ -107,6 +107,13 @@ internal object NativeSurfaceMap {
      */
     external fun nativeSetSunTime(handle: Long, unixSeconds: Double)
 
+    /**
+     * Enable terrain *cast* shadows (a peak shadows the valley behind it) at
+     * [strength] in `[0,1]`; 0 disables the feature (zero per-frame cost).
+     * Only affects 3D terrain; distinct from the always-on relief self-shading.
+     */
+    external fun nativeSetTerrainShadows(handle: Long, strength: Float)
+
     // ── Weather-cloud overlay ───────────────────────────────────────────────
     /** Enable the procedural cloud overlay with a [gridW]×[gridH] radar grid. */
     external fun nativeEnableClouds(handle: Long, gridW: Int, gridH: Int)

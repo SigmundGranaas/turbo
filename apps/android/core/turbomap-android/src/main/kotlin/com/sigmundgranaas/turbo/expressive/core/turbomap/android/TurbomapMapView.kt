@@ -74,6 +74,10 @@ import kotlin.math.abs
 // vantage while keeping the near ground legible.
 private const val DEFAULT_3D_PITCH_DEG = 62.0
 
+// Terrain cast-shadow strength in [0,1] when 3D terrain is active. 0.6 reads as
+// a clear shadow on steep relief without crushing the basemap to black.
+private const val TERRAIN_SHADOW_STRENGTH = 0.6f
+
 @Composable
 @Suppress("LongParameterList")
 fun TurbomapMapView(
@@ -334,6 +338,13 @@ internal class TurbomapSurfaceController {
             // Light the scene by the real clock so terrain shading + the
             // sky take on the current time-of-day colours.
             NativeSurfaceMap.nativeSetSunTime(handle, System.currentTimeMillis() / 1000.0)
+            // Terrain cast shadows (a peak shadows the valley behind it) when 3D
+            // terrain is active — a DEM is the prerequisite, and the native side
+            // is a no-op without one. Distinct from the always-on relief
+            // self-shading; off costs nothing.
+            if (demUrlTemplate != null) {
+                NativeSurfaceMap.nativeSetTerrainShadows(handle, TERRAIN_SHADOW_STRENGTH)
+            }
             NativeSurfaceMap.nativePumpLocal(handle)
             val eng = TurbomapMapEngine(handle, w, h)
             // Camera/inset changes from the rail/flyTo/sheet must redraw (render-on-demand).
