@@ -9,17 +9,14 @@ The 1-finger-orbit model below was reworked after device testing (it felt wrong:
 shaky finger spun the map, and pinches drifted/rotated). The shipped grammar:
 
 - **One finger → pan** in BOTH 2D and 3D (slop-gated against jitter).
-- **Two fingers → zoom (pinch) OR free orbit**, pivoting about the gesture **centroid**.
-  No two-finger pan (one finger pans), so a pinch can't slide the map around.
-- **One intent per gesture** (`lockTwoFingerAxis`): a two-finger gesture commits to
-  **zoom** XOR **orbit**. Zoom accumulates against `ZOOM_GATE_LEVELS`; orbit engages on
-  a twist (`ROTATE_GATE_DEG`) *or* a vertical drag (`TILT_GATE_DP`). All signals are
-  summed as **signed net** movement so a twist's incidental wobble can't falsely win
-  zoom. Whichever crosses first wins; the other stays suppressed — a pinch is a clean
-  zoom, a non-pinch is a clean orbit.
-- **Orbit is free rotation**: once orbiting, the bearing follows the twist AND (in 3D)
-  the pitch follows the vertical drag, **together** — you look around in every direction
-  at once, not locked to a single axis.
+- **Two fingers → zoom (pinch) OR drag** — no finger-twist. A drag **orbits in 3D**
+  (left/right → bearing, up/down → pitch) and **pans in 2D**.
+- **One intent per gesture** (`lockTwoFingerAxis`): zoom is the **signed net** spread
+  change (÷ `ZOOM_GATE_LEVELS`); drag is the centroid's travel from where the second
+  finger landed (÷ `DRAG_GATE_DP`). Whichever crosses first wins; a tie favours **drag**.
+  The zoom gate is deliberately **wide** (0.16 levels) so a two-finger drag (spread stays
+  ~constant) doesn't keep tripping an accidental zoom — the old "I zoom when I mean to
+  pan" problem.
 - Zoom pivots via `nativeZoomAround` (focus-anchored); rotate/tilt via
   `nativeOrbitAround(dBearing, dPitch, focusX, focusY)` about the centroid. Bearing
   sign turns the map *with* the fingers.

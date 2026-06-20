@@ -1,12 +1,10 @@
 package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 
-import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.abs
 
 class MapGestureTest {
 
@@ -58,32 +56,17 @@ class MapGestureTest {
     }
 
     @Test
-    fun two_finger_angle_and_delta_track_a_twist() {
-        // Horizontal pair → 0°; rotate the far finger up-left a touch → angle grows
-        // (screen-y is down, so clockwise is positive). Delta wraps the seam.
-        val flat = twoFingerAngleDeg(Offset(0f, 0f), Offset(100f, 0f))
-        assertEquals(0f, flat, 1e-3f)
-        val tilted = twoFingerAngleDeg(Offset(0f, 0f), Offset(100f, 100f)) // 45° (y down)
-        assertEquals(45f, tilted, 1e-3f)
-        // wrapDeltaDeg keeps a frame-to-frame delta in (-180, 180].
-        assertEquals(10f, wrapDeltaDeg(10f), 1e-3f)
-        assertEquals(-10f, wrapDeltaDeg(350f), 1e-3f)
-        // Crossing the ±180 seam (170° → -175°, raw delta 345°) is a small -15°, not a ~360 jump.
-        assertEquals(-15f, wrapDeltaDeg(345f), 1e-3f)
-        assertTrue("near-seam delta stays small", abs(wrapDeltaDeg(170f - (-175f))) < 20f)
-    }
-
-    @Test
-    fun two_finger_gesture_locks_to_zoom_or_orbit() {
+    fun two_finger_gesture_locks_to_zoom_or_drag() {
         // Below both gates → dead-zone, nothing wins yet.
-        assertNull(lockTwoFingerAxis(zoomN = 0.9f, orbitN = 0.5f))
-        // A clean pinch (zoom past its gate, little orbit) → Zoom.
-        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 1.4f, orbitN = 0.3f))
-        // A twist or vertical drag (orbit signal) with little spread change → Orbit (free rotate).
-        assertEquals(TwoFingerAxis.Orbit, lockTwoFingerAxis(zoomN = 0.3f, orbitN = 1.6f))
-        // The more-progressed intent wins when both have crossed.
-        assertEquals(TwoFingerAxis.Orbit, lockTwoFingerAxis(zoomN = 1.1f, orbitN = 2.0f))
-        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 2.2f, orbitN = 1.2f))
+        assertNull(lockTwoFingerAxis(zoomN = 0.9f, dragN = 0.5f))
+        // A clean pinch (spread past its gate, centroid roughly still) → Zoom.
+        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 1.4f, dragN = 0.3f))
+        // Centroid travels (drag) with little spread change → Drag (pan / orbit).
+        assertEquals(TwoFingerAxis.Drag, lockTwoFingerAxis(zoomN = 0.3f, dragN = 1.6f))
+        // The more-progressed intent wins when both have crossed; a tie favours drag.
+        assertEquals(TwoFingerAxis.Drag, lockTwoFingerAxis(zoomN = 1.2f, dragN = 2.0f))
+        assertEquals(TwoFingerAxis.Drag, lockTwoFingerAxis(zoomN = 1.5f, dragN = 1.5f))
+        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 2.2f, dragN = 1.2f))
     }
 
     @Test
