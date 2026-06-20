@@ -32,7 +32,7 @@ use crate::{
         raster::{PreparedRaster, RasterPipeline},
         sky::SkyPipeline,
         targets::FrameTargets,
-        terrain::{TerrainCache, TerrainOptions, TerrainShared},
+        terrain::{Terrain, TerrainCache, TerrainOptions, TerrainShared},
         text::{PreparedText, TextPipeline},
         vector::{PreparedVector, VectorPipeline},
         vector_cache::VectorMeshCache,
@@ -524,16 +524,6 @@ pub struct Map {
     lighting: Lighting,
 }
 
-struct Terrain {
-    /// DEM source the host drains via `PendingTile::Terrain`. Drives
-    /// both the tile cache (`TerrainCache`) and visibility tracking
-    /// (`Scene`).
-    source: Arc<dyn TileSource>,
-    cache: TerrainCache,
-    scene: Scene,
-    options: TerrainOptions,
-}
-
 impl Map {
     pub fn new(
         device: Arc<wgpu::Device>,
@@ -693,12 +683,7 @@ impl Map {
             source.max_zoom(),
             self.options.prefetch_margin_px,
         );
-        self.terrain = Some(Terrain {
-            source,
-            cache,
-            scene,
-            options,
-        });
+        self.terrain = Some(Terrain::new(source, cache, scene, options));
     }
 
     pub fn clear_terrain(&mut self) {
@@ -1201,12 +1186,11 @@ impl Map {
         let Some(t) = self.terrain.as_ref() else {
             return 0.0;
         };
-        let Some(elev) = t.cache.elevation_at_world((world.x, world.y)) else {
-            return 0.0;
-        };
+        // `meters_to_world` at the camera-centre latitude — the same factor the
+        // per-frame mesh displacement uses, so overlays land on the surface.
         let lat = self.camera.center.lat.to_radians();
         let m2w = (lat.cos().abs() as f32 / 40_075_017.0).max(1e-12);
-        elev * m2w * t.options.exaggeration
+        t.ground_world_z(world, m2w)
     }
 
     // ---- tile orchestration --------------------------------------------

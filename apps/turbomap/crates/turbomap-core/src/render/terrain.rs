@@ -18,9 +18,54 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::dem::{decode_elevation, DemEncoding};
+use crate::geo::WorldPoint;
+use crate::scene::Scene;
+use crate::source::TileSource;
 use crate::tile::TileId;
 
 use super::cache::TextureCache;
+
+/// The active terrain subsystem: the DEM tile source plus the GPU + CPU caches
+/// and the visibility `Scene` that track it. `Map` holds an `Option<Terrain>`
+/// (None = flat 2D); this bundles the four pieces that move together and the
+/// terrain-aware queries (surface height) that used to live as loose helpers
+/// on the `Map` god-object.
+pub(crate) struct Terrain {
+    /// DEM source the host drains via `PendingTile::Terrain`. Drives both the
+    /// tile cache ([`TerrainCache`]) and visibility tracking ([`Scene`]).
+    pub(crate) source: Arc<dyn TileSource>,
+    pub(crate) cache: TerrainCache,
+    pub(crate) scene: Scene,
+    pub(crate) options: TerrainOptions,
+}
+
+impl Terrain {
+    pub(crate) fn new(
+        source: Arc<dyn TileSource>,
+        cache: TerrainCache,
+        scene: Scene,
+        options: TerrainOptions,
+    ) -> Self {
+        Self {
+            source,
+            cache,
+            scene,
+            options,
+        }
+    }
+
+    /// World-space displaced height (z) of the ground at `world`, matching the
+    /// terrain mesh: `elevation · meters_to_world · exaggeration`. 0 when no
+    /// covering DEM tile is resident yet. `meters_to_world` is supplied by the
+    /// caller (it depends on the camera-centre latitude — the same value the
+    /// per-frame mesh displacement uses), so overlays align with the surface.
+    pub(crate) fn ground_world_z(&self, world: WorldPoint, meters_to_world: f32) -> f32 {
+        match self.cache.elevation_at_world((world.x, world.y)) {
+            Some(elev) => elev * meters_to_world * self.options.exaggeration,
+            None => 0.0,
+        }
+    }
+}
 
 /// Resolution (per side) of the CPU-side elevation grid kept per DEM
 /// tile. The GPU keeps the full 256² texture for crisp displacement; the
