@@ -12,7 +12,13 @@
 # Usage:
 #   GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
 #   GHCR_USERNAME=sigmundgranaas GHCR_TOKEN=ghp_... \
+#   [TURBASEN_API_KEY=...] \
 #   ./scripts/seal-prod-secrets.sh
+#
+# TURBASEN_API_KEY is the Nasjonal Turbase (ut.no/DNT) key for the
+# /api/places/ntb proxy. It's optional — leave it unset and the proxy simply
+# returns empty (the env ref in places.yaml is optional) until you re-run this
+# with the key to populate places-secrets.
 #
 # Requires: kubeseal + kubectl on PATH, and access to the cluster (the
 # sealed-secrets controller in kube-system).
@@ -31,6 +37,9 @@ OUT="$(cd "$(dirname "$0")/.." && pwd)/infra/k8s/envs/prod/sealed-secrets.yaml"
 # Generated (DB starts empty at cutover, so these can be fresh).
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)}"
 JWT_KEY="${JWT_KEY:-$(openssl rand -base64 64 | tr -d '\n')}"
+
+# Supplied (optional): Nasjonal Turbase proxy key. Empty → the proxy stays off.
+TURBASEN_API_KEY="${TURBASEN_API_KEY:-}"
 
 conn() { echo "Host=shared-db;Port=5432;Database=$1;Username=postgres;Password=${POSTGRES_PASSWORD}"; }
 
@@ -62,6 +71,11 @@ seal() { kubeseal --controller-name "$CONTROLLER_NAME" --controller-namespace "$
     --docker-server=ghcr.io \
     --docker-username="$GHCR_USERNAME" \
     --docker-password="$GHCR_TOKEN" | seal
+  echo "---"
+  # places-secrets: Nasjonal Turbase (ut.no/DNT) proxy key (places.yaml reads it
+  # as Turbasen__ApiKey, optional — empty just leaves the /api/places/ntb proxy off).
+  kubectl create secret generic places-secrets -n "$NS" --dry-run=client -o yaml \
+    --from-literal=turbasen-api-key="$TURBASEN_API_KEY" | seal
 } > "$OUT"
 
 echo "Wrote $OUT"

@@ -49,6 +49,16 @@ spec:
                   key: ASPNETCORE_ENVIRONMENT
             - name: ConnectionStrings__Places
               valueFrom: { secretKeyRef: { name: db-secrets, key: connectionstring-places } }
+            # Nasjonal Turbase (ut.no/DNT) proxy key, held server-side so mobile
+            # clients never embed it. optional: the pod still starts without it —
+            # the /api/places/ntb proxy just returns empty until it's provisioned
+            # (see infra/k8s/README.md → Secrets, scripts/seal-prod-secrets.sh).
+            - name: Turbasen__ApiKey
+              valueFrom:
+                secretKeyRef:
+                  name: places-secrets
+                  key: turbasen-api-key
+                  optional: true
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://alloy.observability.svc:4317"
             - name: OTEL_SERVICE_NAME

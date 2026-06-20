@@ -37,16 +37,21 @@ helm upgrade --install sealed-secrets sealed-secrets/sealed-secrets \
 ```
 
 Generate / rotate the bundle (DB password + JWT key are generated; you supply
-the Google OAuth creds and a GHCR pull token):
+the Google OAuth creds and a GHCR pull token; optionally the Nasjonal Turbase
+key):
 ```bash
 GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
 GHCR_USERNAME=sigmundgranaas GHCR_TOKEN=ghp_... \
+TURBASEN_API_KEY=...   # optional — the ut.no/DNT proxy key (omit to leave it off) \
 ./scripts/seal-prod-secrets.sh
 git add infra/k8s/envs/prod/sealed-secrets.yaml && git commit -m "prod sealed secrets"
 ```
 
-This produces sealed `db-secrets`, `auth-secrets`, `google-oauth-secrets`, and
-the `ghcr-auth` pull secret, all scoped to `turbo-prod`.
+This produces sealed `db-secrets`, `auth-secrets`, `google-oauth-secrets`, the
+`ghcr-auth` pull secret, and `places-secrets` (the `turbasen-api-key` for the
+`/api/places/ntb` proxy), all scoped to `turbo-prod`. `places.yaml` reads
+`turbasen-api-key` as `Turbasen__ApiKey` with `optional: true`, so the Places
+pod starts (and the proxy returns empty) until the key is supplied.
 
 ## Bootstrap (once per cluster)
 
