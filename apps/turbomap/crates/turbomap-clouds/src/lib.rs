@@ -204,11 +204,15 @@ impl Default for CloudParams {
             // Translucent overlay, not an opaque cover: you should see the map
             // (and terrain) through the weather. Was 1.0 (fully opaque) which
             // read as "clouds cover the whole screen" over real overcast data.
-            intensity: 0.55,
+            // Slightly thinner veil so the shipped overlay reads as cloud, not a
+            // flat white film over the map ("spilled milk").
+            intensity: 0.50,
             parallax: 0.0,
             sun_elevation: 0.35,
             extinction: 15.0,
-            light_extinction: 14.0,
+            // Stronger self-shadowing → thick cloud goes genuinely dark
+            // underneath, so puffs read as 3D form instead of a uniform wash.
+            light_extinction: 18.0,
             use_camera_ray: false,
             inv_view_proj: IDENTITY4,
             cloud_alt_base: 0.0,

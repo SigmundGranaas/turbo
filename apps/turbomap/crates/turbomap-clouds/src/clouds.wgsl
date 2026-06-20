@@ -533,15 +533,21 @@ fn render_volume(uv : vec2<f32>, scr : vec2<f32>, lum_out : ptr<function, f32>) 
         // Tighter multi-scatter: the big fill octave was washing the shadows
         // flat (milky, no form). Pull it down so thick cloud goes genuinely
         // dark underneath — that sun→shade contrast is what reads as 3D volume.
+        // Tighter still: the fill octaves were lifting the undersides into a
+        // uniform bright mass ("spilled milk"). Pull them down hard so thick
+        // cloud goes genuinely dark beneath — the deep sun→shade contrast is
+        // what reads as 3D puffs from above rather than a flat white wash.
         let ms = exp(-optical)
-            + 0.16 * exp(-optical * 0.25)
-            + 0.04 * exp(-optical * 0.06);
+            + 0.09 * exp(-optical * 0.25)
+            + 0.02 * exp(-optical * 0.06);
         // Powder: in-scatter probability darkens thin edges facing the light.
-        let powder = mix(0.45, 1.0, 1.0 - exp(-d * 2.2));
+        // Lower floor → crisper, darker billow fringes (more shape definition).
+        let powder = mix(0.28, 1.0, 1.0 - exp(-d * 2.2));
         let lit = sun_col * ms * powder;
         // Small sky ambient so the deepest shadow stays a readable grey-blue
-        // without flattening the form.
-        let ambient = mix(sky_bot, sky_top, z) * 0.15;
+        // without flattening the form — kept low so it doesn't re-milk the
+        // shadows we just darkened.
+        let ambient = mix(sky_bot, sky_top, z) * 0.10;
         // Cooler shadows at sunset: the away-from-sun (low light) parts are
         // lit only by the cool upper sky → push them blue-purple, for a strong
         // warm-sun / cool-shade split rather than a uniform orange wash.
