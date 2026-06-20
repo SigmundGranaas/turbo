@@ -12,10 +12,12 @@ shaky finger spun the map, and pinches drifted/rotated). The shipped grammar:
 - **Two fingers → zoom (pinch) + rotate (twist) + tilt (3D only, parallel vertical
   drag)**, all pivoting about the gesture **centroid**. No two-finger pan (one finger
   pans), so a pinch can't slide the map around.
-- **Movement gates**: each of zoom / rotate / tilt only *engages* once its own signal
-  crosses a deliberate threshold (`ZOOM_GATE_LEVELS`, `ROTATE_GATE_DEG`,
-  `TILT_GATE_DP`), so a simple pinch doesn't rotate/tilt and a twist doesn't zoom.
-  Rotation's gate is far stiffer **while zooming** (`ROTATE_GATE_WHILE_ZOOMING_DEG`).
+- **One intent per gesture**: a two-finger gesture commits to a single axis — zoom OR
+  rotate OR (3D) tilt. Each axis' movement accumulates against its gate
+  (`ZOOM_GATE_LEVELS`, `ROTATE_GATE_DEG`, `TILT_GATE_DP`); the first to cross wins and
+  the others stay suppressed (`lockTwoFingerAxis`). So a pinch is a clean zoom and a
+  twist a clean rotate — "either rotate or zoom in one movement" — and rotation works
+  in 3D without being stolen by zoom/tilt.
 - Zoom pivots via `nativeZoomAround` (focus-anchored); rotate/tilt via
   `nativeOrbitAround(dBearing, dPitch, focusX, focusY)` about the centroid. Bearing
   sign turns the map *with* the fingers.

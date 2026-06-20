@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
@@ -73,12 +74,15 @@ class MapGestureTest {
     }
 
     @Test
-    fun rotate_gate_is_far_stiffer_while_zooming() {
-        // A plain twist engages rotation at the normal gate; once a zoom is in progress it
-        // takes a much bigger, deliberate twist ("…unless you reaaaaaally push it").
-        assertTrue("zooming gate is much higher", rotateGateDeg(zooming = true) > rotateGateDeg(zooming = false) * 2)
-        assertEquals(ROTATE_GATE_DEG, rotateGateDeg(zooming = false), 1e-4f)
-        assertEquals(ROTATE_GATE_WHILE_ZOOMING_DEG, rotateGateDeg(zooming = true), 1e-4f)
+    fun two_finger_gesture_locks_to_a_single_axis() {
+        // Below every gate → dead-zone, nothing wins yet.
+        assertNull(lockTwoFingerAxis(zoomN = 0.9f, rotateN = 0.5f, tiltN = 0.2f))
+        // A clean pinch (zoom past its gate, little twist/tilt) → Zoom.
+        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 1.4f, rotateN = 0.3f, tiltN = 0.1f))
+        // A clean twist → Rotate, even if a little incidental zoom crept in.
+        assertEquals(TwoFingerAxis.Rotate, lockTwoFingerAxis(zoomN = 0.8f, rotateN = 1.6f, tiltN = 0.2f))
+        // The most-progressed axis wins when several have crossed.
+        assertEquals(TwoFingerAxis.Tilt, lockTwoFingerAxis(zoomN = 1.1f, rotateN = 1.2f, tiltN = 2.0f))
     }
 
     @Test
