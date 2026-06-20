@@ -465,26 +465,86 @@ impl LayerStack {
     }
 }
 
+/// The camera's pose and the state that drives + constrains it: the shared
+/// [`Camera`], the single in-flight animation (eased move / pan fling / zoom
+/// fling), the bottom viewport inset, and the [`ZoomLock`].
+///
+/// Mutating a `CameraState` only changes the pose — it deliberately does NOT
+/// reach into layers or terrain. The `Map` owns the side effects: after any
+/// camera change it runs its scene-sync seam (`sync_scenes`: re-sync each
+/// layer's `Scene`, clamp pitch against the terrain). That separation is what
+/// lets the camera be one cohesive "moving piece" instead of a scatter of
+/// fields whose every write had to remember to also re-sync the world.
+struct CameraState {
+    /// The pose. Layers' `Scene` is synced from this each camera change.
+    camera: Camera,
+    /// The single in-flight animation, if any. Sampled in `tick`; starting one
+    /// replaces whatever was running.
+    active: Option<ActiveAnim>,
+    /// Bottom viewport inset (px), re-stamped onto `camera` on every update so
+    /// projection + render stay inset-aware. 0 = none.
+    viewport_inset_px: f64,
+    /// The zoom range the camera is locked to (+ optional host override),
+    /// re-stamped onto `camera` on every update. See [`ZoomLock`].
+    zoom: ZoomLock,
+}
+
+impl CameraState {
+    fn new(initial: Camera) -> Self {
+        Self {
+            camera: initial,
+            active: None,
+            viewport_inset_px: initial.viewport_inset_px,
+            zoom: ZoomLock::new(initial.zoom_bounds),
+        }
+    }
+
+    /// Re-stamp the sticky inset + zoom lock onto the pose. Called after any
+    /// pose change so a host-supplied or animation-sampled camera can't escape
+    /// the map's inset / accuracy bounds.
+    fn restamp(&mut self) {
+        self.camera.viewport_inset_px = self.viewport_inset_px;
+        self.camera.set_zoom_bounds(self.zoom.active());
+    }
+
+    /// Replace the pose (sanitising untrusted input), clear any animation, and
+    /// re-stamp the inset + zoom lock. The `Map` follows this with its scene
+    /// re-sync seam.
+    fn set(&mut self, camera: Camera) {
+        self.camera = camera.sanitized();
+        self.active = None;
+        self.restamp();
+    }
+
+    /// Sample the active animation at `now`, re-stamping the pose. Returns
+    /// `(advanced, still_animating)`: `advanced` = a frame was sampled (the
+    /// `Map` re-syncs scenes when so), `still_animating` = keep ticking.
+    fn tick(&mut self, now: Instant) -> (bool, bool) {
+        let Some(anim) = self.active else {
+            return (false, false);
+        };
+        self.camera = anim.sample(now);
+        self.restamp();
+        if anim.is_finished(now) {
+            self.active = None;
+            (true, false)
+        } else {
+            (true, true)
+        }
+    }
+}
+
 pub struct Map {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     surface_format: wgpu::TextureFormat,
     viewport_px: (u32, u32),
-    /// Shared camera. Layers' `Scene` is synced from this each render.
-    camera: Camera,
-    /// The single in-flight camera animation, if any (an eased transition,
-    /// a pan fling, or a zoom fling). Sampled in `tick`; starting any one
-    /// replaces whatever was running.
-    active: Option<ActiveAnim>,
-    /// Bottom viewport inset (px) — kept on `self.camera` across every camera
-    /// update so the projection + render matrix stay inset-aware. 0 = none.
-    viewport_inset_px: f64,
-    /// The camera's zoom lock — the active `[min, max]` range (stamped onto
-    /// `self.camera` on every update, like `viewport_inset_px`) plus an
-    /// optional host override. Auto-derived from the active tile sources
-    /// unless overridden, so the user cannot zoom past the map's accuracy.
-    /// See [`ZoomLock`].
-    zoom: ZoomLock,
+    /// The camera's pose + drive state: the shared camera, the single in-flight
+    /// animation (fling/ease/zoom-fling), the viewport inset, and the zoom
+    /// lock. Mutating it never touches layers/terrain — `Map` runs the
+    /// `sync_after_camera` seam after every camera change to re-sync scenes
+    /// and clamp pitch against the terrain. See [`CameraState`].
+    cam: CameraState,
     options: MapOptions,
     layers: LayerStack,
     /// Single text pipeline, shared across all vector layers.
@@ -545,10 +605,7 @@ impl Map {
             queue,
             surface_format,
             viewport_px: initial_size,
-            camera: initial_camera,
-            active: None,
-            viewport_inset_px: initial_camera.viewport_inset_px,
-            zoom: ZoomLock::new(initial_camera.zoom_bounds),
+            cam: CameraState::new(initial_camera),
             options,
             layers: LayerStack::new(),
             text_pipeline,
@@ -677,7 +734,7 @@ impl Map {
             options.encoding,
         );
         let scene = Scene::with_margin(
-            self.camera,
+            self.cam.camera,
             self.viewport_px,
             source.min_zoom(),
             source.max_zoom(),
@@ -716,7 +773,7 @@ impl Map {
     /// The sun position used this frame, resolved by the [`Lighting`] mode
     /// at the camera's current location.
     fn effective_sun(&self) -> SunPosition {
-        self.lighting.sun_at(self.camera.center)
+        self.lighting.sun_at(self.cam.camera.center)
     }
 
     /// Push decoded RGBA back into the shared terrain heightmap.
@@ -760,7 +817,7 @@ impl Map {
             true,
         );
         let scene = Scene::with_margin(
-            self.camera,
+            self.cam.camera,
             self.viewport_px,
             min_zoom,
             max_zoom,
@@ -824,7 +881,7 @@ impl Map {
         );
         let cache = VectorMeshCache::new(self.device.clone(), self.options.cache_budget_bytes);
         let scene = Scene::with_margin(
-            self.camera,
+            self.cam.camera,
             self.viewport_px,
             min_zoom,
             max_zoom,
@@ -909,28 +966,21 @@ impl Map {
     // ---- camera + viewport ---------------------------------------------
 
     pub fn camera(&self) -> Camera {
-        self.camera
+        self.cam.camera
     }
 
     pub fn set_camera(&mut self, camera: Camera) {
-        // Sanitise at the boundary: a host (or a bad animation sample) can hand
-        // us a NaN/Inf pose. Coerce it finite here so it can never reach the
-        // projection — parse-don't-validate, the upstream half of the GPU
-        // finite gate in `render`.
-        self.camera = camera.sanitized();
-        // The host sets a pose without an inset; keep the viewport inset sticky.
-        self.camera.viewport_inset_px = self.viewport_inset_px;
-        // Likewise the zoom lock: the Map owns the authoritative bounds, so a
-        // host-supplied camera can't escape the map's accuracy. Stamping also
-        // clamps the incoming zoom into range.
-        self.camera.set_zoom_bounds(self.zoom.active());
-        self.active = None;
+        // `CameraState::set` sanitises the (possibly host-supplied / NaN) pose,
+        // clears any animation, and re-stamps the sticky inset + zoom lock so
+        // the camera can't escape the map's accuracy. Then run the scene-sync
+        // seam — the Map's side of every camera change.
+        self.cam.set(camera);
         self.sync_scenes();
     }
 
     /// The zoom range the camera is currently locked to.
     pub fn zoom_bounds(&self) -> ZoomBounds {
-        self.zoom.active()
+        self.cam.zoom.active()
     }
 
     /// Lock the camera's zoom to an explicit range, or pass `None` to track
@@ -938,7 +988,7 @@ impl Map {
     /// camera is clamped into the new range immediately, so a map sitting on
     /// an over-zoomed frame snaps back to the deepest accurate level.
     pub fn set_zoom_bounds(&mut self, bounds: Option<ZoomBounds>) {
-        self.zoom.set_manual(bounds);
+        self.cam.zoom.set_manual(bounds);
         self.recompute_zoom_bounds();
     }
 
@@ -948,8 +998,8 @@ impl Map {
     /// real tile any layer serves, but no further (past that the raster
     /// upsamples and overlays appear to drift). Re-stamps the camera.
     fn recompute_zoom_bounds(&mut self) {
-        let bounds = self.zoom.resolve(self.layers.source_ranges());
-        self.camera.set_zoom_bounds(bounds);
+        let bounds = self.cam.zoom.resolve(self.layers.source_ranges());
+        self.cam.camera.set_zoom_bounds(bounds);
         // A clamp may have changed the zoom; keep the scenes in step.
         self.sync_scenes();
     }
@@ -958,8 +1008,8 @@ impl Map {
     /// the projection's principal point up by `bottom_px/2` for projection,
     /// unprojection, and rendering alike. Persisted across camera changes.
     pub fn set_viewport_inset(&mut self, bottom_px: f64) {
-        self.viewport_inset_px = bottom_px.max(0.0);
-        self.camera.viewport_inset_px = self.viewport_inset_px;
+        self.cam.viewport_inset_px = bottom_px.max(0.0);
+        self.cam.camera.viewport_inset_px = self.cam.viewport_inset_px;
         self.sync_scenes();
     }
 
@@ -967,11 +1017,11 @@ impl Map {
     /// (screen px/s, the drag-release velocity). The map glides and
     /// decelerates as `tick` is pumped. A near-zero velocity is a no-op.
     pub fn fling(&mut self, velocity_px: (f64, f64)) {
-        let f = FlingAnimation::new(self.camera, velocity_px);
+        let f = FlingAnimation::new(self.cam.camera, velocity_px);
         if f.is_finished(Instant::now()) {
             return;
         }
-        self.active = Some(ActiveAnim::PanFling(f));
+        self.cam.active = Some(ActiveAnim::PanFling(f));
     }
 
     /// Start a zoom fling (pinch-release momentum) at `zoom_velocity`
@@ -979,11 +1029,11 @@ impl Map {
     /// a near-zero velocity is a no-op.
     pub fn zoom_fling(&mut self, zoom_velocity: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
-        let z = ZoomFlingAnimation::new(self.camera, zoom_velocity, focus_px, (w as f64, h as f64));
+        let z = ZoomFlingAnimation::new(self.cam.camera, zoom_velocity, focus_px, (w as f64, h as f64));
         if z.is_finished(Instant::now()) {
             return;
         }
-        self.active = Some(ActiveAnim::ZoomFling(z));
+        self.cam.active = Some(ActiveAnim::ZoomFling(z));
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -997,14 +1047,14 @@ impl Map {
     }
 
     pub fn pan_by_pixels(&mut self, dx: f64, dy: f64) {
-        let mut c = self.camera;
+        let mut c = self.cam.camera;
         c.pan_by_pixels(dx, dy);
         self.set_camera(c);
     }
 
     pub fn zoom_around(&mut self, factor: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
-        let mut c = self.camera;
+        let mut c = self.cam.camera;
         c.zoom_around(factor, focus_px, (w as f64, h as f64));
         self.set_camera(c);
     }
@@ -1012,14 +1062,14 @@ impl Map {
     /// Rotate the bearing by `delta_deg` (two-finger rotate), pivoting on
     /// the screen centre.
     pub fn rotate_by(&mut self, delta_deg: f64) {
-        let mut c = self.camera;
+        let mut c = self.cam.camera;
         c.rotate_by(delta_deg);
         self.set_camera(c);
     }
 
     /// Tilt by `delta_deg` (two-finger drag), clamped to the pitch limit.
     pub fn pitch_by(&mut self, delta_deg: f64) {
-        let mut c = self.camera;
+        let mut c = self.cam.camera;
         c.pitch_by(delta_deg);
         self.set_camera(c);
     }
@@ -1029,6 +1079,7 @@ impl Map {
     pub fn rotate_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
         let c = self
+            .cam
             .camera
             .rotated_around(delta_deg, focus_px, (w as f64, h as f64));
         self.set_camera(c);
@@ -1038,6 +1089,7 @@ impl Map {
     pub fn pitch_around(&mut self, delta_deg: f64, focus_px: (f64, f64)) {
         let (w, h) = self.viewport_px;
         let c = self
+            .cam
             .camera
             .pitched_around(delta_deg, focus_px, (w as f64, h as f64));
         self.set_camera(c);
@@ -1049,36 +1101,32 @@ impl Map {
     pub fn zoom_around_animated(&mut self, factor: f64, focus_px: (f64, f64), duration: Duration) {
         let (w, h) = self.viewport_px;
         let target = self
+            .cam
             .camera
             .zoomed_around(factor, focus_px, (w as f64, h as f64));
         self.ease_to(target, duration);
     }
 
     pub fn ease_to(&mut self, target: Camera, duration: Duration) {
-        self.active = Some(ActiveAnim::Ease(CameraAnimation::new(
-            self.camera,
+        self.cam.active = Some(ActiveAnim::Ease(CameraAnimation::new(
+            self.cam.camera,
             target,
             duration,
         )));
     }
 
     pub fn tick(&mut self, now: Instant) -> bool {
-        if let Some(anim) = self.active {
-            self.camera = anim.sample(now);
-            self.camera.viewport_inset_px = self.viewport_inset_px;
-            self.camera.set_zoom_bounds(self.zoom.active());
+        // CameraState samples the animation + re-stamps the pose; the Map runs
+        // the scene-sync seam whenever a frame advanced.
+        let (advanced, still_animating) = self.cam.tick(now);
+        if advanced {
             self.sync_scenes();
-            if anim.is_finished(now) {
-                self.active = None;
-                return false;
-            }
-            return true;
         }
-        false
+        still_animating
     }
 
     pub fn is_animating(&self) -> bool {
-        if self.active.is_some() {
+        if self.cam.active.is_some() {
             return true;
         }
         // Any layer with a fading tile keeps the animation flag set.
@@ -1102,11 +1150,11 @@ impl Map {
             return;
         }
         let vp = self.viewport_px;
-        let terrain_z = self.ground_world_z(self.camera.center.to_world());
+        let terrain_z = self.ground_world_z(self.cam.camera.center.to_world());
         if terrain_z <= 0.0 {
             return; // sea level / DEM not resident yet → nothing to clear
         }
-        let alt = self.camera.altitude_world(vp);
+        let alt = self.cam.camera.altitude_world(vp);
         if alt <= 1e-9 {
             return;
         }
@@ -1119,8 +1167,8 @@ impl Map {
             return;
         }
         let pitch_max = (cos_max.acos().to_degrees() as f64).max(0.0);
-        if self.camera.pitch_deg > pitch_max {
-            self.camera.pitch_deg = pitch_max;
+        if self.cam.camera.pitch_deg > pitch_max {
+            self.cam.camera.pitch_deg = pitch_max;
         }
     }
 
@@ -1129,11 +1177,11 @@ impl Map {
         for l in self.layers.iter_mut() {
             match l {
                 LayerEntry::Raster(r) => {
-                    r.scene.set_camera(self.camera);
+                    r.scene.set_camera(self.cam.camera);
                     r.scene.set_viewport_px(self.viewport_px);
                 }
                 LayerEntry::Vector(v) => {
-                    v.scene.set_camera(self.camera);
+                    v.scene.set_camera(self.cam.camera);
                     v.scene.set_viewport_px(self.viewport_px);
                 }
                 // Hillshade no longer owns a scene — it iterates the
@@ -1142,7 +1190,7 @@ impl Map {
             }
         }
         if let Some(t) = self.terrain.as_mut() {
-            t.scene.set_camera(self.camera);
+            t.scene.set_camera(self.cam.camera);
             t.scene.set_viewport_px(self.viewport_px);
         }
     }
@@ -1151,7 +1199,7 @@ impl Map {
 
     pub fn screen_to_lng_lat(&self, screen_px: (f64, f64)) -> LatLng {
         let (w, h) = self.viewport_px;
-        let world = self.camera.pixel_to_world(screen_px, (w as f64, h as f64));
+        let world = self.cam.camera.pixel_to_world(screen_px, (w as f64, h as f64));
         world.to_lat_lng()
     }
 
@@ -1165,13 +1213,13 @@ impl Map {
         // `ground_world_z` is the same displaced-z the terrain mesh uses,
         // so they land exactly where the ground is drawn.
         let proj = if self.terrain.is_some() {
-            self.camera
+            self.cam.camera
                 .world_to_screen_z(world, self.ground_world_z(world), (w as f64, h as f64))
         } else {
             // Fall back to the camera centre for off-screen / behind-camera
             // points so callers (e.g. hit-test on markers) get a deterministic
             // value rather than panicking. The cull happens upstream.
-            self.camera.world_to_screen(world, (w as f64, h as f64))
+            self.cam.camera.world_to_screen(world, (w as f64, h as f64))
         };
         proj.unwrap_or(centre)
     }
@@ -1188,7 +1236,7 @@ impl Map {
         };
         // `meters_to_world` at the camera-centre latitude — the same factor the
         // per-frame mesh displacement uses, so overlays land on the surface.
-        let lat = self.camera.center.lat.to_radians();
+        let lat = self.cam.camera.center.lat.to_radians();
         let m2w = (lat.cos().abs() as f32 / 40_075_017.0).max(1e-12);
         t.ground_world_z(world, m2w)
     }
@@ -1374,7 +1422,7 @@ impl Map {
         }
 
         // Then vector-tile features, top-most layer first.
-        let camera = self.camera;
+        let camera = self.cam.camera;
         let ppw = camera.pixels_per_world_unit();
         let centre = camera.center.to_world();
         let (vw, vh) = self.viewport_px;
@@ -1451,15 +1499,15 @@ impl Map {
         // shrugs. Drop the frame (the last presented surface stays on screen)
         // and record it, so a host watching `last_frame_metrics` can see the
         // map is shedding frames rather than silently wedging.
-        let gate_vp = self.camera.view_projection_matrix(self.viewport_px);
+        let gate_vp = self.cam.camera.view_projection_matrix(self.viewport_px);
         if !crate::render::mat4_is_finite(&gate_vp)
-            || !self.camera.pitch_deg.is_finite()
-            || !self.camera.zoom.is_finite()
+            || !self.cam.camera.pitch_deg.is_finite()
+            || !self.cam.camera.zoom.is_finite()
         {
             log::warn!(
                 "turbomap: dropping non-finite frame (pitch={}, zoom={}, vp_finite={})",
-                self.camera.pitch_deg,
-                self.camera.zoom,
+                self.cam.camera.pitch_deg,
+                self.cam.camera.zoom,
                 crate::render::mat4_is_finite(&gate_vp),
             );
             self.last_frame_metrics = FrameMetrics {
@@ -1491,7 +1539,7 @@ impl Map {
         // raster/vector terrain configs — derived once from the camera +
         // sun + terrain. See [`RenderFrame`].
         let frame = RenderFrame::build(
-            &self.camera,
+            &self.cam.camera,
             self.viewport_px,
             self.effective_sun(),
             TerrainFrameInputs {
@@ -1609,7 +1657,7 @@ impl Map {
                 self.marker_pipeline.prepare(&t.scene, self.markers.all())
             } else {
                 // No layers — build a one-off Scene from the Map's state.
-                let scene = Scene::with_margin(self.camera, self.viewport_px, 0, 22, 0);
+                let scene = Scene::with_margin(self.cam.camera, self.viewport_px, 0, 22, 0);
                 self.marker_pipeline.prepare(&scene, self.markers.all())
             };
             Some(p)
@@ -1714,7 +1762,7 @@ impl Map {
         // join the MSAA frame pass above (sample-count / depth mismatch),
         // so it pays one extra fullscreen pass — acceptable for an overlay.
         let clouds_started = Instant::now();
-        let cam = self.camera;
+        let cam = self.cam.camera;
         let (vw, vh) = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
         if let Some(c) = &mut self.clouds {
             if c.enabled {
