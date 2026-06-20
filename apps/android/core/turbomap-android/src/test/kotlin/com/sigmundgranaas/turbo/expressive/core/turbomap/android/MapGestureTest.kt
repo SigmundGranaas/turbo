@@ -73,6 +73,15 @@ class MapGestureTest {
     }
 
     @Test
+    fun rotate_gate_is_far_stiffer_while_zooming() {
+        // A plain twist engages rotation at the normal gate; once a zoom is in progress it
+        // takes a much bigger, deliberate twist ("…unless you reaaaaaally push it").
+        assertTrue("zooming gate is much higher", rotateGateDeg(zooming = true) > rotateGateDeg(zooming = false) * 2)
+        assertEquals(ROTATE_GATE_DEG, rotateGateDeg(zooming = false), 1e-4f)
+        assertEquals(ROTATE_GATE_WHILE_ZOOMING_DEG, rotateGateDeg(zooming = true), 1e-4f)
+    }
+
+    @Test
     fun zoom_tracker_reports_levels_per_second() {
         // Spread doubles (×2 = +1 zoom level) over 100 ms → ~10 levels/s.
         val tracker = ZoomVelocityTracker()

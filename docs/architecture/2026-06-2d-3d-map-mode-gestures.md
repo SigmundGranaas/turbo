@@ -3,6 +3,26 @@
 Status: design (not yet implemented). Target: Android **wgpu/turbomap** engine only.
 Date: 2026-06-18.
 
+## Revision 2026-06-20 — unified gesture model (SUPERSEDES the orbit model below)
+
+The 1-finger-orbit model below was reworked after device testing (it felt wrong: a
+shaky finger spun the map, and pinches drifted/rotated). The shipped grammar:
+
+- **One finger → pan** in BOTH 2D and 3D (slop-gated against jitter).
+- **Two fingers → zoom (pinch) + rotate (twist) + tilt (3D only, parallel vertical
+  drag)**, all pivoting about the gesture **centroid**. No two-finger pan (one finger
+  pans), so a pinch can't slide the map around.
+- **Movement gates**: each of zoom / rotate / tilt only *engages* once its own signal
+  crosses a deliberate threshold (`ZOOM_GATE_LEVELS`, `ROTATE_GATE_DEG`,
+  `TILT_GATE_DP`), so a simple pinch doesn't rotate/tilt and a twist doesn't zoom.
+  Rotation's gate is far stiffer **while zooming** (`ROTATE_GATE_WHILE_ZOOMING_DEG`).
+- Zoom pivots via `nativeZoomAround` (focus-anchored); rotate/tilt via
+  `nativeOrbitAround(dBearing, dPitch, focusX, focusY)` about the centroid. Bearing
+  sign turns the map *with* the fingers.
+
+The 2D/3D mode flag now only decides whether two-finger **tilt** is allowed.
+Everything below is the superseded original design, kept for history.
+
 ## Goal
 
 Two explicit map modes the user toggles between, with different gesture semantics:

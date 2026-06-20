@@ -19,7 +19,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -119,11 +118,9 @@ fun TurbomapMapView(
     controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles") }
     fun scene() = TurbomapScene.build(rasters, track, route, measure, userLocation, demUrl = demUrl)
 
-    // Latest values read by the long-lived gesture lambda (pointerInput(Unit)
-    // never restarts), so toggling 3D / moving the user dot takes effect without
-    // recreating the detector.
+    // Latest 3D flag read by the long-lived gesture lambda (pointerInput(Unit) never
+    // restarts), so toggling 3D takes effect without recreating the detector.
     val threeDState = rememberUpdatedState(threeDMode)
-    val userLocationState = rememberUpdatedState(userLocation)
 
     // 2D↔3D transition: ease into a default tilt on entering 3D (so it reads as
     // 3D immediately + the cloud overlay gets its camera-ray side-reveal), back
@@ -156,19 +153,8 @@ fun TurbomapMapView(
                         onTransform = { panX, panY, zoom, fx, fy -> controller.onTransform(panX, panY, zoom, fx, fy) },
                         onFling = { vx, vy -> controller.onFling(vx, vy) },
                         onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },
-                        onRotate = { deg, fx, fy -> controller.onRotate(deg, fx, fy) },
                         mode = {
                             if (threeDState.value) MapGestureMode.ThreeD else MapGestureMode.TwoD
-                        },
-                        orbitFocus = {
-                            val loc = userLocationState.value
-                            val eng = controller.engine
-                            if (loc != null && eng != null) {
-                                val (x, y) = eng.toScreen(loc)
-                                Offset(x, y)
-                            } else {
-                                null
-                            }
                         },
                         onOrbit = { db, dp, fx, fy -> controller.onOrbit(db, dp, fx, fy) },
                     )
@@ -442,10 +428,9 @@ internal class TurbomapSurfaceController {
     }
 
     /**
-     * 3D-mode 1-finger drag step: orbit (rotate + tilt) about the pinned focus
-     * pixel ([focusX],[focusY]) — horizontal drag spins the bearing, vertical
-     * tilts the pitch. The focus stays over its world point, so the location
-     * being orbited stays glued to its screen spot.
+     * Two-finger rotate + tilt step: spin the bearing by [dBearingDeg] and (3D) tilt the
+     * pitch by [dPitchDeg], both about the gesture centroid ([focusX],[focusY]) so that
+     * pixel stays over its world point. Either delta may be zero (rotate-only / tilt-only).
      */
     fun onOrbit(dBearingDeg: Float, dPitchDeg: Float, focusX: Float, focusY: Float) {
         if (handle == 0L) return
@@ -453,25 +438,6 @@ internal class TurbomapSurfaceController {
             handle,
             dBearingDeg.toDouble(),
             dPitchDeg.toDouble(),
-            focusX.toDouble(),
-            focusY.toDouble(),
-        )
-        requestRender(cameraMoved = true)
-        requestReconcile()
-    }
-
-    /**
-     * 2D two-finger rotate step: spin the bearing by [dBearingDeg] about the
-     * gesture centroid ([focusX],[focusY]), keeping that pixel over its world
-     * point. It's an orbit with zero tilt — the same focus-anchored rotation 3D
-     * uses, minus the pitch.
-     */
-    fun onRotate(dBearingDeg: Float, focusX: Float, focusY: Float) {
-        if (handle == 0L) return
-        NativeSurfaceMap.nativeOrbitAround(
-            handle,
-            dBearingDeg.toDouble(),
-            0.0,
             focusX.toDouble(),
             focusY.toDouble(),
         )
