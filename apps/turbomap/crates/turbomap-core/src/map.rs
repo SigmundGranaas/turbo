@@ -1225,34 +1225,55 @@ impl Map {
 
     /// Push the current camera + viewport into each layer's scene. Called
     /// whenever the camera changes or layers are added/removed.
-    /// Keep the camera eye above the 3D terrain: if tilting/zooming would
-    /// drop the eye to (or below) the relief under the look-point, cap the
-    /// pitch so it stays a clearance above. Without this, lowering the
-    /// pitch over tall, exaggerated terrain puts the camera *inside* the
-    /// mesh — you render from under the ground, which looks broken and can
-    /// hang the GPU driver. No-op without terrain or before its DEM loads.
+    /// Keep the camera eye above the 3D terrain: if tilting/orbiting/zooming
+    /// would drop the eye to (or below) the relief beneath it, cap the pitch
+    /// so it stays a clearance above. Without this, a 1-finger orbit that
+    /// lowers the view over tall, exaggerated terrain swings the eye *into* a
+    /// ridge — you render from under the ground (everything but the nearest
+    /// tile greys out / the frustum degenerates, which can hang the GPU
+    /// driver). No-op without terrain or before its DEM loads.
+    ///
+    /// The eye is not above the look-point: at pitch `p` it sits a horizontal
+    /// `alt·sin(p)` *back* from the centre (rotated by bearing) at height
+    /// `alt·cos(p)`. Sampling terrain only at the centre (the old behaviour)
+    /// misses a ridge the eye swings over — so we sample the whole centre→eye
+    /// segment and clear the HIGHEST relief under it.
     fn clamp_pitch_above_terrain(&mut self) {
         if self.terrain.is_none() {
             return;
         }
         let vp = self.viewport_px;
-        let terrain_z = self.ground_world_z(self.cam.camera.center.to_world());
-        if terrain_z <= 0.0 {
-            return; // sea level / DEM not resident yet → nothing to clear
-        }
-        let alt = self.cam.camera.altitude_world(vp);
+        let alt = self.cam.camera.altitude_world(vp) as f64;
         if alt <= 1e-9 {
             return;
         }
+        let center = self.cam.camera.center.to_world();
+        let pitch = self.cam.camera.pitch_deg.to_radians();
+        // Eye horizontal offset from the centre (world units), matching the
+        // view matrix's eye construction: bearing_rot · (0, alt·sin(pitch)).
+        let (sb, cb) = self.cam.camera.bearing_deg.to_radians().sin_cos();
+        let horiz = alt * pitch.sin();
+        let (ex, ey) = (-horiz * sb, horiz * cb);
+        // Highest terrain along centre→eye (the binding obstacle).
+        let mut terrain_z = self.ground_world_z(center);
+        const SEG_SAMPLES: u32 = 6;
+        for k in 1..=SEG_SAMPLES {
+            let t = k as f64 / SEG_SAMPLES as f64;
+            let p = WorldPoint::new(center.x + ex * t, center.y + ey * t);
+            terrain_z = terrain_z.max(self.ground_world_z(p));
+        }
+        if terrain_z <= 0.0 {
+            return; // sea level / DEM not resident yet → nothing to clear
+        }
         // Require eye_z = alt·cos(pitch) ≥ terrain_z + clearance.
-        let clearance = 0.20 * alt;
-        let cos_max = ((terrain_z + clearance) / alt).clamp(0.0, 1.0);
+        let clearance = 0.20 * alt as f32;
+        let cos_max = (((terrain_z + clearance) as f64) / alt).clamp(0.0, 1.0);
         // Guard the acos domain: a non-finite ratio (e.g. terrain_z/alt NaN)
         // would make pitch NaN → NaN view matrix → GPU hang. Skip if so.
         if !cos_max.is_finite() {
             return;
         }
-        let pitch_max = (cos_max.acos().to_degrees() as f64).max(0.0);
+        let pitch_max = cos_max.acos().to_degrees().max(0.0);
         if self.cam.camera.pitch_deg > pitch_max {
             self.cam.camera.pitch_deg = pitch_max;
         }

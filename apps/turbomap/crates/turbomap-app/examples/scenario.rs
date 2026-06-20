@@ -598,6 +598,19 @@ fn render_to_png(
 /// darkened (the shadow footprint) and the mean luma drop over just those
 /// pixels. A whole-frame mean is swamped by the bright sky (most of a tilted
 /// frame), so we measure the shadowed region directly.
+/// Fraction of pixels that are the empty-tile clear grey (sRGB ≈ 170,170,165 —
+/// `BACKGROUND_CLEAR`). High = the view is mostly uncovered "grey holes".
+fn grey_fraction(img: &RgbaImage) -> f64 {
+    let mut grey = 0usize;
+    for p in img.pixels() {
+        let (r, g, b) = (p[0] as i32, p[1] as i32, p[2] as i32);
+        if (r - 170).abs() <= 6 && (g - 170).abs() <= 6 && (b - 165).abs() <= 6 {
+            grey += 1;
+        }
+    }
+    grey as f64 / (img.width() * img.height()) as f64
+}
+
 fn darkening_stats(off: &RgbaImage, on: &RgbaImage) -> (usize, f64, f64) {
     let luma = |p: &[u8]| 0.2126 * p[0] as f64 + 0.7152 * p[1] as f64 + 0.0722 * p[2] as f64;
     let mut changed = 0usize;
@@ -757,6 +770,69 @@ fn main() {
         cli.center.lng + 1.2,
         cli.center.lat + 0.6,
     );
+
+    // Debug fast path (TURBO_PAN_REPRO=1): reproduce the "pan too far down at
+    // high pitch → everything but the nearest tile greys out" bug. Pitch to
+    // 80°, then pan toward the horizon in steps, dumping each frame + logging
+    // the visible-tile count and the fraction of the frame that's the grey
+    // empty-tile clear colour. ~30 s.
+    if std::env::var("TURBO_PAN_REPRO").is_ok() {
+        let cam = Camera::new(cli.center, cli.zoom)
+            .with_pitch(80.0)
+            .with_bearing(cli.bearing);
+        map.set_camera(cam);
+        drain_tiles(&mut map, &basemap, &dem, &vector);
+        eprintln!("  ── pan-down repro (pitch 80°) ──");
+        for i in 0..16 {
+            // Drag the content downward (reveal further toward the horizon).
+            map.pan_by_pixels(0.0, 200.0);
+            drain_tiles(&mut map, &basemap, &dem, &vector);
+            let img = render_capture(&mut map, &device, &queue, &target, &target_view);
+            std::fs::write(format!("{}/pan-{i:02}.png", cli.out_dir), encode_png(&img))
+                .expect("write png");
+            let grey = grey_fraction(&img);
+            let m = map.last_frame_metrics().clone();
+            let c = map.camera();
+            eprintln!(
+                "  pan {i:>2}: center={:.4},{:.4} pitch={:.0} tiles_drawn={} grey={:.0}%",
+                c.center.lat, c.center.lng, c.pitch_deg, m.tiles_drawn, grey * 100.0,
+            );
+        }
+        eprintln!("PAN REPRO done — frames in {}", cli.out_dir);
+        return;
+    }
+
+    // Debug fast path (TURBO_ORBIT_REPRO=1): the actual bug — a 1-finger orbit
+    // that tilts DOWN swings the eye back over terrain; without the eye-above-
+    // terrain clamp it ends up inside a ridge (grey/broken). Orbit down in 5°
+    // steps and log requested vs actual (clamped) pitch: when the clamp engages
+    // the actual pitch plateaus below the request, keeping the eye above ground.
+    if std::env::var("TURBO_ORBIT_REPRO").is_ok() {
+        let cam = Camera::new(cli.center, cli.zoom)
+            .with_pitch(20.0)
+            .with_bearing(cli.bearing);
+        map.set_camera(cam);
+        drain_tiles(&mut map, &basemap, &dem, &vector);
+        eprintln!("  ── orbit-down repro (tilt 20°→ up, focus = screen centre) ──");
+        let focus = (WIDTH as f64 * 0.5, HEIGHT as f64 * 0.5);
+        let mut requested = 20.0f64;
+        for i in 0..14 {
+            requested += 5.0;
+            map.pitch_around(5.0, focus);
+            drain_tiles(&mut map, &basemap, &dem, &vector);
+            let img = render_capture(&mut map, &device, &queue, &target, &target_view);
+            std::fs::write(format!("{}/orbit-{i:02}.png", cli.out_dir), encode_png(&img))
+                .expect("write png");
+            let actual = map.camera().pitch_deg;
+            let clamped = if actual + 0.5 < requested.min(80.0) { " ← CLAMPED" } else { "" };
+            eprintln!(
+                "  orbit {i:>2}: requested={requested:>5.1}  actual={actual:>5.1}  grey={:.0}%{clamped}",
+                grey_fraction(&img) * 100.0,
+            );
+        }
+        eprintln!("ORBIT REPRO done — frames in {}", cli.out_dir);
+        return;
+    }
 
     let steps = build_steps(&cli);
     eprintln!(
