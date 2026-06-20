@@ -30,6 +30,7 @@ use crate::{
         icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline},
+        shadow::{self, ShadowMap, SHADOW_DIM},
         sky::SkyPipeline,
         targets::FrameTargets,
         terrain::{Terrain, TerrainCache, TerrainOptions, TerrainShared},
@@ -490,6 +491,11 @@ struct Renderer {
     /// before any terrain source is registered — they bind the placeholder
     /// and render flat.
     terrain_shared: TerrainShared,
+    /// Frame-global terrain cast-shadow grid (sun-visibility texture + bind
+    /// group), bound at `@group(3)` of the raster pipeline. One per renderer,
+    /// uploaded from a CPU horizon-march when the sun/region/DEM changes. See
+    /// [`crate::render::shadow`].
+    shadow_map: ShadowMap,
     /// The frame's MSAA colour + depth attachments, recreated together on
     /// resize. See [`FrameTargets`].
     targets: FrameTargets,
@@ -509,6 +515,7 @@ impl Renderer {
             sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), surface_format),
             gpu_timestamps: GpuTimestamps::new(device, queue),
             terrain_shared: TerrainShared::new(device, queue),
+            shadow_map: ShadowMap::new(device, queue),
             targets: FrameTargets::new(device, surface_format, initial_size),
         }
     }
@@ -616,6 +623,41 @@ pub struct Map {
     /// perspective + clouds. One explicit mode (default / time-tracked /
     /// fixed), see [`crate::lighting::Lighting`].
     lighting: Lighting,
+    /// Terrain cast-shadow controls + recompute cache. `strength == 0`
+    /// (default) disables the feature. See [`crate::render::shadow`] and the
+    /// shadow block in [`Map::render`].
+    shadow: TerrainShadowState,
+}
+
+/// Terrain cast-shadow state held on the `Map`: the user-set strength plus the
+/// inputs of the last computed [`shadow::ShadowField`], so the (relatively
+/// expensive) CPU horizon-march reruns only when something it depends on
+/// changed — the sun moved, the camera panned/zoomed to a new region, or new
+/// DEM tiles arrived. Orbit/tilt keep the centre + zoom fixed, so they reuse
+/// the cached field for free.
+#[derive(Default)]
+struct TerrainShadowState {
+    /// 0 = disabled. Blend factor of cast shadows into the direct sun term.
+    strength: f32,
+    /// Key of the last computed field; `None` forces a recompute.
+    key: Option<ShadowKey>,
+    /// Camera-relative origin + world extent of the last computed field,
+    /// re-applied to the frame's terrain config every frame the feature is on.
+    origin_rtc: [f32; 2],
+    world_size: f32,
+}
+
+/// Identity of the inputs a [`shadow::ShadowField`] was computed from (floats
+/// kept as bit patterns so the key is `Eq`/`Hash`-able). Equality means
+/// "nothing the field depends on changed", so the cached GPU upload stands.
+#[derive(PartialEq, Eq)]
+struct ShadowKey {
+    sun: [u32; 3],
+    origin: [u32; 2],
+    size: u32,
+    /// Monotonic DEM-insert count — bumps when new terrain tiles ingest, so a
+    /// freshly-filled region recomputes its shadows.
+    dem_inserts: u64,
 }
 
 impl Map {
@@ -642,6 +684,7 @@ impl Map {
             terrain: None,
             clouds: None,
             lighting: Lighting::default(),
+            shadow: TerrainShadowState::default(),
         })
     }
 
@@ -792,6 +835,26 @@ impl Map {
         self.lighting.set_fixed(sun);
     }
 
+    /// Enable (and set the intensity of) terrain *cast* shadows — a peak
+    /// throwing a shadow across the valley behind it, distinct from the
+    /// always-on Lambertian self-shading. `strength` in `[0,1]`: 0 disables the
+    /// feature entirely (zero per-frame cost), 1 is full occlusion of the
+    /// direct sun term (ambient skylight still reaches shadowed ground).
+    ///
+    /// Only affects 3D terrain (a DEM source must be registered). The shadow
+    /// field is computed on the CPU and refreshed when the sun, the visible
+    /// region, or the resident DEM changes — so a static view costs nothing
+    /// after the first frame. See [`crate::render::shadow`].
+    pub fn set_terrain_shadows(&mut self, strength: f32) {
+        let s = strength.clamp(0.0, 1.0);
+        if s != self.shadow.strength {
+            self.shadow.strength = s;
+            // Force a recompute on the next frame (the strength change alone
+            // doesn't alter the field, but turning it on from cold must).
+            self.shadow.key = None;
+        }
+    }
+
     /// The sun position used this frame, resolved by the [`Lighting`] mode
     /// at the camera's current location.
     fn effective_sun(&self) -> SunPosition {
@@ -823,6 +886,7 @@ impl Map {
             self.queue.clone(),
             self.surface_format,
             &self.renderer.terrain_shared.bind_group_layout,
+            &self.renderer.shadow_map.layout,
         );
         let cache = TextureCache::new(
             self.device.clone(),
@@ -1510,6 +1574,102 @@ impl Map {
 
     // ---- render --------------------------------------------------------
 
+    /// Refresh the terrain cast-shadow field if its inputs changed, then patch
+    /// `frame.raster_terrain_cfg` so the raster pipeline samples it. Called from
+    /// `render` only when `self.shadow.strength > 0`.
+    ///
+    /// The field is computed in the camera-relative (RTC) world frame — the
+    /// same frame the vertex shader emits — so the fragment shader's UV map
+    /// needs no extra camera math and f32 precision holds at deep zoom. The
+    /// recompute is gated on a [`ShadowKey`] (sun direction, RTC region, DEM
+    /// insert count): orbit/tilt at a fixed centre reuse the cached upload.
+    fn update_terrain_shadows(&mut self, frame: &mut RenderFrame) {
+        let cfg = frame.raster_terrain_cfg;
+        // Cast shadows only make sense on real 3D terrain.
+        if cfg.meters_to_world <= 0.0 {
+            log::debug!("turbomap shadow: skip — meters_to_world={}", cfg.meters_to_world);
+            return;
+        }
+        let Some(terrain) = self.terrain.as_ref() else {
+            log::debug!("turbomap shadow: skip — no terrain");
+            return;
+        };
+        let tiles = terrain.scene.visible_tiles();
+        if tiles.is_empty() {
+            log::debug!("turbomap shadow: skip — terrain scene has no visible tiles");
+            return;
+        }
+        // Cover the camera's near/mid field, centred on the camera — NOT the
+        // full visible-tile bbox. At high tilt that bbox reaches the hazed
+        // horizon (~13 z-tiles wide), spreading the fixed 192² grid so thin
+        // (~130 m/cell) that real shadows fall between cells and miss the near
+        // terrain that fills the screen. The on-screen flat footprint is
+        // `viewport / pixels-per-world-unit`; 2× covers near + mid field with
+        // fine cells (and stays stable under orbit/tilt at a fixed centre).
+        let cam_origin = self.cam.camera.center.to_world();
+        let ppw = self.cam.camera.pixels_per_world_unit() as f32;
+        let footprint = (self.viewport_px.0.max(self.viewport_px.1) as f32) / ppw.max(1e-9);
+        // 1× the flat footprint: tight enough that the 192² grid resolves crisp
+        // shadows on the near terrain (≈ DEM-native cell size at hiking zooms),
+        // while still covering the screen-filling near/mid field.
+        let size_f = (footprint).clamp(1e-6, 0.5);
+        // Grid centred on the camera: RTC origin (camera at 0) is the lower-left
+        // corner at -size/2.
+        let origin_rtc = [-0.5 * size_f, -0.5 * size_f];
+        // Vertical scale for the shadow heightfield. The mesh's `meters_to_world`
+        // (= cos(lat)/circ) under-scales true relief by ~1/cos²(lat) — acceptable
+        // for the rendered surface, but it flattens slopes so far that terrain
+        // only occludes the sun near the horizon. For shadows to reflect the REAL
+        // steepness (and fall on the correct ground footprint), use the
+        // geometrically-correct vertical — world-z per metre = 1/(circ·cos lat),
+        // matching the world-xy ground scale at this latitude. The user's
+        // exaggeration carries over so shadows track the dialed-in relief.
+        let lat = self.cam.camera.center.lat.to_radians();
+        let earth_circ = 40_075_017.0_f64;
+        let coslat = lat.cos().abs().max(1.0e-6);
+        let zscale = (cfg.exaggeration as f64 / (earth_circ * coslat)) as f32;
+        let sun_dir = cfg.sun_dir;
+        let dem_inserts = terrain.cache.stats().inserts;
+
+        let key = ShadowKey {
+            sun: [sun_dir[0].to_bits(), sun_dir[1].to_bits(), sun_dir[2].to_bits()],
+            // Camera centre (absolute world) + grid size: a pan moves the centre
+            // → recompute; orbit/tilt keep it fixed → the cached upload is reused.
+            origin: [(cam_origin.x as f32).to_bits(), (cam_origin.y as f32).to_bits()],
+            size: size_f.to_bits(),
+            dem_inserts,
+        };
+
+        if self.shadow.key.as_ref() != Some(&key) {
+            // ~12 m of relief over the grazing ray fades a cell lit→shadowed:
+            // a soft penumbra edge, but tight enough that real ridges produce a
+            // crisp, dark shadow core rather than washing out to faint grey.
+            let softness = (12.0 * zscale).max(1e-7);
+            let field = shadow::compute(SHADOW_DIM, origin_rtc, size_f, sun_dir, softness, |wx, wy| {
+                // The grid is in RTC world; convert back to absolute world for
+                // the cross-tile height lookup.
+                let ax = wx as f64 + cam_origin.x;
+                let ay = wy as f64 + cam_origin.y;
+                terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale
+            });
+            if log::log_enabled!(log::Level::Debug) {
+                let shadowed = field.visibility.iter().filter(|&&v| v < 0.99).count();
+                log::debug!(
+                    "turbomap shadow: recompute size={size_f:.2e} zscale={zscale:.2e} sun={sun_dir:?} shadowed_cells={shadowed}/{}",
+                    field.visibility.len(),
+                );
+            }
+            self.renderer.shadow_map.upload(&field);
+            self.shadow.key = Some(key);
+            self.shadow.origin_rtc = origin_rtc;
+            self.shadow.world_size = size_f;
+        }
+
+        frame.raster_terrain_cfg.shadow_origin = self.shadow.origin_rtc;
+        frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
+        frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
+    }
+
     pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
         let started = Instant::now();
 
@@ -1560,7 +1720,7 @@ impl Map {
         // atmosphere, the aerial-perspective haze, the sky uniform and the
         // raster/vector terrain configs — derived once from the camera +
         // sun + terrain. See [`RenderFrame`].
-        let frame = RenderFrame::build(
+        let mut frame = RenderFrame::build(
             &self.cam.camera,
             self.viewport_px,
             self.effective_sun(),
@@ -1579,6 +1739,12 @@ impl Map {
                 halo_px: self.terrain.as_ref().map(|t| t.cache.halo_px()).unwrap_or(0),
             },
         );
+        // Terrain cast shadows: if enabled (and we have 3D terrain), refresh the
+        // CPU horizon-march field when its inputs changed and patch the frame's
+        // raster config to sample it. No-op (and no cost) when strength == 0.
+        if self.shadow.strength > 0.0 {
+            self.update_terrain_shadows(&mut frame);
+        }
         let first_visible = self.first_visible_layer_index();
 
         // ---- Phase A: prepare ------------------------------------
@@ -1709,6 +1875,7 @@ impl Map {
         {
             let terrain_cache = self.terrain.as_ref().map(|t| &t.cache);
             let placeholder_dem = &self.renderer.terrain_shared.placeholder_bind_group;
+            let shadow_bg = &self.renderer.shadow_map.bind_group;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("turbomap-frame-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1746,8 +1913,14 @@ impl Map {
             for (i, prepared) in &prepared_layers {
                 match (&self.layers[*i], prepared) {
                     (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
-                        r.pipeline
-                            .draw(p, &r.cache, terrain_cache, placeholder_dem, &mut pass);
+                        r.pipeline.draw(
+                            p,
+                            &r.cache,
+                            terrain_cache,
+                            placeholder_dem,
+                            shadow_bg,
+                            &mut pass,
+                        );
                     }
                     (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
                         v.pipeline.draw(p, &v.cache, terrain_cache, placeholder_dem, &mut pass);

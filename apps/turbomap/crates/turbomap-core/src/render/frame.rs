@@ -137,6 +137,12 @@ impl RenderFrame {
             haze_color: atmos.haze_color,
             haze_density,
             light_color: atmos.light_color,
+            // Cast shadows are off here; `Map::render` computes the shadow
+            // field (it needs the terrain cache + visible region, which this
+            // builder doesn't see) and patches these fields when enabled.
+            shadow_origin: [0.0, 0.0],
+            shadow_inv_size: 0.0,
+            shadow_strength: 0.0,
         };
 
         // Vector drape params, derived from the raster config.

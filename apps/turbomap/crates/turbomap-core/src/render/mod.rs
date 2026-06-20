@@ -13,6 +13,7 @@ pub(crate) mod hillshade;
 pub(crate) mod icon;
 pub(crate) mod marker;
 pub(crate) mod raster;
+pub(crate) mod shadow;
 pub(crate) mod sky;
 pub(crate) mod targets;
 pub mod terrain;

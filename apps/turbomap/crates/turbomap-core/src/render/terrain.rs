@@ -69,9 +69,11 @@ impl Terrain {
 
 /// Resolution (per side) of the CPU-side elevation grid kept per DEM
 /// tile. The GPU keeps the full 256² texture for crisp displacement; the
-/// CPU only needs enough to anchor markers and drape paths on the
-/// surface, where the terrain is locally smooth. 64² = 16 KiB/tile.
-const CPU_HEIGHT_DIM: usize = 64;
+/// CPU needs enough to anchor markers, drape paths, and — the finest
+/// consumer — drive the cast-shadow horizon march ([`super::shadow`]),
+/// which wants relief detail comparable to the rendered mesh or shadows
+/// blur out. 128² = 64 KiB/tile (≈ 37 m/sample at z13) is a good balance.
+const CPU_HEIGHT_DIM: usize = 128;
 
 /// A downsampled, halo-trimmed elevation grid (metres) for one DEM tile,
 /// retained CPU-side so the host can ask "how high is the ground here?"

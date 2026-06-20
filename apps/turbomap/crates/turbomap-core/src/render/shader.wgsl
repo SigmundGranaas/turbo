@@ -36,6 +36,16 @@ struct Globals {
     light_color: vec3<f32>,
     // 1 = apply sun-shading + haze (3D terrain), 0 = flat texture only.
     terrain_lit: f32,
+    // --- Terrain cast shadows (CPU horizon-march, see render/shadow.rs) ---
+    // Maps a fragment's world-xy into the shadow grid's [0,1] UV:
+    //   uv = (world.xy - shadow_origin) * shadow_inv_size
+    // shadow_origin is in the camera-relative (RTC) frame the vertex shader
+    // emits, so the fragment needs no extra camera math.
+    shadow_origin: vec2<f32>,
+    shadow_inv_size: f32,
+    // 0 disables cast shadows entirely (the texture is ignored); > 0 blends
+    // the sampled sun-visibility into the direct sun term by this strength.
+    shadow_strength: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -44,6 +54,12 @@ struct Globals {
 @group(1) @binding(1) var tile_sampler: sampler;
 @group(2) @binding(0) var dem_tex: texture_2d<f32>;
 @group(2) @binding(1) var dem_samp: sampler;
+// Frame-global terrain cast-shadow grid: per-texel sun visibility in [0,1]
+// (1 = lit, 0 = occluded), assembled across tiles on the CPU. One texture for
+// the whole frame, sampled by world-xy — this is what lets a peak in one tile
+// shadow a valley in another (the per-tile DEM at group 2 cannot reach across).
+@group(3) @binding(0) var shadow_tex: texture_2d<f32>;
+@group(3) @binding(1) var shadow_samp: sampler;
 
 fn decode_elevation(rgb: vec3<f32>) -> f32 {
     let r = rgb.r * 255.0;
@@ -100,6 +116,9 @@ struct VertexOutput {
     @location(2) normal: vec3<f32>,
     // `1 - exp(-dist·density)` aerial-perspective blend factor, 0..1.
     @location(3) haze: f32,
+    // World-xy in the camera-relative (RTC) frame — used by the fragment
+    // shader to sample the cast-shadow grid.
+    @location(4) world_xy: vec2<f32>,
 };
 
 @vertex
@@ -147,6 +166,7 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     // pitch ramp, so this is 0 on the flat 2D map.
     let dist = length(world);
     out.haze = 1.0 - exp(-dist * globals.haze_density);
+    out.world_xy = world;
     return out;
 }
 
@@ -163,7 +183,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // faces readable; the sunlit term carries the sky's warm tint.
     let n = normalize(in.normal);
     let ndl = clamp(dot(n, globals.sun_dir), 0.0, 1.0);
-    let light = globals.ambient + (1.0 - globals.ambient) * ndl;
+
+    // Cast shadows: a peak occludes the valley behind it. The CPU horizon
+    // march wrote per-cell sun visibility into shadow_tex (1 = lit, 0 =
+    // occluded); sample it by this fragment's world-xy. `occ` is the occlusion
+    // amount in [0, strength]. A shadowed fragment loses the DIRECT sun term
+    // entirely AND a portion of the ambient skylight (ambient occlusion) — so
+    // it reads as a clearly dark shadow, not a faint tint, yet never goes fully
+    // black (some skylight always reaches it).
+    var occ = 0.0;
+    if (globals.shadow_strength > 0.0) {
+        let suv = (in.world_xy - globals.shadow_origin) * globals.shadow_inv_size;
+        if (suv.x >= 0.0 && suv.y >= 0.0 && suv.x <= 1.0 && suv.y <= 1.0) {
+            let vis = textureSampleLevel(shadow_tex, shadow_samp, suv, 0.0).r;
+            occ = (1.0 - vis) * globals.shadow_strength;
+        }
+    }
+    let direct = (1.0 - globals.ambient) * ndl * (1.0 - occ);
+    let ambient_lit = globals.ambient * (1.0 - 0.5 * occ);
+    let light = ambient_lit + direct;
     var rgb = s.rgb * light * globals.light_color;
 
     // Aerial perspective: fade distant relief toward the atmosphere

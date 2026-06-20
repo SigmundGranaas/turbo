@@ -51,6 +51,12 @@ struct Globals {
     light_color: [f32; 3],
     /// 1 = sun-shade + haze the displaced terrain, 0 = flat texture.
     terrain_lit: f32,
+    /// Cast-shadow grid transform (camera-relative world-xy → [0,1] UV) and
+    /// strength. `shadow_strength == 0` disables sampling. See
+    /// [`super::shadow`]. Packs to one std140 16-byte slot (vec2 + 2 scalars).
+    shadow_origin: [f32; 2],
+    shadow_inv_size: f32,
+    shadow_strength: f32,
 }
 
 #[repr(C)]
@@ -134,6 +140,18 @@ pub(crate) struct TerrainConfig {
     pub haze_density: f32,
     /// Sunlight colour for the time of day.
     pub light_color: [f32; 3],
+    /// Cast-shadow grid origin in the camera-relative (RTC) world frame the
+    /// vertex shader emits. With `shadow_inv_size`, maps a fragment's world-xy
+    /// to the shadow texture's `[0,1]` UV.
+    pub shadow_origin: [f32; 2],
+    /// `1 / shadow_world_size` — the reciprocal of the world extent the shadow
+    /// grid covers. 0 leaves the UV mapping degenerate (only used when
+    /// `shadow_strength == 0`).
+    pub shadow_inv_size: f32,
+    /// 0 = no cast shadows (texture ignored); > 0 blends sampled sun-visibility
+    /// into the direct light term by this factor. The Map sets this from
+    /// `set_terrain_shadows`.
+    pub shadow_strength: f32,
 }
 
 impl Default for TerrainConfig {
@@ -147,6 +165,9 @@ impl Default for TerrainConfig {
             haze_color: [0.74, 0.80, 0.88],
             haze_density: 0.0,
             light_color: [1.0, 1.0, 1.0],
+            shadow_origin: [0.0, 0.0],
+            shadow_inv_size: 0.0,
+            shadow_strength: 0.0,
         }
     }
 }
@@ -181,6 +202,7 @@ impl RasterPipeline {
         queue: Arc<wgpu::Queue>,
         surface_format: wgpu::TextureFormat,
         terrain_bgl: &wgpu::BindGroupLayout,
+        shadow_bgl: &wgpu::BindGroupLayout,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("turbomap-raster-shader"),
@@ -243,7 +265,12 @@ impl RasterPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("turbomap-raster-layout"),
-            bind_group_layouts: &[Some(&camera_bgl), Some(&texture_bgl), Some(terrain_bgl)],
+            bind_group_layouts: &[
+                Some(&camera_bgl),
+                Some(&texture_bgl),
+                Some(terrain_bgl),
+                Some(shadow_bgl),
+            ],
             immediate_size: 0,
         });
 
@@ -494,6 +521,15 @@ impl RasterPipeline {
                 },
                 light_color: terrain_options.light_color,
                 terrain_lit: if dem_present { 1.0 } else { 0.0 },
+                shadow_origin: terrain_options.shadow_origin,
+                shadow_inv_size: terrain_options.shadow_inv_size,
+                // No DEM → no relief to occlude; force shadows off so the flat
+                // 2D map never samples the (stale) shadow texture.
+                shadow_strength: if dem_present {
+                    terrain_options.shadow_strength
+                } else {
+                    0.0
+                },
             }),
         );
 
@@ -674,6 +710,7 @@ impl RasterPipeline {
         cache: &TextureCache,
         terrain: Option<&TerrainCache>,
         placeholder_dem: &wgpu::BindGroup,
+        shadow_bg: &wgpu::BindGroup,
         pass: &mut wgpu::RenderPass<'_>,
     ) {
         if prepared.batches.is_empty() {
@@ -684,6 +721,11 @@ impl RasterPipeline {
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
+        // Frame-global cast-shadow grid (group 3). Constant for the whole draw
+        // list — bound once. When shadows are off, `shadow_strength` in Globals
+        // is 0 so the shader never samples it (the texture is the fully-lit
+        // placeholder anyway).
+        pass.set_bind_group(3, shadow_bg, &[]);
 
         let mut start: u32 = 0;
         for b in &prepared.batches {

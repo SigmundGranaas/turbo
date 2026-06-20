@@ -515,17 +515,17 @@ fn drain_tiles(
     }
 }
 
-/// Render the current Map state to a PNG. Single encoder: render +
-/// copy_texture_to_buffer, then poll the device until the readback maps.
-#[allow(clippy::too_many_arguments)]
-fn render_to_png(
+/// Render the current Map state and read the framebuffer back into an image.
+/// Single encoder: render + copy_texture_to_buffer, then poll the device until
+/// the readback maps. The captured image lets a caller both dump a PNG and
+/// measure the frame (e.g. mean luma for the cast-shadow A/B proof).
+fn render_capture(
     map: &mut Map,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     target: &wgpu::Texture,
     target_view: &wgpu::TextureView,
-    path: &str,
-) {
+) -> RgbaImage {
     let mut encoder = device.create_command_encoder(&Default::default());
     map.render(&mut encoder, target_view);
     let bpp = 4u32;
@@ -577,8 +577,44 @@ fn render_to_png(
         let s = (row * padded) as usize;
         tight.extend_from_slice(&data[s..s + unpadded as usize]);
     }
-    let img = RgbaImage::from_raw(WIDTH, HEIGHT, tight).expect("rgba");
+    RgbaImage::from_raw(WIDTH, HEIGHT, tight).expect("rgba")
+}
+
+/// Render + read back + write a PNG. Thin wrapper over [`render_capture`].
+#[allow(clippy::too_many_arguments)]
+fn render_to_png(
+    map: &mut Map,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    target: &wgpu::Texture,
+    target_view: &wgpu::TextureView,
+    path: &str,
+) {
+    let img = render_capture(map, device, queue, target, target_view);
     std::fs::write(path, encode_png(&img)).expect("write png");
+}
+
+/// Compare two frames for the cast-shadow proof: the count of pixels that
+/// darkened (the shadow footprint) and the mean luma drop over just those
+/// pixels. A whole-frame mean is swamped by the bright sky (most of a tilted
+/// frame), so we measure the shadowed region directly.
+fn darkening_stats(off: &RgbaImage, on: &RgbaImage) -> (usize, f64, f64) {
+    let luma = |p: &[u8]| 0.2126 * p[0] as f64 + 0.7152 * p[1] as f64 + 0.0722 * p[2] as f64;
+    let mut changed = 0usize;
+    let mut drop_sum = 0.0f64;
+    let mut max_drop = 0.0f64;
+    for (a, b) in off.pixels().zip(on.pixels()) {
+        let d = luma(&a.0) - luma(&b.0);
+        if d > 0.5 {
+            changed += 1;
+            drop_sum += d;
+            if d > max_drop {
+                max_drop = d;
+            }
+        }
+    }
+    let mean = if changed > 0 { drop_sum / changed as f64 } else { 0.0 };
+    (changed, mean, max_drop)
 }
 
 fn matrix_is_finite(m: &[[f32; 4]; 4]) -> bool {
@@ -652,6 +688,12 @@ fn main() {
     let vector: Arc<dyn VectorTileSource> = Arc::new(SyntheticVectors);
     map.add_raster_layer("basemap", basemap.clone());
     map.set_terrain_source(dem.clone(), turbomap_core::TerrainOptions::default());
+    // Terrain CAST shadows on for the whole run: a peak occludes the valley
+    // behind it (distinct from the always-on Lambertian self-shading). This
+    // exercises the CPU horizon-march + the shadow texture upload + the
+    // raster shader's group(3) sample across the pitch sweep, time-of-day
+    // sweep and animated nav. The dedicated A/B proof below quantifies it.
+    map.set_terrain_shadows(0.85);
     // Hillshade over the basemap: sun-relit relief shadows from the shared DEM
     // — exercises the hillshade pipeline + the terrain self-shadowing the sun
     // drives. Drawn between basemap and vectors so roads/labels sit on top.
@@ -722,6 +764,9 @@ fn main() {
         steps.len(), cli.center.lat, cli.center.lng, cli.zoom, cli.max_pitch, cli.out_dir,
     );
 
+    // Debug fast path: skip the scripted sweep + nav and run only the
+    // cast-shadow proof (warm tiles + 2 renders). ~30 s instead of minutes.
+    let shadow_only = std::env::var("TURBO_SHADOW_ONLY").is_ok();
     let mut crashed = false;
     // Per-step profiling: we snapshot the engine's always-on FrameMetrics
     // after every render so we can table the load + timing at each pitch /
@@ -732,6 +777,9 @@ fn main() {
         "#", "step", "pitch", "cpu ms", "prep", "pass", "cloud", "lyr", "dc", "tiles",
     );
     for (i, step) in steps.iter().enumerate() {
+        if shadow_only {
+            break;
+        }
         let path = format!("{}/{:03}-{}.png", cli.out_dir, i, step.label);
         let cam = step.camera;
         // Catch a Rust panic per step so we know exactly which interaction
@@ -792,6 +840,58 @@ fn main() {
         }
     }
 
+    // ---- Terrain cast-shadow proof ----------------------------------------
+    // Prove cast shadows are real occlusion, not just a tint: render the SAME
+    // tilted view under a low raking sun with shadows OFF then ON and require
+    // the terrain to measurably darken (occluded valleys lose the direct sun
+    // term; ambient skylight still reaches them, so it darkens, not blackens).
+    // Both frames are dumped for an eyeball diff of the long shadows.
+    if !crashed {
+        // Look north onto the land mass (the default centre sits on the fjord;
+        // a tilted view frames the mountainous terrain ahead). Pitch 55 reads
+        // the 3D relief without the extreme-tilt horizon haze.
+        let shadow_cam = Camera::new(cli.center, cli.zoom)
+            .with_pitch(55.0)
+            .with_bearing(cli.bearing);
+        map.set_camera(shadow_cam);
+        // A low-mid sun (18°) toward the east casts shadows westward across the
+        // relief while keeping sun-facing slopes bright enough that occluded
+        // ones visibly darken.
+        map.set_sun_position(Some(SunPosition { azimuth_deg: 95.0, altitude_deg: 18.0 }));
+        drain_tiles(&mut map, &basemap, &dem, &vector);
+
+        map.set_terrain_shadows(0.0);
+        let off = render_capture(&mut map, &device, &queue, &target, &target_view);
+        std::fs::write(format!("{}/shadow-off.png", cli.out_dir), encode_png(&off))
+            .expect("write png");
+
+        map.set_terrain_shadows(0.85);
+        let on = render_capture(&mut map, &device, &queue, &target, &target_view);
+        std::fs::write(format!("{}/shadow-on.png", cli.out_dir), encode_png(&on))
+            .expect("write png");
+
+        let (changed, mean_drop, max_drop) = darkening_stats(&off, &on);
+        let pct = 100.0 * changed as f64 / (WIDTH * HEIGHT) as f64;
+        eprintln!("  ── terrain cast-shadow proof (sun alt 18°, pitch 45°) ──");
+        eprintln!(
+            "  shadow footprint: {changed} px ({pct:.2}% of frame) darkened, mean drop {mean_drop:.1}, max drop {max_drop:.1} luma"
+        );
+        // Real cast shadows occlude a real, localised patch of terrain. Require a
+        // non-trivial footprint AND a genuinely dark core: a wiring no-op leaves
+        // 0 changed pixels, and a uniform-tint bug would darken broadly but never
+        // produce a deep core. (The mean over the soft penumbra edge is modest by
+        // nature, so we gate on the footprint + the core depth, not the mean.)
+        if changed < 1_500 || max_drop < 12.0 {
+            eprintln!(
+                "SCENARIO FAILED — cast shadows too weak ({changed} px, max drop {max_drop:.1}); expected ≥1500 px and ≥12.0 luma core."
+            );
+            std::process::exit(1);
+        }
+        // Restore a normal sun; shadows stay ON to exercise the recompute path
+        // as the camera moves through the nav phase below.
+        map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
+    }
+
     // ---- Animated-navigation perf -----------------------------------------
     // The scripted steps above teleport the camera (set_camera). This phase
     // exercises the ANIMATION path the device actually uses while navigating:
@@ -799,7 +899,7 @@ fn main() {
     // frame (each tick re-syncs scenes + redraws). It profiles the per-frame
     // cost while the camera is genuinely in motion — the "tilt + navigate"
     // workload — at ~30 fps wall-clock so the time-based physics steps.
-    if !crashed {
+    if !crashed && !shadow_only {
         let home = Camera::new(cli.center, cli.zoom)
             .with_pitch(35.0)
             .with_bearing(cli.bearing);
