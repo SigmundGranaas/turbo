@@ -6,8 +6,10 @@
 use std::time::Duration;
 
 use turbomap_core::MapOptions;
-use turbomap_engine::{CameraState, MapEngine};
-use turbomap_sim::{basemap_scene, fraction_near, session, PerfSummary, Sim};
+use turbomap_engine::{CameraState, LatLng, MapEngine};
+use turbomap_sim::{
+    basemap_scene, basemap_scene_3d, fraction_near, session, PerfSummary, Sim,
+};
 
 const W: u32 = 480;
 const H: u32 = 320;
@@ -374,5 +376,105 @@ fn frame_cost_stays_within_budget() {
     assert!(
         summary.worst_blank_frac < 0.35,
         "loading quality regressed: {summary:?}"
+    );
+}
+
+/// Device-equivalent gate for the cast-shadow render-thread cost — the bug that
+/// FROZE then crashed sun mode on device. Cast shadows run a synchronous CPU
+/// horizon-march inside `render()`; the regression was it recomputing on every
+/// ANIMATING frame (heightfield lookups × 36k), stalling the render thread →
+/// ANR. The fix skips the march while the camera animates. This drives the real
+/// 3D path over the synthetic DEM and asserts the invariant headlessly.
+///
+/// Runs on a software rasteriser, so absolute ms are inflated — the assertion is
+/// RELATIVE (shadows-on vs -off over the SAME pan), which is machine-robust.
+#[test]
+fn terrain_cast_shadows_do_not_stall_the_render_thread_while_panning() {
+    let Some(mut sim) = sim_or_skip(14.0, no_fade()) else {
+        return;
+    };
+    sim.engine.apply(basemap_scene_3d());
+    sim.engine.pitch_by(45.0); // 3D, but a modest tilt so the footprint-sized
+                               // shadow grid overlaps the visible terrain well
+    sim.set_sun(90.0, 16.0); // a LOW sun so the synthetic relief self-occludes
+    // Settle: load the DEM + raster tiles and let any animation finish.
+    for _ in 0..80 {
+        let (in_flight, animating) = {
+            let s = sim.step();
+            (s.in_flight, s.animating)
+        };
+        if in_flight == 0 && !animating {
+            break;
+        }
+    }
+
+    // Pan (an ease that moves the CENTRE — the exact input that makes the shadow
+    // field's cache key change every frame, i.e. what the buggy code recomputed
+    // on). Return the worst CPU ms over the frames that were actually animating.
+    fn pan_worst_cpu(sim: &mut Sim) -> f64 {
+        let cam = sim.camera();
+        // Move only the CENTRE (keep pitch/zoom/bearing) — the input that makes
+        // the shadow field's cache key change every animating frame.
+        let target = CameraState {
+            center: LatLng::new(cam.center.lat + 0.03, cam.center.lng + 0.03),
+            ..cam
+        };
+        sim.engine.ease_to(target, Duration::from_millis(700));
+        let mut worst = 0.0f64;
+        for _ in 0..40 {
+            let (animating, cpu) = {
+                let s = sim.step();
+                (s.animating, s.cpu_ms)
+            };
+            if animating {
+                worst = worst.max(cpu);
+            }
+        }
+        worst
+    }
+
+    sim.set_terrain_shadows(0.0);
+    let off = pan_worst_cpu(&mut sim);
+    sim.set_terrain_shadows(0.85);
+    let on = pan_worst_cpu(&mut sim);
+
+    assert!(
+        on <= off * 1.8 + 3.0,
+        "cast-shadow horizon-march is running every animating frame: \
+         shadows-on worst frame {on:.1}ms vs shadows-off {off:.1}ms — \
+         this is the render-thread stall that froze sun mode on device"
+    );
+
+    // Correctness: at a SETTLED pose, turning shadows on must darken a real
+    // patch of on-screen terrain. A whole-frame mean is too coarse (the shadow
+    // is a fraction of a sky-heavy 3D frame), so diff PER-PIXEL between the
+    // off/on renders at the identical pose and count the darkened pixels —
+    // catches a silent no-op (the @group(3) sample never reaching terrain).
+    fn settle_frame(sim: &mut Sim, strength: f32) -> image::RgbaImage {
+        sim.set_terrain_shadows(strength);
+        for _ in 0..40 {
+            if !sim.step().animating {
+                break;
+            }
+        }
+        // A few settled frames so the (non-animating) recompute + render lands.
+        for _ in 0..4 {
+            sim.step();
+        }
+        sim.last.clone().expect("a rendered frame")
+    }
+    let off_img = settle_frame(&mut sim, 0.0);
+    let on_img = settle_frame(&mut sim, 0.85);
+    let luma =
+        |p: &image::Rgba<u8>| 0.2126 * p[0] as f64 + 0.7152 * p[1] as f64 + 0.0722 * p[2] as f64;
+    let darkened = off_img
+        .pixels()
+        .zip(on_img.pixels())
+        .filter(|(a, b)| luma(a) - luma(b) > 2.0)
+        .count();
+    assert!(
+        darkened > 200,
+        "cast shadows changed only {darkened} px between off/on at a fixed pose — \
+         the @group(3) shadow sample isn't reaching the on-screen terrain"
     );
 }

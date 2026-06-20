@@ -23,7 +23,8 @@ use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine
 use turbomap_golden::{render_to_image, Gpu};
 use turbomap_scene::style::MatchCase;
 use turbomap_scene::{
-    Color, Filter, FilterValue, Layer, LatLng, Paint, Scene, SourceDef, SymbolPlacement, TextAnchor,
+    Color, DemEncoding, Filter, FilterValue, Layer, LatLng, Paint, Scene, SourceDef,
+    SymbolPlacement, TextAnchor,
 };
 
 use crate::world::world_tile;
@@ -169,6 +170,94 @@ pub fn basemap_scene() -> Scene {
     scene
 }
 
+/// Per-tile halo (px) the synthetic DEM bakes in: each tile is `256 + 2·halo`,
+/// the outer ring overscanning the neighbours so adjacent terrain-mesh edges
+/// agree. Matches what `decode_height_grid` trims.
+const DEM_HALO: u32 = 1;
+
+/// [`basemap_scene`] plus a synthetic DEM registered as a HEIGHT-ONLY terrain
+/// source — so the sim can drive the full 3D path (vertex displacement,
+/// sun-lighting, and CAST SHADOWS) deterministically and offline. This is the
+/// device-equivalent the flat sessions can't reach: it exercises the exact
+/// `Map::render` / `update_terrain_shadows` code the phone runs, so a
+/// render-thread cost regression (the kind that froze sun mode) shows up here
+/// as a slow frame in a CI test instead of an on-device ANR.
+pub fn basemap_scene_3d() -> Scene {
+    let mut scene = basemap_scene();
+    scene.sources.insert(
+        "dem".to_string(),
+        SourceDef::DemXyz {
+            tiles: vec!["sim://dem/{z}/{x}/{y}".to_string()],
+            encoding: DemEncoding::MapboxRgb,
+            min_zoom: 0,
+            max_zoom: 22,
+            halo: DEM_HALO,
+        },
+    );
+    // Height-only: the DEM just displaces the ground and the basemap raster
+    // lights itself from the sun (one lit 3D surface) — the path cast shadows
+    // ride on. No relief-shading overlay.
+    scene.layers.push(Layer::Hillshade {
+        id: "terrain".to_string(),
+        source: "dem".to_string(),
+        exaggeration: 1.5,
+        height_only: true,
+    });
+    scene
+}
+
+/// A synthetic Mapbox-Terrain-RGB DEM tile (`256 + 2·DEM_HALO` per side) of
+/// procedural ridged hills. Elevation is a continuous function of WORLD
+/// position, so adjacent tiles agree at their shared edge (no mesh cracks) and
+/// the relief is steep enough to cast real terrain shadows for the test.
+fn dem_tile_png(tile: TileId) -> Vec<u8> {
+    use image::ImageEncoder;
+    let n = 256 + 2 * DEM_HALO;
+    let scale = 1.0 / (1u64 << tile.z) as f64; // tile world size
+    let ox = tile.x as f64 * scale;
+    let oy = tile.y as f64 * scale;
+    // ~one ridge every ~1.3 tiles (cycles per world unit at this zoom) — dense
+    // enough that any footprint-sized shadow grid contains ridges + valleys, so
+    // the cast-shadow test isn't fragile to where the camera centre lands.
+    let f = std::f64::consts::TAU * (1u64 << tile.z) as f64 / 1.3;
+    let mut img = RgbaImage::new(n, n);
+    for py in 0..n {
+        for px in 0..n {
+            // Interior pixel → world; the halo ring samples the neighbours'
+            // world coords (continuous function → seamless edges).
+            let u = (px as f64 - DEM_HALO as f64) / 256.0;
+            let v = (py as f64 - DEM_HALO as f64) / 256.0;
+            let wx = ox + u * scale;
+            let wy = oy + v * scale;
+            let elev = 700.0
+                + 520.0 * (wx * f).sin() * (wy * f).cos()
+                + 240.0 * ((wx + wy) * f * 0.5).sin();
+            let elev = elev.clamp(0.0, 8000.0);
+            // Mapbox Terrain-RGB: h = -10000 + V·0.1  ⇒  V = (h + 10000)·10.
+            let val = ((elev + 10000.0) * 10.0) as u32;
+            let r = ((val >> 16) & 0xff) as u8;
+            let g = ((val >> 8) & 0xff) as u8;
+            let b = (val & 0xff) as u8;
+            img.put_pixel(px, py, image::Rgba([r, g, b, 255]));
+        }
+    }
+    let mut out = Vec::new();
+    image::codecs::png::PngEncoder::new(std::io::Cursor::new(&mut out))
+        .write_image(img.as_raw(), n, n, image::ExtendedColorType::Rgba8)
+        .expect("dem png encode");
+    out
+}
+
+/// Mean perceptual luminance (Rec. 709) over the last rendered frame, `[0,255]`.
+/// Used to prove cast shadows darken the terrain.
+pub fn mean_luma(img: &RgbaImage) -> f64 {
+    let mut sum = 0.0f64;
+    for p in img.pixels() {
+        sum += 0.2126 * p[0] as f64 + 0.7152 * p[1] as f64 + 0.0722 * p[2] as f64;
+    }
+    sum / (img.width() * img.height()) as f64
+}
+
 /// Per-frame measurements — the simulator's instrument panel.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FrameStats {
@@ -191,6 +280,7 @@ pub struct FrameStats {
 enum TileKey {
     Raster(String, TileId),
     Vector(String, TileId),
+    Terrain(TileId),
 }
 
 pub struct Sim {
@@ -242,6 +332,18 @@ impl Sim {
         self.engine.camera()
     }
 
+    /// Enable/disable terrain cast shadows (3D sessions, `basemap_scene_3d`).
+    /// 0 = off. Passthrough to the engine.
+    pub fn set_terrain_shadows(&mut self, strength: f32) {
+        self.engine.set_terrain_shadows(strength);
+    }
+
+    /// Pin the sun to an explicit azimuth/altitude (degrees). A LOW altitude is
+    /// what makes terrain self-occlude, so a shadow test sets e.g. (90, 16).
+    pub fn set_sun(&mut self, azimuth_deg: f32, altitude_deg: f32) {
+        self.engine.set_sun_position(azimuth_deg, altitude_deg);
+    }
+
     /// A camera centred on the synthetic city. Lat/lng are arbitrary —
     /// the world is global — but fixed so sessions are comparable.
     pub fn start_camera(zoom: f64) -> CameraState {
@@ -268,8 +370,12 @@ impl Sim {
             let key = match pending {
                 PendingTile::Raster { layer_id, tile } => TileKey::Raster(layer_id, tile),
                 PendingTile::Vector { layer_id, tile } => TileKey::Vector(layer_id, tile),
-                // No terrain in the basemap sessions.
-                _ => continue,
+                // DEM tiles for the 3D sessions (basemap_scene_3d); absent in
+                // the flat basemap sessions, where the terrain scene is empty.
+                PendingTile::Terrain { tile } => TileKey::Terrain(tile),
+                // Height-only terrain draws no relief-shading overlay, so the
+                // hillshade tile stream is unused here.
+                PendingTile::Hillshade { .. } => continue,
             };
             self.in_flight
                 .entry(key)
@@ -292,6 +398,9 @@ impl Sim {
                 TileKey::Vector(layer, tile) => {
                     let bytes = world_tile(tile.z, tile.x, tile.y);
                     self.engine.ingest_mvt(layer, *tile, &bytes);
+                }
+                TileKey::Terrain(tile) => {
+                    self.engine.ingest_terrain_encoded(*tile, &dem_tile_png(*tile));
                 }
             }
             self.in_flight.remove(&key);

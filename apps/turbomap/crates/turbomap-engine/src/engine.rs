@@ -536,6 +536,15 @@ impl TurbomapEngine {
         self.map.set_sun_time(unix_seconds);
     }
 
+    /// Pin the sun to an explicit azimuth/altitude (degrees), overriding any
+    /// time tracking — deterministic light for tests/goldens and direct control.
+    pub fn set_sun_position(&mut self, azimuth_deg: f32, altitude_deg: f32) {
+        self.map.set_sun_position(Some(turbomap_core::SunPosition {
+            azimuth_deg,
+            altitude_deg,
+        }));
+    }
+
     /// Enable terrain *cast* shadows (a peak shadows the valley behind it) at
     /// the given `strength` in `[0,1]`. 0 disables the feature (zero per-frame
     /// cost); only affects 3D terrain. See [`turbomap_core::Map::set_terrain_shadows`].
