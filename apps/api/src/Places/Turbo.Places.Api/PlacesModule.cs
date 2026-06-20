@@ -43,6 +43,11 @@ public static class PlacesModule
         services.AddSingleton<RulesetProvider>();
         services.AddSingleton(_ => new BundleBuilder(connectionString));
 
+        // Nasjonal Turbase (ut.no / DNT) proxy: a typed HttpClient that injects
+        // the server-held api key. Bound from the `Turbasen` config section.
+        services.Configure<TurbasenConfig>(configuration.GetSection("Turbasen"));
+        services.AddHttpClient<NasjonalTurbaseProxyClient>();
+
         services.AddControllers().AddApplicationPart(typeof(PlacesController).Assembly);
 
         return services;
