@@ -204,9 +204,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let light = ambient_lit + direct;
     var rgb = s.rgb * light * globals.light_color;
 
-    // Aerial perspective: fade distant relief toward the atmosphere
-    // colour for depth + a believable horizon.
-    rgb = mix(rgb, globals.haze_color, clamp(in.haze, 0.0, 1.0));
+    // Aerial perspective: fade distant relief toward the atmosphere colour for
+    // depth + a believable horizon. Capped well below 1 so even the farthest
+    // ground keeps some terrain showing through — the haze never fully erases
+    // the map to a flat white wash (the steep-tilt white-out).
+    rgb = mix(rgb, globals.haze_color, min(in.haze, 0.75));
 
     return vec4<f32>(rgb, s.a * in.alpha);
 }

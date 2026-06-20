@@ -760,16 +760,22 @@ fn main() {
     // tilt (otherwise the steep-pitch cloud path is never tested).
     const GW: u32 = 64;
     const GH: u32 = 48;
-    map.enable_clouds(GW, GH);
-    map.ingest_radar_frame(0, &synthetic_radar(GW, GH, 0.40));
-    map.ingest_radar_frame(1, &synthetic_radar(GW, GH, 0.55));
-    map.set_cloud_time(7.0, 0.5);
-    map.set_cloud_geo_bounds(
-        cli.center.lng - 1.2,
-        cli.center.lat - 0.6,
-        cli.center.lng + 1.2,
-        cli.center.lat + 0.6,
-    );
+    // The pan repro isolates the terrain/sky haze, so skip the cloud overlay
+    // there (its volumetric composite otherwise dominates the frame at high
+    // pitch and confounds the haze measurement).
+    let with_clouds = std::env::var("TURBO_PAN_REPRO").is_err();
+    if with_clouds {
+        map.enable_clouds(GW, GH);
+        map.ingest_radar_frame(0, &synthetic_radar(GW, GH, 0.40));
+        map.ingest_radar_frame(1, &synthetic_radar(GW, GH, 0.55));
+        map.set_cloud_time(7.0, 0.5);
+        map.set_cloud_geo_bounds(
+            cli.center.lng - 1.2,
+            cli.center.lat - 0.6,
+            cli.center.lng + 1.2,
+            cli.center.lat + 0.6,
+        );
+    }
 
     // Debug fast path (TURBO_PAN_REPRO=1): reproduce the "pan too far down at
     // high pitch → everything but the nearest tile greys out" bug. Pitch to

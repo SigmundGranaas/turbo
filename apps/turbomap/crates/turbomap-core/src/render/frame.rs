@@ -78,10 +78,17 @@ impl RenderFrame {
         let altitude_world = (viewport_px.1.max(1) as f32 * 0.5) / ppw / fov_y_half_tan;
         let pitch_ramp = {
             let p = camera.pitch_deg as f32;
-            let t = ((p - 5.0) / 35.0).clamp(0.0, 1.0);
-            t * t * (3.0 - 2.0 * t)
+            // Rise 0→1 over 5°..40° so the depth cue appears as you tilt — but
+            // then EASE BACK DOWN past ~55°. At grazing angles the view distance
+            // to the horizon explodes, so a constant density washes the whole
+            // frame to the horizon colour (white-out at 80°). The taper keeps the
+            // near ground readable while still fading the far field into sky.
+            let rise = ((p - 5.0) / 35.0).clamp(0.0, 1.0);
+            let rise = rise * rise * (3.0 - 2.0 * rise);
+            let taper = 1.0 - 0.6 * ((p - 55.0) / 25.0).clamp(0.0, 1.0);
+            rise * taper
         };
-        let haze_density = (1.0 / altitude_world.max(1e-9)) * 0.30 * pitch_ramp;
+        let haze_density = (1.0 / altitude_world.max(1e-9)) * 0.22 * pitch_ramp;
 
         // Sky: only when tilted enough to expose the horizon.
         let draw_sky = camera.pitch_deg > 0.5;
