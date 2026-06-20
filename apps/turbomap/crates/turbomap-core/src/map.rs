@@ -465,6 +465,55 @@ impl LayerStack {
     }
 }
 
+/// The GPU rendering toolbox: the screen-space pipelines shared across all
+/// layers (text, icon, marker, sky), the frame's colour/depth attachments, the
+/// optional GPU timer, and the terrain bind-group layout + placeholder.
+///
+/// This is everything the frame pass needs that is NOT per-layer — the
+/// raster/vector/hillshade pipelines stay on their `LayerEntry`. Grouping it
+/// gives the rendering subsystem one owner instead of seven loose fields on
+/// the `Map` god-object; `Map::render` reads them as `self.renderer.*`.
+struct Renderer {
+    /// Single text pipeline, shared across all vector layers.
+    text_pipeline: TextPipeline,
+    /// Single icon/sprite pipeline, shared across all vector layers.
+    icon_pipeline: IconPipeline,
+    marker_pipeline: MarkerPipeline,
+    /// Analytic atmosphere sky, drawn first in the frame pass when the camera
+    /// is tilted (so the horizon band shows behind the terrain).
+    sky_pipeline: SkyPipeline,
+    /// Optional GPU-side frame timing — `Some` only when the device negotiated
+    /// `Features::TIMESTAMP_QUERY`.
+    gpu_timestamps: Option<GpuTimestamps>,
+    /// Map-level terrain bind-group layout + sampler + 1×1 placeholder bind
+    /// group. Always present so displacement-capable pipelines can be built
+    /// before any terrain source is registered — they bind the placeholder
+    /// and render flat.
+    terrain_shared: TerrainShared,
+    /// The frame's MSAA colour + depth attachments, recreated together on
+    /// resize. See [`FrameTargets`].
+    targets: FrameTargets,
+}
+
+impl Renderer {
+    fn new(
+        device: &Arc<wgpu::Device>,
+        queue: &Arc<wgpu::Queue>,
+        surface_format: wgpu::TextureFormat,
+        initial_size: (u32, u32),
+    ) -> Self {
+        Self {
+            text_pipeline: TextPipeline::new(device.clone(), queue.clone(), surface_format),
+            icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), surface_format),
+            marker_pipeline: MarkerPipeline::new(device.clone(), queue.clone(), surface_format),
+            sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), surface_format),
+            gpu_timestamps: GpuTimestamps::new(device, queue),
+            terrain_shared: TerrainShared::new(device, queue),
+            targets: FrameTargets::new(device, surface_format, initial_size),
+        }
+    }
+}
+
 /// The camera's pose and the state that drives + constrains it: the shared
 /// [`Camera`], the single in-flight animation (eased move / pan fling / zoom
 /// fling), the bottom viewport inset, and the [`ZoomLock`].
@@ -547,33 +596,18 @@ pub struct Map {
     cam: CameraState,
     options: MapOptions,
     layers: LayerStack,
-    /// Single text pipeline, shared across all vector layers.
-    text_pipeline: TextPipeline,
-    /// Single icon/sprite pipeline, shared across all vector layers.
-    icon_pipeline: IconPipeline,
-    marker_pipeline: MarkerPipeline,
-    /// Analytic atmosphere sky, drawn first in the frame pass when the
-    /// camera is tilted (so the horizon band shows behind the terrain).
-    sky_pipeline: SkyPipeline,
+    /// The GPU rendering toolbox: the shared screen-space pipelines (text,
+    /// icon, marker, sky), the frame attachments, the GPU timer, and the
+    /// terrain bind-group layout/placeholder. The per-layer raster/vector/
+    /// hillshade pipelines live on their `LayerEntry`; this holds everything
+    /// the frame pass needs that *isn't* per-layer. See [`Renderer`].
+    renderer: Renderer,
     markers: MarkerManager,
     last_frame_metrics: FrameMetrics,
-    /// Optional GPU-side frame timing. Only present if the wgpu device
-    /// negotiated `Features::TIMESTAMP_QUERY` at creation time. When
-    /// `None`, `FrameMetrics::gpu_time` stays `None` and we just
-    /// report CPU time.
-    gpu_timestamps: Option<GpuTimestamps>,
     /// Optional shared heightmap. When set, ground-plane pipelines
     /// (raster, hillshade, vector) sample the DEM in their vertex
     /// shaders and displace by elevation. See [`TerrainOptions`].
     terrain: Option<Terrain>,
-    /// Map-level terrain bind-group layout + sampler + 1×1
-    /// placeholder bind group. Always present so pipelines that opt
-    /// into displacement can be created before any terrain source is
-    /// registered — they just bind the placeholder and render flat.
-    terrain_shared: TerrainShared,
-    /// The frame's MSAA colour + depth attachments, sized to the surface and
-    /// recreated together on resize. See [`FrameTargets`].
-    targets: FrameTargets,
     /// Optional procedural weather-cloud overlay. Drawn in its own pass
     /// over the resolved surface (it's a single-sampled, depth-less
     /// fullscreen composite, so it can't share the MSAA frame pass).
@@ -593,13 +627,7 @@ impl Map {
         initial_camera: Camera,
         options: MapOptions,
     ) -> Result<Self, MapError> {
-        let text_pipeline = TextPipeline::new(device.clone(), queue.clone(), surface_format);
-        let icon_pipeline = IconPipeline::new(device.clone(), queue.clone(), surface_format);
-        let marker_pipeline = MarkerPipeline::new(device.clone(), queue.clone(), surface_format);
-        let sky_pipeline = SkyPipeline::new(device.clone(), queue.clone(), surface_format);
-        let gpu_timestamps = GpuTimestamps::new(&device, &queue);
-        let targets = FrameTargets::new(&device, surface_format, initial_size);
-        let terrain_shared = TerrainShared::new(&device, &queue);
+        let renderer = Renderer::new(&device, &queue, surface_format, initial_size);
         Ok(Self {
             device,
             queue,
@@ -608,16 +636,10 @@ impl Map {
             cam: CameraState::new(initial_camera),
             options,
             layers: LayerStack::new(),
-            text_pipeline,
-            icon_pipeline,
-            marker_pipeline,
-            sky_pipeline,
+            renderer,
             markers: MarkerManager::default(),
             last_frame_metrics: FrameMetrics::default(),
-            gpu_timestamps,
             terrain: None,
-            terrain_shared,
-            targets,
             clouds: None,
             lighting: Lighting::default(),
         })
@@ -728,7 +750,7 @@ impl Map {
         let cache = TerrainCache::new(
             self.device.clone(),
             self.queue.clone(),
-            &self.terrain_shared,
+            &self.renderer.terrain_shared,
             self.options.cache_budget_bytes,
             halo,
             options.encoding,
@@ -800,7 +822,7 @@ impl Map {
             self.device.clone(),
             self.queue.clone(),
             self.surface_format,
-            &self.terrain_shared.bind_group_layout,
+            &self.renderer.terrain_shared.bind_group_layout,
         );
         let cache = TextureCache::new(
             self.device.clone(),
@@ -851,7 +873,7 @@ impl Map {
             self.device.clone(),
             self.queue.clone(),
             self.surface_format,
-            &self.terrain_shared.bind_group_layout,
+            &self.renderer.terrain_shared.bind_group_layout,
             halo,
         );
         self.layers
@@ -877,7 +899,7 @@ impl Map {
             self.device.clone(),
             self.queue.clone(),
             self.surface_format,
-            &self.terrain_shared.bind_group_layout,
+            &self.renderer.terrain_shared.bind_group_layout,
         );
         let cache = VectorMeshCache::new(self.device.clone(), self.options.cache_budget_bytes);
         let scene = Scene::with_margin(
@@ -1041,7 +1063,7 @@ impl Map {
         // Depth + MSAA colour must match the surface size or Metal asserts on
         // the next render; FrameTargets recreates both together (no-op when
         // unchanged or degenerate).
-        self.targets
+        self.renderer.targets
             .resize(&self.device, self.surface_format, (width, height));
         self.sync_scenes();
     }
@@ -1387,7 +1409,7 @@ impl Map {
     /// don't parse. Faces added earlier win where they have coverage, so
     /// the bundled Latin face is always preferred for Latin text.
     pub fn add_fallback_font(&mut self, bytes: Vec<u8>) -> bool {
-        self.text_pipeline.add_fallback_face(bytes)
+        self.renderer.text_pipeline.add_fallback_face(bytes)
     }
 
     // ---- markers -------------------------------------------------------
@@ -1518,7 +1540,7 @@ impl Map {
             return;
         }
 
-        if let Some(ts) = self.gpu_timestamps.as_mut() {
+        if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
             ts.try_drain();
             ts.begin(encoder);
         }
@@ -1574,8 +1596,8 @@ impl Map {
         // semantics (per-layer label collision sets).
         let mut prepared_text: Vec<PreparedText> = Vec::new();
         let mut prepared_icons: Vec<PreparedIcons> = Vec::new();
-        self.text_pipeline.begin_frame();
-        self.icon_pipeline.begin_frame();
+        self.renderer.text_pipeline.begin_frame();
+        self.renderer.icon_pipeline.begin_frame();
         for (i, layer) in self.layers.iter_mut().enumerate() {
             match layer {
                 LayerEntry::Raster(r) if r.visible => {
@@ -1608,15 +1630,15 @@ impl Map {
                     // orphaned. Text runs *before* icons so a POI marker's
                     // dot can be gated on its label surviving collision (dot
                     // + label cull as a unit).
-                    prepared_text.push(self.text_pipeline.prepare(
+                    prepared_text.push(self.renderer.text_pipeline.prepare(
                         &v.scene,
                         &mut v.cache,
                         self.options.pixel_ratio,
                     ));
-                    prepared_icons.push(self.icon_pipeline.prepare(
+                    prepared_icons.push(self.renderer.icon_pipeline.prepare(
                         &v.scene,
                         &mut v.cache,
-                        self.text_pipeline.placed_marker_anchors(),
+                        self.renderer.text_pipeline.placed_marker_anchors(),
                     ));
                 }
                 LayerEntry::Hillshade(h) if h.visible => {
@@ -1641,8 +1663,8 @@ impl Map {
                 _ => {}
             }
         }
-        self.text_pipeline.finish_frame();
-        self.icon_pipeline.finish_frame();
+        self.renderer.text_pipeline.finish_frame();
+        self.renderer.icon_pipeline.finish_frame();
 
         // Markers last. Pick any scene that's around — they all sync
         // from the same camera. Prefer the first raster/vector layer
@@ -1652,13 +1674,13 @@ impl Map {
             None
         } else {
             let p = if let Some(scene) = self.layers.marker_scene() {
-                self.marker_pipeline.prepare(scene, self.markers.all())
+                self.renderer.marker_pipeline.prepare(scene, self.markers.all())
             } else if let Some(t) = self.terrain.as_ref() {
-                self.marker_pipeline.prepare(&t.scene, self.markers.all())
+                self.renderer.marker_pipeline.prepare(&t.scene, self.markers.all())
             } else {
                 // No layers — build a one-off Scene from the Map's state.
                 let scene = Scene::with_margin(self.cam.camera, self.viewport_px, 0, 22, 0);
-                self.marker_pipeline.prepare(&scene, self.markers.all())
+                self.renderer.marker_pipeline.prepare(&scene, self.markers.all())
             };
             Some(p)
         };
@@ -1686,12 +1708,12 @@ impl Map {
         let pass_started = Instant::now();
         {
             let terrain_cache = self.terrain.as_ref().map(|t| &t.cache);
-            let placeholder_dem = &self.terrain_shared.placeholder_bind_group;
+            let placeholder_dem = &self.renderer.terrain_shared.placeholder_bind_group;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("turbomap-frame-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     // Render multisampled, then resolve down to the surface.
-                    view: self.targets.color_view(),
+                    view: self.renderer.targets.color_view(),
                     resolve_target: Some(target),
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -1702,7 +1724,7 @@ impl Map {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self.targets.depth_view(),
+                    view: self.renderer.targets.depth_view(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -1718,7 +1740,7 @@ impl Map {
             // full-screen triangle. Terrain/vectors overdraw it, so it
             // shows only at the horizon when the camera is tilted.
             if let Some(g) = &frame.sky_globals {
-                self.sky_pipeline.draw(g, &mut pass);
+                self.renderer.sky_pipeline.draw(g, &mut pass);
             }
 
             for (i, prepared) in &prepared_layers {
@@ -1744,15 +1766,15 @@ impl Map {
 
             // Icons under labels, so a name centred on a shield reads on top.
             for p in &prepared_icons {
-                self.icon_pipeline.draw(p, &mut pass);
+                self.renderer.icon_pipeline.draw(p, &mut pass);
             }
 
             for p in &prepared_text {
-                self.text_pipeline.draw(p, &mut pass);
+                self.renderer.text_pipeline.draw(p, &mut pass);
             }
 
             if let Some(p) = &prepared_markers {
-                self.marker_pipeline.draw(p, &mut pass);
+                self.renderer.marker_pipeline.draw(p, &mut pass);
             }
         }
         let pass_time = pass_started.elapsed();
@@ -1835,7 +1857,7 @@ impl Map {
             }
         }
 
-        if let Some(ts) = self.gpu_timestamps.as_mut() {
+        if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
             ts.end(encoder);
         }
         let clouds_time = clouds_started.elapsed();
@@ -1853,7 +1875,7 @@ impl Map {
                 pass: pass_time,
                 clouds: clouds_time,
             },
-            gpu_time: self.gpu_timestamps.as_ref().and_then(|t| {
+            gpu_time: self.renderer.gpu_timestamps.as_ref().and_then(|t| {
                 if t.last_duration_ns == 0 {
                     None
                 } else {
@@ -1920,7 +1942,7 @@ impl Map {
     /// Safe to call every frame even if you don't care about GPU
     /// timing — the negligible cost is two atomic-bool flips.
     pub fn after_submit(&mut self) {
-        if let Some(ts) = self.gpu_timestamps.as_mut() {
+        if let Some(ts) = self.renderer.gpu_timestamps.as_mut() {
             ts.kick_async();
         }
     }
