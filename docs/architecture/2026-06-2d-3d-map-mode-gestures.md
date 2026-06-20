@@ -9,15 +9,17 @@ The 1-finger-orbit model below was reworked after device testing (it felt wrong:
 shaky finger spun the map, and pinches drifted/rotated). The shipped grammar:
 
 - **One finger → pan** in BOTH 2D and 3D (slop-gated against jitter).
-- **Two fingers → zoom (pinch) + rotate (twist) + tilt (3D only, parallel vertical
-  drag)**, all pivoting about the gesture **centroid**. No two-finger pan (one finger
-  pans), so a pinch can't slide the map around.
-- **One intent per gesture**: a two-finger gesture commits to a single axis — zoom OR
-  rotate OR (3D) tilt. Each axis' movement accumulates against its gate
-  (`ZOOM_GATE_LEVELS`, `ROTATE_GATE_DEG`, `TILT_GATE_DP`); the first to cross wins and
-  the others stay suppressed (`lockTwoFingerAxis`). So a pinch is a clean zoom and a
-  twist a clean rotate — "either rotate or zoom in one movement" — and rotation works
-  in 3D without being stolen by zoom/tilt.
+- **Two fingers → zoom (pinch) OR free orbit**, pivoting about the gesture **centroid**.
+  No two-finger pan (one finger pans), so a pinch can't slide the map around.
+- **One intent per gesture** (`lockTwoFingerAxis`): a two-finger gesture commits to
+  **zoom** XOR **orbit**. Zoom accumulates against `ZOOM_GATE_LEVELS`; orbit engages on
+  a twist (`ROTATE_GATE_DEG`) *or* a vertical drag (`TILT_GATE_DP`). All signals are
+  summed as **signed net** movement so a twist's incidental wobble can't falsely win
+  zoom. Whichever crosses first wins; the other stays suppressed — a pinch is a clean
+  zoom, a non-pinch is a clean orbit.
+- **Orbit is free rotation**: once orbiting, the bearing follows the twist AND (in 3D)
+  the pitch follows the vertical drag, **together** — you look around in every direction
+  at once, not locked to a single axis.
 - Zoom pivots via `nativeZoomAround` (focus-anchored); rotate/tilt via
   `nativeOrbitAround(dBearing, dPitch, focusX, focusY)` about the centroid. Bearing
   sign turns the map *with* the fingers.

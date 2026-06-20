@@ -33,40 +33,37 @@ internal const val MOVE_SLOP_DP = 18f
 
 /**
  * Movement gates for the two-finger gesture. A gesture commits to ONE intent —
- * zoom, rotate, or (3D) tilt — whichever signal first crosses its gate; the others
- * stay suppressed for the rest of the gesture (see [lockTwoFingerAxis]). So a pinch
- * is a clean zoom, a twist is a clean rotate, and they never bleed into each other:
- * "either rotate or zoom in one movement." The pre-lock motion is a dead-zone.
+ * **zoom** (pinch) or **orbit** (free rotate) — whichever crosses its gate first; the
+ * other stays suppressed (see [lockTwoFingerAxis]). "Orbit" is free: it turns the
+ * bearing (twist) AND the pitch (drag up/down) together, so two fingers that aren't
+ * pinching let you look around in every direction at once. The pre-lock motion is a
+ * dead-zone, so a plain pinch doesn't start orbiting and vice-versa.
  */
-/** Cumulative twist (deg) that wins the gesture as a rotate — a clearly deliberate turn. */
+/** Cumulative twist (deg) that counts toward engaging an orbit — a clearly deliberate turn. */
 internal const val ROTATE_GATE_DEG = 10f
 
 /** Cumulative zoom (levels) that wins the gesture as a pinch-zoom. */
 internal const val ZOOM_GATE_LEVELS = 0.07f
 
-/** Cumulative parallel-vertical travel (dp) that wins the gesture as a tilt (3D only). */
+/** Cumulative vertical travel (dp) that counts toward engaging an orbit (the pitch part). */
 internal const val TILT_GATE_DP = 26f
 
 /** Fallback px/s fling gate for the pure helpers / tests; the detector passes a density-scaled one. */
 internal const val MIN_FLING_VELOCITY = 220f
 
-/** The one axis a two-finger gesture commits to. */
-internal enum class TwoFingerAxis { Zoom, Rotate, Tilt }
+/** The one intent a two-finger gesture commits to. Orbit = free rotate (bearing + pitch). */
+internal enum class TwoFingerAxis { Zoom, Orbit }
 
 /**
- * Decide the gesture's single axis. Each argument is that axis' accumulated movement
- * divided by its gate (so 1.0 = "just reached the gate"). Returns null until one
- * crosses 1.0 (a dead-zone where nothing applies); then the *most* progressed axis
- * wins and owns the rest of the gesture — rotate OR zoom OR tilt, never a mix.
+ * Decide the gesture's intent. [zoomN] and [orbitN] are each that intent's accumulated
+ * movement divided by its gate (1.0 = "just reached the gate"); [orbitN] already folds
+ * twist and vertical drag together. Returns null until one crosses 1.0 (a dead-zone);
+ * then the *more* progressed intent wins and owns the rest of the gesture — zoom XOR orbit.
  */
-internal fun lockTwoFingerAxis(zoomN: Float, rotateN: Float, tiltN: Float): TwoFingerAxis? {
-    val maxN = maxOf(zoomN, rotateN, tiltN)
-    if (maxN < 1f) return null
-    return when (maxN) {
-        rotateN -> TwoFingerAxis.Rotate
-        zoomN -> TwoFingerAxis.Zoom
-        else -> TwoFingerAxis.Tilt
-    }
+internal fun lockTwoFingerAxis(zoomN: Float, orbitN: Float): TwoFingerAxis? = when {
+    zoomN < 1f && orbitN < 1f -> null
+    zoomN >= orbitN -> TwoFingerAxis.Zoom
+    else -> TwoFingerAxis.Orbit
 }
 
 /** ln(2): converts a natural-log scale rate into zoom-levels/second. */
@@ -181,11 +178,12 @@ internal const val ORBIT_PITCH_DEG_PER_PX = 0.25f
  *   stops the map exactly where it is);
  * - **one finger** → [onTransform] pan deltas, ignored until the move passes
  *   [MOVE_SLOP_DP] so a shaky finger doesn't nudge or drift the map (both 2D and 3D);
- * - **two fingers** → ONE intent per gesture (see [lockTwoFingerAxis]): zoom about the
- *   centroid via [onTransform] (pan stays 0 — one finger pans), OR rotate (twist), OR
- *   in 3D tilt (parallel vertical drag) via [onOrbit]. Whichever crosses its gate first
- *   wins; the others stay suppressed — so a pinch is a clean zoom and a twist a clean
- *   rotate, never a mix;
+ * - **two fingers** → ONE intent per gesture (see [lockTwoFingerAxis]): **zoom** about
+ *   the centroid via [onTransform] (pan stays 0 — one finger pans), OR **free orbit** via
+ *   [onOrbit] — bearing from the twist AND (3D) pitch from the vertical drag, together,
+ *   so you can look around in every direction at once. Whichever crosses its gate first
+ *   wins; the other stays suppressed, so a pinch is a clean zoom and a non-pinch is a
+ *   clean orbit;
  * - **release** → a pan [onFling] (one-finger velocity) or a [onZoomFling] (only if the
  *   gesture locked to zoom) — never both; anything else rests.
  *
@@ -285,10 +283,13 @@ internal suspend fun PointerInputScope.detectMapGestures(
                 prevAngle = angle
 
                 if (lockedAxis == null) {
+                    // Orbit engages on EITHER a deliberate twist or a vertical drag — they're
+                    // the two halves of one free rotation, not rival axes.
+                    val rotateN = abs(rotateAccum) / ROTATE_GATE_DEG
+                    val tiltN = if (gestureMode == MapGestureMode.ThreeD) abs(tiltAccumPx) / tiltGatePx else 0f
                     lockedAxis = lockTwoFingerAxis(
                         zoomN = abs(zoomAccumLevels) / ZOOM_GATE_LEVELS,
-                        rotateN = abs(rotateAccum) / ROTATE_GATE_DEG,
-                        tiltN = if (gestureMode == MapGestureMode.ThreeD) abs(tiltAccumPx) / tiltGatePx else 0f,
+                        orbitN = maxOf(rotateN, tiltN),
                     )
                 }
 
@@ -299,14 +300,14 @@ internal suspend fun PointerInputScope.detectMapGestures(
                         onTransform(0f, 0f, ratio, centroid.x, centroid.y)
                         applied = true
                     }
-                    // Bearing sign flipped so the map turns WITH the fingers.
-                    TwoFingerAxis.Rotate -> if (dAngle != 0f) {
-                        onOrbit(-dAngle, 0f, centroid.x, centroid.y)
-                        applied = true
-                    }
-                    TwoFingerAxis.Tilt -> if (dy != 0f) {
-                        onOrbit(0f, -dy * ORBIT_PITCH_DEG_PER_PX, centroid.x, centroid.y)
-                        applied = true
+                    // Free orbit: bearing from the twist (sign flipped so the map turns WITH the
+                    // fingers) AND pitch from the vertical drag (3D only), both at once.
+                    TwoFingerAxis.Orbit -> {
+                        val dPitch = if (gestureMode == MapGestureMode.ThreeD) -dy * ORBIT_PITCH_DEG_PER_PX else 0f
+                        if (dAngle != 0f || dPitch != 0f) {
+                            onOrbit(-dAngle, dPitch, centroid.x, centroid.y)
+                            applied = true
+                        }
                     }
                     null -> {} // still in the dead-zone — nothing has won yet
                 }
@@ -319,7 +320,7 @@ internal suspend fun PointerInputScope.detectMapGestures(
         }
 
         // Only a zoom gesture carries momentum (locked to the zoom axis, no sideways drift);
-        // a rotate/tilt rests; a one-finger flick carries pan momentum; a sub-slop touch rests.
+        // an orbit rests; a one-finger flick carries pan momentum; a sub-slop touch rests.
         if (wasMulti) {
             val zv = zoomTracker.velocity()
             if (lockedAxis == TwoFingerAxis.Zoom && shouldZoomFling(zv)) {

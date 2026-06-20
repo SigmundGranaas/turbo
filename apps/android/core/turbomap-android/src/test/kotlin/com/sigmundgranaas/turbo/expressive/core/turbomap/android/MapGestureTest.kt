@@ -74,15 +74,16 @@ class MapGestureTest {
     }
 
     @Test
-    fun two_finger_gesture_locks_to_a_single_axis() {
-        // Below every gate → dead-zone, nothing wins yet.
-        assertNull(lockTwoFingerAxis(zoomN = 0.9f, rotateN = 0.5f, tiltN = 0.2f))
-        // A clean pinch (zoom past its gate, little twist/tilt) → Zoom.
-        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 1.4f, rotateN = 0.3f, tiltN = 0.1f))
-        // A clean twist → Rotate, even if a little incidental zoom crept in.
-        assertEquals(TwoFingerAxis.Rotate, lockTwoFingerAxis(zoomN = 0.8f, rotateN = 1.6f, tiltN = 0.2f))
-        // The most-progressed axis wins when several have crossed.
-        assertEquals(TwoFingerAxis.Tilt, lockTwoFingerAxis(zoomN = 1.1f, rotateN = 1.2f, tiltN = 2.0f))
+    fun two_finger_gesture_locks_to_zoom_or_orbit() {
+        // Below both gates → dead-zone, nothing wins yet.
+        assertNull(lockTwoFingerAxis(zoomN = 0.9f, orbitN = 0.5f))
+        // A clean pinch (zoom past its gate, little orbit) → Zoom.
+        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 1.4f, orbitN = 0.3f))
+        // A twist or vertical drag (orbit signal) with little spread change → Orbit (free rotate).
+        assertEquals(TwoFingerAxis.Orbit, lockTwoFingerAxis(zoomN = 0.3f, orbitN = 1.6f))
+        // The more-progressed intent wins when both have crossed.
+        assertEquals(TwoFingerAxis.Orbit, lockTwoFingerAxis(zoomN = 1.1f, orbitN = 2.0f))
+        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 2.2f, orbitN = 1.2f))
     }
 
     @Test
