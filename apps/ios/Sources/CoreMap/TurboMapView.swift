@@ -21,6 +21,9 @@ public struct TurboMapView: UIViewRepresentable {
     /// While following: the dim already-walked prefix, and the real travelled track (US-3).
     private let coveredGeometry: [LatLng]
     private let trackGeometry: [LatLng]
+    /// A selected Nasjonal Turbase (ut.no/DNT) trip route, drawn distinctly and
+    /// revealed by the caller (pass a growing prefix to animate the draw-on).
+    private let ntbRouteGeometry: [LatLng]
     /// Follow-mode checkpoints (position, crossed) drawn as on-map markers (US-3).
     private let checkpoints: [(position: LatLng, crossed: Bool)]
     private let onLongPress: ((LatLng) -> Void)?
@@ -44,6 +47,7 @@ public struct TurboMapView: UIViewRepresentable {
         routeGeometry: [LatLng] = [],
         coveredGeometry: [LatLng] = [],
         trackGeometry: [LatLng] = [],
+        ntbRouteGeometry: [LatLng] = [],
         checkpoints: [(position: LatLng, crossed: Bool)] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,
@@ -62,6 +66,7 @@ public struct TurboMapView: UIViewRepresentable {
         self.routeGeometry = routeGeometry
         self.coveredGeometry = coveredGeometry
         self.trackGeometry = trackGeometry
+        self.ntbRouteGeometry = ntbRouteGeometry
         self.checkpoints = checkpoints
         self.onLongPress = onLongPress
         self.onRegionChange = onRegionChange
@@ -109,6 +114,7 @@ public struct TurboMapView: UIViewRepresentable {
         context.coordinator.syncRoute(on: map, geometry: routeGeometry)
         context.coordinator.syncCovered(on: map, geometry: coveredGeometry)
         context.coordinator.syncTrack(on: map, geometry: trackGeometry)
+        context.coordinator.syncNtbRoute(on: map, geometry: ntbRouteGeometry)
         context.coordinator.syncAnnotations(on: map, pins: pins)
         context.coordinator.syncCheckpoints(on: map, checkpoints: checkpoints)
         context.coordinator.applyBearingReset(on: map, token: resetBearingToken)
@@ -138,12 +144,14 @@ public struct TurboMapView: UIViewRepresentable {
         private var routeOverlay: MKPolyline?
         private var coveredOverlay: MKPolyline?
         private var trackOverlay: MKPolyline?
+        private var ntbRouteOverlay: MKPolyline?
         /// Pins currently being dragged — their coordinate must not be reset by a
         /// `syncAnnotations` pass mid-drag (or the marker snaps back).
         private var draggingPinIds: Set<String> = []
         private var lastRouteCount = -1
         private var lastCoveredCount = -1
         private var lastTrackCount = -1
+        private var lastNtbRouteCount = -1
         private var lastFocus: LatLng?
         private var lastBearingToken = 0
 
@@ -181,6 +189,19 @@ public struct TurboMapView: UIViewRepresentable {
             let line = MKPolyline(coordinates: coords, count: coords.count)
             map.addOverlay(line, level: .aboveLabels)
             trackOverlay = line
+        }
+
+        /// A selected Nasjonal Turbase trip route, revealed by the caller growing the
+        /// passed prefix. Drawn distinctly (terracotta) above the builder route.
+        func syncNtbRoute(on map: MKMapView, geometry: [LatLng]) {
+            guard geometry.count != lastNtbRouteCount || (geometry.isEmpty && ntbRouteOverlay != nil) else { return }
+            lastNtbRouteCount = geometry.count
+            if let old = ntbRouteOverlay { map.removeOverlay(old); ntbRouteOverlay = nil }
+            guard geometry.count >= 2 else { return }
+            let coords = geometry.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+            let line = MKPolyline(coordinates: coords, count: coords.count)
+            map.addOverlay(line, level: .aboveLabels)
+            ntbRouteOverlay = line
         }
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -330,6 +351,9 @@ public struct TurboMapView: UIViewRepresentable {
                     renderer.lineWidth = 4
                 } else if line === trackOverlay {
                     renderer.strokeColor = UIColor(red: 0.0, green: 0.41, blue: 0.43, alpha: 0.95) // teal — real track
+                } else if line === ntbRouteOverlay {
+                    renderer.strokeColor = UIColor(red: 0.49, green: 0.32, blue: 0.38, alpha: 0.95) // terracotta — UT.no trip
+                    renderer.lineWidth = 6
                 } else {
                     renderer.strokeColor = UIColor(red: 0.04, green: 0.52, blue: 1.0, alpha: 0.9)  // system blue — route ahead
                 }
@@ -428,6 +452,7 @@ public struct TurboMapView: View {
         routeGeometry: [LatLng] = [],
         coveredGeometry: [LatLng] = [],
         trackGeometry: [LatLng] = [],
+        ntbRouteGeometry: [LatLng] = [],
         checkpoints: [(position: LatLng, crossed: Bool)] = [],
         onLongPress: ((LatLng) -> Void)? = nil,
         onRegionChange: ((LatLng, Double) -> Void)? = nil,

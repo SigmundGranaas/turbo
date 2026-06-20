@@ -89,7 +89,7 @@ public struct RootView: View {
             }
             .sheet(isPresented: $showLayers) {
                 let bindable = Bindable(mapViewModel)
-                MapLayersSheet(baseLayer: bindable.baseLayer, overlays: bindable.overlays)
+                MapLayersSheet(baseLayer: bindable.baseLayer, overlays: bindable.overlays, showCabins: bindable.showCabins)
                     .presentationDetents([.medium, .large])
             }
         }

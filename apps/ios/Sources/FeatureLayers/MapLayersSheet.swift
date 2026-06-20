@@ -10,10 +10,18 @@ public struct MapLayersSheet: View {
 
     @Binding var baseLayer: BaseLayer
     @Binding var overlays: Set<OverlayId>
+    /// Nasjonal Turbase (ut.no / DNT) "Cabins & trips" POI overlay. A non-tile
+    /// overlay (markers, not a raster), so it's a dedicated toggle, not an `OverlayId`.
+    @Binding var showCabins: Bool
 
-    public init(baseLayer: Binding<BaseLayer>, overlays: Binding<Set<OverlayId>>) {
+    public init(
+        baseLayer: Binding<BaseLayer>,
+        overlays: Binding<Set<OverlayId>>,
+        showCabins: Binding<Bool> = .constant(false)
+    ) {
         _baseLayer = baseLayer
         _overlays = overlays
+        _showCabins = showCabins
     }
 
     public var body: some View {
@@ -29,6 +37,14 @@ public struct MapLayersSheet: View {
                         .padding(.top, 18)
                         .padding(.bottom, 8)
                     overlayList
+                    Text("Discover")
+                        .font(.turboFootnote)
+                        .foregroundStyle(t.label2)
+                        .textCase(.uppercase)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 18)
+                        .padding(.bottom, 8)
+                    cabinsRow
                 }
                 .padding(.vertical, 8)
             }
@@ -73,6 +89,25 @@ public struct MapLayersSheet: View {
                 }
             }
         }
+        .background(t.groupedCard)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16)
+    }
+
+    /// DNT cabins + UT.no trips as tappable pins; tapping a trip reveals its route.
+    private var cabinsRow: some View {
+        Toggle(isOn: $showCabins) {
+            HStack(spacing: 12) {
+                Glyph(symbol: "house.lodge", color: t.red, size: 29, cornerRadius: 7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Cabins & trips").font(.turboBody).foregroundStyle(t.label)
+                    Text("DNT cabins & UT.no trips · Nasjonal Turbase")
+                        .font(.turboFootnote).foregroundStyle(t.label2)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .background(t.groupedCard)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 16)

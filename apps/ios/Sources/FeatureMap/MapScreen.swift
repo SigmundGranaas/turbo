@@ -40,6 +40,10 @@ public struct MapScreen: View {
     @State private var selectedMarker: Marker?
     @State private var compassResetToken = 0
     @State private var longPressCoord: LatLng?
+    /// How many points of the selected NTB trip route are currently revealed (the
+    /// draw-on animation), and the task that grows it.
+    @State private var ntbRevealCount = 0
+    @State private var ntbRevealTask: Task<Void, Never>?
 
     /// What the marker-editor sheet is editing — a new drop point (optionally
     /// prefilled from a searched place) or an existing marker.
@@ -113,6 +117,12 @@ public struct MapScreen: View {
         return f.capturedPoints
     }
 
+    /// The revealed prefix of the selected NTB trip route (grows over ~1.2s).
+    private var revealedNtbRoute: [LatLng] {
+        guard let points = viewModel.ntbRoute?.points, points.count >= 2 else { return [] }
+        return Array(points.prefix(max(2, min(ntbRevealCount, points.count))))
+    }
+
     /// How close a saved marker must sit to the planned route to count as a checkpoint (D3).
     private static let checkpointNearM = 40.0
 
@@ -152,6 +162,29 @@ public struct MapScreen: View {
 
     private var currentCenter: LatLng { mapCenter ?? LatLng(lat: 69.58, lng: 19.95) }
 
+    /// Drives the info sheet's presentation off `viewModel.ntbSelected`.
+    private var ntbSheetBinding: Binding<Bool> {
+        Binding(get: { viewModel.ntbSelected != nil }, set: { if !$0 { viewModel.dismissNtb() } })
+    }
+
+    /// Animate the selected trip's route drawing on, point by point, over ~1.2s.
+    private func startNtbReveal() {
+        ntbRevealTask?.cancel()
+        let count = viewModel.ntbRoute?.points.count ?? 0
+        guard count >= 2 else { ntbRevealCount = 0; return }
+        ntbRevealCount = 2
+        ntbRevealTask = Task { @MainActor in
+            let step = UInt64(1_200_000_000) / UInt64(max(count - 1, 1))
+            var i = 2
+            while i <= count {
+                try? await Task.sleep(nanoseconds: step)
+                if Task.isCancelled { return }
+                ntbRevealCount = i
+                i += 1
+            }
+        }
+    }
+
     /// A dragged route waypoint pin (id "wp-<index>") repositions that waypoint.
     private func handlePinMoved(_ id: String, _ coord: LatLng) {
         guard id.hasPrefix("wp-"), let index = Int(id.dropFirst(3)) else { return }
@@ -178,6 +211,11 @@ public struct MapScreen: View {
     private func handleSelectPin(_ id: String) {
         if id.hasPrefix("wp-"), let index = Int(id.dropFirst(3)) {
             selectedWaypoint = (selectedWaypoint == index) ? nil : index
+        } else if id.hasPrefix("ntb:") {
+            // NTB pins open the Cabins & trips info sheet (and reveal a trip's route).
+            if let poi = viewModel.ntbPois.first(where: { "ntb:\($0.id)" == id }) {
+                viewModel.selectNtb(poi)
+            }
         } else {
             selectedMarker = viewModel.markers.first { $0.id == id }
         }
@@ -235,10 +273,11 @@ public struct MapScreen: View {
             routeGeometry: drawnGeometry,
             coveredGeometry: coveredGeometry,
             trackGeometry: travelledGeometry,
+            ntbRouteGeometry: revealedNtbRoute,
             checkpoints: isFollowing ? (follow?.phaseMarkers ?? []) : [],
             onLongPress: { longPressCoord = $0 },
             onRegionChange: { mapCenter = $0; mapMetersPerPoint = $1 },
-            onVisibleBoundsChange: { viewModel.updateVisibleBounds($0) },
+            onVisibleBoundsChange: { viewModel.updateVisibleBounds($0); viewModel.refreshCabins(in: $0) },
             onSelectPin: handleSelectPin,
             onTap: tapHandler,
             onPinMoved: handlePinMoved,
@@ -267,6 +306,19 @@ public struct MapScreen: View {
         // Re-arm camera-follow when a follow/record session begins (still releases on pan).
         .onChange(of: isFollowing) { _, now in if now { viewModel.setFollowing(true) } }
         .onChange(of: recording?.isRecording ?? false) { _, now in if now { viewModel.setFollowing(true) } }
+        // Cabins & trips overlay: fetch in-view POIs when switched on, clear when off.
+        .onChange(of: viewModel.showCabins) { _, on in
+            if on { if let bounds = viewModel.visibleBounds { viewModel.refreshCabins(in: bounds) } }
+            else { viewModel.clearCabins() }
+        }
+        // Re-run the route draw-on whenever the selected trip's route loads/changes.
+        .onChange(of: viewModel.ntbRoute?.id) { _, _ in startNtbReveal() }
+        .sheet(isPresented: ntbSheetBinding) {
+            if let poi = viewModel.ntbSelected {
+                NtbInfoSheet(poi: poi, route: viewModel.ntbRoute)
+                    .presentationDetents([.medium, .large])
+            }
+        }
         .sheet(item: $editorTarget) { target in
             switch target {
             case let .new(position, name):
@@ -339,6 +391,16 @@ public struct MapScreen: View {
                 symbolName: marker.kind.symbolName,
                 tint: marker.displayColor(t)
             )
+        }
+        // Nasjonal Turbase POIs as "ntb:"-prefixed pins (tap → NTB info sheet).
+        for poi in viewModel.ntbPois {
+            result.append(MapPin(
+                id: "ntb:\(poi.id)",
+                coordinate: poi.position,
+                title: poi.title,
+                symbolName: poi.symbolName,
+                tint: t.red
+            ))
         }
         if let place = viewModel.focusedPlace {
             result.append(MapPin(id: "focus-\(place.id)", coordinate: place.position,

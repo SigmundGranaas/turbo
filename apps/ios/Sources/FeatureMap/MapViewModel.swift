@@ -13,6 +13,15 @@ public final class MapViewModel {
     public private(set) var markers: [Marker] = []
     public var baseLayer: BaseLayer
     public var overlays: Set<OverlayId> = []
+    /// Nasjonal Turbase (ut.no / DNT) "Cabins & trips" overlay on/off. Toggled
+    /// from the Layers sheet; drives the in-view POI fetch + on-map pins.
+    public var showCabins: Bool = false
+    /// In-view POIs while the overlay is on (rendered as pins). Empty when off.
+    public private(set) var ntbPois: [NtbPoi] = []
+    /// The POI whose info sheet is open (`nil` = none).
+    public private(set) var ntbSelected: NtbPoi?
+    /// The selected trip's loaded route, revealed on the map (`nil` until loaded).
+    public private(set) var ntbRoute: NtbRoute?
     public var following: Bool
     /// The user's live position + heading (from ``LocationProvider``).
     public private(set) var userLocation: LatLng?
@@ -33,17 +42,26 @@ public final class MapViewModel {
 
     private let markerRepository: MarkerRepository
     private let location: LocationProvider?
+    private let nasjonalTurbase: NasjonalTurbaseRepository?
     private var observation: Task<Void, Never>?
     private var locationObservation: Task<Void, Never>?
+    private var ntbTask: Task<Void, Never>?
+    private var ntbRouteTask: Task<Void, Never>?
+
+    /// Above this viewport span (degrees) the cabins/trips overlay stays empty —
+    /// at country zoom the markers would be meaningless (and the proxy rejects it).
+    private static let maxCabinSpanDeg = 1.5
 
     public init(
         markerRepository: MarkerRepository,
         location: LocationProvider? = nil,
+        nasjonalTurbase: NasjonalTurbaseRepository? = nil,
         baseLayer: BaseLayer = .norgeskart,
         following: Bool = false
     ) {
         self.markerRepository = markerRepository
         self.location = location
+        self.nasjonalTurbase = nasjonalTurbase
         self.baseLayer = baseLayer
         self.following = following
     }
@@ -63,6 +81,58 @@ public final class MapViewModel {
         observation = nil
         locationObservation?.cancel()
         locationObservation = nil
+        ntbTask?.cancel()
+        ntbTask = nil
+        ntbRouteTask?.cancel()
+        ntbRouteTask = nil
+    }
+
+    // MARK: - Nasjonal Turbase (ut.no / DNT) "Cabins & trips" overlay
+
+    /// Reload the in-view POIs for the overlay. Called on each region change while
+    /// the overlay is on; skips very large viewports and coalesces rapid pans.
+    public func refreshCabins(in bounds: GeoBounds) {
+        guard showCabins, let nasjonalTurbase else { return }
+        if bounds.north - bounds.south > Self.maxCabinSpanDeg || bounds.east - bounds.west > Self.maxCabinSpanDeg {
+            if !ntbPois.isEmpty { ntbPois = [] }
+            return
+        }
+        ntbTask?.cancel()
+        ntbTask = Task { [weak self] in
+            let pois = await nasjonalTurbase.pois(in: bounds)
+            guard !Task.isCancelled else { return }
+            self?.ntbPois = pois
+        }
+    }
+
+    /// Toggle the overlay off: drop the pins, selection and revealed route.
+    public func clearCabins() {
+        ntbTask?.cancel()
+        ntbRouteTask?.cancel()
+        ntbPois = []
+        ntbSelected = nil
+        ntbRoute = nil
+    }
+
+    /// Open the info sheet for `poi`; for a trip, fetch + reveal its route.
+    public func selectNtb(_ poi: NtbPoi) {
+        ntbRouteTask?.cancel()
+        ntbSelected = poi
+        ntbRoute = nil
+        guard poi.hasRoute, let nasjonalTurbase else { return }
+        ntbRouteTask = Task { [weak self] in
+            let route = await nasjonalTurbase.route(id: poi.id)
+            guard !Task.isCancelled else { return }
+            // Ignore a late result if the user already moved on to another POI.
+            if self?.ntbSelected?.id == poi.id { self?.ntbRoute = route }
+        }
+    }
+
+    /// Dismiss the info sheet and hide the revealed route.
+    public func dismissNtb() {
+        ntbRouteTask?.cancel()
+        ntbSelected = nil
+        ntbRoute = nil
     }
 
     /// Begin streaming the user's location + heading into ``userLocation`` /

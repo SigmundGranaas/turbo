@@ -37,6 +37,7 @@ public final class AppContainer {
     public let sunProvider: SunProvider
     public let marineProvider: MarineProvider
     public let routeRepository: RouteRepository
+    public let nasjonalTurbase: NasjonalTurbaseRepository
     public let photoRepository: PhotoRepository
     public let sharingRepository: SharingRepository
     public let syncController: SyncController
@@ -78,6 +79,7 @@ public final class AppContainer {
         sunProvider = MetNoSunProvider()   // met.no Sunrise 3.0, no auth
         marineProvider = MetNoMarineProvider()   // met.no oceanforecast 2.0, no auth
         routeRepository = HttpRouteRepository()   // public routing API, no auth
+        nasjonalTurbase = HttpNasjonalTurbaseRepository()   // public Places proxy, no auth
         photoRepository = FilePhotoRepository()
         recordingController = RecordingController(
             location: locationProvider, pathRepository: pathRepository, activity: Self.makeActivityPresenter(),
@@ -136,6 +138,7 @@ public final class AppContainer {
         sunProvider: SunProvider = InMemorySunProvider(),
         marineProvider: MarineProvider = InMemoryMarineProvider(),
         routeRepository: RouteRepository = InMemoryRouteRepository(),
+        nasjonalTurbase: NasjonalTurbaseRepository = InMemoryNasjonalTurbaseRepository(),
         photoRepository: PhotoRepository = FilePhotoRepository(),
         sharingRepository: SharingRepository = InMemorySharingRepository(),
         isOnline: Bool = false
@@ -154,6 +157,7 @@ public final class AppContainer {
         self.sunProvider = sunProvider
         self.marineProvider = marineProvider
         self.routeRepository = routeRepository
+        self.nasjonalTurbase = nasjonalTurbase
         self.photoRepository = photoRepository
         self.sharingRepository = sharingRepository
         self.recordingController = RecordingController(
@@ -213,7 +217,7 @@ public final class AppContainer {
     // MARK: View-model factories
 
     public func makeMapViewModel() -> MapViewModel {
-        MapViewModel(markerRepository: markerRepository, location: locationProvider)
+        MapViewModel(markerRepository: markerRepository, location: locationProvider, nasjonalTurbase: nasjonalTurbase)
     }
     public func makeMarkersViewModel() -> MarkersViewModel { MarkersViewModel(repository: markerRepository) }
     public func makeRouteViewModel() -> RouteViewModel {
