@@ -271,22 +271,24 @@ internal suspend fun PointerInputScope.detectMapGestures(
                 }
             } else {
                 // Two fingers commit to ONE intent — zoom OR rotate OR (3D) tilt. NO pan (one
-                // finger pans), so a pinch can't slide the map. Accumulate each axis' movement
-                // this frame; the first to cross its gate wins and owns the gesture.
+                // finger pans), so a pinch can't slide the map. Each axis accumulates its
+                // SIGNED net movement (so frame-to-frame noise cancels instead of inflating
+                // the gate — otherwise a twist's incidental wobble would falsely win tilt/zoom);
+                // the first |net| to cross its gate wins and owns the gesture.
                 val ratio = if (prevSpread > 0f && spread > 0f) spread / prevSpread else 1f
-                if (ratio != 1f) zoomAccumLevels += abs(ln(ratio.toDouble()).toFloat() / LN2)
+                if (ratio != 1f) zoomAccumLevels += ln(ratio.toDouble()).toFloat() / LN2
                 val angle = twoFingerAngleDeg(pressed)
                 val dAngle = wrapDeltaDeg(angle - prevAngle)
                 rotateAccum += dAngle
                 val dy = centroid.y - prevCentroid.y
-                if (gestureMode == MapGestureMode.ThreeD) tiltAccumPx += abs(dy)
+                if (gestureMode == MapGestureMode.ThreeD) tiltAccumPx += dy
                 prevAngle = angle
 
                 if (lockedAxis == null) {
                     lockedAxis = lockTwoFingerAxis(
-                        zoomN = zoomAccumLevels / ZOOM_GATE_LEVELS,
+                        zoomN = abs(zoomAccumLevels) / ZOOM_GATE_LEVELS,
                         rotateN = abs(rotateAccum) / ROTATE_GATE_DEG,
-                        tiltN = if (gestureMode == MapGestureMode.ThreeD) tiltAccumPx / tiltGatePx else 0f,
+                        tiltN = if (gestureMode == MapGestureMode.ThreeD) abs(tiltAccumPx) / tiltGatePx else 0f,
                     )
                 }
 
