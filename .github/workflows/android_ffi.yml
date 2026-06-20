@@ -37,8 +37,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # turbomap-mvt compiles .proto at build time via prost-build; the golden
-      # path renders on Mesa's software Vulkan (Lavapipe) — deterministic, no GPU.
+      # turbomap-mvt compiles .proto at build time via prost-build; the FFI
+      # round-trip renders on Mesa's software Vulkan (Lavapipe) — deterministic,
+      # no GPU. (Not a golden pixel-comparison — a host-side reachability proof.)
       - name: Install protoc + Lavapipe (software Vulkan)
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler mesa-vulkan-drivers vulkan-tools
 
