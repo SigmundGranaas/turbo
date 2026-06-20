@@ -26,6 +26,7 @@
     <string name="ds_menu">Meny</string>
     <string name="ds_map_layers">Kartlag</string>
     <string name="ds_toggle_3d">Veksle 3D-visning</string>
+    <string name="ds_sun_mode">Sol-modus</string>
     <string name="ds_measure_distance">Mål avstand</string>
     <string name="ds_create_track">Lag spor</string>
     <string name="ds_my_location">Min posisjon</string>

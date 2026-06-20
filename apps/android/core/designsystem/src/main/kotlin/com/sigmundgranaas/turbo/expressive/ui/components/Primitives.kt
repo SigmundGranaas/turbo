@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NearMe
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.ViewInAr
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -108,6 +109,8 @@ fun MapControlRail(
     onZoomOut: () -> Unit = {},
     threeD: Boolean = false,
     onToggle3D: (() -> Unit)? = null,
+    sunMode: Boolean = false,
+    onToggleSun: (() -> Unit)? = null,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // Discoverable "add a place" — drops a new marker at the map centre. Long-press
@@ -123,6 +126,11 @@ fun MapControlRail(
         // 2D/3D toggle — only supplied by the wgpu map; active = 3D (orbit gestures).
         if (onToggle3D != null) {
             RailButton(Icons.Rounded.ViewInAr, stringResource(R.string.ds_toggle_3d), active = threeD, onClick = onToggle3D)
+        }
+        // Sun mode — only on the wgpu map (3D terrain): lights the relief by a
+        // movable sun + casts shadows, with a time-of-day slider at the bottom.
+        if (onToggleSun != null) {
+            RailButton(Icons.Rounded.WbSunny, stringResource(R.string.ds_sun_mode), active = sunMode, onClick = onToggleSun)
         }
         RailButton(Icons.Rounded.Layers, stringResource(R.string.ds_map_layers), onClick = onLayers)
         if (onCreateTrack != null) {

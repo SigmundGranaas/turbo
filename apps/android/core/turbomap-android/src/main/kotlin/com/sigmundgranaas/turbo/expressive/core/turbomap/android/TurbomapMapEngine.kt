@@ -3,6 +3,7 @@ package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
+import com.sigmundgranaas.turbo.expressive.domain.TerrainSunOverlay
 import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
 
 /**
@@ -19,7 +20,7 @@ class TurbomapMapEngine(
     private val handle: Long,
     private var widthPx: Int,
     private var heightPx: Int,
-) : MapEngine, WeatherCloudOverlay {
+) : MapEngine, WeatherCloudOverlay, TerrainSunOverlay {
 
     /**
      * Invoked after any camera/projection mutation so the host can request a
@@ -148,6 +149,18 @@ class TurbomapMapEngine(
 
     override fun setCloudTime(timeSeconds: Float, blend: Float) {
         NativeSurfaceMap.nativeSetCloudTime(handle, timeSeconds, blend)
+        onMutated()
+    }
+
+    // ── TerrainSunOverlay ───────────────────────────────────────────────────
+
+    override fun setSunTime(unixSeconds: Double) {
+        NativeSurfaceMap.nativeSetSunTime(handle, unixSeconds)
+        onMutated()
+    }
+
+    override fun setTerrainShadows(strength: Float) {
+        NativeSurfaceMap.nativeSetTerrainShadows(handle, strength)
         onMutated()
     }
 

@@ -82,6 +82,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.SectionLabel
 import com.sigmundgranaas.turbo.expressive.ui.layout.responsiveContentWidth
 import com.sigmundgranaas.turbo.expressive.core.turbomap.android.TurbomapMapView
 import com.sigmundgranaas.turbo.expressive.feature.map.radar.RadarOverlayControls
+import com.sigmundgranaas.turbo.expressive.feature.map.sun.SunOverlayControls
 import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
 import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
@@ -637,6 +638,25 @@ fun MapScreen(
                 )
             }
 
+            // Sun mode — movable sun + atmosphere + cast shadows, with a time-of-
+            // day slider at the bottom (defaults to today/now). wgpu engine only;
+            // renders nothing when off. Sits above the radar scrubber if both on.
+            if (state.experimentalWgpuMap) {
+                SunOverlayControls(
+                    engine = ui.controller,
+                    active = ui.sunModeOn,
+                    onActiveChange = { ui.sunModeOn = it },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(
+                            start = 16.dp,
+                            end = 16.dp,
+                            bottom = if (ui.cloudsOn) 76.dp else 16.dp,
+                        ),
+                )
+            }
+
             // No silent blank: if the wgpu engine failed to start, say so.
             wgpuError.value?.let { msg ->
                 Surface(
@@ -753,6 +773,19 @@ fun MapScreen(
                     threeD = state.threeDMode,
                     onToggle3D = if (state.experimentalWgpuMap) {
                         { viewModel.setThreeDMode(!state.threeDMode) }
+                    } else {
+                        null
+                    },
+                    // Sun mode: movable sun + atmosphere + cast shadows (wgpu only).
+                    // Turning it on also flips to 3D — the relief, sky and shadows
+                    // only read under tilt.
+                    sunMode = ui.sunModeOn,
+                    onToggleSun = if (state.experimentalWgpuMap) {
+                        {
+                            val next = !ui.sunModeOn
+                            ui.sunModeOn = next
+                            if (next && !state.threeDMode) viewModel.setThreeDMode(true)
+                        }
                     } else {
                         null
                     },
