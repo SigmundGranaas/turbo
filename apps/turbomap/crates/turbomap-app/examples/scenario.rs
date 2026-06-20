@@ -25,9 +25,10 @@ use std::time::Duration;
 
 use image::{ImageEncoder, RgbaImage};
 use turbomap_core::{
-    Camera, Color, Feature, Filter, GeomType, Geometry, LatLng, Map, MapOptions, Marker, MarkerId,
-    Paint, PendingTile, RadarFrame, RasterFormat, RasterTile, Rule, SunPosition, TileError, TileId,
-    TileSource, VectorStyle, VectorTile, VectorTileLayer, VectorTileSource,
+    Camera, Color, DemEncoding, Feature, Filter, GeomType, Geometry, HillshadeStyle, IconSpec,
+    LatLng, Map, MapOptions, Marker, MarkerId, Paint, PendingTile, RadarFrame, RasterFormat,
+    RasterTile, Rule, SunPosition, TileError, TileId, TileSource, VectorStyle, VectorTile,
+    VectorTileLayer, VectorTileSource, VectorValue,
 };
 
 /// A coarse synthetic radar grid (precip + coverage) so the cloud overlay
@@ -50,32 +51,107 @@ fn synthetic_radar(w: u32, h: u32, phase: f32) -> RadarFrame {
     RadarFrame::from_u8(w, h, &precip, &coverage)
 }
 
-/// In-memory vector source: an "X" of two diagonal lines per tile, at every
-/// zoom. No network — deterministic + instant. Its only job is to push real
-/// line geometry through the vector pipeline so the terrain-draping vertex
-/// shader (the DEM sample) actually runs with terrain present. This path is
-/// otherwise never exercised: the sim has no terrain (zscale 0 → sample
-/// branched out), and the device is the only place it's run before now.
+/// In-memory vector source that exercises EVERY vector render path the engine
+/// supports, deterministically and offline, so the diagnostic suite can
+/// observe each one draped on real 3D terrain:
+///   - `streets`   LineStrings  → `Paint::Line` + along-line road labels
+///   - `water`     Polygon      → `Paint::Fill`
+///   - `buildings` Polygons     → `Paint::FillExtrusion` (3D prisms, height-driven)
+///   - `pois`      Points       → `Paint::Text` + `IconSpec` (POI label + sprite)
+///
+/// The same tile content repeats at every zoom (the geometry is tile-local),
+/// which is all the renderer needs to light up each pipeline.
 struct SyntheticVectors;
+
+fn prop(pairs: &[(&str, VectorValue)]) -> HashMap<String, VectorValue> {
+    pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+}
 
 impl VectorTileSource for SyntheticVectors {
     fn request(&self, _tile: TileId) -> Result<VectorTile, TileError> {
         let e = 4096i32;
-        Ok(VectorTile {
-            layers: vec![VectorTileLayer {
-                name: "streets".into(),
-                version: 2,
-                extent: e as u32,
-                features: vec![Feature {
-                    id: 1,
-                    geom_type: GeomType::LineString,
-                    geometry: Geometry::LineString(vec![
-                        vec![(e / 16, e / 16), (e * 15 / 16, e * 15 / 16)],
-                        vec![(e / 16, e * 15 / 16), (e * 15 / 16, e / 16)],
-                    ]),
-                    properties: std::collections::HashMap::new(),
-                }],
+        let streets = VectorTileLayer {
+            name: "streets".into(),
+            version: 2,
+            extent: e as u32,
+            features: vec![Feature {
+                id: 1,
+                geom_type: GeomType::LineString,
+                geometry: Geometry::LineString(vec![
+                    vec![(e / 16, e / 16), (e * 15 / 16, e * 15 / 16)],
+                    vec![(e / 16, e * 15 / 16), (e * 15 / 16, e / 16)],
+                ]),
+                properties: prop(&[("name", VectorValue::String("Diagonalveien".into()))]),
             }],
+        };
+        let rect = |x0: i32, y0: i32, x1: i32, y1: i32| {
+            Geometry::Polygon(vec![vec![
+                (x0, y0),
+                (x1, y0),
+                (x1, y1),
+                (x0, y1),
+                (x0, y0),
+            ]])
+        };
+        let water = VectorTileLayer {
+            name: "water".into(),
+            version: 2,
+            extent: e as u32,
+            features: vec![Feature {
+                id: 10,
+                geom_type: GeomType::Polygon,
+                geometry: rect(e / 20, e * 11 / 20, e * 9 / 20, e * 19 / 20),
+                properties: HashMap::new(),
+            }],
+        };
+        // Two building footprints with different heights → distinct prisms
+        // under a tilted camera (and the height-driven walls/roof shading).
+        let buildings = VectorTileLayer {
+            name: "buildings".into(),
+            version: 2,
+            extent: e as u32,
+            features: vec![
+                Feature {
+                    id: 20,
+                    geom_type: GeomType::Polygon,
+                    geometry: rect(e * 11 / 20, e * 2 / 20, e * 16 / 20, e * 7 / 20),
+                    properties: prop(&[("render_height", VectorValue::Int(120))]),
+                },
+                Feature {
+                    id: 21,
+                    geom_type: GeomType::Polygon,
+                    geometry: rect(e * 12 / 20, e * 9 / 20, e * 15 / 20, e * 12 / 20),
+                    properties: prop(&[("render_height", VectorValue::Int(40))]),
+                },
+            ],
+        };
+        let pois = VectorTileLayer {
+            name: "pois".into(),
+            version: 2,
+            extent: e as u32,
+            features: vec![
+                Feature {
+                    id: 30,
+                    geom_type: GeomType::Point,
+                    geometry: Geometry::Point(vec![(e * 5 / 16, e * 6 / 16)]),
+                    properties: prop(&[
+                        ("name", VectorValue::String("Stortind".into())),
+                        ("rank", VectorValue::Int(3)),
+                    ]),
+                },
+                Feature {
+                    id: 31,
+                    geom_type: GeomType::Point,
+                    geometry: Geometry::Point(vec![(e * 11 / 16, e * 10 / 16)]),
+                    properties: prop(&[
+                        ("name", VectorValue::String("Havna".into())),
+                        ("rank", VectorValue::Int(2)),
+                    ]),
+                },
+            ],
+        };
+        Ok(VectorTile {
+            layers: vec![streets, water, buildings, pois],
         })
     }
     fn min_zoom(&self) -> u8 {
@@ -90,25 +166,76 @@ impl VectorTileSource for SyntheticVectors {
 /// real MVT geometry through the vector pipeline so its terrain-draping
 /// vertex shader (the DEM sample) actually executes with terrain present.
 fn demo_style() -> VectorStyle {
+    let rule = |layer: &str, paint: Paint, interactive: bool| Rule {
+        source_layer: layer.into(),
+        filter: Filter::Always,
+        paint,
+        min_zoom: 0,
+        max_zoom: 22,
+        interactive,
+    };
     VectorStyle {
         background: Color::rgba(0, 0, 0, 0),
         rules: vec![
-            Rule {
-                source_layer: "streets".into(),
-                filter: Filter::Always,
-                paint: Paint::Line { color: Color::rgb(0xBD, 0xB3, 0xA1), width: 14.0 },
-                min_zoom: 6,
-                max_zoom: 22,
-                interactive: false,
-            },
-            Rule {
-                source_layer: "water_polygons".into(),
-                filter: Filter::Always,
-                paint: Paint::Fill { color: Color::rgb(0x9E, 0xC2, 0xDF) },
-                min_zoom: 6,
-                max_zoom: 22,
-                interactive: false,
-            },
+            // Fill: a lake polygon draped on the terrain.
+            rule("water", Paint::Fill { color: Color::rgb(0x9E, 0xC2, 0xDF) }, false),
+            // Line: the road network (interactive → exercises the hit-test index).
+            rule(
+                "streets",
+                Paint::Line { color: Color::rgb(0xBD, 0xB3, 0xA1), width: 14.0 },
+                true,
+            ),
+            // 3D extrusion: buildings as height-driven prisms (only shows tilted).
+            rule(
+                "buildings",
+                Paint::FillExtrusion {
+                    color: Color::rgb(0xC9, 0xB8, 0x9A),
+                    height_m: 30.0,
+                    height_property: Some("render_height".into()),
+                    min_height_property: None,
+                },
+                false,
+            ),
+            // Along-line label: the road name follows the street centreline.
+            rule(
+                "streets",
+                Paint::Text {
+                    text_field: "name".into(),
+                    font_size_px: 22.0,
+                    color: Color::rgb(0x33, 0x2A, 0x1E),
+                    halo_color: Color::rgb(255, 255, 255),
+                    halo_width: 2.0,
+                    rank_field: None,
+                    along_line: true,
+                    icon: None,
+                    left_anchor: false,
+                    letter_spacing: 0.0,
+                    weight: 0.0,
+                },
+                false,
+            ),
+            // Point label + icon: POI markers with a sprite and a name.
+            rule(
+                "pois",
+                Paint::Text {
+                    text_field: "name".into(),
+                    font_size_px: 24.0,
+                    color: Color::rgb(0x1A, 0x1A, 0x1A),
+                    halo_color: Color::rgb(255, 255, 255),
+                    halo_width: 2.5,
+                    rank_field: Some("rank".into()),
+                    along_line: false,
+                    icon: Some(IconSpec {
+                        sprite: "marker".into(),
+                        size_px: 32.0,
+                        color: Color::rgb(0xD8, 0x3A, 0x2A),
+                    }),
+                    left_anchor: true,
+                    letter_spacing: 0.0,
+                    weight: 0.0,
+                },
+                false,
+            ),
         ],
     }
 }
@@ -269,6 +396,9 @@ fn parse_cli() -> Cli {
 struct Step {
     label: String,
     camera: Camera,
+    /// Optional sun override applied before this frame (the time-of-day sweep);
+    /// `None` keeps whatever the previous step left set.
+    sun: Option<SunPosition>,
 }
 
 /// Build the session: warm up flat, ramp the pitch down hard, orbit a full
@@ -279,7 +409,8 @@ fn build_steps(cli: &Cli) -> Vec<Step> {
     let cam = |pitch: f64, bearing: f64, center: LatLng, zoom: f64| {
         Camera::new(center, zoom).with_pitch(pitch).with_bearing(bearing)
     };
-    steps.push(Step { label: "warmup-flat".into(), camera: cam(0.0, 0.0, cli.center, cli.zoom) });
+    let mut push = |label: String, camera: Camera| steps.push(Step { label, camera, sun: None });
+    push("warmup-flat".into(), cam(0.0, 0.0, cli.center, cli.zoom));
     // Sweep pitch across EVERY allowed level in 5° increments (0 → max). The
     // crash hunt + the profiling pass both care about behaviour at every tilt,
     // not just the endpoints: this is where the steep-pitch footprint grows
@@ -288,30 +419,45 @@ fn build_steps(cli: &Cli) -> Vec<Step> {
     let mut p = 5.0;
     while p <= cli.max_pitch + 1e-6 {
         let pitch = p.min(cli.max_pitch);
-        steps.push(Step {
-            label: format!("pitch-{pitch:.0}"),
-            camera: cam(pitch, cli.bearing, cli.center, cli.zoom),
-        });
+        push(format!("pitch-{pitch:.0}"), cam(pitch, cli.bearing, cli.center, cli.zoom));
         p += 5.0;
     }
     // Orbit a full turn at max pitch (the 3D-mode 1-finger orbit).
     for i in 1..=12 {
         let b = cli.bearing + 360.0 * i as f64 / 12.0;
-        steps.push(Step { label: format!("orbit-{:.0}", b % 360.0), camera: cam(cli.max_pitch, b, cli.center, cli.zoom) });
+        push(format!("orbit-{:.0}", b % 360.0), cam(cli.max_pitch, b, cli.center, cli.zoom));
     }
     // Pan north across fjord + peak at max pitch.
     for i in 1..=6 {
         let c = LatLng { lat: cli.center.lat + 0.02 * i as f64, lng: cli.center.lng + 0.01 * i as f64 };
-        steps.push(Step { label: format!("pan-{i}"), camera: cam(cli.max_pitch, cli.bearing, c, cli.zoom) });
+        push(format!("pan-{i}"), cam(cli.max_pitch, cli.bearing, c, cli.zoom));
     }
     // Over-zoom in past native max and back out (upsample path), staying tilted.
     for i in 1..=5 {
         let z = cli.zoom + i as f64;
-        steps.push(Step { label: format!("zoomin-{z:.0}"), camera: cam(cli.max_pitch, cli.bearing, cli.center, z) });
+        push(format!("zoomin-{z:.0}"), cam(cli.max_pitch, cli.bearing, cli.center, z));
     }
     for i in (0..=5).rev() {
         let z = cli.zoom + i as f64 - 3.0;
-        steps.push(Step { label: format!("zoomout-{z:.0}"), camera: cam(cli.max_pitch.min(60.0), cli.bearing, cli.center, z.max(5.0)) });
+        push(format!("zoomout-{z:.0}"), cam(cli.max_pitch.min(60.0), cli.bearing, cli.center, z.max(5.0)));
+    }
+
+    // Time-of-day sweep at a scenic tilt: vary the sun from dawn → noon → dusk
+    // so the diagnostic observes the terrain shading, hillshade self-shadows
+    // and the analytic sky/atmosphere palette respond to sun azimuth+altitude.
+    let tod_cam = cam(55.0, cli.bearing, cli.center, cli.zoom);
+    for (label, azimuth_deg, altitude_deg) in [
+        ("tod-dawn", 80.0_f32, 6.0_f32),
+        ("tod-morning", 120.0, 25.0),
+        ("tod-noon", 180.0, 55.0),
+        ("tod-evening", 250.0, 18.0),
+        ("tod-dusk", 292.0, 4.0),
+    ] {
+        steps.push(Step {
+            label: label.into(),
+            camera: tod_cam,
+            sun: Some(SunPosition { azimuth_deg, altitude_deg }),
+        });
     }
     steps
 }
@@ -506,8 +652,24 @@ fn main() {
     let vector: Arc<dyn VectorTileSource> = Arc::new(SyntheticVectors);
     map.add_raster_layer("basemap", basemap.clone());
     map.set_terrain_source(dem.clone(), turbomap_core::TerrainOptions::default());
+    // Hillshade over the basemap: sun-relit relief shadows from the shared DEM
+    // — exercises the hillshade pipeline + the terrain self-shadowing the sun
+    // drives. Drawn between basemap and vectors so roads/labels sit on top.
+    map.add_hillshade_layer(
+        "hillshade",
+        HillshadeStyle {
+            encoding: DemEncoding::MapboxRgb,
+            sun_azimuth_deg: 315.0,
+            sun_altitude_deg: 45.0,
+            exaggeration: 1.4,
+            shadow_color: Color::rgb(0x2A, 0x33, 0x40),
+            highlight_color: Color::rgb(0xFF, 0xFB, 0xF0),
+            opacity: 0.55,
+        },
+    );
     map.add_vector_layer("osm", vector.clone(), demo_style());
-    // Fixed sun so frames are deterministic (no wall-clock dependence).
+    // Fixed sun so frames are deterministic (no wall-clock dependence). The
+    // time-of-day sweep below overrides this per-step.
     map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
 
     // Markers around the camera — exercises the marker pipeline + the
@@ -527,6 +689,17 @@ fn main() {
             data,
         });
     }
+    // The styled "you are here" location puck — a larger, distinct blue dot at
+    // the camera centre, the app's current-location marker.
+    let mut puck = std::collections::HashMap::new();
+    puck.insert("kind".to_owned(), "location".to_owned());
+    map.add_marker(Marker {
+        id: MarkerId(0),
+        lng_lat: cli.center,
+        radius_px: 16.0,
+        color: Color::rgb(0x1E, 0x88, 0xE5),
+        data: puck,
+    });
 
     // Cloud overlay, geo-registered so the camera-ray parallax engages under
     // tilt (otherwise the steep-pitch cloud path is never tested).
@@ -565,6 +738,9 @@ fn main() {
         // broke (and the backtrace prints above this line).
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             map.set_camera(cam);
+            if let Some(sun) = step.sun {
+                map.set_sun_position(Some(sun));
+            }
             // The clamp may have lowered the pitch; report what actually rendered.
             let eff = map.camera();
             let mat = eff.view_projection_matrix((WIDTH, HEIGHT));
@@ -614,6 +790,68 @@ fn main() {
                 break;
             }
         }
+    }
+
+    // ---- Animated-navigation perf -----------------------------------------
+    // The scripted steps above teleport the camera (set_camera). This phase
+    // exercises the ANIMATION path the device actually uses while navigating:
+    // an eased fly-to, then an inertial pan fling, advanced by `tick()` every
+    // frame (each tick re-syncs scenes + redraws). It profiles the per-frame
+    // cost while the camera is genuinely in motion — the "tilt + navigate"
+    // workload — at ~30 fps wall-clock so the time-based physics steps.
+    if !crashed {
+        let home = Camera::new(cli.center, cli.zoom)
+            .with_pitch(35.0)
+            .with_bearing(cli.bearing);
+        let fly_target = Camera::new(
+            LatLng::new(cli.center.lat + 0.03, cli.center.lng + 0.02),
+            cli.zoom + 2.0,
+        )
+        .with_pitch(70.0)
+        .with_bearing(cli.bearing + 60.0);
+        // Pre-warm BOTH endpoints' tiles (blocking network) before timing, so
+        // the loop measures the per-frame animation cost — tick → scene re-sync
+        // → redraw — not tile fetches. (Without this, draining the fly-to
+        // destination's cold tiles dominates and starves the loop.)
+        for c in [fly_target, home] {
+            map.set_camera(c);
+            drain_tiles(&mut map, &basemap, &dem, &vector);
+        }
+        map.ease_to(fly_target, Duration::from_millis(1200));
+        eprintln!("  ── animated navigation (ease-to + fling, tick-driven, warm tiles) ──");
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        // Fixed frame budget (~2 s at 30 fps): the ease (1.2 s) then a pan
+        // fling carry the camera the whole time, so every frame is in motion.
+        const NAV_FRAMES: u32 = 60;
+        for nav_idx in 0..NAV_FRAMES {
+            map.tick(std::time::Instant::now());
+            // Mid-flight, hand off to an inertial pan fling (gesture momentum).
+            if nav_idx == 35 {
+                map.fling((-650.0, 280.0));
+            }
+            // Tiles are warm → this is cheap (cache hits); keeps the visible
+            // set current as the camera moves without dominating the timing.
+            drain_tiles(&mut map, &basemap, &dem, &vector);
+            let path = format!("{}/nav-{nav_idx:03}.png", cli.out_dir);
+            render_to_png(&mut map, &device, &queue, &target, &target_view, &path);
+            let m = map.last_frame_metrics().clone();
+            profiles.push((format!("nav-{nav_idx}"), map.camera().pitch_deg, m.clone()));
+            if nav_idx.is_multiple_of(12) {
+                eprintln!(
+                    "  nav {nav_idx:>3}        {:>5.0} | {:>7.2} {:>7.2} {:>7.2} {:>7.2} | {:>4} {:>4} {:>6}",
+                    map.camera().pitch_deg,
+                    ms(m.cpu_time),
+                    ms(m.phases.prepare),
+                    ms(m.phases.pass),
+                    ms(m.phases.clouds),
+                    m.visible_layers,
+                    m.draw_calls,
+                    m.tiles_drawn,
+                );
+            }
+            std::thread::sleep(Duration::from_millis(33));
+        }
+        eprintln!("  animated navigation: {NAV_FRAMES} frames");
     }
 
     print_profile_summary(&profiles);
