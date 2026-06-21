@@ -42,11 +42,12 @@ object TurbomapScene {
      * when they have renderable geometry, so the result always validates (every
      * layer's source exists).
      */
+    // NOTE: track + route are NOT scene layers anymore — they render as raised
+    // 3D tubes via `NativeSurfaceMap.nativeSetRouteTube` (a single lit mesh, not
+    // a per-tile flat line). Only measure + user stay flat geojson here.
     @Suppress("LongParameterList")
     fun build(
         rasters: List<RasterSpec> = emptyList(),
-        track: List<LatLng>? = null,
-        route: List<LatLng>? = null,
         measure: List<LatLng> = emptyList(),
         user: LatLng? = null,
         // When set, the engine loads this Mapbox-Terrain-RGB DEM as the shared
@@ -54,8 +55,6 @@ object TurbomapScene {
         // displace their vertices by elevation — real 3D terrain. The host
         // fetches the DEM tiles (it owns this same URL template). null = flat.
         demUrl: String? = null,
-        trackColor: Rgba = TrackColor,
-        routeColor: Rgba = RouteColor,
         measureColor: Rgba = MeasureColor,
     ): String {
         val sources = mutableListOf<String>()
@@ -91,8 +90,6 @@ object TurbomapScene {
                 "\"color\": ${const(color)}, \"width\": { \"const\": $width } }"
         }
 
-        line("track", track, trackColor, TRACK_WIDTH)
-        line("route", route, routeColor, ROUTE_WIDTH)
         line("measure-line", measure, measureColor, MEASURE_WIDTH)
 
         if (measure.isNotEmpty()) {
@@ -128,10 +125,6 @@ object TurbomapScene {
      *  so an unspecified source doesn't claim depth the server lacks. */
     const val DEFAULT_RASTER_MAX_ZOOM = 19
 
-    // Bumped from 4 → 6 so the draped route/track read clearly on 3D terrain
-    // (the engine adds a further pitch-based widening as the camera tilts).
-    private const val TRACK_WIDTH = 6.0
-    private const val ROUTE_WIDTH = 6.0
     private const val MEASURE_WIDTH = 4.0
     private const val MEASURE_RADIUS = 4.0
     private const val USER_RADIUS = 7.0

@@ -30,6 +30,7 @@ use crate::{
         icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline},
+        route::{build_tube, RoutePipeline, RouteVertex},
         shadow::{self, ShadowMap, SHADOW_DIM},
         sky::SkyPipeline,
         targets::FrameTargets,
@@ -480,6 +481,9 @@ struct Renderer {
     /// Single icon/sprite pipeline, shared across all vector layers.
     icon_pipeline: IconPipeline,
     marker_pipeline: MarkerPipeline,
+    /// Route/track as raised 3D tubes (a single lit mesh, drawn after the ground
+    /// layers so terrain occludes it, before screen-space markers/labels).
+    route_pipeline: RoutePipeline,
     /// Analytic atmosphere sky, drawn first in the frame pass when the camera
     /// is tilted (so the horizon band shows behind the terrain).
     sky_pipeline: SkyPipeline,
@@ -512,6 +516,7 @@ impl Renderer {
             text_pipeline: TextPipeline::new(device.clone(), queue.clone(), surface_format),
             icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), surface_format),
             marker_pipeline: MarkerPipeline::new(device.clone(), queue.clone(), surface_format),
+            route_pipeline: RoutePipeline::new(device.clone(), queue.clone(), surface_format),
             sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), surface_format),
             gpu_timestamps: GpuTimestamps::new(device, queue),
             terrain_shared: TerrainShared::new(device, queue),
@@ -627,6 +632,37 @@ pub struct Map {
     /// (default) disables the feature. See [`crate::render::shadow`] and the
     /// shadow block in [`Map::render`].
     shadow: TerrainShadowState,
+    /// Route/track rendered as raised 3D tubes (replaces the flat draped line).
+    /// See [`Map::set_route_tube`] and the route block in [`Map::render`].
+    route_tubes: RouteTubeState,
+}
+
+/// Route/track 3D-tube state. Each entry is a polyline + style; the combined
+/// lit mesh is rebuilt (sampling terrain elevation) when a polyline changes or
+/// when new DEM tiles arrive (so the tube re-drapes as terrain streams in).
+#[derive(Default)]
+struct RouteTubeState {
+    /// id → (world-space polyline, color, radius in metres).
+    tubes: std::collections::HashMap<String, RouteTube>,
+    /// Bumped on every terrain ingest; a tube rebuilt at an older generation is
+    /// stale (its baked elevations predate newly-loaded DEM) and re-drapes.
+    terrain_gen: u64,
+    /// `terrain_gen` the current mesh was built at.
+    built_gen: u64,
+    /// Set when a polyline/style changed — forces an immediate rebuild.
+    dirty: bool,
+    /// Absolute world origin the baked mesh xy is relative to (f32 precision).
+    origin: (f64, f64),
+    /// Tube radius in screen pixels (shared across tubes; the latest set wins).
+    radius_px: f32,
+    /// Throttle for terrain-driven re-drapes (a DEM burst bumps `terrain_gen`
+    /// many times/sec; rebuilding the mesh each time is wasteful for long tracks).
+    last_build: Option<Instant>,
+}
+
+struct RouteTube {
+    points: Vec<(f64, f64)>,
+    color: [u8; 4],
 }
 
 /// Terrain cast-shadow state held on the `Map`: the user-set strength plus the
@@ -761,7 +797,90 @@ impl Map {
             clouds: None,
             lighting: Lighting::default(),
             shadow: TerrainShadowState::default(),
+            route_tubes: RouteTubeState::default(),
         })
+    }
+
+    /// Set (or clear) a route/track polyline rendered as a raised 3D tube.
+    /// `points` are lng/lat; empty clears the tube `id`. `radius_px` is the tube
+    /// radius in screen pixels (constant thickness at any zoom). Rebuilt against
+    /// the terrain on next render.
+    pub fn set_route_tube(&mut self, id: &str, points: &[LatLng], color: Color, radius_px: f64) {
+        if points.len() < 2 {
+            if self.route_tubes.tubes.remove(id).is_some() {
+                self.route_tubes.dirty = true;
+            }
+            return;
+        }
+        let world: Vec<(f64, f64)> = points
+            .iter()
+            .map(|p| {
+                let w = p.to_world();
+                (w.x, w.y)
+            })
+            .collect();
+        self.route_tubes.radius_px = radius_px as f32;
+        self.route_tubes.tubes.insert(
+            id.to_string(),
+            RouteTube { points: world, color: [color.r, color.g, color.b, color.a] },
+        );
+        self.route_tubes.dirty = true;
+    }
+
+    /// Rebuild the combined route-tube mesh from the current polylines + terrain
+    /// elevation and upload it. Called from `render` when a polyline changed or
+    /// newly-loaded DEM means the baked elevations are stale.
+    fn rebuild_route_tubes(&mut self) {
+        const SEGMENTS: usize = 8;
+        if self.route_tubes.tubes.is_empty() {
+            self.renderer.route_pipeline.upload(&[], &[]);
+            self.route_tubes.built_gen = self.route_tubes.terrain_gen;
+            self.route_tubes.dirty = false;
+            return;
+        }
+        // Surface height factor: metres → world-z, matching the terrain mesh.
+        let lat = self.cam.camera.center.lat.to_radians();
+        let m2w = (lat.cos().abs() / 40_075_017.0).max(1e-12);
+        let exagg = self
+            .terrain
+            .as_ref()
+            .map(|t| t.options.exaggeration as f64)
+            .unwrap_or(1.0);
+
+        // Stable origin for f32 precision: a deterministic min over tube points
+        // (HashMap order is random, so don't depend on it).
+        let origin = self
+            .route_tubes
+            .tubes
+            .values()
+            .flat_map(|t| t.points.iter())
+            .fold((f64::INFINITY, f64::INFINITY), |a, p| (a.0.min(p.0), a.1.min(p.1)));
+
+        let mut verts: Vec<RouteVertex> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        for tube in self.route_tubes.tubes.values() {
+            // Bake the terrain surface height per centerline point; the tube
+            // radius + lift above it are applied GPU-side (constant screen size).
+            let world_z: Vec<f32> = tube
+                .points
+                .iter()
+                .map(|&(x, y)| {
+                    self.terrain
+                        .as_ref()
+                        .and_then(|t| t.cache.elevation_at_world_stable((x, y)))
+                        .map(|e| (e as f64 * m2w * exagg) as f32)
+                        .unwrap_or(0.0)
+                })
+                .collect();
+            let (v, i) = build_tube(&tube.points, &world_z, origin, SEGMENTS, tube.color);
+            let base = verts.len() as u32;
+            verts.extend(v);
+            indices.extend(i.into_iter().map(|idx| idx + base));
+        }
+        self.renderer.route_pipeline.upload(&verts, &indices);
+        self.route_tubes.origin = origin;
+        self.route_tubes.built_gen = self.route_tubes.terrain_gen;
+        self.route_tubes.dirty = false;
     }
 
     // ---- Procedural weather-cloud overlay -----------------------------
@@ -948,6 +1067,9 @@ impl Map {
             for e in &evicted {
                 t.scene.un_ingest(e);
             }
+            // New elevation data → route tubes baked before this are stale and
+            // should re-drape onto the now-finer terrain.
+            self.route_tubes.terrain_gen = self.route_tubes.terrain_gen.wrapping_add(1);
         }
     }
 
@@ -2013,6 +2135,18 @@ impl Map {
             };
             Some(p)
         };
+        // Rebuild the route-tube mesh when a polyline changed (now) or when new
+        // DEM means the baked elevations are stale (throttled, since a tile burst
+        // bumps the generation many times/sec).
+        let terrain_stale = self.route_tubes.built_gen != self.route_tubes.terrain_gen
+            && self
+                .route_tubes
+                .last_build
+                .map_or(true, |t| started.duration_since(t).as_millis() >= 250);
+        if self.route_tubes.dirty || terrain_stale {
+            self.rebuild_route_tubes();
+            self.route_tubes.last_build = Some(started);
+        }
         let prepare_time = prepare_started.elapsed();
 
         // ---- Phase B: frame clear colour -------------------------
@@ -2098,6 +2232,46 @@ impl Map {
                     // the phases.
                     _ => unreachable!("prepared layer kind mismatch"),
                 }
+            }
+
+            // Route/track 3D tubes: after the ground layers (so terrain occludes
+            // them like real objects), before the screen-space overlays.
+            {
+                let cam_origin = self.cam.camera.center.to_world();
+                let vp = self
+                    .cam
+                    .camera
+                    .view_projection_matrix_rtc(cam_origin, self.viewport_px);
+                let origin_delta = [
+                    (self.route_tubes.origin.0 - cam_origin.x) as f32,
+                    (self.route_tubes.origin.1 - cam_origin.y) as f32,
+                ];
+                let cfg = &frame.raster_terrain_cfg;
+                let sun = cfg.sun_dir;
+                let sun_dir = if sun[0] == 0.0 && sun[1] == 0.0 && sun[2] == 0.0 {
+                    [0.4, 0.4, 0.82]
+                } else {
+                    sun
+                };
+                let lc = cfg.light_color;
+                let light = if lc[0] + lc[1] + lc[2] < 0.01 { [1.0, 1.0, 1.0] } else { lc };
+                let ppw = (256.0 * 2f64.powf(self.cam.camera.zoom)) as f32;
+                let radius_px = if self.route_tubes.radius_px > 0.0 {
+                    self.route_tubes.radius_px
+                } else {
+                    7.0
+                };
+                self.renderer.route_pipeline.draw(
+                    vp,
+                    origin_delta,
+                    ppw,
+                    radius_px,
+                    1.3, // lift: centerline 1.3 radii up → underside floats just above terrain
+                    sun_dir,
+                    cfg.ambient.max(0.4),
+                    light,
+                    &mut pass,
+                );
             }
 
             // Icons under labels, so a name centred on a shield reads on top.

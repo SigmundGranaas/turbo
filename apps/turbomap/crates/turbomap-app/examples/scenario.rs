@@ -727,6 +727,20 @@ fn main() {
     // time-of-day sweep below overrides this per-step.
     map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
 
+    // A 3D route tube winding across the relief — exercises the route pipeline
+    // (terrain-sampled tube mesh, lit, depth-tested) so its look can be eyeballed
+    // in the frame dumps before it ships to the device.
+    let route_tube: Vec<LatLng> = (0..24)
+        .map(|i| {
+            let t = i as f64 / 23.0;
+            LatLng::new(
+                cli.center.lat - 0.04 + 0.08 * t,
+                cli.center.lng - 0.05 + 0.10 * t + 0.02 * (t * 12.0).sin(),
+            )
+        })
+        .collect();
+    map.set_route_tube("route", &route_tube, Color::rgb(0xFF, 0x6D, 0x00), 18.0);
+
     // Markers around the camera — exercises the marker pipeline + the
     // elevation-aware projection (hit_test → lng_lat_to_screen → world_to_
     // screen_z) on the 3D terrain, a path the raster+DEM-only run skipped.

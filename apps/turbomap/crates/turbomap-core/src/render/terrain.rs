@@ -60,7 +60,9 @@ impl Terrain {
     /// caller (it depends on the camera-centre latitude — the same value the
     /// per-frame mesh displacement uses), so overlays align with the surface.
     pub(crate) fn ground_world_z(&self, world: WorldPoint, meters_to_world: f32) -> f32 {
-        match self.cache.elevation_at_world((world.x, world.y)) {
+        // Stable sampler: markers anchored here must not flicker as DEM tiles
+        // load/evict (the per-frame churn snapped their screen position).
+        match self.cache.elevation_at_world_stable((world.x, world.y)) {
             Some(elev) => elev * meters_to_world * self.options.exaggeration,
             None => 0.0,
         }
@@ -246,6 +248,14 @@ pub(crate) struct TerrainCache {
     /// tiles are dropped here too). Lets the host anchor markers + drape
     /// paths on the surface without a GPU read-back.
     heights: HashMap<TileId, HeightTile>,
+    /// Sticky last-known elevation per quantised world cell, with the zoom it
+    /// came from. Marker/overlay projection samples through this so a fine DEM
+    /// tile evicting under load (→ a coarser sample, metres off at 6× exaggeration)
+    /// doesn't snap the marker's screen position — the cause of the "A/B/C + flag
+    /// markers flicker like crazy when tiles load". Never regresses to a coarser
+    /// zoom; refines when a finer tile arrives. Interior-mutable so the read-only
+    /// projection path (`&self`, under the render lock) can update it.
+    sticky_elev: std::sync::Mutex<HashMap<(i64, i64), (u8, f32)>>,
 }
 
 impl TerrainCache {
@@ -279,6 +289,7 @@ impl TerrainCache {
             halo_px,
             encoding,
             heights: HashMap::new(),
+            sticky_elev: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -410,6 +421,12 @@ impl TerrainCache {
     /// detail). `None` when no covering tile is loaded yet — the caller
     /// then treats it as flat (z=0), same as the 2D map.
     pub(crate) fn elevation_at_world(&self, world: (f64, f64)) -> Option<f32> {
+        self.sample_deepest(world).map(|(_, e)| e)
+    }
+
+    /// Deepest (finest) resident DEM sample at `world`, with the zoom it came
+    /// from. `None` if no covering tile is resident.
+    fn sample_deepest(&self, world: (f64, f64)) -> Option<(u8, f32)> {
         let (wx, wy) = world;
         if !(0.0..=1.0).contains(&wx) || !(0.0..=1.0).contains(&wy) {
             return None;
@@ -423,10 +440,37 @@ impl TerrainCache {
             if let Some(ht) = self.heights.get(&TileId::new(z, tx, ty)) {
                 let u = (wx * nf - tx as f64) as f32;
                 let v = (wy * nf - ty as f64) as f32;
-                return Some(ht.sample(u, v));
+                return Some((z, ht.sample(u, v)));
             }
         }
         None
+    }
+
+    /// Elevation for **marker/overlay projection**, stabilised against DEM tile
+    /// churn. Returns the finest resident sample, but remembers it per world
+    /// cell and never regresses to a coarser zoom when the fine tile evicts (it
+    /// only refines when a finer one arrives) — so anchored markers don't snap
+    /// up/down as tiles stream in. Distinct from [`elevation_at_world`], which
+    /// the shadow grid uses raw (and would otherwise flood this cache).
+    pub(crate) fn elevation_at_world_stable(&self, world: (f64, f64)) -> Option<f32> {
+        // ~1e-6 of the world span ≈ a few metres at these latitudes: fine enough
+        // to separate distinct markers, coarse enough to reuse across frames.
+        let cell = ((world.0 * 1_048_576.0) as i64, (world.1 * 1_048_576.0) as i64);
+        let fresh = self.sample_deepest(world);
+        let mut sticky = self.sticky_elev.lock().unwrap_or_else(|p| p.into_inner());
+        match (fresh, sticky.get(&cell).copied()) {
+            // A resident sample at least as fine as what we remember → trust + refine.
+            (Some((z, e)), prev) if prev.map_or(true, |(pz, _)| z >= pz) => {
+                sticky.insert(cell, (z, e));
+                Some(e)
+            }
+            // Only a coarser sample is resident now (fine tile evicted) → hold the
+            // last finer value instead of snapping.
+            (_, Some((_, e))) => Some(e),
+            // Coarser sample, nothing remembered yet → use it (better than floating).
+            (Some((_, e)), None) => Some(e),
+            (None, None) => None,
+        }
     }
 }
 
