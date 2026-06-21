@@ -236,13 +236,15 @@ internal class TurbomapSurfaceController {
     private val http = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
-        // All tiles share one host; OkHttp caps at 5/host by default, which would
-        // throttle below our own concurrency cap. Align them so our reconciler is
-        // the only limiter.
+        // Raster + DEM are different hosts; let OkHttp's caps be wide enough that
+        // OUR per-kind lanes (RASTER_FETCH_LANE + DEM_FETCH_LANE) are the only
+        // limiter. Global cap = both lanes; per-host cap = the wider (raster)
+        // lane (the DEM host only ever sees DEM_FETCH_LANE). OkHttp's 5/host
+        // default would otherwise throttle below our reconciler.
         .dispatcher(
             Dispatcher().apply {
-                maxRequests = MAX_CONCURRENT_FETCHES
-                maxRequestsPerHost = MAX_CONCURRENT_FETCHES
+                maxRequests = RASTER_FETCH_LANE + DEM_FETCH_LANE
+                maxRequestsPerHost = RASTER_FETCH_LANE
             },
         )
         .build()
@@ -523,17 +525,30 @@ internal class TurbomapSurfaceController {
         val desired = (0 until arr.length()).mapNotNull { parsePendingRaster(arr.optJSONObject(it)) }
         lastPendingCount = desired.size
         val byKey = desired.associateBy { it.key }
-        val decision = planReconcile(
-            desiredOrdered = desired.map { it.key },
-            inFlight = inFlight.keys,
+        val now = SystemClock.uptimeMillis()
+
+        // Plan each KIND in its own lane (separate budget + separate in-flight
+        // set), so raster churn can't starve DEM and vice-versa. Within a lane
+        // the engine's order is already nearest-first. A tile's lane is read off
+        // its key (terrain tiles are keyed "__terrain/…", see parsePendingRaster).
+        fun laneDecision(inLane: (String) -> Boolean, cap: Int) = planReconcile(
+            desiredOrdered = desired.map { it.key }.filter(inLane),
+            inFlight = inFlight.keys.filter(inLane).toSet(),
             retryAt = retryAt,
-            now = SystemClock.uptimeMillis(),
-            cap = MAX_CONCURRENT_FETCHES,
+            now = now,
+            cap = cap,
         )
-        decision.toCancel.forEach { key -> inFlight.remove(key)?.cancel() }
+        val raster = laneDecision({ !isDemKey(it) }, RASTER_FETCH_LANE)
+        val dem = laneDecision(::isDemKey, DEM_FETCH_LANE)
+
+        (raster.toCancel + dem.toCancel).forEach { key -> inFlight.remove(key)?.cancel() }
         retryAt.keys.retainAll(byKey.keys)
-        decision.toStart.forEach { key -> byKey[key]?.let { inFlight[key] = launchTileFetch(it) } }
+        (raster.toStart + dem.toStart).forEach { key -> byKey[key]?.let { inFlight[key] = launchTileFetch(it) } }
     }
+
+    /** A reconcile-key belongs to the DEM lane iff it's a terrain tile. Matches
+     *  the `"__terrain"` layer name `parsePendingRaster` assigns DEM entries. */
+    private fun isDemKey(key: String) = key.startsWith("__terrain/")
 
     private data class TileFetch(
         val layer: String,
@@ -697,7 +712,17 @@ internal class TurbomapSurfaceController {
     private companion object {
         const val TIMEOUT_MS = 10_000
         const val BEARING_EPSILON = 0.01
-        const val MAX_CONCURRENT_FETCHES = 8
+        // Per-KIND fetch lanes. Raster (Kartverket CDN) and DEM (our tileserver)
+        // are different hosts with opposite scaling, measured by tile_profiler:
+        // the CDN scales cleanly to ~32; the DEM endpoint serves cached tiles
+        // fast but renders cold ones CPU-bound (server caps concurrent renders,
+        // 429-ing the excess). A single shared pool let raster churn starve DEM
+        // (3D heightmap "never loaded"). Separate lanes fix that: each kind gets
+        // its own budget and can't crowd out the other. DEM lane is small so a
+        // cold region fills steadily (4-wide server renders) instead of a 429
+        // storm; raster lane is wide so the basemap streams in fast.
+        const val RASTER_FETCH_LANE = 32
+        const val DEM_FETCH_LANE = 8
         // Safety re-pump cadence: catches retries + any edge a wake missed, and
         // keeps loading self-healing even with no gestures. Cheap (one JNI call
         // returning "[]" when idle).

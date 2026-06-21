@@ -111,20 +111,9 @@ class TileScheduleBench {
 
             val desired = desiredAt(t).map { it.key }.filter { it !in done }
             for ((lane, cap) in pools) {
-                val laneDesired = desired.filter { laneOf(it) == lane }
-                val laneInFlight = inFlight.keys.filter { laneOf(it) == lane }.toSet()
-                val decision = planReconcile(laneDesired, laneInFlight, retryAt, t, cap)
-                decision.toCancel.forEach { if (inFlight.remove(it) != null) cancelled++ }
-                // Count same-kind in-flight as we add, so congestion reflects the
-                // real concurrent load the server would see.
-                var sameKind = inFlight.keys.count { byKey[it]?.kind == byKey[decision.toStart.firstOrNull()]?.kind }
-                decision.toStart.forEach { k ->
-                    byKey[k]?.let {
-                        inFlight[k] = t + latency(it, sameKind, cold)
-                        sameKind++
-                        started++
-                    }
-                }
+                val (s, c) = driveLane(lane, cap, t, cold, desired, laneOf, byKey, inFlight, retryAt)
+                started += s
+                cancelled += c
             }
             t += RECONCILE_TICK
         }
@@ -132,6 +121,40 @@ class TileScheduleBench {
             if (demFirstPaint < 0) -1 else demFirstPaint,
             demFull, coverage, started, cancelled,
         )
+    }
+
+    /** Run the real [planReconcile] for one lane and apply it to the shared sim
+     *  state, returning `(started, cancelled)` deltas. Extracted from [simulate]
+     *  to keep that loop shallow (detekt NestedBlockDepth). */
+    @Suppress("LongParameterList")
+    private fun driveLane(
+        lane: String,
+        cap: Int,
+        t: Long,
+        cold: Boolean,
+        desired: List<String>,
+        laneOf: (String) -> String,
+        byKey: Map<String, Tile>,
+        inFlight: MutableMap<String, Long>,
+        retryAt: MutableMap<String, Long>,
+    ): Pair<Int, Int> {
+        val laneDesired = desired.filter { laneOf(it) == lane }
+        val laneInFlight = inFlight.keys.filter { laneOf(it) == lane }.toSet()
+        val decision = planReconcile(laneDesired, laneInFlight, retryAt, t, cap)
+        var cancelled = 0
+        decision.toCancel.forEach { if (inFlight.remove(it) != null) cancelled++ }
+        // Count same-kind in-flight as we add, so congestion reflects the real
+        // concurrent load the server would see.
+        val kind = byKey[decision.toStart.firstOrNull()]?.kind
+        var sameKind = inFlight.keys.count { byKey[it]?.kind == kind }
+        var started = 0
+        for (k in decision.toStart) {
+            val tile = byKey[k] ?: continue
+            inFlight[k] = t + latency(tile, sameKind, cold)
+            sameKind++
+            started++
+        }
+        return started to cancelled
     }
 
     private fun viewport(z: Int, cx: Int, cy: Int, radius: Int): List<Tile> {
