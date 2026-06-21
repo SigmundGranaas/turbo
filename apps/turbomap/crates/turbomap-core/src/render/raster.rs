@@ -187,6 +187,12 @@ pub(crate) struct RasterPipeline {
     camera_bind_group: wgpu::BindGroup,
     pub(crate) texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     pub(crate) sampler: Arc<wgpu::Sampler>,
+    /// When each currently-drawn tile FIRST appeared on screen (not when its
+    /// bytes were ingested). The fade-in ramps from this, so a cache-served
+    /// tile and a freshly-fetched one transition identically — killing the
+    /// "fresh fades, cached snaps" inconsistency. Pruned each frame to the
+    /// drawn set, so it stays bounded by viewport coverage.
+    first_seen: std::collections::HashMap<TileId, std::time::Instant>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
 }
@@ -454,9 +460,24 @@ impl RasterPipeline {
             camera_bind_group,
             texture_bind_group_layout: texture_bgl,
             sampler,
+            first_seen: std::collections::HashMap::new(),
             device,
             queue,
         }
+    }
+
+    /// True if any currently-drawn tile is still inside its fade-in window —
+    /// drives `Map::is_animating` so render-on-demand keeps drawing until the
+    /// crossfade settles. Keyed on first-on-screen time (see `first_seen`), so
+    /// it stays true for a fading cache tile exactly as for a network one.
+    pub(crate) fn has_active_fade(&self, window_secs: f32) -> bool {
+        if window_secs <= 0.0 {
+            return false;
+        }
+        let now = std::time::Instant::now();
+        self.first_seen
+            .values()
+            .any(|t| now.duration_since(*t).as_secs_f32() < window_secs)
     }
 
     /// CPU half of a frame: uniform/instance uploads, batch building,
@@ -533,114 +554,124 @@ impl RasterPipeline {
             }),
         );
 
-        // Build draw batches. For each visible tile we emit:
-        //   • A backdrop (when self isn't fully faded in): preferred is a
-        //     shallower ancestor sub-sampled to fit; if no ancestor is
-        //     cached, we use any deeper descendant tiles that cover part of
-        //     this region instead (this is what makes zoom-out smooth).
-        //   • Self on top, at smoothstep-ramped alpha — but only when a
-        //     backdrop exists. Fading in from a black clear colour reads as
-        //     a "pop" rather than a blend, so without a backdrop we just
-        //     show the tile instantly.
+        // Build draw batches via best-available LOD resolution. For each ideal
+        // (target-zoom) cell, `resolve_cell` returns the FINEST resident coverage
+        // — exact tile, or retained finer descendants on zoom-out, or a coarse
+        // ancestor backdrop where nothing finer is resident. We then:
+        //   • draw the coarse ancestor backdrop first (opaque) — it fills gaps in
+        //     partial coverage, and backstops any still-fading finer tile so the
+        //     fade blends over real content, never the clear colour;
+        //   • draw the finer/exact tiles on top, each crossfading in from when it
+        //     FIRST appeared on screen (`first_seen`) — so a cache-served tile and
+        //     a freshly-fetched one fade identically (no instant cache "snap").
+        let now = std::time::Instant::now();
         let mut batches: Vec<DrawBatch> = Vec::new();
-        for tile in scene.visible_tiles() {
-            let (nw, _se) = tile.world_bounds();
-            let world_size = 1.0 / (1u64 << tile.z) as f32;
-            let nw_f32 = [(nw.x - origin.x) as f32, (nw.y - origin.y) as f32];
+        {
+            let resident = |t: TileId| cache.peek(t).is_some();
+            let first_seen = &mut self.first_seen;
+            let mut seen_this_frame: std::collections::HashSet<TileId> =
+                std::collections::HashSet::new();
 
-            let self_age = cache.age_secs(tile);
-            let ancestor = cache.nearest_ancestor(tile);
-            let descendants = if ancestor.is_none() {
-                cache.covered_descendants(tile, 3)
-            } else {
-                Vec::new()
-            };
-            // Fade every freshly-ingested tile, whether it blends over a cached
-            // ancestor/descendant backdrop OR straight over the empty-tile clear
-            // colour. The clear is a light grey (not black), so fading up from it
-            // reads as a soft reveal, not a pop — and crucially this makes
-            // disk-cached tiles (which arrive all-at-once with no backdrop) fade in
-            // too, instead of snapping. `fade_in_secs == 0` (goldens) still snaps.
-            let self_alpha = match self_age {
-                None => 0.0,
-                Some(age) if fade_in_secs <= 0.0 || age >= fade_in_secs => 1.0,
-                Some(age) => {
-                    let t = (age / fade_in_secs).clamp(0.0, 1.0);
-                    t * t * (3.0 - 2.0 * t) // smoothstep
-                }
-            };
-
-            // Backdrop layer.
-            if self_alpha < 1.0 {
-                // `ancestor` is the nearest cached ancestor, so `sub_uv_in`
-                // should always resolve; if a coordinate edge case makes it
-                // `None`, skip this backdrop quad rather than panic (the child
-                // tile still draws on top — worst case a one-frame seam).
-                if let Some((ancestor_id, sub)) =
-                    ancestor.and_then(|a| tile.sub_uv_in(a).map(|sub| (a, sub)))
-                {
-                    let (dem_src, dem_uv_origin, dem_uv_size) =
-                        resolve_dem_subuv(tile, terrain.as_deref_mut(), halo_uv);
-                    push_instance(
-                        &mut batches,
-                        ancestor_id,
-                        dem_src,
-                        Instance {
-                            world_origin: nw_f32,
-                            world_size,
-                            alpha: 1.0,
-                            uv_origin: [sub.origin.x as f32, sub.origin.y as f32],
-                            uv_size: sub.size as f32,
-                            dem_uv_origin,
-                            dem_uv_size,
-                            _pad: 0.0,
-                        },
-                    );
-                } else {
-                    for desc in &descendants {
-                        let (d_nw, _) = desc.world_bounds();
-                        let d_size = 1.0 / (1u64 << desc.z) as f32;
-                        let (dem_src, dem_uv_origin, dem_uv_size) =
-                            resolve_dem_subuv(*desc, terrain.as_deref_mut(), halo_uv);
-                        push_instance(
-                            &mut batches,
-                            *desc,
-                            dem_src,
-                            Instance {
-                                world_origin: [(d_nw.x - origin.x) as f32, (d_nw.y - origin.y) as f32],
-                                world_size: d_size,
-                                alpha: 1.0,
-                                uv_origin: [0.0, 0.0],
-                                uv_size: 1.0,
-                                dem_uv_origin,
-                                dem_uv_size,
-                                _pad: 0.0,
-                            },
-                        );
-                    }
-                }
-            }
-
-            // Foreground layer: self.
-            if self_alpha > 0.0 {
+            let push_tile = |batches: &mut Vec<DrawBatch>,
+                             terrain: &mut Option<&mut TerrainCache>,
+                             texture: TileId,
+                             target: TileId,
+                             uv_origin: [f32; 2],
+                             uv_size: f32,
+                             alpha: f32| {
+                let (nw, _) = target.world_bounds();
+                let world_size = 1.0 / (1u64 << target.z) as f32;
                 let (dem_src, dem_uv_origin, dem_uv_size) =
-                    resolve_dem_subuv(tile, terrain.as_deref_mut(), halo_uv);
+                    resolve_dem_subuv(target, terrain.as_deref_mut(), halo_uv);
                 push_instance(
-                    &mut batches,
-                    tile,
+                    batches,
+                    texture,
                     dem_src,
                     Instance {
-                        world_origin: nw_f32,
+                        world_origin: [(nw.x - origin.x) as f32, (nw.y - origin.y) as f32],
                         world_size,
-                        alpha: self_alpha,
-                        uv_origin: [0.0, 0.0],
-                        uv_size: 1.0,
+                        alpha,
+                        uv_origin,
+                        uv_size,
                         dem_uv_origin,
                         dem_uv_size,
                         _pad: 0.0,
                     },
                 );
+            };
+
+            for ideal in scene.visible_tiles() {
+                let sources = resolve_cell(ideal, MAX_DOWN, &resident);
+                // Separate the (optional) coarse backdrop from the finer tiles.
+                let mut backdrop: Option<(TileId, TileId)> = None; // (ancestor, target)
+                let mut wholes: Vec<TileId> = Vec::new();
+                for s in &sources {
+                    match *s {
+                        CellSource::AncestorPatch { ancestor, target } => {
+                            backdrop = Some((ancestor, target))
+                        }
+                        CellSource::Whole(t) => wholes.push(t),
+                    }
+                }
+
+                // Crossfade alpha per finer tile, ramped from its first-on-screen
+                // time (not its ingest age). `fade_in_secs == 0` (goldens) snaps.
+                let mut whole_alpha: Vec<(TileId, f32)> = Vec::with_capacity(wholes.len());
+                for t in &wholes {
+                    seen_this_frame.insert(*t);
+                    let a = if fade_in_secs <= 0.0 {
+                        1.0
+                    } else {
+                        let s0 = *first_seen.entry(*t).or_insert(now);
+                        let age = now.duration_since(s0).as_secs_f32();
+                        if age >= fade_in_secs {
+                            1.0
+                        } else {
+                            let s = (age / fade_in_secs).clamp(0.0, 1.0);
+                            s * s * (3.0 - 2.0 * s)
+                        }
+                    };
+                    whole_alpha.push((*t, a));
+                }
+
+                // A backdrop is needed when coverage is partial (resolver already
+                // gave one) OR when the finer coverage is fully resident but still
+                // fading in — then backstop with the nearest resident ancestor.
+                let any_fading =
+                    whole_alpha.is_empty() || whole_alpha.iter().any(|(_, a)| *a < 1.0);
+                let backdrop = backdrop.or_else(|| {
+                    if any_fading {
+                        nearest_resident_ancestor(ideal, &resident).map(|a| (a, ideal))
+                    } else {
+                        None
+                    }
+                });
+                if let Some((ancestor, target)) = backdrop {
+                    if let Some(sub) = target.sub_uv_in(ancestor) {
+                        push_tile(
+                            &mut batches,
+                            &mut terrain,
+                            ancestor,
+                            target,
+                            [sub.origin.x as f32, sub.origin.y as f32],
+                            sub.size as f32,
+                            1.0,
+                        );
+                    }
+                }
+
+                // Finer/exact tiles on top, each at its crossfade alpha, full UV.
+                for (t, a) in whole_alpha {
+                    if a <= 0.0 {
+                        continue;
+                    }
+                    push_tile(&mut batches, &mut terrain, t, t, [0.0, 0.0], 1.0, a);
+                }
             }
+
+            // Keep `first_seen` bounded to what's on screen — an off-screen tile
+            // that scrolls back re-fades (a transition is a transition).
+            first_seen.retain(|k, _| seen_this_frame.contains(k));
         }
 
         let total_instances: u64 = batches.iter().map(|b| b.instances.len() as u64).sum();
@@ -790,5 +821,222 @@ fn resolve_dem_subuv(
     match terrain {
         Some(t) => t.resolve_subuv(drawn_tile, halo_uv),
         None => (None, [0.0, 0.0], 1.0),
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Best-available coverage resolver (LOD retention).
+//
+// The old draw model iterated `scene.visible_tiles()` — a SINGLE target LOD —
+// and used ancestor/descendant tiles only as a transient backdrop while a tile
+// faded in. That made zoom-out *downgrade*: the deeper, higher-res tiles we
+// already hold left the visible set and stopped drawing, replaced by a coarser
+// tile (instantly, if it was cached). It also left the far field as a grey
+// hole (nothing beyond the ring was ever drawn).
+//
+// This resolver instead answers, per ideal cell: "what is the best-resolution
+// RESIDENT coverage I can draw right now?" — preferring FINER tiles (children
+// before the cell itself) so retained detail wins over a coarse ideal, and
+// falling to a coarse ancestor backdrop only where nothing finer is resident.
+// It is a pure function of an `is_resident` predicate + tile arithmetic, so it
+// is unit-tested exhaustively below with a plain `HashSet` (no GPU/cache).
+// ──────────────────────────────────────────────────────────────────────────
+
+/// How many zoom levels of already-resident *finer* detail to retain below the
+/// ideal cell on zoom-out. Bounds transient overdraw (≤ `4^MAX_DOWN` sub-tiles
+/// per ideal cell) before the LRU evicts the deep tiles; each recursion branch
+/// also stops at the first resident level, so the typical count is far lower.
+pub(crate) const MAX_DOWN: u8 = 2;
+
+/// One unit of resident basemap coverage for an ideal cell, in draw order
+/// (coarse backdrop first, finer detail on top).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CellSource {
+    /// Draw `0` at its own world rect with full UV. It is the ideal cell or a
+    /// resident descendant of it (finer detail retained across a zoom-out).
+    Whole(TileId),
+    /// No exact-or-finer tile covers (part of) the cell: draw resident
+    /// `ancestor` stretched across `target`'s footprint (sub-UV sampled) as a
+    /// coarse backdrop beneath any partial finer tiles.
+    AncestorPatch { ancestor: TileId, target: TileId },
+}
+
+/// Best-available resident coverage for `ideal`. See module note above.
+pub(crate) fn resolve_cell(
+    ideal: TileId,
+    max_down: u8,
+    resident: &impl Fn(TileId) -> bool,
+) -> Vec<CellSource> {
+    // Fully covered by exact-or-finer resident tiles → draw just those (finest
+    // wins; zero backdrop, zero overdraw beyond the retained detail).
+    if let Some(tiles) = cover_finest(ideal, max_down, resident) {
+        return tiles.into_iter().map(CellSource::Whole).collect();
+    }
+    // Otherwise: a coarse ancestor backdrop fills the whole cell, with whatever
+    // partial finer tiles exist drawn on top. Either may be absent (→ Empty).
+    let mut out = Vec::new();
+    if let Some(anc) = nearest_resident_ancestor(ideal, resident) {
+        out.push(CellSource::AncestorPatch { ancestor: anc, target: ideal });
+    }
+    collect_resident_descendants(ideal, max_down, resident, &mut out);
+    out
+}
+
+/// `Some(finest resident tiles fully covering `cell`)`, or `None` if some
+/// sub-region has no resident tile within `cell.z ..= cell.z + depth`. Tries
+/// children FIRST so finer detail is preferred over a resident-but-coarse cell.
+fn cover_finest(
+    cell: TileId,
+    depth: u8,
+    resident: &impl Fn(TileId) -> bool,
+) -> Option<Vec<TileId>> {
+    if depth > 0 {
+        if let Some(children) = cell.children() {
+            let mut acc = Vec::new();
+            let mut all = true;
+            for c in children {
+                match cover_finest(c, depth - 1, resident) {
+                    Some(v) => acc.extend(v),
+                    None => {
+                        all = false;
+                        break;
+                    }
+                }
+            }
+            if all {
+                return Some(acc);
+            }
+        }
+    }
+    if resident(cell) {
+        Some(vec![cell])
+    } else {
+        None
+    }
+}
+
+/// Push the finest resident tiles found within `cell` (partial coverage ok),
+/// stopping each branch at the first resident level. Used to overlay whatever
+/// detail exists on top of a coarse ancestor backdrop.
+fn collect_resident_descendants(
+    cell: TileId,
+    depth: u8,
+    resident: &impl Fn(TileId) -> bool,
+    out: &mut Vec<CellSource>,
+) {
+    if resident(cell) {
+        out.push(CellSource::Whole(cell));
+        return;
+    }
+    if depth == 0 {
+        return;
+    }
+    if let Some(children) = cell.children() {
+        for c in children {
+            collect_resident_descendants(c, depth - 1, resident, out);
+        }
+    }
+}
+
+/// Nearest resident ancestor of `ideal` (walking up), or `None`.
+fn nearest_resident_ancestor(ideal: TileId, resident: &impl Fn(TileId) -> bool) -> Option<TileId> {
+    for k in 1..=ideal.z {
+        let a = ideal.ancestor(k)?;
+        if resident(a) {
+            return Some(a);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod lod_resolver_tests {
+    //! Stage-0 gate for the LOD-retention redesign. These lock the *correct*
+    //! behaviour the old `prepare` (single target LOD + transient fallback)
+    //! violated: it would draw a coarse cached tile over finer detail we still
+    //! hold (the "zoom-out replaces the good tile with a worse one" report).
+
+    use super::{resolve_cell, CellSource, MAX_DOWN};
+    use crate::tile::TileId;
+    use std::collections::HashSet;
+
+    fn resident_set(tiles: &[TileId]) -> impl Fn(TileId) -> bool {
+        let set: HashSet<TileId> = tiles.iter().copied().collect();
+        move |t| set.contains(&t)
+    }
+
+    #[test]
+    fn exact_resident_tile_draws_itself_only() {
+        let ideal = TileId::new(14, 100, 200);
+        let r = resident_set(&[ideal]);
+        assert_eq!(resolve_cell(ideal, MAX_DOWN, &r), vec![CellSource::Whole(ideal)]);
+    }
+
+    #[test]
+    fn zoom_out_retains_finer_children_instead_of_coarse_ideal() {
+        // The headline bug: the ideal (coarse) tile IS resident, but we also
+        // still hold all four finer children. The resolver must draw the FINER
+        // children, never downgrade to the coarse ideal.
+        let ideal = TileId::new(14, 100, 200);
+        let children = ideal.children().unwrap();
+        let mut held = vec![ideal];
+        held.extend_from_slice(&children);
+        let r = resident_set(&held);
+
+        let got = resolve_cell(ideal, MAX_DOWN, &r);
+        let expected: Vec<CellSource> = children.iter().copied().map(CellSource::Whole).collect();
+        assert_eq!(got, expected, "must retain finer children, not draw coarse ideal");
+    }
+
+    #[test]
+    fn zoom_out_uses_children_when_ideal_not_yet_loaded() {
+        // Coarse ideal not fetched yet, but its four children are resident
+        // (we were just zoomed in). Draw the children — no grey, no flat.
+        let ideal = TileId::new(13, 50, 60);
+        let children = ideal.children().unwrap();
+        let r = resident_set(&children);
+        let got = resolve_cell(ideal, MAX_DOWN, &r);
+        assert_eq!(got.len(), 4);
+        assert!(got.iter().all(|s| matches!(s, CellSource::Whole(t) if children.contains(t))));
+    }
+
+    #[test]
+    fn coarse_ancestor_is_backdrop_when_nothing_finer_resident() {
+        let ideal = TileId::new(15, 1000, 2000);
+        let anc = ideal.ancestor(2).unwrap();
+        let r = resident_set(&[anc]);
+        assert_eq!(
+            resolve_cell(ideal, MAX_DOWN, &r),
+            vec![CellSource::AncestorPatch { ancestor: anc, target: ideal }],
+        );
+    }
+
+    #[test]
+    fn partial_finer_detail_draws_over_ancestor_backdrop() {
+        // Ideal absent; ancestor resident; ONE of four children resident.
+        // Expect the ancestor backdrop FIRST, then the partial finer tile.
+        let ideal = TileId::new(14, 8, 8);
+        let anc = ideal.ancestor(1).unwrap();
+        let one_child = ideal.children().unwrap()[0];
+        let r = resident_set(&[anc, one_child]);
+
+        let got = resolve_cell(ideal, MAX_DOWN, &r);
+        assert_eq!(got.first(), Some(&CellSource::AncestorPatch { ancestor: anc, target: ideal }));
+        assert!(got.contains(&CellSource::Whole(one_child)));
+    }
+
+    #[test]
+    fn nothing_resident_anywhere_is_empty() {
+        let ideal = TileId::new(14, 100, 200);
+        let r = resident_set(&[]);
+        assert!(resolve_cell(ideal, MAX_DOWN, &r).is_empty());
+    }
+
+    #[test]
+    fn steady_state_has_no_overdraw() {
+        // No deeper tiles resident → exactly the ideal, no children, no backdrop.
+        let ideal = TileId::new(16, 30000, 20000);
+        let r = resident_set(&[ideal]);
+        assert_eq!(resolve_cell(ideal, MAX_DOWN, &r), vec![CellSource::Whole(ideal)]);
     }
 }

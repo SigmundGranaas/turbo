@@ -52,6 +52,11 @@ internal object NativeSurfaceMap {
     // ── Control plane (the MapEngine contract) ──────────────────────────────
     external fun nativeSetCamera(handle: Long, lat: Double, lng: Double, zoom: Double, bearingDeg: Double)
 
+    /** One-finger pan step: translate the camera by a screen-space finger delta
+     *  (px). Applied render-side against the live camera so successive deltas
+     *  accumulate without a stale-snapshot recompute → smooth pan in 2D + 3D. */
+    external fun nativePanBy(handle: Long, dx: Double, dy: Double)
+
     // ── Physics / motion ────────────────────────────────────────────────────
     /** Start an inertial pan fling at screen-pixel velocity (drag-release). */
     external fun nativeFling(handle: Long, vx: Double, vy: Double)

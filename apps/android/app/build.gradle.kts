@@ -11,7 +11,7 @@ android {
     defaultConfig {
         applicationId = "com.sigmundgranaas.turbo.expressive"
         targetSdk = 36
-        versionCode = 1
+        versionCode = 1000
         versionName = "0.1.0"
         vectorDrawables { useSupportLibrary = true }
     }

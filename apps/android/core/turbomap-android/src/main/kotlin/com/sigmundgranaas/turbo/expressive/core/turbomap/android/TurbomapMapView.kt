@@ -414,13 +414,13 @@ internal class TurbomapSurfaceController {
 
     fun onTransform(panX: Float, panY: Float, zoomFactor: Float, focusX: Float, focusY: Float) {
         if (handle == 0L) return
-        // Pan: recenter so the world follows the finger translation (the centroid delta).
+        // Pan: hand the raw finger delta to the engine. It recenters against the
+        // LIVE camera on the render thread, so rapid sub-frame moves accumulate
+        // instead of each recomputing from a stale snapshot and overwriting the
+        // last (the dropped-motion "throttle"/jitter, worst in 3D). One wait-free
+        // command replaces the old unproject → camera → setCamera round-trip.
         if (panX != 0f || panY != 0f) {
-            val unp = NativeSurfaceMap.nativeUnproject(handle, width / 2.0 - panX, height / 2.0 - panY)
-            if (unp.size >= 3 && unp[2] == 1.0) {
-                val cam = NativeSurfaceMap.nativeCamera(handle)
-                if (cam.size >= 4) NativeSurfaceMap.nativeSetCamera(handle, unp[0], unp[1], cam[2], cam[3])
-            }
+            NativeSurfaceMap.nativePanBy(handle, panX.toDouble(), panY.toDouble())
         }
         // Zoom about the pinch FOCUS — the world point under the fingers stays put, instead of
         // the map zooming toward the screen centre. The engine clamps the zoom into range.

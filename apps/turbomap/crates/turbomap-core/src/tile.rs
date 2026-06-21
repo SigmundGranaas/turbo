@@ -47,6 +47,20 @@ impl TileId {
         })
     }
 
+    /// The four child tiles one zoom level deeper, or `None` at the `u8` zoom
+    /// ceiling. Used by the best-available coverage resolver to retain finer
+    /// resident detail when the ideal tile isn't loaded.
+    pub fn children(self) -> Option<[TileId; 4]> {
+        let z = self.z.checked_add(1)?;
+        let (x, y) = (self.x * 2, self.y * 2);
+        Some([
+            TileId::new(z, x, y),
+            TileId::new(z, x + 1, y),
+            TileId::new(z, x, y + 1),
+            TileId::new(z, x + 1, y + 1),
+        ])
+    }
+
     /// This tile's location *inside* `ancestor`. `None` if `ancestor` is not
     /// actually an ancestor of `self`.
     pub fn sub_uv_in(self, ancestor: TileId) -> Option<SubUv> {

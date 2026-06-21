@@ -25,7 +25,7 @@ use ndk::native_window::NativeWindow;
 use raw_window_handle::{
     AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
-use turbomap_core::{MapOptions, PendingTile, TileId};
+use turbomap_core::{Camera, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
@@ -112,8 +112,31 @@ struct OnScreen {
     queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
     engine: TurbomapEngine,
+    /// Last viewport bottom-inset applied (px). Mirrored here so the published
+    /// snapshot can reconstruct the projection for wait-free, always-valid
+    /// project/unproject without touching the engine.
+    inset: f64,
+    /// Per-frame perf diagnostics (render-thread-owned, no contention).
+    perf: FramePerf,
     _instance: wgpu::Instance,
     _window: NativeWindow,
+}
+
+/// Lightweight render-thread perf counters, logged to logcat (tag `Turbomap`)
+/// so device-side stalls are visible without a profiler. A summary line every
+/// ~1 s, plus an immediate line on any frame that blows the budget — so a
+/// freeze is captured at the exact frame it happens.
+#[derive(Default)]
+struct FramePerf {
+    frame_idx: u64,
+    last_frame_at: Option<std::time::Instant>,
+    last_log_at: Option<std::time::Instant>,
+    // Accumulated since the last summary log.
+    acc_frames: u32,
+    acc_ingested: u32,
+    acc_render_ms: f64,
+    acc_ingest_ms: f64,
+    max_gap_ms: f64,
 }
 
 fn build(
@@ -212,6 +235,8 @@ fn build(
         queue,
         config,
         engine,
+        inset: 0.0,
+        perf: FramePerf::default(),
         _instance: instance,
         _window: window,
     })
@@ -276,6 +301,25 @@ impl OnScreen {
                 c.bearing_deg = bearing;
                 self.engine.set_camera(c);
             }
+            Cmd::PanByPixels { dx, dy } => {
+                // Recenter so the world point under (centre − finger-delta) becomes
+                // the new centre — exactly the old onTransform logic, but here on the
+                // render thread against the LIVE camera. Sequential queued pans thus
+                // compose (each sees the previous one's result), and the ground-plane
+                // `pixel_to_world` is identical to the 2D path → no pitch jitter.
+                let cs = self.engine.camera();
+                let cam = Camera::new(CoreLatLng::new(cs.center.lat, cs.center.lng), cs.zoom)
+                    .with_pitch(cs.pitch_deg)
+                    .with_bearing(cs.bearing_deg)
+                    .with_viewport_inset(self.inset);
+                let vp = (self.config.width as f64, self.config.height as f64);
+                let target = cam
+                    .pixel_to_world((vp.0 / 2.0 - dx, vp.1 / 2.0 - dy), vp)
+                    .to_lat_lng();
+                let mut c = cs;
+                c.center = LatLng::new(target.lat, target.lng);
+                self.engine.set_camera(c);
+            }
             Cmd::Fling(vx, vy) => self.engine.fling((vx, vy)),
             Cmd::ZoomFling { v, fx, fy } => self.engine.zoom_fling(v, (fx, fy)),
             Cmd::EaseTo { lat, lng, zoom, bearing, dur_ms } => {
@@ -303,7 +347,10 @@ impl OnScreen {
                 let here = self.engine.camera();
                 self.engine.set_camera(here);
             }
-            Cmd::SetViewportInset(px) => self.engine.set_viewport_inset(px),
+            Cmd::SetViewportInset(px) => {
+                self.inset = px;
+                self.engine.set_viewport_inset(px);
+            }
             Cmd::SetTerrainShadows(s) => self.engine.set_terrain_shadows(s),
             Cmd::SetSunTime(t) => self.engine.set_sun_time(t),
             Cmd::EnableClouds { w, h } => self.engine.enable_clouds(w, h),
@@ -335,19 +382,94 @@ impl OnScreen {
         }
     }
 
-    /// Build the immutable read model the UI loads wait-free.
-    fn build_snapshot(&self) -> Snapshot {
+    /// Build the immutable read model the UI loads wait-free. `queued` is the set
+    /// of tiles already handed to the engine but not yet uploaded; they are
+    /// filtered out of the pending list so the host never re-requests an in-flight
+    /// upload (see [`Surface::queued`]).
+    fn build_snapshot(&self, queued: &std::collections::HashSet<(String, TileId)>) -> Snapshot {
+        let (pending_count, pending_json) = pending_tiles_filtered(&self.engine, queued);
         Snapshot {
             cam: self.engine.camera(),
+            viewport: (self.config.width as f64, self.config.height as f64),
+            inset: self.inset,
             animating: self.engine.is_animating(),
-            pending_json: pending_tiles_json(&self.engine),
+            pending_count,
+            pending_json,
             stats_json: stats_json(&self.engine),
         }
     }
 }
 
-/// JSON array of the tiles the engine is waiting on (for the host's tile pump).
-fn pending_tiles_json(engine: &TurbomapEngine) -> String {
+/// The `(layer, tile)` identity of one queued ingest — must match the namespacing
+/// used by [`pending_tiles_filtered`] (raster → layer id, terrain → `__terrain`).
+fn ingest_key(i: &Ingest) -> (String, TileId) {
+    match i {
+        Ingest::Raster { layer, tile, .. } => (layer.clone(), *tile),
+        Ingest::Terrain { tile, .. } => ("__terrain".to_string(), *tile),
+    }
+}
+
+impl FramePerf {
+    /// Accumulate one frame; log a summary ~1×/s and an immediate line on any
+    /// frame that exceeds the 16.7 ms vsync budget (the stalls the user feels).
+    fn record(&mut self, render_ms: f64, ingest_ms: f64, ingested: u32, backlog: usize, pending: u32) {
+        let now = std::time::Instant::now();
+        let gap_ms = self
+            .last_frame_at
+            .map(|t| (now - t).as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        self.last_frame_at = Some(now);
+        self.frame_idx += 1;
+        self.acc_frames += 1;
+        self.acc_ingested += ingested;
+        self.acc_render_ms += render_ms;
+        self.acc_ingest_ms += ingest_ms;
+        if gap_ms > self.max_gap_ms {
+            self.max_gap_ms = gap_ms;
+        }
+
+        let frame_ms = render_ms + ingest_ms;
+        if frame_ms > 16.7 {
+            log::warn!(
+                "SLOW frame #{}: total={:.1}ms (render={:.1} ingest={:.1}, {} tiles), backlog={}, pending={}",
+                self.frame_idx, frame_ms, render_ms, ingest_ms, ingested, backlog, pending
+            );
+        }
+
+        let due = self
+            .last_log_at
+            .map(|t| (now - t).as_secs_f64() >= 1.0)
+            .unwrap_or(true);
+        if due {
+            let n = self.acc_frames.max(1) as f64;
+            log::info!(
+                "PERF {:.0} fps | render avg {:.1}ms | ingest avg {:.1}ms ({} tiles/s) | maxgap {:.0}ms | backlog={} pending={}",
+                self.acc_frames as f64
+                    / self.last_log_at.map(|t| (now - t).as_secs_f64()).unwrap_or(1.0).max(0.001),
+                self.acc_render_ms / n,
+                self.acc_ingest_ms / n,
+                self.acc_ingested,
+                self.max_gap_ms,
+                backlog,
+                pending,
+            );
+            self.last_log_at = Some(now);
+            self.acc_frames = 0;
+            self.acc_ingested = 0;
+            self.acc_render_ms = 0.0;
+            self.acc_ingest_ms = 0.0;
+            self.max_gap_ms = 0.0;
+        }
+    }
+}
+
+/// `(count, JSON array)` of the tiles the engine is waiting on, MINUS those whose
+/// bytes are already queued for upload (`queued`) — the host pumps off this list,
+/// and re-requesting an in-flight upload is the re-ingest storm this prevents.
+fn pending_tiles_filtered(
+    engine: &TurbomapEngine,
+    queued: &std::collections::HashSet<(String, TileId)>,
+) -> (u32, String) {
     let items: Vec<String> = engine
         .pending_tiles()
         .into_iter()
@@ -358,13 +480,19 @@ fn pending_tiles_json(engine: &TurbomapEngine) -> String {
                 PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
                 PendingTile::Terrain { tile } => ("terrain", "__terrain".to_string(), tile),
             };
+            // Already handed to the engine (bytes in the ingest queue)? Skip — it
+            // becomes resident within a frame or two; re-requesting it floods the
+            // queue with duplicates and starves real work + camera moves.
+            if queued.contains(&(layer.clone(), t)) {
+                return None;
+            }
             Some(format!(
                 "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
                 t.z, t.x, t.y
             ))
         })
         .collect();
-    format!("[{}]", items.join(","))
+    (items.len() as u32, format!("[{}]", items.join(",")))
 }
 
 /// Compact JSON of the last frame's cache telemetry, summed across layers.
@@ -408,6 +536,12 @@ enum Cmd {
     /// Centre/zoom/bearing set; pitch is preserved from the live camera (the
     /// 2D gesture path doesn't touch tilt).
     SetCamera { lat: f64, lng: f64, zoom: f64, bearing: f64 },
+    /// Translate the camera by a screen-space finger delta (px). Applied on the
+    /// render thread against the LIVE camera, so successive pan events within one
+    /// frame ACCUMULATE instead of each recomputing from a stale snapshot and
+    /// overwriting (the dropped-intermediate-motion "throttle"/jitter). Ground-
+    /// plane unproject → consistent under pitch (no terrain-hit skitter).
+    PanByPixels { dx: f64, dy: f64 },
     Fling(f64, f64),
     ZoomFling { v: f64, fx: f64, fy: f64 },
     EaseTo { lat: f64, lng: f64, zoom: f64, bearing: f64, dur_ms: u64 },
@@ -442,7 +576,12 @@ enum Ingest {
 #[derive(Clone)]
 struct Snapshot {
     cam: CameraState,
+    /// Viewport size + bottom inset at publish time, so project/unproject can
+    /// reconstruct the projection without the engine (always-valid, wait-free).
+    viewport: (f64, f64),
+    inset: f64,
     animating: bool,
+    pending_count: u32,
     pending_json: String,
     stats_json: String,
 }
@@ -456,16 +595,29 @@ impl Default for Snapshot {
                 pitch_deg: 0.0,
                 bearing_deg: 0.0,
             },
+            viewport: (1.0, 1.0),
+            inset: 0.0,
             animating: false,
+            pending_count: 0,
             pending_json: "[]".to_string(),
             stats_json: "{}".to_string(),
         }
     }
 }
 
-/// At most this many tile uploads per frame — a burst (post-pan flood) spreads
-/// across frames instead of spiking one frame's CPU/GPU past the budget.
-const MAX_INGEST_PER_FRAME: usize = 8;
+/// Reconstruct a [`Camera`] from a published snapshot for wait-free, always-valid
+/// projection (the elevation-aware engine path needs the render lock; this flat
+/// fallback never blocks and never drops a gesture — exact in 2D, a hair off only
+/// for elevation under 3D tilt, which is invisible at gesture scale).
+fn snapshot_camera(s: &Snapshot) -> Camera {
+    Camera::new(
+        CoreLatLng::new(s.cam.center.lat, s.cam.center.lng),
+        s.cam.zoom,
+    )
+    .with_pitch(s.cam.pitch_deg)
+    .with_bearing(s.cam.bearing_deg)
+    .with_viewport_inset(s.inset)
+}
 
 /// The shared handle. UI-facing fields (`cmd*`, `ingest*`, `snapshot`) are
 /// wait-free; `render` is held only by the render thread + lifecycle.
@@ -474,6 +626,14 @@ struct Surface {
     cmd_rx: crossbeam_channel::Receiver<Cmd>,
     ingest_tx: crossbeam_channel::Sender<Ingest>,
     ingest_rx: crossbeam_channel::Receiver<Ingest>,
+    /// Tiles handed to the engine (bytes enqueued) but not yet decoded+uploaded
+    /// on the render thread. They are NOT yet in the engine's resident set, so
+    /// `engine.pending_tiles()` still lists them — without this, the host re-
+    /// fetches + re-enqueues every such tile each reconcile pass (a disk-cache
+    /// hit is instant), flooding the ingest queue with thousands of duplicates
+    /// (observed backlog 30k+) and starving both tile uploads and camera moves.
+    /// We exclude this set from the published pending list and dedup re-enqueues.
+    queued: Mutex<std::collections::HashSet<(String, TileId)>>,
     snapshot: Mutex<Arc<Snapshot>>,
     render: Mutex<OnScreen>,
 }
@@ -482,12 +642,14 @@ impl Surface {
     fn new(on: OnScreen) -> Self {
         let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
         let (ingest_tx, ingest_rx) = crossbeam_channel::unbounded();
-        let snap = Arc::new(on.build_snapshot());
+        let queued = Mutex::new(std::collections::HashSet::new());
+        let snap = Arc::new(on.build_snapshot(&queued.lock().unwrap_or_else(|p| p.into_inner())));
         Surface {
             cmd_tx,
             cmd_rx,
             ingest_tx,
             ingest_rx,
+            queued,
             snapshot: Mutex::new(snap),
             render: Mutex::new(on),
         }
@@ -501,19 +663,47 @@ impl Surface {
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             on.apply_cmd(cmd);
         }
-        // Tile uploads are capped per frame; the rest wait for the next one.
-        let mut n = 0;
-        while n < MAX_INGEST_PER_FRAME {
-            match self.ingest_rx.try_recv() {
-                Ok(i) => {
-                    on.apply_ingest(i);
-                    n += 1;
-                }
-                Err(_) => break,
+        // Time-budgeted tile ingest. Decode + GPU upload run on THIS (render) thread;
+        // terrain/DEM tiles in particular are expensive (decode + mesh build). Draining
+        // a whole network burst in one frame pins the render thread for seconds (the map
+        // "freezes solid" while the UI thread stays live). Instead we spend at most
+        // `INGEST_BUDGET` per frame — always making progress on ≥1 tile — and report a
+        // remaining backlog as "animating" below so the host keeps pumping frames. The
+        // queue then drains fast across many *cheap* frames, never one giant stall.
+        const INGEST_BUDGET: std::time::Duration = std::time::Duration::from_millis(6);
+        let ingest_start = std::time::Instant::now();
+        let mut ingested = 0u32;
+        let mut applied_keys: Vec<(String, TileId)> = Vec::new();
+        while let Ok(i) = self.ingest_rx.try_recv() {
+            applied_keys.push(ingest_key(&i));
+            on.apply_ingest(i);
+            ingested += 1;
+            if ingest_start.elapsed() >= INGEST_BUDGET {
+                break;
             }
         }
+        let ingest_ms = ingest_start.elapsed().as_secs_f64() * 1000.0;
+        let ingest_backlog = self.ingest_rx.len();
+        let render_start = std::time::Instant::now();
         on.render();
-        let snap = on.build_snapshot();
+        let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
+        // The tiles we just uploaded are now resident in the engine, so they drop
+        // out of `pending_tiles()` on their own — clear them from the queued set so
+        // it tracks only the still-in-flight uploads, and so a later eviction can
+        // legitimately re-request them.
+        let queued = {
+            let mut q = self.queued.lock().unwrap_or_else(|p| p.into_inner());
+            for k in &applied_keys {
+                q.remove(k);
+            }
+            q.clone()
+        };
+        let mut snap = on.build_snapshot(&queued);
+        // A pending ingest backlog must keep the render-on-demand host awake, or the
+        // remaining tiles would only trickle in on the next unrelated invalidation.
+        snap.animating = snap.animating || ingest_backlog > 0;
+        let pending = snap.pending_count;
+        on.perf.record(render_ms, ingest_ms, ingested, ingest_backlog, pending);
         *self.snapshot.lock().unwrap_or_else(|p| p.into_inner()) = Arc::new(snap);
     }
 
@@ -864,6 +1054,21 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     unsafe { enqueue(handle, Cmd::SetCamera { lat, lng, zoom, bearing: bearing_deg }) };
 }
 
+/// One-finger pan step: translate the camera by a screen-space finger delta (px).
+/// Wait-free enqueue; the render thread applies it against the live camera so
+/// successive pans within a frame accumulate (no stale-snapshot recompute, no
+/// overwrite) — smooth, jitter-free panning in 2D and 3D alike.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativePanBy(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    dx: jdouble,
+    dy: jdouble,
+) {
+    unsafe { enqueue(handle, Cmd::PanByPixels { dx, dy }) };
+}
+
 /// `[lat, lng, zoom, bearingDeg]`.
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeCamera(
@@ -887,21 +1092,25 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     lat: jdouble,
     lng: jdouble,
 ) -> jni::sys::jarray {
-    // Exact (elevation-aware) projection needs the engine, so try_lock the
-    // render state — NON-BLOCKING: if the render thread is mid-frame we return
-    // "invalid" for this call rather than wait (which is what would ANR). The
-    // host re-queries next frame; a one-frame miss is invisible.
+    // Exact (elevation-aware) projection when the render lock is free; otherwise
+    // a wait-free FLAT projection from the published snapshot. NON-BLOCKING and
+    // ALWAYS valid — a drag re-projects every move event and must never be
+    // dropped just because a frame is in flight (that was the choppy-pan bug).
     let p = unsafe {
         with_surface(handle, |s| {
-            s.render
-                .try_lock()
-                .ok()
-                .and_then(|on| on.engine.project(LatLng::new(lat, lng)))
+            if let Ok(on) = s.render.try_lock() {
+                if let Some(sp) = on.engine.project(LatLng::new(lat, lng)) {
+                    return Some((sp.x, sp.y));
+                }
+            }
+            let snap = s.latest();
+            let world = CoreLatLng::new(lat, lng).to_world();
+            snapshot_camera(&snap).world_to_screen(world, snap.viewport)
         })
     }
     .flatten();
     match p {
-        Some(s) => double_array(&mut env, &[s.x, s.y, 1.0]),
+        Some((x, y)) => double_array(&mut env, &[x, y, 1.0]),
         None => double_array(&mut env, &[0.0, 0.0, 0.0]),
     }
 }
@@ -915,17 +1124,23 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     x: jdouble,
     y: jdouble,
 ) -> jni::sys::jarray {
+    // Exact when the render lock is free; otherwise a wait-free flat unprojection
+    // from the snapshot (pixel_to_world always yields a point) — so a 1-finger
+    // pan, which unprojects every move, never drops a frame to lock contention.
     let g = unsafe {
         with_surface(handle, |s| {
-            s.render
-                .try_lock()
-                .ok()
-                .and_then(|on| on.engine.unproject(ScreenPoint::new(x, y)))
+            if let Ok(on) = s.render.try_lock() {
+                if let Some(ll) = on.engine.unproject(ScreenPoint::new(x, y)) {
+                    return (ll.lat, ll.lng);
+                }
+            }
+            let snap = s.latest();
+            let ll = snapshot_camera(&snap).pixel_to_world((x, y), snap.viewport).to_lat_lng();
+            (ll.lat, ll.lng)
         })
-    }
-    .flatten();
+    };
     match g {
-        Some(ll) => double_array(&mut env, &[ll.lat, ll.lng, 1.0]),
+        Some((lat, lng)) => double_array(&mut env, &[lat, lng, 1.0]),
         None => double_array(&mut env, &[0.0, 0.0, 0.0]),
     }
 }
@@ -965,14 +1180,19 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Ok(d) => d,
         Err(_) => return JNI_FALSE,
     };
+    let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
     let sent = unsafe {
         with_surface(handle, |s| {
+            // Dedup: if this tile's bytes are already queued for upload, drop the
+            // duplicate (the host shouldn't ask again, but a race can). Mark it
+            // queued BEFORE sending so the next published snapshot excludes it.
+            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
+            if !q.insert((layer.clone(), tile)) {
+                return true;
+            }
+            drop(q);
             s.ingest_tx
-                .send(Ingest::Raster {
-                    layer,
-                    tile: TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32),
-                    bytes: data,
-                })
+                .send(Ingest::Raster { layer, tile, bytes: data })
                 .is_ok()
         })
     };
@@ -998,13 +1218,16 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Ok(d) => d,
         Err(_) => return JNI_FALSE,
     };
+    let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
     let sent = unsafe {
         with_surface(handle, |s| {
+            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
+            if !q.insert(("__terrain".to_string(), tile)) {
+                return true;
+            }
+            drop(q);
             s.ingest_tx
-                .send(Ingest::Terrain {
-                    tile: TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32),
-                    bytes: data,
-                })
+                .send(Ingest::Terrain { tile, bytes: data })
                 .is_ok()
         })
     };

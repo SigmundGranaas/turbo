@@ -1291,9 +1291,12 @@ impl Map {
         if self.cam.active.is_some() {
             return true;
         }
-        // Any layer with a fading tile keeps the animation flag set.
+        // Any layer with a fading tile keeps the animation flag set. Raster fade
+        // is keyed on first-on-screen time (tracked in the pipeline), so the
+        // signal must come from there — not the cache's ingest age — or a fading
+        // cache tile would park render-on-demand mid-fade and stick translucent.
         self.layers.iter().any(|l| match l {
-            LayerEntry::Raster(r) => r.cache.any_younger_than(r.fade_in_secs),
+            LayerEntry::Raster(r) => r.pipeline.has_active_fade(r.fade_in_secs),
             LayerEntry::Vector(v) => v.cache.any_younger_than(v.fade_in_secs),
             LayerEntry::Hillshade(_) => false,
         })

@@ -92,19 +92,6 @@ impl TextureCache {
             .map(|e| Instant::now().duration_since(e.created_at).as_secs_f32())
     }
 
-    /// True if any cached tile was ingested less than `secs` ago — i.e. a
-    /// fade-in is still in progress, so the frame must be re-rendered. Drives
-    /// `Map::is_animating` for raster layers (render-on-demand keeps drawing
-    /// until the fade completes).
-    pub(crate) fn any_younger_than(&self, secs: f32) -> bool {
-        if secs <= 0.0 {
-            return false;
-        }
-        let now = Instant::now();
-        self.entries
-            .values()
-            .any(|e| now.duration_since(e.created_at).as_secs_f32() < secs)
-    }
 
     pub(crate) fn get(&mut self, id: TileId) -> Option<&CacheEntry> {
         if self.entries.contains_key(&id) {
@@ -136,34 +123,6 @@ impl TextureCache {
         None
     }
 
-    /// Cached tiles that lie *inside* `region` (i.e. its descendants at
-    /// deeper zoom). Used as a backdrop when the requested tile and its
-    /// ancestors are both absent — typically right after a zoom-out.
-    ///
-    /// The returned order is FULLY deterministic — `(z, x, y)` — even
-    /// though the underlying `entries` is a `HashMap` with
-    /// randomised iteration. A previous `sort_by_key(|t| t.z)` was
-    /// only stable BETWEEN z-levels; tiles at the same z were still
-    /// emitted in HashMap order, which produced visibly different
-    /// frame-to-frame draw orderings of overlapping descendants and
-    /// the user reported the map "fighting about who is on top". A
-    /// full `(z, x, y)` sort eliminates that source of frame-to-
-    /// frame non-determinism.
-    pub(crate) fn covered_descendants(&self, region: TileId, max_levels_deep: u8) -> Vec<TileId> {
-        let mut out: Vec<TileId> = self
-            .entries
-            .keys()
-            .copied()
-            .filter(|t| {
-                if t.z <= region.z || t.z - region.z > max_levels_deep {
-                    return false;
-                }
-                t.ancestor(t.z - region.z) == Some(region)
-            })
-            .collect();
-        out.sort_by(|a, b| (a.z, a.x, a.y).cmp(&(b.z, b.x, b.y)));
-        out
-    }
 
     /// Insert a decoded tile, evicting LRU tiles if the budget is
     /// exceeded. Returns the ids that were evicted so the caller can
