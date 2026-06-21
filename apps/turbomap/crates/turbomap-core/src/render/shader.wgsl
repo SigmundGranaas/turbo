@@ -46,6 +46,11 @@ struct Globals {
     // 0 disables cast shadows entirely (the texture is ignored); > 0 blends
     // the sampled sun-visibility into the direct sun term by this strength.
     shadow_strength: f32,
+    // Camera eye in the same RTC frame the vertex shader emits — haze is the
+    // extinction over the TRUE eye→fragment distance, so near ground stays
+    // clear at any pitch (distance-from-look-at whites out at grazing angles).
+    eye_world: vec3<f32>,
+    _pad_eye: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -86,6 +91,10 @@ fn elev_at(uv: vec2<f32>) -> f32 {
 struct VertexInput {
     // Unit-quad corner, in [0, 1].
     @location(0) corner: vec2<f32>,
+    // Skirt depth as a fraction of tile world-size (0 for grid verts). The
+    // perimeter curtain verts share an edge vertex's xy + UV but hang down in
+    // world-z by this fraction, covering mixed-LOD T-junction cracks.
+    @location(8) skirt: f32,
 };
 
 struct InstanceInput {
@@ -137,7 +146,9 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
         elev_m = decode_elevation(dem.rgb);
     }
     let zscale = globals.meters_to_world * globals.exaggeration;
-    let world_z = elev_m * zscale;
+    // Skirt verts hang straight down from the displaced surface by a fraction
+    // of the tile's world size — a vertical curtain backing mixed-LOD cracks.
+    let world_z = elev_m * zscale - in.skirt * inst.world_size;
 
     var out: VertexOutput;
     out.clip_position = camera.view_proj * vec4<f32>(world, world_z, 1.0);
@@ -160,11 +171,13 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
         out.normal = vec3<f32>(0.0, 0.0, 1.0);
     }
 
-    // Aerial perspective: distance from the camera centre (world coords
-    // are relative-to-centre, so the camera sits at the origin in xy).
-    // `haze_density` already folds in 1/altitude (zoom-stable) and a
-    // pitch ramp, so this is 0 on the flat 2D map.
-    let dist = length(world);
+    // Aerial perspective: extinction over the TRUE distance from the camera
+    // eye to this vertex (both in the relative-to-centre frame). Using the
+    // eye — not the look-at point — keeps the near ground clear at grazing
+    // pitch instead of washing the whole frame to the horizon colour.
+    // `haze_density` is a per-world-unit coefficient (physical per-metre,
+    // converted CPU-side) gated by a pitch ramp, so it's 0 on the flat 2D map.
+    let dist = length(vec3<f32>(world, world_z) - globals.eye_world);
     out.haze = 1.0 - exp(-dist * globals.haze_density);
     out.world_xy = world;
     return out;

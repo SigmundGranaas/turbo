@@ -417,6 +417,24 @@ impl Camera {
         (vh * 0.5) / ppw / (FOV_Y * 0.5).tan()
     }
 
+    /// Camera eye position relative to the look-at centre, in world units,
+    /// for the given viewport. This is the eye in the same relative-to-centre
+    /// (RTC) frame the terrain shaders emit (their origin is `center`), so the
+    /// fragment shader can compute true eye→fragment distance for physically
+    /// based aerial perspective. Mirrors the eye construction in
+    /// `view_projection_from_origin` with `origin == center` (target at 0).
+    pub fn eye_offset_world(self, viewport_px: (u32, u32)) -> [f32; 3] {
+        let vh = viewport_px.1.max(1) as f32;
+        let ppw = self.pixels_per_world_unit() as f32;
+        let altitude = (vh * 0.5) / ppw / (FOV_Y * 0.5).tan();
+        let pitch = (self.pitch_deg.clamp(0.0, MAX_PITCH_DEG) as f32).to_radians();
+        let bearing = (self.bearing_deg as f32).to_radians();
+        let pitch_rot = Mat3::from_rotation_x(-pitch);
+        let bearing_rot = Mat3::from_rotation_z(bearing);
+        let eye = bearing_rot * (pitch_rot * Vec3::new(0.0, 0.0, altitude));
+        [eye.x, eye.y, eye.z]
+    }
+
     fn view_projection_from_origin(self, origin: WorldPoint, viewport_px: (u32, u32)) -> Mat4 {
         let vw = viewport_px.0.max(1) as f32;
         let vh = viewport_px.1.max(1) as f32;

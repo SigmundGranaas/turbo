@@ -71,24 +71,20 @@ impl RenderFrame {
         // Sun + time-of-day palette: one light for the whole scene.
         let atmos = sun::atmosphere(sun);
 
-        // Aerial-perspective density, zoom-stable via camera altitude; a pitch
-        // ramp keeps the flat 2D map haze-free. Shader: `1 - exp(-dist·density)`.
-        let ppw = camera.pixels_per_world_unit() as f32;
-        let fov_y_half_tan = 0.337_f32; // tan(FOV_Y/2), FOV_Y ≈ 36.87°
-        let altitude_world = (viewport_px.1.max(1) as f32 * 0.5) / ppw / fov_y_half_tan;
-        let pitch_ramp = {
-            let p = camera.pitch_deg as f32;
-            // Rise 0→1 over 5°..40° so the depth cue appears as you tilt — but
-            // then EASE BACK DOWN past ~55°. At grazing angles the view distance
-            // to the horizon explodes, so a constant density washes the whole
-            // frame to the horizon colour (white-out at 80°). The taper keeps the
-            // near ground readable while still fading the far field into sky.
-            let rise = ((p - 5.0) / 35.0).clamp(0.0, 1.0);
-            let rise = rise * rise * (3.0 - 2.0 * rise);
-            let taper = 1.0 - 0.6 * ((p - 55.0) / 25.0).clamp(0.0, 1.0);
-            rise * taper
-        };
-        let haze_density = (1.0 / altitude_world.max(1e-9)) * 0.22 * pitch_ramp;
+        // Aerial-perspective density. The shader computes
+        // `1 - exp(-dist_world · haze_density)` over the TRUE eye→fragment
+        // distance (RTC frame; see the `eye_world` plumbing). Density is
+        // altitude-relative — `k / altitude_world` — so BOTH terms are in world
+        // units (no unit mismatch) and the look is zoom-stable. The key property:
+        // the nearest visible ground sits ~one altitude from the eye, so its
+        // haze is bounded near `1 - exp(-k)` (~0.2) at ANY pitch — it can never
+        // white out — while the far field (dist ≫ altitude) dissolves to the
+        // horizon colour. That makes the old grazing-angle taper unnecessary:
+        // eye-distance + bounded near field replaces the hack that the
+        // center-distance model needed. A pitch ramp gates haze to 0 on the
+        // flat 2D map (it's a tilt-only depth cue).
+        let altitude_world = camera.altitude_world(viewport_px).max(1e-9);
+        let haze_density = aerial_haze_density(altitude_world, camera.pitch_deg);
 
         // Sky: only when tilted enough to expose the horizon.
         let draw_sky = camera.pitch_deg > 0.5;
@@ -172,5 +168,91 @@ impl RenderFrame {
             vec_terrain_halo_uv,
             sky_globals,
         }
+    }
+}
+
+/// Per-world-unit aerial-perspective density for `1 - exp(-dist_world · d)`,
+/// where `dist_world` is the true eye→fragment distance. Altitude-relative
+/// (`k / altitude_world`) so both terms share units and the look is zoom-stable;
+/// a pitch ramp gates it to 0 on the flat 2D map. The nearest visible ground is
+/// ~one altitude from the eye, so its haze is bounded ≈ `1 - exp(-k)` at any
+/// pitch — the property that prevents the grazing-angle white-out.
+fn aerial_haze_density(altitude_world: f32, pitch_deg: f64) -> f32 {
+    let p = pitch_deg as f32;
+    // Smoothstep 0→1 across 5°..35°, then hold.
+    let rise = ((p - 5.0) / 30.0).clamp(0.0, 1.0);
+    let pitch_ramp = rise * rise * (3.0 - 2.0 * rise);
+    (0.22 / altitude_world.max(1e-9)) * pitch_ramp
+}
+
+#[cfg(test)]
+mod tests {
+    //! Aerial-perspective invariants, independent of any basemap (the headless
+    //! scenario basemap is ~white, so a rendered-frame luma check can't judge
+    //! haze — see the `turbomap-harness-pale-basemap` note). These exercise the
+    //! real density fn + the public camera projection, asserting the whiteout
+    //! fix: near ground stays clear at every pitch, the far field dissolves.
+
+    use super::aerial_haze_density;
+    use crate::camera::Camera;
+    use crate::geo::LatLng;
+
+    const VP: (u32, u32) = (1080, 1600);
+
+    /// `1 - exp(-dist·density)` haze fraction for an eye→point distance.
+    fn haze(dist_world: f32, density: f32) -> f32 {
+        1.0 - (-dist_world * density).exp()
+    }
+
+    #[test]
+    fn flat_2d_map_carries_no_haze() {
+        let cam = Camera::new(LatLng::new(67.23, 15.30), 14.0).with_pitch(0.0);
+        let alt = cam.altitude_world(VP);
+        assert_eq!(aerial_haze_density(alt, 0.0), 0.0, "pitch 0 must be haze-free");
+    }
+
+    #[test]
+    fn nearest_ground_stays_clear_at_every_pitch() {
+        // The bottom-centre pixel is the nearest visible ground. Its eye distance,
+        // through the density at that pitch, must keep haze low — this is the
+        // anti-whiteout invariant the center-distance model violated.
+        let center = LatLng::new(67.23, 15.30);
+        for pitch in [10.0_f64, 30.0, 50.0, 70.0, 80.0] {
+            let cam = Camera::new(center, 14.0).with_pitch(pitch);
+            let alt = cam.altitude_world(VP);
+            let density = aerial_haze_density(alt, pitch);
+            let eye = cam.eye_offset_world(VP);
+            // Nearest ground = bottom-centre pixel unprojected onto z=0, taken
+            // RELATIVE to centre (the RTC frame `eye` lives in — pixel_to_world
+            // returns absolute Mercator coords, so subtract the centre).
+            let c = center.to_world();
+            let g = cam.pixel_to_world((VP.0 as f64 / 2.0, VP.1 as f64), (VP.0 as f64, VP.1 as f64));
+            let (dx, dy, dz) = ((g.x - c.x) as f32 - eye[0], (g.y - c.y) as f32 - eye[1], -eye[2]);
+            let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            let h = haze(dist, density);
+            assert!(h < 0.45, "near ground must stay readable at {pitch}° (haze {h:.2})");
+        }
+    }
+
+    #[test]
+    fn far_field_dissolves_more_than_near_when_tilted() {
+        // At a strong tilt the far field (many altitudes out along the view) must
+        // haze substantially more than the near ground — a real depth gradient,
+        // not a flat wash.
+        let center = LatLng::new(67.23, 15.30);
+        let cam = Camera::new(center, 14.0).with_pitch(75.0);
+        let alt = cam.altitude_world(VP);
+        let density = aerial_haze_density(alt, 75.0);
+        let eye = cam.eye_offset_world(VP);
+        let c = center.to_world();
+        let g = cam.pixel_to_world((VP.0 as f64 / 2.0, VP.1 as f64), (VP.0 as f64, VP.1 as f64));
+        let near = {
+            let (dx, dy, dz) = ((g.x - c.x) as f32 - eye[0], (g.y - c.y) as f32 - eye[1], -eye[2]);
+            haze((dx * dx + dy * dy + dz * dz).sqrt(), density)
+        };
+        // A point 40 altitudes downrange (deep into the far field).
+        let far = haze(40.0 * alt, density);
+        assert!(far > near + 0.3, "far ({far:.2}) must dissolve well beyond near ({near:.2})");
+        assert!(far > 0.9, "deep far field should be nearly fully dissolved (got {far:.2})");
     }
 }

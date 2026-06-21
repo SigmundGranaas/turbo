@@ -856,8 +856,40 @@ fn main() {
                 && (px[2] as i32 - 165).abs() < 16;
             sky || grey
         };
+        // Basemap-independent luma readout. The Kartverket topo-grey basemap is
+        // intrinsically near-white, so `is_bg`/coverage can't tell hazed terrain
+        // from sky. These measure the actual whiteout instead: `blown` = fraction
+        // of the WHOLE frame at luma > 250 (true white pixels), and the mean luma
+        // of the bottom 8% (nearest ground), a mid band, and the top 8%
+        // (sky/horizon). A healthy tilted frame has near < mid < top with `blown`
+        // low; a whiteout drives every band → 255 and `blown` → 1.
+        let band_mean = |raw: &[u8], w: usize, h: usize, a: f64, b: f64| -> f32 {
+            let (y0, y1) = ((a * h as f64) as usize, ((b * h as f64) as usize).max(1));
+            let mut sum = 0.0f32;
+            let mut n = 0u32;
+            for y in y0..y1.min(h) {
+                for x in 0..w {
+                    let i = (y * w + x) * 4;
+                    sum += fb_probe::luma([raw[i], raw[i + 1], raw[i + 2], raw[i + 3]]);
+                    n += 1;
+                }
+            }
+            if n == 0 { 0.0 } else { sum / n as f32 }
+        };
+        let blown_frac = |raw: &[u8], w: usize, h: usize| -> f64 {
+            let mut blown = 0u32;
+            for px in raw.chunks_exact(4) {
+                if fb_probe::luma([px[0], px[1], px[2], px[3]]) > 250.0 {
+                    blown += 1;
+                }
+            }
+            blown as f64 / (w * h) as f64
+        };
         eprintln!("  ── LOD probe baseline (pitch sweep, z14) ──");
-        eprintln!("  {:>5}  {:>9}  {:>9}  {:>7}", "pitch", "groundCov", "horizStep", "cracks");
+        eprintln!(
+            "  {:>5}  {:>9}  {:>7}  {:>6}  {:>5}  {:>5}  {:>5}",
+            "pitch", "groundCov", "cracks", "blown", "near", "mid", "far"
+        );
         for pitch in [0.0_f64, 20.0, 40.0, 60.0, 75.0, 80.0] {
             map.set_camera(
                 Camera::new(cli.center, 14.0).with_pitch(pitch).with_bearing(cli.bearing),
@@ -869,9 +901,14 @@ fn main() {
             let (w, h) = (img.width() as usize, img.height() as usize);
             let raw = img.as_raw();
             let cov = fb_probe::ground_coverage(raw, w, h, 0.5, is_bg);
-            let step = fb_probe::max_row_luma_step(raw, w, h, is_bg);
             let cracks = fb_probe::sky_holes(raw, w, h, 4, is_bg);
-            eprintln!("  {pitch:>5.0}  {cov:>9.2}  {step:>9.1}  {cracks:>7}");
+            let blown = blown_frac(raw, w, h);
+            let near = band_mean(raw, w, h, 0.92, 1.0);
+            let mid = band_mean(raw, w, h, 0.45, 0.55);
+            let far = band_mean(raw, w, h, 0.0, 0.08);
+            eprintln!(
+                "  {pitch:>5.0}  {cov:>9.2}  {cracks:>7}  {blown:>6.2}  {near:>5.0}  {mid:>5.0}  {far:>5.0}"
+            );
         }
         eprintln!("LOD PROBE done — frames in {}", cli.out_dir);
         return;

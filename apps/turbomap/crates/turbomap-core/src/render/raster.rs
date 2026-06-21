@@ -57,12 +57,24 @@ struct Globals {
     shadow_origin: [f32; 2],
     shadow_inv_size: f32,
     shadow_strength: f32,
+    /// Camera eye in the relative-to-centre (RTC) frame the vertex shader
+    /// emits. The fragment/vertex stage measures `length(world - eye_world)`
+    /// for physically based aerial perspective (haze by true eye distance,
+    /// not distance from the look-at point — which whites out at grazing
+    /// pitch). One std140 16-byte slot (vec3 + pad).
+    eye_world: [f32; 3],
+    _pad_eye: f32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct Vertex {
     corner: [f32; 2],
+    /// Skirt depth as a fraction of the tile's world size. 0 for the
+    /// flat grid vertices; > 0 for the perimeter "curtain" verts, which
+    /// share an edge vertex's xy + DEM/texture UV but hang straight down
+    /// in world-z to cover mixed-LOD T-junction cracks (see mesh build).
+    skirt: f32,
 }
 
 #[repr(C)]
@@ -283,11 +295,18 @@ impl RasterPipeline {
         let vertex_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[wgpu::VertexAttribute {
-                format: wgpu::VertexFormat::Float32x2,
-                offset: 0,
-                shader_location: 0,
-            }],
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 0,
+                    shader_location: 0,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 8,
+                    shader_location: 8,
+                },
+            ],
         };
         let instance_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Instance>() as u64,
@@ -368,15 +387,22 @@ impl RasterPipeline {
         // the server's overscan), so adjacent rendered tiles agree
         // on their shared edge heights — no cracks.
         const GRID: u32 = 16;
+        // Skirt depth as a fraction of tile world-size. A mixed-LOD seam can
+        // expose a crack as tall as the local relief over half a coarse cell;
+        // a half-tile-deep curtain comfortably covers the worst realistic case
+        // (slopes rarely exceed ~100%) while staying hidden behind the surface
+        // from any non-grazing angle. Tuned on-device in Phase 5.
+        const SKIRT_FRAC: f32 = 0.5;
         let mut vertices: Vec<Vertex> = Vec::with_capacity(((GRID + 1) * (GRID + 1)) as usize);
         for vy in 0..=GRID {
             for vx in 0..=GRID {
                 vertices.push(Vertex {
                     corner: [vx as f32 / GRID as f32, vy as f32 / GRID as f32],
+                    skirt: 0.0,
                 });
             }
         }
-        let mut indices: Vec<u16> = Vec::with_capacity((GRID * GRID * 6) as usize);
+        let mut indices: Vec<u16> = Vec::with_capacity((GRID * GRID * 6 + GRID * 4 * 6) as usize);
         for vy in 0..GRID {
             for vx in 0..GRID {
                 let i = (vy * (GRID + 1) + vx) as u16;
@@ -385,6 +411,43 @@ impl RasterPipeline {
                 let i_diag = i_down + 1;
                 indices.extend_from_slice(&[i, i_right, i_diag, i, i_diag, i_down]);
             }
+        }
+
+        // Skirt: a vertical curtain hanging straight down from every tile-edge
+        // vertex. Where a finer neighbour subdivides this (coarser) tile's
+        // edge, its interpolated heights dip below ours, opening a see-through
+        // crack at the T-junction; the curtain backs that gap with terrain
+        // colour. Cull mode is None, so the quad winding is irrelevant.
+        let edge_vert = |vx: u32, vy: u32| (vy * (GRID + 1) + vx) as u16;
+        let mut perimeter: Vec<(u32, u32)> = Vec::with_capacity((GRID * 4) as usize);
+        for vx in 0..GRID {
+            perimeter.push((vx, 0)); // top edge, L→R
+        }
+        for vy in 0..GRID {
+            perimeter.push((GRID, vy)); // right edge, T→B
+        }
+        for vx in (1..=GRID).rev() {
+            perimeter.push((vx, GRID)); // bottom edge, R→L
+        }
+        for vy in (1..=GRID).rev() {
+            perimeter.push((0, vy)); // left edge, B→T
+        }
+        let skirt_base = vertices.len() as u16;
+        for &(vx, vy) in &perimeter {
+            vertices.push(Vertex {
+                corner: [vx as f32 / GRID as f32, vy as f32 / GRID as f32],
+                skirt: SKIRT_FRAC,
+            });
+        }
+        let pn = perimeter.len();
+        for k in 0..pn {
+            let (vx, vy) = perimeter[k];
+            let (nvx, nvy) = perimeter[(k + 1) % pn];
+            let top_a = edge_vert(vx, vy);
+            let top_b = edge_vert(nvx, nvy);
+            let sk_a = skirt_base + k as u16;
+            let sk_b = skirt_base + ((k + 1) % pn) as u16;
+            indices.extend_from_slice(&[top_a, top_b, sk_b, top_a, sk_b, sk_a]);
         }
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("turbomap-quad-vertex"),
@@ -551,6 +614,8 @@ impl RasterPipeline {
                 } else {
                     0.0
                 },
+                eye_world: camera.eye_offset_world((vw, vh)),
+                _pad_eye: 0.0,
             }),
         );
 
