@@ -1947,6 +1947,7 @@ impl Map {
                         frame.vec_terrain_zscale,
                         frame.vec_terrain_encoding,
                         frame.vec_terrain_halo_uv,
+                        terrain_cell.as_deref_mut().map(|t| &mut t.cache),
                     );
                     tiles_drawn += v.scene.visible_tiles().len();
                     prepared_layers.push((i, PreparedLayer::Vector(p)));

@@ -373,6 +373,37 @@ impl TerrainCache {
         })
     }
 
+    /// Resolve the DEM tile + sub-UV a ground layer should drape `drawn_tile`'s
+    /// geometry onto. Returns `(source_tile, dem_uv_origin, dem_uv_size)`:
+    ///   • `source_tile` is `drawn_tile` itself when resident, else the nearest
+    ///     cached ancestor (so deep zooms still drape on a shallow DEM).
+    ///   • `dem_uv_origin`/`dem_uv_size` map the tile-local `[0,1]` base position
+    ///     into the matching sub-rectangle of that source's *haloed* heightmap
+    ///     (the `halo_uv` inset keeps the sample inside the non-halo interior).
+    /// Falls back to `(None, [0,0], 1)` — the flat 1×1 placeholder UV — when no
+    /// terrain covers the tile yet. This is the ancestor-walk the raster basemap
+    /// already uses (`resolve_dem_subuv`), lifted so the vector pipeline drapes
+    /// lines/fills at any zoom instead of only when the exact DEM tile is loaded.
+    pub(crate) fn resolve_subuv(
+        &mut self,
+        drawn_tile: TileId,
+        halo_uv: f32,
+    ) -> (Option<TileId>, [f32; 2], f32) {
+        let interior = 1.0 - 2.0 * halo_uv;
+        let Some(binding) = self.bind_for(drawn_tile) else {
+            return (None, [0.0, 0.0], 1.0);
+        };
+        let source = binding.source_tile;
+        let Some(sub) = drawn_tile.sub_uv_in(source) else {
+            return (None, [0.0, 0.0], 1.0);
+        };
+        let origin = [
+            halo_uv + sub.origin.x as f32 * interior,
+            halo_uv + sub.origin.y as f32 * interior,
+        ];
+        (Some(source), origin, sub.size as f32 * interior)
+    }
+
     /// Decoded elevation (metres) at world-space `(x, y)` on the ground
     /// plane, sampled from the deepest DEM tile currently resident that
     /// covers the point (so markers/paths anchor to the finest available

@@ -48,7 +48,12 @@ struct TileUniform {
 /// offsets. No references into the cache; `draw` re-looks tiles up
 /// immutably via `peek`.
 pub(crate) struct PreparedVector {
-    tiles: Vec<TileId>,
+    /// `(mesh_tile, dem_source_tile)` per draw slot. Index `i` lines up with
+    /// the per-tile uniform at `i * TILE_UNIFORM_STRIDE`. `dem_source_tile` is
+    /// the DEM tile `draw` binds for draping — the mesh tile itself or a cached
+    /// ancestor (deep zoom) — or `None` when no terrain covers it (the flat
+    /// placeholder is bound and the shader leaves the line at z=0).
+    tiles: Vec<(TileId, Option<TileId>)>,
 }
 
 pub(crate) struct VectorPipeline {
@@ -98,8 +103,9 @@ impl VectorPipeline {
         // `min_uniform_buffer_offset_alignment`, but the shader's binding
         // *view* is 16 bytes wide.
         // tile_alpha(4) + use_paint_color(4) + dash(8) + paint_color vec4(16)
-        // + origin vec2(8) + span(4) + pad(4).
-        const WGSL_TILE_UNIFORM_BYTES: u64 = 48;
+        // + origin vec2(8) + span(4) + width_scale(4) + dem_uv_origin vec2(8)
+        // + dem_uv_size(4) + pad(4) → rounds to 64 (vec4 16-byte alignment).
+        const WGSL_TILE_UNIFORM_BYTES: u64 = 64;
         let tile_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("turbomap-vector-tile-bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -198,7 +204,7 @@ impl VectorPipeline {
             // then self-occludes correctly: near roofs/walls over far ones,
             // and the building hides the ground beneath it. Text/markers
             // stay on `overlay_depth_state` (Always) so labels ride on top.
-            depth_stencil: Some(super::ground_depth_state()),
+            depth_stencil: Some(super::vector_ground_depth_state()),
             multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,
@@ -270,6 +276,10 @@ impl VectorPipeline {
         terrain_zscale: f32,
         terrain_encoding: u32,
         terrain_halo_uv: f32,
+        // DEM cache for ancestor-walk draping: per tile we resolve the DEM
+        // tile + sub-UV to sample (the tile itself or, at deep zoom, a cached
+        // ancestor's matching quadrant). `None` ⇒ no terrain ⇒ lines stay flat.
+        mut terrain: Option<&mut TerrainCache>,
     ) -> PreparedVector {
         let camera = scene.camera();
         let (vw, vh) = scene.viewport_px();
@@ -287,6 +297,13 @@ impl VectorPipeline {
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+
+        // Lines thin out at a grazing tilt; widen them with pitch so a draped
+        // route/track stays legible in 3D. ×1 at pitch 0 (the 2D map is
+        // untouched) → ×1.6 at the 60° max. Pairs with the bumped base widths
+        // in `TurbomapScene`; both are tunable knobs for on-device feel.
+        let pitch_boost = 1.0 + 0.6 * (camera.pitch_deg as f32 / 60.0).clamp(0.0, 1.0);
+        let width_scale = width_scale * pitch_boost;
 
         // Collect tile IDs we'll actually draw, paired with their fade
         // alpha. The fade alpha is smoothstep'd against the tile's age so
@@ -327,8 +344,9 @@ impl VectorPipeline {
         let draw_count = to_draw.len().min(MAX_TILES_PER_FRAME as usize);
 
         // Pack per-tile uniforms into the shared buffer at aligned offsets.
-        // Only the first 4 bytes of each 256-byte slot carry data (the
-        // rest is just alignment padding); one big write covers them all.
+        // Each tile's slot also carries the DEM source it drapes onto, resolved
+        // here (needs `&mut` for the LRU/ancestor walk) and replayed in `draw`.
+        let mut dem_sources: Vec<Option<TileId>> = Vec::with_capacity(draw_count);
         if draw_count > 0 {
             let (use_paint, paint) = match paint_override {
                 Some(c) => (1.0f32, c),
@@ -362,6 +380,17 @@ impl VectorPipeline {
                 // Per-frame line-width zoom multiplier (same for every tile of
                 // this layer); 1.0 leaves baked widths untouched.
                 bytes[off + 44..off + 48].copy_from_slice(&width_scale.to_le_bytes());
+                // DEM draping sub-UV: the tile's own interior, or a cached
+                // ancestor's matching quadrant (deep zoom), else the flat
+                // placeholder UV. `dem_src` (the tile to bind) replays in `draw`.
+                let (dem_src, dem_uv_origin, dem_uv_size) = match terrain.as_deref_mut() {
+                    Some(t) => t.resolve_subuv(*tile, terrain_halo_uv),
+                    None => (None, [0.0, 0.0], 1.0),
+                };
+                bytes[off + 48..off + 52].copy_from_slice(&dem_uv_origin[0].to_le_bytes());
+                bytes[off + 52..off + 56].copy_from_slice(&dem_uv_origin[1].to_le_bytes());
+                bytes[off + 56..off + 60].copy_from_slice(&dem_uv_size.to_le_bytes());
+                dem_sources.push(dem_src);
             }
             self.queue
                 .write_buffer(&self.tile_uniform_buffer, 0, &bytes);
@@ -373,12 +402,15 @@ impl VectorPipeline {
         // tile stays in the list either way so its index keeps lining up with
         // the per-tile uniform offsets written above; `draw` skips a slot whose
         // mesh is gone rather than panic.
-        let tiles: Vec<TileId> = to_draw
+        let tiles: Vec<(TileId, Option<TileId>)> = to_draw
             .iter()
             .take(draw_count)
-            .map(|(tile, _)| {
+            .enumerate()
+            .map(|(i, (tile, _))| {
                 let _ = cache.get(*tile);
-                *tile
+                // `dem_sources` is index-aligned with the uniform slots; default
+                // to `None` (flat placeholder) if it wasn't populated.
+                (*tile, dem_sources.get(i).copied().flatten())
             })
             .collect();
         PreparedVector { tiles }
@@ -403,7 +435,7 @@ impl VectorPipeline {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.camera_bind_group, &[]);
 
-        for (idx, tile) in prepared.tiles.iter().enumerate() {
+        for (idx, (tile, dem_src)) in prepared.tiles.iter().enumerate() {
             // The LRU can evict between prepare and draw under budget pressure;
             // skip this slot rather than panic (its uniform offset is keyed on
             // `idx`, which is stable, so the remaining tiles still draw right).
@@ -415,11 +447,14 @@ impl VectorPipeline {
             }
             let offset = (idx as u64 * TILE_UNIFORM_STRIDE) as u32;
             pass.set_bind_group(1, &self.tile_bind_group, &[offset]);
-            // Drape: bind this tile's exact DEM, else the flat placeholder
-            // (the shader skips displacement when it samples zero/no-data).
-            let dem = terrain
-                .and_then(|t| t.exact_bind_group(*tile))
-                .unwrap_or(placeholder_dem);
+            // Drape: bind the DEM source `prepare` resolved (the tile itself or
+            // a cached ancestor), whose sub-UV is baked into this slot's uniform.
+            // Fall back to the flat placeholder if it was evicted since prepare
+            // or no terrain covers it (the shader then leaves the line at z=0).
+            let dem = match (*dem_src, terrain) {
+                (Some(s), Some(t)) => t.exact_bind_group(s).unwrap_or(placeholder_dem),
+                _ => placeholder_dem,
+            };
             pass.set_bind_group(2, dem, &[]);
             pass.set_vertex_buffer(0, entry.vertex_buffer.slice(..));
             pass.set_index_buffer(entry.index_buffer.slice(..), wgpu::IndexFormat::Uint32);

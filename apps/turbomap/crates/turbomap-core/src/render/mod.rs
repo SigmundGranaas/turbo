@@ -86,10 +86,27 @@ pub(crate) fn ground_depth_state() -> wgpu::DepthStencilState {
     }
 }
 
-/// Depth-stencil for screen-space overlays (vector geometry, text,
-/// markers). They don't have meaningful depth; treat them as
-/// always-in-front of the world without writing z (so subsequent
-/// overlays don't depth-cull each other).
+/// Depth-stencil for terrain-draped vector geometry (route/track/measure
+/// lines + fills). Same `LessEqual` test as the ground plane — a hill
+/// genuinely in front of a line still occludes it — but with a small
+/// toward-camera depth bias so a line draped onto the *same* surface the
+/// terrain mesh draws wins the coincident-depth tie instead of z-fighting
+/// (it reads as painted on the ground rather than shimmering in and out).
+/// The bias is the single knob if lines flicker or float on device.
+pub(crate) fn vector_ground_depth_state() -> wgpu::DepthStencilState {
+    wgpu::DepthStencilState {
+        bias: wgpu::DepthBiasState {
+            constant: -2,
+            slope_scale: -2.0,
+            clamp: 0.0,
+        },
+        ..ground_depth_state()
+    }
+}
+
+/// Depth-stencil for screen-space overlays (text, markers). They don't have
+/// meaningful depth; treat them as always-in-front of the world without
+/// writing z (so subsequent overlays don't depth-cull each other).
 pub(crate) fn overlay_depth_state() -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format: DEPTH_FORMAT,

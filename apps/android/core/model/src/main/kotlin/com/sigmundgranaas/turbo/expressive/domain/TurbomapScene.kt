@@ -128,9 +128,11 @@ object TurbomapScene {
      *  so an unspecified source doesn't claim depth the server lacks. */
     const val DEFAULT_RASTER_MAX_ZOOM = 19
 
-    private const val TRACK_WIDTH = 4.0
-    private const val ROUTE_WIDTH = 4.0
-    private const val MEASURE_WIDTH = 3.0
+    // Bumped from 4 → 6 so the draped route/track read clearly on 3D terrain
+    // (the engine adds a further pitch-based widening as the camera tilts).
+    private const val TRACK_WIDTH = 6.0
+    private const val ROUTE_WIDTH = 6.0
+    private const val MEASURE_WIDTH = 4.0
     private const val MEASURE_RADIUS = 4.0
     private const val USER_RADIUS = 7.0
 

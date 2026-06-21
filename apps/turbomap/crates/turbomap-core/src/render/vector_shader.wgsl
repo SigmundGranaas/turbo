@@ -35,6 +35,14 @@ struct TileUniform {
     // default) leaves widths exactly as baked. Fills/text/extrusions carry
     // width_px = 0, so the scale is a no-op for them.
     width_scale: f32,
+    // DEM draping sub-UV: maps this tile's local base position into the
+    // sub-rectangle of `dem_tex` that covers it. When the exact DEM tile is
+    // resident these are (halo_uv, halo_uv) / (1 - 2·halo_uv) — the tile's own
+    // non-halo interior. When only a shallower ancestor is cached (deep zoom),
+    // the host narrows them to the matching quadrant so the line still drapes.
+    // (0,0)/1 with the 1×1 placeholder ⇒ flat (no terrain resident yet).
+    dem_uv_origin: vec2<f32>,
+    dem_uv_size: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -93,8 +101,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var wz = in.z;
     let zscale = camera.params.y;
     if (zscale > 0.0) {
-        let halo_uv = camera.params.w;
-        let dem_uv = vec2<f32>(halo_uv) + in.base * (1.0 - 2.0 * halo_uv);
+        // Sample the DEM (the tile's own, or an ancestor's matching quadrant)
+        // via the per-tile sub-UV the host resolved, so lines drape at any zoom
+        // — not just when the exact DEM tile is loaded.
+        let dem_uv = tile.dem_uv_origin + in.base * tile.dem_uv_size;
         let s = textureSampleLevel(dem_tex, dem_samp, dem_uv, 0.0);
         if (s.a >= 0.5) {
             wz = wz + decode_elevation(u32(camera.params.z), s.rgb) * zscale;

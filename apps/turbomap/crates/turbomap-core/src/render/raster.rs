@@ -784,24 +784,11 @@ fn resolve_dem_subuv(
     terrain: Option<&mut TerrainCache>,
     halo_uv: f32,
 ) -> (Option<TileId>, [f32; 2], f32) {
-    let interior = 1.0 - 2.0 * halo_uv;
-    let Some(t) = terrain else {
-        return (None, [0.0, 0.0], 1.0);
-    };
-    let Some(binding) = t.bind_for(drawn_tile) else {
-        return (None, [0.0, 0.0], 1.0);
-    };
-    let source = binding.source_tile;
-    // `bind_for` returns `drawn_tile` itself or an ancestor, so `sub_uv_in`
-    // should resolve; if a coordinate edge case makes it `None`, fall back to
-    // the flat no-DEM binding (matches the 1×1 placeholder) instead of panic.
-    let Some(sub) = drawn_tile.sub_uv_in(source) else {
-        return (None, [0.0, 0.0], 1.0);
-    };
-    let origin = [
-        halo_uv + sub.origin.x as f32 * interior,
-        halo_uv + sub.origin.y as f32 * interior,
-    ];
-    let size = sub.size as f32 * interior;
-    (Some(source), origin, size)
+    // The ancestor-walk + sub-UV remap lives on `TerrainCache` so the vector
+    // pipeline drapes lines/fills the same way; this is a thin adapter for the
+    // `Option<&mut>` the raster prepare threads through.
+    match terrain {
+        Some(t) => t.resolve_subuv(drawn_tile, halo_uv),
+        None => (None, [0.0, 0.0], 1.0),
+    }
 }
