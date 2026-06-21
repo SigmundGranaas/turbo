@@ -54,6 +54,11 @@ struct Globals {
     // by `curvature_coeff · dot(world_xy, world_xy)` so distant terrain bends
     // away over the horizon instead of standing on a flat disc.
     curvature_coeff: f32,
+    // Far shadow cascade UV map (same form as shadow_origin/inv_size).
+    // `far_shadow_inv_size == 0` disables the far cascade sample.
+    far_shadow_origin: vec2<f32>,
+    far_shadow_inv_size: f32,
+    _pad_far: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -68,6 +73,10 @@ struct Globals {
 // shadow a valley in another (the per-tile DEM at group 2 cannot reach across).
 @group(3) @binding(0) var shadow_tex: texture_2d<f32>;
 @group(3) @binding(1) var shadow_samp: sampler;
+// Far shadow cascade: coarser + wider, covers the mid/far field the fine near
+// grid can't reach. Sampled only where a fragment falls outside the near grid.
+@group(3) @binding(2) var far_shadow_tex: texture_2d<f32>;
+@group(3) @binding(3) var far_shadow_samp: sampler;
 
 fn decode_elevation(rgb: vec3<f32>) -> f32 {
     let r = rgb.r * 255.0;
@@ -214,9 +223,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // black (some skylight always reaches it).
     var occ = 0.0;
     if (globals.shadow_strength > 0.0) {
+        // Cascade select: the fine NEAR grid first; outside it, fall back to the
+        // coarse FAR grid so distant peaks still shadow distant valleys.
         let suv = (in.world_xy - globals.shadow_origin) * globals.shadow_inv_size;
+        var vis = 1.0;
+        var covered = false;
         if (suv.x >= 0.0 && suv.y >= 0.0 && suv.x <= 1.0 && suv.y <= 1.0) {
-            let vis = textureSampleLevel(shadow_tex, shadow_samp, suv, 0.0).r;
+            vis = textureSampleLevel(shadow_tex, shadow_samp, suv, 0.0).r;
+            covered = true;
+        } else if (globals.far_shadow_inv_size > 0.0) {
+            let fuv = (in.world_xy - globals.far_shadow_origin) * globals.far_shadow_inv_size;
+            if (fuv.x >= 0.0 && fuv.y >= 0.0 && fuv.x <= 1.0 && fuv.y <= 1.0) {
+                vis = textureSampleLevel(far_shadow_tex, far_shadow_samp, fuv, 0.0).r;
+                covered = true;
+            }
+        }
+        if (covered) {
             occ = (1.0 - vis) * globals.shadow_strength;
         }
     }

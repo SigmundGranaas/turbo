@@ -40,6 +40,48 @@ pub(crate) const SHADOW_DIM: usize = 96;
 /// cap well below that (also bounds the render-thread cost — see SHADOW_DIM).
 const MAX_MARCH_CELLS: usize = 48;
 
+/// The far shadow cascade covers this multiple of the near cascade's footprint
+/// at the SAME cell budget (so coarser cells), letting distant peaks cast —
+/// coarsely — where the fine near grid can't reach. The fragment shader samples
+/// the near cascade first and falls back to the far one outside it. One grid
+/// can't be both fine-near and cover-the-horizon (see `Map::update_terrain_shadows`),
+/// which is the whole reason for a second cascade.
+pub(crate) const FAR_CASCADE_RATIO: f32 = 6.0;
+
+/// World-xy placement of one shadow cascade: the square the grid covers, with
+/// cell (0,0) centred at `origin` and the far edge at `origin + world_size`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CascadeLayout {
+    pub(crate) origin: [f32; 2],
+    pub(crate) world_size: f32,
+}
+
+#[cfg(test)]
+impl CascadeLayout {
+    /// True if world-xy `(x, y)` lies within this cascade's covered square.
+    /// CPU mirror of the shader's cascade-select bounds check; used in tests.
+    pub(crate) fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.origin[0]
+            && y >= self.origin[1]
+            && x <= self.origin[0] + self.world_size
+            && y <= self.origin[1] + self.world_size
+    }
+}
+
+/// Near + far cascade layouts for a shadow region centred on `center` (world-xy;
+/// the camera, so `[0,0]` in the RTC frame). The near layout is the caller's
+/// fine footprint; the far one is concentric and `FAR_CASCADE_RATIO`× wider, so
+/// it strictly CONTAINS the near footprint and reaches further toward the
+/// horizon — a fragment outside the near square stays inside the far one until
+/// the far edge. `[near, far]`.
+pub(crate) fn cascade_layouts(center: [f32; 2], near_size: f32) -> [CascadeLayout; 2] {
+    let square = |size: f32| CascadeLayout {
+        origin: [center[0] - 0.5 * size, center[1] - 0.5 * size],
+        world_size: size,
+    };
+    [square(near_size), square(near_size * FAR_CASCADE_RATIO)]
+}
+
 /// A computed terrain shadow grid: square, axis-aligned in world-xy, holding a
 /// visibility value per cell. The renderer turns `visibility` into a texture
 /// and uses `origin`/`world_size` to map a fragment's world-xy into `[0,1]` UV.
@@ -242,82 +284,89 @@ pub(crate) fn march_grid(
     }
 }
 
-/// GPU side of the cast-shadow feature: a single `SHADOW_DIM²` `R8Unorm`
-/// texture (sun visibility per cell) plus its bind group, bound at `@group(3)`
-/// of the raster pipeline. Map-level (one per renderer), uploaded from a
-/// [`ShadowField`] whenever the sun / covered region / resident DEM changes.
+/// GPU side of the cast-shadow feature: TWO `SHADOW_DIM²` `R8Unorm` textures
+/// (sun visibility per cell) — a fine NEAR cascade and a coarse-but-wide FAR
+/// cascade — in one bind group at `@group(3)` of the raster pipeline. Map-level
+/// (one per renderer); each cascade is uploaded from its own [`ShadowField`]
+/// whenever the sun / covered region / resident DEM changes. The fragment
+/// shader samples near first and falls back to far outside it (see shader.wgsl).
 ///
-/// `R8Unorm` is 1 byte/cell → 36 KiB for the whole grid; trivial next to the
-/// raster tile budget, and a linear filter gives free penumbra softening
-/// between cells.
+/// `R8Unorm` is 1 byte/cell → 36 KiB per grid; trivial next to the raster tile
+/// budget, and a linear filter gives free penumbra softening between cells.
 pub(crate) struct ShadowMap {
     pub(crate) layout: Arc<wgpu::BindGroupLayout>,
-    texture: wgpu::Texture,
+    /// `[near, far]`.
+    textures: [wgpu::Texture; 2],
     pub(crate) bind_group: wgpu::BindGroup,
     queue: Arc<wgpu::Queue>,
 }
 
 impl ShadowMap {
     pub(crate) fn new(device: &wgpu::Device, queue: &Arc<wgpu::Queue>) -> Self {
+        let tex_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let samp_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        };
         let layout = Arc::new(device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 label: Some("turbomap-shadow-bgl"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
+                // 0/1 = near tex/sampler, 2/3 = far tex/sampler.
+                entries: &[tex_entry(0), samp_entry(1), tex_entry(2), samp_entry(3)],
             },
         ));
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("turbomap-shadow-tex"),
-            size: wgpu::Extent3d {
-                width: SHADOW_DIM as u32,
-                height: SHADOW_DIM as u32,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        // Initialise fully lit so a frame rendered before the first upload
-        // (or with shadows off) shows no spurious darkening.
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &vec![255u8; SHADOW_DIM * SHADOW_DIM],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(SHADOW_DIM as u32),
-                rows_per_image: Some(SHADOW_DIM as u32),
-            },
-            wgpu::Extent3d {
-                width: SHADOW_DIM as u32,
-                height: SHADOW_DIM as u32,
-                depth_or_array_layers: 1,
-            },
-        );
-        let view = texture.create_view(&Default::default());
+        let make_tex = |label: &str| {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: SHADOW_DIM as u32,
+                    height: SHADOW_DIM as u32,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            // Initialise fully lit so a frame rendered before the first upload
+            // (or with shadows off) shows no spurious darkening.
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &vec![255u8; SHADOW_DIM * SHADOW_DIM],
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(SHADOW_DIM as u32),
+                    rows_per_image: Some(SHADOW_DIM as u32),
+                },
+                wgpu::Extent3d {
+                    width: SHADOW_DIM as u32,
+                    height: SHADOW_DIM as u32,
+                    depth_or_array_layers: 1,
+                },
+            );
+            texture
+        };
+        let textures = [make_tex("turbomap-shadow-tex-near"), make_tex("turbomap-shadow-tex-far")];
+        let near_view = textures[0].create_view(&Default::default());
+        let far_view = textures[1].create_view(&Default::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("turbomap-shadow-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -332,19 +381,15 @@ impl ShadowMap {
             label: Some("turbomap-shadow-bg"),
             layout: &layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&near_view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&far_view) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&sampler) },
             ],
         });
         Self {
             layout,
-            texture,
+            textures,
             bind_group,
             queue: queue.clone(),
         }
@@ -353,7 +398,8 @@ impl ShadowMap {
     /// Upload a computed field's visibility into the texture. The field must be
     /// `SHADOW_DIM²` (the renderer always computes at that resolution); a
     /// mismatch is ignored rather than panicking, leaving the prior contents.
-    pub(crate) fn upload(&self, field: &ShadowField) {
+    /// Upload a computed field into cascade `idx` (0 = near, 1 = far).
+    pub(crate) fn upload(&self, idx: usize, field: &ShadowField) {
         if field.dim != SHADOW_DIM || field.visibility.len() != SHADOW_DIM * SHADOW_DIM {
             log::warn!(
                 "turbomap: shadow field dim {} != texture dim {}, skipping upload",
@@ -362,6 +408,9 @@ impl ShadowMap {
             );
             return;
         }
+        let Some(texture) = self.textures.get(idx) else {
+            return;
+        };
         let bytes: Vec<u8> = field
             .visibility
             .iter()
@@ -369,7 +418,7 @@ impl ShadowMap {
             .collect();
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.texture,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -516,5 +565,77 @@ mod tests {
         // Outside the grid → lit (no claim).
         assert!((f.sample(-5.0, 0.5) - 1.0).abs() < 1e-6);
         assert!((f.sample(0.5, 9.0) - 1.0).abs() < 1e-6);
+    }
+
+    // --- Phase 4: cascaded LOD shadows ---
+
+    #[test]
+    fn cascade_split_covers_view() {
+        // The far cascade must strictly contain the near one (concentric, wider)
+        // and reach further out, so a fragment leaving the near grid always lands
+        // inside the far grid until the far edge — no shadow gap between cascades.
+        let near_size = 0.01f32;
+        let [near, far] = cascade_layouts([0.0, 0.0], near_size);
+        assert_eq!(near.world_size, near_size, "near layout is the caller's footprint");
+        assert!(far.world_size > near.world_size, "far cascade must be wider");
+        // Every corner of the near square is inside the far square.
+        for (cx, cy) in [
+            (near.origin[0], near.origin[1]),
+            (near.origin[0] + near.world_size, near.origin[1] + near.world_size),
+        ] {
+            assert!(far.contains(cx, cy), "far must contain near corner ({cx},{cy})");
+        }
+        // A point just outside the near grid is NOT in near but IS in far.
+        let just_outside = near_size * 0.55; // > near half-extent (0.5·size), < far half
+        assert!(!near.contains(just_outside, 0.0), "point is beyond the near grid");
+        assert!(far.contains(just_outside, 0.0), "...but still covered by the far cascade");
+    }
+
+    #[test]
+    fn far_cascade_low_res_still_casts() {
+        // A coarse, wide far cascade (6× footprint, same cell budget) must still
+        // produce real cast shadows — distant peaks shadow distant valleys even at
+        // low resolution. Same ridge, marched at the near and far footprints.
+        let dim = SHADOW_DIM;
+        let ridge = |size: f32| {
+            // A tall ridge near the sun-side (east) edge of the covered square,
+            // scaled to the footprint so its relief is comparable at both scales.
+            let wall_x = 0.5 * size * 0.6; // east of centre, inside the square
+            compute(dim, [-0.5 * size, -0.5 * size], size, sun_east_45(), 0.001, move |wx, _| {
+                if (wx - wall_x).abs() < 0.04 * size { 0.20 * size } else { 0.0 }
+            })
+        };
+        let near = ridge(0.01);
+        let far = ridge(0.01 * FAR_CASCADE_RATIO);
+        let shadowed = |f: &ShadowField| f.visibility.iter().filter(|&&v| v < 0.5).count();
+        assert!(shadowed(&near) > 0, "near cascade casts (sanity)");
+        assert!(
+            shadowed(&far) > 0,
+            "far (coarse) cascade must still cast shadows, got {} shadowed cells",
+            shadowed(&far)
+        );
+    }
+
+    #[test]
+    fn march_cost_bounded_ignores_occluders_past_the_cap() {
+        // The march visits at most MAX_MARCH_CELLS up-sun cells per cell — that cap
+        // is what bounds the cost (and keeps it off the render-thread ANR budget).
+        // Prove it: a tall wall whose geometric shadow would reach the whole row is
+        // only "seen" by cells within MAX_MARCH_CELLS of it. Cells farther up-sun
+        // than the cap stay lit DESPITE the wall being tall enough to shadow them.
+        let dim = 96; // MAX_MARCH_CELLS = 48
+        let wall_i = 90usize;
+        let cell = 1.0f32 / (dim - 1) as f32;
+        let wall_x = wall_i as f32 * cell;
+        // Tall enough that, uncapped, the shadow would reach the far west edge.
+        let f = compute(dim, [0.0, 0.0], 1.0, sun_east_45(), 0.001, |wx, _| {
+            if (wx - wall_x).abs() < 0.6 * cell { 1.0 } else { 0.0 }
+        });
+        let j = dim / 2;
+        // Within the cap (40 cells from the wall): sees the wall → shadowed.
+        assert!(at(&f, 50, j) < 0.5, "cell within the march cap must be shadowed, got {}", at(&f, 50, j));
+        // Beyond the cap (80 cells from the wall): never reaches it → lit, even
+        // though the wall is tall enough to geometrically shadow it.
+        assert!(at(&f, 10, j) > 0.9, "cell beyond the march cap must stay lit, got {}", at(&f, 10, j));
     }
 }
