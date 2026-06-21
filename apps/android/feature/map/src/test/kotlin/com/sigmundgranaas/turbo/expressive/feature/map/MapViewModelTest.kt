@@ -76,6 +76,9 @@ private class FakeSettings : SettingsRepository {
     override suspend fun setDownloadOverWifiOnly(enabled: Boolean) = Unit
     override suspend fun setBaseLayer(layer: BaseLayer) { state.value = state.value.copy(baseLayer = layer) }
     override suspend fun setExperimentalWgpuMap(enabled: Boolean) = Unit
+    override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) {
+        state.value = state.value.copy(lastCameraLat = lat, lastCameraLng = lng, lastCameraZoom = zoom)
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -197,7 +200,7 @@ class MapViewModelTest {
     }
 
     @Test
-    fun `beginInitialLocate times out to a notice when no fix arrives`() = runTest(mainRule.dispatcher) {
+    fun `slow first fix shows no error notice, only stops the locating hint`() = runTest(mainRule.dispatcher) {
         val location = FakeLocationRepository(permitted = true, enabled = true)
         val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings(), FakeRadarRepository())
         vm.beginInitialLocate()
@@ -205,18 +208,19 @@ class MapViewModelTest {
         assertTrue(vm.state.value.locating)
         advanceTimeBy(13_000)
         runCurrent()
-        assertEquals(LocationNotice.Timeout, vm.state.value.locationNotice)
+        // A slow GPS fix is not an error — no notice, just drop the "locating…" hint.
+        assertEquals(null, vm.state.value.locationNotice)
         assertTrue(!vm.state.value.locating)
     }
 
     @Test
-    fun `a late fix after timeout still recentres and clears the notice`() = runTest(mainRule.dispatcher) {
+    fun `a late fix after the wait still recentres, never showing a notice`() = runTest(mainRule.dispatcher) {
         val location = FakeLocationRepository(permitted = true, enabled = true)
         val vm = MapViewModel(FakeMarkerRepository(), location, FakeReverseGeocodeRepository(), FakeStringProvider(), FakeSettings(), FakeRadarRepository())
         vm.beginInitialLocate()
         advanceTimeBy(13_000)
         runCurrent()
-        assertEquals(LocationNotice.Timeout, vm.state.value.locationNotice)
+        assertEquals(null, vm.state.value.locationNotice)
         location.fixes.emit(LatLng(60.0, 10.0))
         runCurrent()
         assertEquals(LatLng(60.0, 10.0), vm.state.value.userLocation)

@@ -21,12 +21,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.DeleteSweep
-import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.AddAPhoto
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Navigation
@@ -45,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +60,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sigmundgranaas.turbo.expressive.core.geo.GeoMetrics
 import com.sigmundgranaas.turbo.expressive.core.geo.formatCoords
@@ -223,30 +225,49 @@ fun MapScreen(
         }
     }
 
-    // On first load, immediately start locating — if the permission is missing, ask for
-    // it now — so the map can recentre on the user's real position (below) rather than
-    // sitting on the country-level fallback.
+    // On first load, start locating (so the dot appears) — ask for the permission if
+    // missing. We do NOT auto-follow: the app restores the camera the user last left
+    // at (below), and follow is a manual toggle on the locate button.
     LaunchedEffect(Unit) {
         if (viewModel.hasLocationPermission()) {
             viewModel.beginInitialLocate()
-            viewModel.setFollowing(true) // auto-follow on open (US-6); released on manual pan
         } else {
             startLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
-    // One-shot: the first time a real fix arrives, fly there (unless the user is already
-    // following/recording, or a search pick is steering the camera). Doesn't fight panning
-    // afterwards — it only fires once.
+    // One-shot startup camera: restore where the user last left off; only on a
+    // first-ever launch (no saved camera) fall back to flying to the first GPS fix.
+    // Either way it fires once and never fights manual panning afterwards.
     var didInitialCenter by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(state.userLocation, ui.controller) {
+    LaunchedEffect(state.lastCamera, ui.controller) {
         if (didInitialCenter || focusRequest != null) return@LaunchedEffect
+        val cam = state.lastCamera ?: return@LaunchedEffect
+        val c = ui.controller ?: return@LaunchedEffect
+        c.flyTo(cam, state.lastCameraZoom ?: INITIAL_LOCATION_ZOOM)
+        didInitialCenter = true
+    }
+    LaunchedEffect(state.userLocation, ui.controller) {
+        if (didInitialCenter || focusRequest != null || state.lastCamera != null) return@LaunchedEffect
         val here = state.userLocation ?: return@LaunchedEffect
         val c = ui.controller ?: return@LaunchedEffect
         if (!state.following && !recState.recording) {
             c.flyTo(here, INITIAL_LOCATION_ZOOM)
             didInitialCenter = true
         }
+    }
+
+    // Persist the camera when the app goes to the background, so the next launch
+    // reopens exactly where the user left off (restored by the effect above).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                ui.controller?.let { viewModel.saveCamera(it.center().lat, it.center().lng, it.zoom()) }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // While recording, keep the camera on the latest fix — recording implies movement,
@@ -324,12 +345,11 @@ fun MapScreen(
     val savedToast = stringResource(R.string.route_saved)
     val followLabel = stringResource(R.string.route_saved_follow)
 
-    // Location couldn't centre us: services off (offer to open settings) or slow GPS
-    // timed out (offer retry). The map stays on the fallback; a late fix still recentres.
+    // Location services off → offer to open settings (an actionable, persistent
+    // state). Slow GPS is NOT surfaced: the first fix just takes time, and a late
+    // fix still recentres — no nagging error on startup.
     val locOffMsg = stringResource(R.string.location_off)
     val locOffAction = stringResource(R.string.location_off_action)
-    val locTimeoutMsg = stringResource(R.string.location_timeout)
-    val locRetryAction = stringResource(R.string.location_retry)
     LaunchedEffect(state.locationNotice) {
         when (state.locationNotice) {
             LocationNotice.ServicesOff -> {
@@ -340,11 +360,6 @@ fun MapScreen(
                     }
                 }
                 viewModel.dismissLocationNotice()
-            }
-            LocationNotice.Timeout -> {
-                val res = snackbarHostState.showSnackbar(locTimeoutMsg, actionLabel = locRetryAction, duration = SnackbarDuration.Long)
-                viewModel.dismissLocationNotice()
-                if (res == SnackbarResult.ActionPerformed) viewModel.beginInitialLocate()
             }
             null -> Unit
         }
@@ -539,6 +554,9 @@ fun MapScreen(
                     onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
                     onMapTap = { p -> onMapTapForMode(p) },
                     onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
+                    // A manual pan/zoom/orbit releases camera-follow so it doesn't
+                    // snap back to the dot (US-6) — the wgpu engine was missing this.
+                    onUserPanned = { viewModel.setFollowing(false) },
                     onMapReady = { ui.controller = it },
                     onEngineError = {
                         wgpuError.value = it
@@ -796,19 +814,8 @@ fun MapScreen(
                 )
             }
 
-            if (state.following) {
-                Surface(
-                    shape = CircleShape, color = cs.tertiaryContainer, shadowElevation = 2.dp,
-                    modifier = Modifier.align(Alignment.BottomStart)
-                        .windowInsetsPadding(WindowInsets.navigationBars).padding(start = 16.dp, bottom = 36.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp)) {
-                        Icon(Icons.Rounded.MyLocation, null, tint = cs.onTertiaryContainer, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Following", style = MaterialTheme.typography.labelLarge, color = cs.onTertiaryContainer)
-                    }
-                }
-            }
+            // (The "Following" pill was removed — the locate rail button already
+            //  recolours when follow is active, which is the only indicator needed.)
 
             Text(
                 "© Kartverket",

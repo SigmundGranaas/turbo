@@ -107,6 +107,11 @@ fun TurbomapMapView(
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
     onBearingChange: (Double) -> Unit = {},
+    // Fired when the user manually moves the camera (pan / pinch / orbit / fling).
+    // The host uses it to release camera-follow so it doesn't snap back to the dot.
+    // Programmatic moves (flyTo/follow/easePitch) go through the controller, not the
+    // gesture detector, so they never trigger this.
+    onUserPanned: () -> Unit = {},
     onMapReady: (MapEngine) -> Unit = {},
     onEngineError: (String) -> Unit = {},
 ) {
@@ -122,6 +127,8 @@ fun TurbomapMapView(
     // Latest 3D flag read by the long-lived gesture lambda (pointerInput(Unit) never
     // restarts), so toggling 3D takes effect without recreating the detector.
     val threeDState = rememberUpdatedState(threeDMode)
+    // Same: the gesture lambda is captured once, so read the latest callback.
+    val onUserPannedState = rememberUpdatedState(onUserPanned)
 
     // 2D↔3D transition: ease into a default tilt on entering 3D (so it reads as
     // 3D immediately + the cloud overlay gets its camera-ray side-reveal), back
@@ -151,13 +158,22 @@ fun TurbomapMapView(
                 .pointerInput(Unit) {
                     detectMapGestures(
                         onDown = { controller.onGestureDown() },
-                        onTransform = { panX, panY, zoom, fx, fy -> controller.onTransform(panX, panY, zoom, fx, fy) },
-                        onFling = { vx, vy -> controller.onFling(vx, vy) },
+                        onTransform = { panX, panY, zoom, fx, fy ->
+                            onUserPannedState.value()
+                            controller.onTransform(panX, panY, zoom, fx, fy)
+                        },
+                        onFling = { vx, vy ->
+                            onUserPannedState.value()
+                            controller.onFling(vx, vy)
+                        },
                         onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },
                         mode = {
                             if (threeDState.value) MapGestureMode.ThreeD else MapGestureMode.TwoD
                         },
-                        onOrbit = { db, dp, fx, fy -> controller.onOrbit(db, dp, fx, fy) },
+                        onOrbit = { db, dp, fx, fy ->
+                            onUserPannedState.value()
+                            controller.onOrbit(db, dp, fx, fy)
+                        },
                     )
                 }
                 .pointerInput(onMapTap, onMapLongClick) {
