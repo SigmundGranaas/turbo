@@ -50,7 +50,10 @@ struct Globals {
     // extinction over the TRUE eye→fragment distance, so near ground stays
     // clear at any pitch (distance-from-look-at whites out at grazing angles).
     eye_world: vec3<f32>,
-    _pad_eye: f32,
+    // Earth-curvature drop coefficient (π·cos³φ, 0 = flat). world_z is lowered
+    // by `curvature_coeff · dot(world_xy, world_xy)` so distant terrain bends
+    // away over the horizon instead of standing on a flat disc.
+    curvature_coeff: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -148,7 +151,12 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     let zscale = globals.meters_to_world * globals.exaggeration;
     // Skirt verts hang straight down from the displaced surface by a fraction
     // of the tile's world size — a vertical curtain backing mixed-LOD cracks.
-    let world_z = elev_m * zscale - in.skirt * inst.world_size;
+    // Earth-curvature droop: distant ground bends below the tangent plane by
+    // `curvature_coeff · s²` (s = horizontal distance from the camera centre,
+    // which is the RTC origin, so `dot(world, world)`).
+    let world_z = elev_m * zscale
+        - in.skirt * inst.world_size
+        - globals.curvature_coeff * dot(world, world);
 
     var out: VertexOutput;
     out.clip_position = camera.view_proj * vec4<f32>(world, world_z, 1.0);

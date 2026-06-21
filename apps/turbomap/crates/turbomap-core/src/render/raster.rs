@@ -61,9 +61,12 @@ struct Globals {
     /// emits. The fragment/vertex stage measures `length(world - eye_world)`
     /// for physically based aerial perspective (haze by true eye distance,
     /// not distance from the look-at point — which whites out at grazing
-    /// pitch). One std140 16-byte slot (vec3 + pad).
+    /// pitch). One std140 16-byte slot (vec3 + the curvature scalar).
     eye_world: [f32; 3],
-    _pad_eye: f32,
+    /// Earth-curvature drop coefficient (`π·cos³φ`, 0 = flat/no-DEM). The vertex
+    /// shader lowers `world_z` by `curvature_coeff · dot(world_xy, world_xy)` so
+    /// distant terrain bends away over the horizon (see `earth_curvature_coeff`).
+    curvature_coeff: f32,
 }
 
 #[repr(C)]
@@ -615,7 +618,14 @@ impl RasterPipeline {
                     0.0
                 },
                 eye_world: camera.eye_offset_world((vw, vh)),
-                _pad_eye: 0.0,
+                // Earth-curvature droop — only with a DEM (flat 2D map stays a
+                // disc). `π·cos³φ` at the camera latitude; see camera.rs.
+                curvature_coeff: if dem_present {
+                    let coslat = (camera.center.lat.to_radians().cos() as f32).abs();
+                    crate::camera::earth_curvature_coeff(coslat)
+                } else {
+                    0.0
+                },
             }),
         );
 

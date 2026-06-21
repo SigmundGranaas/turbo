@@ -26,6 +26,28 @@ pub const TILE_SIZE_PX: f64 = 256.0;
 const FOV_Y: f32 = 0.6435; // ~36.87°
 const MAX_PITCH_DEG: f64 = 80.0;
 
+/// Earth-curvature drop coefficient for the terrain mesh, in this engine's
+/// anisotropic world units: a ground point `s` horizontal world-units from the
+/// camera centre sits `coeff · s²` *below* the tangent plane (in vertical world
+/// units). Physically `Δz_m = s_m²/2R`; folding both Mercator scales
+/// (horizontal `s_m = s·C·cosφ`, vertical `Δz_world = Δz_m·cosφ/C`) collapses
+/// the earth radius out entirely, leaving `π·cos³φ`. The terrain WGSL applies
+/// it so the distant ground bends away instead of standing on a flat disc.
+pub fn earth_curvature_coeff(coslat: f32) -> f32 {
+    std::f32::consts::PI * coslat.abs().powi(3)
+}
+
+/// Horizontal distance (world units) from the camera nadir to the true ground
+/// horizon, for an eye at the given `altitude_world` view-ray length and
+/// `pitch_rad`. Inverse of [`earth_curvature_coeff`]: the horizon is where the
+/// curvature drop equals the eye height, i.e. `√(altitude·cos(pitch) / (π·cos³φ))`
+/// (radius again cancels). Used to push the far clip plane out so far terrain
+/// isn't clipped before it dissolves into the atmosphere.
+pub fn ground_horizon_world(altitude_world: f32, pitch_rad: f32, coslat: f32) -> f32 {
+    let eye_h = altitude_world.max(0.0) * pitch_rad.cos().max(0.0);
+    (eye_h / earth_curvature_coeff(coslat).max(1e-9)).sqrt()
+}
+
 /// Default zoom bounds. z0 is the whole world in one root tile; z24 is
 /// deeper than any tile source serves but lets the camera glide smoothly to
 /// the limit when no tighter limit is configured. A [`Camera`] clamps to
@@ -495,10 +517,19 @@ impl Camera {
         let view = Mat4::look_at_lh(eye, target, up);
 
         // Near/far chosen relative to altitude so the depth range
-        // adapts to the current zoom without precision loss.
+        // adapts to the current zoom without precision loss. When pitched,
+        // the far plane is also pushed out to the true ground horizon so far
+        // terrain isn't clipped before it can dissolve into the atmosphere
+        // (the old altitude·100 cap clips the horizon at high zoom + grazing
+        // pitch). Gated by pitch so the flat 2D map (pitch 0) is byte-identical.
         let aspect = vw / vh;
         let near = altitude * 0.01;
-        let far = altitude * 100.0;
+        let mut far = altitude * 100.0;
+        if self.pitch_deg > 0.0 {
+            let coslat = (self.center.lat.to_radians().cos() as f32).abs().max(1e-3);
+            let horizon = ground_horizon_world(altitude, pitch, coslat);
+            far = far.max(horizon * 1.25);
+        }
         let proj = Mat4::perspective_lh(FOV_Y, aspect, near, far);
 
         // Bottom inset: shift content up by inset/2 px. In NDC (height 2 over vh
@@ -1739,5 +1770,65 @@ mod tests {
         assert!(anim.is_finished(t0));
         let sample = anim.sample(t0);
         assert!((sample.zoom - target.zoom).abs() < 1e-12);
+    }
+
+    // --- Phase 2: horizon far-plane + Earth-curvature droop ---
+
+    const EARTH_CIRCUMFERENCE_M: f64 = 40_075_017.0;
+    const EARTH_RADIUS_M: f64 = EARTH_CIRCUMFERENCE_M / (2.0 * std::f64::consts::PI);
+
+    #[test]
+    fn curvature_drop_matches_d_squared_over_2r() {
+        // The shader lowers world_z by `coeff · s_world²`. Converting that drop
+        // back to metres (through the same anisotropic Mercator scales the engine
+        // uses for elevation) must reproduce the textbook `s²/2R` — proving the
+        // π·cos³φ coefficient folds the radius + both scales correctly.
+        let lat = 67.23_f64.to_radians();
+        let coslat = lat.cos();
+        let coeff = earth_curvature_coeff(coslat as f32) as f64;
+        for s_m in [5_000.0_f64, 30_000.0, 100_000.0] {
+            // ground metres → horizontal world units (1 world = C·cosφ m E-W).
+            let s_world = s_m / (EARTH_CIRCUMFERENCE_M * coslat);
+            let drop_world = coeff * s_world * s_world;
+            // vertical world units → metres (elevation uses cosφ/C).
+            let drop_m = drop_world * (EARTH_CIRCUMFERENCE_M / coslat);
+            let expected = s_m * s_m / (2.0 * EARTH_RADIUS_M);
+            assert!(
+                (drop_m - expected).abs() < expected * 0.02,
+                "curvature drop at {s_m} m: got {drop_m:.1} m, expected {expected:.1} m"
+            );
+        }
+    }
+
+    #[test]
+    fn ground_horizon_matches_spherical_formula() {
+        // ground_horizon_world must equal the spherical horizon distance
+        // sqrt(2·R·h) for the camera's eye height, expressed in horizontal world.
+        let lat = 67.23_f64.to_radians();
+        let coslat = lat.cos();
+        let cam = Camera::new(LatLng::new(67.23, 15.30), 14.0).with_pitch(80.0);
+        let vp = (1080u32, 1600u32);
+        let altitude = cam.altitude_world(vp) as f64;
+        let pitch = 80.0_f64.to_radians();
+        // Eye height in metres (vertical world → metres via C/cosφ).
+        let eye_h_m = altitude * pitch.cos() * (EARTH_CIRCUMFERENCE_M / coslat);
+        let expected_world = (2.0 * EARTH_RADIUS_M * eye_h_m).sqrt() / (EARTH_CIRCUMFERENCE_M * coslat);
+        let got = ground_horizon_world(altitude as f32, pitch as f32, coslat as f32) as f64;
+        assert!(
+            (got - expected_world).abs() < expected_world * 0.02,
+            "horizon: got {got:.5} world, expected {expected_world:.5} world"
+        );
+    }
+
+    #[test]
+    fn vp_finite_at_pitch_80_with_far_horizon() {
+        // The far-plane horizon extension must keep the view-projection finite at
+        // grazing pitch across the zoom range (high zoom = small altitude = the
+        // largest far/near ratio).
+        for zoom in [10.0_f64, 14.0, 17.0, 19.0] {
+            let cam = Camera::new(LatLng::new(67.23, 15.30), zoom).with_pitch(80.0).with_bearing(33.0);
+            let m = cam.view_projection_matrix_rtc(cam.center.to_world(), (1080, 1600));
+            assert!(matrix_is_finite(&m), "vp must be finite at zoom {zoom}, pitch 80");
+        }
     }
 }
