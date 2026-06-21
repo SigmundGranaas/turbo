@@ -68,9 +68,32 @@ struct Globals {
 @group(3) @binding(0) var height_tex: texture_2d<f32>;
 @group(3) @binding(1) var height_samp: sampler;
 
+// Heightfield resolution — must match `render::shadow::HEIGHT_DIM`. The march
+// bilinearly interpolates the field (the texture is R32Float / unfiltered, so we
+// do it by hand): nearest sampling leaves each texel a flat plateau whose edges
+// are tiny vertical steps, and the per-pixel march turns those into a corduroy
+// of shadow stripes. Bilinear smooths the relief so only real ridges occlude.
+const HEIGHT_DIM_I: i32 = 192;
+const HEIGHT_DIM_F: f32 = 192.0;
+
+fn height_bilinear(uv: vec2<f32>) -> f32 {
+    let t = uv * HEIGHT_DIM_F - vec2<f32>(0.5);
+    let base = floor(t);
+    let f = t - base;
+    let x0 = clamp(i32(base.x), 0, HEIGHT_DIM_I - 1);
+    let y0 = clamp(i32(base.y), 0, HEIGHT_DIM_I - 1);
+    let x1 = min(x0 + 1, HEIGHT_DIM_I - 1);
+    let y1 = min(y0 + 1, HEIGHT_DIM_I - 1);
+    let h00 = textureLoad(height_tex, vec2<i32>(x0, y0), 0).r;
+    let h10 = textureLoad(height_tex, vec2<i32>(x1, y0), 0).r;
+    let h01 = textureLoad(height_tex, vec2<i32>(x0, y1), 0).r;
+    let h11 = textureLoad(height_tex, vec2<i32>(x1, y1), 0).r;
+    return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+}
+
 // Cast-shadow march length, in heightfield texels. Longer = shadows reach
 // further (low sun) at more cost; each step is one `shadow_texel_world`.
-const SHADOW_STEPS: i32 = 64;
+const SHADOW_STEPS: i32 = 48;
 
 fn decode_elevation(rgb: vec3<f32>) -> f32 {
     let r = rgb.r * 255.0;
@@ -214,7 +237,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 let tan_alt = globals.sun_dir.z / lxy;        // world-z rise per world-xy
                 let step = globals.shadow_texel_world;
                 let rise = tan_alt * step;                    // rise per march step
-                let h0 = textureSampleLevel(height_tex, height_samp, suv0, 0.0).r;
+                let h0 = height_bilinear(suv0);
                 var over = 0.0;
                 var p = in.world_xy;
                 for (var k = 1; k <= SHADOW_STEPS; k = k + 1) {
@@ -224,7 +247,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                         break;
                     }
                     let ray_z = h0 + f32(k) * rise;
-                    let hz = textureSampleLevel(height_tex, height_samp, uv, 0.0).r;
+                    let hz = height_bilinear(uv);
                     let excess = hz - ray_z;
                     if (excess > over) {
                         over = excess;
