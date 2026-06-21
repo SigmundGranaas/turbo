@@ -97,20 +97,39 @@ fn refine(tile: TileId, camera: &Camera, vp: (f64, f64), max_zoom: u8, target: f
     if out.len() >= MAX_TILES {
         return;
     }
+    // A tile whose ground rect contains the camera's look-at point is under/around
+    // the camera — its own corners may all project behind the view (esp. a huge
+    // coarse root), but it must never be culled; it's refined down to the branch
+    // that's actually on screen.
+    let contains_centre = {
+        let c = camera.center.to_world();
+        let (nw, se) = tile.world_bounds();
+        c.x >= nw.x && c.x <= se.x && c.y >= nw.y && c.y <= se.y
+    };
     let (front, behind) = project_corners(tile, camera, vp);
-    // Cull: entirely behind the camera (nothing on screen).
-    if front.is_empty() && behind > 0 {
+    // Cull: entirely behind the camera (nothing on screen) AND not under us.
+    if front.is_empty() && behind > 0 && !contains_centre {
         return;
     }
     // Cull: fully in front but off-screen (outside the viewport + a margin).
-    if behind == 0 && !screen_aabb_intersects_viewport(&front, vp) {
+    if behind == 0 && !contains_centre && !screen_aabb_intersects_viewport(&front, vp) {
         return;
     }
-    let span = if behind > 0 {
-        // Straddles the camera → near ground → always refine to max detail.
-        f64::INFINITY
-    } else {
+    // Screen-space size for the refine decision:
+    //  • all corners in front → max EDGE length (so pitch 0 collapses to a single
+    //    level == camera zoom: a z-tile is exactly 256 px/edge there);
+    //  • some corners behind (a tile CROSSING the horizon) → measure from the
+    //    visible near corners only (max pairwise px). For a far horizon-crosser
+    //    that's its small near edge → it stays COARSE (the key fine-near/coarse-
+    //    far behaviour). Forcing ∞ here was the bug that drove the whole horizon
+    //    to max zoom (a single LOD);
+    //  • <2 visible corners → the tile is under/around the camera → refine (∞).
+    let span = if behind == 0 {
         max_edge_px(&front)
+    } else if front.len() >= 2 {
+        max_pairwise_px(&front)
+    } else {
+        f64::INFINITY
     };
     if tile.z >= max_zoom || span <= target {
         out.push(LodTile { id: tile });
@@ -164,6 +183,23 @@ fn max_edge_px(corners: &[(f64, f64)]) -> f64 {
         let a = corners[i];
         let b = corners[(i + 1) % corners.len()];
         max = max.max(((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt());
+    }
+    max
+}
+
+/// Max pairwise screen distance among the given points — the on-screen "size"
+/// when only a subset of a tile's corners are in front of the camera (a tile
+/// crossing the horizon). Returns ∞ for fewer than 2 points.
+fn max_pairwise_px(pts: &[(f64, f64)]) -> f64 {
+    if pts.len() < 2 {
+        return f64::INFINITY;
+    }
+    let mut max = 0.0_f64;
+    for i in 0..pts.len() {
+        for j in i + 1..pts.len() {
+            let (a, b) = (pts[i], pts[j]);
+            max = max.max(((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt());
+        }
     }
     max
 }

@@ -21,6 +21,16 @@ use crate::{
     tile::TileId,
 };
 
+/// Above this pitch the tile selection switches from the legacy single-zoom
+/// rectangle to the mixed-LOD SSE quadtree. Kept tiny so any real tilt engages
+/// 3D LOD, while a flat (2D) map stays byte-identical (goldens hold).
+const LOD_PITCH_DEG: f64 = 1.0;
+
+/// Target on-screen tile EDGE length (px) for the SSE quadtree. ~one basemap
+/// tile per ~320 px: crisp near the camera, coarsening toward the horizon.
+/// Tunable on device (Phase 5).
+const LOD_SSE_TARGET_PX: f64 = 320.0;
+
 #[derive(Debug)]
 pub struct Scene {
     camera: Camera,
@@ -116,14 +126,39 @@ impl Scene {
     }
 
     /// Tiles strictly inside the viewport. The renderer draws this set.
+    ///
+    /// When the camera is pitched (3D), this is a MIXED-ZOOM screen-space-error
+    /// quadtree (fine near, coarse to the horizon) so a tilted view covers the
+    /// whole frustum with a bounded tile count instead of a single zoom that
+    /// either explodes or gets trimmed to a near sliver. At/near pitch 0 it's
+    /// the legacy single-level rectangle — the 2D map + goldens are unchanged.
     pub fn visible_tiles(&self) -> Vec<TileId> {
-        self.tiles_for_margin(0)
+        if self.camera.pitch_deg > LOD_PITCH_DEG {
+            self.lod_tiles()
+        } else {
+            self.tiles_for_margin(0)
+        }
+    }
+
+    /// Mixed-zoom SSE quadtree selection for the current pitched camera, mapped
+    /// to plain tile ids. The coarse far leaves double as the overview backdrop.
+    fn lod_tiles(&self) -> Vec<TileId> {
+        let vp = (self.viewport_px.0 as f64, self.viewport_px.1 as f64);
+        crate::lod::select(&self.camera, vp, self.min_zoom, self.max_zoom, LOD_SSE_TARGET_PX)
+            .into_iter()
+            .map(|t| t.id)
+            .collect()
     }
 
     /// Tiles the host should keep loaded: the visible set plus a
     /// `prefetch_margin_px`-wide ring of off-screen tiles. The renderer does
     /// not draw the margin — it just keeps it warm so panning is smooth.
     pub fn desired_tiles(&self) -> Vec<TileId> {
+        // Pitched: the LOD leaf set already spans fine→coarse to the horizon,
+        // so the coarse far leaves are the overview/backdrop — no separate ring.
+        if self.camera.pitch_deg > LOD_PITCH_DEG {
+            return self.lod_tiles();
+        }
         // How many zoom levels below the visible set to keep as a backdrop.
         const OVERVIEW_DEPTH: u8 = 3;
         let mut tiles = self.tiles_for_margin(self.prefetch_margin_px);
@@ -436,30 +471,24 @@ mod tests {
             18,
         );
         let visible = scene.visible_tiles();
-        // The frustum footprint here is dozens of tiles deep. The old ring
-        // capped the visible set to roughly a 17×17 box intersected with a
-        // mis-centred clip — only a few dozen tiles, mostly behind the view.
-        // It must now fill close to the working-set budget instead.
+        // Steep pitch now selects a MIXED-LOD quadtree, not a single-zoom ring.
+        // It must cover the view (not collapse to a near sliver)…
         assert!(
-            visible.len() > 120,
+            visible.len() > 20,
             "steep-pitch footprint collapsed to {} tiles — culling too aggressive",
             visible.len()
         );
-        // …and stay bounded (the count cap, not an unbounded horizon strip).
+        // …stay bounded (SSE + the backstop, not an unbounded horizon strip)…
         assert!(
             visible.len() < 400,
             "footprint unbounded ({} tiles) — count cap not holding",
             visible.len()
         );
-        // The kept tiles must extend a meaningful distance toward the horizon
-        // (the look direction), not be one near row. The old mis-centred ring
-        // gave only a handful of forward tiles.
-        let ys: Vec<u32> = visible.iter().map(|t| t.y).collect();
-        let y_span = ys.iter().max().unwrap() - ys.iter().min().unwrap() + 1;
-        assert!(
-            y_span >= 10,
-            "forward (toward-horizon) depth only {y_span} tiles — view is a sliver"
-        );
+        // (The fine-near/coarse-far MIXING is camera-dependent — a high-zoom view
+        // covers a small ground span that's legitimately near-uniform — so the LOD
+        // pyramid is asserted in `lod::tests::fine_near_coarse_far_at_high_pitch`
+        // on a wide view. Here we only guard that steep pitch covers a deep,
+        // bounded footprint instead of collapsing to a near sliver.)
     }
 
     #[test]
