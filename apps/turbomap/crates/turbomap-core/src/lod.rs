@@ -326,4 +326,50 @@ mod tests {
         let b = select(&cam(60.0, 13.0), VP, 4, 14, SSE);
         assert_eq!(a, b, "selection must be deterministic frame-to-frame");
     }
+
+    // --- Device-camera regression: the "tilt → only the ground directly below
+    // renders / grey-out" bug. The earlier tests missed it because they used
+    // `max_zoom == camera_zoom` (no over-zoom headroom). The real device runs
+    // the camera at zoom 15 with `max_zoom = source_max + 3 = 18`, and a TALL
+    // phone viewport. In that gap the old corner-projection SSE refined every
+    // view-plane-straddling tile to max zoom (device log: `z=18..18`, no
+    // gradient) and the footprint collapsed to the near ground. These reproduce
+    // that exact configuration so the fix can't silently regress.
+    const DEVICE_VP: (f64, f64) = (1080.0, 2400.0);
+
+    #[test]
+    fn device_tilt_spans_a_zoom_gradient_not_all_max() {
+        let tiles = select(&cam(60.0, 15.0), DEVICE_VP, 5, 18, SSE);
+        let zooms: Vec<u8> = tiles.iter().map(|t| t.id.z).collect();
+        let zmin = *zooms.iter().min().unwrap();
+        let zmax = *zooms.iter().max().unwrap();
+        assert!(
+            zmax - zmin >= 2,
+            "device tilt must span a fine→coarse gradient; got z={zmin}..{zmax} \
+             (the bug forced every tile to max zoom — z=18..18)"
+        );
+    }
+
+    #[test]
+    fn device_tilt_footprint_reaches_the_far_field() {
+        let camera = cam(70.0, 15.0);
+        let c = camera.center.to_world();
+        let tiles = select(&camera, DEVICE_VP, 5, 18, SSE);
+        let max_d = tiles
+            .iter()
+            .map(|t| {
+                let (nw, se) = t.id.world_bounds();
+                let dx = 0.5 * (nw.x + se.x) - c.x;
+                let dy = 0.5 * (nw.y + se.y) - c.y;
+                (dx * dx + dy * dy).sqrt()
+            })
+            .fold(0.0_f64, f64::max);
+        // A z15 tile is ~1/2^15 ≈ 3e-5 world wide. A collapsed near-only footprint
+        // stays within a handful of those; the horizon fan must reach far beyond.
+        assert!(
+            max_d > 1e-3,
+            "tilted footprint must reach the far field; got max dist {max_d:.2e} \
+             (the bug kept it within the near ground directly below the camera)"
+        );
+    }
 }

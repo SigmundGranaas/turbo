@@ -891,8 +891,11 @@ fn main() {
             "pitch", "groundCov", "cracks", "blown", "near", "mid", "far"
         );
         for pitch in [0.0_f64, 20.0, 40.0, 60.0, 75.0, 80.0] {
+            // Zoom 15 (NOT 14): the device hit the tilt-blank at zoom 15 with
+            // over-zoom headroom (source max + 3). Matching it here is what makes
+            // the harness reproduce the bug instead of masking it.
             map.set_camera(
-                Camera::new(cli.center, 14.0).with_pitch(pitch).with_bearing(cli.bearing),
+                Camera::new(cli.center, 15.0).with_pitch(pitch).with_bearing(cli.bearing),
             );
             drain_tiles(&mut map, &basemap, &dem, &vector);
             let img = render_capture(&mut map, &device, &queue, &target, &target_view);
