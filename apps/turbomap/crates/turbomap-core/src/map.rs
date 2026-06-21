@@ -650,12 +650,83 @@ struct TerrainShadowState {
     /// while panning instead of staying on the ground.
     origin_abs: [f64; 2],
     world_size: f32,
+    /// Background horizon-march worker (Phase 4): the heavy march
+    /// (`dim²·MAX_MARCH` samples) runs off the render thread so recomputing
+    /// shadows never hitches a frame. Lazily spawned on first dispatch.
+    worker: Option<ShadowWorker>,
+    /// Key of a job currently in flight on the worker — so we don't redispatch
+    /// the same region while it's still computing.
+    pending: Option<ShadowKey>,
+}
+
+/// A queued horizon-march. Carries a pre-sampled height grid (built cheaply on
+/// the render thread) so the worker needs no engine/tile-cache access — purely
+/// owned data crossing the thread boundary.
+struct ShadowJob {
+    dim: usize,
+    origin: [f32; 2],
+    world_size: f32,
+    sun_dir: [f32; 3],
+    softness: f32,
+    heights: Vec<f32>,
+    key: ShadowKey,
+    origin_abs: [f64; 2],
+}
+
+/// A finished field plus the metadata the render thread needs to upload + anchor it.
+struct ShadowDone {
+    field: shadow::ShadowField,
+    key: ShadowKey,
+    origin_abs: [f64; 2],
+    world_size: f32,
+}
+
+/// Owns the worker thread + its channels. Dropping it drops `tx`, which ends
+/// the worker's `recv()` loop — the thread exits cleanly (no join needed).
+struct ShadowWorker {
+    tx: std::sync::mpsc::Sender<ShadowJob>,
+    rx: std::sync::mpsc::Receiver<ShadowDone>,
+}
+
+impl ShadowWorker {
+    fn new() -> Self {
+        let (tx, job_rx) = std::sync::mpsc::channel::<ShadowJob>();
+        let (done_tx, rx) = std::sync::mpsc::channel::<ShadowDone>();
+        let _ = std::thread::Builder::new()
+            .name("turbomap-shadow".to_owned())
+            .spawn(move || {
+                // Coalesce: if several jobs queued while we were busy, only the
+                // newest region matters — drain to the last before marching.
+                while let Ok(first) = job_rx.recv() {
+                    let mut job = first;
+                    while let Ok(newer) = job_rx.try_recv() {
+                        job = newer;
+                    }
+                    let world_size = job.world_size;
+                    let field = shadow::march_grid(
+                        job.dim,
+                        job.origin,
+                        job.world_size,
+                        job.sun_dir,
+                        job.softness,
+                        job.heights,
+                    );
+                    if done_tx
+                        .send(ShadowDone { field, key: job.key, origin_abs: job.origin_abs, world_size })
+                        .is_err()
+                    {
+                        break; // render side gone
+                    }
+                }
+            });
+        ShadowWorker { tx, rx }
+    }
 }
 
 /// Identity of the inputs a [`shadow::ShadowField`] was computed from (floats
 /// kept as bit patterns so the key is `Eq`/`Hash`-able). Equality means
 /// "nothing the field depends on changed", so the cached GPU upload stands.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 struct ShadowKey {
     sun: [u32; 3],
     origin: [u32; 2],
@@ -1666,34 +1737,76 @@ impl Map {
             dem_inserts,
         };
 
-        // The horizon-march is a synchronous CPU cost on the RENDER THREAD, so
-        // never run it while the camera is animating: turning sun mode on flips
-        // to 3D (an ease) and streams tiles, and stacking a recompute every
-        // animating frame on top stalled the render thread → ANR/freeze on
-        // device. Compute only when the camera has SETTLED (and the key changed)
-        // — the shadow then snaps in a frame after motion stops.
+        // Phase 4: the horizon-march (dim²·MAX_MARCH samples — the heavy part)
+        // runs on a WORKER thread, so recomputing shadows never hitches a render
+        // frame. Each frame we (1) upload whatever field the worker has finished,
+        // and (2) when the camera has SETTLED and the region changed, sample the
+        // height grid here (cheap) and hand the march off. Still gated on
+        // `!animating`: orbit/tilt reuse the cached field, and we don't queue a
+        // fresh march every frame mid-gesture. The shadow snaps in a frame or two
+        // after motion stops.
         let animating = self.cam.active.is_some();
-        if self.shadow.key.as_ref() != Some(&key) && !animating {
+
+        // (1) Pick up the most recent finished field (drain to the latest).
+        let mut done_latest = None;
+        if let Some(worker) = self.shadow.worker.as_ref() {
+            while let Ok(done) = worker.rx.try_recv() {
+                done_latest = Some(done);
+            }
+        }
+        if let Some(done) = done_latest {
+            self.renderer.shadow_map.upload(&done.field);
+            self.shadow.key = Some(done.key);
+            self.shadow.origin_abs = done.origin_abs;
+            self.shadow.world_size = done.world_size;
+            self.shadow.pending = None;
+        }
+
+        // (2) Dispatch a fresh march when settled, the region changed, and that
+        // same region isn't already being computed.
+        if !animating
+            && self.shadow.key.as_ref() != Some(&key)
+            && self.shadow.pending.as_ref() != Some(&key)
+        {
             // ~12 m of relief over the grazing ray fades a cell lit→shadowed:
-            // a soft penumbra edge, but tight enough that real ridges produce a
-            // crisp, dark shadow core rather than washing out to faint grey.
+            // a soft penumbra edge, crisp enough for a dark shadow core.
             let softness = (12.0 * zscale).max(1e-7);
-            let field = shadow::compute(SHADOW_DIM, origin_rtc, size_f, sun_dir, softness, |wx, wy| {
-                // The grid is in RTC world; convert back to absolute world for
-                // the cross-tile height lookup.
-                let ax = wx as f64 + cam_origin.x;
-                let ay = wy as f64 + cam_origin.y;
-                terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale
-            });
-            self.renderer.shadow_map.upload(&field);
-            self.shadow.key = Some(key);
-            // Anchor the grid in ABSOLUTE world space (compute-time camera
-            // origin + RTC corner). The per-frame block below rebases this to
-            // the current camera so the shadow stays on the terrain when the
-            // camera pans before the next recompute.
-            self.shadow.origin_abs =
+            let dim = SHADOW_DIM;
+            let cell = size_f / (dim - 1) as f32;
+            // Sample the heightfield on THIS thread (the per-cell tile-cache walk
+            // needs the engine; it's the cheap half). The march over this grid is
+            // what the worker does.
+            let mut heights = vec![0.0f32; dim * dim];
+            for j in 0..dim {
+                let wy = origin_rtc[1] + j as f32 * cell;
+                for i in 0..dim {
+                    let wx = origin_rtc[0] + i as f32 * cell;
+                    // RTC grid → absolute world for the cross-tile height lookup.
+                    let ax = wx as f64 + cam_origin.x;
+                    let ay = wy as f64 + cam_origin.y;
+                    heights[j * dim + i] =
+                        terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale;
+                }
+            }
+            // Anchor the grid in ABSOLUTE world space; the per-frame block below
+            // rebases it to the current camera so the shadow stays welded to the
+            // terrain through a pan.
+            let origin_abs =
                 [cam_origin.x + origin_rtc[0] as f64, cam_origin.y + origin_rtc[1] as f64];
-            self.shadow.world_size = size_f;
+            let worker = self.shadow.worker.get_or_insert_with(ShadowWorker::new);
+            let job = ShadowJob {
+                dim,
+                origin: origin_rtc,
+                world_size: size_f,
+                sun_dir,
+                softness,
+                heights,
+                key: key.clone(),
+                origin_abs,
+            };
+            if worker.tx.send(job).is_ok() {
+                self.shadow.pending = Some(key);
+            }
         }
 
         // Sample shadows only once a field has actually been computed (key set);

@@ -119,6 +119,10 @@ impl ShadowField {
 /// World-z and world-xy share units (normalised Mercator, metres folded
 /// through `meters_to_world`), so the ray-height test `h(Q) > h(P) + s·tanα`
 /// is dimensionally consistent with `s` measured in the same world-xy units.
+/// Synchronous sample-then-march (the reference path; the live engine samples
+/// on the render thread and runs [`march_grid`] on a worker). Used by the unit
+/// tests, which exercise both halves together against a height closure.
+#[cfg(test)]
 pub(crate) fn compute(
     dim: usize,
     origin: [f32; 2],
@@ -128,6 +132,38 @@ pub(crate) fn compute(
     height_at: impl Fn(f32, f32) -> f32,
 ) -> ShadowField {
     if dim < 2 || world_size <= 0.0 {
+        return ShadowField::fully_lit(dim.max(1));
+    }
+    // Sample the heightfield once per cell (the per-call cost — a tile-cache
+    // walk — is paid `dim²` times here, not `dim²·MAX_MARCH_CELLS`), then march
+    // the assembled grid. The two halves are split so the heavy march can run
+    // off the render thread: see [`march_grid`].
+    let cell = world_size / (dim - 1) as f32;
+    let mut heights = vec![0.0f32; dim * dim];
+    for j in 0..dim {
+        let wy = origin[1] + j as f32 * cell;
+        for i in 0..dim {
+            let wx = origin[0] + i as f32 * cell;
+            heights[j * dim + i] = height_at(wx, wy);
+        }
+    }
+    march_grid(dim, origin, world_size, sun_dir, softness, heights)
+}
+
+/// The horizon-march half of [`compute`], over a pre-sampled height grid
+/// (`dim·dim`, row-major, world-z units). Pure CPU, no tile-cache access — so
+/// it can run on a worker thread while the render thread keeps drawing; the
+/// render thread samples the grid (cheap) and uploads the result. `heights`
+/// must be `dim·dim` long.
+pub(crate) fn march_grid(
+    dim: usize,
+    origin: [f32; 2],
+    world_size: f32,
+    sun_dir: [f32; 3],
+    softness: f32,
+    heights: Vec<f32>,
+) -> ShadowField {
+    if dim < 2 || world_size <= 0.0 || heights.len() != dim * dim {
         return ShadowField::fully_lit(dim.max(1));
     }
 
@@ -148,16 +184,6 @@ pub(crate) fn compute(
     let cell = world_size / (dim - 1) as f32;
     // World-z gained per one-cell step toward the sun along the grazing ray.
     let rise_per_cell = tan_alt * cell;
-
-    // Sample the heightfield once per cell.
-    let mut heights = vec![0.0f32; dim * dim];
-    for j in 0..dim {
-        let wy = origin[1] + j as f32 * cell;
-        for i in 0..dim {
-            let wx = origin[0] + i as f32 * cell;
-            heights[j * dim + i] = height_at(wx, wy);
-        }
-    }
 
     let max = (dim - 1) as f32;
     let bilinear = |fx: f32, fy: f32| -> f32 {
