@@ -46,4 +46,4 @@ images:
     # tileserver_build.yml (the commit SHA, on every green build), so a merge
     # to main actually rolls prod via ArgoCD instead of a stale `:latest` that
     # never triggers a sync. Don't hand-edit back to `latest`.
-    newTag: "137e1f7cb950b001ffe8dc7d8a78b4e3805d5098"
+    newTag: "fd5027dce40b2439432784a3e4336f6d7980f06f"
