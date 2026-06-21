@@ -32,9 +32,14 @@ class TurbomapMapEngineContractTest {
         try {
             handle = NativeSurfaceMap.nativeCreate(reader.surface, size, size, 60.39, 5.32, 9.0)
             assertNotEquals("surface map should be created", 0L, handle)
-            // Programmatic moves (flyTo/zoom/...) now EASE; render frames to settle the
-            // animation so the contract's final-state assertions hold.
+            // Programmatic moves (flyTo/zoom/...) now EASE, and the FFI applies
+            // every mutation on the NEXT render (wait-free command queue, not a
+            // synchronous lock). So render once unconditionally to DRAIN the
+            // queued command (start the ease / apply an instant move), then keep
+            // rendering until the animation settles — only then do the contract's
+            // final-state assertions hold.
             val pump: () -> Unit = {
+                NativeSurfaceMap.nativeRender(handle)
                 var i = 0
                 while (i < 80 && NativeSurfaceMap.nativeIsAnimating(handle)) {
                     NativeSurfaceMap.nativeRender(handle)
@@ -87,6 +92,7 @@ class TurbomapMapEngineContractTest {
         // projection itself shifts the principal point up, so the *already-centred*
         // target lifts into the visible band with no re-centring (overlays follow).
         engine.setBottomInset(size / 2)
+        pump() // drain the queued inset (applied on the next frame) before projecting
         val (_, yInset) = engine.toScreen(target)
         assertTrue("inset should move the centred target up the screen ($yInset !< $yNoInset)", yInset < yNoInset)
         // The lift is ~half the reserved band, and projection stays invertible.

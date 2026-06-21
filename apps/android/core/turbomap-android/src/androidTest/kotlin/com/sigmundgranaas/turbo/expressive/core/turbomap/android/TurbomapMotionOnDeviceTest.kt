@@ -42,6 +42,9 @@ class TurbomapMotionOnDeviceTest {
         try {
             val before = NativeSurfaceMap.nativeCamera(handle)
             NativeSurfaceMap.nativeFling(handle, 1200.0, 600.0)
+            // Mutations apply on the next render (wait-free command queue); render
+            // once to drain the fling before observing the animation state.
+            NativeSurfaceMap.nativeRender(handle)
             assertTrue("a fresh fling is animating", NativeSurfaceMap.nativeIsAnimating(handle))
 
             pump(handle, frames = 12) // ~240 ms of glide
@@ -81,6 +84,8 @@ class TurbomapMotionOnDeviceTest {
             NativeSurfaceMap.nativeFling(handle, 1500.0, 0.0)
             pump(handle, frames = 4)
             NativeSurfaceMap.nativeCancelAnimation(handle)
+            // Drain the cancel command before observing the (now stopped) state.
+            NativeSurfaceMap.nativeRender(handle)
             assertTrue("cancel stops the animation", !NativeSurfaceMap.nativeIsAnimating(handle))
 
             val caught = NativeSurfaceMap.nativeCamera(handle)
@@ -98,6 +103,8 @@ class TurbomapMotionOnDeviceTest {
         val (handle, reader) = create()
         try {
             NativeSurfaceMap.nativeEaseTo(handle, 61.5, 6.5, 11.0, 0.0, 300)
+            // Drain the ease command (applied on the next render) before observing.
+            NativeSurfaceMap.nativeRender(handle)
             assertTrue("ease is animating", NativeSurfaceMap.nativeIsAnimating(handle))
             var settled = false
             for (i in 0 until 60) {

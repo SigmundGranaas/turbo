@@ -52,13 +52,18 @@ class TurbomapRasterFillOnDeviceTest {
             assertNotEquals("surface map should be created", 0L, handle)
             assertTrue("raster scene should apply", NativeSurfaceMap.nativeApplyScene(handle, rasterScene))
 
-            // Drain pending → ingest synthetic tiles → repeat until the engine
-            // stops asking (covers the visible set + prefetch ring).
+            // Async FFI: applyScene / pumpLocal / ingest all apply on the NEXT
+            // render (wait-free command queue), and tile uploads are rate-limited
+            // per frame. So each round renders to apply the prior commands + the
+            // scene and publish a fresh pending list, pumps, renders again so
+            // `pendingTilesJson` reflects the desired set, then ingests it. A dozen
+            // rounds + the readback renders below drain the visible + prefetch set.
             var ingested = 0
-            repeat(6) {
+            repeat(12) {
+                NativeSurfaceMap.nativeRender(handle)
                 NativeSurfaceMap.nativePumpLocal(handle)
+                NativeSurfaceMap.nativeRender(handle)
                 val pending = JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle))
-                if (pending.length() == 0) return@repeat
                 for (i in 0 until pending.length()) {
                     val o = pending.optJSONObject(i) ?: continue
                     if (o.optString("kind") != "raster") continue
@@ -67,7 +72,6 @@ class TurbomapRasterFillOnDeviceTest {
                     )
                     ingested++
                 }
-                NativeSurfaceMap.nativeRender(handle)
             }
             assertTrue("the engine should have requested basemap tiles (got $ingested)", ingested > 0)
 
@@ -95,17 +99,23 @@ class TurbomapRasterFillOnDeviceTest {
             handle = NativeSurfaceMap.nativeCreate(reader.surface, 256, 256, 60.39, 5.32, 9.0)
             assertTrue(handle != 0L)
             assertTrue(NativeSurfaceMap.nativeApplyScene(handle, rasterScene))
+            // Async FFI: applyScene / pumpLocal / ingest apply on the next render,
+            // and the fade clock only advances when render() ticks it.
+            NativeSurfaceMap.nativeRender(handle) // apply the scene
             assertTrue("no fade running before any tile arrives", !NativeSurfaceMap.nativeIsAnimating(handle))
 
             NativeSurfaceMap.nativePumpLocal(handle)
+            NativeSurfaceMap.nativeRender(handle) // apply pumpLocal → pending populates
             val pending = JSONArray(NativeSurfaceMap.nativePendingTilesJson(handle))
             val o = pending.optJSONObject(0)
             assertTrue("engine should request a tile", o != null)
             NativeSurfaceMap.nativeIngestRaster(handle, o.optString("layer"), o.optInt("z"), o.optInt("x"), o.optInt("y"), redTile)
+            NativeSurfaceMap.nativeRender(handle) // apply the ingest → the fade starts
 
             // Just ingested → inside the ~0.3 s fade window → the host must keep drawing.
             assertTrue("a freshly ingested tile is fading in", NativeSurfaceMap.nativeIsAnimating(handle))
             Thread.sleep(450)
+            NativeSurfaceMap.nativeRender(handle) // tick the fade clock past the window
             // Past the fade window → animation settles → render-on-demand can park.
             assertTrue("fade completes and animation settles", !NativeSurfaceMap.nativeIsAnimating(handle))
         } finally {
