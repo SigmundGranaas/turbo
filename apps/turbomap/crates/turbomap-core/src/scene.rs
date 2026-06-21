@@ -22,9 +22,18 @@ use crate::{
 };
 
 /// Above this pitch the tile selection switches from the legacy single-zoom
-/// rectangle to the mixed-LOD SSE quadtree. Kept tiny so any real tilt engages
-/// 3D LOD, while a flat (2D) map stays byte-identical (goldens hold).
-const LOD_PITCH_DEG: f64 = 1.0;
+/// rectangle to the mixed-LOD SSE quadtree.
+///
+/// TEMPORARILY DISABLED (set above the 80° pitch cap so it never engages): on a
+/// real device camera the SSE walk over-refined EVERYTHING to max zoom (no
+/// fine-near/coarse-far gradient — device logs showed `z=18..18` at camera zoom
+/// 15), and past ~60° tilt the footprint swept to far max-zoom tiles that never
+/// resided, blanking the screen. The legacy single-zoom path (with the existing
+/// high-pitch culling fix) renders 3D tilt correctly, so fall back to it while
+/// the LOD refinement is reworked against device-representative cameras. The
+/// curvature / aerial-perspective / cascaded-shadow work still applies to the
+/// legacy-selected terrain.
+const LOD_PITCH_DEG: f64 = 91.0;
 
 /// Target on-screen tile EDGE length (px) for the SSE quadtree. ~one basemap
 /// tile per ~320 px: crisp near the camera, coarsening toward the horizon.

@@ -1947,6 +1947,24 @@ impl Map {
                         r.fade_in_secs,
                     );
                     tiles_drawn += r.scene.visible_tiles().len();
+                    // --- TEMP 3D blank/lag diagnostic (throttled) ---
+                    {
+                        use std::sync::atomic::{AtomicU64, Ordering};
+                        static DBG_N: AtomicU64 = AtomicU64::new(0);
+                        let cam = r.scene.camera();
+                        if cam.pitch_deg > 1.0 && DBG_N.fetch_add(1, Ordering::Relaxed) % 20 == 0 {
+                            let vis = r.scene.visible_tiles();
+                            let des = r.scene.desired_tiles().len();
+                            let resident = vis.iter().filter(|t| r.cache.get(**t).is_some()).count();
+                            let zmin = vis.iter().map(|t| t.z).min().unwrap_or(0);
+                            let zmax = vis.iter().map(|t| t.z).max().unwrap_or(0);
+                            let alt = cam.altitude_world(r.scene.viewport_px());
+                            log::warn!(
+                                "3D-DIAG pitch={:.0} zoom={:.1} vis={} desired={} resident={} z={}..{} alt={:.3e}",
+                                cam.pitch_deg, cam.zoom, vis.len(), des, resident, zmin, zmax, alt
+                            );
+                        }
+                    }
                     prepared_layers.push((i, PreparedLayer::Raster(p)));
                 }
                 LayerEntry::Vector(v) if v.visible => {
