@@ -154,13 +154,30 @@ impl Scene {
     /// `prefetch_margin_px`-wide ring of off-screen tiles. The renderer does
     /// not draw the margin — it just keeps it warm so panning is smooth.
     pub fn desired_tiles(&self) -> Vec<TileId> {
-        // Pitched: the LOD leaf set already spans fine→coarse to the horizon,
-        // so the coarse far leaves are the overview/backdrop — no separate ring.
-        if self.camera.pitch_deg > LOD_PITCH_DEG {
-            return self.lod_tiles();
-        }
         // How many zoom levels below the visible set to keep as a backdrop.
         const OVERVIEW_DEPTH: u8 = 3;
+        // Pitched: the mixed-zoom LOD leaves span fine→coarse toward the horizon,
+        // BUT under the zoomed-in near field they're all FINE — there's no coarse
+        // ancestor unless we ask for it. Without a resident coarse backdrop, when
+        // the fine tiles haven't streamed in yet (or the MAX_TILES cap dropped
+        // some), the best-available resolver has nothing to draw and the near
+        // field shows the empty clear colour — the "everything greys out when I
+        // zoom in at a tilt" bug. So keep the SAME coarse overview backdrop the
+        // 2D path does: cheap (a handful of coarse tiles), always resident, gives
+        // the resolver a floor to draw while the fine set fills in.
+        if self.camera.pitch_deg > LOD_PITCH_DEG {
+            let mut tiles = self.lod_tiles();
+            let z = self.tile_zoom();
+            let overview_z = z.saturating_sub(OVERVIEW_DEPTH).max(self.min_zoom);
+            if overview_z < z {
+                for t in self.tiles_for_margin_at(0, overview_z) {
+                    if !tiles.contains(&t) {
+                        tiles.push(t);
+                    }
+                }
+            }
+            return tiles;
+        }
         let mut tiles = self.tiles_for_margin(self.prefetch_margin_px);
         // Always keep a coarse overview level loaded under the visible set. It's
         // cheap (a handful of tiles) and guarantees the renderer's ancestor
