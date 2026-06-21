@@ -254,4 +254,19 @@ mod tests {
             "afternoon sun should be west-ish: {p:?}"
         );
     }
+
+    #[test]
+    fn haze_matches_sky_horizon_for_seamless_dissolve() {
+        // Phase 3 contract: aerial-perspective haze fully dissolves distant
+        // terrain into the haze colour, so that colour MUST equal the sky's
+        // horizon colour — otherwise the terrain→sky seam shows a hard line
+        // where the dissolve completes. Holds across the day (sun sweep).
+        for altitude_deg in [-6.0_f32, 0.0, 10.0, 45.0, 80.0] {
+            let atmos = atmosphere(SunPosition { azimuth_deg: 135.0, altitude_deg });
+            assert_eq!(
+                atmos.haze_color, atmos.horizon_color,
+                "haze must match sky horizon at sun altitude {altitude_deg}° for a seamless dissolve"
+            );
+        }
+    }
 }
