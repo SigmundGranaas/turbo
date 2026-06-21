@@ -16,19 +16,16 @@
 //! tests); Phase 1 implements the refinement and un-ignores them (TDD red→green).
 
 use crate::camera::Camera;
+use std::collections::BinaryHeap;
 use crate::geo::WorldPoint;
 use crate::tile::TileId;
 
-/// Hard cap on the emitted set. This is NOT just a runaway backstop: the device
-/// GPU tile cache holds a bounded working set (~160 tiles at the default 80 MiB
-/// budget), and a desired set LARGER than the cache thrashes — every tile is
-/// evicted before it can be drawn, so the terrain never resides and the screen
-/// greys out (worst when zoomed in at a tilt, where the near field refines fine
-/// AND the footprint still reaches the horizon). So the cap matches the proven
-/// working-set budget; `select` refines NEAR roots first, so when the cap bites
-/// it drops the FAR field — which is hazed/curved away to the horizon anyway —
-/// rather than punching holes in the near terrain that fills the screen.
-const MAX_TILES: usize = 160;
+/// Hard cap on the emitted (best-first) set. Must stay under the device GPU tile
+/// cache's working set (~240 tiles at the 80 MiB raster budget) — a desired set
+/// LARGER than the cache thrashes (every tile evicted before it draws → grey).
+/// 220 leaves headroom while giving best-first enough budget to refine the near
+/// field to ~camera zoom AND keep the coarse far field out to the horizon.
+const MAX_TILES: usize = 220;
 
 /// One tile chosen by the LOD walk. A thin wrapper now (just the id the resolver
 /// needs); Phase 1+ may carry its computed screen-space error / neighbour LODs
@@ -68,32 +65,71 @@ pub fn select(
     let ppw = camera.pixels_per_world_unit();
     let alt = (camera.altitude_world(vp_u) as f64).max(1e-9);
 
-    let mut roots = footprint_roots(camera, viewport_px, min_zoom);
-    // Refine NEAR (to the eye) roots first, so when the MAX_TILES cap bites the
-    // dropped roots are the FARTHEST ones — the hazed/curved-away far field —
-    // not the near ground filling the screen.
-    roots.sort_by(|a, b| {
-        eye_dist2(*a, eye).partial_cmp(&eye_dist2(*b, eye)).unwrap_or(std::cmp::Ordering::Equal)
-    });
-
+    // BEST-FIRST refinement bounded by MAX_TILES: always subdivide the tile with
+    // the LARGEST on-screen error next (a max-heap keyed on the screen-space span).
+    // A depth-first walk — in ANY child order — spends the whole budget on whatever
+    // subtree it descends first: near-first starves the far field, far-first starves
+    // the near field. Best-first shares the budget by error, so the near field
+    // refines fine AND the far field stays present (coarse) out to the horizon.
+    // `span.to_bits()` is a monotonic key for positive finite spans (and ∞).
+    let mut heap: BinaryHeap<(u64, u8, u32, u32)> = BinaryHeap::new();
+    for root in footprint_roots(camera, viewport_px, min_zoom) {
+        if let Some(span) = tile_span(root, camera, viewport_px, eye, ppw, alt) {
+            heap.push((span.to_bits(), root.z, root.x, root.y));
+        }
+    }
     let mut out = Vec::new();
-    for root in roots {
-        refine(root, camera, viewport_px, max_zoom, target, eye, ppw, alt, &mut out);
+    while let Some((sbits, z, x, y)) = heap.pop() {
         if out.len() >= MAX_TILES {
             break;
+        }
+        let tile = TileId::new(z, x, y);
+        let span = f64::from_bits(sbits);
+        // Stop subdividing once the working set (emitted + still-queued) would blow
+        // the budget — emit the rest at their current, coarser zoom (no dropouts).
+        let budget_full = out.len() + heap.len() + 1 >= MAX_TILES;
+        match tile.children() {
+            Some(children) if z < max_zoom && span > target && !budget_full => {
+                for ch in children {
+                    if let Some(cs) = tile_span(ch, camera, viewport_px, eye, ppw, alt) {
+                        heap.push((cs.to_bits(), ch.z, ch.x, ch.y));
+                    }
+                }
+            }
+            _ => out.push(LodTile { id: tile }),
         }
     }
     out
 }
 
-/// Squared distance from the camera `eye` (absolute world, with z) to a tile's
-/// ground centre (z = 0). Drives near-first refinement order.
-fn eye_dist2(tile: TileId, eye: [f64; 3]) -> f64 {
+/// On-screen size estimate (px) of a tile for the SSE refine decision, or `None`
+/// if the tile is demonstrably off-screen (all corners in front of the camera but
+/// outside the viewport). Distance is to the NEAREST point of the tile's ground
+/// rect to the eye — a coarse ancestor that contains the camera then measures
+/// ~the eye height (so it refines down under the camera), and the far field grows
+/// with ground distance (so it stays coarse). Robust at any pitch.
+fn tile_span(
+    tile: TileId,
+    camera: &Camera,
+    vp: (f64, f64),
+    eye: [f64; 3],
+    ppw: f64,
+    alt: f64,
+) -> Option<f64> {
     let (nw, se) = tile.world_bounds();
-    let dx = 0.5 * (nw.x + se.x) - eye[0];
-    let dy = 0.5 * (nw.y + se.y) - eye[1];
+    let contains_centre = {
+        let c = camera.center.to_world();
+        c.x >= nw.x && c.x <= se.x && c.y >= nw.y && c.y <= se.y
+    };
+    let (front, behind) = project_corners(tile, camera, vp);
+    if behind == 0 && !contains_centre && !screen_aabb_intersects_viewport(&front, vp) {
+        return None;
+    }
+    let dx = eye[0].clamp(nw.x, se.x) - eye[0];
+    let dy = eye[1].clamp(nw.y, se.y) - eye[1];
     let dz = -eye[2];
-    dx * dx + dy * dy + dz * dz
+    let dist = (dx * dx + dy * dy + dz * dz).sqrt().max(1e-9);
+    Some((se.x - nw.x) * ppw * (alt / dist))
 }
 
 /// The `min_zoom` tiles overlapping the camera's ground footprint, clamped to
@@ -166,64 +202,6 @@ fn footprint_roots(camera: &Camera, vp: (f64, f64), z: u8) -> Vec<TileId> {
         }
     }
     roots
-}
-
-/// Recursively subdivide while the tile's on-screen size exceeds `target`,
-/// stopping at `max_zoom`. Frustum-culled tiles are dropped; tiles straddling
-/// the camera (some corners behind the view plane) are always refined (they're
-/// the near ground filling the lower frame).
-#[allow(clippy::too_many_arguments)]
-fn refine(
-    tile: TileId,
-    camera: &Camera,
-    vp: (f64, f64),
-    max_zoom: u8,
-    target: f64,
-    eye: [f64; 3],
-    ppw: f64,
-    alt: f64,
-    out: &mut Vec<LodTile>,
-) {
-    if out.len() >= MAX_TILES {
-        return;
-    }
-    // A tile whose ground rect contains the camera's look-at point is under/around
-    // the camera — keep it (it's the near ground filling the lower frame).
-    let contains_centre = {
-        let c = camera.center.to_world();
-        let (nw, se) = tile.world_bounds();
-        c.x >= nw.x && c.x <= se.x && c.y >= nw.y && c.y <= se.y
-    };
-    // Cull only tiles that are demonstrably off-screen (all corners in front of
-    // the camera but outside the viewport). We do NOT cull on "corners behind the
-    // view plane" any more — that's the case the old corner-projection SSE got
-    // wrong, dropping/over-refining tiles that straddle the plane at high pitch.
-    let (front, behind) = project_corners(tile, camera, vp);
-    if behind == 0 && !contains_centre && !screen_aabb_intersects_viewport(&front, vp) {
-        return;
-    }
-    // DISTANCE-based screen-space size: on-screen px ≈ world_size · ppw · (alt/dist)
-    // to the eye. Near → large (refine), far → small (coarse). Never degenerates at
-    // the view plane, so it gives a true fine-near/coarse-far gradient at any tilt.
-    let (nw, se) = tile.world_bounds();
-    let dx = 0.5 * (nw.x + se.x) - eye[0];
-    let dy = 0.5 * (nw.y + se.y) - eye[1];
-    let dz = -eye[2];
-    let dist = (dx * dx + dy * dy + dz * dz).sqrt().max(1e-9);
-    let world_size = se.x - nw.x;
-    let span = world_size * ppw * (alt / dist);
-    if tile.z >= max_zoom || span <= target {
-        out.push(LodTile { id: tile });
-        return;
-    }
-    match tile.children() {
-        Some(children) => {
-            for c in children {
-                refine(c, camera, vp, max_zoom, target, eye, ppw, alt, out);
-            }
-        }
-        None => out.push(LodTile { id: tile }),
-    }
 }
 
 /// The four ground corners (nw, ne, se, sw) of a tile.
@@ -339,14 +317,22 @@ mod tests {
 
     #[test]
     fn device_tilt_spans_a_zoom_gradient_not_all_max() {
-        let tiles = select(&cam(60.0, 15.0), DEVICE_VP, 5, 18, SSE);
+        let camera = cam(60.0, 15.0);
+        let tiles = select(&camera, DEVICE_VP, 5, 18, SSE);
         let zooms: Vec<u8> = tiles.iter().map(|t| t.id.z).collect();
         let zmin = *zooms.iter().min().unwrap();
         let zmax = *zooms.iter().max().unwrap();
         assert!(
-            zmax - zmin >= 2,
-            "device tilt must span a fine→coarse gradient; got z={zmin}..{zmax} \
-             (the bug forced every tile to max zoom — z=18..18)"
+            zmax - zmin >= 3,
+            "device tilt must span a real fine→coarse gradient; got z={zmin}..{zmax} \
+             (one bug forced every tile to max zoom — z=18..18)"
+        );
+        // The near field must be reasonably fine — NOT the z=5..8 wash that read as
+        // blank. (Best-first lands it ~2 levels below the camera zoom; refining the
+        // immediate near to exactly the camera zoom is a known follow-up.)
+        assert!(
+            zmax >= 12,
+            "near field must refine to a usable zoom; got max z={zmax} (was z=5..8 blur)"
         );
     }
 
