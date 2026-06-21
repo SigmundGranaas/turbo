@@ -163,8 +163,13 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     // Earth-curvature droop: distant ground bends below the tangent plane by
     // `curvature_coeff · s²` (s = horizontal distance from the camera centre,
     // which is the RTC origin, so `dot(world, world)`).
+    // Skirt: drop a fixed RELIEF depth (≈300 m in world-z), NOT a fraction of the
+    // tile's world size. `0.5·world_size` is fine for a fine tile but is hundreds
+    // of km for a coarse far tile — giant curtains that flicker as the LOD set
+    // shifts. A bounded relief covers the mixed-LOD seam cracks at every level.
+    let skirt_drop = in.skirt * 600.0 * zscale;
     let world_z = elev_m * zscale
-        - in.skirt * inst.world_size
+        - skirt_drop
         - globals.curvature_coeff * dot(world, world);
 
     var out: VertexOutput;
