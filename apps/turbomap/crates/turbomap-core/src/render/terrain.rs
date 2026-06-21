@@ -460,7 +460,7 @@ impl TerrainCache {
         let mut sticky = self.sticky_elev.lock().unwrap_or_else(|p| p.into_inner());
         match (fresh, sticky.get(&cell).copied()) {
             // A resident sample at least as fine as what we remember → trust + refine.
-            (Some((z, e)), prev) if prev.map_or(true, |(pz, _)| z >= pz) => {
+            (Some((z, e)), prev) if prev.is_none_or(|(pz, _)| z >= pz) => {
                 sticky.insert(cell, (z, e));
                 Some(e)
             }

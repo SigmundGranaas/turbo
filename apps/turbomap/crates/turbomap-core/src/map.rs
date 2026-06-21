@@ -31,7 +31,7 @@ use crate::{
         marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline},
         route::{build_tube, RoutePipeline, RouteVertex},
-        shadow::{self, ShadowMap, SHADOW_DIM},
+        shadow::{ShadowMap, HEIGHT_DIM},
         sky::SkyPipeline,
         targets::FrameTargets,
         terrain::{Terrain, TerrainCache, TerrainOptions, TerrainShared},
@@ -666,11 +666,11 @@ struct RouteTube {
 }
 
 /// Terrain cast-shadow state held on the `Map`: the user-set strength plus the
-/// inputs of the last computed [`shadow::ShadowField`], so the (relatively
-/// expensive) CPU horizon-march reruns only when something it depends on
-/// changed — the sun moved, the camera panned/zoomed to a new region, or new
-/// DEM tiles arrived. Orbit/tilt keep the centre + zoom fixed, so they reuse
-/// the cached field for free.
+/// inputs of the last assembled heightfield, so the (relatively expensive) CPU
+/// cross-tile assembly reruns only when something it depends on changed — the
+/// sun moved, the camera settled in a new region, or new DEM tiles arrived. The
+/// fragment shader marches the held heightfield every frame, so panning within
+/// the assembled region stays sharp + welded to the ground with no reassembly.
 #[derive(Default)]
 struct TerrainShadowState {
     /// 0 = disabled. Blend factor of cast shadows into the direct sun term.
@@ -686,80 +686,9 @@ struct TerrainShadowState {
     /// while panning instead of staying on the ground.
     origin_abs: [f64; 2],
     world_size: f32,
-    /// Background horizon-march worker (Phase 4): the heavy march
-    /// (`dim²·MAX_MARCH` samples) runs off the render thread so recomputing
-    /// shadows never hitches a frame. Lazily spawned on first dispatch.
-    worker: Option<ShadowWorker>,
-    /// Key of a job currently in flight on the worker — so we don't redispatch
-    /// the same region while it's still computing.
-    pending: Option<ShadowKey>,
 }
 
-/// A queued horizon-march. Carries a pre-sampled height grid (built cheaply on
-/// the render thread) so the worker needs no engine/tile-cache access — purely
-/// owned data crossing the thread boundary.
-struct ShadowJob {
-    dim: usize,
-    origin: [f32; 2],
-    world_size: f32,
-    sun_dir: [f32; 3],
-    softness: f32,
-    heights: Vec<f32>,
-    key: ShadowKey,
-    origin_abs: [f64; 2],
-}
-
-/// A finished field plus the metadata the render thread needs to upload + anchor it.
-struct ShadowDone {
-    field: shadow::ShadowField,
-    key: ShadowKey,
-    origin_abs: [f64; 2],
-    world_size: f32,
-}
-
-/// Owns the worker thread + its channels. Dropping it drops `tx`, which ends
-/// the worker's `recv()` loop — the thread exits cleanly (no join needed).
-struct ShadowWorker {
-    tx: std::sync::mpsc::Sender<ShadowJob>,
-    rx: std::sync::mpsc::Receiver<ShadowDone>,
-}
-
-impl ShadowWorker {
-    fn new() -> Self {
-        let (tx, job_rx) = std::sync::mpsc::channel::<ShadowJob>();
-        let (done_tx, rx) = std::sync::mpsc::channel::<ShadowDone>();
-        let _ = std::thread::Builder::new()
-            .name("turbomap-shadow".to_owned())
-            .spawn(move || {
-                // Coalesce: if several jobs queued while we were busy, only the
-                // newest region matters — drain to the last before marching.
-                while let Ok(first) = job_rx.recv() {
-                    let mut job = first;
-                    while let Ok(newer) = job_rx.try_recv() {
-                        job = newer;
-                    }
-                    let world_size = job.world_size;
-                    let field = shadow::march_grid(
-                        job.dim,
-                        job.origin,
-                        job.world_size,
-                        job.sun_dir,
-                        job.softness,
-                        job.heights,
-                    );
-                    if done_tx
-                        .send(ShadowDone { field, key: job.key, origin_abs: job.origin_abs, world_size })
-                        .is_err()
-                    {
-                        break; // render side gone
-                    }
-                }
-            });
-        ShadowWorker { tx, rx }
-    }
-}
-
-/// Identity of the inputs a [`shadow::ShadowField`] was computed from (floats
+/// Identity of the inputs the heightfield was assembled from (floats
 /// kept as bit patterns so the key is `Eq`/`Hash`-able). Equality means
 /// "nothing the field depends on changed", so the cached GPU upload stands.
 #[derive(PartialEq, Eq, Clone)]
@@ -1821,24 +1750,22 @@ impl Map {
             log::debug!("turbomap shadow: skip — terrain scene has no visible tiles");
             return;
         }
-        // Cover the camera's near/mid field, centred on the camera — NOT the
-        // full visible-tile bbox. At high tilt that bbox reaches the hazed
-        // horizon (~13 z-tiles wide), spreading the fixed 192² grid so thin
-        // (~130 m/cell) that real shadows fall between cells and miss the near
-        // terrain that fills the screen. The on-screen flat footprint is
-        // `viewport / pixels-per-world-unit`; 2× covers near + mid field with
-        // fine cells (and stays stable under orbit/tilt at a fixed centre).
+        // Assemble a camera-centred HEIGHTFIELD covering the near/mid field with a
+        // margin, and let the fragment shader march it toward the sun per-pixel.
+        // The on-screen flat footprint is `viewport / pixels-per-world-unit`; we
+        // cover SHADOW_MARGIN× that so a pan stays inside the assembled region
+        // (the per-fragment march reads world coords, so it's correct + sharp +
+        // welded to the ground anywhere the heightfield covers — no per-pan
+        // reassembly, no stale precomputed visibility to pop).
+        const SHADOW_MARGIN: f32 = 2.5;
         let cam_origin = self.cam.camera.center.to_world();
         let ppw = self.cam.camera.pixels_per_world_unit() as f32;
         let footprint = (self.viewport_px.0.max(self.viewport_px.1) as f32) / ppw.max(1e-9);
-        // 1× the flat footprint: tight enough that the 192² grid resolves crisp
-        // shadows on the near terrain (≈ DEM-native cell size at hiking zooms),
-        // while still covering the screen-filling near/mid field.
-        let size_f = (footprint).clamp(1e-6, 0.5);
+        let size_f = (footprint * SHADOW_MARGIN).clamp(1e-6, 0.5);
         // Grid centred on the camera: RTC origin (camera at 0) is the lower-left
         // corner at -size/2.
         let origin_rtc = [-0.5 * size_f, -0.5 * size_f];
-        // Vertical scale for the shadow heightfield. The mesh's `meters_to_world`
+        // Vertical scale for the heightfield. The mesh's `meters_to_world`
         // (= cos(lat)/circ) under-scales true relief by ~1/cos²(lat) — acceptable
         // for the rendered surface, but it flattens slopes so far that terrain
         // only occludes the sun near the horizon. For shadows to reflect the REAL
@@ -1855,52 +1782,22 @@ impl Map {
 
         let key = ShadowKey {
             sun: [sun_dir[0].to_bits(), sun_dir[1].to_bits(), sun_dir[2].to_bits()],
-            // Camera centre (absolute world) + grid size: a pan moves the centre
-            // → recompute; orbit/tilt keep it fixed → the cached upload is reused.
+            // Camera centre (absolute world) + grid size: a settle in a new region
+            // re-assembles; orbit/tilt keep it fixed → the held heightfield stands.
             origin: [(cam_origin.x as f32).to_bits(), (cam_origin.y as f32).to_bits()],
             size: size_f.to_bits(),
             dem_inserts,
         };
 
-        // Phase 4: the horizon-march (dim²·MAX_MARCH samples — the heavy part)
-        // runs on a WORKER thread, so recomputing shadows never hitches a render
-        // frame. Each frame we (1) upload whatever field the worker has finished,
-        // and (2) when the camera has SETTLED and the region changed, sample the
-        // height grid here (cheap) and hand the march off. Still gated on
-        // `!animating`: orbit/tilt reuse the cached field, and we don't queue a
-        // fresh march every frame mid-gesture. The shadow snaps in a frame or two
-        // after motion stops.
+        // Re-assemble the cross-tile heightfield only when the camera has SETTLED
+        // in a new region (or the sun / resident DEM changed) — never mid-pan, so
+        // the dim² tile-cache walk can't hitch a panning frame. The shader marches
+        // the held field every frame, so panning within the assembled region needs
+        // no reassembly and stays welded to the ground.
         let animating = self.cam.active.is_some();
-
-        // (1) Pick up the most recent finished field (drain to the latest).
-        let mut done_latest = None;
-        if let Some(worker) = self.shadow.worker.as_ref() {
-            while let Ok(done) = worker.rx.try_recv() {
-                done_latest = Some(done);
-            }
-        }
-        if let Some(done) = done_latest {
-            self.renderer.shadow_map.upload(&done.field);
-            self.shadow.key = Some(done.key);
-            self.shadow.origin_abs = done.origin_abs;
-            self.shadow.world_size = done.world_size;
-            self.shadow.pending = None;
-        }
-
-        // (2) Dispatch a fresh march when settled, the region changed, and that
-        // same region isn't already being computed.
-        if !animating
-            && self.shadow.key.as_ref() != Some(&key)
-            && self.shadow.pending.as_ref() != Some(&key)
-        {
-            // ~12 m of relief over the grazing ray fades a cell lit→shadowed:
-            // a soft penumbra edge, crisp enough for a dark shadow core.
-            let softness = (12.0 * zscale).max(1e-7);
-            let dim = SHADOW_DIM;
+        if !animating && self.shadow.key.as_ref() != Some(&key) {
+            let dim = HEIGHT_DIM;
             let cell = size_f / (dim - 1) as f32;
-            // Sample the heightfield on THIS thread (the per-cell tile-cache walk
-            // needs the engine; it's the cheap half). The march over this grid is
-            // what the worker does.
             let mut heights = vec![0.0f32; dim * dim];
             for j in 0..dim {
                 let wy = origin_rtc[1] + j as f32 * cell;
@@ -1913,43 +1810,30 @@ impl Map {
                         terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale;
                 }
             }
+            self.renderer.shadow_map.upload_heights(&heights);
             // Anchor the grid in ABSOLUTE world space; the per-frame block below
-            // rebases it to the current camera so the shadow stays welded to the
-            // terrain through a pan.
-            let origin_abs =
+            // rebases it to the current camera so it stays welded through a pan.
+            self.shadow.origin_abs =
                 [cam_origin.x + origin_rtc[0] as f64, cam_origin.y + origin_rtc[1] as f64];
-            let worker = self.shadow.worker.get_or_insert_with(ShadowWorker::new);
-            let job = ShadowJob {
-                dim,
-                origin: origin_rtc,
-                world_size: size_f,
-                sun_dir,
-                softness,
-                heights,
-                key: key.clone(),
-                origin_abs,
-            };
-            if worker.tx.send(job).is_ok() {
-                self.shadow.pending = Some(key);
-            }
+            self.shadow.world_size = size_f;
+            self.shadow.key = Some(key);
         }
 
-        // Sample shadows only once a field has actually been computed (key set);
-        // until then `world_size` is 0 and strength stays off — no shadow during
-        // the flip-to-3D animation, which is exactly when the recompute is
-        // skipped above.
+        // Feed the per-frame shadow uniforms once a heightfield exists. The march
+        // step (one texel) + softness scale with the assembled region, and the
+        // origin is rebased into THIS frame's RTC frame every frame so the shadow
+        // stays pinned to the terrain through a pan instead of sliding.
         if self.shadow.key.is_some() {
-            // Rebase the absolute grid origin into the CURRENT frame's RTC frame
-            // (the vertex shader's `world_xy` is relative to this frame's camera
-            // origin). Doing this every frame — not just at recompute — keeps the
-            // shadow texture pinned to the terrain through a pan, instead of
-            // sliding with the camera in screen space.
             let cam_now = self.cam.camera.center.to_world();
             frame.raster_terrain_cfg.shadow_origin = [
                 (self.shadow.origin_abs[0] - cam_now.x) as f32,
                 (self.shadow.origin_abs[1] - cam_now.y) as f32,
             ];
             frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
+            frame.raster_terrain_cfg.shadow_texel_world = self.shadow.world_size / HEIGHT_DIM as f32;
+            // ~6 m of relief excess over the grazing ray → fully shadowed: a tight
+            // penumbra that reads crisp (the per-pixel march gives the hard edge).
+            frame.raster_terrain_cfg.shadow_softness = (6.0 * zscale).max(1e-7);
             frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
         }
     }
@@ -2142,7 +2026,7 @@ impl Map {
             && self
                 .route_tubes
                 .last_build
-                .map_or(true, |t| started.duration_since(t).as_millis() >= 250);
+                .is_none_or(|t| started.duration_since(t).as_millis() >= 250);
         if self.route_tubes.dirty || terrain_stale {
             self.rebuild_route_tubes();
             self.route_tubes.last_build = Some(started);
