@@ -32,8 +32,6 @@ class TurbomapSceneTest {
             error("unreachable")
         }
 
-    private val track = listOf(LatLng(60.30, 5.10), LatLng(60.39, 5.32), LatLng(60.48, 5.55))
-    private val route = listOf(LatLng(60.31, 5.12), LatLng(60.40, 5.33))
     private val measure = listOf(LatLng(60.35, 5.20), LatLng(60.42, 5.40), LatLng(60.45, 5.50))
     private val user = LatLng(60.39, 5.32)
 
@@ -42,15 +40,14 @@ class TurbomapSceneTest {
         newMap().use { map ->
             val json = TurbomapScene.build(
                 rasters = listOf(TurbomapScene.RasterSpec("basemap", "https://example.test/{z}/{x}/{y}.png")),
-                track = track,
-                route = route,
                 measure = measure,
                 user = user,
             )
-            // 1 raster + track + route + measure-line + measure-pts + user = 6 layers / 6 sources.
+            // 1 raster + measure-line + measure-pts + user = 4 layers / 4 sources.
+            // (track + route are 3D tubes via nativeSetRouteTube, not scene layers.)
             val delta = map.applyScene(json)
-            assertEquals("layers: $delta", 6u, delta.layersAdded)
-            assertEquals("sources: $delta", 6u, delta.sourcesChanged)
+            assertEquals("layers: $delta", 4u, delta.layersAdded)
+            assertEquals("sources: $delta", 4u, delta.sourcesChanged)
             assertTrue("no layer unsupported: ${map.unsupportedLayers()}", map.unsupportedLayers().isEmpty())
 
             // Every geojson overlay drains in-process; only the raster basemap is pending.
@@ -77,11 +74,12 @@ class TurbomapSceneTest {
     @Test
     fun `short polylines are omitted, not emitted as broken layers`() {
         newMap().use { map ->
-            // A 1-point "track" can't be a line; only the user circle should appear.
-            val json = TurbomapScene.build(track = listOf(LatLng(60.0, 5.0)), user = user)
+            // A 1-point measure can't be a line; the measure-line layer must be
+            // omitted (the single vertex still shows as measure-pts) + the user.
+            val json = TurbomapScene.build(measure = listOf(LatLng(60.0, 5.0)), user = user)
             val delta = map.applyScene(json)
-            assertEquals("only the user layer", 1u, delta.layersAdded)
-            assertFalse("scene must stay valid", json.contains("\"track\""))
+            assertEquals("measure-pts + user", 2u, delta.layersAdded)
+            assertFalse("no broken line layer", json.contains("\"measure-line\""))
             assertTrue(map.unsupportedLayers().isEmpty())
         }
     }

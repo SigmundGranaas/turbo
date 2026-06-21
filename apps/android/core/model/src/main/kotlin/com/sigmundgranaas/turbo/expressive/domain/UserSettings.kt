@@ -17,4 +17,12 @@ data class UserSettings(
     val baseLayer: BaseLayer = BaseLayer.Norgeskart,
     /** Experimental: render the map with the wgpu/Rust engine instead of MapLibre. */
     val experimentalWgpuMap: Boolean = false,
+    /**
+     * The map camera the user last left the app at, so reopening returns there
+     * instead of the Norway-wide fallback. `null` until the map has been moved
+     * at least once (first-ever launch).
+     */
+    val lastCameraLat: Double? = null,
+    val lastCameraLng: Double? = null,
+    val lastCameraZoom: Double? = null,
 )

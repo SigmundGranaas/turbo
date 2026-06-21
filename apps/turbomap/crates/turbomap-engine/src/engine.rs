@@ -552,6 +552,13 @@ impl TurbomapEngine {
         self.map.set_terrain_shadows(strength);
     }
 
+    /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
+    /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
+    /// metres. See [`turbomap_core::Map::set_route_tube`].
+    pub fn set_route_tube(&mut self, id: &str, points: &[CoreLatLng], color: CoreColor, radius_m: f64) {
+        self.map.set_route_tube(id, points, color, radius_m);
+    }
+
     /// Geo-register the radar to the `west/south/east/north` lat-lng box it
     /// covers, so the overlay is world-locked (pans + zooms with the map).
     pub fn set_cloud_geo_bounds(&mut self, west: f64, south: f64, east: f64, north: f64) {

@@ -181,8 +181,8 @@ impl RenderFrame {
             shadow_origin: [0.0, 0.0],
             shadow_inv_size: 0.0,
             shadow_strength: 0.0,
-            far_shadow_origin: [0.0, 0.0],
-            far_shadow_inv_size: 0.0,
+            shadow_texel_world: 0.0,
+            shadow_softness: 1.0,
         };
 
         // Vector drape params, derived from the raster config.

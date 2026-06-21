@@ -27,8 +27,11 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
-/** Why an initial GPS centre couldn't happen — surfaced as a one-shot banner. */
-enum class LocationNotice { ServicesOff, Timeout }
+/** Why an initial GPS centre couldn't happen — surfaced as a one-shot banner.
+ *  Slow GPS is NOT a notice: the first fix just takes a while, so we wait
+ *  quietly rather than nag. Only services-off (an actionable, persistent state)
+ *  is surfaced. */
+enum class LocationNotice { ServicesOff }
 
 data class MapUiState(
     val markers: List<Marker> = emptyList(),
@@ -40,6 +43,10 @@ data class MapUiState(
     val locationNotice: LocationNotice? = null,
     /** Experimental: render with the wgpu engine instead of MapLibre (Settings toggle). */
     val experimentalWgpuMap: Boolean = false,
+    /** Persisted camera from the last session — restored on open so the user
+     *  returns to where they left off. Null until the map has been moved once. */
+    val lastCamera: LatLng? = null,
+    val lastCameraZoom: Double? = null,
     /**
      * 3D map mode (wgpu engine only): a 1-finger drag orbits about the user
      * location, two fingers pan. Off = the legacy 2D pan/zoom. Session state —
@@ -81,7 +88,18 @@ class MapViewModel @Inject constructor(
         // survives relaunch instead of resetting to Norgeskart every time.
         viewModelScope.launch {
             settings.settings.collect { s ->
-                _state.update { it.copy(baseLayer = s.baseLayer, experimentalWgpuMap = s.experimentalWgpuMap) }
+                _state.update {
+                    it.copy(
+                        baseLayer = s.baseLayer,
+                        experimentalWgpuMap = s.experimentalWgpuMap,
+                        lastCamera = if (s.lastCameraLat != null && s.lastCameraLng != null) {
+                            LatLng(s.lastCameraLat!!, s.lastCameraLng!!)
+                        } else {
+                            null
+                        },
+                        lastCameraZoom = s.lastCameraZoom,
+                    )
+                }
             }
         }
     }
@@ -112,10 +130,13 @@ class MapViewModel @Inject constructor(
             return
         }
         enableLocation()
+        // GPS can take a while for the first fix — don't surface an error if it's
+        // simply slow. After the window, quietly drop the "locating…" hint; a late
+        // fix still recentres. (Services-off, handled above, is the only notice.)
         viewModelScope.launch {
             kotlinx.coroutines.delay(LOCATE_TIMEOUT_MS)
             if (_state.value.userLocation == null) {
-                _state.update { it.copy(locating = false, locationNotice = LocationNotice.Timeout) }
+                _state.update { it.copy(locating = false) }
             }
         }
     }
@@ -127,6 +148,11 @@ class MapViewModel @Inject constructor(
         viewModelScope.launch { settings.setBaseLayer(layer) }
     }
     fun setFollowing(value: Boolean) = _state.update { it.copy(following = value) }
+
+    /** Persist the current map camera so the next launch reopens here. */
+    fun saveCamera(lat: Double, lng: Double, zoom: Double) {
+        viewModelScope.launch { settings.setLastCamera(lat, lng, zoom) }
+    }
 
     /** Toggle 3D map mode (orbit gestures). No-op effect unless the wgpu engine is active. */
     fun setThreeDMode(value: Boolean) = _state.update { it.copy(threeDMode = value) }

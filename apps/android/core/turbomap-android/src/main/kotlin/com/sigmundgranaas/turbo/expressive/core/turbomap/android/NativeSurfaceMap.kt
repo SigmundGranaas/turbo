@@ -57,6 +57,23 @@ internal object NativeSurfaceMap {
      *  accumulate without a stale-snapshot recompute → smooth pan in 2D + 3D. */
     external fun nativePanBy(handle: Long, dx: Double, dy: Double)
 
+    /**
+     * Set (or clear, with an empty [coords]) a route/track polyline drawn as a
+     * raised 3D tube — a single lit mesh that drapes on the terrain, replacing
+     * the old flat per-tile line. [coords] is a flat `[lat0, lng0, lat1, …]`
+     * array; [radiusPx] is the tube radius in screen pixels.
+     */
+    external fun nativeSetRouteTube(
+        handle: Long,
+        id: String,
+        coords: DoubleArray,
+        r: Int,
+        g: Int,
+        b: Int,
+        a: Int,
+        radiusPx: Double,
+    )
+
     // ── Physics / motion ────────────────────────────────────────────────────
     /** Start an inertial pan fling at screen-pixel velocity (drag-release). */
     external fun nativeFling(handle: Long, vx: Double, vy: Double)

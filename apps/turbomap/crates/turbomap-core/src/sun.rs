@@ -107,12 +107,19 @@ pub fn solar_position(unix_seconds: f64, lat_deg: f64, lng_deg: f64) -> SunPosit
         }
     } else {
         let cos_az = ((lat.sin() * zenith.cos() - decl.sin()) / denom).clamp(-1.0, 1.0);
-        let mut az = cos_az.acos().to_degrees();
-        // acos resolves [0,180]; mirror for the afternoon (positive hour angle).
+        // NOAA azimuth, clockwise from NORTH. `acos` resolves the [0,180] core;
+        // the half-day branch both disambiguates morning/afternoon AND shifts
+        // that (from-south) core onto a from-north bearing. The previous
+        // `acos` / `360 − acos` form skipped the shift, so the sun came out
+        // ~180° off — the northern sky at N-hemisphere midday — and every lit
+        // surface + cast shadow pointed the wrong way (in Norway, shadows fell
+        // toward the south instead of away from the southern sun).
+        let ac = cos_az.acos().to_degrees();
         if hour_angle > 0.0 {
-            az = 360.0 - az;
+            (ac + 180.0).rem_euclid(360.0)
+        } else {
+            (540.0 - ac).rem_euclid(360.0)
         }
-        az
     };
 
     SunPosition {
@@ -268,5 +275,41 @@ mod tests {
                 "haze must match sky horizon at sun altitude {altitude_deg}° for a seamless dissolve"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod sun_azimuth_check {
+    use super::*;
+    // Regression: the N-hemisphere daytime sun must sit in the SOUTHERN sky, so
+    // shading + cast shadows point the right way. A prior azimuth-branch bug put
+    // it ~180° off (northern sky at midday in Norway).
+    #[test]
+    fn bodo_daytime_sun_is_in_the_south() {
+        // Near solar noon at Bodø (14.4°E, 67.28°N), 2024-06-21.
+        let noon = solar_position(1_718_967_600.0, 67.28, 14.4);
+        assert!(noon.altitude_deg > 0.0, "daytime: sun above horizon");
+        assert!(
+            (150.0..=210.0).contains(&noon.azimuth_deg),
+            "midday sun must be ~due south, got az={}",
+            noon.azimuth_deg
+        );
+        // world_dir points TOWARD the sun → its south (y) component is positive.
+        assert!(noon.world_dir()[1] > 0.5, "midday sun direction points south");
+
+        // Morning (08:00 UTC ≈ 09:00 local) → south-EAST: az in the SE quadrant.
+        let morning = solar_position(1_718_956_800.0, 67.28, 14.4);
+        assert!(
+            (90.0..180.0).contains(&morning.azimuth_deg),
+            "morning sun is in the SE, got az={}",
+            morning.azimuth_deg
+        );
+        // Afternoon (15:00 UTC) → south-WEST.
+        let afternoon = solar_position(1_718_982_000.0, 67.28, 14.4);
+        assert!(
+            (180.0..270.0).contains(&afternoon.azimuth_deg),
+            "afternoon sun is in the SW, got az={}",
+            afternoon.azimuth_deg
+        );
     }
 }

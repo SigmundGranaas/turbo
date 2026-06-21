@@ -25,13 +25,14 @@ use crate::{
     render::{
         cache::CacheStats,
         frame::{RenderFrame, TerrainFrameInputs},
+        floor::FloorPipeline,
         gpu_timestamps::GpuTimestamps,
         hillshade::{HillshadePipeline, PreparedHillshade},
-        floor::FloorPipeline,
         icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline},
-        shadow::{self, ShadowMap, SHADOW_DIM},
+        route::{build_tube, RoutePipeline, RouteVertex},
+        shadow::{ShadowMap, HEIGHT_DIM},
         sky::SkyPipeline,
         targets::FrameTargets,
         terrain::{Terrain, TerrainCache, TerrainOptions, TerrainShared},
@@ -192,26 +193,18 @@ pub struct MapOptions {
 impl Default for MapOptions {
     fn default() -> Self {
         Self {
-            // Per-layer GPU texture budget (a CEILING — memory is used only
-            // as tiles actually resolve, not pre-allocated). There are up to
-            // THREE live caches (raster + vector + terrain DEM); raster is the
-            // one that fills.
-            //
-            // This MUST exceed the desired working set with real headroom for
-            // pan/revisit history, or the LRU evicts tiles the moment they
-            // leave the desired set — so looking back re-fetches them (slow)
-            // and, when the desired set itself overflows the cache, the
-            // resident set churns frame-to-frame and the best-available
-            // resolver flip-flops coarse↔fine (visible flicker even when the
-            // camera is still). The pitched LOD desired set is now ~260 tiles
-            // (lod::MAX_TILES=220 + overview backdrop); 80 MiB (~240 tiles @
-            // ~340 KiB) couldn't even hold it. 256 MiB holds ~750 raster
-            // tiles. 512 MiB holds ~1500 raster tiles: the full desired set plus
-            // a deep pan/zoom history, so an entire session's worth of revisited
-            // tiles stays hot. It's a ceiling, not an allocation — only raster
-            // tends to fill it; DEM/vector use far less. Well within a modern
-            // phone's GPU budget; if a long session ever shows memory-pressure
-            // jank, this is the knob to walk back.
+            // Per-layer GPU texture budget (a CEILING — memory is used only as
+            // tiles actually resolve, not pre-allocated). Up to THREE live caches
+            // (raster + vector + terrain DEM); raster is the one that fills. This
+            // MUST exceed the desired working set with real headroom for
+            // pan/revisit history, or the LRU evicts tiles the moment they leave
+            // view — so looking back re-fetches (slow) and, when the desired set
+            // overflows the cache, the resident set churns frame-to-frame and the
+            // best-available resolver flip-flops coarse↔fine (visible flicker even
+            // when the camera is still). The pitched LOD desired set is ~260 tiles
+            // (lod::MAX_TILES + overview); 80 MiB (~240 tiles) couldn't hold it.
+            // 512 MiB holds ~1500 raster tiles: the full set plus a deep session
+            // history, well within a modern phone's GPU budget.
             cache_budget_bytes: 512 * 1024 * 1024,
             prefetch_margin_px: 256,
             pixel_ratio: 1.0,
@@ -494,9 +487,15 @@ struct Renderer {
     /// Single icon/sprite pipeline, shared across all vector layers.
     icon_pipeline: IconPipeline,
     marker_pipeline: MarkerPipeline,
+    /// Route/track as raised 3D tubes (a single lit mesh, drawn after the ground
+    /// layers so terrain occludes it, before screen-space markers/labels).
+    route_pipeline: RoutePipeline,
     /// Analytic atmosphere sky, drawn first in the frame pass when the camera
     /// is tilted (so the horizon band shows behind the terrain).
     sky_pipeline: SkyPipeline,
+    /// Sub-sea-level ground "floor" backstop, drawn after the sky and before the
+    /// terrain so streaming gaps show neutral sea-grey instead of see-through
+    /// holes; depth-writes so real terrain overdraws it. See [`crate::render::floor`].
     floor_pipeline: FloorPipeline,
     /// Optional GPU-side frame timing — `Some` only when the device negotiated
     /// `Features::TIMESTAMP_QUERY`.
@@ -527,6 +526,7 @@ impl Renderer {
             text_pipeline: TextPipeline::new(device.clone(), queue.clone(), surface_format),
             icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), surface_format),
             marker_pipeline: MarkerPipeline::new(device.clone(), queue.clone(), surface_format),
+            route_pipeline: RoutePipeline::new(device.clone(), queue.clone(), surface_format),
             sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), surface_format),
             floor_pipeline: FloorPipeline::new(device.clone(), queue.clone(), surface_format),
             gpu_timestamps: GpuTimestamps::new(device, queue),
@@ -643,28 +643,49 @@ pub struct Map {
     /// (default) disables the feature. See [`crate::render::shadow`] and the
     /// shadow block in [`Map::render`].
     shadow: TerrainShadowState,
+    /// Route/track rendered as raised 3D tubes (replaces the flat draped line).
+    /// See [`Map::set_route_tube`] and the route block in [`Map::render`].
+    route_tubes: RouteTubeState,
+}
+
+/// Route/track 3D-tube state. Each entry is a polyline + style; the combined
+/// lit mesh is rebuilt (sampling terrain elevation) when a polyline changes or
+/// when new DEM tiles arrive (so the tube re-drapes as terrain streams in).
+#[derive(Default)]
+struct RouteTubeState {
+    /// id → (world-space polyline, color, radius in metres).
+    tubes: std::collections::HashMap<String, RouteTube>,
+    /// Bumped on every terrain ingest; a tube rebuilt at an older generation is
+    /// stale (its baked elevations predate newly-loaded DEM) and re-drapes.
+    terrain_gen: u64,
+    /// `terrain_gen` the current mesh was built at.
+    built_gen: u64,
+    /// Set when a polyline/style changed — forces an immediate rebuild.
+    dirty: bool,
+    /// Absolute world origin the baked mesh xy is relative to (f32 precision).
+    origin: (f64, f64),
+    /// Tube radius in screen pixels (shared across tubes; the latest set wins).
+    radius_px: f32,
+    /// Throttle for terrain-driven re-drapes (a DEM burst bumps `terrain_gen`
+    /// many times/sec; rebuilding the mesh each time is wasteful for long tracks).
+    last_build: Option<Instant>,
+}
+
+struct RouteTube {
+    points: Vec<(f64, f64)>,
+    color: [u8; 4],
 }
 
 /// Terrain cast-shadow state held on the `Map`: the user-set strength plus the
-/// inputs of the last computed [`shadow::ShadowField`], so the (relatively
-/// expensive) CPU horizon-march reruns only when something it depends on
-/// changed — the sun moved, the camera panned/zoomed to a new region, or new
-/// DEM tiles arrived. Orbit/tilt keep the centre + zoom fixed, so they reuse
-/// the cached field for free.
+/// inputs of the last assembled heightfield, so the (relatively expensive) CPU
+/// cross-tile assembly reruns only when something it depends on changed — the
+/// sun moved, the camera settled in a new region, or new DEM tiles arrived. The
+/// fragment shader marches the held heightfield every frame, so panning within
+/// the assembled region stays sharp + welded to the ground with no reassembly.
 #[derive(Default)]
 struct TerrainShadowState {
-    /// 0 = disabled. Blend factor of cast shadows into the direct sun term
-    /// (shared by both cascades).
+    /// 0 = disabled. Blend factor of cast shadows into the direct sun term.
     strength: f32,
-    /// Per-cascade compute state: `[near, far]`. Each cascade marches
-    /// independently (own worker + key) so the fine near grid and the coarse
-    /// wide far grid refresh on their own schedules.
-    cascades: [ShadowCascadeState; 2],
-}
-
-/// Compute state for ONE shadow cascade (see [`TerrainShadowState`]).
-#[derive(Default)]
-struct ShadowCascadeState {
     /// Key of the last computed field; `None` forces a recompute.
     key: Option<ShadowKey>,
     /// ABSOLUTE world origin (lower-left, Mercator [0,1]) of the last computed
@@ -676,80 +697,9 @@ struct ShadowCascadeState {
     /// while panning instead of staying on the ground.
     origin_abs: [f64; 2],
     world_size: f32,
-    /// Background horizon-march worker: the heavy march (`dim²·MAX_MARCH`
-    /// samples) runs off the render thread so recomputing never hitches a
-    /// frame. Lazily spawned on first dispatch.
-    worker: Option<ShadowWorker>,
-    /// Key of a job in flight — so we don't redispatch the same region while
-    /// it's still computing.
-    pending: Option<ShadowKey>,
 }
 
-/// A queued horizon-march. Carries a pre-sampled height grid (built cheaply on
-/// the render thread) so the worker needs no engine/tile-cache access — purely
-/// owned data crossing the thread boundary.
-struct ShadowJob {
-    dim: usize,
-    origin: [f32; 2],
-    world_size: f32,
-    sun_dir: [f32; 3],
-    softness: f32,
-    heights: Vec<f32>,
-    key: ShadowKey,
-    origin_abs: [f64; 2],
-}
-
-/// A finished field plus the metadata the render thread needs to upload + anchor it.
-struct ShadowDone {
-    field: shadow::ShadowField,
-    key: ShadowKey,
-    origin_abs: [f64; 2],
-    world_size: f32,
-}
-
-/// Owns the worker thread + its channels. Dropping it drops `tx`, which ends
-/// the worker's `recv()` loop — the thread exits cleanly (no join needed).
-struct ShadowWorker {
-    tx: std::sync::mpsc::Sender<ShadowJob>,
-    rx: std::sync::mpsc::Receiver<ShadowDone>,
-}
-
-impl ShadowWorker {
-    fn new() -> Self {
-        let (tx, job_rx) = std::sync::mpsc::channel::<ShadowJob>();
-        let (done_tx, rx) = std::sync::mpsc::channel::<ShadowDone>();
-        let _ = std::thread::Builder::new()
-            .name("turbomap-shadow".to_owned())
-            .spawn(move || {
-                // Coalesce: if several jobs queued while we were busy, only the
-                // newest region matters — drain to the last before marching.
-                while let Ok(first) = job_rx.recv() {
-                    let mut job = first;
-                    while let Ok(newer) = job_rx.try_recv() {
-                        job = newer;
-                    }
-                    let world_size = job.world_size;
-                    let field = shadow::march_grid(
-                        job.dim,
-                        job.origin,
-                        job.world_size,
-                        job.sun_dir,
-                        job.softness,
-                        job.heights,
-                    );
-                    if done_tx
-                        .send(ShadowDone { field, key: job.key, origin_abs: job.origin_abs, world_size })
-                        .is_err()
-                    {
-                        break; // render side gone
-                    }
-                }
-            });
-        ShadowWorker { tx, rx }
-    }
-}
-
-/// Identity of the inputs a [`shadow::ShadowField`] was computed from (floats
+/// Identity of the inputs the heightfield was assembled from (floats
 /// kept as bit patterns so the key is `Eq`/`Hash`-able). Equality means
 /// "nothing the field depends on changed", so the cached GPU upload stands.
 #[derive(PartialEq, Eq, Clone)]
@@ -787,7 +737,90 @@ impl Map {
             clouds: None,
             lighting: Lighting::default(),
             shadow: TerrainShadowState::default(),
+            route_tubes: RouteTubeState::default(),
         })
+    }
+
+    /// Set (or clear) a route/track polyline rendered as a raised 3D tube.
+    /// `points` are lng/lat; empty clears the tube `id`. `radius_px` is the tube
+    /// radius in screen pixels (constant thickness at any zoom). Rebuilt against
+    /// the terrain on next render.
+    pub fn set_route_tube(&mut self, id: &str, points: &[LatLng], color: Color, radius_px: f64) {
+        if points.len() < 2 {
+            if self.route_tubes.tubes.remove(id).is_some() {
+                self.route_tubes.dirty = true;
+            }
+            return;
+        }
+        let world: Vec<(f64, f64)> = points
+            .iter()
+            .map(|p| {
+                let w = p.to_world();
+                (w.x, w.y)
+            })
+            .collect();
+        self.route_tubes.radius_px = radius_px as f32;
+        self.route_tubes.tubes.insert(
+            id.to_string(),
+            RouteTube { points: world, color: [color.r, color.g, color.b, color.a] },
+        );
+        self.route_tubes.dirty = true;
+    }
+
+    /// Rebuild the combined route-tube mesh from the current polylines + terrain
+    /// elevation and upload it. Called from `render` when a polyline changed or
+    /// newly-loaded DEM means the baked elevations are stale.
+    fn rebuild_route_tubes(&mut self) {
+        const SEGMENTS: usize = 8;
+        if self.route_tubes.tubes.is_empty() {
+            self.renderer.route_pipeline.upload(&[], &[]);
+            self.route_tubes.built_gen = self.route_tubes.terrain_gen;
+            self.route_tubes.dirty = false;
+            return;
+        }
+        // Surface height factor: metres → world-z, matching the terrain mesh.
+        let lat = self.cam.camera.center.lat.to_radians();
+        let m2w = (lat.cos().abs() / 40_075_017.0).max(1e-12);
+        let exagg = self
+            .terrain
+            .as_ref()
+            .map(|t| t.options.exaggeration as f64)
+            .unwrap_or(1.0);
+
+        // Stable origin for f32 precision: a deterministic min over tube points
+        // (HashMap order is random, so don't depend on it).
+        let origin = self
+            .route_tubes
+            .tubes
+            .values()
+            .flat_map(|t| t.points.iter())
+            .fold((f64::INFINITY, f64::INFINITY), |a, p| (a.0.min(p.0), a.1.min(p.1)));
+
+        let mut verts: Vec<RouteVertex> = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
+        for tube in self.route_tubes.tubes.values() {
+            // Bake the terrain surface height per centerline point; the tube
+            // radius + lift above it are applied GPU-side (constant screen size).
+            let world_z: Vec<f32> = tube
+                .points
+                .iter()
+                .map(|&(x, y)| {
+                    self.terrain
+                        .as_ref()
+                        .and_then(|t| t.cache.elevation_at_world_stable((x, y)))
+                        .map(|e| (e as f64 * m2w * exagg) as f32)
+                        .unwrap_or(0.0)
+                })
+                .collect();
+            let (v, i) = build_tube(&tube.points, &world_z, origin, SEGMENTS, tube.color);
+            let base = verts.len() as u32;
+            verts.extend(v);
+            indices.extend(i.into_iter().map(|idx| idx + base));
+        }
+        self.renderer.route_pipeline.upload(&verts, &indices);
+        self.route_tubes.origin = origin;
+        self.route_tubes.built_gen = self.route_tubes.terrain_gen;
+        self.route_tubes.dirty = false;
     }
 
     // ---- Procedural weather-cloud overlay -----------------------------
@@ -952,11 +985,8 @@ impl Map {
         if s != self.shadow.strength {
             self.shadow.strength = s;
             // Force a recompute on the next frame (the strength change alone
-            // doesn't alter the field, but turning it on from cold must) — both
-            // cascades.
-            for c in &mut self.shadow.cascades {
-                c.key = None;
-            }
+            // doesn't alter the field, but turning it on from cold must).
+            self.shadow.key = None;
         }
     }
 
@@ -977,6 +1007,9 @@ impl Map {
             for e in &evicted {
                 t.scene.un_ingest(e);
             }
+            // New elevation data → route tubes baked before this are stale and
+            // should re-drape onto the now-finer terrain.
+            self.route_tubes.terrain_gen = self.route_tubes.terrain_gen.wrapping_add(1);
         }
     }
 
@@ -1728,20 +1761,22 @@ impl Map {
             log::debug!("turbomap shadow: skip — terrain scene has no visible tiles");
             return;
         }
-        // Two cascades, both centred on the camera (see `shadow::cascade_layouts`):
-        // a fine NEAR grid covering the screen-filling near/mid field, and a
-        // coarse FAR grid `FAR_CASCADE_RATIO`× wider (same cell budget) reaching
-        // toward the horizon. One fixed grid can't be both — spread wide it goes
-        // so coarse that near shadows fall between cells. The near footprint is
-        // the on-screen flat extent (`viewport / pixels-per-world-unit`), tight
-        // enough that the grid resolves crisp near shadows at hiking zooms.
+        // Assemble a camera-centred HEIGHTFIELD covering the near/mid field with a
+        // margin, and let the fragment shader march it toward the sun per-pixel.
+        // The on-screen flat footprint is `viewport / pixels-per-world-unit`; we
+        // cover SHADOW_MARGIN× that so a pan stays inside the assembled region
+        // (the per-fragment march reads world coords, so it's correct + sharp +
+        // welded to the ground anywhere the heightfield covers — no per-pan
+        // reassembly, no stale precomputed visibility to pop).
+        const SHADOW_MARGIN: f32 = 2.5;
         let cam_origin = self.cam.camera.center.to_world();
         let ppw = self.cam.camera.pixels_per_world_unit() as f32;
         let footprint = (self.viewport_px.0.max(self.viewport_px.1) as f32) / ppw.max(1e-9);
-        let near_size = (footprint).clamp(1e-6, 0.5);
-        let layouts = shadow::cascade_layouts([0.0, 0.0], near_size);
-
-        // Vertical scale for the shadow heightfield. The mesh's `meters_to_world`
+        let size_f = (footprint * SHADOW_MARGIN).clamp(1e-6, 0.5);
+        // Grid centred on the camera: RTC origin (camera at 0) is the lower-left
+        // corner at -size/2.
+        let origin_rtc = [-0.5 * size_f, -0.5 * size_f];
+        // Vertical scale for the heightfield. The mesh's `meters_to_world`
         // (= cos(lat)/circ) under-scales true relief by ~1/cos²(lat) — acceptable
         // for the rendered surface, but it flattens slopes so far that terrain
         // only occludes the sun near the horizon. For shadows to reflect the REAL
@@ -1756,105 +1791,61 @@ impl Map {
         let sun_dir = cfg.sun_dir;
         let dem_inserts = terrain.cache.stats().inserts;
 
-        // The horizon-march (dim²·MAX_MARCH samples — the heavy part) runs on a
-        // per-cascade WORKER thread, so recomputing never hitches a render frame.
-        // Each frame, per cascade: (1) upload whatever the worker finished, and
-        // (2) when SETTLED and the region changed, sample the height grid here
-        // (cheap) and hand the march off. Orbit/tilt keep the centre fixed → the
-        // cached field is reused; we don't queue mid-gesture (`!animating`).
+        let key = ShadowKey {
+            sun: [sun_dir[0].to_bits(), sun_dir[1].to_bits(), sun_dir[2].to_bits()],
+            // Camera centre (absolute world) + grid size: a settle in a new region
+            // re-assembles; orbit/tilt keep it fixed → the held heightfield stands.
+            origin: [(cam_origin.x as f32).to_bits(), (cam_origin.y as f32).to_bits()],
+            size: size_f.to_bits(),
+            dem_inserts,
+        };
+
+        // Re-assemble the cross-tile heightfield only when the camera has SETTLED
+        // in a new region (or the sun / resident DEM changed) — never mid-pan, so
+        // the dim² tile-cache walk can't hitch a panning frame. The shader marches
+        // the held field every frame, so panning within the assembled region needs
+        // no reassembly and stays welded to the ground.
         let animating = self.cam.active.is_some();
-
-        for (idx, layout) in layouts.iter().enumerate() {
-            let origin_rtc = layout.origin;
-            let size_f = layout.world_size;
-            let key = ShadowKey {
-                sun: [sun_dir[0].to_bits(), sun_dir[1].to_bits(), sun_dir[2].to_bits()],
-                // Camera centre (absolute) + grid size: a pan moves the centre →
-                // recompute; orbit/tilt keep it fixed → the cached upload is reused.
-                origin: [(cam_origin.x as f32).to_bits(), (cam_origin.y as f32).to_bits()],
-                size: size_f.to_bits(),
-                dem_inserts,
-            };
-
-            // (1) Pick up the most recent finished field for this cascade.
-            let mut done_latest = None;
-            if let Some(worker) = self.shadow.cascades[idx].worker.as_ref() {
-                while let Ok(done) = worker.rx.try_recv() {
-                    done_latest = Some(done);
+        if !animating && self.shadow.key.as_ref() != Some(&key) {
+            let dim = HEIGHT_DIM;
+            let cell = size_f / (dim - 1) as f32;
+            let mut heights = vec![0.0f32; dim * dim];
+            for j in 0..dim {
+                let wy = origin_rtc[1] + j as f32 * cell;
+                for i in 0..dim {
+                    let wx = origin_rtc[0] + i as f32 * cell;
+                    // RTC grid → absolute world for the cross-tile height lookup.
+                    let ax = wx as f64 + cam_origin.x;
+                    let ay = wy as f64 + cam_origin.y;
+                    heights[j * dim + i] =
+                        terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale;
                 }
             }
-            if let Some(done) = done_latest {
-                self.renderer.shadow_map.upload(idx, &done.field);
-                let cas = &mut self.shadow.cascades[idx];
-                cas.key = Some(done.key);
-                cas.origin_abs = done.origin_abs;
-                cas.world_size = done.world_size;
-                cas.pending = None;
-            }
-
-            // (2) Dispatch a fresh march when settled + the region changed.
-            if !animating
-                && self.shadow.cascades[idx].key.as_ref() != Some(&key)
-                && self.shadow.cascades[idx].pending.as_ref() != Some(&key)
-            {
-                // ~12 m of relief over the grazing ray fades a cell lit→shadowed:
-                // a soft penumbra edge, crisp enough for a dark shadow core.
-                let softness = (12.0 * zscale).max(1e-7);
-                let dim = SHADOW_DIM;
-                let cell = size_f / (dim - 1) as f32;
-                // Sample the heightfield on THIS thread (the per-cell tile-cache
-                // walk needs the engine; the cheap half). The far cascade's wider
-                // grid naturally lands on coarse far-LOD tiles. The march over this
-                // grid is what the worker does.
-                let mut heights = vec![0.0f32; dim * dim];
-                for j in 0..dim {
-                    let wy = origin_rtc[1] + j as f32 * cell;
-                    for i in 0..dim {
-                        let wx = origin_rtc[0] + i as f32 * cell;
-                        let ax = wx as f64 + cam_origin.x;
-                        let ay = wy as f64 + cam_origin.y;
-                        heights[j * dim + i] =
-                            terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale;
-                    }
-                }
-                let origin_abs =
-                    [cam_origin.x + origin_rtc[0] as f64, cam_origin.y + origin_rtc[1] as f64];
-                let worker =
-                    self.shadow.cascades[idx].worker.get_or_insert_with(ShadowWorker::new);
-                let job = ShadowJob {
-                    dim,
-                    origin: origin_rtc,
-                    world_size: size_f,
-                    sun_dir,
-                    softness,
-                    heights,
-                    key: key.clone(),
-                    origin_abs,
-                };
-                if worker.tx.send(job).is_ok() {
-                    self.shadow.cascades[idx].pending = Some(key);
-                }
-            }
+            self.renderer.shadow_map.upload_heights(&heights);
+            // Anchor the grid in ABSOLUTE world space; the per-frame block below
+            // rebases it to the current camera so it stays welded through a pan.
+            self.shadow.origin_abs =
+                [cam_origin.x + origin_rtc[0] as f64, cam_origin.y + origin_rtc[1] as f64];
+            self.shadow.world_size = size_f;
+            self.shadow.key = Some(key);
         }
 
-        // Per-frame: rebase each computed cascade's absolute origin into the
-        // CURRENT camera's RTC frame (the vertex shader's `world_xy`), so the
-        // shadow stays welded to the terrain through a pan instead of sliding in
-        // screen space. Far cascade's `inv_size` stays 0 until it's computed, so
-        // the shader's far sample is inert until then.
-        let cam_now = self.cam.camera.center.to_world();
-        let near = &self.shadow.cascades[0];
-        if near.key.is_some() {
-            frame.raster_terrain_cfg.shadow_origin =
-                [(near.origin_abs[0] - cam_now.x) as f32, (near.origin_abs[1] - cam_now.y) as f32];
-            frame.raster_terrain_cfg.shadow_inv_size = 1.0 / near.world_size;
+        // Feed the per-frame shadow uniforms once a heightfield exists. The march
+        // step (one texel) + softness scale with the assembled region, and the
+        // origin is rebased into THIS frame's RTC frame every frame so the shadow
+        // stays pinned to the terrain through a pan instead of sliding.
+        if self.shadow.key.is_some() {
+            let cam_now = self.cam.camera.center.to_world();
+            frame.raster_terrain_cfg.shadow_origin = [
+                (self.shadow.origin_abs[0] - cam_now.x) as f32,
+                (self.shadow.origin_abs[1] - cam_now.y) as f32,
+            ];
+            frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
+            frame.raster_terrain_cfg.shadow_texel_world = self.shadow.world_size / HEIGHT_DIM as f32;
+            // ~6 m of relief excess over the grazing ray → fully shadowed: a tight
+            // penumbra that reads crisp (the per-pixel march gives the hard edge).
+            frame.raster_terrain_cfg.shadow_softness = (6.0 * zscale).max(1e-7);
             frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
-        }
-        let far = &self.shadow.cascades[1];
-        if far.key.is_some() {
-            frame.raster_terrain_cfg.far_shadow_origin =
-                [(far.origin_abs[0] - cam_now.x) as f32, (far.origin_abs[1] - cam_now.y) as f32];
-            frame.raster_terrain_cfg.far_shadow_inv_size = 1.0 / far.world_size;
         }
     }
 
@@ -1963,24 +1954,6 @@ impl Map {
                         r.fade_in_secs,
                     );
                     tiles_drawn += r.scene.visible_tiles().len();
-                    // --- TEMP 3D blank/lag diagnostic (throttled) ---
-                    {
-                        use std::sync::atomic::{AtomicU64, Ordering};
-                        static DBG_N: AtomicU64 = AtomicU64::new(0);
-                        let cam = r.scene.camera();
-                        if cam.pitch_deg > 1.0 && DBG_N.fetch_add(1, Ordering::Relaxed).is_multiple_of(20) {
-                            let vis = r.scene.visible_tiles();
-                            let des = r.scene.desired_tiles().len();
-                            let resident = vis.iter().filter(|t| r.cache.get(**t).is_some()).count();
-                            let zmin = vis.iter().map(|t| t.z).min().unwrap_or(0);
-                            let zmax = vis.iter().map(|t| t.z).max().unwrap_or(0);
-                            let alt = cam.altitude_world(r.scene.viewport_px());
-                            log::warn!(
-                                "3D-DIAG pitch={:.0} zoom={:.1} vis={} desired={} resident={} z={}..{} alt={:.3e}",
-                                cam.pitch_deg, cam.zoom, vis.len(), des, resident, zmin, zmax, alt
-                            );
-                        }
-                    }
                     prepared_layers.push((i, PreparedLayer::Raster(p)));
                 }
                 LayerEntry::Vector(v) if v.visible => {
@@ -2057,6 +2030,18 @@ impl Map {
             };
             Some(p)
         };
+        // Rebuild the route-tube mesh when a polyline changed (now) or when new
+        // DEM means the baked elevations are stale (throttled, since a tile burst
+        // bumps the generation many times/sec).
+        let terrain_stale = self.route_tubes.built_gen != self.route_tubes.terrain_gen
+            && self
+                .route_tubes
+                .last_build
+                .is_none_or(|t| started.duration_since(t).as_millis() >= 250);
+        if self.route_tubes.dirty || terrain_stale {
+            self.rebuild_route_tubes();
+            self.route_tubes.last_build = Some(started);
+        }
         let prepare_time = prepare_started.elapsed();
 
         // ---- Phase B: frame clear colour -------------------------
@@ -2117,10 +2102,9 @@ impl Map {
                 self.renderer.sky_pipeline.draw(g, &mut pass);
             }
 
-            // Floor backstop: after the sky, before the terrain. Writes depth at a
-            // sea-grey plane just below sea level, so unloaded-tile gaps show the
-            // floor (not see-through sky); terrain, drawn next and higher, overdraws
-            // it everywhere it exists.
+            // Sub-sea-level ground floor, after the sky and before the terrain:
+            // it depth-writes, so real terrain overdraws it, but it fills any
+            // not-yet-streamed gap with neutral sea-grey instead of see-through.
             if let Some(g) = &frame.floor_globals {
                 self.renderer.floor_pipeline.draw(g, &mut pass);
             }
@@ -2150,6 +2134,46 @@ impl Map {
                     // the phases.
                     _ => unreachable!("prepared layer kind mismatch"),
                 }
+            }
+
+            // Route/track 3D tubes: after the ground layers (so terrain occludes
+            // them like real objects), before the screen-space overlays.
+            {
+                let cam_origin = self.cam.camera.center.to_world();
+                let vp = self
+                    .cam
+                    .camera
+                    .view_projection_matrix_rtc(cam_origin, self.viewport_px);
+                let origin_delta = [
+                    (self.route_tubes.origin.0 - cam_origin.x) as f32,
+                    (self.route_tubes.origin.1 - cam_origin.y) as f32,
+                ];
+                let cfg = &frame.raster_terrain_cfg;
+                let sun = cfg.sun_dir;
+                let sun_dir = if sun[0] == 0.0 && sun[1] == 0.0 && sun[2] == 0.0 {
+                    [0.4, 0.4, 0.82]
+                } else {
+                    sun
+                };
+                let lc = cfg.light_color;
+                let light = if lc[0] + lc[1] + lc[2] < 0.01 { [1.0, 1.0, 1.0] } else { lc };
+                let ppw = (256.0 * 2f64.powf(self.cam.camera.zoom)) as f32;
+                let radius_px = if self.route_tubes.radius_px > 0.0 {
+                    self.route_tubes.radius_px
+                } else {
+                    7.0
+                };
+                self.renderer.route_pipeline.draw(
+                    vp,
+                    origin_delta,
+                    ppw,
+                    radius_px,
+                    1.3, // lift: centerline 1.3 radii up → underside floats just above terrain
+                    sun_dir,
+                    cfg.ambient.max(0.4),
+                    light,
+                    &mut pass,
+                );
             }
 
             // Icons under labels, so a name centred on a shield reads on top.

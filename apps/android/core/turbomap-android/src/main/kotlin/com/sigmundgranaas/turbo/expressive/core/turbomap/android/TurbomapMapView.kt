@@ -107,6 +107,11 @@ fun TurbomapMapView(
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
     onBearingChange: (Double) -> Unit = {},
+    // Fired when the user manually moves the camera (pan / pinch / orbit / fling).
+    // The host uses it to release camera-follow so it doesn't snap back to the dot.
+    // Programmatic moves (flyTo/follow/easePitch) go through the controller, not the
+    // gesture detector, so they never trigger this.
+    onUserPanned: () -> Unit = {},
     onMapReady: (MapEngine) -> Unit = {},
     onEngineError: (String) -> Unit = {},
 ) {
@@ -117,11 +122,13 @@ fun TurbomapMapView(
     controller.onBearingChange = onBearingChange
     controller.onError = onEngineError
     controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles") }
-    fun scene() = TurbomapScene.build(rasters, track, route, measure, userLocation, demUrl = demUrl)
+    fun scene() = TurbomapScene.build(rasters, measure, userLocation, demUrl = demUrl)
 
     // Latest 3D flag read by the long-lived gesture lambda (pointerInput(Unit) never
     // restarts), so toggling 3D takes effect without recreating the detector.
     val threeDState = rememberUpdatedState(threeDMode)
+    // Same: the gesture lambda is captured once, so read the latest callback.
+    val onUserPannedState = rememberUpdatedState(onUserPanned)
 
     // 2D↔3D transition: ease into a default tilt on entering 3D (so it reads as
     // 3D immediately + the cloud overlay gets its camera-ray side-reveal), back
@@ -151,13 +158,22 @@ fun TurbomapMapView(
                 .pointerInput(Unit) {
                     detectMapGestures(
                         onDown = { controller.onGestureDown() },
-                        onTransform = { panX, panY, zoom, fx, fy -> controller.onTransform(panX, panY, zoom, fx, fy) },
-                        onFling = { vx, vy -> controller.onFling(vx, vy) },
+                        onTransform = { panX, panY, zoom, fx, fy ->
+                            onUserPannedState.value()
+                            controller.onTransform(panX, panY, zoom, fx, fy)
+                        },
+                        onFling = { vx, vy ->
+                            onUserPannedState.value()
+                            controller.onFling(vx, vy)
+                        },
                         onZoomFling = { zv, fx, fy -> controller.onZoomFling(zv, fx, fy) },
                         mode = {
                             if (threeDState.value) MapGestureMode.ThreeD else MapGestureMode.TwoD
                         },
-                        onOrbit = { db, dp, fx, fy -> controller.onOrbit(db, dp, fx, fy) },
+                        onOrbit = { db, dp, fx, fy ->
+                            onUserPannedState.value()
+                            controller.onOrbit(db, dp, fx, fy)
+                        },
                     )
                 }
                 .pointerInput(onMapTap, onMapLongClick) {
@@ -187,8 +203,16 @@ fun TurbomapMapView(
         }
     }
 
-    LaunchedEffect(rasters, track, route, measure, userLocation, demUrl) {
+    LaunchedEffect(rasters, measure, userLocation, demUrl) {
         controller.applyScene(scene(), rasters, demUrl)
+    }
+    // Route + track render as raised 3D tubes (a native lit mesh), not scene
+    // lines — pushed separately whenever their geometry changes.
+    LaunchedEffect(track) {
+        controller.setRouteTube("track", track, TurbomapScene.TrackColor)
+    }
+    LaunchedEffect(route) {
+        controller.setRouteTube("route", route, TurbomapScene.RouteColor)
     }
     DisposableEffect(Unit) { onDispose { controller.detach() } }
 }
@@ -345,6 +369,8 @@ internal class TurbomapSurfaceController {
             // Camera/inset changes from the rail/flyTo/sheet must redraw (render-on-demand).
             eng.onMutated = { requestRender(cameraMoved = true) }
             engine = eng
+            // Re-push any route/track tubes set before the surface existed.
+            pushAllTubes()
             onMapReady(eng)
             startRenderLoop()
             startReconcileLoop()
@@ -355,6 +381,48 @@ internal class TurbomapSurfaceController {
             requestRender(cameraMoved = true)
             requestReconcile()
         }
+    }
+
+    // Route/track 3D tubes, kept so they can be re-pushed after a surface
+    // (re)create — see [pushAllTubes] in attachOrResize.
+    private class TubeSpec(val coords: DoubleArray, val color: TurbomapScene.Rgba, val radiusPx: Double)
+    private val tubes = LinkedHashMap<String, TubeSpec>()
+
+    /** Set (or clear, with < 2 points) a route/track polyline drawn as a raised
+     *  3D tube. Wait-free (enqueues a native command). */
+    fun setRouteTube(
+        id: String,
+        points: List<LatLng>?,
+        color: TurbomapScene.Rgba,
+        radiusPx: Double = ROUTE_TUBE_RADIUS_PX,
+    ) {
+        val pts = points.orEmpty()
+        val coords = if (pts.size < 2) {
+            DoubleArray(0)
+        } else {
+            DoubleArray(pts.size * 2).also { a ->
+                pts.forEachIndexed { i, p ->
+                    a[i * 2] = p.lat
+                    a[i * 2 + 1] = p.lng
+                }
+            }
+        }
+        tubes[id] = TubeSpec(coords, color, radiusPx)
+        pushTube(id)
+    }
+
+    private fun pushTube(id: String) {
+        val h = handle
+        if (h == 0L) return
+        val t = tubes[id] ?: return
+        NativeSurfaceMap.nativeSetRouteTube(
+            h, id, t.coords, t.color.r, t.color.g, t.color.b, t.color.a, t.radiusPx,
+        )
+        requestRender(cameraMoved = false)
+    }
+
+    private fun pushAllTubes() {
+        tubes.keys.toList().forEach { pushTube(it) }
     }
 
     fun applyScene(sceneJson: String, rasterSpecs: List<TurbomapScene.RasterSpec>, demUrlTemplate: String?) {
@@ -602,6 +670,14 @@ internal class TurbomapSurfaceController {
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
                 }
                 handle == 0L -> Unit
+                bytes.size > MAX_TILE_BYTES -> {
+                    // Oversized payload (misrouted endpoint / error body / corrupt
+                    // cache entry). Copying it into the native ingest queue OOM-aborts
+                    // the process, so evict it and back off instead of ingesting.
+                    withContext(Dispatchers.IO) { tileCache?.remove(t.layer, t.z, t.x, t.y) }
+                    retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
+                    android.util.Log.w("TurbomapTiles", "tile ${t.key} oversize (${bytes.size}B); evicted + skipped")
+                }
                 (if (t.terrain) {
                     NativeSurfaceMap.nativeIngestTerrain(handle, t.z, t.x, t.y, bytes)
                 } else {
@@ -702,7 +778,17 @@ internal class TurbomapSurfaceController {
                 // hangs forever and its concurrency slot leaks; after a few, all slots
                 // are dead and tile loading silently stalls. Always resume.
                 val bytes = runCatching {
-                    response.use { r -> if (r.isSuccessful) r.body?.bytes() else null }
+                    response.use { r ->
+                        // Reject an over-cap body before `bytes()` reads the whole
+                        // thing into memory (when the length is advertised; chunked
+                        // responses fall through to the post-read guard at ingest).
+                        val len = r.body?.contentLength() ?: -1L
+                        when {
+                            !r.isSuccessful -> null
+                            len > MAX_TILE_BYTES -> null
+                            else -> r.body?.bytes()
+                        }
+                    }
                 }.getOrNull()
                 if (cont.isActive) cont.resume(bytes)
             }
@@ -728,6 +814,14 @@ internal class TurbomapSurfaceController {
         // returning "[]" when idle).
         const val SAFETY_TICK_MS = 350L
         const val RETRY_BACKOFF_MS = 1500L
+        // Hard cap on a single tile payload. A 256–512px encoded raster/DEM tile
+        // is well under 1 MB; anything past this is a misrouted endpoint, an
+        // error page, or a corrupt cache entry. Reject it instead of copying it
+        // into the native ingest queue — an unbounded payload there OOM-aborts
+        // the process in scudo (`internal map failure`) on the fetch coroutine.
+        const val MAX_TILE_BYTES = 16 * 1024 * 1024
+        // Route/track tube radius in screen px (≈ a 16 px-wide path). Tunable.
+        const val ROUTE_TUBE_RADIUS_PX = 8.0
         // Bounded wait for the render thread to release the surface on detach.
         const val DETACH_JOIN_MS = 350L
         const val STATS_LOG_INTERVAL_MS = 3000L

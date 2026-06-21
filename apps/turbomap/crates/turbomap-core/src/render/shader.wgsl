@@ -43,8 +43,8 @@ struct Globals {
     // emits, so the fragment needs no extra camera math.
     shadow_origin: vec2<f32>,
     shadow_inv_size: f32,
-    // 0 disables cast shadows entirely (the texture is ignored); > 0 blends
-    // the sampled sun-visibility into the direct sun term by this strength.
+    // 0 disables cast shadows entirely; > 0 blends the per-fragment sun-march
+    // result into the direct sun term by this strength.
     shadow_strength: f32,
     // Camera eye in the same RTC frame the vertex shader emits — haze is the
     // extinction over the TRUE eye→fragment distance, so near ground stays
@@ -54,11 +54,11 @@ struct Globals {
     // by `curvature_coeff · dot(world_xy, world_xy)` so distant terrain bends
     // away over the horizon instead of standing on a flat disc.
     curvature_coeff: f32,
-    // Far shadow cascade UV map (same form as shadow_origin/inv_size).
-    // `far_shadow_inv_size == 0` disables the far cascade sample.
-    far_shadow_origin: vec2<f32>,
-    far_shadow_inv_size: f32,
-    _pad_far: f32,
+    // World-xy size of one heightfield texel — the per-fragment march step.
+    shadow_texel_world: f32,
+    // World-z band over which an occluder fades the shadow in (penumbra).
+    shadow_softness: f32,
+    _shadow_pad: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -67,16 +67,18 @@ struct Globals {
 @group(1) @binding(1) var tile_sampler: sampler;
 @group(2) @binding(0) var dem_tex: texture_2d<f32>;
 @group(2) @binding(1) var dem_samp: sampler;
-// Frame-global terrain cast-shadow grid: per-texel sun visibility in [0,1]
-// (1 = lit, 0 = occluded), assembled across tiles on the CPU. One texture for
-// the whole frame, sampled by world-xy — this is what lets a peak in one tile
-// shadow a valley in another (the per-tile DEM at group 2 cannot reach across).
-@group(3) @binding(0) var shadow_tex: texture_2d<f32>;
-@group(3) @binding(1) var shadow_samp: sampler;
-// Far shadow cascade: coarser + wider, covers the mid/far field the fine near
-// grid can't reach. Sampled only where a fragment falls outside the near grid.
-@group(3) @binding(2) var far_shadow_tex: texture_2d<f32>;
-@group(3) @binding(3) var far_shadow_samp: sampler;
+// Frame-global terrain HEIGHTFIELD (world-z elevation, R32Float), assembled
+// across tiles on the CPU and centred on the camera. The fragment shader marches
+// it toward the sun per-pixel every frame to cast shadows — this is what lets a
+// peak in one tile shadow a valley in another (the per-tile DEM at group 2 can't
+// reach across), and computing it per-fragment makes the shadow sharp + stable
+// under pan (no precomputed low-res visibility texture to go stale).
+@group(3) @binding(0) var height_tex: texture_2d<f32>;
+@group(3) @binding(1) var height_samp: sampler;
+
+// Cast-shadow march length, in heightfield texels. Longer = shadows reach
+// further (low sun) at more cost; each step is one `shadow_texel_world`.
+const SHADOW_STEPS: i32 = 64;
 
 fn decode_elevation(rgb: vec3<f32>) -> f32 {
     let r = rgb.r * 255.0;
@@ -219,32 +221,44 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let n = normalize(in.normal);
     let ndl = clamp(dot(n, globals.sun_dir), 0.0, 1.0);
 
-    // Cast shadows: a peak occludes the valley behind it. The CPU horizon
-    // march wrote per-cell sun visibility into shadow_tex (1 = lit, 0 =
-    // occluded); sample it by this fragment's world-xy. `occ` is the occlusion
-    // amount in [0, strength]. A shadowed fragment loses the DIRECT sun term
-    // entirely AND a portion of the ambient skylight (ambient occlusion) — so
-    // it reads as a clearly dark shadow, not a faint tint, yet never goes fully
-    // black (some skylight always reaches it).
+    // Cast shadows: march the terrain heightfield from this fragment toward the
+    // sun. If any upstream cell pokes above the grazing ray, this fragment is
+    // occluded. Done per-pixel every frame → sharp edges + stable under pan (no
+    // precomputed low-res visibility texture). `occ` ∈ [0, strength]: a shadowed
+    // fragment loses the direct sun term AND some ambient skylight (AO), so it
+    // reads as a clear dark shadow, never fully black.
     var occ = 0.0;
     if (globals.shadow_strength > 0.0) {
-        // Cascade select: the fine NEAR grid first; outside it, fall back to the
-        // coarse FAR grid so distant peaks still shadow distant valleys.
-        let suv = (in.world_xy - globals.shadow_origin) * globals.shadow_inv_size;
-        var vis = 1.0;
-        var covered = false;
-        if (suv.x >= 0.0 && suv.y >= 0.0 && suv.x <= 1.0 && suv.y <= 1.0) {
-            vis = textureSampleLevel(shadow_tex, shadow_samp, suv, 0.0).r;
-            covered = true;
-        } else if (globals.far_shadow_inv_size > 0.0) {
-            let fuv = (in.world_xy - globals.far_shadow_origin) * globals.far_shadow_inv_size;
-            if (fuv.x >= 0.0 && fuv.y >= 0.0 && fuv.x <= 1.0 && fuv.y <= 1.0) {
-                vis = textureSampleLevel(far_shadow_tex, far_shadow_samp, fuv, 0.0).r;
-                covered = true;
+        let sxy = globals.sun_dir.xy;
+        let lxy = length(sxy);
+        // No meaningful cast shadows with the sun at/below the horizon or at the
+        // zenith — and only march where the heightfield actually covers us.
+        if (lxy > 1.0e-4 && globals.sun_dir.z > 1.0e-3) {
+            let suv0 = (in.world_xy - globals.shadow_origin) * globals.shadow_inv_size;
+            if (suv0.x >= 0.0 && suv0.y >= 0.0 && suv0.x <= 1.0 && suv0.y <= 1.0) {
+                let dir = sxy / lxy;
+                let tan_alt = globals.sun_dir.z / lxy;        // world-z rise per world-xy
+                let step = globals.shadow_texel_world;
+                let rise = tan_alt * step;                    // rise per march step
+                let h0 = textureSampleLevel(height_tex, height_samp, suv0, 0.0).r;
+                var over = 0.0;
+                var p = in.world_xy;
+                for (var k = 1; k <= SHADOW_STEPS; k = k + 1) {
+                    p = p + dir * step;
+                    let uv = (p - globals.shadow_origin) * globals.shadow_inv_size;
+                    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
+                        break;
+                    }
+                    let ray_z = h0 + f32(k) * rise;
+                    let hz = textureSampleLevel(height_tex, height_samp, uv, 0.0).r;
+                    let excess = hz - ray_z;
+                    if (excess > over) {
+                        over = excess;
+                    }
+                }
+                let soft = max(globals.shadow_softness, 1.0e-7);
+                occ = clamp(over / soft, 0.0, 1.0) * globals.shadow_strength;
             }
-        }
-        if (covered) {
-            occ = (1.0 - vis) * globals.shadow_strength;
         }
     }
     let direct = (1.0 - globals.ambient) * ndl * (1.0 - occ);

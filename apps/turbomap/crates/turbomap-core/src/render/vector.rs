@@ -204,7 +204,13 @@ impl VectorPipeline {
             // then self-occludes correctly: near roofs/walls over far ones,
             // and the building hides the ground beneath it. Text/markers
             // stay on `overlay_depth_state` (Always) so labels ride on top.
-            depth_stencil: Some(super::vector_ground_depth_state()),
+            // Always-on-top (no depth test/write). The geometry still drapes onto
+            // the terrain in the vertex shader, but a depth-tested draped line
+            // z-fights the terrain mesh it sits on (the line samples a coarser
+            // ancestor DEM than the mesh, so their z never exactly agrees) — that
+            // was the marker/line flicker in 3D. Drawing on top trades hill
+            // occlusion for a stable, always-visible overlay, matching markers.
+            depth_stencil: Some(super::overlay_depth_state()),
             multisample: super::multisample_state(),
             multiview_mask: None,
             cache: None,

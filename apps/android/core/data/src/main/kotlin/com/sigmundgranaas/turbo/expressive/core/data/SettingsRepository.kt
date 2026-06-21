@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -27,6 +28,9 @@ interface SettingsRepository {
     suspend fun setDownloadOverWifiOnly(enabled: Boolean)
     suspend fun setBaseLayer(layer: BaseLayer)
     suspend fun setExperimentalWgpuMap(enabled: Boolean)
+
+    /** Persist the map camera so reopening the app returns to where the user left it. */
+    suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double)
 }
 
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_settings")
@@ -45,6 +49,9 @@ class DataStoreSettingsRepository @Inject constructor(
         val WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
         val BASE_LAYER = stringPreferencesKey("base_layer")
         val WGPU_MAP = booleanPreferencesKey("experimental_wgpu_map")
+        val CAM_LAT = doublePreferencesKey("last_camera_lat")
+        val CAM_LNG = doublePreferencesKey("last_camera_lng")
+        val CAM_ZOOM = doublePreferencesKey("last_camera_zoom")
     }
 
     override val settings: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -61,6 +68,9 @@ class DataStoreSettingsRepository @Inject constructor(
                 ?.let { id -> BaseLayer.entries.firstOrNull { it.id == id } }
                 ?: BaseLayer.Norgeskart,
             experimentalWgpuMap = prefs[Keys.WGPU_MAP] ?: false,
+            lastCameraLat = prefs[Keys.CAM_LAT],
+            lastCameraLng = prefs[Keys.CAM_LNG],
+            lastCameraZoom = prefs[Keys.CAM_ZOOM],
         )
     }
 
@@ -94,5 +104,13 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setExperimentalWgpuMap(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.WGPU_MAP] = enabled }
+    }
+
+    override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) {
+        context.settingsDataStore.edit {
+            it[Keys.CAM_LAT] = lat
+            it[Keys.CAM_LNG] = lng
+            it[Keys.CAM_ZOOM] = zoom
+        }
     }
 }

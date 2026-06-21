@@ -1,379 +1,116 @@
-//! Terrain cast shadows via a CPU horizon-march.
+//! Terrain cast shadows via a per-fragment GPU horizon-march.
 //!
-//! The Lambertian `N·L` term in `shader.wgsl` is *self*-shading: a slope
-//! facing away from the sun darkens. It carries no *occlusion* — a peak does
-//! not throw a shadow across the valley behind it, because each terrain draw
-//! only binds its own DEM tile (`@group(2)`) and can't see the neighbouring
-//! tile that holds the shadow-caster.
+//! The Lambertian `N·L` term in `shader.wgsl` is *self*-shading only: a slope
+//! facing away from the sun darkens, but a peak does not throw a shadow across
+//! the valley behind it (each terrain draw binds only its own DEM tile at
+//! `@group(2)` and can't see the neighbouring caster).
 //!
-//! Cast shadows therefore need a *frame-global* view of the heightfield. We
-//! assemble the visible relief into one square grid (sampled from the shared
-//! [`TerrainCache`](super::terrain::TerrainCache), which already spans tiles),
-//! march each cell toward the sun, and record a per-cell *visibility* in
-//! `[0,1]` (1 = lit, 0 = fully shadowed, fractional = penumbra). The renderer
-//! uploads this as a single texture the terrain fragment shader samples by
-//! world-xy and folds into the *direct* light term — skylight/ambient still
-//! reaches shadowed ground, so it darkens rather than going black.
+//! Cast shadows therefore need a *frame-global* view of the relief. We assemble
+//! the visible terrain into one camera-centred square **heightfield** (world-z,
+//! sampled across tiles from the shared [`TerrainCache`](super::terrain::TerrainCache))
+//! and upload it as a texture; the terrain fragment shader marches it toward the
+//! sun **per-pixel, every frame** (see `shader.wgsl`).
 //!
-//! Doing the march on the CPU (not a per-fragment shader ray-march) is a
-//! deliberate device-safety call: it keeps the mobile GPU off a long,
-//! divergent loop that risks the same driver hangs the NaN gate guards
-//! against, and it makes the result deterministic and unit-testable without a
-//! device. The field is recomputed only when the sun, the covered region, or
-//! the resident DEM changes — not every frame — so its cost is decoupled from
-//! the frame rate.
+//! Per-fragment + every-frame is what makes the shadow **sharp** (no precomputed
+//! low-res visibility grid to blur/upscale) and **stable under pan** (the
+//! heightfield is ground-pinned, so marching world coordinates yields the same
+//! shadow as the camera moves — shadows stay welded to the terrain). The grid is
+//! re-assembled only when the camera settles in a new region, or the sun /
+//! resident DEM change — so its CPU cost stays off the pan path.
 
 use std::sync::Arc;
 
-/// Per-side resolution of the shadow grid. 96² = 9 216 cells. The march is
-/// `O(dim² · MAX_MARCH_CELLS)` AND samples the cross-tile heightfield once per
-/// cell (a multi-level tile-cache walk), all synchronously on the render
-/// thread — so this is sized to stay a few-millisecond hitch on a phone, not
-/// the ~100 ms render-thread stall (→ ANR) that 192² caused on device. Still
-/// fine enough for soft terrain shadows at hiking zooms.
-pub(crate) const SHADOW_DIM: usize = 96;
+/// Per-side resolution of the heightfield grid. Higher = finer occluders (and a
+/// larger CPU re-assembly when it re-centres). The per-fragment march keeps the
+/// shadow EDGE sharp regardless of this — `HEIGHT_DIM` sets occluder fidelity,
+/// not edge crispness. 192² re-assembles in a few ms, and only on settle (never
+/// mid-pan), so it doesn't hitch panning.
+pub(crate) const HEIGHT_DIM: usize = 192;
 
-/// How many cells along the sun ray a cell looks for an occluder before giving
-/// up and calling itself lit. Bounds the march cost and reflects that a caster
-/// far enough away rarely shadows within a single screen at usable sun
-/// altitudes. `√2 · dim` would be full-diagonal coverage; this is a deliberate
-/// cap well below that (also bounds the render-thread cost — see SHADOW_DIM).
-const MAX_MARCH_CELLS: usize = 48;
-
-/// The far shadow cascade covers this multiple of the near cascade's footprint
-/// at the SAME cell budget (so coarser cells), letting distant peaks cast —
-/// coarsely — where the fine near grid can't reach. The fragment shader samples
-/// the near cascade first and falls back to the far one outside it. One grid
-/// can't be both fine-near and cover-the-horizon (see `Map::update_terrain_shadows`),
-/// which is the whole reason for a second cascade.
-pub(crate) const FAR_CASCADE_RATIO: f32 = 6.0;
-
-/// World-xy placement of one shadow cascade: the square the grid covers, with
-/// cell (0,0) centred at `origin` and the far edge at `origin + world_size`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct CascadeLayout {
-    pub(crate) origin: [f32; 2],
-    pub(crate) world_size: f32,
-}
-
-#[cfg(test)]
-impl CascadeLayout {
-    /// True if world-xy `(x, y)` lies within this cascade's covered square.
-    /// CPU mirror of the shader's cascade-select bounds check; used in tests.
-    pub(crate) fn contains(&self, x: f32, y: f32) -> bool {
-        x >= self.origin[0]
-            && y >= self.origin[1]
-            && x <= self.origin[0] + self.world_size
-            && y <= self.origin[1] + self.world_size
-    }
-}
-
-/// Near + far cascade layouts for a shadow region centred on `center` (world-xy;
-/// the camera, so `[0,0]` in the RTC frame). The near layout is the caller's
-/// fine footprint; the far one is concentric and `FAR_CASCADE_RATIO`× wider, so
-/// it strictly CONTAINS the near footprint and reaches further toward the
-/// horizon — a fragment outside the near square stays inside the far one until
-/// the far edge. `[near, far]`.
-pub(crate) fn cascade_layouts(center: [f32; 2], near_size: f32) -> [CascadeLayout; 2] {
-    let square = |size: f32| CascadeLayout {
-        origin: [center[0] - 0.5 * size, center[1] - 0.5 * size],
-        world_size: size,
-    };
-    [square(near_size), square(near_size * FAR_CASCADE_RATIO)]
-}
-
-/// A computed terrain shadow grid: square, axis-aligned in world-xy, holding a
-/// visibility value per cell. The renderer turns `visibility` into a texture
-/// and uses `origin`/`world_size` to map a fragment's world-xy into `[0,1]` UV.
-#[derive(Debug, Clone)]
-pub(crate) struct ShadowField {
-    /// Cells per side. `visibility.len() == dim * dim`, row-major (y-major).
-    pub(crate) dim: usize,
-    /// World-xy of the *centre of cell (0,0)*. With `world_size` this defines
-    /// the affine map world-xy → grid coordinates the shader inverts.
-    pub(crate) origin: [f32; 2],
-    /// World-xy extent the grid spans, edge to edge (cell-centre 0 to
-    /// cell-centre `dim-1` is `world_size`). Square.
-    pub(crate) world_size: f32,
-    /// Per-cell visibility in `[0,1]`: 1 = fully lit, 0 = fully shadowed.
-    pub(crate) visibility: Vec<f32>,
-}
-
-impl ShadowField {
-    /// A field that shadows nothing (every cell lit) — the resident value when
-    /// shadows are disabled or the sun is at/below the horizon. Keeps the
-    /// renderer's binding non-optional.
-    pub(crate) fn fully_lit(dim: usize) -> Self {
-        Self {
-            dim,
-            origin: [0.0, 0.0],
-            world_size: 1.0,
-            visibility: vec![1.0; dim * dim],
-        }
-    }
-
-    /// Bilinearly sample visibility at world-xy `(wx, wy)`. Outside the grid is
-    /// treated as lit (1.0) — the camera footprint that drove `compute` is the
-    /// region we have heights for; beyond it we make no shadow claim.
-    ///
-    /// The GPU samples the uploaded texture directly; this CPU mirror exists to
-    /// verify the field's semantics in tests (the shader's UV map matches it).
-    #[cfg(test)]
-    pub(crate) fn sample(&self, wx: f32, wy: f32) -> f32 {
-        if self.dim == 0 || self.world_size <= 0.0 {
-            return 1.0;
-        }
-        let cell = self.world_size / (self.dim - 1).max(1) as f32;
-        let gx = (wx - self.origin[0]) / cell;
-        let gy = (wy - self.origin[1]) / cell;
-        let max = (self.dim - 1) as f32;
-        if gx < 0.0 || gy < 0.0 || gx > max || gy > max {
-            return 1.0;
-        }
-        let x0 = gx.floor() as usize;
-        let y0 = gy.floor() as usize;
-        let x1 = (x0 + 1).min(self.dim - 1);
-        let y1 = (y0 + 1).min(self.dim - 1);
-        let tx = gx - x0 as f32;
-        let ty = gy - y0 as f32;
-        let at = |x: usize, y: usize| self.visibility[y * self.dim + x];
-        let top = at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx;
-        let bot = at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx;
-        top * (1.0 - ty) + bot * ty
-    }
-}
-
-/// Compute a [`ShadowField`] over a square world region.
+/// GPU side of the cast-shadow feature: a single `HEIGHT_DIM²` `R32Float`
+/// heightfield texture (world-z elevation per cell) plus its bind group, bound
+/// at `@group(3)` of the raster pipeline. Map-level (one per renderer), uploaded
+/// whenever the assembled region changes. The fragment shader marches it toward
+/// the sun per-pixel; this texture is just the relief, not a precomputed result.
 ///
-/// - `origin` / `world_size`: the world-xy square to cover (cell (0,0) centre
-///   at `origin`, cell `(dim-1, dim-1)` centre at `origin + world_size`).
-/// - `sun_dir`: unit vector *towards* the sun in the engine world frame
-///   (x=E, y=S, z=up) — the same vector the shader shades with. Its `z` is
-///   `sin(altitude)`; the horizontal part points toward the sun on the ground.
-/// - `softness`: world-z height (same units as the heightfield) over which an
-///   occluder fades a cell from lit to shadowed, giving a soft penumbra. 0 =
-///   hard edge.
-/// - `height_at`: world-z (displaced, i.e. `elev · meters_to_world ·
-///   exaggeration`) of the ground at a world-xy. Called once per grid cell;
-///   the march then samples the assembled grid, so a slow per-call lookup
-///   (tile cache walk) is paid `dim²` times, not `dim² · MAX_MARCH_CELLS`.
-///
-/// World-z and world-xy share units (normalised Mercator, metres folded
-/// through `meters_to_world`), so the ray-height test `h(Q) > h(P) + s·tanα`
-/// is dimensionally consistent with `s` measured in the same world-xy units.
-/// Synchronous sample-then-march (the reference path; the live engine samples
-/// on the render thread and runs [`march_grid`] on a worker). Used by the unit
-/// tests, which exercise both halves together against a height closure.
-#[cfg(test)]
-pub(crate) fn compute(
-    dim: usize,
-    origin: [f32; 2],
-    world_size: f32,
-    sun_dir: [f32; 3],
-    softness: f32,
-    height_at: impl Fn(f32, f32) -> f32,
-) -> ShadowField {
-    if dim < 2 || world_size <= 0.0 {
-        return ShadowField::fully_lit(dim.max(1));
-    }
-    // Sample the heightfield once per cell (the per-call cost — a tile-cache
-    // walk — is paid `dim²` times here, not `dim²·MAX_MARCH_CELLS`), then march
-    // the assembled grid. The two halves are split so the heavy march can run
-    // off the render thread: see [`march_grid`].
-    let cell = world_size / (dim - 1) as f32;
-    let mut heights = vec![0.0f32; dim * dim];
-    for j in 0..dim {
-        let wy = origin[1] + j as f32 * cell;
-        for i in 0..dim {
-            let wx = origin[0] + i as f32 * cell;
-            heights[j * dim + i] = height_at(wx, wy);
-        }
-    }
-    march_grid(dim, origin, world_size, sun_dir, softness, heights)
-}
-
-/// The horizon-march half of [`compute`], over a pre-sampled height grid
-/// (`dim·dim`, row-major, world-z units). Pure CPU, no tile-cache access — so
-/// it can run on a worker thread while the render thread keeps drawing; the
-/// render thread samples the grid (cheap) and uploads the result. `heights`
-/// must be `dim·dim` long.
-pub(crate) fn march_grid(
-    dim: usize,
-    origin: [f32; 2],
-    world_size: f32,
-    sun_dir: [f32; 3],
-    softness: f32,
-    heights: Vec<f32>,
-) -> ShadowField {
-    if dim < 2 || world_size <= 0.0 || heights.len() != dim * dim {
-        return ShadowField::fully_lit(dim.max(1));
-    }
-
-    // Horizontal sun direction + the rise-per-horizontal-distance (tan of the
-    // solar altitude). With the sun at or below the horizon, or within a hair
-    // of the zenith, there are no meaningful cast shadows — everything lit.
-    let len_xy = (sun_dir[0] * sun_dir[0] + sun_dir[1] * sun_dir[1]).sqrt();
-    if sun_dir[2] <= 1.0e-3 || len_xy <= 1.0e-4 {
-        let mut f = ShadowField::fully_lit(dim);
-        f.origin = origin;
-        f.world_size = world_size;
-        return f;
-    }
-    let ux = sun_dir[0] / len_xy; // toward-sun unit, world-xy
-    let uy = sun_dir[1] / len_xy;
-    let tan_alt = sun_dir[2] / len_xy; // world-z rise per unit world-xy toward sun
-
-    let cell = world_size / (dim - 1) as f32;
-    // World-z gained per one-cell step toward the sun along the grazing ray.
-    let rise_per_cell = tan_alt * cell;
-
-    let max = (dim - 1) as f32;
-    let bilinear = |fx: f32, fy: f32| -> f32 {
-        let x0 = fx.floor().clamp(0.0, max) as usize;
-        let y0 = fy.floor().clamp(0.0, max) as usize;
-        let x1 = (x0 + 1).min(dim - 1);
-        let y1 = (y0 + 1).min(dim - 1);
-        let tx = (fx - x0 as f32).clamp(0.0, 1.0);
-        let ty = (fy - y0 as f32).clamp(0.0, 1.0);
-        let at = |x: usize, y: usize| heights[y * dim + x];
-        let top = at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx;
-        let bot = at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx;
-        top * (1.0 - ty) + bot * ty
-    };
-
-    let mut visibility = vec![1.0f32; dim * dim];
-    for j in 0..dim {
-        for i in 0..dim {
-            let h0 = heights[j * dim + i];
-            // The grazing ray rises as it heads toward the sun; an upstream
-            // cell shadows us if it pokes above that ray. Track the largest
-            // amount any occluder exceeds the ray by, for a soft edge.
-            let mut over = 0.0f32;
-            let mut fx = i as f32;
-            let mut fy = j as f32;
-            for s in 1..=MAX_MARCH_CELLS {
-                fx += ux;
-                fy += uy;
-                if fx < 0.0 || fy < 0.0 || fx > max || fy > max {
-                    break; // marched off the covered region
-                }
-                let ray_z = h0 + s as f32 * rise_per_cell;
-                let hz = bilinear(fx, fy);
-                let excess = hz - ray_z;
-                if excess > over {
-                    over = excess;
-                }
-            }
-            // over <= 0  → lit. over >= softness → fully shadowed.
-            let vis = if over <= 0.0 {
-                1.0
-            } else if softness <= 0.0 {
-                0.0
-            } else {
-                (1.0 - over / softness).clamp(0.0, 1.0)
-            };
-            visibility[j * dim + i] = vis;
-        }
-    }
-
-    ShadowField {
-        dim,
-        origin,
-        world_size,
-        visibility,
-    }
-}
-
-/// GPU side of the cast-shadow feature: TWO `SHADOW_DIM²` `R8Unorm` textures
-/// (sun visibility per cell) — a fine NEAR cascade and a coarse-but-wide FAR
-/// cascade — in one bind group at `@group(3)` of the raster pipeline. Map-level
-/// (one per renderer); each cascade is uploaded from its own [`ShadowField`]
-/// whenever the sun / covered region / resident DEM changes. The fragment
-/// shader samples near first and falls back to far outside it (see shader.wgsl).
-///
-/// `R8Unorm` is 1 byte/cell → 36 KiB per grid; trivial next to the raster tile
-/// budget, and a linear filter gives free penumbra softening between cells.
+/// `R32Float` is sampled *unfiltered* (nearest) so it needs no `FLOAT32_FILTERABLE`
+/// device feature — the per-pixel march gives crisp edges without bilinear relief.
 pub(crate) struct ShadowMap {
     pub(crate) layout: Arc<wgpu::BindGroupLayout>,
-    /// `[near, far]`.
-    textures: [wgpu::Texture; 2],
+    texture: wgpu::Texture,
     pub(crate) bind_group: wgpu::BindGroup,
     queue: Arc<wgpu::Queue>,
 }
 
 impl ShadowMap {
     pub(crate) fn new(device: &wgpu::Device, queue: &Arc<wgpu::Queue>) -> Self {
-        let tex_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let samp_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        };
         let layout = Arc::new(device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 label: Some("turbomap-shadow-bgl"),
-                // 0/1 = near tex/sampler, 2/3 = far tex/sampler.
-                entries: &[tex_entry(0), samp_entry(1), tex_entry(2), samp_entry(3)],
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            // Unfiltered float — no FLOAT32_FILTERABLE needed.
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                        count: None,
+                    },
+                ],
             },
         ));
-        let make_tex = |label: &str| {
-            let texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size: wgpu::Extent3d {
-                    width: SHADOW_DIM as u32,
-                    height: SHADOW_DIM as u32,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            // Initialise fully lit so a frame rendered before the first upload
-            // (or with shadows off) shows no spurious darkening.
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &vec![255u8; SHADOW_DIM * SHADOW_DIM],
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(SHADOW_DIM as u32),
-                    rows_per_image: Some(SHADOW_DIM as u32),
-                },
-                wgpu::Extent3d {
-                    width: SHADOW_DIM as u32,
-                    height: SHADOW_DIM as u32,
-                    depth_or_array_layers: 1,
-                },
-            );
-            texture
-        };
-        let textures = [make_tex("turbomap-shadow-tex-near"), make_tex("turbomap-shadow-tex-far")];
-        let near_view = textures[0].create_view(&Default::default());
-        let far_view = textures[1].create_view(&Default::default());
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("turbomap-shadow-heightfield"),
+            size: wgpu::Extent3d {
+                width: HEIGHT_DIM as u32,
+                height: HEIGHT_DIM as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        // Initialise to sea level (0 world-z) so a frame before the first upload
+        // (or with shadows off) marches a flat field → no spurious darkening.
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&vec![0.0f32; HEIGHT_DIM * HEIGHT_DIM]),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some((HEIGHT_DIM * 4) as u32),
+                rows_per_image: Some(HEIGHT_DIM as u32),
+            },
+            wgpu::Extent3d {
+                width: HEIGHT_DIM as u32,
+                height: HEIGHT_DIM as u32,
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = texture.create_view(&Default::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("turbomap-shadow-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
@@ -381,261 +118,53 @@ impl ShadowMap {
             label: Some("turbomap-shadow-bg"),
             layout: &layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&near_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&far_view) },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
         });
         Self {
             layout,
-            textures,
+            texture,
             bind_group,
             queue: queue.clone(),
         }
     }
 
-    /// Upload a computed field's visibility into the texture. The field must be
-    /// `SHADOW_DIM²` (the renderer always computes at that resolution); a
-    /// mismatch is ignored rather than panicking, leaving the prior contents.
-    /// Upload a computed field into cascade `idx` (0 = near, 1 = far).
-    pub(crate) fn upload(&self, idx: usize, field: &ShadowField) {
-        if field.dim != SHADOW_DIM || field.visibility.len() != SHADOW_DIM * SHADOW_DIM {
+    /// Upload the assembled heightfield (world-z elevations, row-major, `HEIGHT_DIM²`).
+    /// A size mismatch is ignored rather than panicking, leaving prior contents.
+    pub(crate) fn upload_heights(&self, heights: &[f32]) {
+        if heights.len() != HEIGHT_DIM * HEIGHT_DIM {
             log::warn!(
-                "turbomap: shadow field dim {} != texture dim {}, skipping upload",
-                field.dim,
-                SHADOW_DIM
+                "turbomap: shadow heightfield len {} != {}, skipping upload",
+                heights.len(),
+                HEIGHT_DIM * HEIGHT_DIM,
             );
             return;
         }
-        let Some(texture) = self.textures.get(idx) else {
-            return;
-        };
-        let bytes: Vec<u8> = field
-            .visibility
-            .iter()
-            .map(|&v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)
-            .collect();
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture,
+                texture: &self.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &bytes,
+            bytemuck::cast_slice(heights),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(SHADOW_DIM as u32),
-                rows_per_image: Some(SHADOW_DIM as u32),
+                bytes_per_row: Some((HEIGHT_DIM * 4) as u32),
+                rows_per_image: Some(HEIGHT_DIM as u32),
             },
             wgpu::Extent3d {
-                width: SHADOW_DIM as u32,
-                height: SHADOW_DIM as u32,
+                width: HEIGHT_DIM as u32,
+                height: HEIGHT_DIM as u32,
                 depth_or_array_layers: 1,
             },
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Sun in the east (toward +x) at 45° altitude: dir ≈ (cos45, 0, sin45).
-    fn sun_east_45() -> [f32; 3] {
-        let c = std::f32::consts::FRAC_1_SQRT_2;
-        [c, 0.0, c]
-    }
-
-    fn at(f: &ShadowField, i: usize, j: usize) -> f32 {
-        f.visibility[j * f.dim + i]
-    }
-
-    #[test]
-    fn flat_terrain_is_fully_lit() {
-        let f = compute(32, [0.0, 0.0], 1.0, sun_east_45(), 0.01, |_, _| 0.0);
-        assert!(f.visibility.iter().all(|&v| v >= 0.999), "flat ground casts no shadow");
-    }
-
-    #[test]
-    fn sun_at_zenith_casts_nothing() {
-        // Straight up: no horizontal component → no cast shadow even over a spike.
-        let f = compute(32, [0.0, 0.0], 1.0, [0.0, 0.0, 1.0], 0.01, |wx, _| {
-            if wx > 0.45 && wx < 0.55 { 0.2 } else { 0.0 }
-        });
-        assert!(f.visibility.iter().all(|&v| v >= 0.999));
-    }
-
-    #[test]
-    fn sun_below_horizon_casts_nothing() {
-        let f = compute(32, [0.0, 0.0], 1.0, [0.7, 0.0, -0.1], 0.01, |_, _| 0.0);
-        assert!(f.visibility.iter().all(|&v| v >= 0.999));
-    }
-
-    #[test]
-    fn spike_shadows_the_anti_sun_side_not_the_sun_side() {
-        // A tall, thin wall at x≈0.5 spanning all y. Sun is toward +x (east),
-        // so light travels toward -x: the shadow falls on the WEST (-x, lower
-        // i) side of the wall. Cells just EAST of the wall (toward the sun)
-        // stay lit.
-        let dim = 64;
-        let wall_x = 0.5f32;
-        let half = 0.02f32;
-        // Tall enough that at 45° its shadow reaches well west of it.
-        let wall_h = 0.25f32;
-        let f = compute(dim, [0.0, 0.0], 1.0, sun_east_45(), 0.001, |wx, _| {
-            if (wx - wall_x).abs() < half {
-                wall_h
-            } else {
-                0.0
-            }
-        });
-
-        let cell = 1.0 / (dim - 1) as f32;
-        let wall_i = (wall_x / cell).round() as usize;
-        // A cell a little WEST of the wall (down-sun) must be shadowed.
-        let west = wall_i.saturating_sub(6);
-        // A cell a little EAST of the wall (up-sun, toward the light) is lit.
-        let east = (wall_i + 6).min(dim - 1);
-
-        let j = dim / 2;
-        assert!(
-            at(&f, west, j) < 0.5,
-            "west of the wall should be in shadow, got {}",
-            at(&f, west, j)
-        );
-        assert!(
-            at(&f, east, j) > 0.9,
-            "east of the wall (toward the sun) should be lit, got {}",
-            at(&f, east, j)
-        );
-    }
-
-    #[test]
-    fn lower_sun_casts_a_longer_shadow() {
-        // Same wall, two sun altitudes. The lower sun's shadow must reach
-        // farther west (more shadowed cells on the anti-sun side).
-        let dim = 96;
-        let wall_x = 0.6f32;
-        let half = 0.015f32;
-        let wall_h = 0.15f32;
-        let field = |sun: [f32; 3]| {
-            compute(dim, [0.0, 0.0], 1.0, sun, 0.001, |wx, _| {
-                if (wx - wall_x).abs() < half {
-                    wall_h
-                } else {
-                    0.0
-                }
-            })
-        };
-        let count_shadow = |f: &ShadowField| {
-            let j = dim / 2;
-            (0..dim).filter(|&i| at(f, i, j) < 0.5).count()
-        };
-        // 50° vs 20° altitude, both toward +x.
-        let hi = (50f32).to_radians();
-        let lo = (20f32).to_radians();
-        let f_hi = field([hi.cos(), 0.0, hi.sin()]);
-        let f_lo = field([lo.cos(), 0.0, lo.sin()]);
-        assert!(
-            count_shadow(&f_lo) > count_shadow(&f_hi),
-            "lower sun must cast a longer shadow: lo={} hi={}",
-            count_shadow(&f_lo),
-            count_shadow(&f_hi)
-        );
-    }
-
-    #[test]
-    fn sample_maps_world_xy_and_clamps_outside() {
-        let mut f = ShadowField::fully_lit(4);
-        f.origin = [0.0, 0.0];
-        f.world_size = 1.0;
-        // Force a known checkerboard-ish value to test interpolation direction.
-        f.visibility = vec![
-            0.0, 0.0, 1.0, 1.0, //
-            0.0, 0.0, 1.0, 1.0, //
-            0.0, 0.0, 1.0, 1.0, //
-            0.0, 0.0, 1.0, 1.0, //
-        ];
-        // Far west → shadowed end.
-        assert!(f.sample(0.0, 0.5) < 0.1);
-        // Far east → lit end.
-        assert!(f.sample(1.0, 0.5) > 0.9);
-        // Outside the grid → lit (no claim).
-        assert!((f.sample(-5.0, 0.5) - 1.0).abs() < 1e-6);
-        assert!((f.sample(0.5, 9.0) - 1.0).abs() < 1e-6);
-    }
-
-    // --- Phase 4: cascaded LOD shadows ---
-
-    #[test]
-    fn cascade_split_covers_view() {
-        // The far cascade must strictly contain the near one (concentric, wider)
-        // and reach further out, so a fragment leaving the near grid always lands
-        // inside the far grid until the far edge — no shadow gap between cascades.
-        let near_size = 0.01f32;
-        let [near, far] = cascade_layouts([0.0, 0.0], near_size);
-        assert_eq!(near.world_size, near_size, "near layout is the caller's footprint");
-        assert!(far.world_size > near.world_size, "far cascade must be wider");
-        // Every corner of the near square is inside the far square.
-        for (cx, cy) in [
-            (near.origin[0], near.origin[1]),
-            (near.origin[0] + near.world_size, near.origin[1] + near.world_size),
-        ] {
-            assert!(far.contains(cx, cy), "far must contain near corner ({cx},{cy})");
-        }
-        // A point just outside the near grid is NOT in near but IS in far.
-        let just_outside = near_size * 0.55; // > near half-extent (0.5·size), < far half
-        assert!(!near.contains(just_outside, 0.0), "point is beyond the near grid");
-        assert!(far.contains(just_outside, 0.0), "...but still covered by the far cascade");
-    }
-
-    #[test]
-    fn far_cascade_low_res_still_casts() {
-        // A coarse, wide far cascade (6× footprint, same cell budget) must still
-        // produce real cast shadows — distant peaks shadow distant valleys even at
-        // low resolution. Same ridge, marched at the near and far footprints.
-        let dim = SHADOW_DIM;
-        let ridge = |size: f32| {
-            // A tall ridge near the sun-side (east) edge of the covered square,
-            // scaled to the footprint so its relief is comparable at both scales.
-            let wall_x = 0.5 * size * 0.6; // east of centre, inside the square
-            compute(dim, [-0.5 * size, -0.5 * size], size, sun_east_45(), 0.001, move |wx, _| {
-                if (wx - wall_x).abs() < 0.04 * size { 0.20 * size } else { 0.0 }
-            })
-        };
-        let near = ridge(0.01);
-        let far = ridge(0.01 * FAR_CASCADE_RATIO);
-        let shadowed = |f: &ShadowField| f.visibility.iter().filter(|&&v| v < 0.5).count();
-        assert!(shadowed(&near) > 0, "near cascade casts (sanity)");
-        assert!(
-            shadowed(&far) > 0,
-            "far (coarse) cascade must still cast shadows, got {} shadowed cells",
-            shadowed(&far)
-        );
-    }
-
-    #[test]
-    fn march_cost_bounded_ignores_occluders_past_the_cap() {
-        // The march visits at most MAX_MARCH_CELLS up-sun cells per cell — that cap
-        // is what bounds the cost (and keeps it off the render-thread ANR budget).
-        // Prove it: a tall wall whose geometric shadow would reach the whole row is
-        // only "seen" by cells within MAX_MARCH_CELLS of it. Cells farther up-sun
-        // than the cap stay lit DESPITE the wall being tall enough to shadow them.
-        let dim = 96; // MAX_MARCH_CELLS = 48
-        let wall_i = 90usize;
-        let cell = 1.0f32 / (dim - 1) as f32;
-        let wall_x = wall_i as f32 * cell;
-        // Tall enough that, uncapped, the shadow would reach the far west edge.
-        let f = compute(dim, [0.0, 0.0], 1.0, sun_east_45(), 0.001, |wx, _| {
-            if (wx - wall_x).abs() < 0.6 * cell { 1.0 } else { 0.0 }
-        });
-        let j = dim / 2;
-        // Within the cap (40 cells from the wall): sees the wall → shadowed.
-        assert!(at(&f, 50, j) < 0.5, "cell within the march cap must be shadowed, got {}", at(&f, 50, j));
-        // Beyond the cap (80 cells from the wall): never reaches it → lit, even
-        // though the wall is tall enough to geometrically shadow it.
-        assert!(at(&f, 10, j) > 0.9, "cell beyond the march cap must stay lit, got {}", at(&f, 10, j));
     }
 }

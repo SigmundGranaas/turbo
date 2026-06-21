@@ -51,8 +51,8 @@ struct Globals {
     light_color: [f32; 3],
     /// 1 = sun-shade + haze the displaced terrain, 0 = flat texture.
     terrain_lit: f32,
-    /// Cast-shadow grid transform (camera-relative world-xy → [0,1] UV) and
-    /// strength. `shadow_strength == 0` disables sampling. See
+    /// Cast-shadow heightfield transform (camera-relative world-xy → [0,1] UV)
+    /// and strength. `shadow_strength == 0` disables the per-fragment march. See
     /// [`super::shadow`]. Packs to one std140 16-byte slot (vec2 + 2 scalars).
     shadow_origin: [f32; 2],
     shadow_inv_size: f32,
@@ -67,11 +67,11 @@ struct Globals {
     /// shader lowers `world_z` by `curvature_coeff · dot(world_xy, world_xy)` so
     /// distant terrain bends away over the horizon (see `earth_curvature_coeff`).
     curvature_coeff: f32,
-    /// FAR shadow cascade UV map (vec2 origin + inv-size + pad = one std140 slot).
-    /// `far_shadow_inv_size == 0` disables the far cascade sample.
-    far_shadow_origin: [f32; 2],
-    far_shadow_inv_size: f32,
-    _pad_far: f32,
+    /// World-xy size of one heightfield texel (the march step) + the penumbra
+    /// softness band (world-z). One more 16-byte slot (2 scalars + pad).
+    shadow_texel_world: f32,
+    shadow_softness: f32,
+    _shadow_pad: [f32; 2],
 }
 
 #[repr(C)]
@@ -168,14 +168,14 @@ pub(crate) struct TerrainConfig {
     /// grid covers. 0 leaves the UV mapping degenerate (only used when
     /// `shadow_strength == 0`).
     pub shadow_inv_size: f32,
-    /// 0 = no cast shadows (texture ignored); > 0 blends sampled sun-visibility
-    /// into the direct light term by this factor. The Map sets this from
-    /// `set_terrain_shadows`. Shared by both cascades.
+    /// 0 = no cast shadows (heightfield ignored); > 0 blends the per-fragment
+    /// sun-march result into the direct light term by this factor. The Map sets
+    /// this from `set_terrain_shadows`.
     pub shadow_strength: f32,
-    /// FAR shadow cascade UV map (same form as `shadow_origin`/`shadow_inv_size`).
-    /// `far_shadow_inv_size == 0` disables the far cascade sample.
-    pub far_shadow_origin: [f32; 2],
-    pub far_shadow_inv_size: f32,
+    /// World-xy size of one heightfield texel — the per-fragment march step.
+    pub shadow_texel_world: f32,
+    /// World-z penumbra band over which an occluder fades the shadow in.
+    pub shadow_softness: f32,
 }
 
 impl Default for TerrainConfig {
@@ -192,8 +192,8 @@ impl Default for TerrainConfig {
             shadow_origin: [0.0, 0.0],
             shadow_inv_size: 0.0,
             shadow_strength: 0.0,
-            far_shadow_origin: [0.0, 0.0],
-            far_shadow_inv_size: 0.0,
+            shadow_texel_world: 0.0,
+            shadow_softness: 1.0,
         }
     }
 }
@@ -637,19 +637,9 @@ impl RasterPipeline {
                 } else {
                     0.0
                 },
-                // Far shadow cascade UV map; 0 inv-size disables it (no DEM, or
-                // the far cascade not yet computed).
-                far_shadow_origin: if dem_present {
-                    terrain_options.far_shadow_origin
-                } else {
-                    [0.0, 0.0]
-                },
-                far_shadow_inv_size: if dem_present {
-                    terrain_options.far_shadow_inv_size
-                } else {
-                    0.0
-                },
-                _pad_far: 0.0,
+                shadow_texel_world: terrain_options.shadow_texel_world,
+                shadow_softness: terrain_options.shadow_softness,
+                _shadow_pad: [0.0, 0.0],
             }),
         );
 

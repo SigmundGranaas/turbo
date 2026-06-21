@@ -26,6 +26,8 @@ private class MutableSettingsRepository : SettingsRepository {
     override suspend fun setDownloadOverWifiOnly(enabled: Boolean) = state.update { it.copy(downloadOverWifiOnly = enabled) }
     override suspend fun setBaseLayer(layer: com.sigmundgranaas.turbo.expressive.domain.BaseLayer) = state.update { it.copy(baseLayer = layer) }
     override suspend fun setExperimentalWgpuMap(enabled: Boolean) = state.update { it.copy(experimentalWgpuMap = enabled) }
+    override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) =
+        state.update { it.copy(lastCameraLat = lat, lastCameraLng = lng, lastCameraZoom = zoom) }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

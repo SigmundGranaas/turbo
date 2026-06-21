@@ -1,5 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.core.data.di
 
+import android.os.Build
 import com.sigmundgranaas.turbo.expressive.core.data.ConditionsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.HttpConditionsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.GeonorgeTrailSearchRepository
@@ -36,45 +37,59 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
-    // ── DEBUG offline stand-ins ────────────────────────────────────────────────
-    // Every networked, Norway-only backend gets a synthetic in DEBUG so the whole
-    // app is driveable on the emulator / a dev box with no network; release wires
-    // the real HTTP clients. Flip BuildConfig.DEBUG off here to hit the real ones.
+    // ── Offline stand-ins (emulator only) ───────────────────────────────────────
+    // Every networked, Norway-only backend has a synthetic stand-in so the app is
+    // driveable on the emulator / a dev box with no network. That's the ONLY reason
+    // they exist — so gate on "running on an emulator", NOT on BuildConfig.DEBUG.
+    // A debug build dogfooded on a real device must hit the live backends (else the
+    // route is a straight line, search is fake, etc.). Release always uses HTTP.
+    private val useSynthetic: Boolean = BuildConfig.DEBUG && isEmulator()
+
+    /** Heuristic emulator check (no Context needed) — Android Studio AVD, Genymotion. */
+    private fun isEmulator(): Boolean =
+        Build.FINGERPRINT.startsWith("generic") ||
+            Build.FINGERPRINT.startsWith("unknown") ||
+            Build.FINGERPRINT.contains("emulator", ignoreCase = true) ||
+            Build.MODEL.contains("Emulator", ignoreCase = true) ||
+            Build.MODEL.contains("Android SDK built for", ignoreCase = true) ||
+            Build.MANUFACTURER.contains("Genymotion", ignoreCase = true) ||
+            Build.HARDWARE.contains("goldfish") ||
+            Build.HARDWARE.contains("ranchu") ||
+            Build.PRODUCT.contains("sdk")
 
         @Provides
         @Singleton
         fun provideSearchRepository(
             http: KartverketSearchRepository,
             synthetic: SyntheticSearchRepository,
-        ): SearchRepository = if (BuildConfig.DEBUG) synthetic else http
+        ): SearchRepository = if (useSynthetic) synthetic else http
 
         @Provides
         @Singleton
         fun provideTrailSearchRepository(
             http: GeonorgeTrailSearchRepository,
             synthetic: SyntheticTrailSearchRepository,
-        ): TrailSearchRepository = if (BuildConfig.DEBUG) synthetic else http
+        ): TrailSearchRepository = if (useSynthetic) synthetic else http
 
         @Provides
         @Singleton
         fun provideReverseGeocodeRepository(
             http: KartverketReverseGeocodeRepository,
             synthetic: SyntheticReverseGeocodeRepository,
-        ): ReverseGeocodeRepository = if (BuildConfig.DEBUG) synthetic else http
+        ): ReverseGeocodeRepository = if (useSynthetic) synthetic else http
 
         /**
-         * Pick the router: the real trail-bound SSE pathfinder in release, the offline
-         * [SyntheticRouteRepository] in DEBUG so the Route builder + Follow can be driven
-         * anywhere (the real router covers northern Norway only / isn't reachable from the
-         * emulator). Flip [BuildConfig.DEBUG] off here if you need the real router in a
-         * debug build on-coverage.
+         * Pick the router: the real trail-bound SSE pathfinder on any real device
+         * (debug or release), the offline [SyntheticRouteRepository] only on the
+         * emulator (where the router isn't reachable), so the Route builder + Follow
+         * can still be driven there. See [useSynthetic].
          */
         @Provides
         @Singleton
         fun provideRouteRepository(
             http: HttpRouteRepository,
             synthetic: SyntheticRouteRepository,
-        ): RouteRepository = if (BuildConfig.DEBUG) synthetic else http
+        ): RouteRepository = if (useSynthetic) synthetic else http
 
         /** Offline conditions stand-in in DEBUG (MET/Varsom unreachable on the emulator). */
         @Provides
@@ -82,7 +97,7 @@ object NetworkModule {
         fun provideConditionsRepository(
             http: HttpConditionsRepository,
             synthetic: SyntheticConditionsRepository,
-        ): ConditionsRepository = if (BuildConfig.DEBUG) synthetic else http
+        ): ConditionsRepository = if (useSynthetic) synthetic else http
 
         /** Tide predictions (Kartverket sehavniva); synthetic in DEBUG. */
         @Provides
@@ -90,7 +105,7 @@ object NetworkModule {
         fun provideTideRepository(
             http: KartverketTideRepository,
             synthetic: SyntheticTideRepository,
-        ): TideRepository = if (BuildConfig.DEBUG) synthetic else http
+        ): TideRepository = if (useSynthetic) synthetic else http
 
         /**
          * Gridded weather for the cloud overlay (MET locationforecast samples).

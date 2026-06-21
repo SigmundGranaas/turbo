@@ -25,7 +25,7 @@ use ndk::native_window::NativeWindow;
 use raw_window_handle::{
     AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
-use turbomap_core::{Camera, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
+use turbomap_core::{Camera, Color as CoreColor, LatLng as CoreLatLng, MapOptions, PendingTile, TileId};
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
@@ -326,6 +326,9 @@ impl OnScreen {
                 c.center = LatLng::new(target.lat, target.lng);
                 self.engine.set_camera(c);
             }
+            Cmd::SetRouteTube { id, points, color, radius_m } => {
+                self.engine.set_route_tube(&id, &points, color, radius_m);
+            }
             Cmd::Fling(vx, vy) => self.engine.fling((vx, vy)),
             Cmd::ZoomFling { v, fx, fy } => self.engine.zoom_fling(v, (fx, fy)),
             Cmd::EaseTo { lat, lng, zoom, bearing, dur_ms } => {
@@ -548,6 +551,9 @@ enum Cmd {
     /// overwriting (the dropped-intermediate-motion "throttle"/jitter). Ground-
     /// plane unproject → consistent under pitch (no terrain-hit skitter).
     PanByPixels { dx: f64, dy: f64 },
+    /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
+    /// raised 3D tube. Replaces the old flat geo-json line for route/track.
+    SetRouteTube { id: String, points: Vec<CoreLatLng>, color: CoreColor, radius_m: f64 },
     Fling(f64, f64),
     ZoomFling { v: f64, fx: f64, fy: f64 },
     EaseTo { lat: f64, lng: f64, zoom: f64, bearing: f64, dur_ms: u64 },
@@ -624,6 +630,14 @@ fn snapshot_camera(s: &Snapshot) -> Camera {
     .with_bearing(s.cam.bearing_deg)
     .with_viewport_inset(s.inset)
 }
+
+/// Hard cap on a single ingested tile payload (16 MiB). A 256–512px encoded
+/// raster/DEM tile is well under 1 MB; a larger array is a misrouted endpoint,
+/// an error page, or a corrupt cache entry. Reject it *before* `convert_byte_array`
+/// copies it into a `Vec` — an unbounded payload there aborts the process in
+/// scudo (`internal map failure: Out of memory`). Defense-in-depth behind the
+/// host-side guard in `TurbomapMapView.launchTileFetch`.
+const MAX_INGEST_TILE_BYTES: i32 = 16 * 1024 * 1024;
 
 /// The shared handle. UI-facing fields (`cmd*`, `ingest*`, `snapshot`) are
 /// wait-free; `render` is held only by the render thread + lifecycle.
@@ -1091,6 +1105,40 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     unsafe { enqueue(handle, Cmd::PanByPixels { dx, dy }) };
 }
 
+/// Set (or clear) a route/track polyline drawn as a raised 3D tube. `coords` is
+/// a flat `[lat0, lng0, lat1, lng1, …]` array (empty clears the tube `id`);
+/// `radius_m` is the tube radius in metres.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetRouteTube(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    id: JString,
+    coords: jni::objects::JDoubleArray,
+    r: jint,
+    g: jint,
+    b: jint,
+    a: jint,
+    radius_m: jdouble,
+) {
+    let id: String = match env.get_string(&id) {
+        Ok(s) => s.into(),
+        Err(_) => return,
+    };
+    let len = env.get_array_length(&coords).unwrap_or(0).max(0) as usize;
+    let mut buf = vec![0f64; len];
+    if len > 0 && env.get_double_array_region(&coords, 0, &mut buf).is_err() {
+        return;
+    }
+    let points: Vec<CoreLatLng> = buf
+        .chunks_exact(2)
+        .map(|c| CoreLatLng::new(c[0], c[1]))
+        .collect();
+    let color = CoreColor::rgba(r as u8, g as u8, b as u8, a as u8);
+    unsafe { enqueue(handle, Cmd::SetRouteTube { id, points, color, radius_m }) };
+}
+
 /// `[lat, lng, zoom, bearingDeg]`.
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeCamera(
@@ -1198,6 +1246,12 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Ok(s) => s.into(),
         Err(_) => return JNI_FALSE,
     };
+    // Reject an oversized payload before copying it out of the JVM array —
+    // `convert_byte_array` would otherwise calloc the whole thing and abort
+    // on a corrupt/misrouted tile. (Belt-and-suspenders; the host caps too.)
+    if env.get_array_length(&bytes).unwrap_or(0) > MAX_INGEST_TILE_BYTES {
+        return JNI_FALSE;
+    }
     let data = match env.convert_byte_array(&bytes) {
         Ok(d) => d,
         Err(_) => return JNI_FALSE,
@@ -1236,6 +1290,9 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     y: jint,
     bytes: jni::objects::JByteArray,
 ) -> jboolean {
+    if env.get_array_length(&bytes).unwrap_or(0) > MAX_INGEST_TILE_BYTES {
+        return JNI_FALSE;
+    }
     let data = match env.convert_byte_array(&bytes) {
         Ok(d) => d,
         Err(_) => return JNI_FALSE,
