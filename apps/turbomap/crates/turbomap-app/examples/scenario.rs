@@ -840,6 +840,43 @@ fn main() {
         return;
     }
 
+    // Phase-0 terrain-LOD baseline (TURBO_PROBE_LOD=1): sweep pitch and print the
+    // framebuffer probes — ground coverage (low = pan-down clips everything),
+    // horizon luma step (high = hard cutaway line), and sky-hole cracks. Today
+    // these read BROKEN at high pitch; that's the measured baseline the LOD work
+    // (Phase 1+) must flip. The same probes back the per-stage gates.
+    if std::env::var("TURBO_PROBE_LOD").is_ok() {
+        use turbomap_core::fb_probe;
+        // "Not ground": the sky dome (bluish + bright) or the empty-tile clear grey.
+        let is_bg = |px: [u8; 4]| -> bool {
+            let l = fb_probe::luma(px);
+            let sky = px[2] as i32 > px[0] as i32 + 8 && l > 120.0;
+            let grey = (px[0] as i32 - 170).abs() < 14
+                && (px[1] as i32 - 170).abs() < 14
+                && (px[2] as i32 - 165).abs() < 16;
+            sky || grey
+        };
+        eprintln!("  ── LOD probe baseline (pitch sweep, z14) ──");
+        eprintln!("  {:>5}  {:>9}  {:>9}  {:>7}", "pitch", "groundCov", "horizStep", "cracks");
+        for pitch in [0.0_f64, 20.0, 40.0, 60.0, 75.0, 80.0] {
+            map.set_camera(
+                Camera::new(cli.center, 14.0).with_pitch(pitch).with_bearing(cli.bearing),
+            );
+            drain_tiles(&mut map, &basemap, &dem, &vector);
+            let img = render_capture(&mut map, &device, &queue, &target, &target_view);
+            std::fs::write(format!("{}/probe-pitch-{pitch:02.0}.png", cli.out_dir), encode_png(&img))
+                .ok();
+            let (w, h) = (img.width() as usize, img.height() as usize);
+            let raw = img.as_raw();
+            let cov = fb_probe::ground_coverage(raw, w, h, 0.5, is_bg);
+            let step = fb_probe::max_row_luma_step(raw, w, h, is_bg);
+            let cracks = fb_probe::sky_holes(raw, w, h, 4, is_bg);
+            eprintln!("  {pitch:>5.0}  {cov:>9.2}  {step:>9.1}  {cracks:>7}");
+        }
+        eprintln!("LOD PROBE done — frames in {}", cli.out_dir);
+        return;
+    }
+
     // Debug fast path (TURBO_STRESS=1): adversarial soak — hammer the camera
     // with zoom-all-the-way-in / all-the-way-out, big pans, hard tilts and
     // orbits in a deterministic pseudo-random sequence, with sun mode + cast

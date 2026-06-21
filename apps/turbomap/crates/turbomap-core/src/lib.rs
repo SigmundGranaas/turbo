@@ -9,9 +9,11 @@
 pub mod camera;
 pub mod dem;
 pub mod error;
+pub mod fb_probe;
 pub mod geo;
 pub mod hit;
 pub mod lighting;
+pub mod lod;
 pub mod map;
 pub mod markers;
 pub mod projection;
