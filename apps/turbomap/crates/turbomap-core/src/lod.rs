@@ -19,9 +19,16 @@ use crate::camera::Camera;
 use crate::geo::WorldPoint;
 use crate::tile::TileId;
 
-/// Hard backstop on the emitted set — SSE termination already bounds the count,
-/// this just guarantees it can never run away (e.g. a degenerate camera).
-const MAX_TILES: usize = 384;
+/// Hard cap on the emitted set. This is NOT just a runaway backstop: the device
+/// GPU tile cache holds a bounded working set (~160 tiles at the default 80 MiB
+/// budget), and a desired set LARGER than the cache thrashes — every tile is
+/// evicted before it can be drawn, so the terrain never resides and the screen
+/// greys out (worst when zoomed in at a tilt, where the near field refines fine
+/// AND the footprint still reaches the horizon). So the cap matches the proven
+/// working-set budget; `select` refines NEAR roots first, so when the cap bites
+/// it drops the FAR field — which is hazed/curved away to the horizon anyway —
+/// rather than punching holes in the near terrain that fills the screen.
+const MAX_TILES: usize = 160;
 
 /// One tile chosen by the LOD walk. A thin wrapper now (just the id the resolver
 /// needs); Phase 1+ may carry its computed screen-space error / neighbour LODs
@@ -86,6 +93,21 @@ fn footprint_roots(camera: &Camera, vp: (f64, f64), z: u8) -> Vec<TileId> {
             roots.push(TileId::new(z, x, y));
         }
     }
+    // Refine NEAR roots first: when the MAX_TILES cap bites (zoomed in at a tilt,
+    // footprint reaching the horizon), the dropped roots are the FARTHEST ones —
+    // the hazed/curved-away far field — instead of an arbitrary row-major slice
+    // that could blank the near terrain filling the screen. Distance is from the
+    // camera's look-at point (centre) to each root's centre, in world units.
+    let c = camera.center.to_world();
+    let inv_n = 1.0 / n as f64;
+    roots.sort_by(|a, b| {
+        let d = |t: &TileId| {
+            let cx = (t.x as f64 + 0.5) * inv_n - c.x;
+            let cy = (t.y as f64 + 0.5) * inv_n - c.y;
+            cx * cx + cy * cy
+        };
+        d(a).partial_cmp(&d(b)).unwrap_or(std::cmp::Ordering::Equal)
+    });
     roots
 }
 
