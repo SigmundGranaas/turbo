@@ -16,6 +16,7 @@ use crate::camera::Camera;
 use crate::dem::DemEncoding;
 use crate::sun::{self, SunPosition};
 
+use super::floor::FloorGlobals;
 use super::raster::TerrainConfig;
 use super::sky::SkyGlobals;
 
@@ -51,6 +52,10 @@ pub(crate) struct RenderFrame {
     /// the horizon (pure top-down stays byte-identical, so the flat golden
     /// holds). `None` → skip the sky pass.
     pub sky_globals: Option<SkyGlobals>,
+    /// Floor backstop uniform — a sea-grey plane just below sea level that fills
+    /// gaps where terrain tiles haven't streamed in. `None` → skip (flat 2D / no
+    /// terrain). Drawn after the sky, before the terrain.
+    pub floor_globals: Option<FloorGlobals>,
 }
 
 impl RenderFrame {
@@ -122,6 +127,36 @@ impl RenderFrame {
             None
         };
 
+        // Floor backstop: a sea-grey plane just below sea level filling any gap
+        // where terrain tiles haven't loaded (or a seam gapes). Only in 3D
+        // (pitched) with terrain present. Droops with the SAME curvature term as
+        // the terrain (`earth_curvature_coeff`) so it never pokes up through the
+        // curved-away far field.
+        let floor_globals = if draw_sky && terrain.present {
+            let origin = camera.center.to_world();
+            let vp = camera.view_projection_matrix_rtc(origin, viewport_px);
+            let inv_view_proj =
+                glam::Mat4::from_cols_array_2d(&vp).inverse().to_cols_array_2d();
+            if !super::mat4_is_finite(&inv_view_proj) {
+                None
+            } else {
+                let coslat = (camera.center.lat.to_radians().cos() as f32).abs();
+                Some(FloorGlobals {
+                    view_proj: vp,
+                    inv_view_proj,
+                    // Muted sea-grey (linear RGB).
+                    color: [0.27, 0.31, 0.36, 1.0],
+                    // ~150 m below sea level, in world-z.
+                    floor_z: -150.0 * meters_to_world,
+                    curvature_coeff: crate::camera::earth_curvature_coeff(coslat),
+                    enabled: 1.0,
+                    _pad: 0.0,
+                })
+            }
+        } else {
+            None
+        };
+
         // Raster ground-plane terrain config. No terrain → meters_to_world 0,
         // so the shader displacement collapses and the mesh draws flat.
         let raster_terrain_cfg = TerrainConfig {
@@ -169,6 +204,7 @@ impl RenderFrame {
             vec_terrain_encoding,
             vec_terrain_halo_uv,
             sky_globals,
+            floor_globals,
         }
     }
 }

@@ -27,6 +27,7 @@ use crate::{
         frame::{RenderFrame, TerrainFrameInputs},
         gpu_timestamps::GpuTimestamps,
         hillshade::{HillshadePipeline, PreparedHillshade},
+        floor::FloorPipeline,
         icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
         raster::{PreparedRaster, RasterPipeline},
@@ -191,14 +192,27 @@ pub struct MapOptions {
 impl Default for MapOptions {
     fn default() -> Self {
         Self {
-            // Per-layer GPU texture budget. There are up to THREE live
-            // caches at once (raster + vector + terrain DEM), so this is
-            // ×3 of real VRAM. 128 MiB each (384 MiB total) risks OOM /
-            // ANR on a phone under sustained tilted 3D; 80 MiB (≈240 MiB
-            // total) is safe, and the eviction↔ingested coherence fix
-            // means a smaller cache just re-requests rather than greying
-            // out. Comfortably holds a screen's working set at any pitch.
-            cache_budget_bytes: 80 * 1024 * 1024,
+            // Per-layer GPU texture budget (a CEILING — memory is used only
+            // as tiles actually resolve, not pre-allocated). There are up to
+            // THREE live caches (raster + vector + terrain DEM); raster is the
+            // one that fills.
+            //
+            // This MUST exceed the desired working set with real headroom for
+            // pan/revisit history, or the LRU evicts tiles the moment they
+            // leave the desired set — so looking back re-fetches them (slow)
+            // and, when the desired set itself overflows the cache, the
+            // resident set churns frame-to-frame and the best-available
+            // resolver flip-flops coarse↔fine (visible flicker even when the
+            // camera is still). The pitched LOD desired set is now ~260 tiles
+            // (lod::MAX_TILES=220 + overview backdrop); 80 MiB (~240 tiles @
+            // ~340 KiB) couldn't even hold it. 256 MiB holds ~750 raster
+            // tiles. 512 MiB holds ~1500 raster tiles: the full desired set plus
+            // a deep pan/zoom history, so an entire session's worth of revisited
+            // tiles stays hot. It's a ceiling, not an allocation — only raster
+            // tends to fill it; DEM/vector use far less. Well within a modern
+            // phone's GPU budget; if a long session ever shows memory-pressure
+            // jank, this is the knob to walk back.
+            cache_budget_bytes: 512 * 1024 * 1024,
             prefetch_margin_px: 256,
             pixel_ratio: 1.0,
             // Fade-in is currently DISABLED (0 = tiles snap to fully
@@ -483,6 +497,7 @@ struct Renderer {
     /// Analytic atmosphere sky, drawn first in the frame pass when the camera
     /// is tilted (so the horizon band shows behind the terrain).
     sky_pipeline: SkyPipeline,
+    floor_pipeline: FloorPipeline,
     /// Optional GPU-side frame timing — `Some` only when the device negotiated
     /// `Features::TIMESTAMP_QUERY`.
     gpu_timestamps: Option<GpuTimestamps>,
@@ -513,6 +528,7 @@ impl Renderer {
             icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), surface_format),
             marker_pipeline: MarkerPipeline::new(device.clone(), queue.clone(), surface_format),
             sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), surface_format),
+            floor_pipeline: FloorPipeline::new(device.clone(), queue.clone(), surface_format),
             gpu_timestamps: GpuTimestamps::new(device, queue),
             terrain_shared: TerrainShared::new(device, queue),
             shadow_map: ShadowMap::new(device, queue),
@@ -2099,6 +2115,14 @@ impl Map {
             // shows only at the horizon when the camera is tilted.
             if let Some(g) = &frame.sky_globals {
                 self.renderer.sky_pipeline.draw(g, &mut pass);
+            }
+
+            // Floor backstop: after the sky, before the terrain. Writes depth at a
+            // sea-grey plane just below sea level, so unloaded-tile gaps show the
+            // floor (not see-through sky); terrain, drawn next and higher, overdraws
+            // it everywhere it exists.
+            if let Some(g) = &frame.floor_globals {
+                self.renderer.floor_pipeline.draw(g, &mut pass);
             }
 
             for (i, prepared) in &prepared_layers {

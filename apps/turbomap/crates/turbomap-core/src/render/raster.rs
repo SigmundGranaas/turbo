@@ -668,8 +668,6 @@ impl RasterPipeline {
         {
             let resident = |t: TileId| cache.peek(t).is_some();
             let first_seen = &mut self.first_seen;
-            let mut seen_this_frame: std::collections::HashSet<TileId> =
-                std::collections::HashSet::new();
 
             let push_tile = |batches: &mut Vec<DrawBatch>,
                              terrain: &mut Option<&mut TerrainCache>,
@@ -717,7 +715,6 @@ impl RasterPipeline {
                 // time (not its ingest age). `fade_in_secs == 0` (goldens) snaps.
                 let mut whole_alpha: Vec<(TileId, f32)> = Vec::with_capacity(wholes.len());
                 for t in &wholes {
-                    seen_this_frame.insert(*t);
                     let a = if fade_in_secs <= 0.0 {
                         1.0
                     } else {
@@ -768,9 +765,14 @@ impl RasterPipeline {
                 }
             }
 
-            // Keep `first_seen` bounded to what's on screen — an off-screen tile
-            // that scrolls back re-fades (a transition is a transition).
-            first_seen.retain(|k, _| seen_this_frame.contains(k));
+            // Key `first_seen` to RESIDENT tiles, not just on-screen ones. A tile
+            // that scrolls/zooms out of view but stays cached keeps its
+            // fade-complete timestamp, so when the camera pans back — or Following
+            // mode nudges it from GPS — it stays crisp instead of re-fading from
+            // its coarse ancestor (the "low-quality tile flashes over my good tile
+            // then disappears" bug). Only genuinely new (newly-resident) tiles
+            // fade; eviction drops the entry so a re-fetched tile fades afresh.
+            first_seen.retain(|k, _| resident(*k));
         }
 
         let total_instances: u64 = batches.iter().map(|b| b.instances.len() as u64).sum();

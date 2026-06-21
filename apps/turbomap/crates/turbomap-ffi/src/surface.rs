@@ -209,13 +209,19 @@ fn build(
     // Fade newly-ingested tiles in over ~0.3 s instead of popping. The host keeps
     // rendering (render-on-demand) while `is_animating` is true so the fade
     // completes. Goldens keep the default 0 (deterministic, no time dependence).
-    // A tighter off-screen prefetch ring than the 256px default: the reconciler
-    // fetches nearest-first, so visible tiles still come in first, but a smaller
-    // margin roughly halves the per-view tile count on a slow connection — the
-    // visible area fills noticeably faster instead of competing with a wide ring.
+    //
+    // A GENEROUS off-screen prefetch ring (≈2 screens wide of warm tiles). The
+    // reconciler still fetches nearest-first, so the visible area fills first, but
+    // the surrounding ring is pulled into the pipeline before the user pans there.
+    // Tiles are disk-resident (host disk cache) so the fetch is cheap, and the
+    // render thread pre-decodes the ring during IDLE frames (see the adaptive
+    // ingest budget in `render_frame`) — so panning/zooming lands on tiles already
+    // resident on the GPU instead of waiting for a reactive decode. The old 128 px
+    // ring was tuned for a slow cold network; with the disk cache + a large GPU
+    // texture budget the constraint is now "warm as much as we can ahead of time".
     let options = MapOptions {
         fade_in_secs: 0.3,
-        prefetch_margin_px: 128,
+        prefetch_margin_px: 512,
         ..MapOptions::default()
     };
     let engine = TurbomapEngine::new(
@@ -659,18 +665,34 @@ impl Surface {
     /// only place the engine is mutated. Runs on the render thread.
     fn render_frame(&self) {
         let mut on = self.render.lock().unwrap_or_else(|p| p.into_inner());
-        // Control commands fully drain (they must land this frame).
+        // Control commands fully drain (they must land this frame). Count them: a
+        // frame with no control commands AND no in-flight camera animation is IDLE
+        // — the render-on-demand loop is only awake to drain the tile backlog.
+        let mut cmds = 0u32;
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             on.apply_cmd(cmd);
+            cmds += 1;
         }
         // Time-budgeted tile ingest. Decode + GPU upload run on THIS (render) thread;
         // terrain/DEM tiles in particular are expensive (decode + mesh build). Draining
         // a whole network burst in one frame pins the render thread for seconds (the map
-        // "freezes solid" while the UI thread stays live). Instead we spend at most
-        // `INGEST_BUDGET` per frame — always making progress on ≥1 tile — and report a
-        // remaining backlog as "animating" below so the host keeps pumping frames. The
-        // queue then drains fast across many *cheap* frames, never one giant stall.
-        const INGEST_BUDGET: std::time::Duration = std::time::Duration::from_millis(6);
+        // "freezes solid" while the UI thread stays live). Instead we spend a per-frame
+        // budget — always making progress on ≥1 tile — and report a remaining backlog as
+        // "animating" below so the host keeps pumping frames; the queue drains across
+        // many cheap frames, never one giant stall.
+        //
+        // The budget is ADAPTIVE: while the camera is actively moving (gestures, fling,
+        // ease) we keep it small so interaction stays smooth; when IDLE we spend far more
+        // of the frame decoding, because that's exactly when prefetched ring tiles should
+        // be prepared in advance — the render thread is otherwise doing nothing, and the
+        // user isn't waiting on a frame. So a calm moment quietly warms the surroundings,
+        // and a later pan/zoom lands on already-resident tiles.
+        let idle = cmds == 0 && !on.engine.is_animating();
+        let ingest_budget = if idle {
+            std::time::Duration::from_millis(14)
+        } else {
+            std::time::Duration::from_millis(6)
+        };
         let ingest_start = std::time::Instant::now();
         let mut ingested = 0u32;
         let mut applied_keys: Vec<(String, TileId)> = Vec::new();
@@ -678,7 +700,7 @@ impl Surface {
             applied_keys.push(ingest_key(&i));
             on.apply_ingest(i);
             ingested += 1;
-            if ingest_start.elapsed() >= INGEST_BUDGET {
+            if ingest_start.elapsed() >= ingest_budget {
                 break;
             }
         }

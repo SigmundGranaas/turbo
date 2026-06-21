@@ -7,6 +7,7 @@
 //! all geometry layers, and finally renders markers on top.
 
 pub(crate) mod cache;
+pub(crate) mod floor;
 pub(crate) mod frame;
 pub(crate) mod gpu_timestamps;
 pub(crate) mod hillshade;
