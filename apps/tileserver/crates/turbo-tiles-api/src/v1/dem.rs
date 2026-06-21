@@ -74,26 +74,47 @@ pub async fn rgb(
         .dem
         .as_ref()
         .ok_or(ApiError::PrimitiveUnavailable("dem"))?;
-    let started = Instant::now();
 
-    // Render off the request thread — sampling tens of thousands of
-    // points is CPU-bound and we don't want to block tokio's runtime.
-    let dem = dem.clone();
-    let png_bytes = tokio::task::spawn_blocking(move || render_tile(&dem, z, x, y, halo))
+    let key = crate::dem_tile_cache::TileKey { z, x, y, halo };
+    let cache = state.dem_tiles.clone();
+
+    // 1. RAM tier — fastest, no disk, no renderer.
+    if let Some(bytes) = cache.get_mem(key) {
+        return dem_response(&bytes, halo, "ram");
+    }
+    // 2. SSD tier — a blocking read off the runtime; also promotes to RAM.
+    let c = cache.clone();
+    let disk_hit = tokio::task::spawn_blocking(move || c.get_disk(key))
         .await
-        .map_err(|e| ApiError::Internal(format!("join: {e}")))??;
-    let took_ms = started.elapsed().as_millis();
-    let out_size = TILE_PX + 2 * halo;
-    tracing::debug!(
-        z,
-        x,
-        y,
-        halo,
-        took_ms,
-        bytes = png_bytes.len(),
-        "dem rgb tile"
-    );
+        .map_err(|e| ApiError::Internal(format!("join: {e}")))?;
+    if let Some(bytes) = disk_hit {
+        return dem_response(&bytes, halo, "disk");
+    }
 
+    // 3. Miss → render. Take a render permit; if the renderer is saturated,
+    //    throttle (429) instead of queueing into a congestion collapse. Cache
+    //    hits above never need a permit, so a warm server stays fully parallel.
+    let permit = cache.try_render().ok_or(ApiError::Throttled)?;
+    let dem = dem.clone();
+    let started = Instant::now();
+    let png_bytes = tokio::task::spawn_blocking(move || {
+        let png = render_tile(&dem, z, x, y, halo)?;
+        // Write through both tiers — every tile we produce is cached.
+        cache.put(key, &png);
+        Ok::<Vec<u8>, ApiError>(png)
+    })
+    .await
+    .map_err(|e| ApiError::Internal(format!("join: {e}")))??;
+    drop(permit);
+    tracing::debug!(z, x, y, halo, took_ms = started.elapsed().as_millis(), bytes = png_bytes.len(), "dem rgb render (miss)");
+
+    dem_response(&png_bytes, halo, "miss")
+}
+
+/// Build the PNG tile response with the shared cache/size headers. `source` is
+/// surfaced as `x-cache` (`ram`/`disk`/`miss`) for the profiler + observability.
+fn dem_response(png_bytes: &[u8], halo: u32, source: &'static str) -> Result<Response, ApiError> {
+    let out_size = TILE_PX + 2 * halo;
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, HeaderValue::from_static("image/png"))
@@ -107,7 +128,8 @@ pub async fn rgb(
         .header("x-tile-size", HeaderValue::from(TILE_PX))
         .header("x-tile-halo", HeaderValue::from(halo))
         .header("x-png-size", HeaderValue::from(out_size))
-        .body(Body::from(png_bytes))
+        .header("x-cache", HeaderValue::from_static(source))
+        .body(Body::from(png_bytes.to_vec()))
         .map_err(|e| ApiError::Internal(e.to_string()))
 }
 

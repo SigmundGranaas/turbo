@@ -144,6 +144,32 @@ spec:
             # CPU limit rather than the node's core count.
             - name: TILESERVER_ROUTING_CONCURRENCY
               value: "2"
+            # --- Rendered DEM-tile cache (write-through RAM + SSD) ----------
+            # /v1/dem/rgb re-renders 66k projections + bilinear samples + PNG
+            # per tile (~234ms warm) and congestion-collapses past a few
+            # concurrent renders (measured p50 430ms@8 → 9.5s@64). The DTM is
+            # immutable per deploy, so rendered tiles are reusable forever —
+            # this caches every tile produced (RAM in front of the SSD volume
+            # below), serving warm tiles in ~1ms and lifting the per-tile
+            # re-render that made the endpoint fragile under load.
+            - name: TILESERVER_DEM_TILE_CACHE_DIR
+              value: "/var/lib/tileserver/dem-cache"
+            # SSD budget. LRU-evicts the least-recently-used tiles when full —
+            # keep it UNDER the dem-cache emptyDir sizeLimit (4Gi) so the app
+            # cleans up before the kubelet evicts the pod on ephemeral storage.
+            - name: TILESERVER_DEM_TILE_CACHE_DISK_BYTES
+              value: "3221225472"   # 3 GiB
+            # RAM tier — small, in front of the SSD. Stays well under the 2Gi
+            # pod limit alongside heap + the 128MiB DEM source cache + mmap.
+            - name: TILESERVER_DEM_TILE_CACHE_MEM_BYTES
+              value: "67108864"     # 64 MiB
+            # Max concurrent tile RENDERS (cache misses). Past this a miss
+            # returns 429 + Retry-After (throttle) instead of piling onto the
+            # CPU-bound renderer and collapsing it. Sized to the 2-core CPU
+            # limit with a little overlap; cache HITS never take a permit, so a
+            # warm server stays fully concurrent.
+            - name: TILESERVER_DEM_RENDER_CONCURRENCY
+              value: "4"
             # JWT_SECRET gates only the /admin + debug surface; the public
             # tiles/basemap/routing endpoints serve without it (boot no longer
             # fails when it's unset — public-only mode). We still set it here so
@@ -193,6 +219,12 @@ spec:
             # volume). Matches TILESERVER_INCOMING_DIR above.
             - name: incoming
               mountPath: /var/lib/tileserver/incoming
+            # Rendered DEM-tile cache. Node-local SSD (emptyDir → the node's
+            # ephemeral disk, which is SSD on this box). Writable: the app
+            # write-through-caches every rendered tile here and LRU-evicts when
+            # its byte budget (TILESERVER_DEM_TILE_CACHE_DISK_BYTES) is reached.
+            - name: dem-cache
+              mountPath: /var/lib/tileserver/dem-cache
       volumes:
         - name: artifacts
           persistentVolumeClaim:
@@ -208,6 +240,15 @@ spec:
           # the node has the free space (else the pod is evicted).
           emptyDir:
             sizeLimit: 30Gi
+        # Rendered DEM-tile cache, node-local SSD. A few GiB of immutable PNGs;
+        # the app's LRU keeps usage under TILESERVER_DEM_TILE_CACHE_DISK_BYTES
+        # (3Gi), and this 4Gi hard cap is the kubelet's backstop. emptyDir =
+        # zero-provisioning (ready on every deploy); it's wiped on pod removal
+        # and re-warms in seconds — the cache exists to absorb live load, not
+        # to persist. (Swap for a hostPath PV if cross-restart warmth matters.)
+        - name: dem-cache
+          emptyDir:
+            sizeLimit: 4Gi
 ---
 apiVersion: v1
 kind: Service

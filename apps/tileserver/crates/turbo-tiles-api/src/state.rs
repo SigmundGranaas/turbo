@@ -58,6 +58,12 @@ pub struct ApiState {
     /// CPU cores) run at once; excess requests await a permit cheaply
     /// instead of all allocating at once.
     pub routing_permits: Arc<tokio::sync::Semaphore>,
+    /// Write-through cache (RAM + SSD) of rendered Terrain-RGB DEM tiles, plus
+    /// the render-concurrency throttle. The DTM is immutable per deploy, so
+    /// rendered tiles are reusable forever — a hit serves in ~1ms and is not
+    /// CPU-bound, eliminating the per-tile re-render that made `/v1/dem`
+    /// congestion-collapse under load. See [`crate::dem_tile_cache`].
+    pub dem_tiles: crate::dem_tile_cache::DemTileCache,
 }
 
 impl ApiState {
@@ -88,6 +94,7 @@ impl ApiState {
                     .expect("embedded n50-topo style must parse"),
             ),
             routing_permits: Arc::new(tokio::sync::Semaphore::new(permits)),
+            dem_tiles: crate::dem_tile_cache::DemTileCache::from_env(),
         }
     }
 

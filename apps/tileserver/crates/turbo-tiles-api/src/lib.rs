@@ -4,6 +4,7 @@
 #![allow(clippy::arc_with_non_send_sync)]
 
 pub mod crash_dump;
+pub mod dem_tile_cache;
 pub mod error;
 pub mod fonts;
 pub mod sprite;

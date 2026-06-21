@@ -25,6 +25,11 @@ pub enum ApiError {
     },
     #[error("internal: {0}")]
     Internal(String),
+    /// The renderer is at its concurrency cap — shed load instead of queueing
+    /// into a congestion collapse. 429 + `Retry-After` so the client backs off
+    /// and retries (the tile is still desired; it just isn't cached yet).
+    #[error("renderer busy")]
+    Throttled,
     #[error(transparent)]
     Auth(#[from] turbo_tiles_auth::AuthError),
 }
@@ -48,6 +53,19 @@ impl IntoResponse for ApiError {
                 return (StatusCode::UNPROCESSABLE_ENTITY, Json(body)).into_response();
             }
             ApiError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
+            ApiError::Throttled => {
+                // 429 with Retry-After: the client should back off briefly and
+                // re-request (it still wants this tile). One header beyond the
+                // JSON body, so build the response explicitly.
+                let mut resp = (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Json(json!({"error": "renderer busy, retry shortly"})),
+                )
+                    .into_response();
+                resp.headers_mut()
+                    .insert(axum::http::header::RETRY_AFTER, axum::http::HeaderValue::from_static("1"));
+                return resp;
+            }
             ApiError::Auth(e) => return e.clone_into_response(),
         };
         if matches!(self, ApiError::Db(_)) {
