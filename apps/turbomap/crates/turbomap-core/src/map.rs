@@ -641,9 +641,14 @@ struct TerrainShadowState {
     strength: f32,
     /// Key of the last computed field; `None` forces a recompute.
     key: Option<ShadowKey>,
-    /// Camera-relative origin + world extent of the last computed field,
-    /// re-applied to the frame's terrain config every frame the feature is on.
-    origin_rtc: [f32; 2],
+    /// ABSOLUTE world origin (lower-left, Mercator [0,1]) of the last computed
+    /// field. Stored absolute — NOT camera-relative — because the shadow
+    /// texture is anchored to the terrain, and the camera-relative (RTC) origin
+    /// the shader needs must be rederived against the CURRENT camera each frame
+    /// (`origin_abs − current_cam_origin`). Storing an RTC origin instead pinned
+    /// the stale texture to the moving camera, so shadows slid in screen space
+    /// while panning instead of staying on the ground.
+    origin_abs: [f64; 2],
     world_size: f32,
 }
 
@@ -1682,7 +1687,12 @@ impl Map {
             });
             self.renderer.shadow_map.upload(&field);
             self.shadow.key = Some(key);
-            self.shadow.origin_rtc = origin_rtc;
+            // Anchor the grid in ABSOLUTE world space (compute-time camera
+            // origin + RTC corner). The per-frame block below rebases this to
+            // the current camera so the shadow stays on the terrain when the
+            // camera pans before the next recompute.
+            self.shadow.origin_abs =
+                [cam_origin.x + origin_rtc[0] as f64, cam_origin.y + origin_rtc[1] as f64];
             self.shadow.world_size = size_f;
         }
 
@@ -1691,7 +1701,16 @@ impl Map {
         // the flip-to-3D animation, which is exactly when the recompute is
         // skipped above.
         if self.shadow.key.is_some() {
-            frame.raster_terrain_cfg.shadow_origin = self.shadow.origin_rtc;
+            // Rebase the absolute grid origin into the CURRENT frame's RTC frame
+            // (the vertex shader's `world_xy` is relative to this frame's camera
+            // origin). Doing this every frame — not just at recompute — keeps the
+            // shadow texture pinned to the terrain through a pan, instead of
+            // sliding with the camera in screen space.
+            let cam_now = self.cam.camera.center.to_world();
+            frame.raster_terrain_cfg.shadow_origin = [
+                (self.shadow.origin_abs[0] - cam_now.x) as f32,
+                (self.shadow.origin_abs[1] - cam_now.y) as f32,
+            ];
             frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
             frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
         }

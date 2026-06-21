@@ -32,6 +32,7 @@ import com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin
 import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
@@ -564,8 +565,14 @@ internal class TurbomapSurfaceController {
     }
 
     private fun launchTileFetch(t: TileFetch): Job {
+        // LAZY so `self` is assigned BEFORE the body can run. With an immediate
+        // dispatcher on a scope that's being cancelled (activity destroy / detach
+        // racing a reconcile pass), an eagerly-started body jumps straight to the
+        // `finally` below — reaching `=== self` before `self =` completes —
+        // throwing UninitializedPropertyAccessException ("froze/crashed on
+        // close"). LAZY + explicit start() makes that impossible.
         lateinit var self: Job
-        self = scope.launch {
+        self = scope.launch(start = CoroutineStart.LAZY) {
             try {
             // Read-through disk cache: serve an already-fetched tile offline, else
             // fetch (cancelable OkHttp Call, pooled/HTTP2) + persist.
@@ -608,6 +615,7 @@ internal class TurbomapSurfaceController {
                 requestReconcile() // a slot freed — fill it with the next-nearest tile
             }
         }
+        self.start()
         return self
     }
 
@@ -615,7 +623,12 @@ internal class TurbomapSurfaceController {
         running = false
         reconcileLoop?.cancel()
         reconcileLoop = null
-        inFlight.values.forEach { it.cancel() }
+        // Snapshot before cancelling: on the immediate dispatcher each cancel()
+        // runs the job's `finally` synchronously, which removes the job from
+        // `inFlight` — mutating the map mid-iteration would throw
+        // ConcurrentModificationException (an "Unable to destroy activity" crash
+        // on close/rotate). Iterate a copy, then clear any stragglers.
+        inFlight.values.toList().forEach { it.cancel() }
         inFlight.clear()
         retryAt.clear()
         scope.coroutineContext.cancelChildren()

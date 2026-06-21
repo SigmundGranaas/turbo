@@ -13,7 +13,9 @@
 // workspace's `unsafe_code = "warn"` doesn't fit a hand-written FFI boundary.
 #![allow(unsafe_code)]
 
+use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use jni::objects::{JClass, JObject, JString};
@@ -38,6 +40,16 @@ fn set_error(msg: impl Into<String>) {
         *slot = Some(msg.into());
     }
 }
+
+/// Live surfaces keyed by an opaque integer handle. We hand the HOST an id, not
+/// a raw `Box` pointer: when a surface is destroyed its entry is removed, so a
+/// stale handle — a JNI call racing surface teardown (rotation / activity
+/// recreate), which used to dereference freed memory and SIGSEGV — now resolves
+/// to "not found" and safely no-ops. Each call clones the `Arc`, so an in-flight
+/// call keeps the surface alive even if `nativeDestroy` removes it concurrently.
+static SURFACES: LazyLock<Mutex<HashMap<u64, Arc<Surface>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
 
 /// Route the `log` facade (ours + wgpu's) to logcat once, so GPU/pipeline
 /// errors and render-path diagnostics are visible on device. No-op off Android.
@@ -252,29 +264,290 @@ impl OnScreen {
         self.surface.configure(&self.device, &self.config);
         self.engine.resize(self.config.width, self.config.height);
     }
+
+    /// Apply one queued control mutation to the engine (render thread only).
+    fn apply_cmd(&mut self, cmd: Cmd) {
+        use std::time::Duration;
+        match cmd {
+            Cmd::SetCamera { lat, lng, zoom, bearing } => {
+                let mut c = self.engine.camera();
+                c.center = LatLng::new(lat, lng);
+                c.zoom = zoom;
+                c.bearing_deg = bearing;
+                self.engine.set_camera(c);
+            }
+            Cmd::Fling(vx, vy) => self.engine.fling((vx, vy)),
+            Cmd::ZoomFling { v, fx, fy } => self.engine.zoom_fling(v, (fx, fy)),
+            Cmd::EaseTo { lat, lng, zoom, bearing, dur_ms } => {
+                let mut target = self.engine.camera();
+                target.center = LatLng::new(lat, lng);
+                target.zoom = zoom;
+                target.bearing_deg = bearing;
+                self.engine.ease_to(target, Duration::from_millis(dur_ms));
+            }
+            Cmd::EasePitch { pitch, dur_ms } => {
+                let mut target = self.engine.camera();
+                target.pitch_deg = pitch;
+                self.engine.ease_to(target, Duration::from_millis(dur_ms));
+            }
+            Cmd::ZoomAroundAnimated { factor, fx, fy, dur_ms } => {
+                self.engine
+                    .zoom_around_animated(factor, (fx, fy), Duration::from_millis(dur_ms));
+            }
+            Cmd::ZoomAround { factor, fx, fy } => self.engine.zoom_around(factor, (fx, fy)),
+            Cmd::OrbitAround { db, dp, fx, fy } => {
+                self.engine.rotate_around(db, (fx, fy));
+                self.engine.pitch_around(dp, (fx, fy));
+            }
+            Cmd::CancelAnimation => {
+                let here = self.engine.camera();
+                self.engine.set_camera(here);
+            }
+            Cmd::SetViewportInset(px) => self.engine.set_viewport_inset(px),
+            Cmd::SetTerrainShadows(s) => self.engine.set_terrain_shadows(s),
+            Cmd::SetSunTime(t) => self.engine.set_sun_time(t),
+            Cmd::EnableClouds { w, h } => self.engine.enable_clouds(w, h),
+            Cmd::SetCloudsVisible(v) => self.engine.set_clouds_visible(v),
+            Cmd::SetCloudGeoBounds { w, s, e, n } => self.engine.set_cloud_geo_bounds(w, s, e, n),
+            Cmd::IngestRadar { slot, w, h, precip, coverage } => {
+                self.engine.ingest_radar_frame(slot, w, h, &precip, &coverage);
+            }
+            Cmd::SetCloudTime { time, blend } => self.engine.set_cloud_time(time, blend),
+            Cmd::ApplyScene(scene) => {
+                self.engine.apply(*scene);
+            }
+            Cmd::PumpTiles => {
+                self.engine.pump_tiles();
+            }
+            Cmd::Resize { w, h } => self.resize(w, h),
+        }
+    }
+
+    /// Decode + upload one fetched tile (render thread only; rate-limited).
+    fn apply_ingest(&mut self, ingest: Ingest) {
+        match ingest {
+            Ingest::Raster { layer, tile, bytes } => {
+                self.engine.ingest_raster_encoded(&layer, tile, &bytes);
+            }
+            Ingest::Terrain { tile, bytes } => {
+                self.engine.ingest_terrain_encoded(tile, &bytes);
+            }
+        }
+    }
+
+    /// Build the immutable read model the UI loads wait-free.
+    fn build_snapshot(&self) -> Snapshot {
+        Snapshot {
+            cam: self.engine.camera(),
+            animating: self.engine.is_animating(),
+            pending_json: pending_tiles_json(&self.engine),
+            stats_json: stats_json(&self.engine),
+        }
+    }
 }
 
-/// `handle` is a `Box<Mutex<OnScreen>>` pointer. Every native entry point goes
-/// through here, so the lock serialises access from the dedicated render thread
-/// (the frame loop) and the UI thread (gestures, projection, the tile
-/// reconciler) — the engine itself stays single-owner, no internal locking.
-/// A panic while the lock is held poisons it; we recover the inner value so one
-/// caught panic doesn't wedge the map forever.
-unsafe fn with_map<R>(handle: jlong, f: impl FnOnce(&mut OnScreen) -> R) -> Option<R> {
-    let ptr = handle as *const Mutex<OnScreen>;
-    if ptr.is_null() {
-        return None;
+/// JSON array of the tiles the engine is waiting on (for the host's tile pump).
+fn pending_tiles_json(engine: &TurbomapEngine) -> String {
+    let items: Vec<String> = engine
+        .pending_tiles()
+        .into_iter()
+        .filter_map(|p| {
+            let (kind, layer, t) = match p {
+                PendingTile::Raster { layer_id, tile } => ("raster", layer_id, tile),
+                PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id, tile),
+                PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
+                PendingTile::Terrain { tile } => ("terrain", "__terrain".to_string(), tile),
+            };
+            Some(format!(
+                "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
+                t.z, t.x, t.y
+            ))
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+/// Compact JSON of the last frame's cache telemetry, summed across layers.
+fn stats_json(engine: &TurbomapEngine) -> String {
+    let m = engine.last_frame_metrics();
+    let tiles: usize = m.layers.iter().map(|l| l.cache.entries).sum();
+    let bytes: usize = m.layers.iter().map(|l| l.cache.bytes_used).sum();
+    let budget: usize = m.layers.iter().map(|l| l.cache.budget_bytes).max().unwrap_or(0);
+    let evictions: u64 = m.layers.iter().map(|l| l.cache.evictions).sum();
+    let hits: u64 = m.layers.iter().map(|l| l.cache.hits).sum();
+    let misses: u64 = m.layers.iter().map(|l| l.cache.misses).sum();
+    format!(
+        "{{\"tiles\":{tiles},\"bytes\":{bytes},\"budget\":{budget},\"evictions\":{evictions},\"hits\":{hits},\"misses\":{misses}}}"
+    )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Thread model — eliminate the ANR bug class by *design*, not by patching.
+//
+// The map runs on two threads: the dedicated render/frame loop, and the UI
+// thread (gestures, overlay projection, the tile reconciler). The old design
+// shared `Mutex<OnScreen>` between them, so any UI call could block for a whole
+// frame while the render thread held the lock (e.g. during the CPU shadow
+// march) → input dispatch timeout → ANR ("froze then crashed").
+//
+// Here the UI thread NEVER touches the engine and NEVER waits on a render frame:
+//   • Mutations are wait-free *commands* pushed onto lock-free channels and
+//     applied by the render thread at the top of the next frame.
+//   • Reads load an immutable [`Snapshot`] the render thread republishes after
+//     each frame (the brief `Mutex<Arc<Snapshot>>` only ever guards a pointer
+//     swap — zero work under it, so it cannot accumulate to a stall).
+// The engine (`OnScreen`) is owned solely by the render thread + rare lifecycle
+// calls (`render`/`resize`), serialised by `render: Mutex`. The UI hot path
+// touches none of it, so a slow frame degrades to dropped frames (jank), never
+// a frozen UI. The lock the UI used to wait on is gone — the class is gone.
+// ──────────────────────────────────────────────────────────────────────────
+
+/// A control-plane mutation, applied on the render thread. Cheap; the whole
+/// batch drains every frame so camera/sun/scene changes land within one frame.
+enum Cmd {
+    /// Centre/zoom/bearing set; pitch is preserved from the live camera (the
+    /// 2D gesture path doesn't touch tilt).
+    SetCamera { lat: f64, lng: f64, zoom: f64, bearing: f64 },
+    Fling(f64, f64),
+    ZoomFling { v: f64, fx: f64, fy: f64 },
+    EaseTo { lat: f64, lng: f64, zoom: f64, bearing: f64, dur_ms: u64 },
+    EasePitch { pitch: f64, dur_ms: u64 },
+    ZoomAroundAnimated { factor: f64, fx: f64, fy: f64, dur_ms: u64 },
+    ZoomAround { factor: f64, fx: f64, fy: f64 },
+    OrbitAround { db: f64, dp: f64, fx: f64, fy: f64 },
+    CancelAnimation,
+    SetViewportInset(f64),
+    SetTerrainShadows(f32),
+    SetSunTime(Option<f64>),
+    EnableClouds { w: u32, h: u32 },
+    SetCloudsVisible(bool),
+    SetCloudGeoBounds { w: f64, s: f64, e: f64, n: f64 },
+    IngestRadar { slot: u32, w: u32, h: u32, precip: Vec<u8>, coverage: Vec<u8> },
+    SetCloudTime { time: f32, blend: f32 },
+    ApplyScene(Box<Scene>),
+    PumpTiles,
+    Resize { w: u32, h: u32 },
+}
+
+/// A fetched tile to upload. Separate from [`Cmd`] so tile bursts are rate-
+/// limited per frame (decode + GPU upload is the expensive part) without ever
+/// delaying a control command — control fully drains, ingest is capped.
+enum Ingest {
+    Raster { layer: String, tile: TileId, bytes: Vec<u8> },
+    Terrain { tile: TileId, bytes: Vec<u8> },
+}
+
+/// Cheap, immutable read model republished after every frame. UI reads load it
+/// wait-free, so they never touch the engine.
+#[derive(Clone)]
+struct Snapshot {
+    cam: CameraState,
+    animating: bool,
+    pending_json: String,
+    stats_json: String,
+}
+
+impl Default for Snapshot {
+    fn default() -> Self {
+        Snapshot {
+            cam: CameraState {
+                center: LatLng::new(0.0, 0.0),
+                zoom: 0.0,
+                pitch_deg: 0.0,
+                bearing_deg: 0.0,
+            },
+            animating: false,
+            pending_json: "[]".to_string(),
+            stats_json: "{}".to_string(),
+        }
     }
-    let mtx = &*ptr;
-    match catch_unwind(AssertUnwindSafe(|| {
-        let mut guard = mtx.lock().unwrap_or_else(|poison| poison.into_inner());
-        f(&mut guard)
-    })) {
+}
+
+/// At most this many tile uploads per frame — a burst (post-pan flood) spreads
+/// across frames instead of spiking one frame's CPU/GPU past the budget.
+const MAX_INGEST_PER_FRAME: usize = 8;
+
+/// The shared handle. UI-facing fields (`cmd*`, `ingest*`, `snapshot`) are
+/// wait-free; `render` is held only by the render thread + lifecycle.
+struct Surface {
+    cmd_tx: crossbeam_channel::Sender<Cmd>,
+    cmd_rx: crossbeam_channel::Receiver<Cmd>,
+    ingest_tx: crossbeam_channel::Sender<Ingest>,
+    ingest_rx: crossbeam_channel::Receiver<Ingest>,
+    snapshot: Mutex<Arc<Snapshot>>,
+    render: Mutex<OnScreen>,
+}
+
+impl Surface {
+    fn new(on: OnScreen) -> Self {
+        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+        let (ingest_tx, ingest_rx) = crossbeam_channel::unbounded();
+        let snap = Arc::new(on.build_snapshot());
+        Surface {
+            cmd_tx,
+            cmd_rx,
+            ingest_tx,
+            ingest_rx,
+            snapshot: Mutex::new(snap),
+            render: Mutex::new(on),
+        }
+    }
+
+    /// Drain queued commands, render one frame, republish the snapshot — the
+    /// only place the engine is mutated. Runs on the render thread.
+    fn render_frame(&self) {
+        let mut on = self.render.lock().unwrap_or_else(|p| p.into_inner());
+        // Control commands fully drain (they must land this frame).
+        while let Ok(cmd) = self.cmd_rx.try_recv() {
+            on.apply_cmd(cmd);
+        }
+        // Tile uploads are capped per frame; the rest wait for the next one.
+        let mut n = 0;
+        while n < MAX_INGEST_PER_FRAME {
+            match self.ingest_rx.try_recv() {
+                Ok(i) => {
+                    on.apply_ingest(i);
+                    n += 1;
+                }
+                Err(_) => break,
+            }
+        }
+        on.render();
+        let snap = on.build_snapshot();
+        *self.snapshot.lock().unwrap_or_else(|p| p.into_inner()) = Arc::new(snap);
+    }
+
+    fn latest(&self) -> Arc<Snapshot> {
+        self.snapshot.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+}
+
+/// Resolve the handle to its live `Surface` (or `None` if destroyed), then run
+/// `f`. The `Arc` is cloned under a brief registry lock and released before `f`
+/// runs, so a long render frame never holds the registry lock — and a call that
+/// races `nativeDestroy` either sees the surface (kept alive by this clone) or
+/// safely gets `None`. No raw-pointer deref, so a stale handle cannot fault.
+unsafe fn with_surface<R>(handle: jlong, f: impl FnOnce(&Surface) -> R) -> Option<R> {
+    let surface = {
+        let reg = SURFACES.lock().unwrap_or_else(|p| p.into_inner());
+        reg.get(&(handle as u64)).cloned()
+    };
+    let s = surface?;
+    match catch_unwind(AssertUnwindSafe(|| f(&s))) {
         Ok(r) => Some(r),
         Err(payload) => {
             set_error(format!("panic: {}", panic_message(&*payload)));
             None
         }
+    }
+}
+
+/// Enqueue a mutation — wait-free; returns before the render thread applies it.
+unsafe fn enqueue(handle: jlong, cmd: Cmd) {
+    unsafe {
+        with_surface(handle, |s| {
+            let _ = s.cmd_tx.send(cmd);
+        });
     }
 }
 
@@ -304,7 +577,14 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         build(window, width.max(0) as u32, height.max(0) as u32, camera)
     }));
     match result {
-        Ok(Ok(map)) => Box::into_raw(Box::new(Mutex::new(map))) as jlong,
+        Ok(Ok(map)) => {
+            let id = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+            SURFACES
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(id, Arc::new(Surface::new(map)));
+            id as jlong
+        }
         Ok(Err(reason)) => {
             set_error(reason);
             0
@@ -344,23 +624,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Ok(s) => s.into(),
         Err(_) => return JNI_FALSE,
     };
-    let ok = unsafe {
-        with_map(handle, |map| {
-            let Ok(scene) = serde_json::from_str::<Scene>(&json) else {
-                return false;
-            };
-            if scene.validate().is_err() {
-                return false;
-            }
-            map.engine.apply(scene);
-            true
-        })
+    // Parse + validate on the calling thread (no engine needed), then enqueue —
+    // so the caller still gets a synchronous valid/invalid result, but the
+    // actual apply happens on the render thread without blocking.
+    let Ok(scene) = serde_json::from_str::<Scene>(&json) else {
+        return JNI_FALSE;
     };
-    if ok == Some(true) {
-        JNI_TRUE
-    } else {
-        JNI_FALSE
+    if scene.validate().is_err() {
+        return JNI_FALSE;
     }
+    unsafe { enqueue(handle, Cmd::ApplyScene(Box::new(scene))) };
+    JNI_TRUE
 }
 
 #[no_mangle]
@@ -369,11 +643,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     _class: JClass,
     handle: jlong,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            map.engine.pump_tiles();
-        });
-    }
+    unsafe { enqueue(handle, Cmd::PumpTiles) };
 }
 
 #[no_mangle]
@@ -383,19 +653,20 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     handle: jlong,
 ) {
     unsafe {
-        with_map(handle, |map| map.render());
+        with_surface(handle, |s| s.render_frame());
     }
 }
 
 /// True while a camera animation or tile fade-in is running — the host keeps
-/// drawing until it goes false, then parks (render-on-demand).
+/// drawing until it goes false, then parks (render-on-demand). Read from the
+/// last published snapshot (wait-free; never blocks on a render frame).
 #[no_mangle]
 pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeIsAnimating(
     _env: JNIEnv,
     _class: JClass,
     handle: jlong,
 ) -> jboolean {
-    let animating = unsafe { with_map(handle, |map| map.engine.is_animating()) };
+    let animating = unsafe { with_surface(handle, |s| s.latest().animating) };
     if animating == Some(true) {
         JNI_TRUE
     } else {
@@ -413,9 +684,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     vx: jdouble,
     vy: jdouble,
 ) {
-    unsafe {
-        with_map(handle, |map| map.engine.fling((vx, vy)));
-    }
+    unsafe { enqueue(handle, Cmd::Fling(vx, vy)) };
 }
 
 /// Start a momentum **zoom** from a pinch release: `zoom_velocity` is in
@@ -431,9 +700,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     fx: jdouble,
     fy: jdouble,
 ) {
-    unsafe {
-        with_map(handle, |map| map.engine.zoom_fling(zoom_velocity, (fx, fy)));
-    }
+    unsafe { enqueue(handle, Cmd::ZoomFling { v: zoom_velocity, fx, fy }) };
 }
 
 /// Ease the camera to a target pose over `duration_ms` (accel/decel). Pitch is
@@ -450,15 +717,11 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     duration_ms: jint,
 ) {
     unsafe {
-        with_map(handle, |map| {
-            let mut target = map.engine.camera();
-            target.center = LatLng::new(lat, lng);
-            target.zoom = zoom;
-            target.bearing_deg = bearing_deg;
-            map.engine
-                .ease_to(target, std::time::Duration::from_millis(duration_ms.max(0) as u64));
-        });
-    }
+        enqueue(
+            handle,
+            Cmd::EaseTo { lat, lng, zoom, bearing: bearing_deg, dur_ms: duration_ms.max(0) as u64 },
+        )
+    };
 }
 
 /// Ease only the pitch (tilt) to `pitch_deg` over `duration_ms`, keeping the
@@ -473,14 +736,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     pitch_deg: jdouble,
     duration_ms: jint,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            let mut target = map.engine.camera();
-            target.pitch_deg = pitch_deg;
-            map.engine
-                .ease_to(target, std::time::Duration::from_millis(duration_ms.max(0) as u64));
-        });
-    }
+    unsafe { enqueue(handle, Cmd::EasePitch { pitch: pitch_deg, dur_ms: duration_ms.max(0) as u64 }) };
 }
 
 /// Animate a focus-invariant zoom by `factor` about `(fx, fy)` over `duration_ms`.
@@ -495,14 +751,11 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     duration_ms: jint,
 ) {
     unsafe {
-        with_map(handle, |map| {
-            map.engine.zoom_around_animated(
-                factor,
-                (fx, fy),
-                std::time::Duration::from_millis(duration_ms.max(0) as u64),
-            );
-        });
-    }
+        enqueue(
+            handle,
+            Cmd::ZoomAroundAnimated { factor, fx, fy, dur_ms: duration_ms.max(0) as u64 },
+        )
+    };
 }
 
 /// One immediate focus-invariant zoom step by `factor` about `(fx, fy)` — the live
@@ -517,11 +770,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     fx: jdouble,
     fy: jdouble,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            map.engine.zoom_around(factor, (fx, fy));
-        });
-    }
+    unsafe { enqueue(handle, Cmd::ZoomAround { factor, fx, fy }) };
 }
 
 /// One 3D-mode orbit step: rotate the bearing by `d_bearing_deg` and tilt by
@@ -540,12 +789,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     fx: jdouble,
     fy: jdouble,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            map.engine.rotate_around(d_bearing_deg, (fx, fy));
-            map.engine.pitch_around(d_pitch_deg, (fx, fy));
-        });
-    }
+    unsafe { enqueue(handle, Cmd::OrbitAround { db: d_bearing_deg, dp: d_pitch_deg, fx, fy }) };
 }
 
 /// Catch any in-flight camera animation, freezing the camera exactly where it
@@ -556,12 +800,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     _class: JClass,
     handle: jlong,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            let here = map.engine.camera();
-            map.engine.set_camera(here);
-        });
-    }
+    unsafe { enqueue(handle, Cmd::CancelAnimation) };
 }
 
 /// Compact JSON of the last frame's cache telemetry, summed across layers:
@@ -573,21 +812,8 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     _class: JClass,
     handle: jlong,
 ) -> jstring {
-    let json = unsafe {
-        with_map(handle, |map| {
-            let m = map.engine.last_frame_metrics();
-            let tiles: usize = m.layers.iter().map(|l| l.cache.entries).sum();
-            let bytes: usize = m.layers.iter().map(|l| l.cache.bytes_used).sum();
-            let budget: usize = m.layers.iter().map(|l| l.cache.budget_bytes).max().unwrap_or(0);
-            let evictions: u64 = m.layers.iter().map(|l| l.cache.evictions).sum();
-            let hits: u64 = m.layers.iter().map(|l| l.cache.hits).sum();
-            let misses: u64 = m.layers.iter().map(|l| l.cache.misses).sum();
-            format!(
-                "{{\"tiles\":{tiles},\"bytes\":{bytes},\"budget\":{budget},\"evictions\":{evictions},\"hits\":{hits},\"misses\":{misses}}}"
-            )
-        })
-    }
-    .unwrap_or_else(|| "{}".to_string());
+    let json = unsafe { with_surface(handle, |s| s.latest().stats_json.clone()) }
+        .unwrap_or_else(|| "{}".to_string());
     env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
@@ -600,9 +826,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     handle: jlong,
     bottom_px: jdouble,
 ) {
-    unsafe {
-        with_map(handle, |map| map.engine.set_viewport_inset(bottom_px.max(0.0)));
-    }
+    unsafe { enqueue(handle, Cmd::SetViewportInset(bottom_px.max(0.0))) };
 }
 
 #[no_mangle]
@@ -613,9 +837,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     width: jint,
     height: jint,
 ) {
-    unsafe {
-        with_map(handle, |map| map.resize(width.max(0) as u32, height.max(0) as u32));
-    }
+    unsafe { enqueue(handle, Cmd::Resize { w: width.max(0) as u32, h: height.max(0) as u32 }) };
 }
 
 /// Build a `double[]` JNI return; empty array on allocation failure.
@@ -639,15 +861,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     zoom: jdouble,
     bearing_deg: jdouble,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            let mut cam = map.engine.camera();
-            cam.center = LatLng::new(lat, lng);
-            cam.zoom = zoom;
-            cam.bearing_deg = bearing_deg;
-            map.engine.set_camera(cam);
-        });
-    }
+    unsafe { enqueue(handle, Cmd::SetCamera { lat, lng, zoom, bearing: bearing_deg }) };
 }
 
 /// `[lat, lng, zoom, bearingDeg]`.
@@ -657,7 +871,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     _class: JClass,
     handle: jlong,
 ) -> jni::sys::jarray {
-    let cam = unsafe { with_map(handle, |map| map.engine.camera()) };
+    let cam = unsafe { with_surface(handle, |s| s.latest().cam.clone()) };
     match cam {
         Some(c) => double_array(&mut env, &[c.center.lat, c.center.lng, c.zoom, c.bearing_deg]),
         None => double_array(&mut env, &[]),
@@ -673,7 +887,19 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     lat: jdouble,
     lng: jdouble,
 ) -> jni::sys::jarray {
-    let p = unsafe { with_map(handle, |map| map.engine.project(LatLng::new(lat, lng))) }.flatten();
+    // Exact (elevation-aware) projection needs the engine, so try_lock the
+    // render state — NON-BLOCKING: if the render thread is mid-frame we return
+    // "invalid" for this call rather than wait (which is what would ANR). The
+    // host re-queries next frame; a one-frame miss is invisible.
+    let p = unsafe {
+        with_surface(handle, |s| {
+            s.render
+                .try_lock()
+                .ok()
+                .and_then(|on| on.engine.project(LatLng::new(lat, lng)))
+        })
+    }
+    .flatten();
     match p {
         Some(s) => double_array(&mut env, &[s.x, s.y, 1.0]),
         None => double_array(&mut env, &[0.0, 0.0, 0.0]),
@@ -690,8 +916,11 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     y: jdouble,
 ) -> jni::sys::jarray {
     let g = unsafe {
-        with_map(handle, |map| {
-            map.engine.unproject(ScreenPoint::new(x, y))
+        with_surface(handle, |s| {
+            s.render
+                .try_lock()
+                .ok()
+                .and_then(|on| on.engine.unproject(ScreenPoint::new(x, y)))
         })
     }
     .flatten();
@@ -710,33 +939,8 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     _class: JClass,
     handle: jlong,
 ) -> jni::sys::jstring {
-    let json = unsafe {
-        with_map(handle, |map| {
-            let items: Vec<String> = map
-                .engine
-                .pending_tiles()
-                .into_iter()
-                .filter_map(|p| {
-                    let (kind, layer, t) = match p {
-                        PendingTile::Raster { layer_id, tile } => ("raster", layer_id, tile),
-                        PendingTile::Hillshade { layer_id, tile } => ("hillshade", layer_id, tile),
-                        PendingTile::Vector { layer_id, tile } => ("vector", layer_id, tile),
-                        // Map-level DEM heightmap (no layer). The host maps the
-                        // "terrain" kind to its DEM URL and pushes bytes back via
-                        // `nativeIngestTerrain`. Surfaced (was dropped) so 3D mode
-                        // can displace the ground by real elevation.
-                        PendingTile::Terrain { tile } => ("terrain", "__terrain".to_string(), tile),
-                    };
-                    Some(format!(
-                        "{{\"kind\":\"{kind}\",\"layer\":\"{layer}\",\"z\":{},\"x\":{},\"y\":{}}}",
-                        t.z, t.x, t.y
-                    ))
-                })
-                .collect();
-            format!("[{}]", items.join(","))
-        })
-    }
-    .unwrap_or_else(|| "[]".to_string());
+    let json = unsafe { with_surface(handle, |s| s.latest().pending_json.clone()) }
+        .unwrap_or_else(|| "[]".to_string());
     env.new_string(json).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
 }
 
@@ -761,13 +965,20 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Ok(d) => d,
         Err(_) => return JNI_FALSE,
     };
-    let ok = unsafe {
-        with_map(handle, |map| {
-            map.engine
-                .ingest_raster_encoded(&layer, TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32), &data)
+    let sent = unsafe {
+        with_surface(handle, |s| {
+            s.ingest_tx
+                .send(Ingest::Raster {
+                    layer,
+                    tile: TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32),
+                    bytes: data,
+                })
+                .is_ok()
         })
     };
-    if ok == Some(true) { JNI_TRUE } else { JNI_FALSE }
+    // Optimistic: the upload happens on the render thread next frame. A decode
+    // failure just leaves the tile un-ingested; the reconciler re-requests it.
+    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
 }
 
 /// Push a fetched DEM tile (encoded Mapbox-Terrain-RGB PNG) into the shared
@@ -787,15 +998,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Ok(d) => d,
         Err(_) => return JNI_FALSE,
     };
-    let ok = unsafe {
-        with_map(handle, |map| {
-            map.engine.ingest_terrain_encoded(
-                TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32),
-                &data,
-            )
+    let sent = unsafe {
+        with_surface(handle, |s| {
+            s.ingest_tx
+                .send(Ingest::Terrain {
+                    tile: TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32),
+                    bytes: data,
+                })
+                .is_ok()
         })
     };
-    if ok == Some(true) { JNI_TRUE } else { JNI_FALSE }
+    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
 }
 
 // ---- weather-cloud overlay ----------------------------------------------
@@ -809,12 +1022,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     grid_w: jint,
     grid_h: jint,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            map.engine
-                .enable_clouds(grid_w.max(0) as u32, grid_h.max(0) as u32);
-        });
-    }
+    unsafe { enqueue(handle, Cmd::EnableClouds { w: grid_w.max(0) as u32, h: grid_h.max(0) as u32 }) };
 }
 
 /// Disable the overlay, or just hide it (`visible == false`) while keeping
@@ -826,11 +1034,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     handle: jlong,
     visible: jboolean,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            map.engine.set_clouds_visible(visible != JNI_FALSE);
-        });
-    }
+    unsafe { enqueue(handle, Cmd::SetCloudsVisible(visible != JNI_FALSE)) };
 }
 
 /// Track the sun to a real UTC instant (`unix_seconds`) at the camera, so
@@ -843,16 +1047,8 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     handle: jlong,
     unix_seconds: jdouble,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            let t = if unix_seconds < 0.0 {
-                None
-            } else {
-                Some(unix_seconds)
-            };
-            map.engine.set_sun_time(t);
-        });
-    }
+    let t = if unix_seconds < 0.0 { None } else { Some(unix_seconds) };
+    unsafe { enqueue(handle, Cmd::SetSunTime(t)) };
 }
 
 /// Enable terrain cast shadows (a peak shadows the valley behind it) at
@@ -865,11 +1061,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     handle: jlong,
     strength: jfloat,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            map.engine.set_terrain_shadows(strength);
-        });
-    }
+    unsafe { enqueue(handle, Cmd::SetTerrainShadows(strength)) };
 }
 
 /// Geo-register the radar to the `west/south/east/north` lat-lng box it covers
@@ -884,11 +1076,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     east: jdouble,
     north: jdouble,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            map.engine.set_cloud_geo_bounds(west, south, east, north);
-        });
-    }
+    unsafe { enqueue(handle, Cmd::SetCloudGeoBounds { w: west, s: south, e: east, n: north }) };
 }
 
 /// Upload a radar frame into `slot` (0 = current, 1 = next) from two
@@ -913,16 +1101,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
         Err(_) => return,
     };
     unsafe {
-        with_map(handle, |map| {
-            map.engine.ingest_radar_frame(
-                slot.max(0) as u32,
-                grid_w.max(0) as u32,
-                grid_h.max(0) as u32,
-                &precip,
-                &coverage,
-            );
-        });
-    }
+        enqueue(
+            handle,
+            Cmd::IngestRadar {
+                slot: slot.max(0) as u32,
+                w: grid_w.max(0) as u32,
+                h: grid_h.max(0) as u32,
+                precip,
+                coverage,
+            },
+        )
+    };
 }
 
 /// Set the cloud animation clock (`time`, seconds) and the slot-0→slot-1
@@ -935,11 +1124,7 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     time: jfloat,
     blend: jfloat,
 ) {
-    unsafe {
-        with_map(handle, |map| {
-            map.engine.set_cloud_time(time, blend);
-        });
-    }
+    unsafe { enqueue(handle, Cmd::SetCloudTime { time, blend }) };
 }
 
 #[no_mangle]
@@ -948,9 +1133,17 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     _class: JClass,
     handle: jlong,
 ) {
-    let ptr = handle as *mut Mutex<OnScreen>;
-    if !ptr.is_null() {
-        // Drop the boxed mutex+map (surface, device, engine, native window).
-        let _ = catch_unwind(AssertUnwindSafe(|| unsafe { drop(Box::from_raw(ptr)) }));
-    }
+    // Remove the registry entry, then drop the Arc OUTSIDE the lock (the Surface
+    // drop frees GPU resources — surface, device, engine, window). If an
+    // in-flight call still holds a clone, the real teardown happens when it
+    // returns; a later stale call just misses the registry and no-ops.
+    let removed = catch_unwind(AssertUnwindSafe(|| {
+        SURFACES
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&(handle as u64))
+    }))
+    .ok()
+    .flatten();
+    drop(removed);
 }

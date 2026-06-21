@@ -256,25 +256,15 @@ impl Scene {
         let min_y = (min_world_y * n as f64).floor() as i64;
         let max_y = (max_world_y * n as f64).ceil() as i64 - 1;
 
-        // Clear distance cap: never request tiles more than `ring` tiles
-        // from the camera-centre tile in ANY direction. A steep-pitch
-        // frustum reaches to the horizon — without this it asks for a long
-        // thin strip of far tiles that bloats the fetch/upload load and
-        // (with three layer caches) can OOM the device. The far field is
-        // sky/haze anyway, so cap to the on-screen footprint + a little
-        // look-ahead. Derived from the viewport so a big screen still gets
-        // its whole view, with a hard ceiling so a tiny-zoom view can't
-        // explode.
-        let centre = self.camera.center.to_world();
-        let cxr = (centre.x * n as f64).floor() as i64;
-        let cyr = (centre.y * n as f64).floor() as i64;
-        let view_tiles = (vw.max(vh) / 256.0).ceil() as i64;
-        let ring = (view_tiles + 3).clamp(3, 8);
-        let min_x = min_x.max(cxr - ring);
-        let max_x = max_x.min(cxr + ring);
-        let min_y = min_y.max(cyr - ring);
-        let max_y = max_y.min(cyr + ring);
-
+        // The frustum footprint is the AABB of the unprojected viewport
+        // corners. We do NOT clip it to a fixed tile-ring around the camera:
+        // a steep-pitch view legitimately reaches many tiles toward the
+        // horizon (a fixed ±8 ring collapsed a tilted high-zoom view to a
+        // sliver of near tiles — everything else greyed to sky). Instead the
+        // `MAX_TILES` count cap below bounds the working set for OOM safety,
+        // trimming toward the camera so the near field (what the user is
+        // looking at) is always kept and the far horizon — which fades into
+        // haze/sky anyway — is what gets dropped.
         let min_x = min_x.max(0).min((n - 1) as i64) as u32;
         let max_x = max_x.max(0).min((n - 1) as i64) as u32;
         let min_y = min_y.max(0).min((n - 1) as i64) as u32;
@@ -282,14 +272,16 @@ impl Scene {
 
         let count = ((max_x - min_x + 1) as usize) * ((max_y - min_y + 1) as usize);
         if count > MAX_TILES {
-            // Trim equally toward the camera centre so the tiles we
-            // keep are the ones the user is most likely looking at.
-            // Bigger arrays are useless: backpressure deferred them
-            // anyway, and we'd just spend cycles enumerating them
-            // every frame.
+            // Trim toward the camera so the tiles we keep are the ones the
+            // user is most likely looking at. The camera centre (look-at
+            // point) can sit just outside the footprint AABB at steep pitch,
+            // so clamp it into the rect first — otherwise the growing window
+            // can be empty/inverted (a u32 underflow) and starve the result.
+            // Bigger arrays are useless: backpressure deferred them anyway,
+            // and we'd just spend cycles enumerating them every frame.
             let centre = self.camera.center.to_world();
-            let cx = (centre.x * n as f64) as i64;
-            let cy = (centre.y * n as f64) as i64;
+            let cx = ((centre.x * n as f64) as i64).clamp(min_x as i64, max_x as i64);
+            let cy = ((centre.y * n as f64) as i64).clamp(min_y as i64, max_y as i64);
             let mut radius = 1i64;
             loop {
                 let nx0 = (cx - radius).max(min_x as i64) as u32;
@@ -420,6 +412,54 @@ mod tests {
         assert_eq!(scene.tile_zoom(), 4);
         let scene_high = Scene::new(Camera::new(LatLng::new(0.0, 0.0), 20.0), (256, 256), 4, 14);
         assert_eq!(scene_high.tile_zoom(), 14);
+    }
+
+    #[test]
+    fn steep_pitch_at_high_zoom_keeps_a_deep_footprint_not_a_ring_sliver() {
+        // Regression: "when I pan/tilt down at a hiking zoom, everything but
+        // the closest tile is removed — culling is too aggressive." The old
+        // tile selector clipped the footprint to a fixed ±8-tile ring around
+        // the camera CENTRE. At a steep pitch the centre (look-at point) sits
+        // just *behind* the on-ground footprint, so the ring kept only a few
+        // forward tiles — the rest of the visibly-needed terrain greyed to
+        // sky. A tilted high-zoom view legitimately reaches many tiles toward
+        // the horizon; the working set must follow the frustum (bounded only
+        // by the count cap), not collapse to a sliver.
+        //
+        // Phone-tall viewport, z16, max tilt, looking north.
+        let scene = Scene::new(
+            Camera::new(LatLng::new(67.27, 15.05), 16.0)
+                .with_pitch(80.0)
+                .with_bearing(0.0),
+            (1080, 2400),
+            0,
+            18,
+        );
+        let visible = scene.visible_tiles();
+        // The frustum footprint here is dozens of tiles deep. The old ring
+        // capped the visible set to roughly a 17×17 box intersected with a
+        // mis-centred clip — only a few dozen tiles, mostly behind the view.
+        // It must now fill close to the working-set budget instead.
+        assert!(
+            visible.len() > 120,
+            "steep-pitch footprint collapsed to {} tiles — culling too aggressive",
+            visible.len()
+        );
+        // …and stay bounded (the count cap, not an unbounded horizon strip).
+        assert!(
+            visible.len() < 400,
+            "footprint unbounded ({} tiles) — count cap not holding",
+            visible.len()
+        );
+        // The kept tiles must extend a meaningful distance toward the horizon
+        // (the look direction), not be one near row. The old mis-centred ring
+        // gave only a handful of forward tiles.
+        let ys: Vec<u32> = visible.iter().map(|t| t.y).collect();
+        let y_span = ys.iter().max().unwrap() - ys.iter().min().unwrap() + 1;
+        assert!(
+            y_span >= 10,
+            "forward (toward-horizon) depth only {y_span} tiles — view is a sliver"
+        );
     }
 
     #[test]

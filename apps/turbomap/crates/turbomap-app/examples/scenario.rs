@@ -840,6 +840,188 @@ fn main() {
         return;
     }
 
+    // Debug fast path (TURBO_STRESS=1): adversarial soak — hammer the camera
+    // with zoom-all-the-way-in / all-the-way-out, big pans, hard tilts and
+    // orbits in a deterministic pseudo-random sequence, with sun mode + cast
+    // shadows ON (so the render-thread horizon-march is in the loop). Every
+    // frame is wrapped in catch_unwind and checked for a non-finite camera /
+    // view-projection; every Nth frame is read back and scanned for a
+    // NaN/all-black framebuffer; per-frame wall time flags a stall. The goal
+    // is to MAKE IT FAIL and report exactly when/how — or prove it survives.
+    //   TURBO_STRESS_ITERS=N   (default 4000)
+    //   TURBO_STRESS_STALL_MS=N (default 4000 — a frame slower than this = stall)
+    if std::env::var("TURBO_STRESS").is_ok() {
+        let iters: u32 =
+            std::env::var("TURBO_STRESS_ITERS").ok().and_then(|s| s.parse().ok()).unwrap_or(4000);
+        let stall_ms: f64 =
+            std::env::var("TURBO_STRESS_STALL_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(4000.0);
+        eprintln!("  ── STRESS soak: {iters} iterations, stall threshold {stall_ms:.0} ms ──");
+        // Sun mode + cast shadows on, so the CPU horizon-march participates.
+        map.set_sun_position(Some(SunPosition { azimuth_deg: 120.0, altitude_deg: 14.0 }));
+        map.set_terrain_shadows(0.85);
+        // Warm up a tile PYRAMID over the region (several zoom levels) once, so
+        // the storm renders from cache + the overview fallback instead of
+        // blocking on real HTTP every frame. Tile fetching is NOT what we time —
+        // the stall threshold guards the engine's *render* cost only.
+        for z in [8.0, 11.0, 14.0, 16.0, 18.0] {
+            map.set_camera(Camera::new(cli.center, z));
+            drain_tiles(&mut map, &basemap, &dem, &vector);
+        }
+        map.set_camera(Camera::new(cli.center, cli.zoom));
+        let _ = render_capture(&mut map, &device, &queue, &target, &target_view);
+
+        let (cx, cy) = (WIDTH as f64 * 0.5, HEIGHT as f64 * 0.5);
+        let start = std::time::Instant::now();
+        // Deterministic LCG so a failure is reproducible (no Math.random here).
+        let mut rng: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (rng >> 33) as u32
+        };
+        let mut worst_ms = 0.0_f64;
+        let mut worst_at = (String::new(), 0u32);
+        let mut failed = false;
+
+        for i in 0..iters {
+            let action = next() % 7;
+            let label = match action {
+                0 => {
+                    // ZOOM ALL THE WAY IN (past the ceiling — engine clamps).
+                    let c = map.camera();
+                    map.set_camera(Camera::new(c.center, 22.0).with_pitch(c.pitch_deg).with_bearing(c.bearing_deg));
+                    "zoom-in-max"
+                }
+                1 => {
+                    // ZOOM ALL THE WAY OUT (below the floor — engine clamps).
+                    let c = map.camera();
+                    map.set_camera(Camera::new(c.center, 0.0).with_pitch(c.pitch_deg).with_bearing(c.bearing_deg));
+                    "zoom-out-min"
+                }
+                2 => {
+                    // Big pan in a pseudo-random direction.
+                    let dx = (next() % 4000) as f64 - 2000.0;
+                    let dy = (next() % 4000) as f64 - 2000.0;
+                    map.pan_by_pixels(dx, dy);
+                    "pan-far"
+                }
+                3 => {
+                    // Hard tilt toward / past the horizon around screen centre.
+                    let d = (next() % 160) as f64 - 80.0;
+                    map.pitch_around(d, (cx, cy));
+                    "tilt"
+                }
+                4 => {
+                    // Orbit (bearing spin) at the current pitch.
+                    let c = map.camera();
+                    let b = (next() % 360) as f64;
+                    map.set_camera(Camera::new(c.center, c.zoom).with_pitch(c.pitch_deg).with_bearing(b));
+                    "orbit"
+                }
+                5 => {
+                    // Jump to a mid zoom + steep pitch (the screen-fill case).
+                    let c = map.camera();
+                    map.set_camera(Camera::new(c.center, 14.0 + (next() % 5) as f64).with_pitch(78.0).with_bearing(c.bearing_deg));
+                    "mid-steep"
+                }
+                _ => {
+                    // Teleport the centre a long way (forces full tile reselect).
+                    let dlat = ((next() % 200) as f64 - 100.0) * 0.01;
+                    let dlng = ((next() % 200) as f64 - 100.0) * 0.02;
+                    let c = map.camera();
+                    let nc = LatLng { lat: (cli.center.lat + dlat).clamp(-84.0, 84.0), lng: cli.center.lng + dlng };
+                    map.set_camera(Camera::new(nc, c.zoom).with_pitch(c.pitch_deg).with_bearing(c.bearing_deg));
+                    "teleport"
+                }
+            };
+
+            // Churn the cache periodically (eviction + re-request + un_ingest)
+            // via a real fetch — but NOT every frame: HTTP latency isn't an
+            // engine stall, and the engine renders cached + overview-fallback
+            // tiles regardless. Most frames are pure render (the path we time).
+            if i % 25 == 0 {
+                drain_tiles(&mut map, &basemap, &dem, &vector);
+            }
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let eff = map.camera();
+                let mat = eff.view_projection_matrix((WIDTH, HEIGHT));
+                if !eff.pitch_deg.is_finite()
+                    || !eff.zoom.is_finite()
+                    || !eff.center.lat.is_finite()
+                    || !eff.center.lng.is_finite()
+                    || !matrix_is_finite(&mat)
+                {
+                    panic!(
+                        "NON-FINITE camera: pitch={} zoom={} center={},{} matrix_finite={}",
+                        eff.pitch_deg, eff.zoom, eff.center.lat, eff.center.lng, matrix_is_finite(&mat)
+                    );
+                }
+                // Time the RENDER only (the render-thread cost that ANRs on
+                // device), not the untimed fetch above.
+                let t0 = std::time::Instant::now();
+                // Readback periodically: catches a GPU-side NaN / all-black
+                // frame (driver corruption) the camera check can't see.
+                if i % 200 == 0 {
+                    let img = render_capture(&mut map, &device, &queue, &target, &target_view);
+                    let mut nonblack = 0u64;
+                    for px in img.pixels() {
+                        if px.0[0] as u32 + px.0[1] as u32 + px.0[2] as u32 > 24 {
+                            nonblack += 1;
+                        }
+                    }
+                    let frac = nonblack as f64 / (img.width() * img.height()) as f64;
+                    assert!(frac > 0.02, "frame is essentially all-black ({:.3}% lit)", frac * 100.0);
+                } else {
+                    // Full render + submit (no readback) — exercises the GPU
+                    // path without the readback stall on every frame.
+                    let mut enc = device.create_command_encoder(&Default::default());
+                    map.render(&mut enc, &target_view);
+                    queue.submit([enc.finish()]);
+                    map.after_submit();
+                    let _ = device.poll(wgpu::PollType::Poll);
+                }
+                t0.elapsed().as_secs_f64() * 1000.0
+            }));
+            let ms = *result.as_ref().unwrap_or(&0.0);
+            if ms > worst_ms {
+                worst_ms = ms;
+                worst_at = (label.to_string(), i);
+            }
+
+            if result.is_err() {
+                let c = map.camera();
+                eprintln!(
+                    "STRESS FAILED at iter {i} ({label}) after {:.1}s — panic above. camera: zoom={:.2} pitch={:.0} bearing={:.0} center={:.4},{:.4}",
+                    start.elapsed().as_secs_f64(), c.zoom, c.pitch_deg, c.bearing_deg, c.center.lat, c.center.lng,
+                );
+                failed = true;
+                break;
+            }
+            if ms > stall_ms {
+                let c = map.camera();
+                eprintln!(
+                    "STRESS STALL at iter {i} ({label}): single frame took {ms:.0} ms (> {stall_ms:.0}). camera: zoom={:.2} pitch={:.0} center={:.4},{:.4}",
+                    c.zoom, c.pitch_deg, c.center.lat, c.center.lng,
+                );
+                failed = true;
+                break;
+            }
+            if i % 250 == 0 {
+                let c = map.camera();
+                eprintln!(
+                    "  iter {i:>5}/{iters}  {:.1}s elapsed  worst {:.0}ms  last {label} (zoom={:.1} pitch={:.0})",
+                    start.elapsed().as_secs_f64(), worst_ms, c.zoom, c.pitch_deg,
+                );
+            }
+        }
+        if !failed {
+            eprintln!(
+                "STRESS SURVIVED {iters} iterations in {:.1}s — no panic, no non-finite camera, no all-black frame, no stall. Worst single frame {:.0}ms ({} @ iter {}).",
+                start.elapsed().as_secs_f64(), worst_ms, worst_at.0, worst_at.1,
+            );
+        }
+        return;
+    }
+
     let steps = build_steps(&cli);
     eprintln!(
         "scenario: {} steps @ {:.4},{:.4} z{} → pitch {}°, frames to {}",

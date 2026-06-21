@@ -3895,6 +3895,7 @@ name = "turbomap-ffi"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "crossbeam-channel",
  "image",
  "jni 0.21.1",
  "log",
