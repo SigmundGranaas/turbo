@@ -24,16 +24,14 @@ use crate::{
 /// Above this pitch the tile selection switches from the legacy single-zoom
 /// rectangle to the mixed-LOD SSE quadtree.
 ///
-/// TEMPORARILY DISABLED (set above the 80° pitch cap so it never engages): on a
-/// real device camera the SSE walk over-refined EVERYTHING to max zoom (no
-/// fine-near/coarse-far gradient — device logs showed `z=18..18` at camera zoom
-/// 15), and past ~60° tilt the footprint swept to far max-zoom tiles that never
-/// resided, blanking the screen. The legacy single-zoom path (with the existing
-/// high-pitch culling fix) renders 3D tilt correctly, so fall back to it while
-/// the LOD refinement is reworked against device-representative cameras. The
-/// curvature / aerial-perspective / cascaded-shadow work still applies to the
-/// legacy-selected terrain.
-const LOD_PITCH_DEG: f64 = 91.0;
+/// The first SSE impl (corner-projection) over-refined every view-plane-
+/// straddling tile to max zoom (device logs: `z=18..18`) and blanked on tilt.
+/// Rewritten to DISTANCE-based screen-space error (`world_size·ppw·alt/dist`,
+/// see lod.rs) which can't degenerate at the view plane — it gives a real
+/// fine-near/coarse-far gradient and covers to the horizon with cheap coarse
+/// tiles, which the legacy single-zoom path fundamentally can't do (its
+/// footprint clamps to the near ground at high tilt → far field never loads).
+const LOD_PITCH_DEG: f64 = 1.0;
 
 /// Target on-screen tile EDGE length (px) for the SSE quadtree. ~one basemap
 /// tile per ~320 px: crisp near the camera, coarsening toward the horizon.

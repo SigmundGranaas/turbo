@@ -54,9 +54,31 @@ pub fn select(
 ) -> Vec<LodTile> {
     let min_zoom = min_zoom.min(max_zoom);
     let target = sse_target_px.max(1.0);
+    // Camera eye in ABSOLUTE world (look-at centre + the RTC eye offset) plus the
+    // focal scale, for DISTANCE-based screen-space error. Estimating a tile's
+    // on-screen size from `world_size · ppw · (altitude / eye_distance)` is robust
+    // at any pitch — unlike projecting the tile's corners, which degenerates when
+    // a tile straddles the camera's view plane (corners on both sides) and forced
+    // every such tile to max zoom, exploding the count and blanking the map on
+    // tilt. Foreshortening (altitude/dist) gives the fine-near/coarse-far gradient.
+    let vp_u = (viewport_px.0 as u32, viewport_px.1 as u32);
+    let c = camera.center.to_world();
+    let eo = camera.eye_offset_world(vp_u);
+    let eye = [c.x + eo[0] as f64, c.y + eo[1] as f64, eo[2] as f64];
+    let ppw = camera.pixels_per_world_unit();
+    let alt = (camera.altitude_world(vp_u) as f64).max(1e-9);
+
+    let mut roots = footprint_roots(camera, viewport_px, min_zoom);
+    // Refine NEAR (to the eye) roots first, so when the MAX_TILES cap bites the
+    // dropped roots are the FARTHEST ones — the hazed/curved-away far field —
+    // not the near ground filling the screen.
+    roots.sort_by(|a, b| {
+        eye_dist2(*a, eye).partial_cmp(&eye_dist2(*b, eye)).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
     let mut out = Vec::new();
-    for root in footprint_roots(camera, viewport_px, min_zoom) {
-        refine(root, camera, viewport_px, max_zoom, target, &mut out);
+    for root in roots {
+        refine(root, camera, viewport_px, max_zoom, target, eye, ppw, alt, &mut out);
         if out.len() >= MAX_TILES {
             break;
         }
@@ -64,25 +86,75 @@ pub fn select(
     out
 }
 
-/// The `min_zoom` tiles overlapping the camera's ground footprint — the AABB of
-/// the four unprojected viewport corners, clamped to the world. Bounded (a
-/// handful at a coarse zoom); refinement deepens it where the screen demands.
+/// Squared distance from the camera `eye` (absolute world, with z) to a tile's
+/// ground centre (z = 0). Drives near-first refinement order.
+fn eye_dist2(tile: TileId, eye: [f64; 3]) -> f64 {
+    let (nw, se) = tile.world_bounds();
+    let dx = 0.5 * (nw.x + se.x) - eye[0];
+    let dy = 0.5 * (nw.y + se.y) - eye[1];
+    let dz = -eye[2];
+    dx * dx + dy * dy + dz * dz
+}
+
+/// The `min_zoom` tiles overlapping the camera's ground footprint, clamped to
+/// the world. Built as a FAN from the camera out to the true ground horizon —
+/// NOT the AABB of the four unprojected viewport corners, because at high pitch
+/// the top corners' rays point at/above the horizon and `pixel_to_world`
+/// collapses them to the camera centre, shrinking the footprint to the near
+/// ground (the "only the tiles directly below me render" bug). The fan uses the
+/// eye→centre forward direction and the frustum half-width, extended to the
+/// horizon distance, so the far field is always covered (coarsely, via the
+/// distance-based refine). Refinement deepens it where the screen demands.
 fn footprint_roots(camera: &Camera, vp: (f64, f64), z: u8) -> Vec<TileId> {
     let n = 1u32 << z;
     let (vw, vh) = vp;
-    let mut min_x = f64::INFINITY;
-    let mut max_x = f64::NEG_INFINITY;
-    let mut min_y = f64::INFINITY;
-    let mut max_y = f64::NEG_INFINITY;
-    for (px, py) in [(0.0, 0.0), (vw, 0.0), (vw, vh), (0.0, vh)] {
-        let w = camera.pixel_to_world((px, py), vp);
-        let wx = w.x.clamp(0.0, 1.0);
-        let wy = w.y.clamp(0.0, 1.0);
-        min_x = min_x.min(wx);
-        max_x = max_x.max(wx);
-        min_y = min_y.min(wy);
-        max_y = max_y.max(wy);
+    let vp_u = (vw as u32, vh as u32);
+    let center = camera.center.to_world();
+
+    let mut min_x = center.x;
+    let mut max_x = center.x;
+    let mut min_y = center.y;
+    let mut max_y = center.y;
+    let mut add = |x: f64, y: f64| {
+        let x = x.clamp(0.0, 1.0);
+        let y = y.clamp(0.0, 1.0);
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    };
+
+    // Near edge: the bottom screen corners ALWAYS unproject to ground in front of
+    // the camera (robust), giving the near footprint width.
+    for px in [0.0, vw] {
+        let w = camera.pixel_to_world((px, vh), vp);
+        add(w.x, w.y);
     }
+
+    // Far field: extend along the ground-forward direction (eye → look-at centre)
+    // out to the horizon, with the frustum's lateral half-width at that range.
+    let eo = camera.eye_offset_world(vp_u);
+    let (fwx, fwy) = (center.x - eo[0] as f64, center.y - eo[1] as f64);
+    let flen = (fwx * fwx + fwy * fwy).sqrt();
+    if flen > 1e-9 {
+        let fwd = (fwx / flen, fwy / flen);
+        let right = (fwd.1, -fwd.0);
+        let alt = camera.altitude_world(vp_u) as f64;
+        let coslat = camera.center.lat.to_radians().cos().abs().max(1e-3);
+        let horizon = crate::camera::ground_horizon_world(
+            alt as f32,
+            camera.pitch_deg.to_radians() as f32,
+            coslat as f32,
+        ) as f64;
+        let far_d = horizon.max(alt * 4.0);
+        // tan(hfov/2) = aspect · tan(FOV_Y/2); FOV_Y ≈ 36.87° → tan ≈ 0.334.
+        let half_w = far_d * (vw / vh) * 0.334;
+        let far = (center.x + fwd.0 * far_d, center.y + fwd.1 * far_d);
+        add(far.0 + right.0 * half_w, far.1 + right.1 * half_w);
+        add(far.0 - right.0 * half_w, far.1 - right.1 * half_w);
+        add(far.0, far.1);
+    }
+
     let x0 = (min_x * n as f64).floor().clamp(0.0, (n - 1) as f64) as u32;
     let x1 = (max_x * n as f64).ceil().clamp(1.0, n as f64) as u32 - 1;
     let y0 = (min_y * n as f64).floor().clamp(0.0, (n - 1) as f64) as u32;
@@ -93,21 +165,6 @@ fn footprint_roots(camera: &Camera, vp: (f64, f64), z: u8) -> Vec<TileId> {
             roots.push(TileId::new(z, x, y));
         }
     }
-    // Refine NEAR roots first: when the MAX_TILES cap bites (zoomed in at a tilt,
-    // footprint reaching the horizon), the dropped roots are the FARTHEST ones —
-    // the hazed/curved-away far field — instead of an arbitrary row-major slice
-    // that could blank the near terrain filling the screen. Distance is from the
-    // camera's look-at point (centre) to each root's centre, in world units.
-    let c = camera.center.to_world();
-    let inv_n = 1.0 / n as f64;
-    roots.sort_by(|a, b| {
-        let d = |t: &TileId| {
-            let cx = (t.x as f64 + 0.5) * inv_n - c.x;
-            let cy = (t.y as f64 + 0.5) * inv_n - c.y;
-            cx * cx + cy * cy
-        };
-        d(a).partial_cmp(&d(b)).unwrap_or(std::cmp::Ordering::Equal)
-    });
     roots
 }
 
@@ -115,44 +172,46 @@ fn footprint_roots(camera: &Camera, vp: (f64, f64), z: u8) -> Vec<TileId> {
 /// stopping at `max_zoom`. Frustum-culled tiles are dropped; tiles straddling
 /// the camera (some corners behind the view plane) are always refined (they're
 /// the near ground filling the lower frame).
-fn refine(tile: TileId, camera: &Camera, vp: (f64, f64), max_zoom: u8, target: f64, out: &mut Vec<LodTile>) {
+#[allow(clippy::too_many_arguments)]
+fn refine(
+    tile: TileId,
+    camera: &Camera,
+    vp: (f64, f64),
+    max_zoom: u8,
+    target: f64,
+    eye: [f64; 3],
+    ppw: f64,
+    alt: f64,
+    out: &mut Vec<LodTile>,
+) {
     if out.len() >= MAX_TILES {
         return;
     }
     // A tile whose ground rect contains the camera's look-at point is under/around
-    // the camera — its own corners may all project behind the view (esp. a huge
-    // coarse root), but it must never be culled; it's refined down to the branch
-    // that's actually on screen.
+    // the camera — keep it (it's the near ground filling the lower frame).
     let contains_centre = {
         let c = camera.center.to_world();
         let (nw, se) = tile.world_bounds();
         c.x >= nw.x && c.x <= se.x && c.y >= nw.y && c.y <= se.y
     };
+    // Cull only tiles that are demonstrably off-screen (all corners in front of
+    // the camera but outside the viewport). We do NOT cull on "corners behind the
+    // view plane" any more — that's the case the old corner-projection SSE got
+    // wrong, dropping/over-refining tiles that straddle the plane at high pitch.
     let (front, behind) = project_corners(tile, camera, vp);
-    // Cull: entirely behind the camera (nothing on screen) AND not under us.
-    if front.is_empty() && behind > 0 && !contains_centre {
-        return;
-    }
-    // Cull: fully in front but off-screen (outside the viewport + a margin).
     if behind == 0 && !contains_centre && !screen_aabb_intersects_viewport(&front, vp) {
         return;
     }
-    // Screen-space size for the refine decision:
-    //  • all corners in front → max EDGE length (so pitch 0 collapses to a single
-    //    level == camera zoom: a z-tile is exactly 256 px/edge there);
-    //  • some corners behind (a tile CROSSING the horizon) → measure from the
-    //    visible near corners only (max pairwise px). For a far horizon-crosser
-    //    that's its small near edge → it stays COARSE (the key fine-near/coarse-
-    //    far behaviour). Forcing ∞ here was the bug that drove the whole horizon
-    //    to max zoom (a single LOD);
-    //  • <2 visible corners → the tile is under/around the camera → refine (∞).
-    let span = if behind == 0 {
-        max_edge_px(&front)
-    } else if front.len() >= 2 {
-        max_pairwise_px(&front)
-    } else {
-        f64::INFINITY
-    };
+    // DISTANCE-based screen-space size: on-screen px ≈ world_size · ppw · (alt/dist)
+    // to the eye. Near → large (refine), far → small (coarse). Never degenerates at
+    // the view plane, so it gives a true fine-near/coarse-far gradient at any tilt.
+    let (nw, se) = tile.world_bounds();
+    let dx = 0.5 * (nw.x + se.x) - eye[0];
+    let dy = 0.5 * (nw.y + se.y) - eye[1];
+    let dz = -eye[2];
+    let dist = (dx * dx + dy * dy + dz * dz).sqrt().max(1e-9);
+    let world_size = se.x - nw.x;
+    let span = world_size * ppw * (alt / dist);
     if tile.z >= max_zoom || span <= target {
         out.push(LodTile { id: tile });
         return;
@@ -160,7 +219,7 @@ fn refine(tile: TileId, camera: &Camera, vp: (f64, f64), max_zoom: u8, target: f
     match tile.children() {
         Some(children) => {
             for c in children {
-                refine(c, camera, vp, max_zoom, target, out);
+                refine(c, camera, vp, max_zoom, target, eye, ppw, alt, out);
             }
         }
         None => out.push(LodTile { id: tile }),
@@ -190,40 +249,6 @@ fn project_corners(tile: TileId, camera: &Camera, vp: (f64, f64)) -> (Vec<(f64, 
         }
     }
     (front, behind)
-}
-
-/// Max screen-space EDGE length (not diagonal) over consecutive corners. Edge
-/// length is the right screen-space-error metric: at pitch 0 a tile of zoom `z`
-/// is exactly 256 px per edge when the camera zoom is `z`, so the SSE threshold
-/// collapses to a single level (== camera zoom) — the 2D path is unchanged.
-fn max_edge_px(corners: &[(f64, f64)]) -> f64 {
-    if corners.len() < 2 {
-        return f64::INFINITY;
-    }
-    let mut max = 0.0_f64;
-    for i in 0..corners.len() {
-        let a = corners[i];
-        let b = corners[(i + 1) % corners.len()];
-        max = max.max(((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt());
-    }
-    max
-}
-
-/// Max pairwise screen distance among the given points — the on-screen "size"
-/// when only a subset of a tile's corners are in front of the camera (a tile
-/// crossing the horizon). Returns ∞ for fewer than 2 points.
-fn max_pairwise_px(pts: &[(f64, f64)]) -> f64 {
-    if pts.len() < 2 {
-        return f64::INFINITY;
-    }
-    let mut max = 0.0_f64;
-    for i in 0..pts.len() {
-        for j in i + 1..pts.len() {
-            let (a, b) = (pts[i], pts[j]);
-            max = max.max(((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt());
-        }
-    }
-    max
 }
 
 /// Does the screen AABB of the (in-front) corners intersect the viewport plus a

@@ -1952,7 +1952,7 @@ impl Map {
                         use std::sync::atomic::{AtomicU64, Ordering};
                         static DBG_N: AtomicU64 = AtomicU64::new(0);
                         let cam = r.scene.camera();
-                        if cam.pitch_deg > 1.0 && DBG_N.fetch_add(1, Ordering::Relaxed) % 20 == 0 {
+                        if cam.pitch_deg > 1.0 && DBG_N.fetch_add(1, Ordering::Relaxed).is_multiple_of(20) {
                             let vis = r.scene.visible_tiles();
                             let des = r.scene.desired_tiles().len();
                             let resident = vis.iter().filter(|t| r.cache.get(**t).is_some()).count();
