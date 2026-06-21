@@ -177,14 +177,16 @@ impl RenderFrame {
 /// where `dist_world` is the true eye→fragment distance. Altitude-relative
 /// (`k / altitude_world`) so both terms share units and the look is zoom-stable;
 /// a pitch ramp gates it to 0 on the flat 2D map. The nearest visible ground is
-/// ~one altitude from the eye, so its haze is bounded ≈ `1 - exp(-k)` at any
-/// pitch — the property that prevents the grazing-angle white-out.
+/// ~one altitude from the eye, so its haze is ≈ `1 - exp(-k)` — with `k = 0.08`
+/// the near/mid field stays nearly clear (~8%) while the far field (many
+/// altitudes out) still dissolves into the atmosphere (`1 - exp(-k·40) ≈ 0.96`).
+/// `k = 0.22` tinted the WHOLE scene blue; this keeps the haze to the distance.
 fn aerial_haze_density(altitude_world: f32, pitch_deg: f64) -> f32 {
     let p = pitch_deg as f32;
     // Smoothstep 0→1 across 5°..35°, then hold.
     let rise = ((p - 5.0) / 30.0).clamp(0.0, 1.0);
     let pitch_ramp = rise * rise * (3.0 - 2.0 * rise);
-    (0.22 / altitude_world.max(1e-9)) * pitch_ramp
+    (0.08 / altitude_world.max(1e-9)) * pitch_ramp
 }
 
 #[cfg(test)]
