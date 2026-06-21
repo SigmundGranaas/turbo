@@ -106,7 +106,15 @@ pub async fn rgb(
     .await
     .map_err(|e| ApiError::Internal(format!("join: {e}")))??;
     drop(permit);
-    tracing::debug!(z, x, y, halo, took_ms = started.elapsed().as_millis(), bytes = png_bytes.len(), "dem rgb render (miss)");
+    tracing::debug!(
+        z,
+        x,
+        y,
+        halo,
+        took_ms = started.elapsed().as_millis(),
+        bytes = png_bytes.len(),
+        "dem rgb render (miss)"
+    );
 
     dem_response(&png_bytes, halo, "miss")
 }

@@ -54,7 +54,13 @@ struct Entry<V> {
 
 impl<V: Clone> ByteLru<V> {
     fn new(budget: u64) -> Self {
-        Self { budget, used: 0, clock: 0, map: HashMap::new(), order: BTreeMap::new() }
+        Self {
+            budget,
+            used: 0,
+            clock: 0,
+            map: HashMap::new(),
+            order: BTreeMap::new(),
+        }
     }
 
     fn get(&mut self, k: &TileKey) -> Option<V> {
@@ -74,13 +80,22 @@ impl<V: Clone> ByteLru<V> {
             self.used -= old.size;
         }
         self.clock += 1;
-        self.map.insert(k, Entry { val, size, seq: self.clock });
+        self.map.insert(
+            k,
+            Entry {
+                val,
+                size,
+                seq: self.clock,
+            },
+        );
         self.order.insert(self.clock, k);
         self.used += size;
 
         let mut evicted = Vec::new();
         while self.used > self.budget {
-            let Some((&seq, &victim)) = self.order.iter().next() else { break };
+            let Some((&seq, &victim)) = self.order.iter().next() else {
+                break;
+            };
             if victim == k {
                 break;
             }
@@ -132,7 +147,11 @@ impl DiskLru {
         for (_, key, size) in found {
             evicted.extend(index.put(key, size, ()));
         }
-        let me = Self { dir, index: Mutex::new(index), tmp_seq: AtomicU64::new(0) };
+        let me = Self {
+            dir,
+            index: Mutex::new(index),
+            tmp_seq: AtomicU64::new(0),
+        };
         for k in evicted {
             me.remove_file(k);
         }
@@ -140,7 +159,8 @@ impl DiskLru {
     }
 
     fn path(&self, k: TileKey) -> PathBuf {
-        self.dir.join(format!("{}/{}/{}_h{}.png", k.z, k.x, k.y, k.halo))
+        self.dir
+            .join(format!("{}/{}/{}_h{}.png", k.z, k.x, k.y, k.halo))
     }
 
     fn remove_file(&self, k: TileKey) {
@@ -209,7 +229,12 @@ fn key_from_path(dir: &std::path::Path, p: &std::path::Path) -> Option<TileKey> 
     let file = comps[2].as_os_str().to_str()?;
     let stem = file.strip_suffix(".png")?;
     let (y_s, halo_s) = stem.split_once("_h")?;
-    Some(TileKey { z, x, y: y_s.parse().ok()?, halo: halo_s.parse().ok()? })
+    Some(TileKey {
+        z,
+        x,
+        y: y_s.parse().ok()?,
+        halo: halo_s.parse().ok()?,
+    })
 }
 
 /// Two-tier rendered-tile cache + render throttle. Cheap to `clone` (all `Arc`).
@@ -230,15 +255,26 @@ impl DemTileCache {
     ///                                        = CPU cores); a miss past this 429s
     pub fn from_env() -> Self {
         fn bytes(var: &str, default: u64) -> u64 {
-            std::env::var(var).ok().and_then(|v| v.parse().ok()).filter(|&n| n > 0).unwrap_or(default)
+            std::env::var(var)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or(default)
         }
         let mem_budget = bytes("TILESERVER_DEM_TILE_CACHE_MEM_BYTES", 64 * 1024 * 1024);
-        let disk_budget = bytes("TILESERVER_DEM_TILE_CACHE_DISK_BYTES", 3 * 1024 * 1024 * 1024);
+        let disk_budget = bytes(
+            "TILESERVER_DEM_TILE_CACHE_DISK_BYTES",
+            3 * 1024 * 1024 * 1024,
+        );
         let permits = std::env::var("TILESERVER_DEM_RENDER_CONCURRENCY")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
-            .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4));
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4)
+            });
 
         let disk = std::env::var("TILESERVER_DEM_TILE_CACHE_DIR").ok().filter(|s| !s.is_empty()).and_then(
             |d| match DiskLru::open(PathBuf::from(&d), disk_budget) {
@@ -271,7 +307,10 @@ impl DemTileCache {
     pub fn get_disk(&self, k: TileKey) -> Option<Arc<[u8]>> {
         let bytes = self.disk.as_ref()?.get(k)?;
         let arc: Arc<[u8]> = Arc::from(bytes.into_boxed_slice());
-        self.mem.lock().unwrap().put(k, arc.len() as u64, arc.clone());
+        self.mem
+            .lock()
+            .unwrap()
+            .put(k, arc.len() as u64, arc.clone());
         Some(arc)
     }
 
@@ -307,7 +346,12 @@ mod tests {
     use super::*;
 
     fn k(y: u32) -> TileKey {
-        TileKey { z: 13, x: 100, y, halo: 1 }
+        TileKey {
+            z: 13,
+            x: 100,
+            y,
+            halo: 1,
+        }
     }
 
     #[test]
@@ -329,7 +373,10 @@ mod tests {
     fn byte_lru_keeps_a_single_oversized_entry() {
         let mut lru: ByteLru<u32> = ByteLru::new(10);
         let evicted = lru.put(k(1), 999, 1);
-        assert!(evicted.is_empty(), "must not evict the entry it just inserted");
+        assert!(
+            evicted.is_empty(),
+            "must not evict the entry it just inserted"
+        );
         assert_eq!(lru.get(&k(1)), Some(1));
     }
 
@@ -343,7 +390,10 @@ mod tests {
         assert_eq!(disk.get(k(1)).map(|b| b.len()), Some(40));
         disk.get(k(1)); // bump #1
         disk.put(k(3), &[0u8; 40]); // over budget → evict LRU (#2)
-        assert!(disk.get(k(2)).is_none(), "evicted tile must be gone from disk");
+        assert!(
+            disk.get(k(2)).is_none(),
+            "evicted tile must be gone from disk"
+        );
         assert!(!disk.path(k(2)).exists(), "evicted file must be deleted");
         assert_eq!(disk.get(k(1)).map(|b| b.len()), Some(40));
         let _ = std::fs::remove_dir_all(&dir);
@@ -359,12 +409,16 @@ mod tests {
         assert!(p1.is_some() && p2.is_some(), "first two renders admitted");
         assert!(cache.try_render().is_none(), "third is throttled (429)");
         drop(p1); // a render finished → a slot frees
-        assert!(cache.try_render().is_some(), "freed slot admits the next render");
+        assert!(
+            cache.try_render().is_some(),
+            "freed slot admits the next render"
+        );
     }
 
     #[test]
     fn disk_index_reseeds_from_existing_files_on_open() {
-        let dir = std::env::temp_dir().join(format!("turbo-demcache-reseed-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("turbo-demcache-reseed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         {
             let disk = DiskLru::open(dir.clone(), 10_000).unwrap();

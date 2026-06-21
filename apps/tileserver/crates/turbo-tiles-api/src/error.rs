@@ -62,8 +62,10 @@ impl IntoResponse for ApiError {
                     Json(json!({"error": "renderer busy, retry shortly"})),
                 )
                     .into_response();
-                resp.headers_mut()
-                    .insert(axum::http::header::RETRY_AFTER, axum::http::HeaderValue::from_static("1"));
+                resp.headers_mut().insert(
+                    axum::http::header::RETRY_AFTER,
+                    axum::http::HeaderValue::from_static("1"),
+                );
                 return resp;
             }
             ApiError::Auth(e) => return e.clone_into_response(),
