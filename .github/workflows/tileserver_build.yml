@@ -32,7 +32,11 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.90.0
+          # Unified with the turbomap workspace + android CI on the newest
+          # pinned stable (was 1.90.0). Kept in lock-step with
+          # apps/tileserver/rust-toolchain.toml so local + CI rustfmt/clippy
+          # never diverge. Verified: 0 fmt diff + clippy clean on the bump.
+          toolchain: 1.94.1
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
