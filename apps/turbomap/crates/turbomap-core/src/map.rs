@@ -1842,9 +1842,10 @@ impl Map {
             ];
             frame.raster_terrain_cfg.shadow_inv_size = 1.0 / self.shadow.world_size;
             frame.raster_terrain_cfg.shadow_texel_world = self.shadow.world_size / HEIGHT_DIM as f32;
-            // ~6 m of relief excess over the grazing ray → fully shadowed: a tight
-            // penumbra that reads crisp (the per-pixel march gives the hard edge).
-            frame.raster_terrain_cfg.shadow_softness = (6.0 * zscale).max(1e-7);
+            // Base penumbra band (world-z): ~10 m of relief excess fades lit→shadow
+            // at contact. The shader's contact-hardening widens this with occluder
+            // distance, so near edges stay crisp and far ridges throw soft shadows.
+            frame.raster_terrain_cfg.shadow_softness = (10.0 * zscale).max(1e-7);
             frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
         }
     }

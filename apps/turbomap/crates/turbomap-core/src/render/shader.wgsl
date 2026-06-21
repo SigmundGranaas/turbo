@@ -265,6 +265,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 let rise = tan_alt * step;                    // rise per march step
                 let h0 = height_bilinear(suv0);
                 var over = 0.0;
+                var hit_k = 0.0;
                 var p = in.world_xy;
                 for (var k = 1; k <= SHADOW_STEPS; k = k + 1) {
                     p = p + dir * step;
@@ -277,17 +278,33 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                     let excess = hz - ray_z;
                     if (excess > over) {
                         over = excess;
+                        hit_k = f32(k);
                     }
                 }
-                let soft = max(globals.shadow_softness, 1.0e-7);
-                occ = clamp(over / soft, 0.0, 1.0) * globals.shadow_strength;
+                // Contact hardening: the penumbra widens with the occluder's
+                // distance (a far ridge throws a soft edge, a nearby lip a crisp
+                // one) — the single biggest cue that makes terrain shadows read as
+                // real rather than a hard stencil. `smoothstep` gives a gentle
+                // toe/shoulder instead of a linear ramp.
+                let soft = max(globals.shadow_softness, 1.0e-7)
+                    * (1.0 + 2.5 * hit_k / f32(SHADOW_STEPS));
+                occ = smoothstep(0.0, soft, over) * globals.shadow_strength;
             }
         }
     }
+    // Split light into warm direct sun and cool sky-fill. A cast shadow removes
+    // the direct sun entirely but keeps most of the skylight (open terrain isn't a
+    // sealed crevice — the blue sky still lights it), so shadows stay luminous and
+    // cool rather than a crushed flat-grey wash. The sky tint is a subtle pull
+    // toward the horizon hue.
     let direct = (1.0 - globals.ambient) * ndl * (1.0 - occ);
-    let ambient_lit = globals.ambient * (1.0 - 0.5 * occ);
+    let ambient_lit = globals.ambient * (1.0 - 0.2 * occ);
     let light = ambient_lit + direct;
     var rgb = s.rgb * light * globals.light_color;
+    if (occ > 0.0) {
+        let sky_tint = mix(vec3<f32>(1.0), globals.haze_color, 0.5);
+        rgb = mix(rgb, rgb * sky_tint, occ);
+    }
 
     // Aerial perspective: fade distant relief toward the atmosphere colour for
     // depth + a believable horizon. Capped well below 1 so even the farthest
