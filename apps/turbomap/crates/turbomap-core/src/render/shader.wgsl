@@ -165,6 +165,9 @@ struct VertexOutput {
     // World-xy in the camera-relative (RTC) frame — used by the fragment
     // shader to sample the cast-shadow grid.
     @location(4) world_xy: vec2<f32>,
+    // Displaced world-z (terrain height) — used by the fragment shader for
+    // height-based valley fog (mist pools in the low ground).
+    @location(5) world_z: f32,
 };
 
 @vertex
@@ -227,6 +230,7 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
     let dist = length(vec3<f32>(world, world_z) - globals.eye_world);
     out.haze = 1.0 - exp(-dist * globals.haze_density);
     out.world_xy = world;
+    out.world_z = world_z;
     return out;
 }
 
@@ -297,7 +301,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // sealed crevice — the blue sky still lights it), so shadows stay luminous and
     // cool rather than a crushed flat-grey wash. The sky tint is a subtle pull
     // toward the horizon hue.
-    let direct = (1.0 - globals.ambient) * ndl * (1.0 - occ);
+    // Gate the direct sun by the sun being above the horizon — without this the
+    // N·L term keeps lighting slopes that face a just-below-horizon sun, so night
+    // never goes properly dark. Fades over the horizon for a smooth dusk.
+    let sun_up = smoothstep(-0.04, 0.04, globals.sun_dir.z);
+    let direct = (1.0 - globals.ambient) * ndl * (1.0 - occ) * sun_up;
     let ambient_lit = globals.ambient * (1.0 - 0.2 * occ);
     let light = ambient_lit + direct;
     var rgb = s.rgb * light * globals.light_color;
@@ -306,11 +314,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         rgb = mix(rgb, rgb * sky_tint, occ);
     }
 
-    // Aerial perspective: fade distant relief toward the atmosphere colour for
-    // depth + a believable horizon. Capped well below 1 so even the farthest
-    // ground keeps some terrain showing through — the haze never fully erases
-    // the map to a flat white wash (the steep-tilt white-out).
-    rgb = mix(rgb, globals.haze_color, min(in.haze, 0.75));
+    // Low-sun factor (1 near the horizon → 0 high up): drives the warm haze glow
+    // and the dawn/dusk valley mist.
+    let low_sun = 1.0 - smoothstep(0.10, 0.45, globals.sun_dir.z);
+
+    // Volumetric valley fog: mist pools in the low ground (elevation-based,
+    // squared so it concentrates in deep valleys/fjords), thicker at dawn/dusk.
+    // A cool near-white tinted by the horizon hue → golden at sunrise, blue by day.
+    let zscale = max(globals.meters_to_world * globals.exaggeration, 1.0e-9);
+    let elev_m = in.world_z / zscale;
+    let valley = clamp(1.0 - elev_m / 400.0, 0.0, 1.0);
+    // Mist peaks when the sun is AT the horizon (dawn/dusk) and falls off for both
+    // high noon and deep night — so midday stays clean and night goes dark.
+    let fog_tod = exp(-globals.sun_dir.z * globals.sun_dir.z * 18.0);
+    let fog_amt = clamp(valley * valley * fog_tod * 0.55, 0.0, 0.55);
+    // Fog colour tracks the time-of-day horizon hue (dark-blue at night, warm at
+    // golden hour, pale by day). The lift toward white scales with ambient
+    // daylight, so night mist stays dark instead of washing the ground to grey.
+    let fog_color = mix(globals.haze_color, vec3<f32>(1.0), 0.3 * globals.ambient);
+    rgb = mix(rgb, fog_color, fog_amt);
+
+    // Aerial perspective: fade distant relief toward the atmosphere colour. The
+    // haze glows WARM toward the sun (in-scatter) and stays cool away from it, so
+    // distant ridges toward a low sun pick up the golden-hour light. Capped well
+    // below 1 so the farthest ground never fully whites out.
+    let view_dir = normalize(in.world_xy - globals.eye_world.xy);
+    let sun_xy = globals.sun_dir.xy;
+    let sun_align = dot(view_dir, normalize(sun_xy + vec2<f32>(1.0e-6)));
+    let glow = pow(max(sun_align, 0.0), 4.0) * low_sun;
+    let haze_tint = mix(globals.haze_color, globals.light_color, glow * 0.7);
+    rgb = mix(rgb, haze_tint, min(in.haze, 0.78));
 
     return vec4<f32>(rgb, s.a * in.alpha);
 }

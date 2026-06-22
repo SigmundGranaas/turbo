@@ -77,6 +77,21 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     // Mie forward scattering: a broad warm halo plus a tight near-disk
     // around the sun. Both fade with `sun_intensity` at night.
+    // Stars: a sparse field hashed from the world-space ray direction (fixed to
+    // the sky as the camera turns), fading in as the sun sets, upper hemisphere
+    // only. Cheap procedural points, no uniform needed.
+    let night = 1.0 - sky.sun_intensity;
+    if (night > 0.01 && up > 0.04) {
+        let cell = floor(rd * 260.0);
+        let h = fract(sin(dot(cell, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
+        if (h > 0.9965) {
+            let star = (h - 0.9965) / 0.0035;
+            col += vec3<f32>(star * star) * night * smoothstep(0.04, 0.25, up);
+        }
+    }
+
+    // Mie forward scattering: a broad warm halo plus a tight near-disk
+    // around the sun. Both fade with `sun_intensity` at night.
     let mu = clamp(dot(rd, sky.sun_dir), -1.0, 1.0);
     let halo = pow(max(mu, 0.0), 8.0) * 0.5;
     let disk = pow(max(mu, 0.0), 350.0) * 5.0;

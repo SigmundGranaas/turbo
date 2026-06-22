@@ -13,6 +13,7 @@ pub(crate) mod gpu_timestamps;
 pub(crate) mod hillshade;
 pub(crate) mod icon;
 pub(crate) mod marker;
+pub(crate) mod post;
 pub(crate) mod raster;
 pub(crate) mod route;
 pub(crate) mod shadow;
@@ -56,6 +57,13 @@ pub(crate) const BACKGROUND_CLEAR: wgpu::Color = wgpu::Color {
 /// ranges we deal with (≤ ~3 km of relief over Mercator world units
 /// at zoom 6+).
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+/// The frame pass renders into this float HDR target (linear, no clamp) instead
+/// of straight to the sRGB surface, so highlights can exceed 1.0 for the bloom +
+/// filmic tonemap post-process ([`post`]). Resolved to a sampleable HDR texture,
+/// then tonemapped down to the surface. Rgba16Float is MSAA-resolvable and needs
+/// no extra device feature (unlike filtering R32Float).
+pub(crate) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// Multisample count for the single frame pass. 4× is supported on every
 /// backend we target and smooths the geometry edges that don't carry their

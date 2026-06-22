@@ -174,36 +174,58 @@ fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 pub fn atmosphere(sun: SunPosition) -> Atmosphere {
     let alt = sun.altitude_deg;
 
-    // Day palette.
-    let day_light = [1.0, 0.97, 0.92];
-    let day_zenith = [0.16, 0.34, 0.66];
-    let day_horizon = [0.66, 0.78, 0.92];
+    // Four regimes, layered by rising sun altitude (night → blue hour → golden
+    // → day). Each is (light, zenith, horizon). Colours are deliberately a touch
+    // saturated; the HDR tonemap pass tames the highlights.
+    let day_light = [1.0, 0.98, 0.94];
+    let day_zenith = [0.18, 0.42, 0.80];
+    let day_horizon = [0.72, 0.84, 0.97];
 
-    // Golden-hour palette.
-    let gold_light = [1.0, 0.62, 0.36];
-    let gold_zenith = [0.22, 0.30, 0.52];
-    let gold_horizon = [0.96, 0.62, 0.40];
+    // Golden hour is asymmetric: dawn is softer/pinker, dusk a deeper orange-red.
+    let gold_dawn_light = [1.0, 0.68, 0.45];
+    let gold_dawn_horizon = [1.0, 0.68, 0.50];
+    let gold_dusk_light = [1.0, 0.52, 0.26];
+    let gold_dusk_horizon = [1.0, 0.50, 0.27];
+    let gold_zenith = [0.30, 0.37, 0.62];
 
-    // Night palette.
-    let night_light = [0.16, 0.20, 0.34];
-    let night_zenith = [0.02, 0.03, 0.07];
-    let night_horizon = [0.06, 0.08, 0.16];
+    // Blue hour: deep blue zenith with a dusky magenta twilight band low down.
+    let blue_light = [0.42, 0.42, 0.62];
+    let blue_zenith = [0.05, 0.10, 0.30];
+    let blue_horizon = [0.52, 0.34, 0.50];
 
-    // 0 at/below horizon → 1 by ~10° (day vs golden blend).
-    let day_t = smoothstep(0.0, 10.0, alt);
-    // 1 above horizon → 0 by ~ -6° (civil twilight into night).
-    let lit_t = smoothstep(-6.0, 1.0, alt);
+    // Night: dim cool blue, lifted off pure black so relief still reads.
+    let night_light = [0.10, 0.13, 0.26];
+    let night_zenith = [0.015, 0.03, 0.075];
+    let night_horizon = [0.05, 0.08, 0.16];
 
-    let light_day_gold = mix3(gold_light, day_light, day_t);
-    let zenith_day_gold = mix3(gold_zenith, day_zenith, day_t);
-    let horizon_day_gold = mix3(gold_horizon, day_horizon, day_t);
+    // Dawn (az < 180, sun in the east) vs dusk (az > 180, west).
+    let dusk = smoothstep(178.0, 192.0, sun.azimuth_deg);
+    let gold_light = mix3(gold_dawn_light, gold_dusk_light, dusk);
+    let gold_horizon = mix3(gold_dawn_horizon, gold_dusk_horizon, dusk);
 
-    let light_color = mix3(night_light, light_day_gold, lit_t);
-    let zenith_color = mix3(night_zenith, zenith_day_gold, lit_t);
-    let horizon_color = mix3(night_horizon, horizon_day_gold, lit_t);
+    // Layer the regimes by altitude.
+    let bh_t = smoothstep(-10.0, -3.0, alt); // night → blue hour
+    let gold_t = smoothstep(-3.0, 4.0, alt); // blue hour → golden
+    let day_t = smoothstep(4.0, 12.0, alt); // golden → day
 
-    // Brighter ambient by day, dim at night.
-    let ambient = 0.16 + 0.26 * lit_t;
+    let mut light_color = night_light;
+    light_color = mix3(light_color, blue_light, bh_t);
+    light_color = mix3(light_color, gold_light, gold_t);
+    light_color = mix3(light_color, day_light, day_t);
+
+    let mut zenith_color = night_zenith;
+    zenith_color = mix3(zenith_color, blue_zenith, bh_t);
+    zenith_color = mix3(zenith_color, gold_zenith, gold_t);
+    zenith_color = mix3(zenith_color, day_zenith, day_t);
+
+    let mut horizon_color = night_horizon;
+    horizon_color = mix3(horizon_color, blue_horizon, bh_t);
+    horizon_color = mix3(horizon_color, gold_horizon, gold_t);
+    horizon_color = mix3(horizon_color, day_horizon, day_t);
+
+    // Ambient skylight: dim at night, bright by day. Tracks how far up the sun is.
+    let day_amount = smoothstep(-4.0, 8.0, alt);
+    let ambient = 0.10 + 0.32 * day_amount;
 
     Atmosphere {
         light_color,

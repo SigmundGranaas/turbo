@@ -30,6 +30,7 @@ use crate::{
         hillshade::{HillshadePipeline, PreparedHillshade},
         icon::{IconPipeline, PreparedIcons},
         marker::MarkerPipeline,
+        post::PostProcess,
         raster::{PreparedRaster, RasterPipeline},
         route::{build_tube, RoutePipeline, RouteVertex},
         shadow::{ShadowMap, HEIGHT_DIM},
@@ -39,7 +40,7 @@ use crate::{
         text::{PreparedText, TextPipeline},
         vector::{PreparedVector, VectorPipeline},
         vector_cache::VectorMeshCache,
-        TextureCache, BACKGROUND_CLEAR,
+        TextureCache, BACKGROUND_CLEAR, HDR_FORMAT,
     },
     lighting::Lighting,
     markers::MarkerManager,
@@ -510,9 +511,12 @@ struct Renderer {
     /// uploaded from a CPU horizon-march when the sun/region/DEM changes. See
     /// [`crate::render::shadow`].
     shadow_map: ShadowMap,
-    /// The frame's MSAA colour + depth attachments, recreated together on
-    /// resize. See [`FrameTargets`].
+    /// The frame's HDR MSAA colour + depth + resolve + bloom attachments,
+    /// recreated together on resize. See [`FrameTargets`].
     targets: FrameTargets,
+    /// HDR bloom + filmic tonemap stage. Reads `targets.hdr_resolve`, writes the
+    /// final sRGB surface. See [`crate::render::post`].
+    post: PostProcess,
 }
 
 impl Renderer {
@@ -522,17 +526,21 @@ impl Renderer {
         surface_format: wgpu::TextureFormat,
         initial_size: (u32, u32),
     ) -> Self {
+        // Every pipeline that draws inside the frame pass renders into the HDR
+        // float target (not the sRGB surface); only the tonemap pass, inside
+        // `PostProcess`, targets `surface_format`.
         Self {
-            text_pipeline: TextPipeline::new(device.clone(), queue.clone(), surface_format),
-            icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), surface_format),
-            marker_pipeline: MarkerPipeline::new(device.clone(), queue.clone(), surface_format),
-            route_pipeline: RoutePipeline::new(device.clone(), queue.clone(), surface_format),
-            sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), surface_format),
-            floor_pipeline: FloorPipeline::new(device.clone(), queue.clone(), surface_format),
+            text_pipeline: TextPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
+            icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
+            marker_pipeline: MarkerPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
+            route_pipeline: RoutePipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
+            sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
+            floor_pipeline: FloorPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
             gpu_timestamps: GpuTimestamps::new(device, queue),
             terrain_shared: TerrainShared::new(device, queue),
             shadow_map: ShadowMap::new(device, queue),
-            targets: FrameTargets::new(device, surface_format, initial_size),
+            targets: FrameTargets::new(device, initial_size),
+            post: PostProcess::new(device, surface_format),
         }
     }
 }
@@ -1022,7 +1030,7 @@ impl Map {
         let pipeline = RasterPipeline::new(
             self.device.clone(),
             self.queue.clone(),
-            self.surface_format,
+            HDR_FORMAT,
             &self.renderer.terrain_shared.bind_group_layout,
             &self.renderer.shadow_map.layout,
         );
@@ -1074,7 +1082,7 @@ impl Map {
         let pipeline = HillshadePipeline::new(
             self.device.clone(),
             self.queue.clone(),
-            self.surface_format,
+            HDR_FORMAT,
             &self.renderer.terrain_shared.bind_group_layout,
             halo,
         );
@@ -1100,7 +1108,7 @@ impl Map {
         let pipeline = VectorPipeline::new(
             self.device.clone(),
             self.queue.clone(),
-            self.surface_format,
+            HDR_FORMAT,
             &self.renderer.terrain_shared.bind_group_layout,
         );
         let cache = VectorMeshCache::new(self.device.clone(), self.options.cache_budget_bytes);
@@ -1262,11 +1270,12 @@ impl Map {
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.viewport_px = (width, height);
-        // Depth + MSAA colour must match the surface size or Metal asserts on
-        // the next render; FrameTargets recreates both together (no-op when
-        // unchanged or degenerate).
-        self.renderer.targets
-            .resize(&self.device, self.surface_format, (width, height));
+        // Depth + HDR colour/resolve/bloom must match the surface size or Metal
+        // asserts on the next render; FrameTargets recreates them all together
+        // (no-op when unchanged or degenerate).
+        self.renderer
+            .targets
+            .resize(&self.device, (width, height));
         self.sync_scenes();
     }
 
@@ -2072,14 +2081,16 @@ impl Map {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("turbomap-frame-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    // Render multisampled, then resolve down to the surface.
+                    // Render multisampled into the HDR target, then resolve down
+                    // to the single-sample HDR texture the post-process reads.
+                    // (The sRGB surface is written later, by the tonemap pass.)
                     view: self.renderer.targets.color_view(),
-                    resolve_target: Some(target),
+                    resolve_target: Some(self.renderer.targets.hdr_resolve_view()),
                     depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear),
                         // The multisampled buffer is transient — we only keep
-                        // the resolved surface, so it needn't be stored.
+                        // the resolved HDR texture, so it needn't be stored.
                         store: wgpu::StoreOp::Discard,
                     },
                 })],
@@ -2191,6 +2202,14 @@ impl Map {
             }
         }
         let pass_time = pass_started.elapsed();
+
+        // ---- Phase C2: HDR post-process ---------------------------
+        // Bloom + filmic tonemap the resolved HDR scene down to the sRGB
+        // surface. After this the surface holds the final tonemapped image;
+        // the weather-cloud overlay (below) then composites over it in SDR.
+        self.renderer
+            .post
+            .run(&self.device, encoder, &self.renderer.targets, target);
 
         // Weather-cloud overlay: a separate, single-sampled, depth-less
         // fullscreen composite over the already-resolved surface. It can't
