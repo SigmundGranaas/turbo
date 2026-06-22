@@ -654,6 +654,10 @@ pub struct Map {
     /// Route/track rendered as raised 3D tubes (replaces the flat draped line).
     /// See [`Map::set_route_tube`] and the route block in [`Map::render`].
     route_tubes: RouteTubeState,
+    /// Renderer wall clock. `elapsed().as_secs_f32()` is stamped into the frame
+    /// config each render to drift the procedural haze (so it "rolls in" and
+    /// its patchiness moves over time). Animates while frames are produced.
+    start: Instant,
 }
 
 /// Route/track 3D-tube state. Each entry is a polyline + style; the combined
@@ -746,6 +750,7 @@ impl Map {
             lighting: Lighting::default(),
             shadow: TerrainShadowState::default(),
             route_tubes: RouteTubeState::default(),
+            start: Instant::now(),
         })
     }
 
@@ -1928,6 +1933,9 @@ impl Map {
                 halo_px: self.terrain.as_ref().map(|t| t.cache.halo_px()).unwrap_or(0),
             },
         );
+        // Stamp the renderer wall clock so the procedural low haze drifts ("rolls
+        // in") and its patchiness moves over time.
+        frame.raster_terrain_cfg.time = self.start.elapsed().as_secs_f32();
         // Terrain cast shadows: if enabled (and we have 3D terrain), refresh the
         // CPU horizon-march field when its inputs changed and patch the frame's
         // raster config to sample it. No-op (and no cost) when strength == 0.

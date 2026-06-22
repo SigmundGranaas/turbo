@@ -42,9 +42,10 @@ fn vs_fullscreen(@builtin(vertex_index) i: u32) -> VsOut {
 // flicker edge as a highlight ramps past the cutoff.
 const THRESHOLD: f32 = 1.05;
 const KNEE: f32 = 0.6;
-// Camera exposure applied before tonemapping. <1 keeps the bright analytic sky
-// from blowing out the moment bloom is added.
-const EXPOSURE: f32 = 1.0;
+// Camera exposure applied before tonemapping. <1 reins in the bright daytime
+// scene (the pale topo basemap under a high sun read as too hot at 1.0) and
+// keeps the analytic sky from blowing out the moment bloom is added.
+const EXPOSURE: f32 = 0.82;
 // How much of the blurred highlight buffer to add back over the scene.
 const BLOOM_INTENSITY: f32 = 0.55;
 

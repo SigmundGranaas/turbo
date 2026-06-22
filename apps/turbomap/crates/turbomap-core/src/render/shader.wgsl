@@ -58,7 +58,10 @@ struct Globals {
     shadow_texel_world: f32,
     // World-z band over which an occluder fades the shadow in (penumbra).
     shadow_softness: f32,
-    _shadow_pad: vec2<f32>,
+    // Seconds since renderer start — drifts the procedural low-haze field so it
+    // "rolls in" and its patchiness moves over time.
+    time: f32,
+    _shadow_pad: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -102,6 +105,52 @@ fn height_bilinear(uv: vec2<f32>) -> f32 {
 // Cast-shadow march length, in heightfield texels. Longer = shadows reach
 // further (low sun) at more cost; each step is one `shadow_texel_world`.
 const SHADOW_STEPS: i32 = 48;
+
+// --- Procedural haze field -------------------------------------------------
+// Cheap value-noise fbm used to break the haze out of a flat uniform veil:
+// it makes the low haze patchy (banks here, clear there), and because the
+// sample coordinate drifts with `globals.time` the patches roll across the
+// terrain over time. Sampled in a metres-relative world frame so the feature
+// size is zoom-stable.
+fn hash2(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453123);
+}
+
+fn vnoise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    // Quintic smootherstep — no grid-aligned creasing as patches drift.
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let a = hash2(i + vec2<f32>(0.0, 0.0));
+    let b = hash2(i + vec2<f32>(1.0, 0.0));
+    let c = hash2(i + vec2<f32>(0.0, 1.0));
+    let d = hash2(i + vec2<f32>(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// 4-octave fbm, ~[0,1]. Each octave doubles frequency and halves amplitude;
+// the per-octave offset decorrelates them so the sum doesn't beat.
+fn fbm(p: vec2<f32>) -> f32 {
+    var v = 0.0;
+    var amp = 0.5;
+    var pp = p;
+    for (var k = 0; k < 4; k = k + 1) {
+        v = v + amp * vnoise(pp);
+        pp = pp * 2.0 + vec2<f32>(19.7, 7.3);
+        amp = amp * 0.5;
+    }
+    return v;
+}
+
+// Haze field tuning (metres unless noted). Kept as named consts — the look is
+// device-validated, so these are the dials to turn.
+const HAZE_FEATURE_M: f32 = 1800.0;    // patch size of the noise field
+const HAZE_SPEED_M: f32 = 20.0;        // drift speed of the field (m/s)
+const HAZE_BASE_M: f32 = 250.0;        // base altitude of the low-haze ceiling
+const HAZE_UNDULATE_M: f32 = 220.0;    // how much the ceiling rolls (±half)
+const HAZE_OROGRAPHIC_M: f32 = 500.0;  // extra lift on steep slopes (banks up the mountains)
+const HAZE_FEATHER_M: f32 = 180.0;     // soft thickness of the ceiling's top edge
+const HAZE_STRENGTH: f32 = 0.42;       // max opacity of the low haze
 
 fn decode_elevation(rgb: vec3<f32>) -> f32 {
     let r = rgb.r * 255.0;
@@ -318,32 +367,54 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // and the dawn/dusk valley mist.
     let low_sun = 1.0 - smoothstep(0.10, 0.45, globals.sun_dir.z);
 
-    // Volumetric valley fog: mist pools in the low ground (elevation-based,
-    // squared so it concentrates in deep valleys/fjords), thicker at dawn/dusk.
-    // A cool near-white tinted by the horizon hue → golden at sunrise, blue by day.
     let zscale = max(globals.meters_to_world * globals.exaggeration, 1.0e-9);
     let elev_m = in.world_z / zscale;
-    let valley = clamp(1.0 - elev_m / 400.0, 0.0, 1.0);
-    // Mist peaks when the sun is AT the horizon (dawn/dusk) and falls off for both
-    // high noon and deep night — so midday stays clean and night goes dark.
-    let fog_tod = exp(-globals.sun_dir.z * globals.sun_dir.z * 18.0);
-    let fog_amt = clamp(valley * valley * fog_tod * 0.55, 0.0, 0.55);
-    // Fog colour tracks the time-of-day horizon hue (dark-blue at night, warm at
-    // golden hour, pale by day). The lift toward white scales with ambient
-    // daylight, so night mist stays dark instead of washing the ground to grey.
-    let fog_color = mix(globals.haze_color, vec3<f32>(1.0), 0.3 * globals.ambient);
-    rgb = mix(rgb, fog_color, fog_amt);
 
-    // Aerial perspective: fade distant relief toward the atmosphere colour. The
-    // haze glows WARM toward the sun (in-scatter) and stays cool away from it, so
-    // distant ridges toward a low sun pick up the golden-hour light. Capped well
-    // below 1 so the farthest ground never fully whites out.
+    // --- Procedural drifting haze field ---------------------------------
+    // Sample the fbm in a metres-relative frame (real-world feature size, so
+    // zoom-stable), translating the coordinate with time so the haze "rolls
+    // in" along a fixed wind direction. The metres→world factors cancel, so the
+    // drift speed is a true metres/sec regardless of zoom.
+    let feature_world = max(HAZE_FEATURE_M * globals.meters_to_world, 1.0e-12);
+    let drift = normalize(vec2<f32>(1.0, 0.35)) * (HAZE_SPEED_M * globals.time) * globals.meters_to_world;
+    let nco = (in.world_xy + drift) / feature_world;
+    // A slow broad field undulates the haze ceiling; a finer field breaks the
+    // opacity into patches (clear here, banked there) so it's never a flat veil.
+    let field_broad = fbm(nco * 0.5);
+    let field_fine = fbm(nco + vec2<f32>(31.0, 17.0));
+    let patchiness = mix(0.25, 1.3, field_fine);
+
+    // --- Low haze layer: pools low, banks UP against the mountains ------
+    // A drifting horizontal layer whose ceiling undulates (rolls) and is pushed
+    // upward where the terrain is steep (orographic lift) — so the haze climbs
+    // the windward slopes instead of sitting at one flat altitude. `slope` is
+    // read straight from the shaded normal (n.z→1 flat, smaller on steep faces).
+    let slope = clamp(1.0 - n.z, 0.0, 1.0);
+    let ceiling_m = HAZE_BASE_M
+        + HAZE_UNDULATE_M * (field_broad - 0.5)
+        + HAZE_OROGRAPHIC_M * slope;
+    // 1 well below the ceiling → 0 above it, with a soft feathered top edge.
+    let fill = clamp((ceiling_m - elev_m) / HAZE_FEATHER_M, 0.0, 1.0);
+    // Daylight keeps a light haze; the sun at the horizon thickens it into warm
+    // valley mist; deep night fades it out.
+    let tod = 0.5 + 0.5 * exp(-globals.sun_dir.z * globals.sun_dir.z * 14.0);
+    let haze_amt = clamp(fill * patchiness * tod * HAZE_STRENGTH, 0.0, 0.85);
+    // Mist colour tracks the time-of-day horizon hue; the lift toward white
+    // scales with daylight so night mist stays dark instead of glowing grey.
+    let mist_color = mix(globals.haze_color, vec3<f32>(1.0), 0.35 * globals.ambient);
+    rgb = mix(rgb, mist_color, haze_amt);
+
+    // --- Aerial perspective: distant relief → atmosphere colour ---------
+    // The far-field veil, now broken up by the same broad field so it isn't a
+    // flat wash. Glows WARM toward a low sun (in-scatter), cool away from it.
+    // Capped below 1 so the farthest ground never fully whites out.
     let view_dir = normalize(in.world_xy - globals.eye_world.xy);
     let sun_xy = globals.sun_dir.xy;
     let sun_align = dot(view_dir, normalize(sun_xy + vec2<f32>(1.0e-6)));
     let glow = pow(max(sun_align, 0.0), 4.0) * low_sun;
     let haze_tint = mix(globals.haze_color, globals.light_color, glow * 0.7);
-    rgb = mix(rgb, haze_tint, min(in.haze, 0.78));
+    let aerial = min(in.haze * mix(0.7, 1.15, field_broad), 0.82);
+    rgb = mix(rgb, haze_tint, aerial);
 
     return vec4<f32>(rgb, s.a * in.alpha);
 }

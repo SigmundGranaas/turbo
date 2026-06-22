@@ -183,6 +183,9 @@ impl RenderFrame {
             shadow_strength: 0.0,
             shadow_texel_world: 0.0,
             shadow_softness: 1.0,
+            // Stamped in `Map::render` from the renderer's wall clock (this
+            // pure builder has no clock); drives the haze drift.
+            time: 0.0,
         };
 
         // Vector drape params, derived from the raster config.

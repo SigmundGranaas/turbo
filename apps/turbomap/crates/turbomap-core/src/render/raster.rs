@@ -71,7 +71,11 @@ struct Globals {
     /// softness band (world-z). One more 16-byte slot (2 scalars + pad).
     shadow_texel_world: f32,
     shadow_softness: f32,
-    _shadow_pad: [f32; 2],
+    /// Seconds since renderer start. Drifts the procedural low-haze field so it
+    /// "rolls in" and its patchiness moves over time. See the haze block in
+    /// `shader.wgsl`.
+    time: f32,
+    _shadow_pad: f32,
 }
 
 #[repr(C)]
@@ -176,6 +180,8 @@ pub(crate) struct TerrainConfig {
     pub shadow_texel_world: f32,
     /// World-z penumbra band over which an occluder fades the shadow in.
     pub shadow_softness: f32,
+    /// Seconds since renderer start — animates the procedural low-haze drift.
+    pub time: f32,
 }
 
 impl Default for TerrainConfig {
@@ -194,6 +200,7 @@ impl Default for TerrainConfig {
             shadow_strength: 0.0,
             shadow_texel_world: 0.0,
             shadow_softness: 1.0,
+            time: 0.0,
         }
     }
 }
@@ -639,7 +646,8 @@ impl RasterPipeline {
                 },
                 shadow_texel_world: terrain_options.shadow_texel_world,
                 shadow_softness: terrain_options.shadow_softness,
-                _shadow_pad: [0.0, 0.0],
+                time: terrain_options.time,
+                _shadow_pad: 0.0,
             }),
         );
 

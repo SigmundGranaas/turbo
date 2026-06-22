@@ -42,11 +42,16 @@ FROM debian:bookworm-slim AS runtime
 # import fails with "raster2pgsql: command not found" — caught only
 # at runtime, not at image build time. ca-certificates is also
 # needed by reqwest for the live Hoydedata + WFS endpoints.
+# `unzip` is required by the N50 boot-provision (geonorge → pgdump_load::
+# unzip_dump spawns `unzip -n -q`); without it provisioning fails with
+# "spawn unzip: No such file or directory" — the basemap DB stays empty and
+# every /v1/basemap MVT tile returns 0 bytes (no water/landcover/etc.).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         postgresql-client \
         postgis \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /build/target/release/tileserver /usr/local/bin/tileserver
 COPY --from=spa-builder /build/admin/dist /var/lib/tileserver/admin/dist
