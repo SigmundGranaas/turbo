@@ -181,17 +181,28 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 60
+          # The on-EMPTY-db N50 boot-provision (TILESERVER_PROVISION_ON_BOOT)
+          # downloads + restores the national dump — a psql restore + GiST index
+          # build that pegs the 2-core limit for ~10-15 min, so /healthz answers
+          # slowly (or not within a few seconds) for the whole restore. The old
+          # tight probes (3s timeout × 4 failures = ~80s) SIGKILLed the pod
+          # mid-restore (exit 137), which wiped the incoming download and
+          # restarted the whole provision → a crash loop that never populated the
+          # basemap. Tolerate the provisioning window: a long timeout + high
+          # failure budget (≈20 min) so the one-time restore can finish. Once the
+          # tiles-db is populated, provision is a no-op and the pod is responsive
+          # again, so this generous window only matters on first/empty boot.
           readinessProbe:
             httpGet: { path: /healthz, port: 8080 }
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
+            periodSeconds: 15
+            timeoutSeconds: 8
+            failureThreshold: 6
           livenessProbe:
             httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 30
-            periodSeconds: 20
-            timeoutSeconds: 3
-            failureThreshold: 4
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 40
           resources:
             requests:
               memory: "512Mi"           # mmap pages are reclaimable; resident set is heap + hot DEM pages
