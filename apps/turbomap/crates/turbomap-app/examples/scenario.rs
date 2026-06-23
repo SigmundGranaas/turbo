@@ -784,7 +784,11 @@ fn main() {
     // The pan repro isolates the terrain/sky haze, so skip the cloud overlay
     // there (its volumetric composite otherwise dominates the frame at high
     // pitch and confounds the haze measurement).
-    let with_clouds = std::env::var("TURBO_PAN_REPRO").is_err();
+    // Clouds wash out the (white Kartverket) basemap from above and confound the
+    // water look, so the water dev loop (TURBO_WATER) and the pan haze probe both
+    // run cloud-free.
+    let with_clouds =
+        std::env::var("TURBO_PAN_REPRO").is_err() && std::env::var("TURBO_WATER").is_err();
     if with_clouds {
         map.enable_clouds(GW, GH);
         map.ingest_radar_frame(0, &synthetic_radar(GW, GH, 0.40));

@@ -206,6 +206,45 @@ fn edge_midpoint(
     idx
 }
 
+/// Squared distance from point `p` to segment `a`→`b` (tile-local units).
+fn point_seg_dist2(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
+    let ab = [b[0] - a[0], b[1] - a[1]];
+    let ap = [p[0] - a[0], p[1] - a[1]];
+    let len2 = ab[0] * ab[0] + ab[1] * ab[1];
+    let t = if len2 > 0.0 {
+        ((ap[0] * ab[0] + ap[1] * ab[1]) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let c = [a[0] + t * ab[0], a[1] + t * ab[1]];
+    let d = [p[0] - c[0], p[1] - c[1]];
+    d[0] * d[0] + d[1] * d[1]
+}
+
+/// Bake each water vertex's distance to the nearest shoreline edge (tile-local
+/// units) into its `dist` attribute. `segments` are the water polygons' boundary
+/// edges, `[x0,y0,x1,y1]`. With no boundary (shouldn't happen for water) every
+/// vertex stays at `dist = 0` (treated as shallow — the safe, brighter default).
+fn bake_shore_distance(mesh: &mut Mesh, segments: &[[f32; 4]]) {
+    if segments.is_empty() {
+        return;
+    }
+    for v in &mut mesh.vertices {
+        let p = v.base;
+        let mut best = f32::MAX;
+        for s in segments {
+            let d2 = point_seg_dist2(p, [s[0], s[1]], [s[2], s[3]]);
+            if d2 < best {
+                best = d2;
+                if best == 0.0 {
+                    break;
+                }
+            }
+        }
+        v.dist = best.sqrt();
+    }
+}
+
 /// Uniformly subdivide a triangle mesh (each triangle → 4 via shared edge
 /// midpoints, so it stays watertight — no T-junction cracks) until another round
 /// would exceed `max_verts`, or `max_rounds` is reached. Turns the minimal lyon
@@ -254,6 +293,10 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
     // through the dedicated water pipeline. Everything else (incl. water outlines,
     // which are `Line` paint) stays in `buffers`.
     let mut water_buffers: VertexBuffers<VectorVertex, u32> = VertexBuffers::new();
+    // Shoreline edge segments (tile-local coords) of every water polygon, used
+    // after refinement to bake each water vertex's distance-to-shore into `dist`
+    // — the shallowness cue the water shader turns into depth-based absorption.
+    let mut water_boundary: Vec<[f32; 4]> = Vec::new();
     let mut labels: Vec<LabelRequest> = Vec::new();
     let mut icons: Vec<IconRequest> = Vec::new();
     let mut interactive: Vec<InteractiveFeature> = Vec::new();
@@ -283,7 +326,26 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                         // Route water-body fills into the dedicated water buffer
                         // (realistic-water pipeline); everything else into the
                         // ordinary vector mesh.
-                        let target = if is_water_source_layer(&layer.name) {
+                        let is_water = is_water_source_layer(&layer.name);
+                        if is_water {
+                            // Collect this body's shoreline edges (tile-local) for
+                            // the post-refinement shore-distance bake.
+                            for ring in rings {
+                                if ring.len() < 2 {
+                                    continue;
+                                }
+                                let mut prev = project(tile_id, extent, ring[0]);
+                                for &pt in &ring[1..] {
+                                    let cur = project(tile_id, extent, pt);
+                                    water_boundary.push([prev.x, prev.y, cur.x, cur.y]);
+                                    prev = cur;
+                                }
+                                // Close the ring (last → first).
+                                let first = project(tile_id, extent, ring[0]);
+                                water_boundary.push([prev.x, prev.y, first.x, first.y]);
+                            }
+                        }
+                        let target = if is_water {
                             &mut water_buffers
                         } else {
                             &mut buffers
@@ -549,7 +611,7 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
     // triangles; uniform 1→4 subdivision (shared midpoints ⇒ watertight, no
     // cracks) gives a dense grid, bounded by a per-tile vertex budget. The flat
     // water path renders the denser mesh identically (still a flat fill).
-    let water_mesh = refine_mesh(
+    let mut water_mesh = refine_mesh(
         Mesh {
             vertices: water_buffers.vertices,
             indices: water_buffers.indices,
@@ -557,6 +619,9 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
         WATER_GRID_VERT_BUDGET,
         WATER_GRID_MAX_ROUNDS,
     );
+    // Bake distance-to-shore (tile-local units) into each water vertex's `dist`
+    // so the shader can shade shallows (near an edge) brighter than deeps.
+    bake_shore_distance(&mut water_mesh, &water_boundary);
     TessellationOutput {
         mesh: Mesh {
             vertices: buffers.vertices,
@@ -761,6 +826,38 @@ mod tests {
             .vertices
             .iter()
             .any(|v| (v.base[0] - 0.5).abs() < 1e-6 && (v.base[1] - 0.5).abs() < 1e-6));
+    }
+
+    #[test]
+    fn bake_shore_distance_marks_edges_shallow_and_interior_deep() {
+        // A unit-square water body; boundary = its 4 edges. A vertex on an edge
+        // must get ~0 distance (shallow); the centre must get ~0.5 (deep).
+        let segments = [
+            [0.0, 0.0, 1.0, 0.0],
+            [1.0, 0.0, 1.0, 1.0],
+            [1.0, 1.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 0.0],
+        ];
+        let mut mesh = Mesh {
+            vertices: vec![
+                fill_vertex(0.0, 0.5), // on the left edge
+                fill_vertex(0.5, 0.5), // centre
+            ],
+            indices: vec![],
+        };
+        bake_shore_distance(&mut mesh, &segments);
+        assert!(mesh.vertices[0].dist < 1e-6, "edge vertex is shallow");
+        assert!(
+            (mesh.vertices[1].dist - 0.5).abs() < 1e-6,
+            "centre is the deepest point (0.5 from every edge)"
+        );
+        // No boundary ⇒ left at the shallow default (0).
+        let mut bare = Mesh {
+            vertices: vec![fill_vertex(0.3, 0.7)],
+            indices: vec![],
+        };
+        bake_shore_distance(&mut bare, &[]);
+        assert_eq!(bare.vertices[0].dist, 0.0);
     }
 
     #[test]

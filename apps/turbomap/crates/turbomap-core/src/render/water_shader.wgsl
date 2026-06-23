@@ -111,6 +111,9 @@ struct VertexOutput {
     @location(1) world_pos: vec3<f32>,
     // Geometric normal of the Gerstner swell (z-up), perturbed further in the FS.
     @location(2) wave_normal: vec3<f32>,
+    // Distance to the nearest shore edge, tile-local units (baked into `dist`).
+    // The FS turns it into a depth-based absorption tint (shallow → deep).
+    @location(3) shore: f32,
 };
 
 @vertex
@@ -153,6 +156,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.color = in.color;
     out.world_pos = world_pos;
     out.wave_normal = wave_n;
+    out.shore = in.dist;
     return out;
 }
 
@@ -429,9 +433,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    // Deep-water body tint with a subtle subsurface glow on crests. A TINT only —
-    // the water is reflection-dominated, so this never becomes the whole look.
-    let deep = in.color.rgb * 0.38;
+    // Depth-based absorption (Beer-Lambert, proxied by distance to shore — the
+    // shallowness cue baked into `shore`). Near an edge the bed is close, so the
+    // water is bright + turquoise and lets the basemap show through; toward the
+    // interior light is absorbed → dark, saturated blue and opaque. `shore` is in
+    // tile-local units; `span / meters_to_world` converts it to ground metres.
+    let shore_m = in.shore * tile.span / max(water.meters_to_world, 1e-12);
+    let depth01 = smoothstep(0.0, 55.0, shore_m);
+    let shallow_tint = in.color.rgb * 1.30 + vec3<f32>(0.03, 0.09, 0.09);
+    let deep_tint = in.color.rgb * 0.30;
+    let deep = mix(shallow_tint, deep_tint, depth01);
+    // Subtle subsurface glow on crests. A TINT only — water is reflection-dominated.
     let sss_col = vec3<f32>(0.03, 0.13, 0.16);
     let sss = sss_col * (0.5 + 0.7 * crest) * (0.3 + 0.7 * water.sun_intensity);
     let body = deep + sss;
@@ -451,8 +463,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     col = mix(col, foam_lit, clamp(breaking, 0.0, 1.0));
 
     // Shoreline foam: a thin lively band where the water meets rising land.
-    let shore = shoreline_foam(in.world_pos, water.time);
-    col = mix(col, foam_lit, shore);
+    let foam_band = shoreline_foam(in.world_pos, water.time);
+    col = mix(col, foam_lit, foam_band);
 
-    return vec4<f32>(col, in.color.a * tile.tile_alpha);
+    // Shallow + looking-down water lets the bed (basemap under the water) show
+    // through; grazing angles stay an opaque mirror (high Fresnel). Foam is opaque.
+    let bed_reveal = (1.0 - depth01) * (1.0 - fres) * (1.0 - foam_band);
+    let alpha = in.color.a * tile.tile_alpha * (1.0 - 0.45 * bed_reveal);
+    return vec4<f32>(col, alpha);
 }
