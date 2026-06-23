@@ -282,6 +282,7 @@ internal class TurbomapSurfaceController {
     private var lastPendingCount = 0
     private var coldLoadTraceStart = 0L
     private var coldLoadTraceDone = false
+    private var lastTracedFrame = ""
     private val http = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
@@ -632,9 +633,16 @@ internal class TurbomapSurfaceController {
             android.util.Log.i("TurbomapTrace", "cold-load trace complete (window ${COLD_LOAD_TRACE_MS}ms)")
             return
         }
+        // The reconcile loop ticks far faster than the render thread publishes
+        // frames (it wakes on every fetch completion), so dedupe by the engine's
+        // frame index — one trace line per actually-rendered frame, not per tick.
+        val stats = NativeSurfaceMap.nativeStats(handle)
+        val frame = stats.substringAfter("\"frame\":", "").substringBefore(",")
+        if (frame.isNotEmpty() && frame == lastTracedFrame) return
+        lastTracedFrame = frame
         android.util.Log.i(
             "TurbomapTrace",
-            "t_ms=$t fetching=${inFlight.size} backoff=${retryAt.size} ${NativeSurfaceMap.nativeStats(handle)}",
+            "t_ms=$t fetching=${inFlight.size} backoff=${retryAt.size} $stats",
         )
     }
 
