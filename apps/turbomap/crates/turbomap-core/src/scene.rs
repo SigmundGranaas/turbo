@@ -11,6 +11,7 @@
 //!   viewport. The host fetches these so panning reveals ready tiles. By
 //!   default, `desired ⊇ visible`.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use std::time::{Duration, Instant};
@@ -92,6 +93,11 @@ impl TileTier {
     }
 }
 
+/// Memo key for [`Scene::visible_tiles`] — the bit-exact inputs the LOD
+/// selection depends on (camera pose + viewport + zoom bounds). Identical key ⇒
+/// identical visible set, so the cached result can be reused.
+type VisibleKey = (u64, u64, u64, u64, u64, u32, u32, u8, u8);
+
 #[derive(Debug)]
 pub struct Scene {
     camera: Camera,
@@ -103,6 +109,15 @@ pub struct Scene {
     /// In-flight camera transition. `tick()` advances it; user input
     /// cancels it.
     animation: Option<CameraAnimation>,
+    /// Per-frame memo of [`Self::visible_tiles`]. The LOD select (a best-first
+    /// quadtree over ~220 tiles) is a PURE function of the camera + viewport +
+    /// zoom bounds, but it's queried ~8× per frame (raster/vector/hillshade
+    /// prepares, the text + icon passes, the tile-count, the shadow + draped
+    /// paths) — each recomputing the identical set. Caching it keyed on those
+    /// inputs collapses that to one compute per distinct camera. `RefCell`
+    /// because the callers hold `&Scene`. Always fresh: a moved camera changes
+    /// the key, so the next query misses and recomputes (no explicit invalidation).
+    visible_memo: RefCell<Option<(VisibleKey, Vec<TileId>)>>,
 }
 
 impl Scene {
@@ -125,6 +140,7 @@ impl Scene {
             max_zoom,
             prefetch_margin_px,
             animation: None,
+            visible_memo: RefCell::new(None),
         }
     }
 
@@ -194,11 +210,38 @@ impl Scene {
     /// either explodes or gets trimmed to a near sliver. At/near pitch 0 it's
     /// the legacy single-level rectangle — the 2D map + goldens are unchanged.
     pub fn visible_tiles(&self) -> Vec<TileId> {
-        if self.camera.pitch_deg > LOD_PITCH_DEG {
+        let key = self.visible_key();
+        if let Some((k, tiles)) = self.visible_memo.borrow().as_ref() {
+            if *k == key {
+                return tiles.clone();
+            }
+        }
+        let tiles = if self.camera.pitch_deg > LOD_PITCH_DEG {
             self.lod_tiles()
         } else {
             self.tiles_for_margin(0)
-        }
+        };
+        *self.visible_memo.borrow_mut() = Some((key, tiles.clone()));
+        tiles
+    }
+
+    /// Bit-exact fingerprint of every input [`Self::visible_tiles`] depends on,
+    /// for the per-frame memo. f64 fields go in as raw bits so the compare is
+    /// exact and cheap (no epsilon needed — a settled camera reproduces the
+    /// same bits, and any real move changes them).
+    fn visible_key(&self) -> VisibleKey {
+        let c = &self.camera;
+        (
+            c.center.lat.to_bits(),
+            c.center.lng.to_bits(),
+            c.zoom.to_bits(),
+            c.pitch_deg.to_bits(),
+            c.bearing_deg.to_bits(),
+            self.viewport_px.0,
+            self.viewport_px.1,
+            self.min_zoom,
+            self.max_zoom,
+        )
     }
 
     /// Mixed-zoom SSE quadtree selection for the current pitched camera, mapped
