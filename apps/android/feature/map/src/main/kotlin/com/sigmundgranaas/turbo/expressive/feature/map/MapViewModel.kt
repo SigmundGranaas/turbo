@@ -72,6 +72,13 @@ data class MapUiState(
      * the toggle only appears when [experimentalWgpuMap] is on.
      */
     val threeDMode: Boolean = false,
+    /** True once the persisted settings (incl. the wgpu-map flag + last camera)
+     *  have loaded at least once. The map host must wait for this so it's built
+     *  ONCE with the right renderer + the restored camera — otherwise it builds
+     *  with defaults (MapLibre, fallback camera), then swaps to the wgpu engine
+     *  when the flag arrives, discarding the camera restore (every launch reset
+     *  to the world overview). */
+    val settingsLoaded: Boolean = false,
 )
 
 /** Holds the map home's UI state; markers + live location come from repositories. */
@@ -151,6 +158,7 @@ class MapViewModel @Inject constructor(
                             null
                         },
                         lastCameraZoom = s.lastCameraZoom,
+                        settingsLoaded = true,
                     )
                 }
             }

@@ -286,16 +286,21 @@ fun MapScreen(
     // Norway overview. Gated on `didInitialCenter` so it never overwrites the
     // saved position with the fallback/uninitialised camera BEFORE restore runs;
     // writes only when the camera actually changed (DataStore no-ops otherwise).
-    LaunchedEffect(ui.controller, didInitialCenter) {
-        if (!didInitialCenter) return@LaunchedEffect
+    LaunchedEffect(ui.controller, state.settingsLoaded) {
+        if (!state.settingsLoaded) return@LaunchedEffect
         val c = ui.controller ?: return@LaunchedEffect
+        val fb = MapDefaults.fallbackCamera
         var last: Triple<Double, Double, Double>? = null
         while (true) {
             kotlinx.coroutines.delay(1500)
             val centre = c.center()
             val cur = Triple(centre.lat, centre.lng, c.zoom())
-            // Skip null-island (an uninitialised camera) and unchanged frames.
-            if (cur != last && (centre.lat != 0.0 || centre.lng != 0.0)) {
+            // Skip null-island (uninitialised), the exact world-overview fallback
+            // (so a brand-new user's pre-navigation view isn't persisted as "last"),
+            // and unchanged frames (DataStore would no-op anyway).
+            val atFallback = kotlin.math.abs(centre.lat - fb.lat) < 1e-6 &&
+                kotlin.math.abs(centre.lng - fb.lng) < 1e-6
+            if (cur != last && !atFallback && (centre.lat != 0.0 || centre.lng != 0.0)) {
                 viewModel.saveCamera(cur.first, cur.second, cur.third)
                 last = cur
             }
@@ -547,12 +552,19 @@ fun MapScreen(
             // overlays + live track/route/measure/user as a turbomap Scene with
             // pan/zoom; markers / editable waypoints / photo pins / long-press are
             // MapLibre-only for now (see the renderer-swap test plan, Stage E).
+            //
+            // Build NO host until settings have loaded: the wgpu flag AND the
+            // saved camera both arrive async, so building early uses defaults
+            // (MapLibre at the fallback camera) and then swaps to the wgpu engine
+            // when the flag lands — discarding the camera restore, which left
+            // every launch on the world overview. One settled build instead.
+            if (state.settingsLoaded) {
             if (state.experimentalWgpuMap) {
                 TurbomapMapView(
                     rasters = MapStyles.turbomapRasterSpecs(state.baseLayer, ui.activeOverlays),
                     vectors = MapStyles.turbomapVectorSpecs(),
-                    initialCamera = MapDefaults.fallbackCamera,
-                    initialZoom = MapDefaults.fallbackZoom,
+                    initialCamera = state.lastCamera ?: MapDefaults.fallbackCamera,
+                    initialZoom = state.lastCameraZoom ?: MapDefaults.fallbackZoom,
                     track = when {
                         recState.recording -> recState.points.takeIf { it.size > 1 }
                         ui.trackMode == TrackMode.Line -> ui.linePoints.takeIf { it.size > 1 }?.toList()
@@ -611,8 +623,8 @@ fun MapScreen(
             TurboMap(
                 base = state.baseLayer,
                 overlays = ui.activeOverlays,
-                initialCamera = MapDefaults.fallbackCamera,
-                initialZoom = MapDefaults.fallbackZoom,
+                initialCamera = state.lastCamera ?: MapDefaults.fallbackCamera,
+                initialZoom = state.lastCameraZoom ?: MapDefaults.fallbackZoom,
                 markers = state.markers,
                 // While following, the guide is drawn as two segments split at the arc-cursor:
                 // `route` is the bright REMAINING road ahead, `routeCovered` the dim walked part
@@ -687,6 +699,7 @@ fun MapScreen(
                 modifier = Modifier.fillMaxSize(),
             )
             }
+            } // settingsLoaded
 
             // Procedural weather-cloud overlay — enabled from the Layers sheet
             // (ui.cloudsOn), wgpu engine only. The play/scrub control sits at the
