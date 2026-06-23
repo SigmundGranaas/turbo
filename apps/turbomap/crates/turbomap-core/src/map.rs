@@ -780,6 +780,27 @@ struct ShadowBuild {
     next_row: usize,
 }
 
+/// Diagnostic (env `TURBO_SHADOW_DEBUG`): report the assembled heightfield's
+/// relief SPAN in world-z and the finest resident DEM zoom. A near-zero span at
+/// high camera zoom = the 256² field is being fed an over-zoomed (coarse) DEM,
+/// so it's locally flat and casts no shadow — distinguishing a DEM-resolution
+/// limit from a march/extent bug.
+fn debug_shadow_relief(tag: &str, heights: &[f32], size_f: f32, zoom: f64, dem_finest_z: u8) {
+    if std::env::var("TURBO_SHADOW_DEBUG").is_err() {
+        return;
+    }
+    let (mn, mx) = heights
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &h| (a.min(h), b.max(h)));
+    let nonzero = heights.iter().filter(|&&h| h != 0.0).count();
+    eprintln!(
+        "SHADOW[{tag}] zoom={zoom:.1} dem_finest_z={dem_finest_z} field_size={size_f:.6} \
+         relief_z=[{mn:.7},{mx:.7}] span_z={:.7} nonzero={nonzero}/{}",
+        mx - mn,
+        heights.len(),
+    );
+}
+
 /// Identity of the inputs the heightfield was assembled from (floats
 /// kept as bit patterns so the key is `Eq`/`Hash`-able). Equality means
 /// "nothing the field depends on changed", so the cached GPU upload stands.
@@ -2083,6 +2104,7 @@ impl Map {
                     terrain.cache.sample_grid((origin_abs[0], origin_abs[1]), cell, dim, |idx, e| {
                         heights[idx] = e.unwrap_or(0.0) * zscale;
                     });
+                    debug_shadow_relief("sync", &heights, size_f, self.cam.camera.zoom, terrain.cache.finest_resident_zoom());
                     self.renderer.shadow_map.upload_heights(&heights);
                     self.shadow.origin_abs = origin_abs;
                     self.shadow.world_size = size_f;
@@ -2119,6 +2141,7 @@ impl Map {
             });
             b.next_row = row1;
             if b.next_row >= dim {
+                debug_shadow_relief("prog", &b.heights, b.size_f, self.cam.camera.zoom, terrain.cache.finest_resident_zoom());
                 self.renderer.shadow_map.upload_heights(&b.heights);
                 // ABSOLUTE world space (lattice-snapped); the per-frame block below
                 // rebases it into the current RTC frame so it stays welded.
