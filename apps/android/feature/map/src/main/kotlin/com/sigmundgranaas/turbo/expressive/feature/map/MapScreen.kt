@@ -782,6 +782,10 @@ fun MapScreen(
                     // 2D/3D toggle — the wgpu engine's orbit + tilt.
                     threeD = state.threeDMode,
                     onToggle3D = { viewModel.setThreeDMode(!state.threeDMode) },
+                    // Realistic-water (experimental): displaced ocean + reflections.
+                    // Between 3D and sun on the rail; implies 3D.
+                    waterMode = state.waterMode,
+                    onToggleWater = { viewModel.setWaterMode(!state.waterMode) },
                     // Sun mode: movable sun + atmosphere + cast shadows. Turning it
                     // on also flips to 3D — the relief, sky and shadows only read
                     // under tilt.

@@ -26,6 +26,7 @@
     <string name="ds_menu">Menu</string>
     <string name="ds_map_layers">Map layers</string>
     <string name="ds_toggle_3d">Toggle 3D view</string>
+    <string name="ds_water_mode">Realistic water (experimental)</string>
     <string name="ds_sun_mode">Sun mode</string>
     <string name="ds_measure_distance">Measure distance</string>
     <string name="ds_create_track">Create track</string>

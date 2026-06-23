@@ -69,6 +69,12 @@ data class MapUiState(
      * pan. Off = the 2D pan/zoom. Session state, toggled from the map rail.
      */
     val threeDMode: Boolean = false,
+    /**
+     * Realistic-water mode (experimental, wgpu 3D only): the displaced-geometry
+     * ocean with environment reflection. Rail toggle between 3D and sun mode;
+     * implies 3D. Session state.
+     */
+    val waterMode: Boolean = false,
     /** True once the persisted settings (incl. the wgpu-map flag + last camera)
      *  have loaded at least once. The map host must wait for this so it's built
      *  ONCE with the right renderer + the restored camera — otherwise it builds
@@ -220,6 +226,12 @@ class MapViewModel @Inject constructor(
 
     /** Toggle 3D map mode (orbit gestures). No-op effect unless the wgpu engine is active. */
     fun setThreeDMode(value: Boolean) = _state.update { it.copy(threeDMode = value) }
+
+    /** Toggle realistic-water mode. Implies 3D (the ocean only renders on the
+     *  wgpu 3D terrain). Turning it on enables 3D; it never force-disables 3D. */
+    fun setWaterMode(value: Boolean) = _state.update {
+        it.copy(waterMode = value, threeDMode = it.threeDMode || value)
+    }
 
     /** Resolve a human label for [point] (used to pre-fill a new marker's name). */
     fun describePoint(point: LatLng) {
