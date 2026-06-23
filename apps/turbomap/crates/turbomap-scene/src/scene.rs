@@ -112,7 +112,12 @@ pub enum Layer {
     Fill {
         id: String,
         source: String,
-        #[serde(default)]
+        // The style-spec key is `source-layer` (kebab). The enum's
+        // `rename_all = "kebab-case"` renames variants, NOT struct-variant
+        // fields — so without this the app's `"source-layer"` silently dropped to
+        // None, the rule's source-layer became "" and matched no MVT layer
+        // (water never rendered). Alias keeps any snake_case callers working.
+        #[serde(default, rename = "source-layer", alias = "source_layer")]
         source_layer: Option<String>,
         #[serde(default)]
         filter: Filter,
@@ -126,7 +131,12 @@ pub enum Layer {
     FillExtrusion {
         id: String,
         source: String,
-        #[serde(default)]
+        // The style-spec key is `source-layer` (kebab). The enum's
+        // `rename_all = "kebab-case"` renames variants, NOT struct-variant
+        // fields — so without this the app's `"source-layer"` silently dropped to
+        // None, the rule's source-layer became "" and matched no MVT layer
+        // (water never rendered). Alias keeps any snake_case callers working.
+        #[serde(default, rename = "source-layer", alias = "source_layer")]
         source_layer: Option<String>,
         #[serde(default)]
         filter: Filter,
@@ -146,7 +156,12 @@ pub enum Layer {
     Line {
         id: String,
         source: String,
-        #[serde(default)]
+        // The style-spec key is `source-layer` (kebab). The enum's
+        // `rename_all = "kebab-case"` renames variants, NOT struct-variant
+        // fields — so without this the app's `"source-layer"` silently dropped to
+        // None, the rule's source-layer became "" and matched no MVT layer
+        // (water never rendered). Alias keeps any snake_case callers working.
+        #[serde(default, rename = "source-layer", alias = "source_layer")]
         source_layer: Option<String>,
         #[serde(default)]
         filter: Filter,
@@ -161,7 +176,12 @@ pub enum Layer {
     Circle {
         id: String,
         source: String,
-        #[serde(default)]
+        // The style-spec key is `source-layer` (kebab). The enum's
+        // `rename_all = "kebab-case"` renames variants, NOT struct-variant
+        // fields — so without this the app's `"source-layer"` silently dropped to
+        // None, the rule's source-layer became "" and matched no MVT layer
+        // (water never rendered). Alias keeps any snake_case callers working.
+        #[serde(default, rename = "source-layer", alias = "source_layer")]
         source_layer: Option<String>,
         #[serde(default)]
         filter: Filter,
@@ -171,7 +191,12 @@ pub enum Layer {
     Symbol {
         id: String,
         source: String,
-        #[serde(default)]
+        // The style-spec key is `source-layer` (kebab). The enum's
+        // `rename_all = "kebab-case"` renames variants, NOT struct-variant
+        // fields — so without this the app's `"source-layer"` silently dropped to
+        // None, the rule's source-layer became "" and matched no MVT layer
+        // (water never rendered). Alias keeps any snake_case callers working.
+        #[serde(default, rename = "source-layer", alias = "source_layer")]
         source_layer: Option<String>,
         #[serde(default)]
         filter: Filter,
