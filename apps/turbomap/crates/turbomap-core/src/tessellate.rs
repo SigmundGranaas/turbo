@@ -167,6 +167,80 @@ pub fn tile_tolerance() -> f32 {
     0.5 / 256.0
 }
 
+/// Per-tile vertex budget for the refined water grid (the displaceable surface
+/// the realistic-water Gerstner path samples).
+const WATER_GRID_VERT_BUDGET: usize = 8192;
+/// Max uniform-subdivision rounds (each multiplies triangles by 4).
+const WATER_GRID_MAX_ROUNDS: u32 = 3;
+
+/// Shared edge midpoint vertex (cached by the unordered endpoint pair so
+/// adjacent triangles reuse it ⇒ the refined mesh stays watertight). Interpolates
+/// `base`/`z`; fills carry no stroke attributes (normal/width/dist = 0).
+fn edge_midpoint(
+    verts: &mut Vec<VectorVertex>,
+    cache: &mut std::collections::HashMap<(u32, u32), u32>,
+    a: u32,
+    b: u32,
+) -> u32 {
+    let key = if a < b { (a, b) } else { (b, a) };
+    if let Some(&m) = cache.get(&key) {
+        return m;
+    }
+    let va = verts[a as usize];
+    let vb = verts[b as usize];
+    let m = VectorVertex {
+        base: [
+            (va.base[0] + vb.base[0]) * 0.5,
+            (va.base[1] + vb.base[1]) * 0.5,
+        ],
+        normal: [0.0, 0.0],
+        width_px: 0.0,
+        color: va.color,
+        edge_pos: [128, 128, 128, 128],
+        dist: 0.0,
+        z: (va.z + vb.z) * 0.5,
+    };
+    let idx = verts.len() as u32;
+    verts.push(m);
+    cache.insert(key, idx);
+    idx
+}
+
+/// Uniformly subdivide a triangle mesh (each triangle → 4 via shared edge
+/// midpoints, so it stays watertight — no T-junction cracks) until another round
+/// would exceed `max_verts`, or `max_rounds` is reached. Turns the minimal lyon
+/// water fill into a fine grid the realistic-water path can displace.
+pub fn refine_mesh(mut mesh: Mesh, max_verts: usize, max_rounds: u32) -> Mesh {
+    for _ in 0..max_rounds {
+        let tris = mesh.indices.len() / 3;
+        // A round adds ≈ one vertex per unique edge (~1.5·tris); stop before the
+        // budget is blown.
+        if tris == 0 || mesh.vertices.len() + tris * 2 > max_verts {
+            break;
+        }
+        let Mesh {
+            mut vertices,
+            indices,
+        } = mesh;
+        let mut out_idx: Vec<u32> = Vec::with_capacity(indices.len() * 4);
+        let mut cache: std::collections::HashMap<(u32, u32), u32> = std::collections::HashMap::new();
+        let mut i = 0;
+        while i + 2 < indices.len() {
+            let (a, b, c) = (indices[i], indices[i + 1], indices[i + 2]);
+            let ab = edge_midpoint(&mut vertices, &mut cache, a, b);
+            let bc = edge_midpoint(&mut vertices, &mut cache, b, c);
+            let ca = edge_midpoint(&mut vertices, &mut cache, c, a);
+            out_idx.extend_from_slice(&[a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca]);
+            i += 3;
+        }
+        mesh = Mesh {
+            vertices,
+            indices: out_idx,
+        };
+    }
+    mesh
+}
+
 /// Tessellate a tile through `style` into a single mesh in **tile-local
 /// units** (`[0, 1]` across the tile, buffer geometry slightly outside).
 /// Errors out of individual features (e.g. a degenerate polygon) are
@@ -470,10 +544,19 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
         }
     }
 
-    let water_mesh = Mesh {
-        vertices: water_buffers.vertices,
-        indices: water_buffers.indices,
-    };
+    // Refine the water fill into a fine grid so the realistic-water path has
+    // vertices to displace (Gerstner). lyon emits minimal large interior
+    // triangles; uniform 1→4 subdivision (shared midpoints ⇒ watertight, no
+    // cracks) gives a dense grid, bounded by a per-tile vertex budget. The flat
+    // water path renders the denser mesh identically (still a flat fill).
+    let water_mesh = refine_mesh(
+        Mesh {
+            vertices: water_buffers.vertices,
+            indices: water_buffers.indices,
+        },
+        WATER_GRID_VERT_BUDGET,
+        WATER_GRID_MAX_ROUNDS,
+    );
     TessellationOutput {
         mesh: Mesh {
             vertices: buffers.vertices,
@@ -639,6 +722,60 @@ mod tests {
     use crate::style::{Filter, Paint, Rule};
     use crate::vector::{Feature, GeomType, Geometry, VectorTile};
     use std::collections::HashMap;
+
+    fn fill_vertex(x: f32, y: f32) -> VectorVertex {
+        VectorVertex {
+            base: [x, y],
+            normal: [0.0, 0.0],
+            width_px: 0.0,
+            color: [10, 30, 60, 255],
+            edge_pos: [128, 128, 128, 128],
+            dist: 0.0,
+            z: 0.0,
+        }
+    }
+
+    #[test]
+    fn refine_mesh_subdivides_and_shares_midpoints() {
+        // Two triangles sharing edge (1,2) — a unit quad. One round must add
+        // exactly one midpoint per *unique* edge (5 edges ⇒ 5 new verts), and
+        // turn 2 triangles into 8, with no vertex left unreferenced.
+        let mesh = Mesh {
+            vertices: vec![
+                fill_vertex(0.0, 0.0),
+                fill_vertex(1.0, 0.0),
+                fill_vertex(0.0, 1.0),
+                fill_vertex(1.0, 1.0),
+            ],
+            indices: vec![0, 1, 2, 1, 3, 2],
+        };
+        let refined = refine_mesh(mesh, 1_000, 1);
+        assert_eq!(refined.indices.len(), 2 * 4 * 3, "each triangle → 4");
+        // 4 corners + 5 shared edge midpoints (the diagonal 1↔2 is shared).
+        assert_eq!(refined.vertices.len(), 9, "midpoints shared across the seam");
+        for &i in &refined.indices {
+            assert!((i as usize) < refined.vertices.len());
+        }
+        // The shared-edge midpoint is the quad centre, interpolated cleanly.
+        assert!(refined
+            .vertices
+            .iter()
+            .any(|v| (v.base[0] - 0.5).abs() < 1e-6 && (v.base[1] - 0.5).abs() < 1e-6));
+    }
+
+    #[test]
+    fn refine_mesh_respects_vertex_budget() {
+        let mesh = Mesh {
+            vertices: vec![fill_vertex(0.0, 0.0), fill_vertex(1.0, 0.0), fill_vertex(0.0, 1.0)],
+            indices: vec![0, 1, 2],
+        };
+        // Budget that admits zero rounds (3 + 1·2 = 5 > 4) leaves it untouched.
+        let tight = refine_mesh(mesh.clone(), 4, 8);
+        assert_eq!(tight.indices.len(), 3);
+        // A generous budget but max_rounds=0 is also a no-op.
+        let capped = refine_mesh(mesh, 100_000, 0);
+        assert_eq!(capped.indices.len(), 3);
+    }
 
     #[test]
     fn tile_tolerance_is_half_a_native_pixel() {
