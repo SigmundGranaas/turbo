@@ -135,7 +135,7 @@ fun TurbomapMapView(
     // ingest as valid-but-empty (no water) and, being "resident", were never
     // refetched, so water never appeared even once the server had data. A
     // sideload upgrade keeps cacheDir, so the only way to shed them is a bump.
-    controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles-v2") }
+    controller.cacheDir = remember(context) { File(context.cacheDir, TURBOMAP_TILE_DIR) }
     // The live user position is NOT in the scene anymore — it's a Compose MyPositionPin in
     // the overlay (stands on the terrain via the engine projection). See TurbomapScene.
     fun scene() = TurbomapScene.build(rasters, vectors, measure, demUrl = demUrl)
@@ -251,7 +251,7 @@ internal class TurbomapSurfaceController {
     var onError: (String) -> Unit = {}
     var cacheDir: File? = null
 
-    private val tileCache: TurbomapTileCache? by lazy { cacheDir?.let { TurbomapTileCache(it) } }
+    private val tileCache: TileStore? by lazy { cacheDir?.let { TileStore(it) } }
 
     // Mutated on the main thread (attach/detach), read on the render thread.
     @Volatile private var handle = 0L

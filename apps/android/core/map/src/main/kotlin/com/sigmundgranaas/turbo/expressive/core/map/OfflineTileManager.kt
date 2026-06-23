@@ -298,14 +298,13 @@ class MapLibreOfflineTileManager @Inject constructor(
 @Module
 @InstallIn(SingletonComponent::class)
 object OfflineModule {
-    /** Real MapLibre downloader in release; in-memory [SyntheticOfflineTileManager]
-     *  in DEBUG so the Offline Maps screen is driveable without the tileserver. */
+    /** The non-MapLibre downloader: pre-populates the wgpu map's own tile store
+     *  ([WgpuOfflineTileManager]). Used in every build — it fetches over OkHttp, so
+     *  it works on the emulator/device too (unlike MapLibre's native OfflineManager,
+     *  which couldn't reach the tileserver and forced the DEBUG synthetic stand-in). */
     @Provides
     @Singleton
-    fun provideOfflineTileManager(
-        real: dagger.Lazy<MapLibreOfflineTileManager>,
-        synthetic: SyntheticOfflineTileManager,
-    ): OfflineTileManager = if (BuildConfig.DEBUG) synthetic else real.get()
+    fun provideOfflineTileManager(impl: WgpuOfflineTileManager): OfflineTileManager = impl
 
     @Provides
     @Singleton

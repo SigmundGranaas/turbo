@@ -39,6 +39,30 @@ object TileMath {
         return floor(y).toInt().coerceIn(0, n - 1)
     }
 
+    /** A single slippy-map tile coordinate. */
+    data class TileXyz(val z: Int, val x: Int, val y: Int)
+
+    /**
+     * Enumerate every `(z, x, y)` one source covers over [bounds] across integer
+     * zooms `floor(min)..floor(max)` — the exact tiles the offline downloader must
+     * fetch (and the map will request) for a region. By construction
+     * `tilesFor(...).size.toLong() == tileCount(...)`.
+     */
+    fun tilesFor(bounds: GeoBounds, minZoom: Double, maxZoom: Double): List<TileXyz> {
+        val lo = floor(minZoom).toInt().coerceAtLeast(0)
+        val hi = floor(maxZoom).toInt().coerceAtLeast(lo)
+        val out = ArrayList<TileXyz>()
+        for (z in lo..hi) {
+            val x0 = lonToTileX(bounds.west, z)
+            val x1 = lonToTileX(bounds.east, z)
+            // Mercator Y grows southward, so north maps to the smaller index.
+            val y0 = latToTileY(bounds.north, z)
+            val y1 = latToTileY(bounds.south, z)
+            for (x in x0..x1) for (y in y0..y1) out.add(TileXyz(z, x, y))
+        }
+        return out
+    }
+
     /** Tiles for one source over [bounds] across integer zooms `floor(min)..floor(max)`. */
     fun tileCount(bounds: GeoBounds, minZoom: Double, maxZoom: Double): Long {
         val lo = floor(minZoom).toInt().coerceAtLeast(0)
