@@ -234,6 +234,10 @@ impl RenderFrame {
             wave_dir: [1.0, 0.0],
             wave_amp: 1.0,
             whitecap: 0.0,
+            // Off by default; `Map::render` sets it from the `realistic_water`
+            // flag the rail toggle drives.
+            realistic: 0.0,
+            _pad: [0.0; 3],
         };
 
         Self {

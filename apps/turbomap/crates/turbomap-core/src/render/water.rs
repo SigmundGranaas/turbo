@@ -70,6 +70,13 @@ pub(crate) struct WaterGlobals {
     /// Whitecap amount (0..1): white breaking crests, ramped in when the sea
     /// state turns extreme (big waves / strong wind).
     pub whitecap: f32,
+    /// 1.0 ⇒ the realistic AAA path (Gerstner vertex displacement + wave normals
+    /// + Fresnel reflection + sun glitter); 0.0 ⇒ a flat matte body-colour fill
+    /// (the rail toggle off — matches the pre-AAA flat water look).
+    pub realistic: f32,
+    /// Pads the struct to a 16-byte multiple (128 B) so the Rust `size_of` matches
+    /// the WGSL uniform's rounded stride.
+    pub _pad: [f32; 3],
 }
 
 /// Sea state for the water surface, derived from the MET wave/wind forecast.
@@ -205,7 +212,9 @@ impl WaterPipeline {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    // VERTEX too: the Gerstner swell displaces the grid vertices,
+                    // so the vertex stage reads time/wave_dir/amp/eye/meters.
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,

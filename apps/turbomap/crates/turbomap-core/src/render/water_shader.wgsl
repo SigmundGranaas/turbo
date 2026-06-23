@@ -70,6 +70,9 @@ struct WaterGlobals {
     // Sea-state ferocity (amplitude/steepness multiplier) and whitecap amount.
     wave_amp: f32,
     whitecap: f32,
+    // 1 ⇒ realistic AAA water (Gerstner displacement + waves + reflection +
+    // glitter); 0 ⇒ flat matte body-colour fill (rail toggle off).
+    realistic: f32,
 };
 @group(3) @binding(0) var<uniform> water: WaterGlobals;
 // Terrain heightfield (world-z elevations, R32Float, non-filterable) — the same
@@ -103,8 +106,11 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     // Deep-water tint (baked style colour, linear).
     @location(0) color: vec4<f32>,
-    // World-space (RTC) surface position, for the view vector + waves.
+    // World-space (RTC) surface position (post-displacement), for the view
+    // vector + fragment waves.
     @location(1) world_pos: vec3<f32>,
+    // Geometric normal of the Gerstner swell (z-up), perturbed further in the FS.
+    @location(2) wave_normal: vec3<f32>,
 };
 
 @vertex
@@ -123,10 +129,30 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             wz = wz + decode_elevation(u32(camera.params.z), s.rgb) * zscale;
         }
     }
-    let world_pos = vec3<f32>(world, wz);
+    var world_pos = vec3<f32>(world, wz);
+    var wave_n = vec3<f32>(0.0, 0.0, 1.0);
+    // Gerstner swell: displace the (refined) grid into real 3-D crests. Work in
+    // metres so the waves are physically sized + zoom-stable, then convert back —
+    // xy with the true world-per-metre scale, z with the terrain drape z-scale so
+    // wave height matches the relief's vertical exaggeration. Damp toward flat with
+    // distance: far/coarse tiles can't resolve crests, so calm them (no aliasing).
+    // Skipped entirely when the realistic path is off (flat fill).
+    if (water.realistic > 0.5) {
+        let inv_m = 1.0 / max(water.meters_to_world, 1e-12);
+        let p_m = world * inv_m;
+        let dist_m = length(water.eye - world_pos) * inv_m;
+        let amp_scale = clamp(1.0 - smoothstep(2200.0, 12000.0, dist_m), 0.0, 1.0);
+        let gw = gerstner(p_m, water.time, amp_scale);
+        world_pos += vec3<f32>(
+            gw.offset.xy * water.meters_to_world,
+            gw.offset.z * zscale,
+        );
+        wave_n = gw.normal;
+    }
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.color = in.color;
     out.world_pos = world_pos;
+    out.wave_normal = wave_n;
     return out;
 }
 
@@ -135,6 +161,55 @@ fn rot2(d: vec2<f32>, a: f32) -> vec2<f32> {
     let c = cos(a);
     let s = sin(a);
     return vec2<f32>(d.x * c - d.y * s, d.x * s + d.y * c);
+}
+
+// ---- Gerstner swell (vertex displacement) ---------------------------------
+// A few long trochoidal waves that actually displace the mesh into 3-D crests
+// (GPU Gems Ch.1 Eq.9–12) — the *geometry* of the sea. Crests pinch toward their
+// peaks (the xy term) and rise (the z term); the fragment stage then adds the
+// fine exp(sin) ripple detail on top as a normal map. All metre-space.
+const GERSTNER_WAVES: i32 = 4;
+
+struct Gerstner {
+    // Metre-space displacement: xy = trochoidal crest pinch, z = wave height.
+    offset: vec3<f32>,
+    // Analytic surface normal (unitless, z-up), already amplitude-scaled.
+    normal: vec3<f32>,
+};
+
+// Sum the swell at metre-space point `p_m` and time `t`. `amp_scale` damps the
+// whole surface toward flat (distance LOD — coarse far tiles can't resolve crests).
+fn gerstner(p_m: vec2<f32>, t: f32, amp_scale: f32) -> Gerstner {
+    let g = 9.81;
+    let base_dir = normalize(water.wave_dir + vec2<f32>(1e-4, 0.0));
+    var disp = vec3<f32>(0.0, 0.0, 0.0);
+    var slope = vec2<f32>(0.0, 0.0); // Σ d·(w·A)·cos — the xy gradient of height
+    var wavelen = 28.0;              // dominant wavelength (m)
+    var amp = 0.42 * water.wave_amp; // dominant amplitude (m)
+    var ang = 0.0;
+    for (var i = 0; i < GERSTNER_WAVES; i = i + 1) {
+        let w = 6.2831853 / wavelen;     // spatial frequency k = 2π/L
+        let speed = sqrt(g * w);         // deep-water dispersion ω = √(gk)
+        let d = rot2(base_dir, ang);
+        let theta = w * dot(d, p_m) + speed * t;
+        let c = cos(theta);
+        let s = sin(theta);
+        // Steepness Q kept so Σ Q·w·A ≤ 1 (no looping/self-intersecting crests).
+        let q = 0.78 / (w * max(amp, 1e-4) * f32(GERSTNER_WAVES));
+        disp.x += q * amp * d.x * c;
+        disp.y += q * amp * d.y * c;
+        disp.z += amp * s;
+        slope += d * (w * amp) * c;
+        // Next octave: shorter, smaller, fanned to alternating sides of the swell.
+        wavelen *= 0.62;
+        amp *= 0.62;
+        ang += 0.55 * select(-1.0, 1.0, (i & 1) == 0);
+    }
+    var out: Gerstner;
+    out.offset = disp * amp_scale;
+    // Normal of z = height(x,y): (−∂h/∂x, −∂h/∂y, 1), slope damped with amplitude.
+    out.normal = normalize(vec3<f32>(-slope * amp_scale, 1.0));
+    return out;
 }
 
 // One exp(sin) wavelet + its derivative. `exp(sin(x)-1)` has sharp crests and
@@ -303,6 +378,10 @@ fn reflect_terrain(p: vec3<f32>, r: vec3<f32>) -> vec4<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Flat path (rail toggle off): the plain matte body fill, as before AAA.
+    if (water.realistic < 0.5) {
+        return vec4<f32>(in.color.rgb, in.color.a * tile.tile_alpha);
+    }
     // Ground-metre position (RTC) for physically-sized, zoom-stable waves.
     let inv = 1.0 / max(water.meters_to_world, 1e-12);
     let p_m = in.world_pos.xy * inv;
@@ -318,7 +397,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let zoom = clamp(dist_m / 700.0, 1.0, 18.0);
     let lod = mix(2.5, 8.0, clamp(1.0 - smoothstep(500.0, 9000.0, dist_m), 0.0, 1.0));
     let surf = wave_surface(p_m, water.time, zoom, lod);
-    let n = surf.xyz;
+    // Combine the big-swell geometric normal (from the displaced vertices) with
+    // the fine ripple detail: tilt the interpolated swell normal by the detail
+    // slope so the surface shimmers on top of the real 3-D crests instead of
+    // replacing them. Detail weight backs off so it perturbs, not dominates.
+    let swell_n = normalize(in.wave_normal);
+    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 0.6);
     let crest = surf.w;
 
     // View vector (surface → eye).

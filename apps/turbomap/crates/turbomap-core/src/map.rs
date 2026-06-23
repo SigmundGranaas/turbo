@@ -2325,6 +2325,8 @@ impl Map {
         frame.water_globals.wave_amp = self.water.wave_amp;
         frame.water_globals.whitecap = self.water.whitecap;
         frame.water_globals.foam = self.water.foam;
+        // Rail toggle: realistic AAA water vs a flat matte fill.
+        frame.water_globals.realistic = if self.realistic_water { 1.0 } else { 0.0 };
         // Upload the water lighting/animation/reflection globals once for the
         // frame; the per-layer water draws reuse the bound group.
         self.renderer.water_pipeline.prepare(&frame.water_globals);
