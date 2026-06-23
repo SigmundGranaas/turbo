@@ -218,8 +218,10 @@ impl Default for MapOptions {
             // when the camera is still). The pitched LOD desired set is ~260 tiles
             // (lod::MAX_TILES + overview); 80 MiB (~240 tiles) couldn't hold it.
             // 512 MiB holds ~1500 raster tiles: the full set plus a deep session
-            // history, well within a modern phone's GPU budget.
-            cache_budget_bytes: 512 * 1024 * 1024,
+            // history, well within a modern phone's GPU budget. The
+            // `capacity` module PROVES `desired ≤ cache` from this at compile
+            // time, so the thrash above can't regress silently.
+            cache_budget_bytes: crate::capacity::CACHE_BUDGET_BYTES,
             prefetch_margin_px: 256,
             pixel_ratio: 1.0,
             // Fade-in is currently DISABLED (0 = tiles snap to fully

@@ -25,7 +25,7 @@ use crate::tile::TileId;
 /// LARGER than the cache thrashes (every tile evicted before it draws → grey).
 /// 220 leaves headroom while giving best-first enough budget to refine the near
 /// field to ~camera zoom AND keep the coarse far field out to the horizon.
-const MAX_TILES: usize = 220;
+use crate::capacity::LOD_TILE_CAP as MAX_TILES;
 
 /// One tile chosen by the LOD walk. A thin wrapper now (just the id the resolver
 /// needs); Phase 1+ may carry its computed screen-space error / neighbour LODs

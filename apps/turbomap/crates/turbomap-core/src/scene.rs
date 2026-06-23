@@ -230,8 +230,8 @@ impl Scene {
     /// the per-tile tier (and `desired_tiles` is now its projection), so the
     /// determinism / bounded / backdrop invariants are unaffected.
     pub fn desired_tagged(&self) -> Vec<(TileId, TileTier)> {
-        // How many zoom levels below the visible set to keep as a backdrop.
-        const OVERVIEW_DEPTH: u8 = 3;
+        // Zoom levels below the visible set kept as the backdrop floor (governed).
+        use crate::capacity::OVERVIEW_DEPTH;
         let mut out: Vec<(TileId, TileTier)> = Vec::new();
         let mut seen: HashSet<TileId> = HashSet::new();
 
@@ -393,14 +393,14 @@ impl Scene {
         // (the frustum trapezoid gets larger faster than the cap
         // grows, but the cap still requests the closest tiles first
         // via `pending_tiles`' distance sort).
-        // Cap the per-level working set. Steep tilts (now up to 80°)
-        // project a frustum trapezoid that reaches far toward the horizon;
-        // without a cap that's thousands of tiles. 160 keeps the working
-        // set (visible + overview + prefetch, ×3 layer caches) inside the
-        // GPU budget so it doesn't thrash/OOM, while still covering the
-        // near ground the user is actually looking at (far tiles fade into
-        // haze/sky anyway). Closest-first via `pending_tiles`' distance sort.
-        const MAX_TILES: usize = 160;
+        // Cap the per-level working set. Steep tilts (now up to 80°) project a
+        // frustum trapezoid reaching far toward the horizon; without a cap
+        // that's thousands of tiles. The governed cap keeps the working set
+        // (visible + overview + prefetch, ×3 layer caches) inside the GPU budget
+        // so it can't thrash/OOM — the `capacity` module proves desired ≤ cache
+        // at compile time. Still covers the near ground the user is looking at
+        // (far tiles fade into haze/sky); closest-first via `pending_tiles`.
+        use crate::capacity::RECT_TILE_CAP as MAX_TILES;
         let n = 1u32 << z;
         let vw = self.viewport_px.0 as f64;
         let vh = self.viewport_px.1 as f64;
@@ -799,14 +799,15 @@ mod tests {
     #[test]
     fn the_desired_working_set_is_bounded() {
         // The working set must fit the GPU cache BY CONSTRUCTION — an unbounded
-        // desired set is the coarse↔fine thrash / OOM the count caps exist to
-        // prevent. The bound is the two MAX_TILES caps (visible: 220 LOD / 160
-        // rect) plus the overview backdrop, with headroom — and far below the
-        // 512 MiB cache's ~1000-tile capacity, so `desired ≤ cache` holds.
-        const DESIRED_BOUND: usize = 512;
+        // desired set is the coarse↔fine thrash / OOM the count caps prevent.
+        // The bound is the governed ceiling (`capacity::MAX_DESIRED_TILES` = the
+        // larger visible cap + the overview backdrop), which the `capacity`
+        // module separately proves fits the cache with headroom at compile time.
+        // Here we check the EMPIRICAL desired count never exceeds that ceiling.
+        let bound = crate::capacity::MAX_DESIRED_TILES;
         for cam in camera_sweep() {
             let n = sweep_scene(cam).desired_tiles().len();
-            assert!(n <= DESIRED_BOUND, "desired set {n} > {DESIRED_BOUND} @ {cam:?}");
+            assert!(n <= bound, "desired set {n} > governed ceiling {bound} @ {cam:?}");
         }
     }
 

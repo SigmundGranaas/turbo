@@ -7,6 +7,7 @@
 //! pattern via [`Map::pending_tiles`] + ingest methods).
 
 pub mod camera;
+pub mod capacity;
 pub mod dem;
 pub mod error;
 pub mod fb_probe;
