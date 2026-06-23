@@ -38,6 +38,26 @@ const LOD_PITCH_DEG: f64 = 1.0;
 /// Tunable on device (Phase 5).
 const LOD_SSE_TARGET_PX: f64 = 320.0;
 
+/// Where a tile sits in the core's streaming lifecycle, *relative to the
+/// current camera*. The core owns this wanted↔resident classification; the
+/// host owns fetch *transport* (in-flight HTTP, decode queue, backoff), which a
+/// later slice reflects back as sub-states of [`TilePhase::Pending`].
+///
+/// This is the single source of truth the derived views read from
+/// ([`Scene::pending_tiles`], the per-frame trace histogram) — so "wanted but
+/// missing", "drawable now", and "evictable" are one classification instead of
+/// three ad-hoc set differences scattered across the pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TilePhase {
+    /// Wanted this frame and GPU-resident — drawable now.
+    Resident,
+    /// Wanted this frame but not resident — the host must fetch it.
+    Pending,
+    /// Resident but not wanted this frame — an eviction candidate the GPU
+    /// cache keeps only while its byte budget allows.
+    Retained,
+}
+
 #[derive(Debug)]
 pub struct Scene {
     camera: Camera,
@@ -203,14 +223,51 @@ impl Scene {
         tiles
     }
 
-    /// Desired tiles that have not yet been ingested, sorted by ascending
-    /// distance from the camera centre — so the first few fetches paint the
-    /// area the user is looking at, and the ring fills in after.
+    /// Classify every WANTED tile as [`Resident`](TilePhase::Resident) or
+    /// [`Pending`](TilePhase::Pending), in `desired_tiles()` order. The hot
+    /// path — `pending_tiles` and the trace's wanted-tile counts both read it,
+    /// so the resident/pending split is defined in exactly one place. Does NOT
+    /// scan for [`Retained`](TilePhase::Retained) tiles (see [`Self::tile_phases`]).
+    fn wanted_phases(&self) -> Vec<(TileId, TilePhase)> {
+        self.desired_tiles()
+            .into_iter()
+            .map(|t| {
+                let phase = if self.ingested.contains(&t) {
+                    TilePhase::Resident
+                } else {
+                    TilePhase::Pending
+                };
+                (t, phase)
+            })
+            .collect()
+    }
+
+    /// Every tile the core is tracking — the union of *wanted* and *resident* —
+    /// tagged with its [`TilePhase`]. The complete lifecycle picture for the
+    /// per-frame trace histogram: wanted tiles as Resident/Pending, plus
+    /// resident-but-no-longer-wanted tiles as [`Retained`](TilePhase::Retained)
+    /// (the cache's eviction candidates).
+    pub fn tile_phases(&self) -> Vec<(TileId, TilePhase)> {
+        let mut out = self.wanted_phases();
+        let wanted: HashSet<TileId> = out.iter().map(|(t, _)| *t).collect();
+        for t in &self.ingested {
+            if !wanted.contains(t) {
+                out.push((*t, TilePhase::Retained));
+            }
+        }
+        out
+    }
+
+    /// Desired tiles that have not yet been ingested ([`TilePhase::Pending`]),
+    /// sorted by ascending distance from the camera centre — so the first few
+    /// fetches paint the area the user is looking at, and the ring fills in
+    /// after. Derived from the one classification in [`Self::wanted_phases`].
     pub fn pending_tiles(&self) -> Vec<TileId> {
         let mut out: Vec<TileId> = self
-            .desired_tiles()
+            .wanted_phases()
             .into_iter()
-            .filter(|t| !self.ingested.contains(t))
+            .filter(|(_, phase)| *phase == TilePhase::Pending)
+            .map(|(t, _)| t)
             .collect();
         let centre = self.camera.center.to_world();
         out.sort_by(|a, b| {
@@ -613,6 +670,121 @@ mod tests {
             .collect();
         for w in dists.windows(2) {
             assert!(w[0] <= w[1], "not sorted: {dists:?}");
+        }
+    }
+
+    // ---- Slice-2 invariants: the tile-selection RULES, enforced ------------
+    //
+    // These turn properties the pipeline used to satisfy only *emergently*
+    // (and that broke, then got spot-patched) into executable, headless
+    // invariants: determinism, a bounded working set, an always-present coarse
+    // backdrop (the anti-flicker precondition), and monotonic convergence at a
+    // fixed camera (no thrash). They run on the pure selection math — no GPU.
+
+    /// A spread of cameras across location / zoom / pitch / bearing, including
+    /// the steep-tilt + high-zoom cases that historically broke selection.
+    fn camera_sweep() -> Vec<Camera> {
+        let mut out = Vec::new();
+        for (lat, lng) in [(0.0, 0.0), (60.39, 5.32), (67.27, 15.05), (-33.9, 151.2)] {
+            for zoom in [2.0, 7.0, 11.0, 14.0, 16.0] {
+                for pitch in [0.0, 20.0, 55.0, 80.0] {
+                    for bearing in [0.0, 45.0, 200.0] {
+                        out.push(
+                            Camera::new(LatLng::new(lat, lng), zoom)
+                                .with_pitch(pitch)
+                                .with_bearing(bearing),
+                        );
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// A phone-tall scene with a prefetch margin — the on-device shape.
+    fn sweep_scene(cam: Camera) -> Scene {
+        Scene::with_margin(cam, (1080, 2400), 0, 18, 256)
+    }
+
+    #[test]
+    fn selection_is_deterministic_for_a_fixed_camera() {
+        // Same camera + viewport ⇒ byte-identical visible / desired / pending
+        // (order included). Two INDEPENDENT scenes, not two calls, so hidden
+        // per-instance state would also trip it. The reconcile loop depends on
+        // this: a desired set that reshuffled frame-to-frame would thrash
+        // fetches even with a still camera.
+        for cam in camera_sweep() {
+            let a = sweep_scene(cam);
+            let b = sweep_scene(cam);
+            assert_eq!(a.visible_tiles(), b.visible_tiles(), "visible nondeterministic @ {cam:?}");
+            assert_eq!(a.desired_tiles(), b.desired_tiles(), "desired nondeterministic @ {cam:?}");
+            assert_eq!(a.pending_tiles(), b.pending_tiles(), "pending nondeterministic @ {cam:?}");
+        }
+    }
+
+    #[test]
+    fn the_desired_working_set_is_bounded() {
+        // The working set must fit the GPU cache BY CONSTRUCTION — an unbounded
+        // desired set is the coarse↔fine thrash / OOM the count caps exist to
+        // prevent. The bound is the two MAX_TILES caps (visible: 220 LOD / 160
+        // rect) plus the overview backdrop, with headroom — and far below the
+        // 512 MiB cache's ~1000-tile capacity, so `desired ≤ cache` holds.
+        const DESIRED_BOUND: usize = 512;
+        for cam in camera_sweep() {
+            let n = sweep_scene(cam).desired_tiles().len();
+            assert!(n <= DESIRED_BOUND, "desired set {n} > {DESIRED_BOUND} @ {cam:?}");
+        }
+    }
+
+    #[test]
+    fn desired_always_carries_a_coarser_backdrop_under_the_finest_tiles() {
+        // The anti-flicker PRECONDITION: whenever the finest wanted tile is
+        // below the source's min zoom, the desired set also carries a strictly
+        // coarser tile — so the best-available resolver always has an ancestor
+        // floor to draw while the fine tiles stream in, instead of the empty
+        // clear colour ("everything greys out when I zoom in at a tilt").
+        for cam in camera_sweep() {
+            let desired = sweep_scene(cam).desired_tiles();
+            let zmax = desired.iter().map(|t| t.z).max().unwrap();
+            if zmax > 0 {
+                // min_zoom is 0 in the sweep scene.
+                assert!(
+                    desired.iter().any(|t| t.z < zmax),
+                    "no coarser backdrop under z{zmax} @ {cam:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ingesting_makes_monotonic_progress_at_a_fixed_camera() {
+        // At a FIXED camera the loader must converge: ingesting a pending tile
+        // removes it from pending and introduces no new ones, so pending
+        // shrinks to empty. A violation is the fixed-camera thrash where
+        // fetches never settle. Uses the steep-tilt high-zoom case (the largest
+        // working set). Phases stay consistent: an ingested wanted tile reads
+        // back as Resident, never Pending.
+        let mut scene = sweep_scene(
+            Camera::new(LatLng::new(67.27, 15.05), 16.0).with_pitch(80.0),
+        );
+        let mut prev = scene.pending_tiles();
+        assert!(!prev.is_empty(), "expected pending tiles to drive the test");
+        let mut guard = 0;
+        while let Some(&next) = prev.first() {
+            let before: HashSet<TileId> = prev.iter().copied().collect();
+            scene.ingest(next);
+            // The ingested tile is now Resident, not Pending.
+            assert!(
+                scene.tile_phases().iter().any(|(t, p)| *t == next && *p == TilePhase::Resident),
+                "ingested tile {next:?} not classified Resident",
+            );
+            let now = scene.pending_tiles();
+            let now_set: HashSet<TileId> = now.iter().copied().collect();
+            assert!(now_set.is_subset(&before), "ingest introduced new pending tiles @ {next:?}");
+            assert!(now.len() < prev.len(), "ingest did not shrink pending @ {next:?}");
+            prev = now;
+            guard += 1;
+            assert!(guard < 10_000, "pending did not converge");
         }
     }
 }
