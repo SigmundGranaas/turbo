@@ -301,6 +301,28 @@ async fn serve(
     // underlying data changes (else tiles cached while the DB was empty/old
     // would keep being served after a provision).
     let mvt_cache = api_state.mvt_tiles.clone();
+    // Clone the basemap-readiness flag too: `/v1/basemap` tiles 503 until it's
+    // set, so a fresh deploy never serves cacheable empty tiles while the DB is
+    // still provisioning. Set it now if the DB already has data (a restart over a
+    // populated DB serves immediately); the boot-provision task sets it once an
+    // empty DB finishes loading.
+    let basemap_ready = api_state.basemap_ready.clone();
+    {
+        let ready = basemap_ready.clone();
+        let probe_db = db.clone();
+        tokio::spawn(async move {
+            let n: i64 = sqlx::query_scalar("SELECT count(*) FROM terrain.water_polygon")
+                .fetch_one(&probe_db)
+                .await
+                .unwrap_or(0);
+            if n > 0 {
+                ready.store(true, std::sync::atomic::Ordering::Relaxed);
+                tracing::info!(rows = n, "basemap ready — serving /v1/basemap");
+            } else {
+                tracing::warn!("basemap empty at boot — /v1/basemap returns 503 until provisioned");
+            }
+        });
+    }
     let api_router = turbo_tiles_api::router(api_state);
 
     let admin_state = AdminState {
@@ -372,8 +394,9 @@ async fn serve(
     if let Ok(area) = std::env::var("TILESERVER_PROVISION_ON_BOOT") {
         let provision_db = db.clone();
         let cache = mvt_cache.clone();
+        let ready = basemap_ready.clone();
         tokio::spawn(async move {
-            maybe_provision_on_boot(provision_db, area, cache).await;
+            maybe_provision_on_boot(provision_db, area, cache, ready).await;
         });
     }
 
@@ -414,6 +437,7 @@ async fn maybe_provision_on_boot(
     serving_db: turbo_tiles_db::DbPool,
     area: String,
     mvt_cache: turbo_tiles_api::mvt_tile_cache::MvtTileCache,
+    basemap_ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     // Cheap emptiness probe on the serving pool (short timeout is fine here).
     let already: i64 = sqlx::query_scalar("SELECT count(*) FROM terrain.water_polygon")
@@ -421,6 +445,7 @@ async fn maybe_provision_on_boot(
         .await
         .unwrap_or(0);
     if already > 0 {
+        basemap_ready.store(true, std::sync::atomic::Ordering::Relaxed);
         tracing::info!(
             rows = already,
             "boot-provision: basemap already populated, skipping"
@@ -460,6 +485,8 @@ async fn maybe_provision_on_boot(
             // Tiles requested while the DB was empty got cached empty; drop them
             // so the now-populated data is served.
             mvt_cache.bump_version();
+            // Data has landed — flip the basemap endpoint from 503 to serving.
+            basemap_ready.store(true, std::sync::atomic::Ordering::Relaxed);
             tracing::info!(rows = o.rows_upserted, "boot-provision: complete");
         }
         Err(e) => tracing::error!(error = %e, "boot-provision: failed"),

@@ -30,6 +30,17 @@ pub async fn tile(
         .map_err(|_| ApiError::BadRequest(format!("invalid tile y `{y_str}`")))?;
     let coord = TileCoord::new(z, x, y).map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
+    // Until the basemap DB is provisioned, every render yields an empty MVT.
+    // Serving that as 200 lets a client cache it as a valid-but-empty tile and
+    // never refetch (the cache-poisoning bug). Return 503 instead so the client
+    // treats it as a transient miss and retries once the data lands.
+    if !state
+        .basemap_ready
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(ApiError::PrimitiveUnavailable("basemap"));
+    }
+
     // Serve from the rendered-MVT cache when warm; otherwise render once (a
     // render permit bounds concurrent cold renders), store, and serve. The
     // re-check after acquiring the permit collapses a thundering herd of

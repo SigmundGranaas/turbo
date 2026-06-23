@@ -70,6 +70,14 @@ pub struct ApiState {
     /// query into a memory hit and bounds concurrent cold renders. Invalidated by
     /// `bump_version` on (re)provision. See [`crate::mvt_tile_cache`].
     pub mvt_tiles: crate::mvt_tile_cache::MvtTileCache,
+    /// False until the N50 basemap has data in the DB. While false the
+    /// `/v1/basemap` tile endpoint returns **503** instead of a (cacheable)
+    /// `200`-with-empty body, so a client retries rather than caching an empty
+    /// tile during a fresh-deploy provision. (An empty MVT cached client-side
+    /// ingests as a valid-but-empty tile and is never refetched — the bug this
+    /// guards against.) Flipped true by the boot readiness probe / boot-provision
+    /// completion (see the binary's `main`).
+    pub basemap_ready: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl ApiState {
@@ -102,6 +110,7 @@ impl ApiState {
             routing_permits: Arc::new(tokio::sync::Semaphore::new(permits)),
             dem_tiles: crate::dem_tile_cache::DemTileCache::from_env(),
             mvt_tiles: crate::mvt_tile_cache::MvtTileCache::from_env(),
+            basemap_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
