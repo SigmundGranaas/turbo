@@ -58,6 +58,40 @@ pub enum TilePhase {
     Retained,
 }
 
+/// Why a wanted tile is wanted — its streaming PRIORITY. The host fetches
+/// `pending_tiles` front-to-back up to a concurrency cap, so this ordering is
+/// what makes the most-important data load first instead of an undifferentiated
+/// distance race ("tiles load over each other / chaos" on first load).
+///
+/// Fetch order is the variant order below ([`TileTier::priority`]):
+/// Overview → Visible → Prefetch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TileTier {
+    /// The cheap coarse backdrop (a handful of tiles). Fetched FIRST so a cold
+    /// start shows a complete, if blurry, floor almost immediately — the screen
+    /// is never empty grey, and every sharper tile fades in over real content
+    /// (the anti-flicker floor). It's a few coarse tiles, so leading with it
+    /// costs the viewport almost nothing under concurrent fetch.
+    Overview,
+    /// On-screen tiles at the target zoom — the viewport the user is looking at.
+    /// Sharpens over the overview floor; ordered nearest-first within the tier.
+    Visible,
+    /// The off-screen prefetch ring. Pre-warmed LAST so a pan lands on ready
+    /// tiles — but never at the expense of an on-screen tile still missing.
+    Prefetch,
+}
+
+impl TileTier {
+    /// Lower = fetched earlier. The primary `pending_tiles` sort key.
+    fn priority(self) -> u8 {
+        match self {
+            TileTier::Overview => 0,
+            TileTier::Visible => 1,
+            TileTier::Prefetch => 2,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Scene {
     camera: Camera,
@@ -180,47 +214,70 @@ impl Scene {
     /// Tiles the host should keep loaded: the visible set plus a
     /// `prefetch_margin_px`-wide ring of off-screen tiles. The renderer does
     /// not draw the margin — it just keeps it warm so panning is smooth.
+    ///
+    /// The set (and its order here) is unchanged; [`Self::desired_tagged`] is
+    /// the one builder, and this is its untagged projection.
     pub fn desired_tiles(&self) -> Vec<TileId> {
+        self.desired_tagged().into_iter().map(|(t, _)| t).collect()
+    }
+
+    /// Every desired tile tagged with its streaming [`TileTier`] — the single
+    /// builder of the wanted set. `pending_tiles` orders by `(tier, distance)`
+    /// off this, so the most-important data (a coarse floor, then the viewport)
+    /// loads before the off-screen ring.
+    ///
+    /// The SET is identical to the historical `desired_tiles`; this only adds
+    /// the per-tile tier (and `desired_tiles` is now its projection), so the
+    /// determinism / bounded / backdrop invariants are unaffected.
+    pub fn desired_tagged(&self) -> Vec<(TileId, TileTier)> {
         // How many zoom levels below the visible set to keep as a backdrop.
         const OVERVIEW_DEPTH: u8 = 3;
-        // Pitched: the mixed-zoom LOD leaves span fine→coarse toward the horizon,
-        // BUT under the zoomed-in near field they're all FINE — there's no coarse
-        // ancestor unless we ask for it. Without a resident coarse backdrop, when
-        // the fine tiles haven't streamed in yet (or the MAX_TILES cap dropped
-        // some), the best-available resolver has nothing to draw and the near
-        // field shows the empty clear colour — the "everything greys out when I
-        // zoom in at a tilt" bug. So keep the SAME coarse overview backdrop the
-        // 2D path does: cheap (a handful of coarse tiles), always resident, gives
-        // the resolver a floor to draw while the fine set fills in.
+        let mut out: Vec<(TileId, TileTier)> = Vec::new();
+        let mut seen: HashSet<TileId> = HashSet::new();
+
         if self.camera.pitch_deg > LOD_PITCH_DEG {
-            let mut tiles = self.lod_tiles();
-            let z = self.tile_zoom();
-            let overview_z = z.saturating_sub(OVERVIEW_DEPTH).max(self.min_zoom);
-            if overview_z < z {
-                for t in self.tiles_for_margin_at(0, overview_z) {
-                    if !tiles.contains(&t) {
-                        tiles.push(t);
-                    }
+            // Pitched: the mixed-zoom LOD leaves ARE the drawn (visible) set and
+            // already span fine→coarse to the horizon, so there's no separate
+            // prefetch ring.
+            for t in self.lod_tiles() {
+                if seen.insert(t) {
+                    out.push((t, TileTier::Visible));
                 }
             }
-            return tiles;
+        } else {
+            // Flat: the visible single-zoom rectangle, plus the margin ring
+            // around it. Classify each margin-rect tile by whether it's inside
+            // the (margin-0) visible rect — preserving the exact historical set
+            // (`tiles_for_margin(margin)`), now split into Visible vs Prefetch.
+            let visible: HashSet<TileId> = self.tiles_for_margin(0).into_iter().collect();
+            for t in self.tiles_for_margin(self.prefetch_margin_px) {
+                let tier = if visible.contains(&t) {
+                    TileTier::Visible
+                } else {
+                    TileTier::Prefetch
+                };
+                if seen.insert(t) {
+                    out.push((t, tier));
+                }
+            }
         }
-        let mut tiles = self.tiles_for_margin(self.prefetch_margin_px);
-        // Always keep a coarse overview level loaded under the visible set. It's
-        // cheap (a handful of tiles) and guarantees the renderer's ancestor
-        // fallback always has a backdrop to fade over — so newly-arrived or
-        // post-zoom tiles blend over real (if blurry) content instead of fading
-        // up from the empty-tile grey (the zoom-out "flash") or popping.
+
+        // A coarse overview backdrop under the visible set — cheap (a handful of
+        // tiles) and the floor the best-available resolver draws while the fine
+        // set streams in, so newly-arrived tiles blend over real (if blurry)
+        // content instead of fading up from the empty-tile grey ("everything
+        // greys out when I zoom in at a tilt" / the zoom-out flash). Tagged
+        // Overview but fetched FIRST (see `TileTier`).
         let z = self.tile_zoom();
         let overview_z = z.saturating_sub(OVERVIEW_DEPTH).max(self.min_zoom);
         if overview_z < z {
             for t in self.tiles_for_margin_at(0, overview_z) {
-                if !tiles.contains(&t) {
-                    tiles.push(t);
+                if seen.insert(t) {
+                    out.push((t, TileTier::Overview));
                 }
             }
         }
-        tiles
+        out
     }
 
     /// Classify every WANTED tile as [`Resident`](TilePhase::Resident) or
@@ -259,23 +316,27 @@ impl Scene {
     }
 
     /// Desired tiles that have not yet been ingested ([`TilePhase::Pending`]),
-    /// sorted by ascending distance from the camera centre — so the first few
-    /// fetches paint the area the user is looking at, and the ring fills in
-    /// after. Derived from the one classification in [`Self::wanted_phases`].
+    /// ordered by `(tier, distance)`: most-important [`TileTier`] first
+    /// (Overview floor → Visible viewport → Prefetch ring), then nearest-first
+    /// within a tier. The host pumps this front-to-back up to a concurrency
+    /// cap, so the viewport always streams before the off-screen ring and the
+    /// camera-centre tile leads its tier — instead of an undifferentiated
+    /// distance race where a near ring tile could beat a far viewport tile.
     pub fn pending_tiles(&self) -> Vec<TileId> {
-        let mut out: Vec<TileId> = self
-            .wanted_phases()
-            .into_iter()
-            .filter(|(_, phase)| *phase == TilePhase::Pending)
-            .map(|(t, _)| t)
-            .collect();
         let centre = self.camera.center.to_world();
-        out.sort_by(|a, b| {
-            tile_centre_sq_distance(*a, centre)
-                .partial_cmp(&tile_centre_sq_distance(*b, centre))
-                .unwrap_or(std::cmp::Ordering::Equal)
+        let mut pend: Vec<(TileId, TileTier)> = self
+            .desired_tagged()
+            .into_iter()
+            .filter(|(t, _)| !self.ingested.contains(t))
+            .collect();
+        pend.sort_by(|(a, ta), (b, tb)| {
+            ta.priority().cmp(&tb.priority()).then_with(|| {
+                tile_centre_sq_distance(*a, centre)
+                    .partial_cmp(&tile_centre_sq_distance(*b, centre))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
-        out
+        pend.into_iter().map(|(t, _)| t).collect()
     }
 
     /// Mark a tile as available to the renderer.
@@ -637,10 +698,12 @@ mod tests {
     }
 
     #[test]
-    fn pending_tiles_are_sorted_by_distance_from_camera_centre() {
-        // The defining UX property of the sort: the tile containing the
-        // camera centre is fetched first, so the area the user is looking at
-        // resolves before the ring fills in.
+    fn pending_is_ordered_by_tier_then_distance() {
+        // The streaming priority (Slice 3): the cheap coarse Overview floor
+        // first, then the Visible viewport nearest-first, then the off-screen
+        // Prefetch ring — so the area the user is looking at resolves before the
+        // margin, and the centre tile leads. Replaces the old global
+        // distance-only sort.
         let scene = Scene::with_margin(
             Camera::new(LatLng::new(60.39, 5.32), 11.0),
             (1024, 768),
@@ -648,29 +711,40 @@ mod tests {
             22,
             256,
         );
+        let tier: std::collections::HashMap<TileId, TileTier> =
+            scene.desired_tagged().into_iter().collect();
         let pending = scene.pending_tiles();
-        let centre_world = scene.camera().center.to_world();
+        let centre = scene.camera().center.to_world();
 
-        // The first pending tile must contain the camera centre.
+        // Tier priority is non-decreasing along pending…
+        let prios: Vec<u8> = pending.iter().map(|t| tier[t].priority()).collect();
+        for w in prios.windows(2) {
+            assert!(w[0] <= w[1], "tier priority not non-decreasing: {prios:?}");
+        }
+        // …and within a tier, nearest-first.
+        for w in pending.windows(2) {
+            if tier[&w[0]] == tier[&w[1]] {
+                let (d0, d1) = (
+                    tile_centre_sq_distance(w[0], centre),
+                    tile_centre_sq_distance(w[1], centre),
+                );
+                assert!(d0 <= d1, "within-tier not nearest-first near {w:?}");
+            }
+        }
+        // The very first fetch covers the camera centre (the Overview floor tile
+        // under it), so the centre area shows immediately.
         let head = pending[0];
         let (nw, se) = head.world_bounds();
         assert!(
-            centre_world.x >= nw.x
-                && centre_world.x <= se.x
-                && centre_world.y >= nw.y
-                && centre_world.y <= se.y,
-            "head tile {head:?} did not contain camera centre {centre_world:?}",
+            centre.x >= nw.x && centre.x <= se.x && centre.y >= nw.y && centre.y <= se.y,
+            "head tile {head:?} did not contain camera centre {centre:?}",
         );
-
-        // And the squared-distance sequence must be monotonically
-        // non-decreasing.
-        let dists: Vec<f64> = pending
-            .iter()
-            .map(|t| tile_centre_sq_distance(*t, centre_world))
-            .collect();
-        for w in dists.windows(2) {
-            assert!(w[0] <= w[1], "not sorted: {dists:?}");
-        }
+        // The fixture must actually exercise both ends of the tier range.
+        assert!(
+            prios.contains(&TileTier::Overview.priority())
+                && prios.contains(&TileTier::Prefetch.priority()),
+            "fixture should produce both an overview floor and a prefetch ring",
+        );
     }
 
     // ---- Slice-2 invariants: the tile-selection RULES, enforced ------------
@@ -785,6 +859,28 @@ mod tests {
             prev = now;
             guard += 1;
             assert!(guard < 10_000, "pending did not converge");
+        }
+    }
+
+    #[test]
+    fn pending_never_orders_a_lower_tier_before_a_higher_one() {
+        // Slice-3 priority invariant across the camera sweep: pending is
+        // strictly tier-ordered (Overview → Visible → Prefetch). In particular
+        // no off-screen Prefetch tile is ever fetched before an on-screen
+        // Visible tile that's still pending — "most important first" as an
+        // enforced rule, not an emergent side effect of the distance sort.
+        for cam in camera_sweep() {
+            let scene = sweep_scene(cam);
+            let tier: std::collections::HashMap<TileId, TileTier> =
+                scene.desired_tagged().into_iter().collect();
+            let prios: Vec<u8> = scene
+                .pending_tiles()
+                .iter()
+                .map(|t| tier[t].priority())
+                .collect();
+            for w in prios.windows(2) {
+                assert!(w[0] <= w[1], "tier priority regressed in pending @ {cam:?}: {prios:?}");
+            }
         }
     }
 }
