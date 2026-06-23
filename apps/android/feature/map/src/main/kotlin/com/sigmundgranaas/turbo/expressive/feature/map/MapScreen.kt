@@ -563,16 +563,35 @@ fun MapScreen(
                     initialZoom = state.lastCameraZoom ?: MapDefaults.fallbackZoom,
                     track = when {
                         recState.recording -> recState.points.takeIf { it.size > 1 }
+                        // Follow = Record: show the real travelled line over the dimmed guide.
+                        routeState is RouteUiState.Following -> followSession.points.takeIf { it.size > 1 }
                         ui.trackMode == TrackMode.Line -> ui.linePoints.takeIf { it.size > 1 }?.toList()
                         ui.trackMode == TrackMode.Draw -> ui.drawPoints.takeIf { it.size > 1 }?.toList()
                         else -> ui.displayedTrack
                     },
-                    // While solving, don't draw the raw straight line between the waypoints —
-                    // only show the path once the solver has streamed real geometry (more points
-                    // than the input waypoints). Avoids the "stupid straight line before it's
-                    // calculated"; a re-solve keeps showing the previous refined line meanwhile.
-                    route = routeState.polyline.takeIf {
-                        it.isNotEmpty() && (routeState !is RouteUiState.Solving || it.size > toolWaypoints.size)
+                    // While following, draw the guide split at the arc-cursor: `route` is the
+                    // bright road ahead, `routeCovered` the dim walked part (US-3); they meet
+                    // exactly at the cursor. Otherwise hide the raw straight line while solving,
+                    // showing it only once the solver has streamed real geometry.
+                    route = if (routeState is RouteUiState.Following) {
+                        GeoMetrics.routeSuffix(routeState.polyline, followSession.progress?.fraction ?: 0.0)
+                            .takeIf { it.size > 1 } ?: routeState.polyline.takeIf { it.isNotEmpty() }
+                    } else {
+                        routeState.polyline.takeIf {
+                            it.isNotEmpty() && (routeState !is RouteUiState.Solving || it.size > toolWaypoints.size)
+                        }
+                    },
+                    routeCovered = if (routeState is RouteUiState.Following) {
+                        GeoMetrics.routePrefix(routeState.polyline, followSession.progress?.fraction ?: 0.0)
+                            .takeIf { it.size > 1 }
+                    } else {
+                        null
+                    },
+                    // Crossed checkpoints fill + check; upcoming ones stay outlined (US-3).
+                    checkpoints = if (routeState is RouteUiState.Following) {
+                        followSession.phaseMarkers.map { it.position to it.crossed }
+                    } else {
+                        emptyList()
                     },
                     measure = when (ui.trackMode) {
                         TrackMode.Line -> ui.linePoints

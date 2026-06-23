@@ -86,6 +86,11 @@ fun TurbomapMapView(
     vectors: List<TurbomapScene.VectorSpec> = emptyList(),
     track: List<LatLng>? = null,
     route: List<LatLng>? = null,
+    /** While following, the already-walked prefix of [route] — drawn as a dim tube
+     *  behind the bright remaining-ahead [route] so progress reads at a glance (US-3). */
+    routeCovered: List<LatLng>? = null,
+    /** Follow-mode checkpoints (position → crossed): filled+checked when passed, else outlined. */
+    checkpoints: List<Pair<LatLng, Boolean>> = emptyList(),
     measure: List<LatLng> = emptyList(),
     userLocation: LatLng? = null,
     /** Course over ground (deg, 0 = N) for the my-position heading beam; null = no heading. */
@@ -220,6 +225,7 @@ fun TurbomapMapView(
                 onWaypointDragStart = onWaypointDragStart,
                 onWaypointDragEnd = onWaypointDragEnd,
                 routeOrigin = routeOrigin,
+                checkpoints = checkpoints,
             )
         }
     }
@@ -231,6 +237,11 @@ fun TurbomapMapView(
     // lines — pushed separately whenever their geometry changes.
     LaunchedEffect(track) {
         controller.setRouteTube("track", track, TurbomapScene.TrackColor)
+    }
+    // The dim already-walked segment goes down first so the bright remaining-ahead
+    // route tube renders over it where they meet at the progress cursor (US-3).
+    LaunchedEffect(routeCovered) {
+        controller.setRouteTube("route_covered", routeCovered, TurbomapScene.RouteCoveredColor)
     }
     LaunchedEffect(route) {
         controller.setRouteTube("route", route, TurbomapScene.RouteColor)

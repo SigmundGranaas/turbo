@@ -57,7 +57,7 @@ class WgpuOfflineTileManager internal constructor(
     private val tileStore: TileStore,
     private val store: OfflineRegionStore,
     private val serviceLauncher: OfflineServiceLauncher,
-    private val fetcher: suspend (String) -> ByteArray?,
+    private val fetcher: suspend (String) -> FetchOutcome,
     private val laneProvider: (DownloadSpec) -> List<Lane>,
     private val scope: CoroutineScope,
     private val now: () -> Long,
@@ -72,13 +72,22 @@ class WgpuOfflineTileManager internal constructor(
         store = OfflineRegionStore(File(context.filesDir, REGION_META_DIR)),
         serviceLauncher = serviceLauncher,
         fetcher = okHttpFetcher(defaultHttp()),
-        laneProvider = ::rasterLanes,
+        laneProvider = ::defaultLanes,
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
         now = System::currentTimeMillis,
     )
 
     /** One source's tile pyramid: a cache-key layer id + URL template + native max zoom. */
     data class Lane(val layer: String, val urlTemplate: String, val maxZoom: Int)
+
+    /** Outcome of fetching one tile. [Absent] (404 / empty body) is legitimate —
+     *  a water tile over land, an ocean DEM tile — and must not fail a region;
+     *  only [Error] (transient/server failure) is retried and counts as a failure. */
+    sealed interface FetchOutcome {
+        data class Data(val bytes: ByteArray) : FetchOutcome
+        data object Absent : FetchOutcome
+        data object Error : FetchOutcome
+    }
 
     private val _regions = MutableStateFlow<List<OfflineRegionInfo>>(emptyList())
     override val regions: StateFlow<List<OfflineRegionInfo>> = _regions.asStateFlow()
@@ -215,6 +224,7 @@ class WgpuOfflineTileManager internal constructor(
         val sem = Semaphore(PARALLELISM)
         val lock = Mutex()
         var done = 0
+        var stored = 0
         var bytes = 0L
         var failed = 0
         coroutineScope {
@@ -222,22 +232,28 @@ class WgpuOfflineTileManager internal constructor(
                 launch {
                     sem.withPermit {
                         coroutineContext.ensureActive()
+                        // An absent tile (404 / empty body) is legitimate — a water lane
+                        // over land, or a DEM tile over open sea, simply has no data — so
+                        // it must NOT fail the region. Only a real fetch error does.
+                        var errored = false
                         if (!tileStore.exists(lane.layer, t.z, t.x, t.y)) {
-                            val data = fetch(urlFor(lane, t))
-                            if (data != null) {
-                                tileStore.put(lane.layer, t.z, t.x, t.y, data)
+                            when (val r = fetch(urlFor(lane, t))) {
+                                is FetchOutcome.Data -> tileStore.put(lane.layer, t.z, t.x, t.y, r.bytes)
+                                FetchOutcome.Absent -> Unit
+                                FetchOutcome.Error -> errored = true
                             }
                         }
                         val size = tileStore.size(lane.layer, t.z, t.x, t.y)
                         lock.withLock {
                             done++
                             bytes += size
-                            if (size == 0L) failed++
+                            if (size > 0L) stored++
+                            if (errored) failed++
                             if (done % PROGRESS_EVERY == 0 || done == total) {
                                 update(id) {
                                     it.copy(
                                         progress = done.toFloat() / total,
-                                        tileCount = done.toLong(),
+                                        tileCount = stored.toLong(),
                                         sizeBytes = bytes,
                                     )
                                 }
@@ -254,22 +270,31 @@ class WgpuOfflineTileManager internal constructor(
                 it.copy(
                     status = OfflineStatus.Complete,
                     progress = 1f,
-                    tileCount = done.toLong(),
+                    tileCount = stored.toLong(),
                     sizeBytes = bytes,
                 )
             }
         }
     }
 
-    /** Fetch one tile (a few retries on transient failure); null when exhausted. */
-    private suspend fun fetch(url: String): ByteArray? {
+    /** Fetch one tile, retrying only transient [FetchOutcome.Error]s; an
+     *  [FetchOutcome.Absent] (no data here) returns immediately, not as a failure. */
+    private suspend fun fetch(url: String): FetchOutcome {
         repeat(FETCH_RETRIES) { attempt ->
             coroutineContext.ensureActive()
-            val bytes = runCatching { fetcher(url) }.getOrNull()
-            if (bytes != null) return bytes
-            if (attempt < FETCH_RETRIES - 1) delay(RETRY_BACKOFF_MS)
+            val outcome = try {
+                fetcher(url)
+            } catch (c: CancellationException) {
+                throw c // a pause/network-gate cancellation must propagate, not become an Error
+            } catch (e: Exception) {
+                FetchOutcome.Error
+            }
+            when (outcome) {
+                is FetchOutcome.Data, FetchOutcome.Absent -> return outcome
+                FetchOutcome.Error -> if (attempt < FETCH_RETRIES - 1) delay(RETRY_BACKOFF_MS)
+            }
         }
-        return null
+        return FetchOutcome.Error
     }
 
     private fun urlFor(lane: Lane, t: TileMath.TileXyz): String =
@@ -336,26 +361,52 @@ class WgpuOfflineTileManager internal constructor(
         private const val TIMEOUT_MS = 10_000L
         private const val USER_AGENT = "turbo-android-wgpu"
 
-        /** Base + overlay raster lanes the wgpu map requests — identical ids + URLs. */
-        private fun rasterLanes(spec: DownloadSpec): List<Lane> =
-            MapStyles.turbomapRasterSpecs(spec.base, spec.overlays)
+        /** Cache-key layer for DEM tiles — matches turbomap-ffi's TERRAIN_KEY and
+         *  TurbomapMapView.isDemKey, so a pre-populated DEM tile hits at render. */
+        private const val DEM_LAYER = "__terrain"
+
+        /** Norway's DEM is ~10 m native (≈ z14); finer requests just upsample, and
+         *  the engine over-zooms a shallow DEM ("deep zooms drape on a shallow DEM",
+         *  render/terrain.rs), so capping offline DEM here gives full relief fidelity
+         *  at a fraction of the tiles of the raster max. */
+        private const val DEM_MAX_ZOOM = 14
+
+        /** Every tile lane the wgpu map requests for a region: base + overlay
+         *  rasters, the vector-water basemap, and the DEM heightmap (3D). Identical
+         *  layer ids + URL templates the map fetches, so offline tiles hit at render. */
+        private fun defaultLanes(spec: DownloadSpec): List<Lane> {
+            val raster = MapStyles.turbomapRasterSpecs(spec.base, spec.overlays)
                 .map { Lane(it.id, it.tileUrlTemplate, it.maxZoom) }
+            val vector = MapStyles.turbomapVectorSpecs()
+                .map { Lane(it.id, it.tileUrlTemplate, it.maxZoom) }
+            val dem = Lane(DEM_LAYER, MapStyles.TERRAIN_DEM_URL, DEM_MAX_ZOOM)
+            return raster + vector + dem
+        }
 
         private fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .build()
 
-        /** A single-shot tile GET over [http]; rejects errors/empty/oversize bodies. */
-        private fun okHttpFetcher(http: OkHttpClient): suspend (String) -> ByteArray? = { url ->
+        /** A single-shot tile GET over [http], mapped to a [FetchOutcome]: 404/empty
+         *  → Absent (no data here); non-OK / oversize / null body → Error; else Data. */
+        private fun okHttpFetcher(http: OkHttpClient): suspend (String) -> FetchOutcome = { url ->
             http.newCall(Request.Builder().url(url).header("User-Agent", USER_AGENT).build())
                 .execute()
                 .use { r ->
-                    val len = r.body?.contentLength() ?: -1L
                     when {
-                        !r.isSuccessful -> null
-                        len > MAX_TILE_BYTES -> null
-                        else -> r.body?.bytes()?.takeIf { it.isNotEmpty() && it.size <= MAX_TILE_BYTES }
+                        r.code == 404 || r.code == 204 || r.code == 410 -> FetchOutcome.Absent
+                        !r.isSuccessful -> FetchOutcome.Error
+                        (r.body?.contentLength() ?: -1L) > MAX_TILE_BYTES -> FetchOutcome.Error
+                        else -> {
+                            val bytes = r.body?.bytes()
+                            when {
+                                bytes == null -> FetchOutcome.Error
+                                bytes.isEmpty() -> FetchOutcome.Absent
+                                bytes.size > MAX_TILE_BYTES -> FetchOutcome.Error
+                                else -> FetchOutcome.Data(bytes)
+                            }
+                        }
                     }
                 }
         }

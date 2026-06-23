@@ -47,9 +47,11 @@ object TurbomapScene {
         val maxZoom: Int = DEFAULT_VECTOR_MAX_ZOOM,
     )
 
-    // Defaults match the MapLibre path (TurboMap.kt installTurboLayers).
     val TrackColor = Rgba(0, 105, 109)
     val RouteColor = Rgba(143, 76, 56)
+    /** The dim already-walked segment in follow mode — a muted, desaturated
+     *  [RouteColor] so the bright remaining-ahead route stands out (US-3). */
+    val RouteCoveredColor = Rgba(150, 128, 120)
     val MeasureColor = Rgba(0, 105, 109)
     val UserColor = Rgba(26, 115, 232)
 

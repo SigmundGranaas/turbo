@@ -1,5 +1,6 @@
 package com.sigmundgranaas.turbo.expressive.core.map
 
+import com.sigmundgranaas.turbo.expressive.core.map.WgpuOfflineTileManager.FetchOutcome
 import com.sigmundgranaas.turbo.expressive.core.turbomap.android.TileStore
 import com.sigmundgranaas.turbo.expressive.domain.BaseLayer
 import com.sigmundgranaas.turbo.expressive.domain.DownloadSpec
@@ -34,7 +35,7 @@ class WgpuOfflineTileManagerTest {
         scope: CoroutineScope,
         cacheDir: File,
         metaDir: File,
-        fetcher: suspend (String) -> ByteArray? = { ByteArray(64) { 7 } },
+        fetcher: suspend (String) -> FetchOutcome = { FetchOutcome.Data(ByteArray(64) { 7 }) },
         launcher: OfflineServiceLauncher = OfflineServiceLauncher {},
     ) = WgpuOfflineTileManager(
         tileStore = TileStore(cacheDir),
@@ -68,15 +69,34 @@ class WgpuOfflineTileManagerTest {
     }
 
     @Test
-    fun `a tile that never fetches marks the region failed`() = runTest(UnconfinedTestDispatcher()) {
+    fun `a tile that errors marks the region failed`() = runTest(UnconfinedTestDispatcher()) {
         val cache = tmp.newFolder("cache")
         val meta = tmp.newFolder("meta")
-        val mgr = manager(this, cache, meta, fetcher = { null })
+        val mgr = manager(this, cache, meta, fetcher = { FetchOutcome.Error })
 
         mgr.download(spec())
         advanceUntilIdle()
 
         assertEquals(OfflineStatus.Failed, mgr.regions.value.single().status)
+    }
+
+    @Test
+    fun `absent tiles (no data here) still complete the region`() = runTest(UnconfinedTestDispatcher()) {
+        val cache = tmp.newFolder("cache")
+        val meta = tmp.newFolder("meta")
+        val store = TileStore(cache)
+        // A water lane over land / DEM over sea: the server has no tile here. That's
+        // not a failure — the region completes with zero stored tiles.
+        val mgr = manager(this, cache, meta, fetcher = { FetchOutcome.Absent })
+
+        mgr.download(spec())
+        advanceUntilIdle()
+
+        val r = mgr.regions.value.single()
+        assertEquals(OfflineStatus.Complete, r.status)
+        assertEquals(0L, r.tileCount)
+        val tiles = TileMath.tilesFor(bounds, 12.0, 13.0)
+        assertTrue("nothing stored for absent tiles", tiles.none { store.exists("norgeskart", it.z, it.x, it.y) })
     }
 
     @Test
@@ -86,7 +106,7 @@ class WgpuOfflineTileManagerTest {
             this,
             tmp.newFolder("cache"),
             tmp.newFolder("meta"),
-            fetcher = { fetched = true; null },
+            fetcher = { fetched = true; FetchOutcome.Error },
         )
         val huge = GeoBounds(south = 0.0, west = 0.0, north = 50.0, east = 50.0)
         mgr.download(spec(b = huge, min = 8.0, max = 14.0))
