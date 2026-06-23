@@ -41,30 +41,18 @@ pub async fn tile(
         return Err(ApiError::PrimitiveUnavailable("basemap"));
     }
 
-    // Serve from the rendered-MVT cache when warm; otherwise render once (a
-    // render permit bounds concurrent cold renders), store, and serve. The
-    // re-check after acquiring the permit collapses a thundering herd of
-    // concurrent requests for the same cold tile into a single render.
+    // Serve from the rendered-MVT cache (RAM → SSD) when warm; otherwise render
+    // once under a permit and cache through both tiers. `get_or_render` collapses
+    // a thundering herd for one cold tile into a single DB render.
     let key = format!("basemap/{z}/{x}/{y}");
-    let bytes: std::sync::Arc<[u8]> = match state.mvt_tiles.get(&key) {
-        Some(b) => b,
-        None => {
-            let _permit = state.mvt_tiles.acquire_render().await;
-            match state.mvt_tiles.get(&key) {
-                Some(b) => b,
-                None => {
-                    let rendered =
-                        turbo_tiles_mvt::render_basemap_tile(&state.db, &state.basemap, coord)
-                            .await
-                            .map_err(|e| ApiError::Db(e.to_string()))?;
-                    let arc: std::sync::Arc<[u8]> =
-                        std::sync::Arc::from(rendered.into_boxed_slice());
-                    state.mvt_tiles.put(&key, arc.clone());
-                    arc
-                }
-            }
-        }
-    };
+    let bytes: std::sync::Arc<[u8]> = state
+        .mvt_tiles
+        .get_or_render(key, || async {
+            turbo_tiles_mvt::render_basemap_tile(&state.db, &state.basemap, coord)
+                .await
+                .map_err(|e| ApiError::Db(e.to_string()))
+        })
+        .await?;
 
     let mut resp = Response::builder()
         .status(StatusCode::OK)

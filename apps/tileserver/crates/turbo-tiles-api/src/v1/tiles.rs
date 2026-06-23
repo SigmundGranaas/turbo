@@ -25,27 +25,17 @@ pub async fn tile(
         .map_err(|_| ApiError::BadRequest(format!("invalid tile y `{y_str}`")))?;
     let coord = TileCoord::new(z, x, y).map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-    // Cache-or-render (see basemap::tile): warm tiles serve from memory; cold
-    // renders are bounded by a permit and de-duped by the post-permit re-check.
+    // Cache-or-render (see basemap::tile): RAM → SSD → render-once under a permit,
+    // cached through both tiers by `get_or_render`.
     let key = format!("{}/{z}/{x}/{y}", resource.slug());
-    let bytes: std::sync::Arc<[u8]> = match state.mvt_tiles.get(&key) {
-        Some(b) => b,
-        None => {
-            let _permit = state.mvt_tiles.acquire_render().await;
-            match state.mvt_tiles.get(&key) {
-                Some(b) => b,
-                None => {
-                    let rendered = turbo_tiles_mvt::render_tile(&state.db, resource, coord)
-                        .await
-                        .map_err(|e| ApiError::Db(e.to_string()))?;
-                    let arc: std::sync::Arc<[u8]> =
-                        std::sync::Arc::from(rendered.into_boxed_slice());
-                    state.mvt_tiles.put(&key, arc.clone());
-                    arc
-                }
-            }
-        }
-    };
+    let bytes: std::sync::Arc<[u8]> = state
+        .mvt_tiles
+        .get_or_render(key, || async {
+            turbo_tiles_mvt::render_tile(&state.db, resource, coord)
+                .await
+                .map_err(|e| ApiError::Db(e.to_string()))
+        })
+        .await?;
 
     let mut resp = Response::builder()
         .status(StatusCode::OK)

@@ -179,6 +179,17 @@ spec:
             # warm server still serves fully concurrently.
             - name: TILESERVER_MVT_RENDER_CONCURRENCY
               value: "1"
+            # Rendered-MVT cache: small RAM tier in front of a big node-local SSD
+            # tier. Disk is NOT counted against the 2Gi pod memory limit, so the
+            # disk budget can be large while RAM stays tiny — keeping peak RSS
+            # well under the OOM ceiling. Survives container restarts (mvt-cache
+            # emptyDir), so an OOM/restart doesn't re-render every coastal tile.
+            - name: TILESERVER_MVT_TILE_CACHE_DIR
+              value: "/var/lib/tileserver/mvt-cache"
+            - name: TILESERVER_MVT_TILE_CACHE_MEM_BYTES
+              value: "16777216"     # 16 MiB — small, just the hot set
+            - name: TILESERVER_MVT_TILE_CACHE_DISK_BYTES
+              value: "2147483648"   # 2 GiB — big, the real cache
             # JWT_SECRET gates only the /admin + debug surface; the public
             # tiles/basemap/routing endpoints serve without it (boot no longer
             # fails when it's unset — public-only mode). We still set it here so
@@ -245,6 +256,14 @@ spec:
             # its byte budget (TILESERVER_DEM_TILE_CACHE_DISK_BYTES) is reached.
             - name: dem-cache
               mountPath: /var/lib/tileserver/dem-cache
+            # Rendered MVT-tile cache, node-local SSD. Small RAM LRU
+            # (TILESERVER_MVT_TILE_CACHE_MEM_BYTES) in front of this big disk LRU
+            # (TILESERVER_MVT_TILE_CACHE_DISK_BYTES) — keeps the pod's RAM well
+            # under the 2Gi limit while caching far more tiles than RAM could, and
+            # the bytes survive a container restart (e.g. an OOM-kill) so coastal
+            # tiles don't all re-render cold.
+            - name: mvt-cache
+              mountPath: /var/lib/tileserver/mvt-cache
       volumes:
         - name: artifacts
           persistentVolumeClaim:
@@ -269,6 +288,14 @@ spec:
         - name: dem-cache
           emptyDir:
             sizeLimit: 4Gi
+        # Rendered MVT-tile cache, node-local SSD. The app's LRU keeps usage
+        # under TILESERVER_MVT_TILE_CACHE_DISK_BYTES (2Gi); the 3Gi cap is the
+        # kubelet backstop. Disk-backed (NOT medium: Memory), so it does not
+        # count against the pod's 2Gi memory limit — that's the whole point of
+        # small-RAM/big-disk. Survives container restarts; wiped on pod removal.
+        - name: mvt-cache
+          emptyDir:
+            sizeLimit: 3Gi
 ---
 apiVersion: v1
 kind: Service
