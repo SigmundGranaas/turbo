@@ -43,11 +43,13 @@ fn vs_fullscreen(@builtin(vertex_index) i: u32) -> VsOut {
 const THRESHOLD: f32 = 1.05;
 const KNEE: f32 = 0.6;
 // Camera exposure applied before tonemapping. <1 reins in the bright daytime
-// scene (the pale topo basemap under a high sun read as too hot at 1.0) and
+// scene (the pale topo basemap under a high sun read as too hot/washed) and
 // keeps the analytic sky from blowing out the moment bloom is added.
-const EXPOSURE: f32 = 0.82;
-// How much of the blurred highlight buffer to add back over the scene.
-const BLOOM_INTENSITY: f32 = 0.55;
+const EXPOSURE: f32 = 0.74;
+// How much of the blurred highlight buffer to add back over the scene. Kept
+// modest so daytime midtones don't wash out (bloom adds energy everywhere a
+// highlight bleeds).
+const BLOOM_INTENSITY: f32 = 0.42;
 
 // Soft-knee bright-pass extraction (Karis / Unreal style). Returns the part of
 // `c` above the threshold, ramping smoothly through the knee.

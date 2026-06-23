@@ -854,6 +854,51 @@ fn main() {
         return;
     }
 
+    // Terrain raycast round-trip probe (TURBO_RAYCAST_PROBE=1): the screen→ground
+    // raycast must close the loop with the terrain-lifted geo→screen, or a dragged
+    // marker lands at the wrong spot in 3D. Tilt hard over the relief, sample a
+    // grid of pixels, and for each: ground = screen_to_ground(px); back =
+    // lng_lat_to_screen(ground); report |back - px|. Expect ~sub-pixel on terrain
+    // hits. Also asserts pitch-0 matches the flat unproject exactly.
+    if std::env::var("TURBO_RAYCAST_PROBE").is_ok() {
+        let probe = |map: &mut Map, label: &str| {
+            let (mut worst, mut sum, mut n, mut hits) = (0.0f64, 0.0f64, 0u32, 0u32);
+            for gy in 1..6 {
+                for gx in 1..6 {
+                    let px = (
+                        WIDTH as f64 * gx as f64 / 6.0,
+                        HEIGHT as f64 * gy as f64 / 6.0,
+                    );
+                    let g = map.screen_to_ground_lng_lat(px);
+                    let back = map.lng_lat_to_screen(g.lng_lat);
+                    let err = ((back.0 - px.0).powi(2) + (back.1 - px.1).powi(2)).sqrt();
+                    if g.hit_terrain {
+                        hits += 1;
+                        worst = worst.max(err);
+                        sum += err;
+                        n += 1;
+                    }
+                }
+            }
+            let avg = if n > 0 { sum / n as f64 } else { 0.0 };
+            eprintln!(
+                "  raycast {label}: terrain-hits={hits}/25  roundtrip px err avg={avg:.2} worst={worst:.2}",
+            );
+        };
+        for (label, pitch) in [("flat", 0.0), ("tilt45", 45.0), ("tilt70", 70.0)] {
+            let cam = Camera::new(cli.center, cli.zoom)
+                .with_pitch(pitch)
+                .with_bearing(cli.bearing);
+            map.set_camera(cam);
+            drain_tiles(&mut map, &basemap, &dem, &vector);
+            // Render once so any per-frame terrain state is current.
+            let _ = render_capture(&mut map, &device, &queue, &target, &target_view);
+            probe(&mut map, label);
+        }
+        eprintln!("RAYCAST PROBE done");
+        return;
+    }
+
     // Phase-0 terrain-LOD baseline (TURBO_PROBE_LOD=1): sweep pitch and print the
     // framebuffer probes — ground coverage (low = pan-down clips everything),
     // horizon luma step (high = hard cutaway line), and sky-hole cracks. Today

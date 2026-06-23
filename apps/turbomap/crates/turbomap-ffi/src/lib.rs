@@ -369,6 +369,26 @@ impl TurboMap {
         self.lock().engine.set_terrain_shadows(strength);
     }
 
+    /// Drive the realistic-water surface from the MET wave/wind forecast: wave
+    /// direction + ferocity, whitecaps when the sea turns extreme, shoreline
+    /// foam. Each input is optional (`None` for fields MET omits); all-`None` ⇒
+    /// calm. Bearings are degrees the wave/wind comes *from*. See
+    /// [`turbomap_engine::TurbomapEngine::set_water_conditions`].
+    pub fn set_water_conditions(
+        &self,
+        wave_from_deg: Option<f32>,
+        wave_height_m: Option<f32>,
+        wind_speed_ms: Option<f32>,
+        wind_from_deg: Option<f32>,
+    ) {
+        self.lock().engine.set_water_conditions(
+            wave_from_deg,
+            wave_height_m,
+            wind_speed_ms,
+            wind_from_deg,
+        );
+    }
+
     /// Tear the cloud overlay down, freeing its GPU resources.
     pub fn disable_clouds(&self) {
         self.lock().engine.disable_clouds();

@@ -23,6 +23,7 @@ use crate::{
     geo::{LatLng, WorldPoint},
     hit::geometry_hit,
     render::{
+        ao::{AoField, AoKey},
         cache::CacheStats,
         frame::{RenderFrame, TerrainFrameInputs},
         floor::FloorPipeline,
@@ -40,6 +41,7 @@ use crate::{
         text::{PreparedText, TextPipeline},
         vector::{PreparedVector, VectorPipeline},
         vector_cache::VectorMeshCache,
+        water::{WaterConditions, WaterPipeline},
         TextureCache, BACKGROUND_CLEAR, HDR_FORMAT,
     },
     lighting::Lighting,
@@ -153,6 +155,17 @@ pub struct Marker {
     pub radius_px: f32,
     pub color: Color,
     pub data: std::collections::HashMap<String, String>,
+}
+
+/// Result of [`Map::screen_to_ground_lng_lat`]: where a screen ray meets the
+/// terrain. `world_z` is the displaced surface height at the hit (same units as
+/// the mesh); `hit_terrain` is false when the result came from the flat-plane
+/// fallback (no terrain / top-down / sky / DEM not resident).
+#[derive(Debug, Clone, Copy)]
+pub struct GroundHit {
+    pub lng_lat: LatLng,
+    pub world_z: f32,
+    pub hit_terrain: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -498,6 +511,11 @@ struct Renderer {
     /// terrain so streaming gaps show neutral sea-grey instead of see-through
     /// holes; depth-writes so real terrain overdraws it. See [`crate::render::floor`].
     floor_pipeline: FloorPipeline,
+    /// Realistic-water surface (animated waves + Fresnel sky reflection + sun
+    /// glitter). Shared across all vector layers; drawn before each layer's
+    /// vector mesh so roads/buildings paint over the water. See
+    /// [`crate::render::water`].
+    water_pipeline: WaterPipeline,
     /// Optional GPU-side frame timing — `Some` only when the device negotiated
     /// `Features::TIMESTAMP_QUERY`.
     gpu_timestamps: Option<GpuTimestamps>,
@@ -511,6 +529,10 @@ struct Renderer {
     /// uploaded from a CPU horizon-march when the sun/region/DEM changes. See
     /// [`crate::render::shadow`].
     shadow_map: ShadowMap,
+    /// Progressive, world-locked ambient-occlusion bake driven off the
+    /// `shadow_map` heightfield. Refines over a few frames, then caches (it's
+    /// sun-independent). See [`crate::render::ao`].
+    ao: AoField,
     /// The frame's HDR MSAA colour + depth + resolve + bloom attachments,
     /// recreated together on resize. See [`FrameTargets`].
     targets: FrameTargets,
@@ -529,6 +551,11 @@ impl Renderer {
         // Every pipeline that draws inside the frame pass renders into the HDR
         // float target (not the sRGB surface); only the tonemap pass, inside
         // `PostProcess`, targets `surface_format`.
+        let shadow_map = ShadowMap::new(device, queue);
+        let ao = AoField::new(device, queue.clone(), &shadow_map.height_tex_layout);
+        // Built before the struct so the water pipeline can borrow its DEM
+        // bind-group layout (group 2) for draping.
+        let terrain_shared = TerrainShared::new(device, queue);
         Self {
             text_pipeline: TextPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
             icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
@@ -536,9 +563,17 @@ impl Renderer {
             route_pipeline: RoutePipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
             sky_pipeline: SkyPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
             floor_pipeline: FloorPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
+            water_pipeline: WaterPipeline::new(
+                device.clone(),
+                queue.clone(),
+                HDR_FORMAT,
+                &terrain_shared.bind_group_layout,
+                &shadow_map.height_view(),
+            ),
             gpu_timestamps: GpuTimestamps::new(device, queue),
-            terrain_shared: TerrainShared::new(device, queue),
-            shadow_map: ShadowMap::new(device, queue),
+            terrain_shared,
+            shadow_map,
+            ao,
             targets: FrameTargets::new(device, initial_size),
             post: PostProcess::new(device, surface_format),
         }
@@ -651,6 +686,11 @@ pub struct Map {
     /// (default) disables the feature. See [`crate::render::shadow`] and the
     /// shadow block in [`Map::render`].
     shadow: TerrainShadowState,
+    /// Sea state driving the realistic-water surface — wave direction, ferocity,
+    /// whitecaps and shoreline-foam intensity, derived from the MET wave/wind
+    /// forecast via [`Map::set_water_conditions`]. Patched into the water globals
+    /// each frame. Default = calm. See [`crate::render::water`].
+    water: WaterConditions,
     /// Route/track rendered as raised 3D tubes (replaces the flat draped line).
     /// See [`Map::set_route_tube`] and the route block in [`Map::render`].
     route_tubes: RouteTubeState,
@@ -749,6 +789,7 @@ impl Map {
             clouds: None,
             lighting: Lighting::default(),
             shadow: TerrainShadowState::default(),
+            water: WaterConditions::default(),
             route_tubes: RouteTubeState::default(),
             start: Instant::now(),
         })
@@ -962,6 +1003,28 @@ impl Map {
 
     pub fn has_terrain(&self) -> bool {
         self.terrain.is_some()
+    }
+
+    // ---- Sea state (realistic water) ----------------------------------
+
+    /// Drive the realistic-water surface from the MET wave/wind forecast: wave
+    /// direction + ferocity, whitecaps when the sea turns extreme, and a touch
+    /// more shoreline foam in a big sea. All inputs optional (MET drops fields
+    /// inland / at the tail); `None` everywhere ⇒ calm. Bearings are degrees the
+    /// wave/wind comes *from* (compass). Cheap; call on each forecast refresh.
+    pub fn set_water_conditions(
+        &mut self,
+        wave_from_deg: Option<f32>,
+        wave_height_m: Option<f32>,
+        wind_speed_ms: Option<f32>,
+        wind_from_deg: Option<f32>,
+    ) {
+        self.water = WaterConditions::from_forecast(
+            wave_from_deg,
+            wave_height_m,
+            wind_speed_ms,
+            wind_from_deg,
+        );
     }
 
     // ---- Sun / time-of-day --------------------------------------------
@@ -1465,6 +1528,107 @@ impl Map {
         world.to_lat_lng()
     }
 
+    /// Terrain-aware screen→ground: where the view ray through `screen_px`
+    /// actually hits the relief (NOT the flat z=0 plane that [`screen_to_lng_lat`]
+    /// uses).
+    ///
+    /// This closes the projection round-trip in 3D: [`lng_lat_to_screen`] lifts a
+    /// geo point onto the terrain surface (`world_to_screen_z` + `ground_world_z`),
+    /// so the inverse must intersect that same surface or a dragged marker lands
+    /// at the wrong geo point (the flat unproject drifts further off with tilt and
+    /// relief). Marches the view ray against the *stable* DEM sampler — the same
+    /// one `ground_world_z` lifts with — so the dropped marker re-projects back to
+    /// the exact pixel it was dropped at.
+    ///
+    /// Used only for marker placement/drag. The flat [`screen_to_lng_lat`] /
+    /// `pixel_to_world` path is intentionally kept for panning + freehand capture
+    /// (a terrain-aware pan skitters as the finger crosses ridges).
+    ///
+    /// Falls back to the flat plane (`hit_terrain = false`) when there's no
+    /// terrain, the camera is top-down (vertical ray → identical xy anyway), the
+    /// ray never crosses the surface (sky / over the horizon), or the covering DEM
+    /// isn't resident yet.
+    pub fn screen_to_ground_lng_lat(&self, screen_px: (f64, f64)) -> GroundHit {
+        let (w, h) = self.viewport_px;
+        let vp = (w as f64, h as f64);
+        let flat = || GroundHit {
+            lng_lat: self.cam.camera.pixel_to_world(screen_px, vp).to_lat_lng(),
+            world_z: 0.0,
+            hit_terrain: false,
+        };
+        // No relief to march, or a vertical (top-down) ray that hits the surface
+        // at the same xy regardless of height → the flat unproject is exact.
+        if self.terrain.is_none() || self.cam.camera.pitch_deg == 0.0 {
+            return flat();
+        }
+        let origin = self.cam.camera.center.to_world();
+        let Some((near, dir)) = self.cam.camera.pixel_ray_from_origin(screen_px, vp, origin) else {
+            return flat();
+        };
+        let dir = dir.normalize_or_zero();
+        if dir == glam::Vec3::ZERO {
+            return flat();
+        }
+        // Surface height (world-z) under the ray at parameter `s`, via the same
+        // stable sampler `ground_world_z` lifts with → round-trip closes.
+        let surf_z = |s: f32| -> f32 {
+            let wx = origin.x + (near.x + dir.x * s) as f64;
+            let wy = origin.y + (near.y + dir.y * s) as f64;
+            self.ground_world_z(WorldPoint::new(wx, wy))
+        };
+        // Signed gap: ray height above the surface. >0 = above, crossing at 0.
+        let gap = |s: f32| near.z + dir.z * s - surf_z(s);
+
+        // The ray must start above the surface and descend toward it.
+        let dz = -dir.z; // descent rate per unit s (dir.z < 0 looking down)
+        let mut g0 = gap(0.0);
+        if g0 <= 0.0 || dz <= 1.0e-6 {
+            return flat();
+        }
+        // Sphere-trace: advance by the distance the ray would need to reach the
+        // CURRENT surface height (`gap/dz`), damped slightly. Over empty air above
+        // terrain this takes big strides; near the surface (and as the ground
+        // rises ahead, shrinking the gap) it slows automatically — so it converges
+        // in a handful of steps without a tiny fixed step, and a rising ridge
+        // shrinks the gap rather than being skipped. Bounded by ~2× the flat-plane
+        // crossing distance so a grazing/sky ray bails to the flat fallback.
+        let s_flat = g0 / dz; // ≈ flat-plane crossing distance (terrain is a small lift)
+        let ppw = self.cam.camera.pixels_per_world_unit().max(1e-9);
+        let min_step = (1.0 / ppw) as f32; // ~1 px floor so it never stalls
+        let mut s = 0.0f32;
+        for _ in 0..96 {
+            let advance = (g0 / dz * 0.8).max(min_step);
+            let s_next = s + advance;
+            let g = gap(s_next);
+            if g <= 0.0 {
+                // Bracketed [s, s_next]; bisect for a sub-pixel crossing.
+                let (mut lo, mut hi) = (s, s_next);
+                for _ in 0..8 {
+                    let mid = 0.5 * (lo + hi);
+                    if gap(mid) > 0.0 {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                let s_hit = 0.5 * (lo + hi);
+                let wx = origin.x + (near.x + dir.x * s_hit) as f64;
+                let wy = origin.y + (near.y + dir.y * s_hit) as f64;
+                return GroundHit {
+                    lng_lat: WorldPoint::new(wx, wy).to_lat_lng(),
+                    world_z: surf_z(s_hit),
+                    hit_terrain: true,
+                };
+            }
+            s = s_next;
+            g0 = g;
+            if s > s_flat * 2.0 {
+                break;
+            }
+        }
+        flat()
+    }
+
     pub fn lng_lat_to_screen(&self, lng_lat: LatLng) -> (f64, f64) {
         let world = lng_lat.to_world();
         let (w, h) = self.viewport_px;
@@ -1578,6 +1742,7 @@ impl Map {
         layer_id: &str,
         tile: TileId,
         mesh: &Mesh,
+        water_mesh: &Mesh,
         labels: Vec<LabelRequest>,
         icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
@@ -1585,7 +1750,8 @@ impl Map {
         for l in self.layers.iter_mut() {
             if let LayerEntry::Vector(v) = l {
                 if v.id == layer_id {
-                    let evicted = v.cache.insert(tile, mesh, labels, icons, interactive);
+                    let evicted =
+                        v.cache.insert(tile, mesh, water_mesh, labels, icons, interactive);
                     v.scene.ingest(tile);
                     for e in &evicted {
                         v.scene.un_ingest(e);
@@ -1614,6 +1780,7 @@ impl Map {
             layer_id,
             tile_id,
             &out.mesh,
+            &out.water_mesh,
             out.labels,
             out.icons,
             out.interactive,
@@ -1786,10 +1953,35 @@ impl Map {
         let cam_origin = self.cam.camera.center.to_world();
         let ppw = self.cam.camera.pixels_per_world_unit() as f32;
         let footprint = (self.viewport_px.0.max(self.viewport_px.1) as f32) / ppw.max(1e-9);
-        let size_f = (footprint * SHADOW_MARGIN).clamp(1e-6, 0.5);
-        // Grid centred on the camera: RTC origin (camera at 0) is the lower-left
-        // corner at -size/2.
-        let origin_rtc = [-0.5 * size_f, -0.5 * size_f];
+        // Quantise the field extent to a power-of-two ladder. Raw `size_f` shrinks
+        // continuously as you zoom in (footprint ∝ 1/2^zoom), so an un-quantised
+        // extent re-keys the field EVERY zoom frame — the cell size + lattice shift
+        // each frame and the shadow/AO discretisation flickers (panning was fine
+        // because the extent is constant there). Snapping to the smallest power of
+        // two that still covers the footprint holds the extent — and thus the cell
+        // size and the global lattice — fixed across a whole zoom octave, so zoom
+        // re-assembles only when crossing an octave (one settle, not a flicker).
+        let size_raw = (footprint * SHADOW_MARGIN).clamp(1e-6, 0.5);
+        let size_f = (2.0_f32.powf(size_raw.log2().ceil())).min(0.5);
+        // Snap the field's lower-left corner to a FIXED global cell lattice
+        // (multiples of `cell` in absolute world space) so the heightfield samples
+        // the SAME ground points no matter where the camera sits. Without this it
+        // re-centres on the exact camera position on every re-assembly — and a
+        // finger-drag isn't an "animation", so it re-assembles every frame,
+        // shifting the grid sub-cell and making the shadow/AO discretisation
+        // jitter (the flicker while moving). Snapping welds the field to the world.
+        let dim = HEIGHT_DIM;
+        let cell = (size_f / (dim - 1) as f32) as f64;
+        // Snap to a MULTIPLE of `cell` (4 cells): still aligned to the global
+        // cell lattice (so no sub-cell jitter), but the CPU re-assembly fires only
+        // every few cells of movement instead of every single one — keeps the
+        // finer 256² grid affordable to re-centre while dragging.
+        let snap_q = cell * 4.0;
+        let snap = |v: f64| (v / snap_q).floor() * snap_q;
+        let origin_abs = [
+            snap(cam_origin.x - 0.5 * size_f as f64),
+            snap(cam_origin.y - 0.5 * size_f as f64),
+        ];
         // Vertical scale for the heightfield. The mesh's `meters_to_world`
         // (= cos(lat)/circ) under-scales true relief by ~1/cos²(lat) — acceptable
         // for the rendered surface, but it flattens slopes so far that terrain
@@ -1807,9 +1999,10 @@ impl Map {
 
         let key = ShadowKey {
             sun: [sun_dir[0].to_bits(), sun_dir[1].to_bits(), sun_dir[2].to_bits()],
-            // Camera centre (absolute world) + grid size: a settle in a new region
-            // re-assembles; orbit/tilt keep it fixed → the held heightfield stands.
-            origin: [(cam_origin.x as f32).to_bits(), (cam_origin.y as f32).to_bits()],
+            // Snapped lattice origin + grid size: changes only when the camera
+            // crosses a whole cell, and always on the same global lattice, so the
+            // field re-assembles seldom and never sub-cell-jitters.
+            origin: [(origin_abs[0] as f32).to_bits(), (origin_abs[1] as f32).to_bits()],
             size: size_f.to_bits(),
             dem_inserts,
         };
@@ -1821,25 +2014,19 @@ impl Map {
         // no reassembly and stays welded to the ground.
         let animating = self.cam.active.is_some();
         if !animating && self.shadow.key.as_ref() != Some(&key) {
-            let dim = HEIGHT_DIM;
-            let cell = size_f / (dim - 1) as f32;
             let mut heights = vec![0.0f32; dim * dim];
             for j in 0..dim {
-                let wy = origin_rtc[1] + j as f32 * cell;
+                let ay = origin_abs[1] + j as f64 * cell;
                 for i in 0..dim {
-                    let wx = origin_rtc[0] + i as f32 * cell;
-                    // RTC grid → absolute world for the cross-tile height lookup.
-                    let ax = wx as f64 + cam_origin.x;
-                    let ay = wy as f64 + cam_origin.y;
+                    let ax = origin_abs[0] + i as f64 * cell;
                     heights[j * dim + i] =
                         terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale;
                 }
             }
             self.renderer.shadow_map.upload_heights(&heights);
-            // Anchor the grid in ABSOLUTE world space; the per-frame block below
-            // rebases it to the current camera so it stays welded through a pan.
-            self.shadow.origin_abs =
-                [cam_origin.x + origin_rtc[0] as f64, cam_origin.y + origin_rtc[1] as f64];
+            // Already in ABSOLUTE world space (lattice-snapped); the per-frame block
+            // below rebases it into the current RTC frame so it stays welded.
+            self.shadow.origin_abs = origin_abs;
             self.shadow.world_size = size_f;
             self.shadow.key = Some(key);
         }
@@ -1859,7 +2046,7 @@ impl Map {
             // Base penumbra band (world-z): ~10 m of relief excess fades lit→shadow
             // at contact. The shader's contact-hardening widens this with occluder
             // distance, so near edges stay crisp and far ridges throw soft shadows.
-            frame.raster_terrain_cfg.shadow_softness = (10.0 * zscale).max(1e-7);
+            frame.raster_terrain_cfg.shadow_softness = (45.0 * zscale).max(1e-7);
             frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
         }
     }
@@ -1934,14 +2121,68 @@ impl Map {
             },
         );
         // Stamp the renderer wall clock so the procedural low haze drifts ("rolls
-        // in") and its patchiness moves over time.
+        // in") and its patchiness moves over time, and so the water waves animate.
         frame.raster_terrain_cfg.time = self.start.elapsed().as_secs_f32();
-        // Terrain cast shadows: if enabled (and we have 3D terrain), refresh the
-        // CPU horizon-march field when its inputs changed and patch the frame's
-        // raster config to sample it. No-op (and no cost) when strength == 0.
-        if self.shadow.strength > 0.0 {
+        frame.water_globals.time = frame.raster_terrain_cfg.time;
+        // Terrain relief field: assemble the camera-centred cross-tile
+        // heightfield whenever we have 3D terrain — it drives BOTH cast shadows
+        // (per-fragment march, gated by `shadow_strength`) and the world-locked
+        // AO bake below. Cheap no-op until the camera settles in a new region or
+        // the DEM changes. (Previously gated on `shadow.strength > 0`; AO needs
+        // the field even with cast shadows off.)
+        if self.terrain.is_some() {
             self.update_terrain_shadows(&mut frame);
         }
+
+        // Progressive ambient-occlusion bake: refine one direction-batch per
+        // frame into the world-locked AO field, then cache it. AO is
+        // sun-independent, so the keyed field is reused across the day cycle and
+        // recomputed only when the region/DEM changes. Runs after the heightfield
+        // upload and before the frame pass that samples the field.
+        if self.terrain.is_some() && self.shadow.key.is_some() {
+            let key = AoKey {
+                origin: [
+                    (self.shadow.origin_abs[0] as f32).to_bits(),
+                    (self.shadow.origin_abs[1] as f32).to_bits(),
+                ],
+                size: self.shadow.world_size.to_bits(),
+                dem_inserts: self
+                    .terrain
+                    .as_ref()
+                    .map(|t| t.cache.stats().inserts)
+                    .unwrap_or(0),
+            };
+            let world_size = self.shadow.world_size;
+            let r = &mut self.renderer;
+            r.ao.accumulate(
+                encoder,
+                &r.shadow_map.height_tex_bind_group,
+                r.shadow_map.ao_view(),
+                key,
+                world_size,
+            );
+        }
+
+        // Heightfield reflection: once the cast-shadow/AO heightfield is
+        // assembled, point the water reflection march at it (same RTC origin +
+        // size update_terrain_shadows stamped into the raster config) so the
+        // surface mirrors the surrounding mountains. Until then (or with no
+        // terrain) the water reflects the analytic sky.
+        if self.terrain.is_some() && self.shadow.key.is_some() {
+            frame.water_globals.hf_origin = frame.raster_terrain_cfg.shadow_origin;
+            frame.water_globals.hf_inv_size = frame.raster_terrain_cfg.shadow_inv_size;
+            frame.water_globals.ssr_enabled = 1.0;
+        }
+        // Sea state from the MET wave/wind forecast (direction, ferocity,
+        // whitecaps, shoreline-foam intensity).
+        frame.water_globals.wave_dir = self.water.wave_dir;
+        frame.water_globals.wave_amp = self.water.wave_amp;
+        frame.water_globals.whitecap = self.water.whitecap;
+        frame.water_globals.foam = self.water.foam;
+        // Upload the water lighting/animation/reflection globals once for the
+        // frame; the per-layer water draws reuse the bound group.
+        self.renderer.water_pipeline.prepare(&frame.water_globals);
+
         let first_visible = self.first_visible_layer_index();
 
         // ---- Phase A: prepare ------------------------------------
@@ -2142,6 +2383,29 @@ impl Map {
                         );
                     }
                     (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
+                        // TEMP diagnostic: how many water tiles + indices are about
+                        // to be drawn this frame (localises no-water: data vs draw).
+                        let wtiles: usize = p
+                            .tiles()
+                            .iter()
+                            .filter(|(t, _)| {
+                                v.cache.peek(*t).map(|e| e.water_index_count > 0).unwrap_or(false)
+                            })
+                            .count();
+                        if wtiles > 0 {
+                            log::info!("turbomap-water-diag: drawing {wtiles} water tiles");
+                        }
+                        // Realistic water first (it reuses this layer's vector
+                        // camera/tile bind groups + draw list), so roads,
+                        // buildings and labels in the vector mesh paint over it.
+                        self.renderer.water_pipeline.draw(
+                            p,
+                            &v.cache,
+                            terrain_cache,
+                            placeholder_dem,
+                            &v.pipeline,
+                            &mut pass,
+                        );
                         v.pipeline.draw(p, &v.cache, terrain_cache, placeholder_dem, &mut pass);
                     }
                     (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {

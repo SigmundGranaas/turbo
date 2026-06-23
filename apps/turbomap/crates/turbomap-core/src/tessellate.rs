@@ -133,9 +133,23 @@ pub struct InteractiveFeature {
 #[derive(Debug, Default, Clone)]
 pub struct TessellationOutput {
     pub mesh: Mesh,
+    /// Water-fill triangles, split out of `mesh` so the renderer can draw them
+    /// through the dedicated realistic-water pipeline (animated waves, Fresnel,
+    /// sky reflection, sun glitter) instead of as a flat matte fill. Same vertex
+    /// format as `mesh`; the baked `color` is reused as the deep-water tint.
+    /// Empty when the tile has no water polygons.
+    pub water_mesh: Mesh,
     pub labels: Vec<LabelRequest>,
     pub icons: Vec<IconRequest>,
     pub interactive: Vec<InteractiveFeature>,
+}
+
+/// Whether an MVT source layer carries water-body polygons that should render
+/// through the realistic-water pipeline rather than as a flat fill. Matches the
+/// OpenMapTiles convention (`"water"`); waterway *rivers* are `Line` paint and
+/// stay in the ordinary vector mesh, so only fills land here.
+pub fn is_water_source_layer(name: &str) -> bool {
+    name == "water"
 }
 
 /// Tessellation tolerance in **tile units** (one tile = 1.0). One tile is
@@ -162,6 +176,10 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
     let mut fill_tess = FillTessellator::new();
     let mut stroke_tess = StrokeTessellator::new();
     let mut buffers: VertexBuffers<VectorVertex, u32> = VertexBuffers::new();
+    // Water fills tessellate into their own buffer so the renderer can draw them
+    // through the dedicated water pipeline. Everything else (incl. water outlines,
+    // which are `Line` paint) stays in `buffers`.
+    let mut water_buffers: VertexBuffers<VectorVertex, u32> = VertexBuffers::new();
     let mut labels: Vec<LabelRequest> = Vec::new();
     let mut icons: Vec<IconRequest> = Vec::new();
     let mut interactive: Vec<InteractiveFeature> = Vec::new();
@@ -188,8 +206,16 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                     if let Geometry::Polygon(rings) = &feature.geometry {
                         let path = build_polygon_path(tile_id, extent, rings);
                         let packed = pack_color(*color);
+                        // Route water-body fills into the dedicated water buffer
+                        // (realistic-water pipeline); everything else into the
+                        // ordinary vector mesh.
+                        let target = if is_water_source_layer(&layer.name) {
+                            &mut water_buffers
+                        } else {
+                            &mut buffers
+                        };
                         let mut builder =
-                            BuffersBuilder::new(&mut buffers, |v: FillVertex| VectorVertex {
+                            BuffersBuilder::new(target, |v: FillVertex| VectorVertex {
                                 base: v.position().to_array(),
                                 normal: [0.0, 0.0], // fills don't extrude
                                 width_px: 0.0,
@@ -444,11 +470,25 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
         }
     }
 
+    let water_mesh = Mesh {
+        vertices: water_buffers.vertices,
+        indices: water_buffers.indices,
+    };
+    // TEMP diagnostic: confirm water polygons reach the device + tessellate.
+    if !water_mesh.indices.is_empty() {
+        log::info!(
+            "turbomap-water-diag: tile {:?} → {} water indices ({} verts)",
+            tile_id,
+            water_mesh.indices.len(),
+            water_mesh.vertices.len()
+        );
+    }
     TessellationOutput {
         mesh: Mesh {
             vertices: buffers.vertices,
             indices: buffers.indices,
         },
+        water_mesh,
         labels,
         icons,
         interactive,
@@ -834,7 +874,10 @@ mod tests {
     fn polygon_matching_a_fill_rule_produces_triangles() {
         let tile = VectorTile {
             layers: vec![crate::vector::Layer {
-                name: "water".into(),
+                // Non-water fill → ordinary vector mesh. (Water fills are split
+                // into `water_mesh`; that path is covered by
+                // `water_fill_lands_in_the_water_mesh_not_the_main_mesh`.)
+                name: "landcover".into(),
                 version: 2,
                 extent: 4096,
                 features: vec![poly(vec![vec![
@@ -849,7 +892,7 @@ mod tests {
         let style = VectorStyle {
             background: Color::rgb(255, 255, 255),
             rules: vec![Rule {
-                source_layer: "water".into(),
+                source_layer: "landcover".into(),
                 filter: Filter::Always,
                 paint: Paint::Fill {
                     color: Color::rgb(0, 0, 255),
@@ -870,6 +913,41 @@ mod tests {
             mesh.indices.len().is_multiple_of(3),
             "index count must be a multiple of 3"
         );
+    }
+
+    #[test]
+    fn water_fill_lands_in_the_water_mesh_not_the_main_mesh() {
+        // A "water" source-layer fill must be split into `water_mesh` (drawn by
+        // the realistic-water pipeline) and produce no triangles in the ordinary
+        // mesh; a non-water fill stays in `mesh`.
+        let square = vec![vec![(100, 100), (200, 100), (200, 200), (100, 200), (100, 100)]];
+        let fill_rule = |layer: &str| VectorStyle {
+            background: Color::rgb(255, 255, 255),
+            rules: vec![Rule {
+                source_layer: layer.into(),
+                filter: Filter::Always,
+                paint: Paint::Fill { color: Color::rgb(0, 0, 255) },
+                min_zoom: 0,
+                max_zoom: 22,
+                interactive: false,
+            }],
+        };
+        let tile = |layer: &str| VectorTile {
+            layers: vec![crate::vector::Layer {
+                name: layer.into(),
+                version: 2,
+                extent: 4096,
+                features: vec![poly(square.clone())],
+            }],
+        };
+
+        let water = tessellate(TileId::new(5, 1, 1), &tile("water"), &fill_rule("water"));
+        assert!(water.mesh.is_empty(), "water fill must not land in the main mesh");
+        assert!(!water.water_mesh.is_empty(), "water fill must land in the water mesh");
+
+        let land = tessellate(TileId::new(5, 1, 1), &tile("landcover"), &fill_rule("landcover"));
+        assert!(!land.mesh.is_empty(), "non-water fill stays in the main mesh");
+        assert!(land.water_mesh.is_empty(), "non-water fill must not land in the water mesh");
     }
 
     #[test]

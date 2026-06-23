@@ -58,10 +58,14 @@ struct Globals {
     shadow_texel_world: f32,
     // World-z band over which an occluder fades the shadow in (penumbra).
     shadow_softness: f32,
-    // Seconds since renderer start — drifts the procedural low-haze field so it
-    // "rolls in" and its patchiness moves over time.
+    // Seconds since renderer start — slowly drifts the valley-fog field.
     time: f32,
-    _shadow_pad: f32,
+    _pad0: f32,
+    // Absolute world-xy of the camera centre. Added to the camera-relative
+    // fragment world-xy to reconstruct an absolute position, so the valley-fog
+    // field stays welded to the terrain instead of sliding with the screen.
+    cam_origin: vec2<f32>,
+    _pad1: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -78,14 +82,18 @@ struct Globals {
 // under pan (no precomputed low-res visibility texture to go stale).
 @group(3) @binding(0) var height_tex: texture_2d<f32>;
 @group(3) @binding(1) var height_samp: sampler;
+// World-locked baked ambient-occlusion field (see render/ao.rs): accumulated sky
+// occlusion in [0,1] over the same grid + extent as the heightfield. Filterable.
+@group(3) @binding(2) var ao_tex: texture_2d<f32>;
+@group(3) @binding(3) var ao_samp: sampler;
 
 // Heightfield resolution — must match `render::shadow::HEIGHT_DIM`. The march
 // bilinearly interpolates the field (the texture is R32Float / unfiltered, so we
 // do it by hand): nearest sampling leaves each texel a flat plateau whose edges
 // are tiny vertical steps, and the per-pixel march turns those into a corduroy
 // of shadow stripes. Bilinear smooths the relief so only real ridges occlude.
-const HEIGHT_DIM_I: i32 = 192;
-const HEIGHT_DIM_F: f32 = 192.0;
+const HEIGHT_DIM_I: i32 = 256;
+const HEIGHT_DIM_F: f32 = 256.0;
 
 fn height_bilinear(uv: vec2<f32>) -> f32 {
     let t = uv * HEIGHT_DIM_F - vec2<f32>(0.5);
@@ -103,8 +111,43 @@ fn height_bilinear(uv: vec2<f32>) -> f32 {
 }
 
 // Cast-shadow march length, in heightfield texels. Longer = shadows reach
-// further (low sun) at more cost; each step is one `shadow_texel_world`.
-const SHADOW_STEPS: i32 = 48;
+// further (low sun) at more cost; each step is one `shadow_texel_world`. Scaled
+// up with HEIGHT_DIM (256) so the world reach is unchanged at the finer grid.
+const SHADOW_STEPS: i32 = 64;
+
+// Self-shadow start bias, in march steps. The ray is lifted by this many steps'
+// worth of (local relief + ray rise) before testing, so it clears the surface it
+// starts on instead of grazing it into acne stripes. Larger = fewer acne
+// artifacts but near contact shadows start slightly further out.
+const SHADOW_BIAS_STEPS: f32 = 2.5;
+
+// March the heightfield from `start` toward the sun, jittered by `jit ∈ [0,1)`
+// (sub-step offset to break the discrete-step comb on long grazing shadows).
+// Returns vec2(over, hit_k): `over` = max world-z the relief pokes above the
+// grazing ray (0 = lit), `hit_k` = the step that hit (drives the penumbra). The
+// caller averages a couple of jittered calls to supersample the soft edge.
+fn march_shadow(
+    start: vec2<f32>, dir: vec2<f32>, step: f32, rise: f32,
+    h0: f32, bias: f32, jit: f32,
+) -> vec2<f32> {
+    var over = 0.0;
+    var hit_k = 0.0;
+    var p = start + dir * (step * jit);
+    for (var k = 1; k <= SHADOW_STEPS; k = k + 1) {
+        p = p + dir * step;
+        let uv = (p - globals.shadow_origin) * globals.shadow_inv_size;
+        if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
+            break;
+        }
+        let ray_z = h0 + bias + (f32(k) + jit) * rise;
+        let excess = height_bilinear(uv) - ray_z;
+        if (excess > over) {
+            over = excess;
+            hit_k = f32(k);
+        }
+    }
+    return vec2<f32>(over, hit_k);
+}
 
 // --- Procedural haze field -------------------------------------------------
 // Cheap value-noise fbm used to break the haze out of a flat uniform veil:
@@ -114,6 +157,15 @@ const SHADOW_STEPS: i32 = 48;
 // size is zoom-stable.
 fn hash2(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453123);
+}
+
+// Interleaved gradient noise (Jimenez) on a screen-pixel coord: a low-discrepancy
+// dither whose energy is spread far more evenly than white noise, so as a
+// sampling offset it reads like fine film grain instead of salt-and-pepper. Used
+// to jitter the shadow march so the discrete step grid + coarse heightfield don't
+// alias into a hard comb on long grazing-sun shadows.
+fn ign(p: vec2<f32>) -> f32 {
+    return fract(52.9829189 * fract(dot(p, vec2<f32>(0.06711056, 0.00583715))));
 }
 
 fn vnoise(p: vec2<f32>) -> f32 {
@@ -128,29 +180,33 @@ fn vnoise(p: vec2<f32>) -> f32 {
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
-// 4-octave fbm, ~[0,1]. Each octave doubles frequency and halves amplitude;
-// the per-octave offset decorrelates them so the sum doesn't beat.
-fn fbm(p: vec2<f32>) -> f32 {
-    var v = 0.0;
-    var amp = 0.5;
-    var pp = p;
-    for (var k = 0; k < 4; k = k + 1) {
-        v = v + amp * vnoise(pp);
-        pp = pp * 2.0 + vec2<f32>(19.7, 7.3);
-        amp = amp * 0.5;
-    }
-    return v;
+// Two-octave value noise — deliberately low-frequency, so the result is smooth
+// and puffy rather than a high-frequency patchwork. Used only to decide WHICH
+// low areas hold valley fog (a non-uniform presence). ~[0,1].
+fn smooth_field(p: vec2<f32>) -> f32 {
+    let v = vnoise(p) * 0.65 + vnoise(p * 2.3 + vec2<f32>(11.0, 5.0)) * 0.35;
+    // Gentle contrast around the midpoint so fog reads as clear "bank vs clear"
+    // swaths with soft edges, not a flat grey average that never crosses the
+    // selection threshold.
+    return clamp((v - 0.5) * 1.5 + 0.5, 0.0, 1.0);
 }
 
-// Haze field tuning (metres unless noted). Kept as named consts — the look is
-// device-validated, so these are the dials to turn.
-const HAZE_FEATURE_M: f32 = 1800.0;    // patch size of the noise field
-const HAZE_SPEED_M: f32 = 20.0;        // drift speed of the field (m/s)
-const HAZE_BASE_M: f32 = 250.0;        // base altitude of the low-haze ceiling
-const HAZE_UNDULATE_M: f32 = 220.0;    // how much the ceiling rolls (±half)
-const HAZE_OROGRAPHIC_M: f32 = 500.0;  // extra lift on steep slopes (banks up the mountains)
-const HAZE_FEATHER_M: f32 = 180.0;     // soft thickness of the ceiling's top edge
-const HAZE_STRENGTH: f32 = 0.42;       // max opacity of the low haze
+// Valley-fog tuning (metres unless noted). Named consts so the look is easy to
+// tune; validated on device (the headless basemap is ~white).
+const FOG_FEATURE_M: f32 = 4500.0;   // size of the fog/clear swaths — large = broad + smooth
+const FOG_DRIFT_M: f32 = 4.0;        // how fast the field crawls over time (m/s) — gentle
+const FOG_FLOOR_M: f32 = 120.0;      // full fog at/below this elevation
+const FOG_TOP_M: f32 = 420.0;        // fog gone above this elevation
+const FOG_SELECT_LO: f32 = 0.48;     // field value where fog begins to appear (higher = less coverage)
+const FOG_SELECT_HI: f32 = 0.74;     // field value of full fog presence
+const FOG_STRENGTH: f32 = 0.5;       // max opacity of the valley fog
+
+// --- Ambient occlusion (cheap, per-vertex) ---------------------------------
+// Sampled from a ring of DEM taps around each vertex: the more the neighbours
+// rise above this point, the more of the sky hemisphere is blocked. Ring radius
+// in mesh cells (GRID=16) and how hard the occlusion darkens the ambient.
+const AO_RADIUS_CELLS: f32 = 2.5;
+const AO_STRENGTH: f32 = 0.85;
 
 fn decode_elevation(rgb: vec3<f32>) -> f32 {
     let r = rgb.r * 255.0;
@@ -172,6 +228,16 @@ fn elev_at(uv: vec2<f32>) -> f32 {
         return 0.0;
     }
     return decode_elevation(s.rgb);
+}
+
+// One AO ring tap: the clamped horizon tangent (rise/run) of a neighbour. Only
+// neighbours HIGHER than the centre occlude (positive rise); a uniform slope
+// has one side up and the other down, so it averages to ~0 and open hillsides
+// stay lit — only genuine concavities accumulate occlusion. `center_m` is the
+// centre elevation in metres, `run_world` the horizontal step in world units.
+fn ao_tap(uv: vec2<f32>, center_m: f32, run_world: f32, zscale: f32) -> f32 {
+    let rise = (elev_at(uv) - center_m) * zscale;
+    return clamp(rise / max(run_world, 1.0e-6), 0.0, 1.0);
 }
 
 struct VertexInput {
@@ -217,6 +283,11 @@ struct VertexOutput {
     // Displaced world-z (terrain height) — used by the fragment shader for
     // height-based valley fog (mist pools in the low ground).
     @location(5) world_z: f32,
+    // Cheap per-vertex ambient occlusion in [0,1] (1 = open sky, →0 = boxed in
+    // by surrounding higher terrain). Sampled from the DEM ring in the vertex
+    // shader and smoothly interpolated; darkens the ambient/sky-fill term so
+    // valley floors, gully bottoms and cliff bases sit in soft shade.
+    @location(6) ao: f32,
 };
 
 @vertex
@@ -266,8 +337,26 @@ fn vs_main(in: VertexInput, inst: InstanceInput) -> VertexOutput {
         let hx = (elev_at(dem_uv + vec2<f32>(euv, 0.0)) - elev_at(dem_uv - vec2<f32>(euv, 0.0))) * zscale;
         let hy = (elev_at(dem_uv + vec2<f32>(0.0, euv)) - elev_at(dem_uv - vec2<f32>(0.0, euv))) * zscale;
         out.normal = normalize(vec3<f32>(-hx, -hy, 2.0 * ew));
+
+        // Cheap ambient occlusion: an 8-tap DEM ring at AO_RADIUS_CELLS. Each
+        // tap adds the clamped rise of a HIGHER neighbour, so concavities (valley
+        // floors, gully bottoms, cliff bases) accumulate occlusion while open
+        // slopes and ridges stay near 1. Coarse per-vertex, smoothly interpolated.
+        let ru = inst.dem_uv_size * (AO_RADIUS_CELLS / 16.0);
+        let run = inst.world_size * (AO_RADIUS_CELLS / 16.0);
+        let dd = ru * 0.70710678;
+        var occ_sum = ao_tap(dem_uv + vec2<f32>(ru, 0.0), elev_m, run, zscale);
+        occ_sum = occ_sum + ao_tap(dem_uv + vec2<f32>(-ru, 0.0), elev_m, run, zscale);
+        occ_sum = occ_sum + ao_tap(dem_uv + vec2<f32>(0.0, ru), elev_m, run, zscale);
+        occ_sum = occ_sum + ao_tap(dem_uv + vec2<f32>(0.0, -ru), elev_m, run, zscale);
+        occ_sum = occ_sum + ao_tap(dem_uv + vec2<f32>(dd, dd), elev_m, run, zscale);
+        occ_sum = occ_sum + ao_tap(dem_uv + vec2<f32>(-dd, dd), elev_m, run, zscale);
+        occ_sum = occ_sum + ao_tap(dem_uv + vec2<f32>(dd, -dd), elev_m, run, zscale);
+        occ_sum = occ_sum + ao_tap(dem_uv + vec2<f32>(-dd, -dd), elev_m, run, zscale);
+        out.ao = clamp(1.0 - (occ_sum / 8.0) * AO_STRENGTH, 0.0, 1.0);
     } else {
         out.normal = vec3<f32>(0.0, 0.0, 1.0);
+        out.ao = 1.0;
     }
 
     // Aerial perspective: extinction over the TRUE distance from the camera
@@ -311,38 +400,56 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // zenith — and only march where the heightfield actually covers us.
         if (lxy > 1.0e-4 && globals.sun_dir.z > 1.0e-3) {
             let suv0 = (in.world_xy - globals.shadow_origin) * globals.shadow_inv_size;
+            // `over` (max height the relief pokes above the grazing sun ray) and
+            // `hit_k` (which step hit) are hoisted so the edge AA below runs in
+            // UNIFORM control flow — `fwidth` is only valid once the per-fragment
+            // bounds check has closed. Out-of-field fragments keep over=0 → no
+            // shadow.
+            var over = 0.0;
+            var hit_k = 0.0;
             if (suv0.x >= 0.0 && suv0.y >= 0.0 && suv0.x <= 1.0 && suv0.y <= 1.0) {
                 let dir = sxy / lxy;
                 let tan_alt = globals.sun_dir.z / lxy;        // world-z rise per world-xy
                 let step = globals.shadow_texel_world;
                 let rise = tan_alt * step;                    // rise per march step
                 let h0 = height_bilinear(suv0);
-                var over = 0.0;
-                var hit_k = 0.0;
-                var p = in.world_xy;
-                for (var k = 1; k <= SHADOW_STEPS; k = k + 1) {
-                    p = p + dir * step;
-                    let uv = (p - globals.shadow_origin) * globals.shadow_inv_size;
-                    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
-                        break;
-                    }
-                    let ray_z = h0 + f32(k) * rise;
-                    let hz = height_bilinear(uv);
-                    let excess = hz - ray_z;
-                    if (excess > over) {
-                        over = excess;
-                        hit_k = f32(k);
-                    }
-                }
-                // Contact hardening: the penumbra widens with the occluder's
-                // distance (a far ridge throws a soft edge, a nearby lip a crisp
-                // one) — the single biggest cue that makes terrain shadows read as
-                // real rather than a hard stencil. `smoothstep` gives a gentle
-                // toe/shoulder instead of a linear ramp.
-                let soft = max(globals.shadow_softness, 1.0e-7)
-                    * (1.0 + 2.5 * hit_k / f32(SHADOW_STEPS));
-                occ = smoothstep(0.0, soft, over) * globals.shadow_strength;
+                // Start bias: lift the grazing ray above the LOCAL surface before
+                // testing, so the near field doesn't self-shadow into acne (the comb
+                // of stripes over gentle ground). The lift clears the relief the ray
+                // would otherwise skim — `step*slope` (relief per step, from the
+                // smooth normal) plus the ray's own rise, times a few steps.
+                let slope = length(n.xy) / max(n.z, 0.05);
+                let bias = (step * slope + rise) * SHADOW_BIAS_STEPS;
+                // Two jittered marches, averaged: a 2-tap SUPERSAMPLE of the soft
+                // shadow. At a low evening sun a tall peak throws long finger
+                // shadows through its cols; the coarse heightfield + discrete march
+                // alias those into a hard jagged comb. Offsetting two marches by
+                // half a step (interleaved-gradient dither, screen-locked) and
+                // averaging blends the fingers into a soft penumbra — the soft look
+                // the stochastic version had, but with ~half the noise and no acne.
+                let j0 = ign(floor(in.clip_position.xy));
+                let j1 = fract(j0 + 0.5);
+                let m0 = march_shadow(in.world_xy, dir, step, rise, h0, bias, j0);
+                let m1 = march_shadow(in.world_xy, dir, step, rise, h0, bias, j1);
+                over = (m0.x + m1.x) * 0.5;
+                hit_k = (m0.y + m1.y) * 0.5;
             }
+            // Contact hardening: the penumbra widens with the occluder's distance
+            // (a far ridge throws a soft edge, a nearby lip a crisp one). Pushed
+            // harder than a pure stencil so long evening shadows go soft + diffuse
+            // (which is also how low-sun shadows really read, lost in scattered
+            // light) — this is what dissolves the residual finger-comb at distance.
+            let soft_art = max(globals.shadow_softness, 1.0e-7)
+                * (1.0 + 14.0 * hit_k / f32(SHADOW_STEPS));
+            // Analytic screen-space antialiasing: widen the penumbra to at least
+            // cover one pixel's worth of variation in `over`. This is what turns
+            // the per-pixel march noise (from the dither + step quantisation) and
+            // thin-ridge shadow slivers into smooth soft edges instead of dotted,
+            // jagged lines — `fwidth` is the 2×2-quad screen-space derivative, so
+            // the softening tracks how fast the shadow boundary moves on screen at
+            // any zoom. Near-free (one derivative, no extra marching).
+            let soft = max(soft_art, fwidth(over) * 2.5);
+            occ = smoothstep(0.0, soft, over) * globals.shadow_strength;
         }
     }
     // Split light into warm direct sun and cool sky-fill. A cast shadow removes
@@ -353,67 +460,81 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Gate the direct sun by the sun being above the horizon — without this the
     // N·L term keeps lighting slopes that face a just-below-horizon sun, so night
     // never goes properly dark. Fades over the horizon for a smooth dusk.
-    let sun_up = smoothstep(-0.04, 0.04, globals.sun_dir.z);
-    let direct = (1.0 - globals.ambient) * ndl * (1.0 - occ) * sun_up;
-    let ambient_lit = globals.ambient * (1.0 - 0.2 * occ);
-    let light = ambient_lit + direct;
-    var rgb = s.rgb * light * globals.light_color;
-    if (occ > 0.0) {
-        let sky_tint = mix(vec3<f32>(1.0), globals.haze_color, 0.5);
-        rgb = mix(rgb, rgb * sky_tint, occ);
+    // Baked horizon AO (world-locked field) where it covers this fragment, with
+    // a soft fade to the cheap per-vertex AO at the field's edge (no seam). The
+    // baked field is finer + multi-directional; the per-vertex term backstops the
+    // far field beyond the assembled region. `textureSampleLevel` (explicit LOD)
+    // is used so the sample is legal in this data-dependent branch.
+    var ao = in.ao;
+    if (globals.shadow_inv_size > 0.0) {
+        let auv = (in.world_xy - globals.shadow_origin) * globals.shadow_inv_size;
+        if (auv.x >= 0.0 && auv.y >= 0.0 && auv.x <= 1.0 && auv.y <= 1.0) {
+            let occ_baked = textureSampleLevel(ao_tex, ao_samp, auv, 0.0).r;
+            let baked = clamp(1.0 - occ_baked * AO_STRENGTH, 0.0, 1.0);
+            let edge = min(min(auv.x, 1.0 - auv.x), min(auv.y, 1.0 - auv.y));
+            ao = mix(in.ao, baked, smoothstep(0.0, 0.06, edge));
+        }
     }
 
-    // Low-sun factor (1 near the horizon → 0 high up): drives the warm haze glow
-    // and the dawn/dusk valley mist.
+    let sun_up = smoothstep(-0.04, 0.04, globals.sun_dir.z);
+    let direct_amt = (1.0 - globals.ambient) * ndl * (1.0 - occ) * sun_up;
+    // Skylight (the ambient/indirect term) is occluded BOTH by the per-vertex
+    // AO (boxed-in concavities) and, a little, by cast shadow (a shadowed pocket
+    // also sees less open sky). Direct sun is warm (`light_color`); the sky-fill
+    // is the same brightness pulled toward the cool atmosphere hue, so shadows
+    // and cavities read as cool ambient light rather than a flat grey wash —
+    // the core of the more "atmospheric" look.
+    let ambient_amt = globals.ambient * ao * (1.0 - 0.25 * occ);
+    let sky_fill = mix(globals.light_color, globals.haze_color, 0.35);
+    var rgb = s.rgb * (ambient_amt * sky_fill + direct_amt * globals.light_color);
+
+    // Low-sun factor (1 near the horizon → 0 high up): drives the warm haze glow.
     let low_sun = 1.0 - smoothstep(0.10, 0.45, globals.sun_dir.z);
 
     let zscale = max(globals.meters_to_world * globals.exaggeration, 1.0e-9);
     let elev_m = in.world_z / zscale;
 
-    // --- Procedural drifting haze field ---------------------------------
-    // Sample the fbm in a metres-relative frame (real-world feature size, so
-    // zoom-stable), translating the coordinate with time so the haze "rolls
-    // in" along a fixed wind direction. The metres→world factors cancel, so the
-    // drift speed is a true metres/sec regardless of zoom.
-    let feature_world = max(HAZE_FEATURE_M * globals.meters_to_world, 1.0e-12);
-    let drift = normalize(vec2<f32>(1.0, 0.35)) * (HAZE_SPEED_M * globals.time) * globals.meters_to_world;
-    let nco = (in.world_xy + drift) / feature_world;
-    // A slow broad field undulates the haze ceiling; a finer field breaks the
-    // opacity into patches (clear here, banked there) so it's never a flat veil.
-    let field_broad = fbm(nco * 0.5);
-    let field_fine = fbm(nco + vec2<f32>(31.0, 17.0));
-    let patchiness = mix(0.25, 1.3, field_fine);
-
-    // --- Low haze layer: pools low, banks UP against the mountains ------
-    // A drifting horizontal layer whose ceiling undulates (rolls) and is pushed
-    // upward where the terrain is steep (orographic lift) — so the haze climbs
-    // the windward slopes instead of sitting at one flat altitude. `slope` is
-    // read straight from the shaded normal (n.z→1 flat, smaller on steep faces).
-    let slope = clamp(1.0 - n.z, 0.0, 1.0);
-    let ceiling_m = HAZE_BASE_M
-        + HAZE_UNDULATE_M * (field_broad - 0.5)
-        + HAZE_OROGRAPHIC_M * slope;
-    // 1 well below the ceiling → 0 above it, with a soft feathered top edge.
-    let fill = clamp((ceiling_m - elev_m) / HAZE_FEATHER_M, 0.0, 1.0);
-    // Daylight keeps a light haze; the sun at the horizon thickens it into warm
-    // valley mist; deep night fades it out.
-    let tod = 0.5 + 0.5 * exp(-globals.sun_dir.z * globals.sun_dir.z * 14.0);
-    let haze_amt = clamp(fill * patchiness * tod * HAZE_STRENGTH, 0.0, 0.85);
+    // --- Selective valley fog: smooth, world-locked, low ground only -----
+    // Reconstruct the ABSOLUTE world-xy (in.world_xy is camera-relative, which
+    // would pin the fog to the screen) so the fog stays welded to the terrain as
+    // the camera pans. A large, low-frequency smooth field then decides WHICH low
+    // areas hold fog — broad and puffy, a non-uniform *presence* rather than a
+    // high-frequency patchwork. The field crawls slowly with time.
+    let world_abs = in.world_xy + globals.cam_origin;
+    let feat = max(FOG_FEATURE_M * globals.meters_to_world, 1.0e-12);
+    let drift = vec2<f32>(1.0, 0.4) * (FOG_DRIFT_M * globals.time * globals.meters_to_world);
+    let presence = smooth_field((world_abs + drift) / feat);
+    // Only the upper part of the field's range becomes fog → broad swaths stay
+    // clear, some valleys fill, with soft edges (no hard patch borders).
+    let sel = smoothstep(FOG_SELECT_LO, FOG_SELECT_HI, presence);
+    // Low ground only: full at/below FOG_FLOOR_M, gone above FOG_TOP_M, smooth between.
+    let low = 1.0 - smoothstep(FOG_FLOOR_M, FOG_TOP_M, elev_m);
+    // Subtle by day (it's mainly a distance + dawn/dusk effect, not a daytime
+    // ground veil); thickens into warm valley mist as the sun nears the horizon;
+    // gone deep at night.
+    let tod = 0.22 + 0.78 * exp(-globals.sun_dir.z * globals.sun_dir.z * 12.0);
+    let fog_amt = clamp(sel * low * tod * FOG_STRENGTH, 0.0, 0.72);
     // Mist colour tracks the time-of-day horizon hue; the lift toward white
     // scales with daylight so night mist stays dark instead of glowing grey.
     let mist_color = mix(globals.haze_color, vec3<f32>(1.0), 0.35 * globals.ambient);
-    rgb = mix(rgb, mist_color, haze_amt);
+    rgb = mix(rgb, mist_color, fog_amt);
 
-    // --- Aerial perspective: distant relief → atmosphere colour ---------
-    // The far-field veil, now broken up by the same broad field so it isn't a
-    // flat wash. Glows WARM toward a low sun (in-scatter), cool away from it.
-    // Capped below 1 so the farthest ground never fully whites out.
+    // --- Aerial perspective: the main distance haze (smooth, uniform) ----
+    // Fade distant relief toward the atmosphere colour over the true eye→fragment
+    // distance. Uniform with distance (that's what aerial haze is); glows WARM
+    // toward a low sun (in-scatter), cool away from it. Capped below 1 so the
+    // farthest ground never fully whites out.
     let view_dir = normalize(in.world_xy - globals.eye_world.xy);
     let sun_xy = globals.sun_dir.xy;
     let sun_align = dot(view_dir, normalize(sun_xy + vec2<f32>(1.0e-6)));
     let glow = pow(max(sun_align, 0.0), 4.0) * low_sun;
     let haze_tint = mix(globals.haze_color, globals.light_color, glow * 0.7);
-    let aerial = min(in.haze * mix(0.7, 1.15, field_broad), 0.82);
+    // Square the distance term so the NEAR field stays clear and haze builds only
+    // with real distance. The raw `1 - exp(-dist·density)` already floors the
+    // nearest ground at ~8%, so tilting in lifted a uniform veil onto even the
+    // ground right below the camera; squaring drops that near value to ~0.6% while
+    // leaving the far field (raw ≈ 0.95 → 0.90) almost untouched.
+    let aerial = min(in.haze * in.haze, 0.82);
     rgb = mix(rgb, haze_tint, aerial);
 
     return vec4<f32>(rgb, s.a * in.alpha);

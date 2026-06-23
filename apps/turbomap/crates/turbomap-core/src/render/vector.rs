@@ -14,7 +14,7 @@ use super::vector_cache::VectorMeshCache;
 /// wgpu's `min_uniform_buffer_offset_alignment` is 256 on every backend we
 /// target. We pad each per-tile uniform out to this so they can be bound
 /// with dynamic offsets without violating alignment.
-const TILE_UNIFORM_STRIDE: u64 = 256;
+pub(crate) const TILE_UNIFORM_STRIDE: u64 = 256;
 /// Total bytes carved out for the per-tile uniform buffer. Allows up to
 /// `MAX_TILES_PER_FRAME` tiles drawn per frame.
 const MAX_TILES_PER_FRAME: u64 = 256;
@@ -54,6 +54,16 @@ pub(crate) struct PreparedVector {
     /// ancestor (deep zoom) — or `None` when no terrain covers it (the flat
     /// placeholder is bound and the shader leaves the line at z=0).
     tiles: Vec<(TileId, Option<TileId>)>,
+}
+
+impl PreparedVector {
+    /// The ordered draw list: `(mesh_tile, dem_source_tile)` per slot, slot `i`
+    /// keyed to the per-tile uniform at `i * TILE_UNIFORM_STRIDE`. The water
+    /// pipeline replays this same list (and the same uniforms/bind groups) to
+    /// draw each tile's water mesh in lockstep with the vector mesh.
+    pub(crate) fn tiles(&self) -> &[(TileId, Option<TileId>)] {
+        &self.tiles
+    }
 }
 
 pub(crate) struct VectorPipeline {
@@ -258,6 +268,20 @@ impl VectorPipeline {
             tile_bind_group,
             queue,
         }
+    }
+
+    /// The camera bind group (group 0) this pipeline filled in `prepare`. The
+    /// water pipeline binds the same group so its vertex shader uses an
+    /// identical world→clip transform + drape params.
+    pub(crate) fn camera_bind_group(&self) -> &wgpu::BindGroup {
+        &self.camera_bind_group
+    }
+
+    /// The per-tile bind group (group 1, dynamic offset) this pipeline filled in
+    /// `prepare`. The water pipeline binds it at the same `i * TILE_UNIFORM_STRIDE`
+    /// offsets so each water tile drapes with the vector tile's origin/span/DEM-UV.
+    pub(crate) fn tile_bind_group(&self) -> &wgpu::BindGroup {
+        &self.tile_bind_group
     }
 
     /// CPU half of a frame: camera + per-tile uniform writes (fade

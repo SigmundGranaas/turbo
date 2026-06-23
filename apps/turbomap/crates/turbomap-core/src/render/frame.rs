@@ -19,6 +19,7 @@ use crate::sun::{self, SunPosition};
 use super::floor::FloorGlobals;
 use super::raster::TerrainConfig;
 use super::sky::SkyGlobals;
+use super::water::WaterGlobals;
 
 /// The terrain inputs a [`RenderFrame`] needs, pulled off the Map's optional
 /// terrain so the frame builder doesn't have to know about `Terrain` itself.
@@ -56,6 +57,11 @@ pub(crate) struct RenderFrame {
     /// gaps where terrain tiles haven't streamed in. `None` → skip (flat 2D / no
     /// terrain). Drawn after the sky, before the terrain.
     pub floor_globals: Option<FloorGlobals>,
+    /// Realistic-water lighting + animation globals (group 3 of the water
+    /// pipeline). Always present — water is an ordinary layer that renders in 2D
+    /// and 3D — but only consumed when a vector layer actually has water tiles.
+    /// `time` is stamped from the renderer wall clock in `Map::render`.
+    pub water_globals: WaterGlobals,
 }
 
 impl RenderFrame {
@@ -75,6 +81,15 @@ impl RenderFrame {
 
         // Sun + time-of-day palette: one light for the whole scene.
         let atmos = sun::atmosphere(sun);
+
+        // Sun glow intensity, fading out as the sun sets (gone a touch below the
+        // horizon). Shared by the sky pass and the water reflection so both dim
+        // together at dusk.
+        let sun_intensity = {
+            let a = sun.altitude_deg;
+            let t = ((a + 3.0) / 9.0).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
 
         // Aerial-perspective density. The shader computes
         // `1 - exp(-dist_world · haze_density)` over the TRUE eye→fragment
@@ -105,12 +120,6 @@ impl RenderFrame {
             if !super::mat4_is_finite(&inv_view_proj) {
                 None
             } else {
-                // Sun glow fades out as it sets (gone a touch below horizon).
-                let sun_intensity = {
-                    let a = sun.altitude_deg;
-                    let t = ((a + 3.0) / 9.0).clamp(0.0, 1.0);
-                    t * t * (3.0 - 2.0 * t)
-                };
                 Some(SkyGlobals {
                     inv_view_proj,
                     sun_dir: sun.world_dir(),
@@ -200,6 +209,33 @@ impl RenderFrame {
             }
         };
 
+        // Water lighting/animation. Built unconditionally (water renders in 2D
+        // and 3D); `time` and the heightfield-reflection fields (`ssr_enabled`,
+        // `hf_origin`, `hf_inv_size`) are stamped in `Map::render` once the
+        // shadow/AO heightfield is assembled. `cos²lat` converts that field's
+        // steeper world-z into the mesh's: `meters_to_world·circ = cos(lat)`.
+        let coslat = meters_to_world * earth_circumference_m;
+        let water_globals = WaterGlobals {
+            sun_dir: sun.world_dir(),
+            sun_intensity,
+            zenith_color: atmos.zenith_color,
+            time: 0.0,
+            horizon_color: atmos.horizon_color,
+            meters_to_world,
+            sun_color: atmos.light_color,
+            ssr_enabled: 0.0,
+            eye: camera.eye_offset_world(viewport_px),
+            foam: 1.0,
+            hf_origin: [0.0, 0.0],
+            hf_inv_size: 0.0,
+            hf_to_mesh_z: coslat * coslat,
+            // Calm defaults; `Map::set_water_conditions` overrides from the MET
+            // wave/wind forecast each time it changes.
+            wave_dir: [1.0, 0.0],
+            wave_amp: 1.0,
+            whitecap: 0.0,
+        };
+
         Self {
             meters_to_world,
             raster_terrain_cfg,
@@ -208,6 +244,7 @@ impl RenderFrame {
             vec_terrain_halo_uv,
             sky_globals,
             floor_globals,
+            water_globals,
         }
     }
 }
@@ -220,12 +257,12 @@ impl RenderFrame {
 /// the near/mid field stays nearly clear (~8%) while the far field (many
 /// altitudes out) still dissolves into the atmosphere (`1 - exp(-k·40) ≈ 0.96`).
 /// `k = 0.22` tinted the WHOLE scene blue; this keeps the haze to the distance.
-fn aerial_haze_density(altitude_world: f32, pitch_deg: f64) -> f32 {
-    let p = pitch_deg as f32;
-    // Smoothstep 0→1 across 5°..35°, then hold.
-    let rise = ((p - 5.0) / 30.0).clamp(0.0, 1.0);
-    let pitch_ramp = rise * rise * (3.0 - 2.0 * rise);
-    (0.08 / altitude_world.max(1e-9)) * pitch_ramp
+fn aerial_haze_density(_altitude_world: f32, _pitch_deg: f64) -> f32 {
+    // Aerial-perspective fog REMOVED per device feedback — it wasn't really visible and only
+    // muddied clarity. Returns 0 so terrain carries no distance haze. The eye-distance machinery
+    // in the shader stays behind this single knob, so the fog can be restored by reinstating the
+    // `(0.08 / altitude_world) * pitch_ramp` formula here.
+    0.0
 }
 
 #[cfg(test)]
@@ -278,24 +315,16 @@ mod tests {
     }
 
     #[test]
-    fn far_field_dissolves_more_than_near_when_tilted() {
-        // At a strong tilt the far field (many altitudes out along the view) must
-        // haze substantially more than the near ground — a real depth gradient,
-        // not a flat wash.
+    fn fog_is_disabled_at_every_pitch() {
+        // Aerial-perspective fog was removed (not visible on device, hurt clarity): density is
+        // 0 regardless of altitude/pitch, so no distance haze is applied anywhere — even deep
+        // into the far field at a strong tilt.
         let center = LatLng::new(67.23, 15.30);
-        let cam = Camera::new(center, 14.0).with_pitch(75.0);
-        let alt = cam.altitude_world(VP);
-        let density = aerial_haze_density(alt, 75.0);
-        let eye = cam.eye_offset_world(VP);
-        let c = center.to_world();
-        let g = cam.pixel_to_world((VP.0 as f64 / 2.0, VP.1 as f64), (VP.0 as f64, VP.1 as f64));
-        let near = {
-            let (dx, dy, dz) = ((g.x - c.x) as f32 - eye[0], (g.y - c.y) as f32 - eye[1], -eye[2]);
-            haze((dx * dx + dy * dy + dz * dz).sqrt(), density)
-        };
-        // A point 40 altitudes downrange (deep into the far field).
-        let far = haze(40.0 * alt, density);
-        assert!(far > near + 0.3, "far ({far:.2}) must dissolve well beyond near ({near:.2})");
-        assert!(far > 0.9, "deep far field should be nearly fully dissolved (got {far:.2})");
+        for pitch in [0.0_f64, 30.0, 75.0] {
+            let cam = Camera::new(center, 14.0).with_pitch(pitch);
+            let alt = cam.altitude_world(VP);
+            assert_eq!(aerial_haze_density(alt, pitch), 0.0, "fog must stay off at {pitch}°");
+            assert_eq!(haze(40.0 * alt, aerial_haze_density(alt, pitch)), 0.0, "no far-field haze");
+        }
     }
 }

@@ -15,6 +15,7 @@ pub enum VectorOutcome {
     Decoded {
         id: TileId,
         mesh: Mesh,
+        water_mesh: Mesh,
         labels: Vec<LabelRequest>,
         icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
@@ -72,6 +73,7 @@ impl VectorFetchPump {
                 let _ = tx.send(VectorOutcome::Decoded {
                     id,
                     mesh: out.mesh,
+                    water_mesh: out.water_mesh,
                     labels: out.labels,
                     icons: out.icons,
                     interactive: out.interactive,

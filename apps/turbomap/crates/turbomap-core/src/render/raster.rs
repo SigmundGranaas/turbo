@@ -71,11 +71,16 @@ struct Globals {
     /// softness band (world-z). One more 16-byte slot (2 scalars + pad).
     shadow_texel_world: f32,
     shadow_softness: f32,
-    /// Seconds since renderer start. Drifts the procedural low-haze field so it
-    /// "rolls in" and its patchiness moves over time. See the haze block in
-    /// `shader.wgsl`.
+    /// Seconds since renderer start. Slowly drifts the valley-fog field so it
+    /// evolves over time. See the haze block in `shader.wgsl`.
     time: f32,
-    _shadow_pad: f32,
+    _pad0: f32,
+    /// Absolute world-xy of the camera centre (the RTC origin). Added to the
+    /// camera-relative fragment world-xy to reconstruct an absolute world
+    /// position, so the valley-fog field stays welded to the terrain instead of
+    /// sliding with the screen.
+    cam_origin: [f32; 2],
+    _pad1: [f32; 2],
 }
 
 #[repr(C)]
@@ -647,7 +652,9 @@ impl RasterPipeline {
                 shadow_texel_world: terrain_options.shadow_texel_world,
                 shadow_softness: terrain_options.shadow_softness,
                 time: terrain_options.time,
-                _shadow_pad: 0.0,
+                _pad0: 0.0,
+                cam_origin: [origin.x as f32, origin.y as f32],
+                _pad1: [0.0, 0.0],
             }),
         );
 

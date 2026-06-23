@@ -674,14 +674,9 @@ impl Camera {
         // several px at z16+) made the orbit re-pin jitter at high zoom. The
         // absolute coord is restored by adding the f64 origin back.
         let origin = self.center.to_world();
-        let vp =
-            self.view_projection_from_origin(origin, (viewport_px.0 as u32, viewport_px.1 as u32));
-        let inv = vp.inverse();
-        let ndc_x = (2.0 * pixel.0 / viewport_px.0 - 1.0) as f32;
-        let ndc_y = (1.0 - 2.0 * pixel.1 / viewport_px.1) as f32;
-        let near = inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
-        let far = inv.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
-        let dir = far - near;
+        let Some((near, dir)) = self.pixel_ray_from_origin(pixel, viewport_px, origin) else {
+            return self.center.to_world();
+        };
         if dir.z.abs() < 1e-6 {
             return self.center.to_world();
         }
@@ -695,6 +690,38 @@ impl Camera {
             return self.center.to_world();
         }
         WorldPoint::new(origin.x + ground.x as f64, origin.y + ground.y as f64)
+    }
+
+    /// The view ray for a screen pixel, in the `origin`-relative (RTC) frame.
+    ///
+    /// Returns `(near, dir)` where `near` is the point on the near plane and
+    /// `dir = far - near` points into the scene — both relative to `origin`
+    /// (add `origin` back for absolute world coords). `origin` should be the
+    /// camera centre so the f32 matrix carries small offsets, matching
+    /// [`pixel_to_world`] / [`world_to_screen_z`] precision. `None` when the
+    /// inverse view-projection is non-finite (near-singular pitch/zoom).
+    ///
+    /// This is the shared ray construction behind both the flat-plane unproject
+    /// ([`pixel_to_world`]) and the terrain raycast (`Map::screen_to_ground_lng_lat`),
+    /// so they march an identical ray.
+    pub(crate) fn pixel_ray_from_origin(
+        self,
+        pixel: (f64, f64),
+        viewport_px: (f64, f64),
+        origin: WorldPoint,
+    ) -> Option<(Vec3, Vec3)> {
+        let vp =
+            self.view_projection_from_origin(origin, (viewport_px.0 as u32, viewport_px.1 as u32));
+        let inv = vp.inverse();
+        let ndc_x = (2.0 * pixel.0 / viewport_px.0 - 1.0) as f32;
+        let ndc_y = (1.0 - 2.0 * pixel.1 / viewport_px.1) as f32;
+        let near = inv.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
+        let far = inv.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
+        let dir = far - near;
+        if !near.is_finite() || !dir.is_finite() {
+            return None;
+        }
+        Some((near, dir))
     }
 
     /// Linear interpolation between two cameras. Centre is interpolated in

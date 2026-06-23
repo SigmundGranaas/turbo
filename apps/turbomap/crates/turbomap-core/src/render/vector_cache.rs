@@ -18,6 +18,13 @@ pub(crate) struct VectorEntry {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
+    /// Water-body fills split out at tessellation time, drawn by the dedicated
+    /// realistic-water pipeline. Separate vertex/index buffers (same vertex
+    /// format as the main mesh). `water_index_count == 0` ⇒ no water in this tile
+    /// (the buffers are 4-byte placeholders).
+    pub water_vertex_buffer: wgpu::Buffer,
+    pub water_index_buffer: wgpu::Buffer,
+    pub water_index_count: u32,
     pub labels: Vec<LabelRequest>,
     pub icons: Vec<IconRequest>,
     pub interactive: Vec<InteractiveFeature>,
@@ -115,6 +122,7 @@ impl VectorMeshCache {
         &mut self,
         id: TileId,
         mesh: &Mesh,
+        water_mesh: &Mesh,
         labels: Vec<LabelRequest>,
         icons: Vec<IconRequest>,
         interactive: Vec<InteractiveFeature>,
@@ -123,76 +131,16 @@ impl VectorMeshCache {
             self.touch(id);
             return Vec::new();
         }
-        if mesh.is_empty() && labels.is_empty() && icons.is_empty() && interactive.is_empty() {
-            // Insert a zero-sized marker so the host knows the tile is
-            // "loaded but empty" and won't keep re-fetching it. We use an
-            // empty vertex buffer (4-byte placeholder for wgpu).
-            let vb = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("turbomap-vector-empty-vb"),
-                size: 4,
-                usage: wgpu::BufferUsages::VERTEX,
-                mapped_at_creation: false,
-            });
-            let ib = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("turbomap-vector-empty-ib"),
-                size: 4,
-                usage: wgpu::BufferUsages::INDEX,
-                mapped_at_creation: false,
-            });
-            self.entries.insert(
-                id,
-                VectorEntry {
-                    vertex_buffer: vb,
-                    index_buffer: ib,
-                    index_count: 0,
-                    labels: Vec::new(),
-                    icons: Vec::new(),
-                    interactive: Vec::new(),
-                    hit_index: SpatialIndex::new(4096),
-                    bytes: 8,
-                    created_at: Instant::now(),
-                },
-            );
-            self.lru.push_back(id);
-            self.bytes_used += 8;
-            return Vec::new();
-        }
 
-        let (vertex_buffer, index_buffer, mesh_bytes) = if mesh.is_empty() {
-            // Labels-only tile (no geometry visible at this zoom but text
-            // present). Still need placeholder buffers.
-            let vb = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("turbomap-vector-empty-vb"),
-                size: 4,
-                usage: wgpu::BufferUsages::VERTEX,
-                mapped_at_creation: false,
-            });
-            let ib = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("turbomap-vector-empty-ib"),
-                size: 4,
-                usage: wgpu::BufferUsages::INDEX,
-                mapped_at_creation: false,
-            });
-            (vb, ib, 8)
-        } else {
-            let vb = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("turbomap-vector-vb"),
-                    contents: bytemuck::cast_slice(&mesh.vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-            let ib = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("turbomap-vector-ib"),
-                    contents: bytemuck::cast_slice(&mesh.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
-            let bytes = mesh.vertices.len() * std::mem::size_of_val(&mesh.vertices[0])
-                + mesh.indices.len() * 4;
-            (vb, ib, bytes)
-        };
+        // Build GPU buffers for both the ordinary vector mesh and the split-out
+        // water mesh. Empty meshes get 4-byte placeholders with index_count 0, so
+        // even a fully-empty tile still inserts a "loaded but empty" marker entry
+        // (the host then won't keep re-fetching it) and the draw loop skips it.
+        let (vertex_buffer, index_buffer, index_count, mesh_bytes) =
+            make_mesh_buffers(&self.device, mesh, "turbomap-vector");
+        let (water_vertex_buffer, water_index_buffer, water_index_count, water_bytes) =
+            make_mesh_buffers(&self.device, water_mesh, "turbomap-water");
+
         let label_bytes: usize = labels.iter().map(|l| l.text.len() + 32).sum();
         let icon_bytes: usize = icons.iter().map(|i| i.sprite.len() + 24).sum();
         let interactive_bytes: usize = interactive
@@ -219,13 +167,21 @@ impl VectorMeshCache {
             hit_index.insert(i as u32, &f.feature.geometry, 4.0);
         }
         hit_index.finish();
-        let bytes = mesh_bytes + label_bytes + icon_bytes + interactive_bytes + hit_index.bytes();
+        let bytes = mesh_bytes
+            + water_bytes
+            + label_bytes
+            + icon_bytes
+            + interactive_bytes
+            + hit_index.bytes();
         self.entries.insert(
             id,
             VectorEntry {
                 vertex_buffer,
                 index_buffer,
-                index_count: mesh.indices.len() as u32,
+                index_count,
+                water_vertex_buffer,
+                water_index_buffer,
+                water_index_count,
                 labels,
                 icons,
                 interactive,
@@ -259,4 +215,43 @@ impl VectorMeshCache {
         }
         evicted
     }
+}
+
+/// Build a vertex+index buffer pair for one mesh. wgpu rejects zero-sized
+/// buffers, so an empty mesh gets 4-byte placeholders and an index count of 0
+/// (the draw loop skips a slot whose count is 0). Returns
+/// `(vertex_buffer, index_buffer, index_count, bytes)`.
+fn make_mesh_buffers(
+    device: &wgpu::Device,
+    mesh: &Mesh,
+    label: &str,
+) -> (wgpu::Buffer, wgpu::Buffer, u32, usize) {
+    if mesh.is_empty() {
+        let vb = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("turbomap-empty-vb"),
+            size: 4,
+            usage: wgpu::BufferUsages::VERTEX,
+            mapped_at_creation: false,
+        });
+        let ib = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("turbomap-empty-ib"),
+            size: 4,
+            usage: wgpu::BufferUsages::INDEX,
+            mapped_at_creation: false,
+        });
+        return (vb, ib, 0, 8);
+    }
+    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some(label),
+        contents: bytemuck::cast_slice(&mesh.vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some(label),
+        contents: bytemuck::cast_slice(&mesh.indices),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+    let bytes = mesh.vertices.len() * std::mem::size_of::<crate::tessellate::VectorVertex>()
+        + mesh.indices.len() * 4;
+    (vb, ib, mesh.indices.len() as u32, bytes)
 }

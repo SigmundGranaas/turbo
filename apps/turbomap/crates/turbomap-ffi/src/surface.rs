@@ -210,18 +210,13 @@ fn build(
     // rendering (render-on-demand) while `is_animating` is true so the fade
     // completes. Goldens keep the default 0 (deterministic, no time dependence).
     //
-    // A GENEROUS off-screen prefetch ring (≈2 screens wide of warm tiles). The
-    // reconciler still fetches nearest-first, so the visible area fills first, but
-    // the surrounding ring is pulled into the pipeline before the user pans there.
-    // Tiles are disk-resident (host disk cache) so the fetch is cheap, and the
-    // render thread pre-decodes the ring during IDLE frames (see the adaptive
-    // ingest budget in `render_frame`) — so panning/zooming lands on tiles already
-    // resident on the GPU instead of waiting for a reactive decode. The old 128 px
-    // ring was tuned for a slow cold network; with the disk cache + a large GPU
-    // texture budget the constraint is now "warm as much as we can ahead of time".
+    // A MODERATE off-screen prefetch ring (~half a screen of warm tiles). Big enough that a
+    // pan reveals ready tiles, small enough that first load doesn't flood the decoder with a
+    // huge burst that all cross-fades at once ("tiles loading over each other" + frame drops).
+    // 512 px proved too aggressive on cold first load; 256 keeps panning warm without the chaos.
     let options = MapOptions {
         fade_in_secs: 0.3,
-        prefetch_margin_px: 512,
+        prefetch_margin_px: 256,
         ..MapOptions::default()
     };
     let engine = TurbomapEngine::new(
@@ -362,6 +357,17 @@ impl OnScreen {
             }
             Cmd::SetTerrainShadows(s) => self.engine.set_terrain_shadows(s),
             Cmd::SetSunTime(t) => self.engine.set_sun_time(t),
+            Cmd::SetWaterConditions {
+                wave_from_deg,
+                wave_height_m,
+                wind_speed_ms,
+                wind_from_deg,
+            } => self.engine.set_water_conditions(
+                wave_from_deg,
+                wave_height_m,
+                wind_speed_ms,
+                wind_from_deg,
+            ),
             Cmd::EnableClouds { w, h } => self.engine.enable_clouds(w, h),
             Cmd::SetCloudsVisible(v) => self.engine.set_clouds_visible(v),
             Cmd::SetCloudGeoBounds { w, s, e, n } => self.engine.set_cloud_geo_bounds(w, s, e, n),
@@ -387,6 +393,9 @@ impl OnScreen {
             }
             Ingest::Terrain { tile, bytes } => {
                 self.engine.ingest_terrain_encoded(tile, &bytes);
+            }
+            Ingest::Vector { layer, tile, bytes } => {
+                self.engine.ingest_mvt(&layer, tile, &bytes);
             }
         }
     }
@@ -415,6 +424,7 @@ fn ingest_key(i: &Ingest) -> (String, TileId) {
     match i {
         Ingest::Raster { layer, tile, .. } => (layer.clone(), *tile),
         Ingest::Terrain { tile, .. } => ("__terrain".to_string(), *tile),
+        Ingest::Vector { layer, tile, .. } => (layer.clone(), *tile),
     }
 }
 
@@ -565,6 +575,12 @@ enum Cmd {
     SetViewportInset(f64),
     SetTerrainShadows(f32),
     SetSunTime(Option<f64>),
+    SetWaterConditions {
+        wave_from_deg: Option<f32>,
+        wave_height_m: Option<f32>,
+        wind_speed_ms: Option<f32>,
+        wind_from_deg: Option<f32>,
+    },
     EnableClouds { w: u32, h: u32 },
     SetCloudsVisible(bool),
     SetCloudGeoBounds { w: f64, s: f64, e: f64, n: f64 },
@@ -581,6 +597,7 @@ enum Cmd {
 enum Ingest {
     Raster { layer: String, tile: TileId, bytes: Vec<u8> },
     Terrain { tile: TileId, bytes: Vec<u8> },
+    Vector { layer: String, tile: TileId, bytes: Vec<u8> },
 }
 
 /// Cheap, immutable read model republished after every frame. UI reads load it
@@ -703,7 +720,11 @@ impl Surface {
         // and a later pan/zoom lands on already-resident tiles.
         let idle = cmds == 0 && !on.engine.is_animating();
         let ingest_budget = if idle {
-            std::time::Duration::from_millis(14)
+            // 8 ms (was 14): a calm-frame budget high enough to keep draining the queue but low
+            // enough that a heavy cold-load burst doesn't pin the render thread (which also holds
+            // the lock that the overlay's elevation-aware projection waits on — long holds there
+            // were the first-load choppiness). Still leaves the rest of the frame for rendering.
+            std::time::Duration::from_millis(8)
         } else {
             std::time::Duration::from_millis(6)
         };
@@ -1162,20 +1183,19 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     lat: jdouble,
     lng: jdouble,
 ) -> jni::sys::jarray {
-    // Exact (elevation-aware) projection when the render lock is free; otherwise
-    // a wait-free FLAT projection from the published snapshot. NON-BLOCKING and
-    // ALWAYS valid — a drag re-projects every move event and must never be
-    // dropped just because a frame is in flight (that was the choppy-pan bug).
+    // ALWAYS the elevation-aware projection, so a marker / waypoint / my-position pin sits ON
+    // the 3D terrain. We BLOCK on the render lock rather than the old try_lock→flat-snapshot
+    // fallback: that fallback projected onto the z=0 plane whenever a frame was mid-flight —
+    // i.e. on most frames while the map was moving — so pins jittered between the ground and
+    // the relief every frame (the "flicker between ground and 3D level" bug). Blocking is
+    // deadlock-free here (`with_surface` already released the registry lock, and the render
+    // thread never waits on the main thread while holding `render`); it only waits out the
+    // current frame, which is imperceptible for a per-frame reprojection and far better than
+    // the flicker. Unproject (the drag hot path) keeps its wait-free fallback; project does not.
     let p = unsafe {
         with_surface(handle, |s| {
-            if let Ok(on) = s.render.try_lock() {
-                if let Some(sp) = on.engine.project(LatLng::new(lat, lng)) {
-                    return Some((sp.x, sp.y));
-                }
-            }
-            let snap = s.latest();
-            let world = CoreLatLng::new(lat, lng).to_world();
-            snapshot_camera(&snap).world_to_screen(world, snap.viewport)
+            let on = s.render.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            on.engine.project(LatLng::new(lat, lng)).map(|sp| (sp.x, sp.y))
         })
     }
     .flatten();
@@ -1212,6 +1232,39 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     match g {
         Some((lat, lng)) => double_array(&mut env, &[lat, lng, 1.0]),
         None => double_array(&mut env, &[0.0, 0.0, 0.0]),
+    }
+}
+
+/// `[lat, lng, worldZ, hitTerrain, valid]` — TERRAIN-AWARE screen→ground.
+///
+/// Unlike `nativeUnproject` (flat z=0 plane, for pan/freehand), this marches the
+/// view ray against the relief so a dragged marker lands on the exact ground
+/// point under the finger in 3D. Exact when the render lock is free; otherwise a
+/// wait-free FLAT unproject from the snapshot (`hitTerrain = 0`) so a drag never
+/// drops a move event to lock contention — the exact answer only has to land on
+/// the settled drop, when the lock is almost always free.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeUnprojectGround(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    x: jdouble,
+    y: jdouble,
+) -> jni::sys::jarray {
+    let g = unsafe {
+        with_surface(handle, |s| {
+            if let Ok(on) = s.render.try_lock() {
+                let (lat, lng, wz, hit) = on.engine.unproject_ground(x, y);
+                return (lat, lng, wz as f64, if hit { 1.0 } else { 0.0 });
+            }
+            let snap = s.latest();
+            let ll = snapshot_camera(&snap).pixel_to_world((x, y), snap.viewport).to_lat_lng();
+            (ll.lat, ll.lng, 0.0, 0.0)
+        })
+    };
+    match g {
+        Some((lat, lng, wz, hit)) => double_array(&mut env, &[lat, lng, wz, hit, 1.0]),
+        None => double_array(&mut env, &[0.0, 0.0, 0.0, 0.0, 0.0]),
     }
 }
 
@@ -1274,6 +1327,49 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     };
     // Optimistic: the upload happens on the render thread next frame. A decode
     // failure just leaves the tile un-ingested; the reconciler re-requests it.
+    if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
+}
+
+/// Push a fetched vector tile (raw MVT/protobuf bytes) into the named vector
+/// layer, so the engine tessellates it — for the realistic-water layer, its
+/// `water` polygons feed the water pipeline. Returns false if oversized, the
+/// handle is gone, or the ingest queue is closed. Mirrors [`nativeIngestRaster`]
+/// (same queue + `queued` dedup); decode happens on the render thread.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeIngestVector(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    layer_id: JString,
+    z: jint,
+    x: jint,
+    y: jint,
+    bytes: jni::objects::JByteArray,
+) -> jboolean {
+    let layer: String = match env.get_string(&layer_id) {
+        Ok(s) => s.into(),
+        Err(_) => return JNI_FALSE,
+    };
+    if env.get_array_length(&bytes).unwrap_or(0) > MAX_INGEST_TILE_BYTES {
+        return JNI_FALSE;
+    }
+    let data = match env.convert_byte_array(&bytes) {
+        Ok(d) => d,
+        Err(_) => return JNI_FALSE,
+    };
+    let tile = TileId::new(z.max(0) as u8, x.max(0) as u32, y.max(0) as u32);
+    let sent = unsafe {
+        with_surface(handle, |s| {
+            let mut q = s.queued.lock().unwrap_or_else(|p| p.into_inner());
+            if !q.insert((layer.clone(), tile)) {
+                return true;
+            }
+            drop(q);
+            s.ingest_tx
+                .send(Ingest::Vector { layer, tile, bytes: data })
+                .is_ok()
+        })
+    };
     if sent == Some(true) { JNI_TRUE } else { JNI_FALSE }
 }
 
@@ -1364,6 +1460,35 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     strength: jfloat,
 ) {
     unsafe { enqueue(handle, Cmd::SetTerrainShadows(strength)) };
+}
+
+/// Drive the realistic-water surface from the MET wave/wind forecast: wave
+/// direction + ferocity, whitecaps when extreme, shoreline foam. Each parameter
+/// is optional — pass `NaN` for any value the forecast doesn't provide (MET
+/// drops fields inland / at the series tail). Bearings are degrees the wave/wind
+/// comes *from* (compass). All-`NaN` ⇒ calm default.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetWaterConditions(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    wave_from_deg: jfloat,
+    wave_height_m: jfloat,
+    wind_speed_ms: jfloat,
+    wind_from_deg: jfloat,
+) {
+    let opt = |v: jfloat| if v.is_nan() { None } else { Some(v) };
+    unsafe {
+        enqueue(
+            handle,
+            Cmd::SetWaterConditions {
+                wave_from_deg: opt(wave_from_deg),
+                wave_height_m: opt(wave_height_m),
+                wind_speed_ms: opt(wind_speed_ms),
+                wind_from_deg: opt(wind_from_deg),
+            },
+        )
+    };
 }
 
 /// Geo-register the radar to the `west/south/east/north` lat-lng box it covers

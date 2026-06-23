@@ -552,6 +552,21 @@ impl TurbomapEngine {
         self.map.set_terrain_shadows(strength);
     }
 
+    /// Drive the realistic-water surface from the MET wave/wind forecast (wave
+    /// direction + ferocity, whitecaps, shoreline foam). All inputs optional
+    /// (`None` ⇒ calm default). Bearings are degrees the wave/wind comes *from*.
+    /// See [`turbomap_core::Map::set_water_conditions`].
+    pub fn set_water_conditions(
+        &mut self,
+        wave_from_deg: Option<f32>,
+        wave_height_m: Option<f32>,
+        wind_speed_ms: Option<f32>,
+        wind_from_deg: Option<f32>,
+    ) {
+        self.map
+            .set_water_conditions(wave_from_deg, wave_height_m, wind_speed_ms, wind_from_deg);
+    }
+
     /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
     /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
     /// metres. See [`turbomap_core::Map::set_route_tube`].
@@ -601,6 +616,15 @@ impl TurbomapEngine {
     /// animation is still in flight (i.e. keep rendering frames).
     pub fn tick_now(&mut self) -> bool {
         self.map.tick(std::time::Instant::now())
+    }
+
+    /// Terrain-aware screen→ground hit: `(lat, lng, world_z, hit_terrain)`.
+    /// Inherent (not part of the [`MapEngine`] contract) — only the wgpu engine
+    /// has relief to raycast; the host uses this for exact marker placement/drag
+    /// in 3D. See [`Map::screen_to_ground_lng_lat`].
+    pub fn unproject_ground(&self, x: f64, y: f64) -> (f64, f64, f32, bool) {
+        let hit = self.map.screen_to_ground_lng_lat((x, y));
+        (hit.lng_lat.lat, hit.lng_lat.lng, hit.world_z, hit.hit_terrain)
     }
 
     /// Re-evaluate line/fill colour paints at the current zoom and push

@@ -6,6 +6,7 @@
 //! which pipeline to dispatch per layer, runs a single text pass after
 //! all geometry layers, and finally renders markers on top.
 
+pub(crate) mod ao;
 pub(crate) mod cache;
 pub(crate) mod floor;
 pub(crate) mod frame;
@@ -23,6 +24,7 @@ pub mod terrain;
 pub(crate) mod text;
 pub(crate) mod vector;
 pub(crate) mod vector_cache;
+pub(crate) mod water;
 
 pub(crate) use cache::TextureCache;
 
@@ -64,6 +66,12 @@ pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth3
 /// then tonemapped down to the surface. Rgba16Float is MSAA-resolvable and needs
 /// no extra device feature (unlike filtering R32Float).
 pub(crate) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// Format of the world-locked ambient-occlusion field ([`ao`]). One channel of
+/// accumulated sky occlusion in [0,1]; `R16Float` is renderable, blendable (for
+/// progressive accumulation) and filterable (so the terrain samples it smoothly)
+/// without any extra device feature.
+pub(crate) const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
 
 /// Multisample count for the single frame pass. 4× is supported on every
 /// backend we target and smooths the geometry edges that don't carry their
