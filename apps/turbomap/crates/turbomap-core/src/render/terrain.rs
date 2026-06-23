@@ -420,6 +420,10 @@ impl TerrainCache {
     /// covers the point (so markers/paths anchor to the finest available
     /// detail). `None` when no covering tile is loaded yet — the caller
     /// then treats it as flat (z=0), same as the 2D map.
+    // Single-sample entry point (the bulk shadow/AO grid now uses `sample_grid`,
+    // and marker projection uses the sticky variant) — kept as the documented
+    // point query the doc links reference.
+    #[allow(dead_code)]
     pub(crate) fn elevation_at_world(&self, world: (f64, f64)) -> Option<f32> {
         self.sample_deepest(world).map(|(_, e)| e)
     }
