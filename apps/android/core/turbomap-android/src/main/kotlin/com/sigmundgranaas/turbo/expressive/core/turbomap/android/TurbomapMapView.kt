@@ -129,7 +129,13 @@ fun TurbomapMapView(
     controller.cameraTick = cameraTick
     controller.onBearingChange = onBearingChange
     controller.onError = onEngineError
-    controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles") }
+    // Namespace is versioned: bump the suffix to abandon a poisoned cache. v2
+    // drops entries written while the tileserver was still provisioning and
+    // returned 200-with-0-bytes for vector basemap tiles — those empty MVTs
+    // ingest as valid-but-empty (no water) and, being "resident", were never
+    // refetched, so water never appeared even once the server had data. A
+    // sideload upgrade keeps cacheDir, so the only way to shed them is a bump.
+    controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles-v2") }
     // The live user position is NOT in the scene anymore — it's a Compose MyPositionPin in
     // the overlay (stands on the terrain via the engine projection). See TurbomapScene.
     fun scene() = TurbomapScene.build(rasters, vectors, measure, demUrl = demUrl)
