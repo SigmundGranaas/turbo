@@ -29,6 +29,8 @@ use turbomap_core::{Camera, Color as CoreColor, LatLng as CoreLatLng, MapOptions
 use turbomap_engine::{CameraState, HostDrivenResolver, MapEngine, TurbomapEngine};
 use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
+use crate::trace::{frame_trace, stats_json, FrameTrace};
+
 /// Last failure reason (GPU/surface init or a caught panic), surfaced to the
 /// host via `nativeLastError` so the engine **fails loudly** — there is no
 /// MapLibre fallback by design, so a failure must be reported, never hidden
@@ -137,6 +139,10 @@ struct FramePerf {
     acc_render_ms: f64,
     acc_ingest_ms: f64,
     max_gap_ms: f64,
+    /// Wall-time gap since the previous frame (ms) — the inter-frame jitter the
+    /// structured trace reports. Set every `record()`; read when building the
+    /// per-frame trace published in the snapshot.
+    last_gap_ms: f64,
 }
 
 fn build(
@@ -438,6 +444,7 @@ impl FramePerf {
             .map(|t| (now - t).as_secs_f64() * 1000.0)
             .unwrap_or(0.0);
         self.last_frame_at = Some(now);
+        self.last_gap_ms = gap_ms;
         self.frame_idx += 1;
         self.acc_frames += 1;
         self.acc_ingested += ingested;
@@ -514,19 +521,9 @@ fn pending_tiles_filtered(
     (items.len() as u32, format!("[{}]", items.join(",")))
 }
 
-/// Compact JSON of the last frame's cache telemetry, summed across layers.
-fn stats_json(engine: &TurbomapEngine) -> String {
-    let m = engine.last_frame_metrics();
-    let tiles: usize = m.layers.iter().map(|l| l.cache.entries).sum();
-    let bytes: usize = m.layers.iter().map(|l| l.cache.bytes_used).sum();
-    let budget: usize = m.layers.iter().map(|l| l.cache.budget_bytes).max().unwrap_or(0);
-    let evictions: u64 = m.layers.iter().map(|l| l.cache.evictions).sum();
-    let hits: u64 = m.layers.iter().map(|l| l.cache.hits).sum();
-    let misses: u64 = m.layers.iter().map(|l| l.cache.misses).sum();
-    format!(
-        "{{\"tiles\":{tiles},\"bytes\":{bytes},\"budget\":{budget},\"evictions\":{evictions},\"hits\":{hits},\"misses\":{misses}}}"
-    )
-}
+// The structured per-frame trace (`FrameTrace`, `frame_trace`, `stats_json`)
+// lives in the ungated `crate::trace` module so its pure serialization is
+// host-compiled + unit-tested (this `surface` module is Android-only).
 
 // ──────────────────────────────────────────────────────────────────────────
 // Thread model — eliminate the ANR bug class by *design*, not by patching.
@@ -761,6 +758,23 @@ impl Surface {
         snap.animating = snap.animating || ingest_backlog > 0;
         let pending = snap.pending_count;
         on.perf.record(render_ms, ingest_ms, ingested, ingest_backlog, pending);
+        // Publish the full structured per-frame trace (Slice 1): the engine's
+        // always-on FrameMetrics plus the streaming timings/counts only the FFI
+        // render loop knows. Overwrites the cheap cache-only stats built above.
+        snap.stats_json = frame_trace(
+            &on.engine,
+            FrameTrace {
+                frame: on.perf.frame_idx,
+                gap_ms: on.perf.last_gap_ms,
+                ingest_ms,
+                render_ms,
+                pending,
+                backlog: ingest_backlog,
+                ingested,
+                ..FrameTrace::default()
+            },
+        )
+        .to_json();
         *self.snapshot.lock().unwrap_or_else(|p| p.into_inner()) = Arc::new(snap);
     }
 

@@ -1240,6 +1240,35 @@ fn main() {
         }
     }
 
+    // Per-step CSV (Slice 1): the same render/cache/timing field-set the device
+    // publishes in `stats_json`, so the offline harness and the live device speak
+    // ONE schema. The streaming fields (gap/ingest/pending/backlog) aren't
+    // meaningful here — the harness drains tiles synchronously — so the CSV holds
+    // the steady-state core: timings, draw load, tile-state, cache health.
+    {
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        let mut csv = String::from(
+            "idx,label,pitch,cpu_ms,prepare_ms,pass_ms,clouds_ms,gpu_ms,visible_layers,draw_calls,tiles_drawn,resident,bytes,evictions,hits,misses,frame_dropped\n",
+        );
+        for (i, (label, pitch, m)) in profiles.iter().enumerate() {
+            let resident: usize = m.layers.iter().map(|l| l.cache.entries).sum();
+            let bytes: usize = m.layers.iter().map(|l| l.cache.bytes_used).sum();
+            let evictions: u64 = m.layers.iter().map(|l| l.cache.evictions).sum();
+            let hits: u64 = m.layers.iter().map(|l| l.cache.hits).sum();
+            let misses: u64 = m.layers.iter().map(|l| l.cache.misses).sum();
+            let gpu = m.gpu_time.map(|g| format!("{:.3}", ms(g))).unwrap_or_default();
+            csv.push_str(&format!(
+                "{i},{label},{pitch:.0},{:.3},{:.3},{:.3},{:.3},{gpu},{},{},{},{resident},{bytes},{evictions},{hits},{misses},{}\n",
+                ms(m.cpu_time), ms(m.phases.prepare), ms(m.phases.pass), ms(m.phases.clouds),
+                m.visible_layers, m.draw_calls, m.tiles_drawn, m.frame_dropped,
+            ));
+        }
+        let path = format!("{}/profile.csv", cli.out_dir);
+        if std::fs::write(&path, csv).is_ok() {
+            eprintln!("  per-step trace → {path} ({} rows)", profiles.len());
+        }
+    }
+
     // ---- Terrain cast-shadow proof ----------------------------------------
     // Prove cast shadows are real occlusion, not just a tint: render the SAME
     // tilted view under a low raking sun with shadows OFF then ON and require

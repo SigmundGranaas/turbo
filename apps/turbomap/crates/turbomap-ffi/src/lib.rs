@@ -26,6 +26,11 @@ use turbomap_scene::{LatLng, Scene, ScreenPoint};
 
 pub mod offscreen;
 
+// Structured per-frame trace (Slice-1 instrumentation). Ungated so its pure
+// JSON serialization is host-compiled + unit-tested; the `surface` FFI that
+// publishes it is Android-only.
+mod trace;
+
 // On-screen render path for Android: a `wgpu::Surface` built from a Java
 // `Surface` through hand-written JNI (uniffi can't carry an `ANativeWindow`).
 #[cfg(target_os = "android")]
