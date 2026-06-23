@@ -751,6 +751,24 @@ struct TerrainShadowState {
     /// while panning instead of staying on the ground.
     origin_abs: [f64; 2],
     world_size: f32,
+    /// In-flight PROGRESSIVE reassembly. The 256² cross-tile sample is spread
+    /// over several frames (a chunk of rows each) into this scratch buffer, with
+    /// the previous field kept bound until it completes — so a region change
+    /// never blocks one frame on the whole walk (the ~5–20ms settle hitch).
+    /// `None` when no build is in flight. Mirrors the AO progressive bake.
+    build: Option<ShadowBuild>,
+}
+
+/// One in-flight progressive heightfield assembly (see [`TerrainShadowState::build`]).
+struct ShadowBuild {
+    key: ShadowKey,
+    origin_abs: [f64; 2],
+    size_f: f32,
+    cell: f64,
+    zscale: f32,
+    heights: Vec<f32>,
+    /// Rows `[0, next_row)` are sampled; the build commits when it reaches `dim`.
+    next_row: usize,
 }
 
 /// Identity of the inputs the heightfield was assembled from (floats
@@ -2020,22 +2038,67 @@ impl Map {
         // no reassembly and stays welded to the ground.
         let animating = self.cam.active.is_some();
         let mut assemble = std::time::Duration::ZERO;
-        if !animating && self.shadow.key.as_ref() != Some(&key) {
+        // Start (or restart) a PROGRESSIVE build when the wanted field differs
+        // from both the committed field and any in-flight build. Skipped while a
+        // camera animation runs (the field would be obsolete before it finished);
+        // a finger-pan isn't an "animation", so a build makes progress across the
+        // pan and simply restarts if the region keeps crossing the lattice.
+        let have_this = self.shadow.key.as_ref() == Some(&key);
+        let building_this = self.shadow.build.as_ref().map(|b| &b.key) == Some(&key);
+        if !animating && !have_this && !building_this {
+            if self.shadow.key.is_none() {
+                // FIRST field: assemble synchronously so shadows are present on
+                // the very first rendered frame — there's no previous field to
+                // keep bound meanwhile, and a single-frame screenshot / the
+                // harness shadow proof depends on it. Only REPLACEMENTS (below)
+                // amortize, since they can keep showing the old field meanwhile.
+                let t0 = Instant::now();
+                let mut heights = vec![0.0f32; dim * dim];
+                terrain.cache.sample_grid((origin_abs[0], origin_abs[1]), cell, dim, |idx, e| {
+                    heights[idx] = e.unwrap_or(0.0) * zscale;
+                });
+                self.renderer.shadow_map.upload_heights(&heights);
+                self.shadow.origin_abs = origin_abs;
+                self.shadow.world_size = size_f;
+                self.shadow.key = Some(key.clone());
+                assemble = t0.elapsed();
+            } else {
+                self.shadow.build = Some(ShadowBuild {
+                    key: key.clone(),
+                    origin_abs,
+                    size_f,
+                    cell,
+                    zscale,
+                    heights: vec![0.0f32; dim * dim],
+                    next_row: 0,
+                });
+            }
+        }
+        // Advance an in-flight build by a chunk of rows; commit (upload) when the
+        // last row lands. CHUNK_ROWS = 64 → a 256² field assembles over 4 frames,
+        // each ~¼ the old single-frame cost — so a region change never blocks one
+        // frame on the whole cross-tile walk (the settle hitch). The finest DEM
+        // zoom is still resolved once per chunk; behaviour-identical output.
+        if let Some(mut b) = self.shadow.build.take() {
             let t0 = Instant::now();
-            // Sample the whole 256² field in one pass: the finest resident DEM
-            // zoom is resolved ONCE (not rescanned from z=22 per cell), which is
-            // the bulk of this reassembly's cost. Behaviour-identical to the
-            // per-cell `elevation_at_world` loop.
-            let mut heights = vec![0.0f32; dim * dim];
-            terrain.cache.sample_grid((origin_abs[0], origin_abs[1]), cell, dim, |idx, e| {
-                heights[idx] = e.unwrap_or(0.0) * zscale;
+            const CHUNK_ROWS: usize = 64;
+            let row1 = (b.next_row + CHUNK_ROWS).min(dim);
+            let (o, c, zs, row0) = (b.origin_abs, b.cell, b.zscale, b.next_row);
+            terrain.cache.sample_grid_rows((o[0], o[1]), c, dim, row0, row1, |idx, e| {
+                b.heights[idx] = e.unwrap_or(0.0) * zs;
             });
-            self.renderer.shadow_map.upload_heights(&heights);
-            // Already in ABSOLUTE world space (lattice-snapped); the per-frame block
-            // below rebases it into the current RTC frame so it stays welded.
-            self.shadow.origin_abs = origin_abs;
-            self.shadow.world_size = size_f;
-            self.shadow.key = Some(key);
+            b.next_row = row1;
+            if b.next_row >= dim {
+                self.renderer.shadow_map.upload_heights(&b.heights);
+                // ABSOLUTE world space (lattice-snapped); the per-frame block below
+                // rebases it into the current RTC frame so it stays welded.
+                self.shadow.origin_abs = b.origin_abs;
+                self.shadow.world_size = b.size_f;
+                self.shadow.key = Some(b.key);
+                // Build complete — already `take`n out, so leave `build = None`.
+            } else {
+                self.shadow.build = Some(b);
+            }
             assemble = t0.elapsed();
         }
 

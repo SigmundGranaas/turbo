@@ -1290,6 +1290,15 @@ fn main() {
         // ones visibly darken.
         map.set_sun_position(Some(SunPosition { azimuth_deg: 95.0, altitude_deg: 18.0 }));
         drain_tiles(&mut map, &basemap, &dem, &vector);
+        // Let the shadow heightfield finish assembling: a REPLACEMENT field now
+        // builds progressively over several frames (one row-chunk each) to keep
+        // the live frame from hitching, so a fixed-camera proof must render a few
+        // warmup frames for the field to complete before the off/on compare.
+        // (The very first field is synchronous, but the sweep above already
+        // committed one, so this camera change is a replacement.)
+        for _ in 0..6 {
+            let _ = render_capture(&mut map, &device, &queue, &target, &target_view);
+        }
 
         map.set_terrain_shadows(0.0);
         let off = render_capture(&mut map, &device, &queue, &target, &target_view);

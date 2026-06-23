@@ -475,10 +475,26 @@ impl TerrainCache {
         origin: (f64, f64),
         cell: f64,
         dim: usize,
+        f: F,
+    ) {
+        self.sample_grid_rows(origin, cell, dim, 0, dim, f);
+    }
+
+    /// As [`Self::sample_grid`] but only rows `[row0, row1)` — lets the caller
+    /// AMORTISE a big field across several frames (sample a chunk of rows per
+    /// frame) so no single frame eats the whole 256² walk. `idx` is still the
+    /// full-grid `j*dim + i`, so chunks write into one shared buffer.
+    pub(crate) fn sample_grid_rows<F: FnMut(usize, Option<f32>)>(
+        &self,
+        origin: (f64, f64),
+        cell: f64,
+        dim: usize,
+        row0: usize,
+        row1: usize,
         mut f: F,
     ) {
         let max_z = self.finest_resident_zoom();
-        for j in 0..dim {
+        for j in row0..row1 {
             let ay = origin.1 + j as f64 * cell;
             for i in 0..dim {
                 let ax = origin.0 + i as f64 * cell;
