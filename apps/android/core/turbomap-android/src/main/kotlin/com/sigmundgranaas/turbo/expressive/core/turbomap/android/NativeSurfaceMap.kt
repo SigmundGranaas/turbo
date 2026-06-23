@@ -148,6 +148,10 @@ internal object NativeSurfaceMap {
      */
     external fun nativeSetTerrainShadows(handle: Long, strength: Float)
 
+    /** Select the realistic-water (AAA) render path vs the flat normal-mapped
+     *  fill. Toggled from the map rail (between 3D and sun). */
+    external fun nativeSetRealisticWater(handle: Long, enabled: Boolean)
+
     /**
      * Drive the realistic-water surface from the MET wave/wind forecast: wave
      * direction + ferocity, whitecaps when the sea turns extreme, and shoreline

@@ -567,6 +567,12 @@ impl TurbomapEngine {
             .set_water_conditions(wave_from_deg, wave_height_m, wind_speed_ms, wind_from_deg);
     }
 
+    /// Select the realistic-water (AAA) render path. See
+    /// [`turbomap_core::Map::set_realistic_water`].
+    pub fn set_realistic_water(&mut self, enabled: bool) {
+        self.map.set_realistic_water(enabled);
+    }
+
     /// Set (or clear, when `points` is empty) a route/track polyline drawn as a
     /// raised 3D tube. `points` are lng/lat; `radius_m` is the tube radius in
     /// metres. See [`turbomap_core::Map::set_route_tube`].

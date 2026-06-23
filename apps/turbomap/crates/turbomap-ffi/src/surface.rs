@@ -362,6 +362,7 @@ impl OnScreen {
                 self.engine.set_viewport_inset(px);
             }
             Cmd::SetTerrainShadows(s) => self.engine.set_terrain_shadows(s),
+            Cmd::SetRealisticWater(on) => self.engine.set_realistic_water(on),
             Cmd::SetSunTime(t) => self.engine.set_sun_time(t),
             Cmd::SetWaterConditions {
                 wave_from_deg,
@@ -571,6 +572,7 @@ enum Cmd {
     CancelAnimation,
     SetViewportInset(f64),
     SetTerrainShadows(f32),
+    SetRealisticWater(bool),
     SetSunTime(Option<f64>),
     SetWaterConditions {
         wave_from_deg: Option<f32>,
@@ -1474,6 +1476,18 @@ pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_an
     strength: jfloat,
 ) {
     unsafe { enqueue(handle, Cmd::SetTerrainShadows(strength)) };
+}
+
+/// Select the realistic-water (AAA) render path (displaced ocean + reflections)
+/// vs the flat normal-mapped fill. Toggled from the map rail.
+#[no_mangle]
+pub extern "system" fn Java_com_sigmundgranaas_turbo_expressive_core_turbomap_android_NativeSurfaceMap_nativeSetRealisticWater(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    enabled: jni::sys::jboolean,
+) {
+    unsafe { enqueue(handle, Cmd::SetRealisticWater(enabled != 0)) };
 }
 
 /// Drive the realistic-water surface from the MET wave/wind forecast: wave

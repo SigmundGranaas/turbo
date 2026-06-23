@@ -693,6 +693,11 @@ pub struct Map {
     /// forecast via [`Map::set_water_conditions`]. Patched into the water globals
     /// each frame. Default = calm. See [`crate::render::water`].
     water: WaterConditions,
+    /// Realistic-water (AAA) mode: when true the water layer renders through the
+    /// displaced-geometry + environment-reflection path instead of the flat
+    /// normal-mapped fill. Toggled from the map rail; gated per
+    /// `docs/architecture/2026-06-aaa-water-implementation-plan.md`.
+    realistic_water: bool,
     /// Route/track rendered as raised 3D tubes (replaces the flat draped line).
     /// See [`Map::set_route_tube`] and the route block in [`Map::render`].
     route_tubes: RouteTubeState,
@@ -840,6 +845,7 @@ impl Map {
             lighting: Lighting::default(),
             shadow: TerrainShadowState::default(),
             water: WaterConditions::default(),
+            realistic_water: false,
             route_tubes: RouteTubeState::default(),
             start: Instant::now(),
         })
@@ -1075,6 +1081,19 @@ impl Map {
             wind_speed_ms,
             wind_from_deg,
         );
+    }
+
+    /// Select the realistic-water (AAA) render path for the water layer. When
+    /// off, water uses the flat normal-mapped fill. Cheap toggle; the gated path
+    /// is built in phases (see the AAA water implementation plan).
+    pub fn set_realistic_water(&mut self, enabled: bool) {
+        self.realistic_water = enabled;
+        log::info!("turbomap: realistic water = {enabled}");
+    }
+
+    /// Whether the realistic-water path is selected (read by the water draw).
+    pub fn realistic_water(&self) -> bool {
+        self.realistic_water
     }
 
     // ---- Sun / time-of-day --------------------------------------------

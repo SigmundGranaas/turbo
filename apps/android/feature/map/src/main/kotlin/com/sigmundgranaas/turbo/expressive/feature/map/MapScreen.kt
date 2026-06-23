@@ -603,6 +603,8 @@ fun MapScreen(
                     // 3D mode: 1-finger orbit about the user location, two
                     // fingers pan. Only meaningful on this wgpu engine.
                     threeDMode = state.threeDMode,
+                    // Realistic-water (AAA) path selector — rail toggle, implies 3D.
+                    waterMode = state.waterMode,
                     // In 3D, displace the ground by the real DEM heightmap (the
                     // tileserver's Terrain-RGB). Null in 2D → flat, no DEM fetches.
                     demUrl = if (state.threeDMode) MapStyles.TERRAIN_DEM_URL else null,
