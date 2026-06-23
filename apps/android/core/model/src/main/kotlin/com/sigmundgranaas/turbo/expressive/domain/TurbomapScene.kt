@@ -31,6 +31,22 @@ object TurbomapScene {
         val maxZoom: Int = DEFAULT_RASTER_MAX_ZOOM,
     )
 
+    /**
+     * A vector (MVT) source the engine fetches host-side. Currently used for the
+     * realistic-water overlay: the `water` layer of the N50 basemap tiles is
+     * drawn through the water pipeline (waves/reflection/foam) over the raster
+     * basemap. [layerName] is the MVT source-layer to draw (e.g. `"water"`);
+     * [id] doubles as the engine layer id the host fetches against.
+     */
+    data class VectorSpec(
+        val id: String,
+        val tileUrlTemplate: String,
+        val layerName: String,
+        val color: Rgba,
+        val minZoom: Int = 4,
+        val maxZoom: Int = DEFAULT_VECTOR_MAX_ZOOM,
+    )
+
     // Defaults match the MapLibre path (TurboMap.kt installTurboLayers).
     val TrackColor = Rgba(0, 105, 109)
     val RouteColor = Rgba(143, 76, 56)
@@ -48,8 +64,8 @@ object TurbomapScene {
     @Suppress("LongParameterList")
     fun build(
         rasters: List<RasterSpec> = emptyList(),
+        vectors: List<VectorSpec> = emptyList(),
         measure: List<LatLng> = emptyList(),
-        user: LatLng? = null,
         // When set, the engine loads this Mapbox-Terrain-RGB DEM as the shared
         // heightmap and ALL ground layers (basemap raster, hillshade, vector)
         // displace their vertices by elevation — real 3D terrain. The host
@@ -82,6 +98,18 @@ object TurbomapScene {
                 "\"exaggeration\": $TERRAIN_EXAGGERATION, \"height_only\": true }"
         }
 
+        // Vector overlays (e.g. realistic water): an MVT source + a fill layer
+        // for the chosen source-layer, drawn over the raster basemap and draped
+        // on the DEM. The water fill routes through the water pipeline core-side
+        // (source-layer "water"). Placed after rasters/hillshade, under measure.
+        vectors.forEach { v ->
+            val src = "v_${v.id}"
+            sources += "\"$src\": { \"type\": \"vector-xyz\", \"tiles\": [\"${v.tileUrlTemplate}\"], " +
+                "\"min_zoom\": ${v.minZoom}, \"max_zoom\": ${v.maxZoom} }"
+            layers += "{ \"type\": \"fill\", \"id\": \"${v.id}\", \"source\": \"$src\", " +
+                "\"source-layer\": \"${v.layerName}\", \"color\": ${const(v.color)} }"
+        }
+
         fun line(id: String, pts: List<LatLng>?, color: Rgba, width: Double) {
             val p = pts.orEmpty()
             if (p.size < 2) return
@@ -98,11 +126,9 @@ object TurbomapScene {
                 "\"color\": ${const(measureColor)}, \"radius\": { \"const\": $MEASURE_RADIUS } }"
         }
 
-        if (user != null) {
-            sources += "\"user\": { \"type\": \"geo-json\", \"data\": \"${escape(point(user))}\" }"
-            layers += "{ \"type\": \"circle\", \"id\": \"user\", \"source\": \"user\", " +
-                "\"color\": ${const(UserColor)}, \"radius\": { \"const\": $USER_RADIUS } }"
-        }
+        // NOTE: the live user position is NOT a scene layer — it draped flat on the ground and
+        // looked wrong over 3D terrain. It's now a Compose `MyPositionPin` in `MapOverlay`,
+        // projected through the elevation-aware engine seam so it stands on the surface.
 
         return "{ \"sources\": { ${sources.joinToString(", ")} }, " +
             "\"layers\": [ ${layers.joinToString(", ")} ] }"
@@ -116,8 +142,6 @@ object TurbomapScene {
     private fun multiPoint(pts: List<LatLng>) =
         "{\"type\":\"MultiPoint\",\"coordinates\":[${pts.joinToString(",") { "[${it.lng},${it.lat}]" }}]}"
 
-    private fun point(p: LatLng) = "{\"type\":\"Point\",\"coordinates\":[${p.lng},${p.lat}]}"
-
     /** Escape a JSON document for embedding as the string `data` field. */
     private fun escape(json: String) = json.replace("\"", "\\\"")
 
@@ -125,9 +149,12 @@ object TurbomapScene {
      *  so an unspecified source doesn't claim depth the server lacks. */
     const val DEFAULT_RASTER_MAX_ZOOM = 19
 
+    /** Native max zoom for the N50 vector basemap (water etc.). The engine
+     *  over-zooms past this by upsampling the deepest tile. */
+    const val DEFAULT_VECTOR_MAX_ZOOM = 15
+
     private const val MEASURE_WIDTH = 4.0
     private const val MEASURE_RADIUS = 4.0
-    private const val USER_RADIUS = 7.0
 
     /** Vertical exaggeration for 3D terrain over true Mercator scale. Pushed
      *  hard (6×) so the height genuinely reads on a tilted phone screen —

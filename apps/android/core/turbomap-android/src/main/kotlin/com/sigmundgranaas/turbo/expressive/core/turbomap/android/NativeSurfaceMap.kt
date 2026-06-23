@@ -109,8 +109,16 @@ internal object NativeSurfaceMap {
     /** `[xPx, yPx, valid]` — `valid` is 1.0 when the point projects on-screen. */
     external fun nativeProject(handle: Long, lat: Double, lng: Double): DoubleArray
 
-    /** `[lat, lng, valid]`. */
+    /** `[lat, lng, valid]` — FLAT-plane unproject (pan / freehand capture). */
     external fun nativeUnproject(handle: Long, xPx: Double, yPx: Double): DoubleArray
+
+    /**
+     * `[lat, lng, worldZ, hitTerrain, valid]` — TERRAIN-AWARE screen→ground: where
+     * the view ray meets the relief, not the flat plane. Use for marker
+     * placement/drag so a dropped pin lands on the exact ground point under the
+     * finger in 3D. `hitTerrain` is 0.0 when it fell back to the flat plane.
+     */
+    external fun nativeUnprojectGround(handle: Long, xPx: Double, yPx: Double): DoubleArray
 
     // ── Host-driven tile IO ─────────────────────────────────────────────────
     /** Tiles the engine awaits, as JSON `[{"kind","layer","z","x","y"}, ...]`. */
@@ -118,6 +126,10 @@ internal object NativeSurfaceMap {
 
     /** Push a fetched raster tile (encoded image bytes); false if it didn't decode. */
     external fun nativeIngestRaster(handle: Long, layerId: String, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
+
+    /** Push a fetched vector tile (raw MVT bytes) into [layerId]; false if oversized/closed.
+     *  The engine tessellates it — the water layer's polygons feed the water pipeline. */
+    external fun nativeIngestVector(handle: Long, layerId: String, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
 
     /** Push a fetched DEM tile (Mapbox-Terrain-RGB PNG) into the shared heightmap (3D terrain). */
     external fun nativeIngestTerrain(handle: Long, z: Int, x: Int, y: Int, bytes: ByteArray): Boolean
@@ -135,6 +147,21 @@ internal object NativeSurfaceMap {
      * Only affects 3D terrain; distinct from the always-on relief self-shading.
      */
     external fun nativeSetTerrainShadows(handle: Long, strength: Float)
+
+    /**
+     * Drive the realistic-water surface from the MET wave/wind forecast: wave
+     * direction + ferocity, whitecaps when the sea turns extreme, and shoreline
+     * foam. Each parameter is optional — pass [Float.NaN] for any value the
+     * forecast doesn't provide (MET drops fields inland / at the series tail).
+     * Bearings are degrees the wave/wind comes *from* (compass); all-NaN ⇒ calm.
+     */
+    external fun nativeSetWaterConditions(
+        handle: Long,
+        waveFromDeg: Float,
+        waveHeightM: Float,
+        windSpeedMs: Float,
+        windFromDeg: Float,
+    )
 
     // ── Weather-cloud overlay ───────────────────────────────────────────────
     /** Enable the procedural cloud overlay with a [gridW]×[gridH] radar grid. */

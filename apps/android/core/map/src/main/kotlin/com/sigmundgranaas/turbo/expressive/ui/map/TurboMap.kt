@@ -94,6 +94,10 @@ class MapLibreEngine(internal val map: MapLibreMap) : MapEngine {
     override fun fromScreen(xPx: Float, yPx: Float): LatLng =
         map.projection.fromScreenLocation(android.graphics.PointF(xPx, yPx)).let { LatLng(it.latitude, it.longitude) }
 
+    // MapLibre is a 2D top-down renderer with no relief, so the terrain hit is the
+    // flat-plane unproject — keeps the MapEngine seam total across both hosts.
+    override fun screenToGround(xPx: Float, yPx: Float): LatLng = fromScreen(xPx, yPx)
+
     override fun toScreen(point: LatLng): Pair<Float, Float> =
         map.projection.toScreenLocation(MlLatLng(point.lat, point.lng)).let { it.x to it.y }
 
@@ -160,6 +164,10 @@ fun TurboMap(
     onWaypointTap: (Int) -> Unit = {},
     onWaypointLongPress: (Int) -> Unit = {},
     onWaypointMoved: (Int, LatLng) -> Unit = { _, _ -> },
+    onWaypointDragStart: (Int) -> Unit = {},
+    onWaypointDragEnd: (Int) -> Unit = {},
+    /** Pending route origin (first point before a destination exists) → drawn as an origin pin. */
+    routeOrigin: LatLng? = null,
     onMarkerClick: (Marker) -> Unit = {},
     onMapLongClick: (LatLng) -> Unit = {},
     onMapTap: ((LatLng) -> Unit)? = null,
@@ -194,6 +202,10 @@ fun TurboMap(
                     // rail, so suppress MapLibre's default top-right widget that otherwise
                     // lands under the status bar / search pill.
                     ml.uiSettings.isCompassEnabled = false
+                    // 2D map (MapLibre host) never rotates — pan + zoom only. Rotation
+                    // belongs to the 3D (wgpu) mode's two-finger twist. Matches the
+                    // turbomap-host gesture model.
+                    ml.uiSettings.isRotateGesturesEnabled = false
                     ml.setStyle(Style.Builder().fromJson(MapStyles.styleJson(base, overlays))) { loaded ->
                         loaded.installTurboLayers(trackColor, routeColor, measureColor)
                         style = loaded
@@ -322,6 +334,9 @@ fun TurboMap(
                 onWaypointTap = onWaypointTap,
                 onWaypointLongPress = onWaypointLongPress,
                 onWaypointMoved = onWaypointMoved,
+                onWaypointDragStart = onWaypointDragStart,
+                onWaypointDragEnd = onWaypointDragEnd,
+                routeOrigin = routeOrigin,
                 checkpoints = checkpoints,
             )
         }

@@ -2,7 +2,6 @@ package com.sigmundgranaas.turbo.expressive.core.turbomap.android
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,17 +55,23 @@ class MapGestureTest {
     }
 
     @Test
-    fun two_finger_gesture_locks_to_zoom_or_drag() {
-        // Below both gates → dead-zone, nothing wins yet.
-        assertNull(lockTwoFingerAxis(zoomN = 0.9f, dragN = 0.5f))
-        // A clean pinch (spread past its gate, centroid roughly still) → Zoom.
-        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 1.4f, dragN = 0.3f))
-        // Centroid travels (drag) with little spread change → Drag (pan / orbit).
-        assertEquals(TwoFingerAxis.Drag, lockTwoFingerAxis(zoomN = 0.3f, dragN = 1.6f))
-        // The more-progressed intent wins when both have crossed; a tie favours drag.
-        assertEquals(TwoFingerAxis.Drag, lockTwoFingerAxis(zoomN = 1.2f, dragN = 2.0f))
-        assertEquals(TwoFingerAxis.Drag, lockTwoFingerAxis(zoomN = 1.5f, dragN = 1.5f))
-        assertEquals(TwoFingerAxis.Zoom, lockTwoFingerAxis(zoomN = 2.2f, dragN = 1.2f))
+    fun twist_delta_is_signed_degrees() {
+        // A small CCW twist (angle increases) → positive degrees.
+        assertEquals(10f, twistDeltaDeg(0f, Math.toRadians(10.0).toFloat()), 1e-3f)
+        // A small CW twist (angle decreases) → negative degrees.
+        assertEquals(-15f, twistDeltaDeg(Math.toRadians(15.0).toFloat(), 0f), 1e-3f)
+        // No twist → 0.
+        assertEquals(0f, twistDeltaDeg(1.2f, 1.2f), 1e-6f)
+    }
+
+    @Test
+    fun twist_delta_wraps_across_the_pi_seam() {
+        // Crossing from +179° to -179° is a +2° twist, not -358°.
+        val a = Math.toRadians(179.0).toFloat()
+        val b = Math.toRadians(-179.0).toFloat()
+        assertEquals(2f, twistDeltaDeg(a, b), 1e-2f)
+        // And the reverse is -2°, not +358°.
+        assertEquals(-2f, twistDeltaDeg(b, a), 1e-2f)
     }
 
     @Test

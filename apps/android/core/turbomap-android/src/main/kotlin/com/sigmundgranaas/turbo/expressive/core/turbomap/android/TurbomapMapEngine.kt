@@ -4,6 +4,7 @@ import com.sigmundgranaas.turbo.expressive.domain.GeoBounds
 import com.sigmundgranaas.turbo.expressive.domain.LatLng
 import com.sigmundgranaas.turbo.expressive.domain.MapEngine
 import com.sigmundgranaas.turbo.expressive.domain.TerrainSunOverlay
+import com.sigmundgranaas.turbo.expressive.domain.WaterConditionsOverlay
 import com.sigmundgranaas.turbo.expressive.domain.WeatherCloudOverlay
 
 /**
@@ -20,7 +21,7 @@ class TurbomapMapEngine(
     private val handle: Long,
     private var widthPx: Int,
     private var heightPx: Int,
-) : MapEngine, WeatherCloudOverlay, TerrainSunOverlay {
+) : MapEngine, WeatherCloudOverlay, TerrainSunOverlay, WaterConditionsOverlay {
 
     /**
      * Invoked after any camera/projection mutation so the host can request a
@@ -67,6 +68,12 @@ class TurbomapMapEngine(
     override fun fromScreen(xPx: Float, yPx: Float): LatLng {
         val r = NativeSurfaceMap.nativeUnproject(handle, xPx.toDouble(), yPx.toDouble())
         return if (r.size >= 3 && r[2] == 1.0) LatLng(r[0], r[1]) else center()
+    }
+
+    override fun screenToGround(xPx: Float, yPx: Float): LatLng {
+        // [lat, lng, worldZ, hitTerrain, valid] — terrain raycast (falls back to flat).
+        val r = NativeSurfaceMap.nativeUnprojectGround(handle, xPx.toDouble(), yPx.toDouble())
+        return if (r.size >= 5 && r[4] == 1.0) LatLng(r[0], r[1]) else fromScreen(xPx, yPx)
     }
 
     override fun toScreen(point: LatLng): Pair<Float, Float> {
@@ -161,6 +168,25 @@ class TurbomapMapEngine(
 
     override fun setTerrainShadows(strength: Float) {
         NativeSurfaceMap.nativeSetTerrainShadows(handle, strength)
+        onMutated()
+    }
+
+    // ── WaterConditionsOverlay ──────────────────────────────────────────────
+
+    override fun setWaterConditions(
+        waveFromDeg: Float?,
+        waveHeightM: Float?,
+        windSpeedMs: Float?,
+        windFromDeg: Float?,
+    ) {
+        // The native side reads NaN as "absent" for each optional field.
+        NativeSurfaceMap.nativeSetWaterConditions(
+            handle,
+            waveFromDeg ?: Float.NaN,
+            waveHeightM ?: Float.NaN,
+            windSpeedMs ?: Float.NaN,
+            windFromDeg ?: Float.NaN,
+        )
         onMutated()
     }
 

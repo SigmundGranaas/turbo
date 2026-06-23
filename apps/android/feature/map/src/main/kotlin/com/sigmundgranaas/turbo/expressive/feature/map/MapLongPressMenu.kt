@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.TripOrigin
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -82,6 +83,8 @@ internal fun MapLongPressMenu(
     anchor: Offset,
     onNewMarker: () -> Unit,
     onRouteHere: () -> Unit,
+    /** Begin building a route whose FIRST waypoint is this point (drops an origin pin). */
+    onStartRouteHere: () -> Unit,
     onCreateTrack: () -> Unit,
     onAddPhoto: () -> Unit,
     onDismiss: () -> Unit,
@@ -128,9 +131,9 @@ internal fun MapLongPressMenu(
         val margin = 12.dp
         val cardWidthPx = with(density) { cardWidth.toPx() }
         val marginPx = with(density) { margin.toPx() }
-        // Realistic card height (mini-weather + 4 action rows); errs tall so the clamp
+        // Realistic card height (mini-weather + 5 action rows); errs tall so the clamp
         // never lets the bottom action slip under the gesture-nav bar.
-        val estCardHeightPx = with(density) { 430.dp.toPx() }
+        val estCardHeightPx = with(density) { 488.dp.toPx() }
         val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
         val statusTopPx = WindowInsets.statusBars.getTop(density).toFloat()
         val maxW = constraints.maxWidth.toFloat()
@@ -166,8 +169,9 @@ internal fun MapLongPressMenu(
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         ActionRow(Icons.Rounded.AddLocationAlt, stringResource(R.string.lp_new_marker), onNewMarker, "lpNewMarker", index = 0, primary = true)
                         ActionRow(Icons.Rounded.Navigation, stringResource(R.string.lp_route_here), onRouteHere, "lpRouteHere", index = 1)
-                        ActionRow(Icons.Rounded.Route, stringResource(R.string.track_title), onCreateTrack, "lpCreateTrack", index = 2)
-                        ActionRow(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", index = 3)
+                        ActionRow(Icons.Rounded.TripOrigin, stringResource(R.string.lp_start_route), onStartRouteHere, "lpStartRoute", index = 2)
+                        ActionRow(Icons.Rounded.Route, stringResource(R.string.track_title), onCreateTrack, "lpCreateTrack", index = 3)
+                        ActionRow(Icons.Rounded.AddAPhoto, stringResource(R.string.lp_add_photo), onAddPhoto, "lpAddPhoto", index = 4)
                     }
                 }
             }

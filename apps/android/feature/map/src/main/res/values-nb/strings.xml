@@ -119,6 +119,7 @@
     <!-- Long-press contextual menu -->
     <string name="lp_new_marker">Ny markør</string>
     <string name="lp_route_here">Rute hit</string>
+    <string name="lp_start_route">Start rute her</string>
     <string name="lp_add_photo">Legg til bilde her</string>
 
     <!-- Marker editor -->

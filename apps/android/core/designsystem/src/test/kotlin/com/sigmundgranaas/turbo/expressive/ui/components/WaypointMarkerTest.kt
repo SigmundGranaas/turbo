@@ -35,21 +35,26 @@ class WaypointMarkerTest {
         selected: Boolean = false,
         onTap: () -> Unit = {},
         onLongPress: () -> Unit = {},
+        onDragStart: () -> Unit = {},
         onMoved: (LatLng) -> Unit = {},
+        onDragEnd: () -> Unit = {},
     ) {
         composeRule.setContent {
             MaterialTheme {
                 WaypointMarkerView(
+                    wp = LatLng(200.0, 200.0),
                     index = 1,
                     last = 2,
                     selected = selected,
                     cameraTick = 0,
                     project = { Offset(200f, 200f) },
-                    // Fake screen→world: lng = x, lat = y, so we can assert the drag landed.
-                    toLatLng = { o -> LatLng(o.y.toDouble(), o.x.toDouble()) },
+                    // Fake screen→ground: lng = x, lat = y, so we can assert the drop landed.
+                    toGround = { o -> LatLng(o.y.toDouble(), o.x.toDouble()) },
                     onTap = onTap,
                     onLongPress = onLongPress,
+                    onDragStart = onDragStart,
                     onMoved = onMoved,
+                    onDragEnd = onDragEnd,
                 )
             }
         }
@@ -80,7 +85,8 @@ class WaypointMarkerTest {
         }
         val drop = moved
         assertNotNull("a drag on the selected stop should commit a move", drop)
-        // base (200,200) + drag(120,80) → toLatLng(x=320,y=280) = lat 280, lng 320.
+        // The commit tracks the FINGER 1:1 (the pin's lift is visual only). base (200,200) +
+        // drag(120,80) → toLatLng(x=320,y=280) = lng 320, lat 280.
         assertEquals(320.0, drop!!.lng, 40.0)
         assertEquals(280.0, drop.lat, 40.0)
     }
@@ -96,5 +102,20 @@ class WaypointMarkerTest {
         assertNotNull("dragging any stop should commit a move without selecting first", drop)
         assertEquals(320.0, drop!!.lng, 40.0)
         assertEquals(280.0, drop.lat, 40.0)
+    }
+
+    @Test
+    fun `a drag opens and closes a drag session (start then end, end before the commit)`() {
+        val order = mutableListOf<String>()
+        marker(
+            onDragStart = { order += "start" },
+            onMoved = { order += "moved" },
+            onDragEnd = { order += "end" },
+        )
+        composeRule.onNodeWithTag("waypoint_1").performTouchInput {
+            swipe(start = center, end = center + Offset(120f, 80f), durationMillis = 200)
+        }
+        assertEquals("drag should open a session before the move and close it on release", "start", order.firstOrNull())
+        assertTrue("the session must end before the move commits, so the re-solve isn't suppressed", order.indexOf("end") < order.indexOf("moved"))
     }
 }

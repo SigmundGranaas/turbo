@@ -28,6 +28,9 @@ data class LocationSample(
     val altitude: Double?,
     val accuracyM: Double? = null,
     val speedMps: Double? = null,
+    /** Course over ground in degrees (0 = N, clockwise), or null when the fix carries none
+     *  (stationary / no GPS heading). Drives the map's my-position heading beam. */
+    val bearingDeg: Double? = null,
 )
 
 /**
@@ -81,6 +84,7 @@ class AndroidLocationRepository @Inject constructor(
             if (hasAltitude()) altitude else null,
             if (hasAccuracy()) accuracy.toDouble() else null,
             if (hasSpeed()) speed.toDouble() else null,
+            if (hasBearing()) bearing.toDouble() else null,
         )
         // Drop inaccurate / stale / teleporting fixes before anyone sees them — in
         // particular the (often stale) last-known seed below, the resume-teleport source.

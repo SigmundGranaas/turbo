@@ -31,40 +31,38 @@ internal const val MIN_FLING_VELOCITY_DP = 160f
 internal const val MOVE_SLOP_DP = 18f
 
 /**
- * The two-finger gesture commits to ONE intent — **zoom** (pinch) or **drag** —
- * decided by whether the fingers' *spread* changed (pinch) or their *centroid* moved
- * (drag), whichever crosses its gate first (see [lockTwoFingerAxis]). There is no
- * finger-twist gesture. A "drag" is a free move: in 3D it orbits the camera
- * (left/right → bearing, up/down → pitch), in 2D it pans. The zoom gate is wide so a
- * plain two-finger drag rarely trips an accidental zoom.
+ * **2D:** two-finger gestures apply pan + zoom simultaneously — the centroid translation
+ * pans and the spread ratio zooms, both every frame. 2D never rotates or tilts.
+ *
+ * **3D:** the two-finger DRAG orbits the camera (never pans — panning is one-finger): the
+ * centroid's horizontal drag rotates the bearing and its vertical drag tilts the pitch. The
+ * finger TWIST does nothing. The spread still pinch-zooms about the centroid.
  */
-/** Net spread change (zoom levels) before a pinch wins the gesture — deliberately wide
- *  so dragging two fingers to pan/orbit doesn't keep tripping zoom. */
-internal const val ZOOM_GATE_LEVELS = 0.16f
-
-/** Centroid travel (dp) before a two-finger drag (pan / orbit) wins the gesture. */
-internal const val DRAG_GATE_DP = 14f
-
-/** Two-finger orbit sensitivity (3D), screen px → degrees. Horizontal drag spins the bearing. */
-internal const val ORBIT_BEARING_DEG_PER_PX = 0.22f
-
 /** Fallback px/s fling gate for the pure helpers / tests; the detector passes a density-scaled one. */
 internal const val MIN_FLING_VELOCITY = 220f
 
-/** The one intent a two-finger gesture commits to. Drag = pan (2D) / orbit (3D). */
-internal enum class TwoFingerAxis { Zoom, Drag }
+/** Accumulated finger-twist (degrees) before 3D bearing rotation engages — a dead-zone so a
+ *  pure pinch/tilt doesn't wobble the bearing. Once engaged, per-frame deltas apply continuously. */
+internal const val ROTATE_GATE_DEG = 7f
+
+/** Pitch (tilt) degrees per pixel of two-finger VERTICAL drag in 3D. ~0.3°/px → a ~270 px drag
+ *  sweeps the full 0–80° tilt; the engine clamps to its pitch range. Tunable on device. */
+internal const val PITCH_PER_PX = 0.3f
+
+/** Bearing (rotate) degrees per pixel of two-finger HORIZONTAL drag in 3D. ~0.3°/px → a ~300 px
+ *  drag spins ~90°. Tunable on device (flip the sign if rotation feels reversed). */
+internal const val BEARING_PER_PX = 0.3f
 
 /**
- * Decide the gesture's intent. [zoomN] is the net spread change ÷ its gate; [dragN] is
- * the centroid travel ÷ its gate (1.0 = "just reached the gate"). Returns null until one
- * crosses 1.0 (a dead-zone); then the *more* progressed intent wins and owns the rest of
- * the gesture — zoom XOR drag. Ties favour drag, so an ambiguous gesture pans rather than
- * zooms (the common complaint was accidental zoom while panning).
+ * Signed shortest-arc change between two finger-pair angles (radians in),
+ * returned in DEGREES and wrapped to [-180, 180] so a twist across the ±π seam
+ * doesn't spike. Pure → unit-tested.
  */
-internal fun lockTwoFingerAxis(zoomN: Float, dragN: Float): TwoFingerAxis? = when {
-    zoomN < 1f && dragN < 1f -> null
-    zoomN > dragN -> TwoFingerAxis.Zoom
-    else -> TwoFingerAxis.Drag
+internal fun twistDeltaDeg(prevAngleRad: Float, angleRad: Float): Float {
+    var d = Math.toDegrees((angleRad - prevAngleRad).toDouble()).toFloat()
+    while (d > 180f) d -= 360f
+    while (d < -180f) d += 360f
+    return d
 }
 
 /** ln(2): converts a natural-log scale rate into zoom-levels/second. */
@@ -136,30 +134,26 @@ internal fun shouldFling(vx: Float, vy: Float, minVelocity: Float = MIN_FLING_VE
     hypot(vx, vy) >= minVelocity
 
 /**
- * Which gesture grammar [detectMapGestures] applies. In BOTH modes one finger pans and
- * two fingers either pinch-zoom or drag. A two-finger DRAG orbits the camera in 3D
- * (left/right → bearing, up/down → pitch) and pans in 2D. There is no finger-twist.
+ * Which gesture grammar [detectMapGestures] applies. One finger pans in both modes.
+ * Two fingers pan + zoom together in both modes; in **3D** they also rotate the
+ * bearing via finger-twist (2D never rotates). There is no tilt gesture.
  * See docs/architecture/2026-06-2d-3d-map-mode-gestures.md.
  */
 internal enum class MapGestureMode { TwoD, ThreeD }
 
-/** Two-finger orbit sensitivity (3D), screen px → degrees of pitch. Up-drag tilts toward the horizon. */
-internal const val ORBIT_PITCH_DEG_PER_PX = 0.22f
-
 /**
- * iPhone-style map gestures: one detector for pan + pinch-zoom + two-finger orbit + momentum.
+ * iPhone-style map gestures: one detector for pan + pinch-zoom + (3D) twist-rotate + momentum.
  *
  * - **finger down** → [onDown] (the host catches any in-flight animation, so a touch
  *   stops the map exactly where it is);
  * - **one finger** → [onTransform] pan deltas, ignored until the move passes
  *   [MOVE_SLOP_DP] so a shaky finger doesn't nudge or drift the map (both 2D and 3D);
- * - **two fingers** → ONE intent per gesture (see [lockTwoFingerAxis]): **zoom** (pinch,
- *   spread change) via [onTransform], OR a **drag** (the centroid moves). A drag orbits
- *   in 3D via [onOrbit] — left/right → bearing, up/down → pitch — and pans in 2D via
- *   [onTransform]. There is no finger-twist. The zoom gate is wide, so a two-finger drag
- *   rarely trips an accidental zoom;
- * - **release** → a pan [onFling] (one-finger velocity) or a [onZoomFling] (only if the
- *   gesture locked to zoom) — never both; anything else rests.
+ * - **two fingers** → in **2D**, pan + zoom together via [onTransform] (centroid translation
+ *   pans, spread ratio zooms). In **3D** the DRAG orbits via [onOrbit] — horizontal rotates the
+ *   bearing, vertical tilts the pitch; twist does nothing; the spread still pinch-zooms via
+ *   [onTransform] with zero pan; two fingers never pan in 3D;
+ * - **release** → a pan [onFling] (one-finger velocity) or a [onZoomFling] (two-finger zoom
+ *   momentum) — never both; anything else rests.
  *
  * The velocity baseline is reset whenever the pointer count changes, so adding or
  * lifting a finger doesn't inject a spurious centroid jump.
@@ -169,16 +163,15 @@ internal suspend fun PointerInputScope.detectMapGestures(
     onTransform: (panX: Float, panY: Float, zoom: Float, focusX: Float, focusY: Float) -> Unit,
     onFling: (vx: Float, vy: Float) -> Unit,
     onZoomFling: (zoomVelocity: Float, focusX: Float, focusY: Float) -> Unit = { _, _, _ -> },
-    // 3D mode (default off). `mode` is sampled ONCE at gesture start so a toggle mid-drag
-    // doesn't change the grammar underfoot. The only difference: a two-finger drag orbits
-    // in 3D and pans in 2D.
+    // 3D mode (default off). `mode` is sampled ONCE at gesture start so a toggle mid-gesture
+    // doesn't change the grammar underfoot. In 3D two fingers tilt+rotate instead of panning.
     mode: () -> MapGestureMode = { MapGestureMode.TwoD },
-    // Two-finger orbit (3D): bearing + pitch about the gesture centroid.
+    // Two-finger orbit about the centroid (3D only): `dBearingDeg` from the centroid's
+    // horizontal drag, `dPitchDeg` from its vertical drag. Both can fire in the same frame.
     onOrbit: (dBearingDeg: Float, dPitchDeg: Float, focusX: Float, focusY: Float) -> Unit = { _, _, _, _ -> },
 ) {
     val moveSlopPx = MOVE_SLOP_DP.dp.toPx()
     val minFlingPx = MIN_FLING_VELOCITY_DP.dp.toPx()
-    val dragGatePx = DRAG_GATE_DP.dp.toPx()
     awaitEachGesture {
         val tracker = VelocityTracker()
         val zoomTracker = ZoomVelocityTracker()
@@ -190,12 +183,8 @@ internal suspend fun PointerInputScope.detectMapGestures(
         var prevCount = 1
         var prevCentroid = first.position
         var prevSpread = 0f
-        // Two-finger arbitration: pinch (net spread) vs drag (centroid travel from where the
-        // second finger landed); the first to cross its gate locks the gesture.
-        var lockedAxis: TwoFingerAxis? = null
-        var zoomAccumLevels = 0f
-        var startCentroid = first.position
         var wasMulti = false
+        var wasPinch = false
         // Single-finger drag only "starts working" once it clears the slop, so a
         // stationary-but-shaky touch neither moves the map nor flings on release.
         var dragStarted = false
@@ -216,16 +205,14 @@ internal suspend fun PointerInputScope.detectMapGestures(
 
             if (count != prevCount) {
                 // Pointer count changed: re-baseline (a lifted/added finger would otherwise
-                // jump the centroid) and restart velocity + the two-finger gates.
+                // jump the centroid) and restart velocity tracking.
                 prevCount = count
                 tracker.resetTracking()
                 zoomTracker.reset()
-                lockedAxis = null
-                zoomAccumLevels = 0f
                 if (count >= 2) {
                     wasMulti = true
+                    wasPinch = true
                     dragStarted = true // two fingers are always deliberate
-                    startCentroid = centroid // measure the drag from here
                 }
             } else if (count == 1) {
                 // One finger pans — in BOTH 2D and 3D — gated by the slop so jitter is ignored.
@@ -238,53 +225,36 @@ internal suspend fun PointerInputScope.detectMapGestures(
                     }
                 }
             } else {
-                // Two fingers commit to ONE intent — pinch-zoom OR drag. Zoom is the SIGNED net
-                // spread change; drag is how far the centroid has travelled from where the second
-                // finger landed. The wide zoom gate + signed-net spread mean a two-finger drag
-                // (which keeps the spread ~constant) doesn't keep tripping an accidental zoom.
+                val pan = centroid - prevCentroid
                 val ratio = if (prevSpread > 0f && spread > 0f) spread / prevSpread else 1f
-                if (ratio != 1f) zoomAccumLevels += ln(ratio.toDouble()).toFloat() / LN2
-                val dx = centroid.x - prevCentroid.x
-                val dy = centroid.y - prevCentroid.y
+                if (ratio != 1f) zoomTracker.addRatio(t, ratio)
 
-                if (lockedAxis == null) {
-                    lockedAxis = lockTwoFingerAxis(
-                        zoomN = abs(zoomAccumLevels) / ZOOM_GATE_LEVELS,
-                        dragN = (centroid - startCentroid).getDistance() / dragGatePx,
-                    )
+                if (gestureMode == MapGestureMode.ThreeD) {
+                    // 3D: the two-finger DRAG orbits the camera — horizontal drag rotates the
+                    // bearing, vertical drag tilts the pitch. Finger TWIST does nothing. Two
+                    // fingers never pan (panning is one-finger); the spread still pinch-zooms
+                    // about the centroid.
+                    if (ratio != 1f) onTransform(0f, 0f, ratio, centroid.x, centroid.y)
+                    val dBearing = pan.x * BEARING_PER_PX
+                    val dPitch = -pan.y * PITCH_PER_PX
+                    if (dBearing != 0f || dPitch != 0f) onOrbit(dBearing, dPitch, centroid.x, centroid.y)
+                } else {
+                    // 2D: pan + zoom together (focus = centroid). 2D never rotates or tilts.
+                    onTransform(pan.x, pan.y, ratio, centroid.x, centroid.y)
                 }
 
-                var applied = false
-                when (lockedAxis) {
-                    TwoFingerAxis.Zoom -> if (ratio != 1f) {
-                        zoomTracker.addRatio(t, ratio)
-                        onTransform(0f, 0f, ratio, centroid.x, centroid.y)
-                        applied = true
-                    }
-                    // A drag: orbit in 3D (left/right → bearing, up/down → pitch), pan in 2D.
-                    TwoFingerAxis.Drag -> if (dx != 0f || dy != 0f) {
-                        if (gestureMode == MapGestureMode.ThreeD) {
-                            onOrbit(dx * ORBIT_BEARING_DEG_PER_PX, -dy * ORBIT_PITCH_DEG_PER_PX, centroid.x, centroid.y)
-                        } else {
-                            onTransform(dx, dy, 1f, centroid.x, centroid.y)
-                        }
-                        applied = true
-                    }
-                    null -> {} // still in the dead-zone — nothing has won yet
-                }
-
-                if (applied) event.changes.forEach { if (it.positionChanged()) it.consume() }
+                event.changes.forEach { if (it.positionChanged()) it.consume() }
             }
             prevCentroid = centroid
             prevSpread = spread
             tracker.addPosition(t, centroid)
         }
 
-        // Only a zoom gesture carries momentum (locked to the zoom axis, no sideways drift);
-        // an orbit rests; a one-finger flick carries pan momentum; a sub-slop touch rests.
+        // Two-finger zoom carries momentum; pan-from-pinch rests (no sideways drift after a
+        // pinch). A one-finger flick carries pan momentum; a sub-slop touch rests.
         if (wasMulti) {
             val zv = zoomTracker.velocity()
-            if (lockedAxis == TwoFingerAxis.Zoom && shouldZoomFling(zv)) {
+            if (shouldZoomFling(zv)) {
                 onZoomFling(zv, prevCentroid.x, prevCentroid.y)
             } else {
                 onFling(0f, 0f)
@@ -293,19 +263,26 @@ internal suspend fun PointerInputScope.detectMapGestures(
             onFling(0f, 0f)
         } else {
             val v = tracker.calculateVelocity()
-            val (fx, fy) = flingVelocity(v.x, v.y, wasPinch = false, minVelocity = minFlingPx)
+            val (fx, fy) = flingVelocity(v.x, v.y, wasPinch = wasPinch, minVelocity = minFlingPx)
             onFling(fx, fy)
         }
     }
 }
 
 /**
- * Tap + long-press that survives a shaky finger. Unlike the platform
- * `detectTapGestures`, a touch is allowed to wobble up to [MOVE_SLOP_DP] without
- * cancelling — so a long-press still fires on a train (the user's finger can't be
- * perfectly still). A touch held past the long-press timeout within that slop
- * fires [onLongPress]; a quick release within it fires [onTap]; moving beyond it
- * is a pan and does neither (the map gesture detector takes over).
+ * Tap + long-press that survives a shaky finger, but is strictly SINGLE-FINGER and
+ * fires the long-press on RELEASE. Unlike the platform `detectTapGestures`, a touch
+ * may wobble up to [MOVE_SLOP_DP] without cancelling (so a long-press still fires on
+ * a train). The "selected point" long-press must never appear during a two-finger
+ * gesture and only when one finger has been held still and then lifted, so:
+ *
+ * - a SECOND finger landing at any point cancels the long-press entirely (it's a
+ *   pan/zoom/rotate, not a point selection);
+ * - holding one finger still (within slop) past the long-press timeout merely *arms*
+ *   the long-press — [onLongPress] fires when that finger is **released**, not while
+ *   it's down;
+ * - a quick release within slop before the timeout fires [onTap];
+ * - moving beyond slop is a pan and does neither (the map detector takes over).
  */
 internal suspend fun PointerInputScope.detectTapAndLongPress(
     onTap: (Offset) -> Unit,
@@ -317,12 +294,19 @@ internal suspend fun PointerInputScope.detectTapAndLongPress(
         val down = awaitFirstDown(requireUnconsumed = false)
         val downPos = down.position
         var movedTooFar = false
-        val longPressed = try {
+        var multiFinger = false
+        // Phase 1: hold detection. Arm only if ONE finger stays within slop past the
+        // timeout. A second finger or a wander past slop bails out early.
+        val armed = try {
             withTimeout(longPressTimeout) {
                 while (true) {
                     val event = awaitPointerEvent()
+                    if (event.changes.count { it.pressed } > 1) {
+                        multiFinger = true
+                        return@withTimeout false // two fingers → never a point selection
+                    }
                     val change = event.changes.firstOrNull { it.id == down.id }
-                    if (change == null || !change.pressed) return@withTimeout false // lifted → a tap candidate
+                    if (change == null || !change.pressed) return@withTimeout false // lifted → tap candidate
                     if ((change.position - downPos).getDistance() > slop) {
                         movedTooFar = true
                         return@withTimeout false // a real drag — not a tap or long-press
@@ -332,18 +316,29 @@ internal suspend fun PointerInputScope.detectTapAndLongPress(
                 false
             }
         } catch (_: PointerEventTimeoutCancellationException) {
-            true // held within slop past the timeout → long-press
+            true // held still, one finger, past the timeout → armed; fire on release
         }
         when {
-            longPressed -> {
-                onLongPress(downPos)
-                // Drain the rest of the gesture so the eventual lift isn't read as a tap.
-                do {
+            armed -> {
+                // Phase 2: wait for the SINGLE finger to lift, firing on release. A second
+                // finger landing, or wandering past slop, cancels (no menu).
+                var cancelled = false
+                while (true) {
                     val event = awaitPointerEvent()
+                    if (event.changes.count { it.pressed } > 1) cancelled = true
                     val change = event.changes.firstOrNull { it.id == down.id }
-                    if (change == null || !change.pressed) break
-                } while (true)
+                    if (change != null && change.pressed &&
+                        (change.position - downPos).getDistance() > slop
+                    ) {
+                        cancelled = true
+                    }
+                    if (change == null || !change.pressed) {
+                        if (!cancelled) onLongPress(downPos) // released cleanly → select the point
+                        break
+                    }
+                }
             }
+            multiFinger -> Unit // two fingers — never a tap/long-press
             movedTooFar -> Unit // became a pan; the map detector owns it
             else -> onTap(downPos) // lifted within slop before the timeout
         }

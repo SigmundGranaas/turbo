@@ -40,6 +40,15 @@ interface MapEngine {
     /** Geographic position under a screen pixel — used to capture freehand drawing. */
     fun fromScreen(xPx: Float, yPx: Float): LatLng
 
+    /**
+     * Geographic position where the screen ray meets the TERRAIN surface (not the
+     * flat plane [fromScreen] uses). In 3D this is the exact ground point under the
+     * pixel — use it for placing/dragging markers so a dropped pin lands where the
+     * finger is and round-trips back through [toScreen] to the same pixel. In 2D
+     * (and on the MapLibre host) it's identical to [fromScreen].
+     */
+    fun screenToGround(xPx: Float, yPx: Float): LatLng
+
     /** Screen pixel for a geographic position — anchors on-map UI (e.g. the long-press menu). */
     fun toScreen(point: LatLng): Pair<Float, Float>
 

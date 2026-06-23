@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sigmundgranaas.turbo.expressive.core.common.Outcome
 import com.sigmundgranaas.turbo.expressive.core.common.StringProvider
+import com.sigmundgranaas.turbo.expressive.core.data.ConditionsRepository
 import com.sigmundgranaas.turbo.expressive.core.data.LocationRepository
 import com.sigmundgranaas.turbo.expressive.core.data.MarkerRepository
 import com.sigmundgranaas.turbo.expressive.core.data.RadarRepository
@@ -22,10 +23,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 /** Why an initial GPS centre couldn't happen — surfaced as a one-shot banner.
  *  Slow GPS is NOT a notice: the first fix just takes a while, so we wait
@@ -33,11 +38,25 @@ import javax.inject.Inject
  *  is surfaced. */
 enum class LocationNotice { ServicesOff }
 
+/**
+ * Sea state pulled from the MET forecast, in the shape the water surface wants.
+ * Any field may be null (MET drops marine data inland / wind at the tail).
+ */
+data class SeaState(
+    val waveFromDeg: Float?,
+    val waveHeightM: Float?,
+    val windSpeedMs: Float?,
+    val windFromDeg: Float?,
+)
+
 data class MapUiState(
     val markers: List<Marker> = emptyList(),
     val baseLayer: BaseLayer = BaseLayer.Norgeskart,
     val following: Boolean = false,
     val userLocation: LatLng? = null,
+    /** Course over ground in degrees (0 = N), or null when the fix has no heading — drives the
+     *  my-position heading beam on the map. */
+    val userHeading: Float? = null,
     /** True while we've started locating but no fix has arrived yet (drives a "locating…" hint). */
     val locating: Boolean = false,
     val locationNotice: LocationNotice? = null,
@@ -63,10 +82,20 @@ class MapViewModel @Inject constructor(
     private val reverseGeocode: ReverseGeocodeRepository,
     private val strings: StringProvider,
     private val settings: SettingsRepository,
+    private val conditions: ConditionsRepository,
     radarRepository: RadarRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MapUiState())
     val state: StateFlow<MapUiState> = _state.asStateFlow()
+
+    /**
+     * Latest sea state (MET wave/wind forecast) near the user, feeding the wgpu
+     * water surface — wave direction + ferocity, whitecaps, shoreline foam. Null
+     * until a fix + forecast arrive (or inland, where MET has no marine data, the
+     * wave fields stay null and the water falls back to a calm look).
+     */
+    private val _seaState = MutableStateFlow<SeaState?>(null)
+    val seaState: StateFlow<SeaState?> = _seaState.asStateFlow()
 
     /** Live cloud-overlay source (real MET weather, synthetic fallback offline). */
     val radarSource: RadarDataSource = MetRadarDataSource(radarRepository)
@@ -83,6 +112,30 @@ class MapViewModel @Inject constructor(
             markerRepository.observeAll().collect { markers ->
                 _state.update { it.copy(markers = markers) }
             }
+        }
+        // Sea state for the water surface: follow the user's location (rounded to
+        // ~0.02° ≈ 2 km so we don't hammer MET on every GPS sample), fetch the
+        // MET wave/wind forecast, and publish it. `collectLatest` cancels an
+        // in-flight fetch when the location moves on. Failures leave the last
+        // good value (the water just keeps its previous look).
+        viewModelScope.launch {
+            location.locationUpdates()
+                .map { LatLng((it.lat * 50.0).roundToInt() / 50.0, (it.lng * 50.0).roundToInt() / 50.0) }
+                .distinctUntilChanged()
+                .collectLatest { p ->
+                    when (val outcome = conditions.forPoint(p)) {
+                        is Outcome.Success -> {
+                            val c = outcome.value
+                            _seaState.value = SeaState(
+                                waveFromDeg = c.marine?.waveFromDeg?.toFloat(),
+                                waveHeightM = c.marine?.waveHeightM?.toFloat(),
+                                windSpeedMs = c.weather?.windSpeedMs?.toFloat(),
+                                windFromDeg = c.weather?.windFromDeg?.toFloat(),
+                            )
+                        }
+                        is Outcome.Failure -> Unit
+                    }
+                }
         }
         // Restore (and keep in sync with) the persisted base map so the choice
         // survives relaunch instead of resetting to Norgeskart every time.
@@ -111,8 +164,15 @@ class MapViewModel @Inject constructor(
         if (locationJob != null || !location.hasPermission()) return
         _state.update { it.copy(locating = true, locationNotice = null) }
         locationJob = viewModelScope.launch {
-            location.locationUpdates().collect { fix ->
-                _state.update { it.copy(userLocation = fix, locating = false, locationNotice = null) }
+            location.samples().collect { s ->
+                _state.update {
+                    it.copy(
+                        userLocation = s.position,
+                        userHeading = s.bearingDeg?.toFloat(),
+                        locating = false,
+                        locationNotice = null,
+                    )
+                }
             }
         }
     }

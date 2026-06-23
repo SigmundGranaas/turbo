@@ -65,6 +65,13 @@ class RouteViewModel @Inject constructor(
     private var resumeFollowing = false
     private val undoStack = ArrayDeque<List<LatLng>>()
 
+    // A waypoint is being dragged on the map. While true, re-solves are DEFERRED so the route
+    // line can't thrash under the user's finger (e.g. a follow-mode reroute landing mid-drag);
+    // the deferred solve runs on [endWaypointDrag]. The drop's own commit ends the drag first,
+    // so the moved waypoint re-solves normally.
+    private var waypointDragActive = false
+    private var solvePendingAfterDrag = false
+
     init {
         // Keep the route state in step with the follow session: if following ends from
         // outside (e.g. the lock-screen Stop button → FollowController.stop()), drop back
@@ -115,6 +122,20 @@ class RouteViewModel @Inject constructor(
         if (next.size < 2) clear() else setWaypoints(next, debounce = true)
     }
 
+    /** A map drag of a waypoint began — defer re-solves until it ends (see [waypointDragActive]). */
+    fun beginWaypointDrag() {
+        waypointDragActive = true
+    }
+
+    /** The map drag ended — resume re-solving, running any solve deferred during the drag. */
+    fun endWaypointDrag() {
+        waypointDragActive = false
+        if (solvePendingAfterDrag) {
+            solvePendingAfterDrag = false
+            solve(debounce = true)
+        }
+    }
+
     /** Move the waypoint at [index] to a new position (drag on the map), then re-solve. */
     fun moveWaypointTo(index: Int, point: LatLng) {
         val current = _waypoints.value
@@ -153,6 +174,12 @@ class RouteViewModel @Inject constructor(
     private fun solve(debounce: Boolean) {
         val points = _waypoints.value
         if (points.size < 2) return
+        // Mid-drag: hold off. The waypoint state is already updated for the live overlay; the
+        // re-solve runs once the finger lifts ([endWaypointDrag]) so the line doesn't thrash.
+        if (waypointDragActive) {
+            solvePendingAfterDrag = true
+            return
+        }
         job?.cancel()
         val current = _state.value
         // An off-route reroute while FOLLOWING must be INVISIBLE: re-solving in the background

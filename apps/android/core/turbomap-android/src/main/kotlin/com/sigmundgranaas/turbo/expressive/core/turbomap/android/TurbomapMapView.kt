@@ -82,10 +82,14 @@ fun TurbomapMapView(
     initialCamera: LatLng,
     initialZoom: Double,
     modifier: Modifier = Modifier,
+    /** Vector (MVT) overlays — the realistic-water layer is one. Fetched host-side. */
+    vectors: List<TurbomapScene.VectorSpec> = emptyList(),
     track: List<LatLng>? = null,
     route: List<LatLng>? = null,
     measure: List<LatLng> = emptyList(),
     userLocation: LatLng? = null,
+    /** Course over ground (deg, 0 = N) for the my-position heading beam; null = no heading. */
+    userHeading: Float? = null,
     markers: List<Marker> = emptyList(),
     selectedMarkerId: String? = null,
     markerFallbackColor: Color = Color(0xFF8F4C38),
@@ -96,6 +100,10 @@ fun TurbomapMapView(
     onWaypointTap: (Int) -> Unit = {},
     onWaypointLongPress: (Int) -> Unit = {},
     onWaypointMoved: (Int, LatLng) -> Unit = { _, _ -> },
+    onWaypointDragStart: (Int) -> Unit = {},
+    onWaypointDragEnd: (Int) -> Unit = {},
+    /** Pending route origin (first point before a destination exists) → drawn as an origin pin. */
+    routeOrigin: LatLng? = null,
     onMarkerClick: (Marker) -> Unit = {},
     // When true the map is in 3D mode: a 1-finger drag orbits about the user
     // location (or screen centre if it's off-screen) and two fingers pan + zoom.
@@ -122,7 +130,9 @@ fun TurbomapMapView(
     controller.onBearingChange = onBearingChange
     controller.onError = onEngineError
     controller.cacheDir = remember(context) { File(context.cacheDir, "turbomap-tiles") }
-    fun scene() = TurbomapScene.build(rasters, measure, userLocation, demUrl = demUrl)
+    // The live user position is NOT in the scene anymore — it's a Compose MyPositionPin in
+    // the overlay (stands on the terrain via the engine projection). See TurbomapScene.
+    fun scene() = TurbomapScene.build(rasters, vectors, measure, demUrl = demUrl)
 
     // Latest 3D flag read by the long-lived gesture lambda (pointerInput(Unit) never
     // restarts), so toggling 3D takes effect without recreating the detector.
@@ -144,7 +154,7 @@ fun TurbomapMapView(
                     holder.addCallback(object : SurfaceHolder.Callback {
                         override fun surfaceCreated(holder: SurfaceHolder) = Unit
                         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                            controller.attachOrResize(holder.surface, width, height, initialCamera, initialZoom, scene(), rasters, demUrl, onMapReady)
+                            controller.attachOrResize(holder.surface, width, height, initialCamera, initialZoom, scene(), rasters, vectors, demUrl, onMapReady)
                         }
                         override fun surfaceDestroyed(holder: SurfaceHolder) = controller.detach()
                     })
@@ -191,6 +201,8 @@ fun TurbomapMapView(
                 markers = markers,
                 selectedMarkerId = selectedMarkerId,
                 markerFallbackColor = markerFallbackColor,
+                userLocation = userLocation,
+                userHeading = userHeading,
                 onMarkerClick = onMarkerClick,
                 photoPins = photoPins,
                 onPhotoPinClick = onPhotoPinClick,
@@ -199,12 +211,15 @@ fun TurbomapMapView(
                 onWaypointTap = onWaypointTap,
                 onWaypointLongPress = onWaypointLongPress,
                 onWaypointMoved = onWaypointMoved,
+                onWaypointDragStart = onWaypointDragStart,
+                onWaypointDragEnd = onWaypointDragEnd,
+                routeOrigin = routeOrigin,
             )
         }
     }
 
-    LaunchedEffect(rasters, measure, userLocation, demUrl) {
-        controller.applyScene(scene(), rasters, demUrl)
+    LaunchedEffect(rasters, vectors, measure, userLocation, demUrl) {
+        controller.applyScene(scene(), rasters, vectors, demUrl)
     }
     // Route + track render as raised 3D tubes (a native lit mesh), not scene
     // lines — pushed separately whenever their geometry changes.
@@ -237,6 +252,8 @@ internal class TurbomapSurfaceController {
     private var width = 0
     private var height = 0
     private var rasters: List<TurbomapScene.RasterSpec> = emptyList()
+    /** Vector (MVT) overlays — the realistic-water layer. "vector" pending tiles fetch these. */
+    private var vectors: List<TurbomapScene.VectorSpec> = emptyList()
     /** DEM tile URL template for 3D terrain ("terrain" pending tiles fetch this); null = flat. */
     private var demUrl: String? = null
     private val scope = CoroutineScope(Dispatchers.Main.immediate)
@@ -343,12 +360,14 @@ internal class TurbomapSurfaceController {
         zoom: Double,
         sceneJson: String,
         rasterSpecs: List<TurbomapScene.RasterSpec>,
+        vectorSpecs: List<TurbomapScene.VectorSpec>,
         demUrlTemplate: String?,
         onMapReady: (MapEngine) -> Unit,
     ) {
         width = w
         height = h
         rasters = rasterSpecs
+        vectors = vectorSpecs
         demUrl = demUrlTemplate
         if (handle == 0L) {
             handle = NativeSurfaceMap.nativeCreate(surface, w, h, camera.lat, camera.lng, zoom)
@@ -425,9 +444,15 @@ internal class TurbomapSurfaceController {
         tubes.keys.toList().forEach { pushTube(it) }
     }
 
-    fun applyScene(sceneJson: String, rasterSpecs: List<TurbomapScene.RasterSpec>, demUrlTemplate: String?) {
+    fun applyScene(
+        sceneJson: String,
+        rasterSpecs: List<TurbomapScene.RasterSpec>,
+        vectorSpecs: List<TurbomapScene.VectorSpec>,
+        demUrlTemplate: String?,
+    ) {
         if (handle == 0L) return
         rasters = rasterSpecs
+        vectors = vectorSpecs
         demUrl = demUrlTemplate
         NativeSurfaceMap.nativeApplyScene(handle, sceneJson)
         NativeSurfaceMap.nativePumpLocal(handle)
@@ -626,6 +651,7 @@ internal class TurbomapSurfaceController {
         val key: String,
         val url: String,
         val terrain: Boolean = false,
+        val vector: Boolean = false,
     )
 
     /** Turn one pending-tiles entry into a fetchable raster/DEM request, or null.
@@ -637,6 +663,7 @@ internal class TurbomapSurfaceController {
         val layer = o.optString("layer")
         val template = when (kind) {
             "raster" -> rasters.firstOrNull { it.id == layer }?.tileUrlTemplate
+            "vector" -> vectors.firstOrNull { it.id == layer }?.tileUrlTemplate
             "terrain" -> demUrl
             else -> null
         } ?: return null
@@ -644,7 +671,11 @@ internal class TurbomapSurfaceController {
         val x = o.optInt("x")
         val y = o.optInt("y")
         val url = template.replace("{z}", "$z").replace("{x}", "$x").replace("{y}", "$y")
-        return TileFetch(layer, z, x, y, "$layer/$z/$x/$y", url, terrain = kind == "terrain")
+        return TileFetch(
+            layer, z, x, y, "$layer/$z/$x/$y", url,
+            terrain = kind == "terrain",
+            vector = kind == "vector",
+        )
     }
 
     private fun launchTileFetch(t: TileFetch): Job {
@@ -678,10 +709,10 @@ internal class TurbomapSurfaceController {
                     retryAt[t.key] = SystemClock.uptimeMillis() + RETRY_BACKOFF_MS
                     android.util.Log.w("TurbomapTiles", "tile ${t.key} oversize (${bytes.size}B); evicted + skipped")
                 }
-                (if (t.terrain) {
-                    NativeSurfaceMap.nativeIngestTerrain(handle, t.z, t.x, t.y, bytes)
-                } else {
-                    NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes)
+                (when {
+                    t.terrain -> NativeSurfaceMap.nativeIngestTerrain(handle, t.z, t.x, t.y, bytes)
+                    t.vector -> NativeSurfaceMap.nativeIngestVector(handle, t.layer, t.z, t.x, t.y, bytes)
+                    else -> NativeSurfaceMap.nativeIngestRaster(handle, t.layer, t.z, t.x, t.y, bytes)
                 }) -> {
                     requestRender(cameraMoved = false) // new tile → redraw, overlays unchanged
                 }

@@ -45,6 +45,19 @@ object MapStyles {
      *  the `halo` the scene declares (TurbomapScene.TERRAIN_HALO_PX). */
     const val TERRAIN_DEM_URL = "https://kart-api.sandring.no/v1/dem/rgb/{z}/{x}/{y}.png?halo=1"
 
+    /** N50 multi-layer vector basemap (MVT) from our tileserver. We draw only its
+     *  `water` layer — over the raster basemap, through the realistic-water
+     *  pipeline (waves / sky-&-terrain reflection / foam / whitecaps). wgpu only.
+     *
+     *  Served by the kart-api origin directly (the tiles.turkart.no Cloudflare
+     *  cache front-door isn't wired yet). The basemap DB must be provisioned for
+     *  tiles to be non-empty — see the tileserver boot-provision (N50/Geonorge). */
+    private const val VECTOR_BASEMAP_URL = "https://kart-api.sandring.no/v1/basemap/{z}/{x}/{y}.mvt"
+
+    /** Deep sea-blue (sRGB) the water shader reads as the body tint; the surface
+     *  is dominated by the Fresnel reflection, so this only shows looking down. */
+    private val WATER_COLOR = TurbomapScene.Rgba(40, 96, 140)
+
     private fun baseTiles(base: BaseLayer): Pair<String, String> = when (base) {
         BaseLayer.Norgeskart -> "norgeskart" to NORGESKART_URL
         BaseLayer.Osm -> "osm" to OSM_URL
@@ -83,6 +96,20 @@ object MapStyles {
         }
         return listOf(baseSpec) + overlaySpecs
     }
+
+    /**
+     * Vector overlays for the wgpu scene. Currently just the realistic-water
+     * layer (the `water` source-layer of the N50 basemap MVT), drawn over the
+     * raster basemap. Empty for renderers/paths that don't want it.
+     */
+    fun turbomapVectorSpecs(): List<TurbomapScene.VectorSpec> = listOf(
+        TurbomapScene.VectorSpec(
+            id = "water",
+            tileUrlTemplate = VECTOR_BASEMAP_URL,
+            layerName = "water",
+            color = WATER_COLOR,
+        ),
+    )
 
     private fun raster(id: String, url: String, attribution: String, bg: String, overlays: Set<OverlayId>): String {
         val sourced = overlays.mapNotNull { ov -> overlayTiles(ov)?.let { ov to it } }

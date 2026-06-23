@@ -134,6 +134,16 @@ fun MapScreen(
     val recState by recordingViewModel.state.collectAsStateWithLifecycle()
     val recSession by recordingViewModel.session.collectAsStateWithLifecycle()
     val followSession by routeViewModel.followSession.collectAsStateWithLifecycle()
+    val seaState by viewModel.seaState.collectAsStateWithLifecycle()
+
+    // Feed the live MET wave/wind forecast into the wgpu water surface (wave
+    // direction + ferocity, whitecaps, shoreline foam). No-op on MapLibre, which
+    // doesn't implement the capability.
+    LaunchedEffect(ui.controller, seaState) {
+        val s = seaState
+        (ui.controller as? com.sigmundgranaas.turbo.expressive.domain.WaterConditionsOverlay)
+            ?.setWaterConditions(s?.waveFromDeg, s?.waveHeightM, s?.windSpeedMs, s?.windFromDeg)
+    }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -518,6 +528,7 @@ fun MapScreen(
             if (state.experimentalWgpuMap) {
                 TurbomapMapView(
                     rasters = MapStyles.turbomapRasterSpecs(state.baseLayer, ui.activeOverlays),
+                    vectors = MapStyles.turbomapVectorSpecs(),
                     initialCamera = MapDefaults.fallbackCamera,
                     initialZoom = MapDefaults.fallbackZoom,
                     track = when {
@@ -526,13 +537,20 @@ fun MapScreen(
                         ui.trackMode == TrackMode.Draw -> ui.drawPoints.takeIf { it.size > 1 }?.toList()
                         else -> ui.displayedTrack
                     },
-                    route = routeState.polyline.takeIf { it.isNotEmpty() },
+                    // While solving, don't draw the raw straight line between the waypoints —
+                    // only show the path once the solver has streamed real geometry (more points
+                    // than the input waypoints). Avoids the "stupid straight line before it's
+                    // calculated"; a re-solve keeps showing the previous refined line meanwhile.
+                    route = routeState.polyline.takeIf {
+                        it.isNotEmpty() && (routeState !is RouteUiState.Solving || it.size > toolWaypoints.size)
+                    },
                     measure = when (ui.trackMode) {
                         TrackMode.Line -> ui.linePoints
-                        TrackMode.Route -> listOfNotNull(ui.routeOrigin)
+                        TrackMode.Route -> emptyList() // origin drawn as an origin pin, not a measure dot
                         else -> emptyList()
                     },
                     userLocation = state.userLocation,
+                    userHeading = state.userHeading,
                     // 3D mode: 1-finger orbit about the user location, two
                     // fingers pan. Only meaningful on this wgpu engine.
                     threeDMode = state.threeDMode,
@@ -549,7 +567,10 @@ fun MapScreen(
                     selectedWaypoint = ui.selectedWaypoint,
                     onWaypointTap = { ui.selectedWaypoint = if (ui.selectedWaypoint == it) null else it },
                     onWaypointLongPress = { haptics.reject(); routeViewModel.removeWaypoint(it); ui.selectedWaypoint = null },
+                    onWaypointDragStart = { ui.selectedWaypoint = it; haptics.longPress(); routeViewModel.beginWaypointDrag() },
                     onWaypointMoved = { i, p -> ui.selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
+                    onWaypointDragEnd = { routeViewModel.endWaypointDrag() },
+                    routeOrigin = if (ui.trackMode == TrackMode.Route) ui.routeOrigin else null,
                     onMarkerClick = { marker -> ui.selectionState.select(markerSelection(marker)) },
                     onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
                     onMapTap = { p -> onMapTapForMode(p) },
@@ -578,7 +599,10 @@ fun MapScreen(
                     GeoMetrics.routeSuffix(routeState.polyline, followSession.progress?.fraction ?: 0.0)
                         .takeIf { it.size > 1 } ?: routeState.polyline.takeIf { it.isNotEmpty() }
                 } else {
-                    routeState.polyline.takeIf { it.isNotEmpty() }
+                    // Hide the raw straight line while solving; show it once refined (see wgpu host).
+                    routeState.polyline.takeIf {
+                        it.isNotEmpty() && (routeState !is RouteUiState.Solving || it.size > toolWaypoints.size)
+                    }
                 },
                 routeCovered = if (routeState is RouteUiState.Following) {
                     GeoMetrics.routePrefix(routeState.polyline, followSession.progress?.fraction ?: 0.0)
@@ -594,7 +618,10 @@ fun MapScreen(
                 onWaypointLongPress = {
                     haptics.reject(); routeViewModel.removeWaypoint(it); ui.selectedWaypoint = null
                 },
+                onWaypointDragStart = { ui.selectedWaypoint = it; haptics.longPress(); routeViewModel.beginWaypointDrag() },
                 onWaypointMoved = { i, p -> ui.selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
+                onWaypointDragEnd = { routeViewModel.endWaypointDrag() },
+                routeOrigin = if (ui.trackMode == TrackMode.Route) ui.routeOrigin else null,
                 // While following, draw the checkpoints as on-map markers — crossed ones filled
                 // and checked, upcoming ones outlined (US-3).
                 checkpoints = if (routeState is RouteUiState.Following) {
@@ -624,7 +651,7 @@ fun MapScreen(
                 // tap before a destination exists) so it doesn't look like nothing happened.
                 measurePoints = when (ui.trackMode) {
                     TrackMode.Line -> ui.linePoints
-                    TrackMode.Route -> listOfNotNull(ui.routeOrigin)
+                    TrackMode.Route -> emptyList() // origin drawn as an origin pin, not a measure dot
                     else -> emptyList()
                 },
                 onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
@@ -1120,6 +1147,16 @@ fun MapScreen(
                             val from = state.userLocation ?: ctrl.center()
                             openTrackTool(TrackMode.Route)
                             routeViewModel.planRoute(from, p)
+                        },
+                        onStartRouteHere = {
+                            // Begin a route whose FIRST waypoint is this point: enter Route mode
+                            // and drop the origin (shown as an origin pin). The next tap sets the
+                            // destination → planRoute, exactly like tapping the origin on the map.
+                            ui.longPressAt = null
+                            haptics.toggle(true)
+                            openTrackTool(TrackMode.Route)
+                            ui.routeOrigin = p
+                            ui.selectedWaypoint = null
                         },
                         onCreateTrack = { ui.longPressAt = null; openTrackTool(TrackMode.Route) },
                         onOpenForecast = { ui.longPressAt = null; ui.forecastAt = p },
