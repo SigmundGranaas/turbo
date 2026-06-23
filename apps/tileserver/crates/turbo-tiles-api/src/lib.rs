@@ -7,6 +7,7 @@ pub mod crash_dump;
 pub mod dem_tile_cache;
 pub mod error;
 pub mod fonts;
+pub mod mvt_tile_cache;
 pub mod sprite;
 pub mod state;
 pub mod v1;

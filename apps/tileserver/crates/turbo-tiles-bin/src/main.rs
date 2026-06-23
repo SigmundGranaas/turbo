@@ -296,6 +296,11 @@ async fn serve(
         "pathfinder assembled"
     );
     api_state.pathfinder = Some(std::sync::Arc::new(pf));
+    // Clone the rendered-MVT cache handle before `api_state` moves into the
+    // router, so the (re)provision tasks below can invalidate it when the
+    // underlying data changes (else tiles cached while the DB was empty/old
+    // would keep being served after a provision).
+    let mvt_cache = api_state.mvt_tiles.clone();
     let api_router = turbo_tiles_api::router(api_state);
 
     let admin_state = AdminState {
@@ -366,8 +371,9 @@ async fn serve(
     // don't re-provision. Re-provisioning on a cadence is a separate concern.
     if let Ok(area) = std::env::var("TILESERVER_PROVISION_ON_BOOT") {
         let provision_db = db.clone();
+        let cache = mvt_cache.clone();
         tokio::spawn(async move {
-            maybe_provision_on_boot(provision_db, area).await;
+            maybe_provision_on_boot(provision_db, area, cache).await;
         });
     }
 
@@ -379,8 +385,9 @@ async fn serve(
         match secs.parse::<u64>() {
             Ok(s) if s >= 60 => {
                 let refresh_db = db.clone();
+                let cache = mvt_cache.clone();
                 tokio::spawn(async move {
-                    refresh_loop(refresh_db, std::time::Duration::from_secs(s)).await;
+                    refresh_loop(refresh_db, std::time::Duration::from_secs(s), cache).await;
                 });
             }
             _ => tracing::warn!(
@@ -403,7 +410,11 @@ async fn serve(
 /// Background boot-time provisioning. Runs the full N50 chain for `area`
 /// only when the basemap is empty, so a fresh deploy populates itself and a
 /// restart is a no-op. Uses a dedicated batch pool (no statement timeout).
-async fn maybe_provision_on_boot(serving_db: turbo_tiles_db::DbPool, area: String) {
+async fn maybe_provision_on_boot(
+    serving_db: turbo_tiles_db::DbPool,
+    area: String,
+    mvt_cache: turbo_tiles_api::mvt_tile_cache::MvtTileCache,
+) {
     // Cheap emptiness probe on the serving pool (short timeout is fine here).
     let already: i64 = sqlx::query_scalar("SELECT count(*) FROM terrain.water_polygon")
         .fetch_one(&serving_db)
@@ -445,7 +456,12 @@ async fn maybe_provision_on_boot(serving_db: turbo_tiles_db::DbPool, area: Strin
     )
     .await
     {
-        Ok(o) => tracing::info!(rows = o.rows_upserted, "boot-provision: complete"),
+        Ok(o) => {
+            // Tiles requested while the DB was empty got cached empty; drop them
+            // so the now-populated data is served.
+            mvt_cache.bump_version();
+            tracing::info!(rows = o.rows_upserted, "boot-provision: complete");
+        }
         Err(e) => tracing::error!(error = %e, "boot-provision: failed"),
     }
 }
@@ -455,7 +471,11 @@ async fn maybe_provision_on_boot(serving_db: turbo_tiles_db::DbPool, area: Strin
 /// (the freshness skip returns after download+hash); does a full refresh
 /// when Kartverket republished. Uses a dedicated batch pool (no statement
 /// timeout). Does nothing until something has been provisioned at least once.
-async fn refresh_loop(serving_db: turbo_tiles_db::DbPool, interval: std::time::Duration) {
+async fn refresh_loop(
+    serving_db: turbo_tiles_db::DbPool,
+    interval: std::time::Duration,
+    mvt_cache: turbo_tiles_api::mvt_tile_cache::MvtTileCache,
+) {
     tracing::info!(
         secs = interval.as_secs(),
         "provision-refresh: scheduler armed"
@@ -497,14 +517,25 @@ async fn refresh_loop(serving_db: turbo_tiles_db::DbPool, interval: std::time::D
             force: false,
             ..Default::default()
         };
-        if let Err(e) = turbo_tiles_ingest::run_job_with_options(
+        match turbo_tiles_ingest::run_job_with_options(
             pool,
             turbo_tiles_ingest::JobName::ProvisionN50,
             opts,
         )
         .await
         {
-            tracing::error!(error = %e, "provision-refresh: failed");
+            // Only invalidate when the refresh actually changed data (a freshness
+            // skip upserts nothing) — so the cache isn't needlessly cleared each
+            // tick when Kartverket hasn't republished.
+            Ok(o) if o.rows_upserted > 0 => {
+                mvt_cache.bump_version();
+                tracing::info!(
+                    rows = o.rows_upserted,
+                    "provision-refresh: updated, mvt cache invalidated"
+                );
+            }
+            Ok(_) => {}
+            Err(e) => tracing::error!(error = %e, "provision-refresh: failed"),
         }
     }
 }

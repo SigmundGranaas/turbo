@@ -64,6 +64,12 @@ pub struct ApiState {
     /// CPU-bound, eliminating the per-tile re-render that made `/v1/dem`
     /// congestion-collapse under load. See [`crate::dem_tile_cache`].
     pub dem_tiles: crate::dem_tile_cache::DemTileCache,
+    /// Cache of rendered MVT vector tiles (basemap + curated resources). The MVT
+    /// render is CPU-heavy (per-feature simplify over large polygons) and the
+    /// tiles are immutable between provisions, so caching turns a multi-second
+    /// query into a memory hit and bounds concurrent cold renders. Invalidated by
+    /// `bump_version` on (re)provision. See [`crate::mvt_tile_cache`].
+    pub mvt_tiles: crate::mvt_tile_cache::MvtTileCache,
 }
 
 impl ApiState {
@@ -95,6 +101,7 @@ impl ApiState {
             ),
             routing_permits: Arc::new(tokio::sync::Semaphore::new(permits)),
             dem_tiles: crate::dem_tile_cache::DemTileCache::from_env(),
+            mvt_tiles: crate::mvt_tile_cache::MvtTileCache::from_env(),
         }
     }
 
