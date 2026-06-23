@@ -1928,21 +1928,25 @@ impl Map {
     /// needs no extra camera math and f32 precision holds at deep zoom. The
     /// recompute is gated on a [`ShadowKey`] (sun direction, RTC region, DEM
     /// insert count): orbit/tilt at a fixed centre reuse the cached upload.
-    fn update_terrain_shadows(&mut self, frame: &mut RenderFrame) {
+    /// Returns the CPU wall-time spent REASSEMBLING the heightfield this frame
+    /// (`Duration::ZERO` when it was skipped or the cached field was reused) so
+    /// the caller can record it as a distinct phase — it's a render-thread spike
+    /// worth isolating from the steady per-frame `prepare`.
+    fn update_terrain_shadows(&mut self, frame: &mut RenderFrame) -> std::time::Duration {
         let cfg = frame.raster_terrain_cfg;
         // Cast shadows only make sense on real 3D terrain.
         if cfg.meters_to_world <= 0.0 {
             log::debug!("turbomap shadow: skip — meters_to_world={}", cfg.meters_to_world);
-            return;
+            return std::time::Duration::ZERO;
         }
         let Some(terrain) = self.terrain.as_ref() else {
             log::debug!("turbomap shadow: skip — no terrain");
-            return;
+            return std::time::Duration::ZERO;
         };
         let tiles = terrain.scene.visible_tiles();
         if tiles.is_empty() {
             log::debug!("turbomap shadow: skip — terrain scene has no visible tiles");
-            return;
+            return std::time::Duration::ZERO;
         }
         // Assemble a camera-centred HEIGHTFIELD covering the near/mid field with a
         // margin, and let the fragment shader march it toward the sun per-pixel.
@@ -2015,22 +2019,24 @@ impl Map {
         // the held field every frame, so panning within the assembled region needs
         // no reassembly and stays welded to the ground.
         let animating = self.cam.active.is_some();
+        let mut assemble = std::time::Duration::ZERO;
         if !animating && self.shadow.key.as_ref() != Some(&key) {
+            let t0 = Instant::now();
+            // Sample the whole 256² field in one pass: the finest resident DEM
+            // zoom is resolved ONCE (not rescanned from z=22 per cell), which is
+            // the bulk of this reassembly's cost. Behaviour-identical to the
+            // per-cell `elevation_at_world` loop.
             let mut heights = vec![0.0f32; dim * dim];
-            for j in 0..dim {
-                let ay = origin_abs[1] + j as f64 * cell;
-                for i in 0..dim {
-                    let ax = origin_abs[0] + i as f64 * cell;
-                    heights[j * dim + i] =
-                        terrain.cache.elevation_at_world((ax, ay)).unwrap_or(0.0) * zscale;
-                }
-            }
+            terrain.cache.sample_grid((origin_abs[0], origin_abs[1]), cell, dim, |idx, e| {
+                heights[idx] = e.unwrap_or(0.0) * zscale;
+            });
             self.renderer.shadow_map.upload_heights(&heights);
             // Already in ABSOLUTE world space (lattice-snapped); the per-frame block
             // below rebases it into the current RTC frame so it stays welded.
             self.shadow.origin_abs = origin_abs;
             self.shadow.world_size = size_f;
             self.shadow.key = Some(key);
+            assemble = t0.elapsed();
         }
 
         // Feed the per-frame shadow uniforms once a heightfield exists. The march
@@ -2051,6 +2057,7 @@ impl Map {
             frame.raster_terrain_cfg.shadow_softness = (45.0 * zscale).max(1e-7);
             frame.raster_terrain_cfg.shadow_strength = self.shadow.strength;
         }
+        assemble
     }
 
     pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
@@ -2132,9 +2139,11 @@ impl Map {
         // AO bake below. Cheap no-op until the camera settles in a new region or
         // the DEM changes. (Previously gated on `shadow.strength > 0`; AO needs
         // the field even with cast shadows off.)
-        if self.terrain.is_some() {
-            self.update_terrain_shadows(&mut frame);
-        }
+        let shadow_assemble_time = if self.terrain.is_some() {
+            self.update_terrain_shadows(&mut frame)
+        } else {
+            std::time::Duration::ZERO
+        };
 
         // Progressive ambient-occlusion bake: refine one direction-batch per
         // frame into the world-locked AO field, then cache it. AO is
@@ -2568,6 +2577,7 @@ impl Map {
                 prepare: prepare_time,
                 pass: pass_time,
                 clouds: clouds_time,
+                shadow_assemble: shadow_assemble_time,
             },
             gpu_time: self.renderer.gpu_timestamps.as_ref().and_then(|t| {
                 if t.last_duration_ns == 0 {
@@ -2673,6 +2683,13 @@ pub struct PhaseTimings {
     /// The separate weather-cloud overlay pass. `Duration::ZERO` when clouds
     /// are disabled or absent.
     pub clouds: Duration,
+    /// CPU wall-time of the cast-shadow / AO heightfield REASSEMBLY (the 256²
+    /// cross-tile elevation sample + upload). `Duration::ZERO` on the vast
+    /// majority of frames — it only fires when the camera settles in a new
+    /// lattice region or the sun / DEM changed. When non-zero it's a
+    /// render-thread-blocking spike, so isolating it from `prepare` is the whole
+    /// point of profiling the 3D path.
+    pub shadow_assemble: Duration,
 }
 
 #[derive(Debug, Clone, Default)]

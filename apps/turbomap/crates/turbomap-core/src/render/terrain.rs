@@ -427,12 +427,31 @@ impl TerrainCache {
     /// Deepest (finest) resident DEM sample at `world`, with the zoom it came
     /// from. `None` if no covering tile is resident.
     fn sample_deepest(&self, world: (f64, f64)) -> Option<(u8, f32)> {
+        self.sample_deepest_capped(world, self.finest_resident_zoom())
+    }
+
+    /// Finest DEM zoom currently resident — the ceiling for [`sample_deepest`]'s
+    /// top-down scan. Starting at a fixed `z=22` wastes ~10 guaranteed-miss
+    /// hashmap probes PER SAMPLE (no DEM tile that fine is ever resident), which
+    /// dominated the 256² shadow-heightfield reassembly (~655k probes/rebuild).
+    /// Capping at the actual finest zoom is behaviour-identical — the skipped
+    /// probes could only have missed — and ~10× cheaper. `0` when empty (the
+    /// scan then immediately returns `None`).
+    pub(crate) fn finest_resident_zoom(&self) -> u8 {
+        self.heights.keys().map(|t| t.z).max().unwrap_or(0)
+    }
+
+    /// As [`sample_deepest`] but with an explicit scan ceiling, so a hot loop
+    /// (the shadow grid) computes the finest resident zoom ONCE and reuses it
+    /// across all 65k samples instead of recomputing — or rescanning from 22 —
+    /// per cell.
+    fn sample_deepest_capped(&self, world: (f64, f64), max_z: u8) -> Option<(u8, f32)> {
         let (wx, wy) = world;
         if !(0.0..=1.0).contains(&wx) || !(0.0..=1.0).contains(&wy) {
             return None;
         }
         // Deepest zoom first — finest resident detail wins.
-        for z in (0u8..=22u8).rev() {
+        for z in (0u8..=max_z).rev() {
             let n = 1u32 << z as u32;
             let nf = n as f64;
             let tx = (wx * nf).floor().min((n - 1) as f64) as u32;
@@ -444,6 +463,29 @@ impl TerrainCache {
             }
         }
         None
+    }
+
+    /// Bulk elevation sampler for the cast-shadow / AO heightfield: the same
+    /// "deepest resident wins" lookup as [`elevation_at_world`], but with the
+    /// finest-zoom ceiling resolved once for the whole call rather than per
+    /// sample. `f` receives each `(index, elevation)`; missing samples yield
+    /// `None`. This is the loop that was burning ~655k miss-probes per rebuild.
+    pub(crate) fn sample_grid<F: FnMut(usize, Option<f32>)>(
+        &self,
+        origin: (f64, f64),
+        cell: f64,
+        dim: usize,
+        mut f: F,
+    ) {
+        let max_z = self.finest_resident_zoom();
+        for j in 0..dim {
+            let ay = origin.1 + j as f64 * cell;
+            for i in 0..dim {
+                let ax = origin.0 + i as f64 * cell;
+                let e = self.sample_deepest_capped((ax, ay), max_z).map(|(_, e)| e);
+                f(j * dim + i, e);
+            }
+        }
     }
 
     /// Elevation for **marker/overlay projection**, stabilised against DEM tile

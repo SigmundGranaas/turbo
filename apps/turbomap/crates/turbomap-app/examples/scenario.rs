@@ -1173,8 +1173,8 @@ fn main() {
     // orbit / zoom level and flag any slow frame. (label, pitch, metrics)
     let mut profiles: Vec<(String, f64, turbomap_core::FrameMetrics)> = Vec::new();
     eprintln!(
-        "  {:>3} {:<14} {:>5} | {:>7} {:>7} {:>7} {:>7} | {:>4} {:>4} {:>6}",
-        "#", "step", "pitch", "cpu ms", "prep", "pass", "cloud", "lyr", "dc", "tiles",
+        "  {:>3} {:<14} {:>5} | {:>7} {:>7} {:>7} {:>7} {:>7} | {:>4} {:>4} {:>6}",
+        "#", "step", "pitch", "cpu ms", "prep", "pass", "cloud", "shadow", "lyr", "dc", "tiles",
     );
     for (i, step) in steps.iter().enumerate() {
         if shadow_only {
@@ -1215,13 +1215,14 @@ fn main() {
                     .map(|g| format!(" gpu={:.2}ms", ms(g)))
                     .unwrap_or_default();
                 eprintln!(
-                    "  {i:>3} {:<14} {:>5.0} | {:>7.2} {:>7.2} {:>7.2} {:>7.2} | {:>4} {:>4} {:>6}{}",
+                    "  {i:>3} {:<14} {:>5.0} | {:>7.2} {:>7.2} {:>7.2} {:>7.2} {:>7.2} | {:>4} {:>4} {:>6}{}",
                     step.label,
                     map.camera().pitch_deg,
                     ms(m.cpu_time),
                     ms(m.phases.prepare),
                     ms(m.phases.pass),
                     ms(m.phases.clouds),
+                    ms(m.phases.shadow_assemble),
                     m.visible_layers,
                     m.draw_calls,
                     m.tiles_drawn,
@@ -1248,7 +1249,7 @@ fn main() {
     {
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         let mut csv = String::from(
-            "idx,label,pitch,cpu_ms,prepare_ms,pass_ms,clouds_ms,gpu_ms,visible_layers,draw_calls,tiles_drawn,resident,bytes,evictions,hits,misses,frame_dropped\n",
+            "idx,label,pitch,cpu_ms,prepare_ms,pass_ms,clouds_ms,shadow_ms,gpu_ms,visible_layers,draw_calls,tiles_drawn,resident,bytes,evictions,hits,misses,frame_dropped\n",
         );
         for (i, (label, pitch, m)) in profiles.iter().enumerate() {
             let resident: usize = m.layers.iter().map(|l| l.cache.entries).sum();
@@ -1258,8 +1259,9 @@ fn main() {
             let misses: u64 = m.layers.iter().map(|l| l.cache.misses).sum();
             let gpu = m.gpu_time.map(|g| format!("{:.3}", ms(g))).unwrap_or_default();
             csv.push_str(&format!(
-                "{i},{label},{pitch:.0},{:.3},{:.3},{:.3},{:.3},{gpu},{},{},{},{resident},{bytes},{evictions},{hits},{misses},{}\n",
+                "{i},{label},{pitch:.0},{:.3},{:.3},{:.3},{:.3},{:.3},{gpu},{},{},{},{resident},{bytes},{evictions},{hits},{misses},{}\n",
                 ms(m.cpu_time), ms(m.phases.prepare), ms(m.phases.pass), ms(m.phases.clouds),
+                ms(m.phases.shadow_assemble),
                 m.visible_layers, m.draw_calls, m.tiles_drawn, m.frame_dropped,
             ));
         }
