@@ -99,25 +99,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # GitOps deploy: pin the prod overlay to this immutable build SHA and
-      # commit it back to main. ArgoCD (auto-sync) then rolls prod — a real
-      # manifest change, unlike the mutable `:latest` which never triggered a
-      # sync. The commit touches only the kustomization (outside this workflow's
-      # path filter) and carries [skip ci], so it does not re-trigger a build.
-      - name: Pin prod deploy to this build
-        env:
-          SHA: ${{ github.sha }}
-        run: |
-          f=infra/k8s/envs/prod/kustomization.yaml
-          yq -i '(.images[] | select(.name == "turbo-tileserver")).newTag = strenv(SHA)' "$f"
-          if git diff --quiet -- "$f"; then
-            echo "tileserver tag already at $SHA — nothing to commit"
-            exit 0
-          fi
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "deploy(tileserver): roll prod to ${SHA} [skip ci]" -- "$f"
-          git push origin HEAD:main
+      # NOTE: prod is pinned MANUALLY. The old "Pin prod deploy" step committed
+      # the new SHA into infra/k8s/envs/prod/kustomization.yaml from the
+      # github-actions bot, but branch protection rejects that push ("must be
+      # made through a pull request"), so the job always went red. Deploy by
+      # bumping `turbo-tileserver` `newTag` in that kustomization to this build's
+      # commit SHA and pushing to main (ArgoCD auto-syncs). The image itself is
+      # already pushed above as :latest and :${{ github.sha }}.
 
   # Make a red tileserver build loud instead of rotting silently: open (or
   # comment on) a tracking issue when the build/test or image job fails on main.
