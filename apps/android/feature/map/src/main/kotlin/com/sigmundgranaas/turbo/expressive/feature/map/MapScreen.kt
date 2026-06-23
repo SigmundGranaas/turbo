@@ -86,7 +86,6 @@ import com.sigmundgranaas.turbo.expressive.core.turbomap.android.TurbomapMapView
 import com.sigmundgranaas.turbo.expressive.feature.map.radar.RadarOverlayControls
 import com.sigmundgranaas.turbo.expressive.feature.map.sun.SunOverlayControls
 import com.sigmundgranaas.turbo.expressive.ui.map.MapStyles
-import com.sigmundgranaas.turbo.expressive.ui.map.TurboMap
 import com.sigmundgranaas.turbo.expressive.ui.theme.TurboRadius
 import com.sigmundgranaas.turbo.expressive.ui.theme.icon
 import com.sigmundgranaas.turbo.expressive.ui.theme.labelRes
@@ -548,18 +547,15 @@ fun MapScreen(
         // wgpu engine failure (no fallback by design): surface it loudly.
         val wgpuError = remember { mutableStateOf<String?>(null) }
         Box(Modifier.fillMaxSize()) {
-            // Experimental wgpu renderer (Settings toggle). Renders the basemap +
-            // overlays + live track/route/measure/user as a turbomap Scene with
-            // pan/zoom; markers / editable waypoints / photo pins / long-press are
-            // MapLibre-only for now (see the renderer-swap test plan, Stage E).
+            // The wgpu turbomap renderer — the one and only map engine. Renders the
+            // basemap + overlays + live track/route/measure/user/markers/waypoints/
+            // photo pins as a turbomap Scene with pan/zoom (and orbit in 3D).
             //
-            // Build NO host until settings have loaded: the wgpu flag AND the
-            // saved camera both arrive async, so building early uses defaults
-            // (MapLibre at the fallback camera) and then swaps to the wgpu engine
-            // when the flag lands — discarding the camera restore, which left
-            // every launch on the world overview. One settled build instead.
+            // Build NO host until settings have loaded: the saved camera arrives
+            // async, so building early opens on the fallback (world overview) and
+            // can't be moved back without discarding a fresh user pan. One settled
+            // build at the restored camera instead.
             if (state.settingsLoaded) {
-            if (state.experimentalWgpuMap) {
                 TurbomapMapView(
                     rasters = MapStyles.turbomapRasterSpecs(state.baseLayer, ui.activeOverlays),
                     vectors = MapStyles.turbomapVectorSpecs(),
@@ -619,123 +615,39 @@ fun MapScreen(
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
-            } else {
-            TurboMap(
-                base = state.baseLayer,
-                overlays = ui.activeOverlays,
-                initialCamera = state.lastCamera ?: MapDefaults.fallbackCamera,
-                initialZoom = state.lastCameraZoom ?: MapDefaults.fallbackZoom,
-                markers = state.markers,
-                // While following, the guide is drawn as two segments split at the arc-cursor:
-                // `route` is the bright REMAINING road ahead, `routeCovered` the dim walked part
-                // (US-3). The two meet exactly at the cursor so there's no gap or overlap.
-                route = if (routeState is RouteUiState.Following) {
-                    GeoMetrics.routeSuffix(routeState.polyline, followSession.progress?.fraction ?: 0.0)
-                        .takeIf { it.size > 1 } ?: routeState.polyline.takeIf { it.isNotEmpty() }
-                } else {
-                    // Hide the raw straight line while solving; show it once refined (see wgpu host).
-                    routeState.polyline.takeIf {
-                        it.isNotEmpty() && (routeState !is RouteUiState.Solving || it.size > toolWaypoints.size)
-                    }
-                },
-                routeCovered = if (routeState is RouteUiState.Following) {
-                    GeoMetrics.routePrefix(routeState.polyline, followSession.progress?.fraction ?: 0.0)
-                        .takeIf { it.size > 1 }
-                } else {
-                    null
-                },
-                // Editable A/B/C… stops while the Route builder is active: tap selects,
-                // dragging the selected one moves it, long-press removes it.
-                waypoints = if (ui.trackMode == TrackMode.Route) toolWaypoints else emptyList(),
-                selectedWaypoint = ui.selectedWaypoint,
-                onWaypointTap = { ui.selectedWaypoint = if (ui.selectedWaypoint == it) null else it },
-                onWaypointLongPress = {
-                    haptics.reject(); routeViewModel.removeWaypoint(it); ui.selectedWaypoint = null
-                },
-                onWaypointDragStart = { ui.selectedWaypoint = it; haptics.longPress(); routeViewModel.beginWaypointDrag() },
-                onWaypointMoved = { i, p -> ui.selectedWaypoint = i; routeViewModel.moveWaypointTo(i, p) },
-                onWaypointDragEnd = { routeViewModel.endWaypointDrag() },
-                routeOrigin = if (ui.trackMode == TrackMode.Route) ui.routeOrigin else null,
-                // While following, draw the checkpoints as on-map markers — crossed ones filled
-                // and checked, upcoming ones outlined (US-3).
-                checkpoints = if (routeState is RouteUiState.Following) {
-                    followSession.phaseMarkers.map { it.position to it.crossed }
-                } else {
-                    emptyList()
-                },
-                // The track overlay shows, in priority: the live recording trail, the
-                // Line/Draw geometry being built in the Create track tool, else whatever
-                // saved track the user opened ("Show on map").
-                track = when {
-                    recState.recording -> recState.points.takeIf { it.size > 1 }
-                    // Follow = Record: show the real travelled line over the dimmed guide.
-                    routeState is RouteUiState.Following -> followSession.points.takeIf { it.size > 1 }
-                    ui.trackMode == TrackMode.Line -> ui.linePoints.takeIf { it.size > 1 }?.toList()
-                    ui.trackMode == TrackMode.Draw -> ui.drawPoints.takeIf { it.size > 1 }?.toList()
-                    else -> ui.displayedTrack
-                },
-                selectedMarkerId = ui.selectionState.selection?.id,
-                userLocation = state.userLocation,
-                photoPins = photoClusters.map {
-                    com.sigmundgranaas.turbo.expressive.ui.components.PhotoPin(it.id, it.center.lat, it.center.lng, it.count, it.coverUri)
-                },
-                onPhotoPinClick = { pin -> ui.openCluster = photoClusters.firstOrNull { it.id == pin.id } },
-                onMarkerClick = { marker -> ui.selectionState.select(markerSelection(marker)) },
-                // Dot overlay marks Line vertices, and the pending Route start (the first
-                // tap before a destination exists) so it doesn't look like nothing happened.
-                measurePoints = when (ui.trackMode) {
-                    TrackMode.Line -> ui.linePoints
-                    TrackMode.Route -> emptyList() // origin drawn as an origin pin, not a measure dot
-                    else -> emptyList()
-                },
-                onMapLongClick = { if (ui.trackMode == null) { haptics.longPress(); ui.longPressAt = it } },
-                onMapTap = onMapTapForMode,
-                onMapReady = { ui.controller = it },
-                // Fired on every camera-idle; also bump the idle tick so camera-reading
-                // chrome (the offline-coverage chip) recomposes after a pan, not only rotation.
-                onBearingChange = { ui.bearing = it.toFloat(); ui.cameraIdleTick++ },
-                // A manual pan/zoom/rotate releases camera-follow (US-6).
-                onUserPanned = { viewModel.setFollowing(false) },
-                modifier = Modifier.fillMaxSize(),
-            )
-            }
             } // settingsLoaded
 
             // Procedural weather-cloud overlay — enabled from the Layers sheet
             // (ui.cloudsOn), wgpu engine only. The play/scrub control sits at the
             // BOTTOM of the map (out from under the search bar); it renders
             // nothing while off or on a non-cloud engine.
-            if (state.experimentalWgpuMap) {
-                RadarOverlayControls(
-                    engine = ui.controller,
-                    active = ui.cloudsOn,
-                    onActiveChange = { ui.cloudsOn = it },
-                    source = viewModel.radarSource,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                )
-            }
+            RadarOverlayControls(
+                engine = ui.controller,
+                active = ui.cloudsOn,
+                onActiveChange = { ui.cloudsOn = it },
+                source = viewModel.radarSource,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            )
 
             // Sun mode — movable sun + atmosphere + cast shadows, with a time-of-
             // day slider at the bottom (defaults to today/now). wgpu engine only;
             // renders nothing when off. Sits above the radar scrubber if both on.
-            if (state.experimentalWgpuMap) {
-                SunOverlayControls(
-                    engine = ui.controller,
-                    active = ui.sunModeOn,
-                    onActiveChange = { ui.sunModeOn = it },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(
-                            start = 16.dp,
-                            end = 16.dp,
-                            bottom = if (ui.cloudsOn) 76.dp else 16.dp,
-                        ),
-                )
-            }
+            SunOverlayControls(
+                engine = ui.controller,
+                active = ui.sunModeOn,
+                onActiveChange = { ui.sunModeOn = it },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        bottom = if (ui.cloudsOn) 76.dp else 16.dp,
+                    ),
+            )
 
             // No silent blank: if the wgpu engine failed to start, say so.
             wgpuError.value?.let { msg ->
@@ -848,26 +760,17 @@ fun MapScreen(
                     },
                     onZoomIn = { ui.controller?.zoomIn() },
                     onZoomOut = { ui.controller?.zoomOut() },
-                    // 2D/3D toggle — only on the wgpu engine (the only one with
-                    // orbit + tilt). Hidden on MapLibre.
+                    // 2D/3D toggle — the wgpu engine's orbit + tilt.
                     threeD = state.threeDMode,
-                    onToggle3D = if (state.experimentalWgpuMap) {
-                        { viewModel.setThreeDMode(!state.threeDMode) }
-                    } else {
-                        null
-                    },
-                    // Sun mode: movable sun + atmosphere + cast shadows (wgpu only).
-                    // Turning it on also flips to 3D — the relief, sky and shadows
-                    // only read under tilt.
+                    onToggle3D = { viewModel.setThreeDMode(!state.threeDMode) },
+                    // Sun mode: movable sun + atmosphere + cast shadows. Turning it
+                    // on also flips to 3D — the relief, sky and shadows only read
+                    // under tilt.
                     sunMode = ui.sunModeOn,
-                    onToggleSun = if (state.experimentalWgpuMap) {
-                        {
-                            val next = !ui.sunModeOn
-                            ui.sunModeOn = next
-                            if (next && !state.threeDMode) viewModel.setThreeDMode(true)
-                        }
-                    } else {
-                        null
+                    onToggleSun = {
+                        val next = !ui.sunModeOn
+                        ui.sunModeOn = next
+                        if (next && !state.threeDMode) viewModel.setThreeDMode(true)
                     },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
@@ -1250,7 +1153,7 @@ fun MapScreen(
         recDistanceM = recState.distanceM,
         recPointCount = recState.points.size,
         baseLayer = state.baseLayer,
-        cloudsAvailable = state.experimentalWgpuMap,
+        cloudsAvailable = true, // the wgpu engine (now the only one) renders clouds
         onOpenOffline = onOpenOffline,
         openTrackTool = openTrackTool,
     )

@@ -60,16 +60,13 @@ data class MapUiState(
     /** True while we've started locating but no fix has arrived yet (drives a "locating…" hint). */
     val locating: Boolean = false,
     val locationNotice: LocationNotice? = null,
-    /** Experimental: render with the wgpu engine instead of MapLibre (Settings toggle). */
-    val experimentalWgpuMap: Boolean = false,
     /** Persisted camera from the last session — restored on open so the user
      *  returns to where they left off. Null until the map has been moved once. */
     val lastCamera: LatLng? = null,
     val lastCameraZoom: Double? = null,
     /**
-     * 3D map mode (wgpu engine only): a 1-finger drag orbits about the user
-     * location, two fingers pan. Off = the legacy 2D pan/zoom. Session state —
-     * the toggle only appears when [experimentalWgpuMap] is on.
+     * 3D map mode: a 1-finger drag orbits about the user location, two fingers
+     * pan. Off = the 2D pan/zoom. Session state, toggled from the map rail.
      */
     val threeDMode: Boolean = false,
     /** True once the persisted settings (incl. the wgpu-map flag + last camera)
@@ -151,7 +148,6 @@ class MapViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         baseLayer = s.baseLayer,
-                        experimentalWgpuMap = s.experimentalWgpuMap,
                         lastCamera = if (s.lastCameraLat != null && s.lastCameraLng != null) {
                             LatLng(s.lastCameraLat!!, s.lastCameraLng!!)
                         } else {

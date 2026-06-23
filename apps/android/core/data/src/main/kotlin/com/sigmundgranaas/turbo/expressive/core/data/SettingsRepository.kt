@@ -27,7 +27,6 @@ interface SettingsRepository {
     suspend fun setCloudSyncEnabled(enabled: Boolean)
     suspend fun setDownloadOverWifiOnly(enabled: Boolean)
     suspend fun setBaseLayer(layer: BaseLayer)
-    suspend fun setExperimentalWgpuMap(enabled: Boolean)
 
     /** Persist the map camera so reopening the app returns to where the user left it. */
     suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double)
@@ -48,7 +47,6 @@ class DataStoreSettingsRepository @Inject constructor(
         val CLOUD_SYNC = booleanPreferencesKey("cloud_sync_enabled")
         val WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
         val BASE_LAYER = stringPreferencesKey("base_layer")
-        val WGPU_MAP = booleanPreferencesKey("experimental_wgpu_map")
         val CAM_LAT = doublePreferencesKey("last_camera_lat")
         val CAM_LNG = doublePreferencesKey("last_camera_lng")
         val CAM_ZOOM = doublePreferencesKey("last_camera_zoom")
@@ -67,7 +65,6 @@ class DataStoreSettingsRepository @Inject constructor(
             baseLayer = prefs[Keys.BASE_LAYER]
                 ?.let { id -> BaseLayer.entries.firstOrNull { it.id == id } }
                 ?: BaseLayer.Norgeskart,
-            experimentalWgpuMap = prefs[Keys.WGPU_MAP] ?: false,
             lastCameraLat = prefs[Keys.CAM_LAT],
             lastCameraLng = prefs[Keys.CAM_LNG],
             lastCameraZoom = prefs[Keys.CAM_ZOOM],
@@ -100,10 +97,6 @@ class DataStoreSettingsRepository @Inject constructor(
 
     override suspend fun setBaseLayer(layer: BaseLayer) {
         context.settingsDataStore.edit { it[Keys.BASE_LAYER] = layer.id }
-    }
-
-    override suspend fun setExperimentalWgpuMap(enabled: Boolean) {
-        context.settingsDataStore.edit { it[Keys.WGPU_MAP] = enabled }
     }
 
     override suspend fun setLastCamera(lat: Double, lng: Double, zoom: Double) {

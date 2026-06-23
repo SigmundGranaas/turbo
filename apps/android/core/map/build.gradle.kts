@@ -6,8 +6,6 @@ plugins {
 
 android {
     namespace = "com.sigmundgranaas.turbo.expressive.core.map"
-    // BuildConfig.DEBUG selects the offline tile-manager simulator.
-    buildFeatures { buildConfig = true }
 }
 
 dependencies {
@@ -18,7 +16,6 @@ dependencies {
     implementation(project(":core:turbomap-android"))
 
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.maplibre)
     implementation(libs.okhttp)
 
     testImplementation(libs.junit)

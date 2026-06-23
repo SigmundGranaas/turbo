@@ -30,5 +30,4 @@ class SettingsViewModel @Inject constructor(
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { repository.setThemeMode(mode) }
     fun setCloudSync(enabled: Boolean) = viewModelScope.launch { repository.setCloudSyncEnabled(enabled) }
     fun setWifiOnly(enabled: Boolean) = viewModelScope.launch { repository.setDownloadOverWifiOnly(enabled) }
-    fun setExperimentalWgpuMap(enabled: Boolean) = viewModelScope.launch { repository.setExperimentalWgpuMap(enabled) }
 }
