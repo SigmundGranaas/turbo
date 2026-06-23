@@ -474,15 +474,6 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
         vertices: water_buffers.vertices,
         indices: water_buffers.indices,
     };
-    // TEMP diagnostic: confirm water polygons reach the device + tessellate.
-    if !water_mesh.indices.is_empty() {
-        log::info!(
-            "turbomap-water-diag: tile {:?} → {} water indices ({} verts)",
-            tile_id,
-            water_mesh.indices.len(),
-            water_mesh.vertices.len()
-        );
-    }
     TessellationOutput {
         mesh: Mesh {
             vertices: buffers.vertices,

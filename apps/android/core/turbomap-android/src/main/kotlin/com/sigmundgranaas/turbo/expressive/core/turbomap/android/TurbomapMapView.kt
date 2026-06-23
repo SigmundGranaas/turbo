@@ -284,7 +284,7 @@ internal class TurbomapSurfaceController {
         // default would otherwise throttle below our reconciler.
         .dispatcher(
             Dispatcher().apply {
-                maxRequests = RASTER_FETCH_LANE + DEM_FETCH_LANE
+                maxRequests = RASTER_FETCH_LANE + DEM_FETCH_LANE + VECTOR_FETCH_LANE
                 maxRequestsPerHost = RASTER_FETCH_LANE
             },
         )
@@ -631,17 +631,29 @@ internal class TurbomapSurfaceController {
             now = now,
             cap = cap,
         )
-        val raster = laneDecision({ !isDemKey(it) }, RASTER_FETCH_LANE)
+        // Vector (MVT) tiles get their OWN small lane: the self-hosted basemap
+        // MVT query is CPU-heavy (per-feature simplify over big coastline polys,
+        // ~0.2-1.5s/tile on the 2-core tileserver, no tile cache). Lumped into the
+        // 32-wide raster lane they flooded the server with 32 concurrent slow
+        // queries → every one backed up past the 10s timeout → backoff → no water.
+        // A narrow lane keeps concurrent MVT renders within what the server can
+        // serve under the timeout. (Raster excludes both DEM and vector keys.)
+        val raster = laneDecision({ !isDemKey(it) && !isVectorKey(it) }, RASTER_FETCH_LANE)
         val dem = laneDecision(::isDemKey, DEM_FETCH_LANE)
+        val vector = laneDecision(::isVectorKey, VECTOR_FETCH_LANE)
 
-        (raster.toCancel + dem.toCancel).forEach { key -> inFlight.remove(key)?.cancel() }
+        (raster.toCancel + dem.toCancel + vector.toCancel).forEach { key -> inFlight.remove(key)?.cancel() }
         retryAt.keys.retainAll(byKey.keys)
-        (raster.toStart + dem.toStart).forEach { key -> byKey[key]?.let { inFlight[key] = launchTileFetch(it) } }
+        (raster.toStart + dem.toStart + vector.toStart).forEach { key -> byKey[key]?.let { inFlight[key] = launchTileFetch(it) } }
     }
 
     /** A reconcile-key belongs to the DEM lane iff it's a terrain tile. Matches
      *  the `"__terrain"` layer name `parsePendingRaster` assigns DEM entries. */
     private fun isDemKey(key: String) = key.startsWith("__terrain/")
+
+    /** A reconcile-key belongs to the vector lane iff its layer is one of the
+     *  declared vector (MVT) layers — key is "<layer>/z/x/y" (see reconcile key). */
+    private fun isVectorKey(key: String) = vectors.any { key.startsWith(it.id + "/") }
 
     private data class TileFetch(
         val layer: String,
@@ -840,6 +852,12 @@ internal class TurbomapSurfaceController {
         // storm; raster lane is wide so the basemap streams in fast.
         const val RASTER_FETCH_LANE = 32
         const val DEM_FETCH_LANE = 8
+
+        /** Concurrent vector (MVT) tile fetches. Small on purpose: the self-hosted
+         *  basemap MVT render is CPU-heavy on a 2-core tileserver with no tile
+         *  cache, so flooding it (32-wide) timed every tile out. ~6 keeps renders
+         *  within the 10s fetch timeout while water streams in progressively. */
+        const val VECTOR_FETCH_LANE = 6
         // Safety re-pump cadence: catches retries + any edge a wake missed, and
         // keeps loading self-healing even with no gestures. Cheap (one JNI call
         // returning "[]" when idle).

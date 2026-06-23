@@ -2383,18 +2383,6 @@ impl Map {
                         );
                     }
                     (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
-                        // TEMP diagnostic: how many water tiles + indices are about
-                        // to be drawn this frame (localises no-water: data vs draw).
-                        let wtiles: usize = p
-                            .tiles()
-                            .iter()
-                            .filter(|(t, _)| {
-                                v.cache.peek(*t).map(|e| e.water_index_count > 0).unwrap_or(false)
-                            })
-                            .count();
-                        if wtiles > 0 {
-                            log::info!("turbomap-water-diag: drawing {wtiles} water tiles");
-                        }
                         // Realistic water first (it reuses this layer's vector
                         // camera/tile bind groups + draw list), so roads,
                         // buildings and labels in the vector mesh paint over it.
