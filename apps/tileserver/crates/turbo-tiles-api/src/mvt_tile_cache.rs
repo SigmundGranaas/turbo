@@ -244,7 +244,10 @@ impl MvtTileCache {
                 .unwrap_or(default)
         }
         let mem_budget = bytes("TILESERVER_MVT_TILE_CACHE_MEM_BYTES", 32 * 1024 * 1024);
-        let disk_budget = bytes("TILESERVER_MVT_TILE_CACHE_DISK_BYTES", 2 * 1024 * 1024 * 1024);
+        let disk_budget = bytes(
+            "TILESERVER_MVT_TILE_CACHE_DISK_BYTES",
+            2 * 1024 * 1024 * 1024,
+        );
         let permits = std::env::var("TILESERVER_MVT_RENDER_CONCURRENCY")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
