@@ -279,6 +279,28 @@ fun MapScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    // Also persist the camera CONTINUOUSLY (debounced) while the map is up, so
+    // "reopen where I left off" survives ANY exit — a swipe-away-from-recents
+    // kill doesn't reliably fire ON_PAUSE *and* flush the fire-and-forget write
+    // before the process dies, which left every launch falling back to the
+    // Norway overview. Gated on `didInitialCenter` so it never overwrites the
+    // saved position with the fallback/uninitialised camera BEFORE restore runs;
+    // writes only when the camera actually changed (DataStore no-ops otherwise).
+    LaunchedEffect(ui.controller, didInitialCenter) {
+        if (!didInitialCenter) return@LaunchedEffect
+        val c = ui.controller ?: return@LaunchedEffect
+        var last: Triple<Double, Double, Double>? = null
+        while (true) {
+            kotlinx.coroutines.delay(1500)
+            val centre = c.center()
+            val cur = Triple(centre.lat, centre.lng, c.zoom())
+            // Skip null-island (an uninitialised camera) and unchanged frames.
+            if (cur != last && (centre.lat != 0.0 || centre.lng != 0.0)) {
+                viewModel.saveCamera(cur.first, cur.second, cur.third)
+                last = cur
+            }
+        }
+    }
 
     // While recording, keep the camera on the latest fix — recording implies movement,
     // even if the user never toggled "follow".
