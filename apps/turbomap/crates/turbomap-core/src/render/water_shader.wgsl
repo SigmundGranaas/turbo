@@ -137,41 +137,61 @@ fn rot2(d: vec2<f32>, a: f32) -> vec2<f32> {
     return vec2<f32>(d.x * c - d.y * s, d.x * s + d.y * c);
 }
 
-// One travelling sine wave (wavelength `wl` m, amplitude `amp` m, speed m/s,
-// direction `dir`). Accumulates into `grad` (∂h/∂xy) and `height` (signed
-// displacement, for whitecap crests). Returns vec3(grad.x, grad.y, height).
-fn wave_term(p: vec2<f32>, t: f32, dir: vec2<f32>, wl: f32, amp: f32, speed: f32) -> vec3<f32> {
-    let k = 6.2831853 / wl;
-    let d = normalize(dir);
-    let phase = k * (dot(p, d) + speed * t);
-    let g = d * (amp * k * cos(phase)); // ∇(amp·sin(phase))
-    return vec3<f32>(g.x, g.y, amp * sin(phase));
+// One exp(sin) wavelet + its derivative. `exp(sin(x)-1)` has sharp crests and
+// broad troughs (trochoidal-ish); the derivative drives domain warping. Summed
+// plain sines always interfere into a regular corduroy/cross-hatch — exp(sin)
+// with domain warp does not.
+fn wavedx(p: vec2<f32>, dir: vec2<f32>, freq: f32, t: f32) -> vec2<f32> {
+    let x = dot(dir, p) * freq + t;
+    let wave = exp(sin(x) - 1.0);
+    return vec2<f32>(wave, -wave * cos(x));
 }
 
-// Sum of wave octaves fanned around the forecast propagation direction, with
-// amplitude scaled by sea-state ferocity (`wave_amp`). Returns
-// vec4(normal.xyz, crest) where `crest` ∈ [0,1] is how close this point is to a
-// wave crest (drives whitecaps). `normal` is the wave-perturbed up normal.
-// `zoom` stretches every wavelength so the surface stays screen-constant across
-// the map's huge zoom range: far away the waves become long, gentle swells
-// (low slope ⇒ no normal aliasing, but still a living surface — not a flat
-// sheet); up close they're crisp chop. Amplitude stays fixed, so a longer
-// wavelength means a gentler slope — the anti-alias falls out for free.
-fn wave_surface(p: vec2<f32>, t: f32, zoom: f32) -> vec4<f32> {
-    let amp = water.wave_amp;
-    let d0 = normalize(water.wave_dir + vec2<f32>(1e-5, 0.0));
-    var grad = vec2<f32>(0.0, 0.0);
-    var height = 0.0;
-    // (angular spread off d0, wavelength m, base amplitude m, speed m/s)
-    let w0 = wave_term(p, t, d0, 9.0 * zoom, 0.060 * amp, 1.10);
-    let w1 = wave_term(p, t, rot2(d0, 0.42), 5.0 * zoom, 0.035 * amp, 0.90);
-    let w2 = wave_term(p, t, rot2(d0, -0.70), 2.7 * zoom, 0.018 * amp, 1.40);
-    grad = w0.xy + w1.xy + w2.xy;
-    height = w0.z + w1.z + w2.z;
-    // Total possible amplitude → normalise the crest measure to [0,1].
-    let total_amp = (0.060 + 0.035 + 0.018) * amp;
-    let crest = clamp(height / max(total_amp, 1e-5) * 0.5 + 0.5, 0.0, 1.0);
-    let n = normalize(vec3<f32>(-grad.x, -grad.y, 1.0));
+// Domain-warped sum of exp(sin) wavelets over pseudo-randomly rotated directions
+// (Alekseev "Seascape" technique). Each octave warps the sample position by the
+// previous derivative, clustering ripples on crests and breaking the regular
+// interference — natural, non-repeating chop. Returns wave HEIGHT in metres.
+fn getwaves(p_in: vec2<f32>, t: f32, zoom: f32, lod: f32) -> f32 {
+    var p = p_in;
+    var iter = 0.0;
+    var freq = 6.2831853 / (11.0 * zoom); // base wavelength ~11·zoom m
+    var tmul = 1.0;
+    var weight = 1.0;
+    var sum = 0.0;
+    var tw = 0.0;
+    for (var i = 0; i < 8; i = i + 1) {
+        // Per-octave LOD: the finest octaves fade in only when they're
+        // resolvable (lod high = close). This anti-aliases by dropping detail
+        // that would shimmer, WITHOUT flattening the whole surface — the coarse
+        // ripples stay alive so the reflection keeps moving (no clay).
+        let oct = clamp(lod - f32(i), 0.0, 1.0);
+        let d = vec2<f32>(sin(iter), cos(iter));
+        let res = wavedx(p, d, freq, t * tmul);
+        p = p + d * res.y * weight * oct * 0.42; // domain warp
+        sum = sum + res.x * weight * oct;
+        tw = tw + weight * oct;
+        weight = weight * 0.82;
+        freq = freq * 1.18;
+        tmul = tmul * 1.07;
+        iter = iter + 2.39996; // golden-angle direction spread
+    }
+    return (sum / max(tw, 1e-4)) * water.wave_amp * 0.5;
+}
+
+// Wave-perturbed normal (.xyz) + crest measure (.w). Normal from finite
+// differences of the height field; epsilon scales with zoom so the slope stays
+// physical at every wavelength. `steep` exaggerates the slope so the ripples
+// read strongly on a flat mesh (normal-mapped water needs punchy normals to not
+// look like clay). `lod` controls how many octaves resolve (distance AA).
+fn wave_surface(p: vec2<f32>, t: f32, zoom: f32, lod: f32) -> vec4<f32> {
+    let amp_m = max(water.wave_amp * 0.5, 1e-4);
+    let e = 0.5 * zoom;
+    let h = getwaves(p, t, zoom, lod);
+    let hx = getwaves(p + vec2<f32>(e, 0.0), t, zoom, lod);
+    let hy = getwaves(p + vec2<f32>(0.0, e), t, zoom, lod);
+    let steep = 2.6;
+    let n = normalize(vec3<f32>(-(hx - h) / e * steep, -(hy - h) / e * steep, 1.0));
+    let crest = clamp(h / amp_m * 0.5 + 0.5, 0.0, 1.0);
     return vec4<f32>(n, crest);
 }
 
@@ -291,71 +311,54 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // crisp chop. This is what keeps the surface looking like the SAME ocean at
     // every map zoom instead of sub-pixel noise.
     let dist_m = length(water.eye - in.world_pos) * inv;
-    let zoom = clamp(dist_m / 350.0, 1.0, 48.0);
-    let surf = wave_surface(p_m, water.time, zoom);
-
-    // Screen-space anti-alias. `fwidth(p_m)` is how many ground-metres a single
-    // pixel covers — it captures BOTH distance and grazing foreshortening. Where
-    // a pixel spans a large fraction of the (zoom-scaled) wavelength the waves
-    // are sub-pixel and the raw normal aliases into the moiré "zigzag", so we
-    // flatten the normal toward up there. Crisp waves survive only where they're
-    // actually resolvable — no zigzag at any angle or zoom.
-    let pix_m = max(fwidth(p_m.x), fwidth(p_m.y));
-    let wl = 9.0 * zoom;
-    let aa = clamp(1.0 - smoothstep(wl * 0.04, wl * 0.28, pix_m), 0.0, 1.0);
-    // Anti-alias BOTH wave-derived signals together: the normal AND the crest
-    // (the crest drives the scattering colour, and a sub-pixel crest is what was
-    // aliasing the teal into moiré). Fade each toward its flat-sea value where a
-    // pixel spans the wavelength.
-    let n = normalize(mix(vec3<f32>(0.0, 0.0, 1.0), surf.xyz, aa));
-    let crest = mix(0.5, surf.w, aa);
+    // Mild zoom-scale (keeps waves near real-scale ocean texture) + per-octave
+    // LOD: far away only the coarse ripples resolve, close up the full chop. This
+    // anti-aliases by dropping the finest octaves, NOT by flattening the surface —
+    // so the normals keep rippling the reflection (no clay) at every zoom.
+    let zoom = clamp(dist_m / 700.0, 1.0, 18.0);
+    let lod = mix(2.5, 8.0, clamp(1.0 - smoothstep(500.0, 9000.0, dist_m), 0.0, 1.0));
+    let surf = wave_surface(p_m, water.time, zoom, lod);
+    let n = surf.xyz;
+    let crest = surf.w;
 
     // View vector (surface → eye).
     let v = normalize(water.eye - in.world_pos);
     let ndotv = max(dot(n, v), 1e-3);
 
-    // Schlick Fresnel for water (F0 ≈ 0.02): near-grazing → reflective,
-    // looking down → the body/scattering colour shows through.
-    let f0 = 0.02;
-    let fresnel = clamp(f0 + (1.0 - f0) * pow(1.0 - ndotv, 5.0), 0.0, 1.0);
+    // Fresnel with a high FLOOR — real water is strongly reflective at ALL angles
+    // (the "wet mirror"). Without the floor, looking down shows only the body
+    // colour and the surface reads as matte clay. F0 0.02, floor 0.30.
+    let fres = clamp(0.14 + 0.86 * pow(1.0 - ndotv, 5.0), 0.0, 1.0);
 
-    // Reflection uses a GENTLY-perturbed normal (mostly up), NOT the full sharp
-    // wave normal. Over a long reflected-ray march, a sharp per-pixel normal
-    // sends adjacent rays to wildly different terrain points → the mirror image
-    // aliases into swirling moiré. A near-flat normal keeps the reflected image
-    // coherent and just lets it ripple softly.
-    let n_refl = normalize(mix(vec3<f32>(0.0, 0.0, 1.0), n, 0.18));
-    let r = reflect(-v, n_refl);
-    var reflection = sky_color(r);
-    if (water.ssr_enabled > 0.5 && r.z > 0.02) {
-        let terr = reflect_terrain(in.world_pos, r);
+    // Reflection — the heart of the wet look. The FULL wave normal ripples the
+    // sky reflection so the surface shimmers (sky is a smooth gradient → no
+    // aliasing from rippling it). The terrain mirror march uses a smoothed normal
+    // so the reflected mountains stay coherent, then blends in.
+    let r_sky = reflect(-v, n);
+    var reflection = sky_color(r_sky);
+    let n_terr = normalize(mix(vec3<f32>(0.0, 0.0, 1.0), n, 0.30));
+    let r_terr = reflect(-v, n_terr);
+    if (water.ssr_enabled > 0.5 && r_terr.z > 0.02) {
+        let terr = reflect_terrain(in.world_pos, r_terr);
         if (terr.w > 0.5) {
-            reflection = terr.rgb;
+            reflection = mix(reflection, terr.rgb, 0.85);
         }
     }
 
-    // Subsurface scattering — the living colour of real sea. Sunlight that
-    // enters the water scatters back out as a teal-green glow, brightest where
-    // the wave bulges toward the light (crest) and where we look toward the sun
-    // through the wave (back-scatter). This replaces the flat dark swatch.
-    let deep = in.color.rgb * 0.45;                 // baked deep-water tint
-    let sss_col = vec3<f32>(0.045, 0.17, 0.20);     // teal-green scatter
-    let backscatter = pow(max(dot(v, -water.sun_dir), 0.0), 3.0);
-    let sss = sss_col * (0.45 + 0.9 * crest + 1.3 * backscatter)
-        * (0.30 + 0.70 * water.sun_intensity);
+    // Deep-water body tint with a subtle subsurface glow on crests. A TINT only —
+    // the water is reflection-dominated, so this never becomes the whole look.
+    let deep = in.color.rgb * 0.38;
+    let sss_col = vec3<f32>(0.03, 0.13, 0.16);
+    let sss = sss_col * (0.5 + 0.7 * crest) * (0.3 + 0.7 * water.sun_intensity);
     let body = deep + sss;
 
-    // Fresnel blends the body (looking into the water) toward the reflection
-    // (grazing/mirror). A small floor keeps a hint of sky/terrain on the surface
-    // even top-down, so it never reads as flat paint.
-    var col = mix(body, reflection, max(fresnel, 0.06));
+    var col = mix(body, reflection, fres);
 
-    // Sun glitter: a moderate HDR specular lobe about the half-vector — bloom
-    // turns it into sparkle. Power kept sane so a sub-pixel wave normal can't
-    // alias the highlight into banding; fades at night.
+    // Sun glitter: a tight HDR specular lobe on the rippling normal — bloom turns
+    // it into sparkle scattered across the wave crests. Fades at night.
     let h = normalize(v + water.sun_dir);
-    let spec = pow(max(dot(n, h), 0.0), 120.0);
-    col += water.sun_color * spec * water.sun_intensity * 3.5;
+    let spec = pow(max(dot(n, h), 0.0), 200.0);
+    col += water.sun_color * spec * water.sun_intensity * 6.0;
 
     // Whitecaps: the top band of each wave crest breaks white when the sea
     // state is extreme (forecast-driven). Sharpened so only the very tops break.
