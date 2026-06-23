@@ -274,6 +274,8 @@ internal class TurbomapSurfaceController {
     private var lastStatsLogMs = 0L
     private var lastAnimReconcileMs = 0L
     private var lastPendingCount = 0
+    private var coldLoadTraceStart = 0L
+    private var coldLoadTraceDone = false
     private val http = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
@@ -591,13 +593,43 @@ internal class TurbomapSurfaceController {
      */
     private fun startReconcileLoop() {
         if (reconcileLoop != null) return
+        coldLoadTraceStart = SystemClock.uptimeMillis()
         reconcileLoop = scope.launch {
             while (isActive && handle != 0L) {
                 reconcile()
+                traceColdLoad()
                 logStatsThrottled()
                 withTimeoutOrNull(SAFETY_TICK_MS) { wake.receive() }
             }
         }
+    }
+
+    /**
+     * Slice-1 cold-load trace. For the first [COLD_LOAD_TRACE_MS] after the
+     * surface comes up, log one line per reconcile tick under the dedicated
+     * `TurbomapTrace` tag: the engine's structured per-frame trace
+     * ([NativeSurfaceMap.nativeStats], same field-set the offline harness writes
+     * to `profile.csv`) PLUS the host-owned fetch-transport counts the engine
+     * can't know — `fetching` (in-flight HTTP) and `backoff` (failed, retrying).
+     * Together that's the full tile-state histogram over the cold-load window:
+     * the first-load ORDERING + jitter the synchronous harness can't measure.
+     *
+     * Pull it with:
+     *   adb logcat -c && adb logcat -s TurbomapTrace:I > coldload.log
+     * (open the map fresh to trigger a cold load), then parse `t_ms=` + JSON.
+     */
+    private fun traceColdLoad() {
+        if (coldLoadTraceDone || handle == 0L) return
+        val t = SystemClock.uptimeMillis() - coldLoadTraceStart
+        if (t > COLD_LOAD_TRACE_MS) {
+            coldLoadTraceDone = true
+            android.util.Log.i("TurbomapTrace", "cold-load trace complete (window ${COLD_LOAD_TRACE_MS}ms)")
+            return
+        }
+        android.util.Log.i(
+            "TurbomapTrace",
+            "t_ms=$t fetching=${inFlight.size} backoff=${retryAt.size} ${NativeSurfaceMap.nativeStats(handle)}",
+        )
     }
 
     /** While tiles are outstanding, log pending/in-flight + cache telemetry (throttled). */
@@ -863,6 +895,10 @@ internal class TurbomapSurfaceController {
         // returning "[]" when idle).
         const val SAFETY_TICK_MS = 350L
         const val RETRY_BACKOFF_MS = 1500L
+        /** Slice-1 cold-load trace window: log the structured per-frame trace
+         *  under `TurbomapTrace` for this long after a fresh surface comes up,
+         *  to capture first-load streaming order + jitter. */
+        const val COLD_LOAD_TRACE_MS = 15_000L
         // Hard cap on a single tile payload. A 256–512px encoded raster/DEM tile
         // is well under 1 MB; anything past this is a misrouted endpoint, an
         // error page, or a corrupt cache entry. Reject it instead of copying it
