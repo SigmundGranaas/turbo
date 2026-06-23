@@ -170,6 +170,15 @@ spec:
             # warm server stays fully concurrent.
             - name: TILESERVER_DEM_RENDER_CONCURRENCY
               value: "4"
+            # Max concurrent basemap/resource MVT renders (cache misses). A cold
+            # coastal tile renders a slice of the national sea/landcover polygons
+            # and is memory-heavy; the default (≈CPU cores = 2) let two of them
+            # run at once and OOM-killed the 2Gi pod. Pin to 1 so peak render
+            # memory is bounded — combined with the clip-before-simplify query
+            # each render is now cheap, and cache HITS never take a permit, so a
+            # warm server still serves fully concurrently.
+            - name: TILESERVER_MVT_RENDER_CONCURRENCY
+              value: "1"
             # JWT_SECRET gates only the /admin + debug surface; the public
             # tiles/basemap/routing endpoints serve without it (boot no longer
             # fails when it's unset — public-only mode). We still set it here so

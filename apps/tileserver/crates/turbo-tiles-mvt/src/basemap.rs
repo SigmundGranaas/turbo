@@ -162,8 +162,22 @@ pub async fn render_basemap_tile(
 
         // Optionally simplify in metric space before projecting to 3857.
         // The overview matview is already simplified, so `simplify` is false.
+        //
+        // CLIP-BEFORE-SIMPLIFY: cut the geometry to the (slightly expanded) tile
+        // box first, so `ST_SimplifyPreserveTopology` only processes the tile's
+        // slice of a feature — not, e.g., the national-scale sea multipolygon.
+        // Simplifying the full geometry for every tile was a ~14s, multi-hundred-MB
+        // render that OOM-killed the pod on coastal tiles. `ST_ClipByBox2D` is the
+        // fast cookie-cutter (it may return a slightly-dirty geometry, but the
+        // downstream `ST_AsMVTGeom(clip_geom => true)` does the exact clip + grid
+        // snap anyway, so it's harmless). The clip box is expanded past the tile so
+        // geometry inside the MVT buffer (64) survives.
         let src_geom = if simplify && layer.kind != GeomKind::Point {
-            format!("ST_SimplifyPreserveTopology(g.{geom}, {simplify_tol_m})")
+            format!(
+                "ST_SimplifyPreserveTopology(\
+                   ST_ClipByBox2D(g.{geom}, (SELECT env25833_clip FROM bounds)), \
+                   {simplify_tol_m})"
+            )
         } else {
             format!("g.{geom}")
         };
@@ -208,10 +222,19 @@ pub async fn render_basemap_tile(
         concat_terms.push(format!("COALESCE((SELECT mvt FROM {cte}), ''::bytea)"));
     }
 
+    // `env25833_clip` is the source-SRID tile box expanded by 10% on each side —
+    // the cookie-cutter for the clip-before-simplify step (see `src_geom`). The
+    // margin keeps geometry that falls inside the MVT buffer; the tight `env25833`
+    // is still used for the `&&` GIST filter so we only touch features that
+    // actually intersect the tile.
     let sql = format!(
         "WITH bounds AS (\n  \
-           SELECT ST_TileEnvelope($1::int, $2::int, $3::int) AS env3857,\n         \
-                  ST_Transform(ST_TileEnvelope($1::int, $2::int, $3::int), 25833) AS env25833\n),\n{}\n\
+           SELECT env3857, env25833,\n         \
+                  ST_Expand(env25833, (ST_XMax(env25833) - ST_XMin(env25833)) * 0.1) AS env25833_clip\n  \
+           FROM (\n    \
+             SELECT ST_TileEnvelope($1::int, $2::int, $3::int) AS env3857,\n           \
+                    ST_Transform(ST_TileEnvelope($1::int, $2::int, $3::int), 25833) AS env25833\n  \
+           ) b\n),\n{}\n\
          SELECT {}",
         ctes.join(",\n"),
         concat_terms.join(" || ")
