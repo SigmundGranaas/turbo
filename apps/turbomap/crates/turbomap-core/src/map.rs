@@ -757,6 +757,15 @@ struct TerrainShadowState {
     /// never blocks one frame on the whole walk (the ~5–20ms settle hitch).
     /// `None` when no build is in flight. Mirrors the AO progressive bake.
     build: Option<ShadowBuild>,
+    /// Camera pose (lat/lng/zoom/pitch/bearing bits) at the last render, to
+    /// detect "the camera is moving". A REPLACEMENT reassembly is deferred while
+    /// moving — a fling is an `active` animation so it was already deferred (and
+    /// feels smooth), but a finger-pan is direct `set_camera` (not "animating"),
+    /// so it used to reassemble mid-drag and felt choppy. Treating any
+    /// frame-to-frame pose change as "moving" makes a pan defer like a fling:
+    /// shadows hold their last field during the drag and settle in (progressively)
+    /// once you stop.
+    last_pose: Option<[u64; 5]>,
 }
 
 /// One in-flight progressive heightfield assembly (see [`TerrainShadowState::build`]).
@@ -2043,26 +2052,47 @@ impl Map {
         // camera animation runs (the field would be obsolete before it finished);
         // a finger-pan isn't an "animation", so a build makes progress across the
         // pan and simply restarts if the region keeps crossing the lattice.
+        // "Moving" = an in-flight animation (fling/ease) OR the camera pose
+        // changed since the last render (a finger-pan). Both should DEFER a
+        // replacement reassembly so the drag/fling stays smooth; the field
+        // settles in once motion stops.
+        let pose = {
+            let c = &self.cam.camera;
+            [
+                c.center.lat.to_bits(),
+                c.center.lng.to_bits(),
+                c.zoom.to_bits(),
+                c.pitch_deg.to_bits(),
+                c.bearing_deg.to_bits(),
+            ]
+        };
+        let moving = animating || self.shadow.last_pose != Some(pose);
+        self.shadow.last_pose = Some(pose);
+
         let have_this = self.shadow.key.as_ref() == Some(&key);
         let building_this = self.shadow.build.as_ref().map(|b| &b.key) == Some(&key);
-        if !animating && !have_this && !building_this {
+        if !have_this && !building_this {
             if self.shadow.key.is_none() {
-                // FIRST field: assemble synchronously so shadows are present on
-                // the very first rendered frame — there's no previous field to
-                // keep bound meanwhile, and a single-frame screenshot / the
-                // harness shadow proof depends on it. Only REPLACEMENTS (below)
-                // amortize, since they can keep showing the old field meanwhile.
-                let t0 = Instant::now();
-                let mut heights = vec![0.0f32; dim * dim];
-                terrain.cache.sample_grid((origin_abs[0], origin_abs[1]), cell, dim, |idx, e| {
-                    heights[idx] = e.unwrap_or(0.0) * zscale;
-                });
-                self.renderer.shadow_map.upload_heights(&heights);
-                self.shadow.origin_abs = origin_abs;
-                self.shadow.world_size = size_f;
-                self.shadow.key = Some(key.clone());
-                assemble = t0.elapsed();
-            } else {
+                // FIRST field: assemble synchronously (gated only on not-animating)
+                // so shadows are present on the first settled frame — there's no
+                // previous field to keep bound meanwhile, and a single-frame
+                // screenshot / the harness shadow proof depends on it.
+                if !animating {
+                    let t0 = Instant::now();
+                    let mut heights = vec![0.0f32; dim * dim];
+                    terrain.cache.sample_grid((origin_abs[0], origin_abs[1]), cell, dim, |idx, e| {
+                        heights[idx] = e.unwrap_or(0.0) * zscale;
+                    });
+                    self.renderer.shadow_map.upload_heights(&heights);
+                    self.shadow.origin_abs = origin_abs;
+                    self.shadow.world_size = size_f;
+                    self.shadow.key = Some(key.clone());
+                    assemble = t0.elapsed();
+                }
+            } else if !moving {
+                // REPLACEMENT: only start once the camera has SETTLED (not mid
+                // pan/fling), then amortise over frames. The old field stays
+                // bound meanwhile, so the move itself never pays the reassembly.
                 self.shadow.build = Some(ShadowBuild {
                     key: key.clone(),
                     origin_abs,
