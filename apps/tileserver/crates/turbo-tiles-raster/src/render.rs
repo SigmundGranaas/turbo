@@ -218,10 +218,19 @@ async fn fetch_layer(
     simplify_tol_m: f64,
 ) -> Result<Vec<(Vec<u8>, Json)>, RasterError> {
     let geom = &def.geom_column;
-    let src_geom = if def.simplify && def.kind != GeomKind::Point {
-        format!("ST_SimplifyPreserveTopology(g.{geom}, {simplify_tol_m})")
-    } else {
-        format!("g.{geom}")
+    // Clip every non-point geometry to the tile box (in the source SRID) BEFORE
+    // simplify + transform — exactly as the MVT path does. Without this, a
+    // low-zoom tile fetches + transforms + simplifies whole country-spanning
+    // coastline/water polygons in full, which takes 60s+ and blows the statement
+    // timeout (so the tile never renders or caches). `ST_ClipByBox2D` cookie-cuts
+    // the geometry to the tile first, turning that into a sub-second render. The
+    // `bounds` CTE computes the 25833 envelope once for both the clip and the
+    // `&&` index filter. Points are never clipped (in-or-out by the `&&`).
+    let clipped = format!("ST_ClipByBox2D(g.{geom}, (SELECT env FROM bounds))");
+    let src_geom = match (def.simplify, def.kind != GeomKind::Point) {
+        (_, false) => format!("g.{geom}"),
+        (true, true) => format!("ST_SimplifyPreserveTopology({clipped}, {simplify_tol_m})"),
+        (false, true) => clipped,
     };
     let attrs = if def.attrs.is_empty() {
         "'{}'::jsonb".to_string()
@@ -242,9 +251,12 @@ async fn fetch_layer(
         .map(|f| format!(" AND ({f})"))
         .unwrap_or_default();
     let sql = format!(
-        "SELECT ST_AsBinary(ST_Transform({src_geom}, 3857)) AS wkb, {attrs} AS attrs \
+        "WITH bounds AS (\
+           SELECT ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 3857), 25833) AS env\
+         ) \
+         SELECT ST_AsBinary(ST_Transform({src_geom}, 3857)) AS wkb, {attrs} AS attrs \
          FROM {table} g \
-         WHERE g.{geom} && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 3857), 25833){extra}",
+         WHERE g.{geom} && (SELECT env FROM bounds){extra}",
         table = def.table,
     );
     let rows: Vec<(Vec<u8>, Json)> = sqlx::query_as(&sql)
