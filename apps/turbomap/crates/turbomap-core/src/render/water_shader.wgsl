@@ -542,22 +542,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // thus the normal — anti-aliases smoothly with distance instead of shimmering
     // into a tiling grid (the failure of the per-fragment procedural waves). The
     // gradient step widens with distance so far water reads calm, not noisy.
-    // Small gradient step so fine ripples register; the cascade mips (auto-
-    // selected by `ocean_sample`) handle the far-distance anti-aliasing, so the
-    // step itself stays tight rather than pre-smoothing the slope.
-    let e = max(dist_m * 0.0006, 0.5);
+    // Gradient baseline SCALES with view distance. Up close (e≈0.6 m) the fine
+    // ripples drive the normal; far away the baseline widens to tens of metres so
+    // the big swells (the 97 m / 457 m cascades) — which barely change over a
+    // metre — actually produce slope, hence large-scale light/dark bands instead
+    // of a flat mip-averaged fill. This is what makes the sea read as shaded
+    // rolling swell at regional zoom, not a painted blue shape.
+    let e = clamp(dist_m * 0.010, 0.6, 30.0);
     let fld = ocean_sample(p_m);
     let wh = fld.z;
     let whx = ocean_height(p_m + vec2<f32>(e, 0.0));
     let why = ocean_height(p_m + vec2<f32>(0.0, e));
-    // Slope gain ramps HARD with distance. Up close the real slopes read as
-    // waves; far away (km up at map zoom) the waves are physically sub-pixel and
-    // the mips have smoothed the field to gentle low-frequency swell — so we
-    // amplify that smoothed slope a lot to keep the sea visibly alive (the
-    // accepted non-physical exaggeration). Because the far field is already
-    // mip-smoothed (no high frequencies), amplifying it yields visible rolling
-    // undulation, NOT a high-frequency grid.
-    let steep = mix(4.5, 20.0, clamp(smoothstep(300.0, 6000.0, dist_m), 0.0, 1.0));
+    // Slope gain ramps with distance to keep the swell visibly alive once the
+    // amplitude shrinks in screen space (a mild, non-physical exaggeration; the
+    // far field is already mip-smoothed so this is rolling undulation, no grid).
+    let steep = mix(3.5, 11.0, clamp(smoothstep(300.0, 6000.0, dist_m), 0.0, 1.0));
     let n = normalize(vec3<f32>(-(whx - wh) / e * steep, -(why - wh) / e * steep, 1.0));
     // Foam coverage from the field's Jacobian (where waves fold/break).
     let crest = clamp(fld.w, 0.0, 1.0);
@@ -635,11 +634,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let sss = sss_col * (0.35 + 0.9 * crest) * back * (0.3 + 0.7 * water.sun_intensity);
     let body = water_body + sss;
 
-    var col = mix(body, reflection, fres);
+    // ---- Diffuse wave shading — THE cue that makes the sea read as 3-D --------
+    // Light the wave normal against the sun: faces turned toward the sun are
+    // bright, faces turned away fall into shadow. Without this the surface is a
+    // flat tinted fill no matter how detailed the normal is. A wrapped lambert
+    // (half-lit at the terminator) keeps troughs from crushing to black, and a
+    // sky-ambient floor fills the shadow side with the horizon colour so shaded
+    // water still looks like water, not slate. Collapses to ambient at night.
+    let ndotl = dot(nf, water.sun_dir);
+    let diffuse = clamp(ndotl * 0.5 + 0.5, 0.0, 1.0);
+    // Ambient from the sky the surface faces (cheap up-facing sky term).
+    let ambient = mix(water.horizon_color, water.zenith_color, 0.5) * 0.18;
+    let sun_lit = water.sun_color * water.sun_intensity;
+    // Shaded body: ambient sky fill + directional sun on the wave faces. The 0.55
+    // sun weight gives a strong light/dark swing across crests vs troughs.
+    let shade = ambient + sun_lit * diffuse * 0.55;
+    // Signed wave height (crest > 0, trough < 0) adds a little extra lift/sink on
+    // top of the normal shading so long swells read even where the slope is gentle.
+    let amp_m = max(water.wave_amp * 0.5, 1e-4);
+    let tone = clamp(wh / amp_m, -1.0, 1.0);
+    let lit_body = body * (0.32 + shade) * (1.0 + 0.20 * tone);
 
-    // Direct wave shading — crests bright, troughs dark — so the sea reads alive
-    // even where the reflected environment is uniform (open sea / overcast).
-    col *= (0.82 + 0.34 * crest);
+    var col = mix(lit_body, reflection, fres);
 
     // Sun glitter (P4): a tight HDR sparkle on the rippling normal that bloom
     // scatters into sea-sparkle, plus a soft sunward sheen (kept modest so it
