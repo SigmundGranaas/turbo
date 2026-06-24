@@ -15,7 +15,15 @@ builder.Services.AddCors(options =>
         policy =>
         {
             policy
-                .WithOrigins("http://localhost:8080", "https://kartapi.sandring.no")
+                .WithOrigins(
+                    "http://localhost:8080",
+                    "https://kartapi.sandring.no",
+                    // The turbomap web app (kart.sandring.no) calls this API
+                    // cross-origin with credentials; the Vite dev server (5173)
+                    // does too. Both are same-site (sandring.no) so the Lax auth
+                    // cookies flow; CORS just has to allow the origin to read.
+                    "https://kart.sandring.no",
+                    "http://localhost:5173")
                 .AllowAnyMethod()
                 .AllowAnyHeader()
                 .AllowCredentials();
