@@ -452,7 +452,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // accepted non-physical exaggeration). Because the far field is already
     // mip-smoothed (no high frequencies), amplifying it yields visible rolling
     // undulation, NOT a high-frequency grid.
-    let steep = mix(5.0, 30.0, clamp(smoothstep(300.0, 6000.0, dist_m), 0.0, 1.0));
+    let steep = mix(4.5, 20.0, clamp(smoothstep(300.0, 6000.0, dist_m), 0.0, 1.0));
     let n = normalize(vec3<f32>(-(whx - wh) / e * steep, -(why - wh) / e * steep, 1.0));
     // Foam coverage from the field's Jacobian (where waves fold/break).
     let crest = clamp(fld.w, 0.0, 1.0);

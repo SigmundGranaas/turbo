@@ -299,10 +299,11 @@ impl OceanField {
         // Direction the wind blows TOWARD (compass `from` + 180°), world x=E y=S.
         let to = (wind_from_deg + 180.0).to_radians();
         let wdir = [-to.sin(), to.cos()];
-        // Per-cascade RMS target (metres). The big-swell cascade is boosted so
-        // there's visible long-wavelength undulation at map zoom (where the
-        // wind-driven peak is sub-pixel); finer cascades carry the close-up chop.
-        const CASCADE_GAIN: [f32; CASCADES] = [2.4, 1.0, 0.5];
+        // Per-cascade RMS target (metres). Weighted toward the big-swell + medium
+        // cascades so the sea reads as distinct rolling WAVES (visible crests/
+        // troughs) rather than uniform fine grain; the finest cascade only adds a
+        // little surface tooth on top.
+        const CASCADE_GAIN: [f32; CASCADES] = [2.2, 1.7, 0.3];
         for c in 0..CASCADES {
             let target = (0.5 * amplitude_scale * CASCADE_GAIN[c]).clamp(0.05, 6.0);
             let waves = phillips_waves(wind, wdir, PATCH_M[c], target, c as u32);
