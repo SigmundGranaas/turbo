@@ -104,6 +104,9 @@ impl<V: Clone> ByteLru<V> {
 /// LRU eviction driven by an in-memory index (no per-request directory scans).
 struct DiskLru {
     dir: PathBuf,
+    /// File extension for the cached payload (`mvt` for vector tiles, `png` for
+    /// rendered raster tiles). Parameterised so the same machinery backs both.
+    ext: &'static str,
     index: Mutex<ByteLru<()>>,
     tmp_seq: AtomicU64,
 }
@@ -111,10 +114,10 @@ struct DiskLru {
 impl DiskLru {
     /// Open `dir` (creating it) and seed the LRU index from whatever is already
     /// on disk, ordered oldest-first by mtime so prior warmth survives restart.
-    fn open(dir: PathBuf, budget: u64) -> std::io::Result<Self> {
+    fn open(dir: PathBuf, budget: u64, ext: &'static str) -> std::io::Result<Self> {
         std::fs::create_dir_all(&dir)?;
         let mut found: Vec<(std::time::SystemTime, String, u64)> = Vec::new();
-        collect_mvt(&dir, &dir, &mut found)?;
+        collect_tiles(&dir, &dir, ext, &mut found)?;
         found.sort_by_key(|(t, _, _)| *t);
         let mut index = ByteLru::new(budget);
         let mut evicted = Vec::new();
@@ -123,6 +126,7 @@ impl DiskLru {
         }
         let me = Self {
             dir,
+            ext,
             index: Mutex::new(index),
             tmp_seq: AtomicU64::new(0),
         };
@@ -133,7 +137,7 @@ impl DiskLru {
     }
 
     fn path(&self, full_key: &str) -> PathBuf {
-        self.dir.join(format!("{full_key}.mvt"))
+        self.dir.join(format!("{full_key}.{}", self.ext))
     }
 
     fn remove_file(&self, full_key: &str) {
@@ -187,13 +191,15 @@ impl DiskLru {
     }
 }
 
-/// Recursively collect `*.mvt` files under `root`, recording (mtime, key, size)
-/// where `key` is the path relative to `root` minus the `.mvt` suffix.
-fn collect_mvt(
+/// Recursively collect `*.{ext}` files under `root`, recording (mtime, key, size)
+/// where `key` is the path relative to `root` minus the `.{ext}` suffix.
+fn collect_tiles(
     root: &Path,
     dir: &Path,
+    ext: &str,
     out: &mut Vec<(std::time::SystemTime, String, u64)>,
 ) -> std::io::Result<()> {
+    let suffix = format!(".{ext}");
     for e in std::fs::read_dir(dir)?.flatten() {
         let p = e.path();
         let ft = match e.file_type() {
@@ -201,10 +207,10 @@ fn collect_mvt(
             Err(_) => continue,
         };
         if ft.is_dir() {
-            collect_mvt(root, &p, out)?;
-        } else if p.extension().and_then(|s| s.to_str()) == Some("mvt") {
+            collect_tiles(root, &p, ext, out)?;
+        } else if p.extension().and_then(|s| s.to_str()) == Some(ext) {
             if let (Ok(rel), Ok(meta)) = (p.strip_prefix(root), e.metadata()) {
-                if let Some(key) = rel.to_str().and_then(|s| s.strip_suffix(".mvt")) {
+                if let Some(key) = rel.to_str().and_then(|s| s.strip_suffix(&suffix)) {
                     let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
                     out.push((mtime, key.to_string(), meta.len()));
                 }
@@ -228,7 +234,7 @@ pub struct MvtTileCache {
 }
 
 impl MvtTileCache {
-    /// Build from env:
+    /// Build the **MVT** vector-tile cache from env:
     ///   TILESERVER_MVT_TILE_CACHE_DIR        disk dir (unset → memory-only)
     ///   TILESERVER_MVT_TILE_CACHE_MEM_BYTES  RAM budget  (default 32 MiB — small,
     ///                                        just the hot set in front of disk)
@@ -236,6 +242,22 @@ impl MvtTileCache {
     ///   TILESERVER_MVT_RENDER_CONCURRENCY    max concurrent cold renders
     ///                                        (default = CPU cores, min 2)
     pub fn from_env() -> Self {
+        Self::from_env_with("MVT", "mvt")
+    }
+
+    /// Build the **raster** PNG-tile cache from the `TILESERVER_RASTER_*`
+    /// counterparts of the MVT vars. Same two-tier LRU + render-concurrency
+    /// limiter; only the disk extension (`png`) and env prefix differ. Server-
+    /// side raster rendering is even more expensive than MVT (it rasterises the
+    /// same layers, plus hillshade), and low-zoom tiles can exceed the default
+    /// statement timeout cold — caching the bytes turns that into a one-time cost.
+    pub fn png_from_env() -> Self {
+        Self::from_env_with("RASTER", "png")
+    }
+
+    /// Shared constructor. `prefix` selects the `TILESERVER_{prefix}_*` env vars;
+    /// `ext` is the on-disk file extension and cache label.
+    fn from_env_with(prefix: &str, ext: &'static str) -> Self {
         fn bytes(var: &str, default: u64) -> u64 {
             std::env::var(var)
                 .ok()
@@ -243,12 +265,15 @@ impl MvtTileCache {
                 .filter(|&n| n > 0)
                 .unwrap_or(default)
         }
-        let mem_budget = bytes("TILESERVER_MVT_TILE_CACHE_MEM_BYTES", 32 * 1024 * 1024);
+        let mem_budget = bytes(
+            &format!("TILESERVER_{prefix}_TILE_CACHE_MEM_BYTES"),
+            32 * 1024 * 1024,
+        );
         let disk_budget = bytes(
-            "TILESERVER_MVT_TILE_CACHE_DISK_BYTES",
+            &format!("TILESERVER_{prefix}_TILE_CACHE_DISK_BYTES"),
             2 * 1024 * 1024 * 1024,
         );
-        let permits = std::env::var("TILESERVER_MVT_RENDER_CONCURRENCY")
+        let permits = std::env::var(format!("TILESERVER_{prefix}_RENDER_CONCURRENCY"))
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
@@ -259,16 +284,16 @@ impl MvtTileCache {
             })
             .max(2);
 
-        let disk = std::env::var("TILESERVER_MVT_TILE_CACHE_DIR")
+        let disk = std::env::var(format!("TILESERVER_{prefix}_TILE_CACHE_DIR"))
             .ok()
             .filter(|s| !s.is_empty())
-            .and_then(|d| match DiskLru::open(PathBuf::from(&d), disk_budget) {
+            .and_then(|d| match DiskLru::open(PathBuf::from(&d), disk_budget, ext) {
                 Ok(lru) => {
-                    tracing::info!(dir = %d, budget_bytes = disk_budget, "mvt tile disk cache ready");
+                    tracing::info!(dir = %d, budget_bytes = disk_budget, label = ext, "tile disk cache ready");
                     Some(Arc::new(lru))
                 }
                 Err(e) => {
-                    tracing::warn!(dir = %d, error = %e, "mvt tile disk cache disabled (open failed)");
+                    tracing::warn!(dir = %d, error = %e, label = ext, "tile disk cache disabled (open failed)");
                     None
                 }
             });
@@ -278,7 +303,8 @@ impl MvtTileCache {
             disk_budget_bytes = disk_budget,
             render_permits = permits,
             disk = disk.is_some(),
-            "mvt tile cache ready"
+            label = ext,
+            "tile cache ready"
         );
         Self {
             mem: Arc::new(Mutex::new(ByteLru::new(mem_budget))),

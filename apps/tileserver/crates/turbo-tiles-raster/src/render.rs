@@ -33,6 +33,23 @@ const PAD_PX: f64 = 24.0;
 
 pub(crate) const FONT_BYTES: &[u8] = include_bytes!("../assets/DejaVuSans.ttf");
 
+/// Per-render statement-timeout budget (ms), applied via `SET LOCAL` to the
+/// render transaction only — so a cold low-zoom tile (whose per-layer
+/// `ST_Transform`/`ST_Simplify` over a country-sized bbox can exceed the pool's
+/// default 10s cap) can complete *once* and be cached, without lifting the cap
+/// for routing/other queries. Env `TILESERVER_RASTER_RENDER_TIMEOUT_MS`
+/// (default 60s). 0 disables the override (inherit the connection's cap).
+fn render_statement_timeout_ms() -> u64 {
+    use std::sync::OnceLock;
+    static V: OnceLock<u64> = OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("TILESERVER_RASTER_RENDER_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60_000)
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RasterError {
     #[error(transparent)]
@@ -112,6 +129,17 @@ pub async fn render_tile(
     });
     let mut shade_applied = false;
 
+    // All layer fetches run in one transaction so a single `SET LOCAL
+    // statement_timeout` covers the render without leaking the raised cap back
+    // to the pooled connection. Read-only; we roll back at the end.
+    let mut tx = pool.begin().await?;
+    let budget_ms = render_statement_timeout_ms();
+    if budget_ms > 0 {
+        sqlx::query(&format!("SET LOCAL statement_timeout = {budget_ms}"))
+            .execute(&mut *tx)
+            .await?;
+    }
+
     for layer in &style.layers {
         if coord.z < layer.min_zoom || coord.z > layer.max_zoom {
             continue;
@@ -127,7 +155,7 @@ pub async fn render_tile(
             }
             shade_applied = true;
         }
-        let rows = fetch_layer(pool, def, fetch_env, simplify_tol_m).await?;
+        let rows = fetch_layer(&mut tx, def, fetch_env, simplify_tol_m).await?;
         for (wkb, attrs) in &rows {
             if !layer.filter.matches(attrs) {
                 continue;
@@ -162,6 +190,9 @@ pub async fn render_tile(
         }
     }
 
+    // Done with the DB; release the (read-only) transaction.
+    tx.rollback().await?;
+
     // Styles with only fill layers (very low zoom) never hit the line branch
     // above — composite before labels so the relief still shows.
     if !shade_applied {
@@ -178,8 +209,10 @@ pub async fn render_tile(
 }
 
 /// One layer's rows inside the (padded) envelope: WKB in 3857 + jsonb attrs.
+/// Runs on the caller's render transaction so the per-render `SET LOCAL`
+/// statement-timeout applies.
 async fn fetch_layer(
-    pool: &DbPool,
+    conn: &mut sqlx::PgConnection,
     def: &BasemapLayer,
     env: (f64, f64, f64, f64),
     simplify_tol_m: f64,
@@ -219,7 +252,7 @@ async fn fetch_layer(
         .bind(env.1)
         .bind(env.2)
         .bind(env.3)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
     Ok(rows)
 }

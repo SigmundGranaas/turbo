@@ -190,6 +190,22 @@ spec:
               value: "16777216"     # 16 MiB — small, just the hot set
             - name: TILESERVER_MVT_TILE_CACHE_DISK_BYTES
               value: "2147483648"   # 2 GiB — big, the real cache
+            # Rendered-RASTER (PNG) cache — same two-tier design as MVT. The
+            # raster render is even heavier (rasterise + hillshade) and low-zoom
+            # tiles can exceed the pool's 10s statement cap COLD, so without a
+            # cache they 500 on every request and the basemap never appears below
+            # ~z11. Cache the bytes (render once per data version) + give the cold
+            # render a longer, render-only statement budget so it can complete.
+            - name: TILESERVER_RASTER_RENDER_CONCURRENCY
+              value: "1"            # one cold render at a time (memory ceiling)
+            - name: TILESERVER_RASTER_RENDER_TIMEOUT_MS
+              value: "45000"        # per-render SET LOCAL cap (vs the 10s default)
+            - name: TILESERVER_RASTER_TILE_CACHE_DIR
+              value: "/var/lib/tileserver/raster-cache"
+            - name: TILESERVER_RASTER_TILE_CACHE_MEM_BYTES
+              value: "16777216"     # 16 MiB — small, just the hot set
+            - name: TILESERVER_RASTER_TILE_CACHE_DISK_BYTES
+              value: "2147483648"   # 2 GiB — big, the real cache
             # JWT_SECRET gates only the /admin + debug surface; the public
             # tiles/basemap/routing endpoints serve without it (boot no longer
             # fails when it's unset — public-only mode). We still set it here so
@@ -274,6 +290,12 @@ spec:
             # tiles don't all re-render cold.
             - name: mvt-cache
               mountPath: /var/lib/tileserver/mvt-cache
+            # Rendered raster-PNG cache, node-local SSD — same small-RAM/big-disk
+            # design as mvt-cache; disk-backed so it doesn't count against the
+            # pod memory limit, and survives restarts so low-zoom tiles render
+            # cold at most once per data version.
+            - name: raster-cache
+              mountPath: /var/lib/tileserver/raster-cache
       volumes:
         - name: artifacts
           persistentVolumeClaim:
@@ -304,6 +326,13 @@ spec:
         # count against the pod's 2Gi memory limit — that's the whole point of
         # small-RAM/big-disk. Survives container restarts; wiped on pod removal.
         - name: mvt-cache
+          emptyDir:
+            sizeLimit: 3Gi
+        # Rendered raster-PNG cache, node-local SSD. App LRU keeps usage under
+        # TILESERVER_RASTER_TILE_CACHE_DISK_BYTES (2Gi); 3Gi cap is the kubelet
+        # backstop. Disk-backed (not medium: Memory) so it stays off the 2Gi
+        # memory limit. Survives container restarts; wiped on pod removal.
+        - name: raster-cache
           emptyDir:
             sizeLimit: 3Gi
 ---

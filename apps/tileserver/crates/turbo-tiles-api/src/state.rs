@@ -70,6 +70,12 @@ pub struct ApiState {
     /// query into a memory hit and bounds concurrent cold renders. Invalidated by
     /// `bump_version` on (re)provision. See [`crate::mvt_tile_cache`].
     pub mvt_tiles: crate::mvt_tile_cache::MvtTileCache,
+    /// Cache of rendered **raster** PNG tiles (`/v1/raster/n50/...`). Same two-
+    /// tier LRU + render-concurrency limiter as `mvt_tiles`; the raster render is
+    /// even costlier (rasterise + hillshade) and low-zoom tiles can exceed the
+    /// pool's statement timeout cold, so caching the bytes is what makes the
+    /// low-zoom basemap viable. Invalidated by `bump_version` on (re)provision.
+    pub raster_tiles: crate::mvt_tile_cache::MvtTileCache,
     /// False until the N50 basemap has data in the DB. While false the
     /// `/v1/basemap` tile endpoint returns **503** instead of a (cacheable)
     /// `200`-with-empty body, so a client retries rather than caching an empty
@@ -110,6 +116,7 @@ impl ApiState {
             routing_permits: Arc::new(tokio::sync::Semaphore::new(permits)),
             dem_tiles: crate::dem_tile_cache::DemTileCache::from_env(),
             mvt_tiles: crate::mvt_tile_cache::MvtTileCache::from_env(),
+            raster_tiles: crate::mvt_tile_cache::MvtTileCache::png_from_env(),
             basemap_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }

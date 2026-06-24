@@ -301,6 +301,8 @@ async fn serve(
     // underlying data changes (else tiles cached while the DB was empty/old
     // would keep being served after a provision).
     let mvt_cache = api_state.mvt_tiles.clone();
+    // Same for the rendered-raster cache, invalidated on the same provisions.
+    let raster_cache = api_state.raster_tiles.clone();
     // Clone the basemap-readiness flag too: `/v1/basemap` tiles 503 until it's
     // set, so a fresh deploy never serves cacheable empty tiles while the DB is
     // still provisioning. Set it now if the DB already has data (a restart over a
@@ -394,9 +396,10 @@ async fn serve(
     if let Ok(area) = std::env::var("TILESERVER_PROVISION_ON_BOOT") {
         let provision_db = db.clone();
         let cache = mvt_cache.clone();
+        let raster = raster_cache.clone();
         let ready = basemap_ready.clone();
         tokio::spawn(async move {
-            maybe_provision_on_boot(provision_db, area, cache, ready).await;
+            maybe_provision_on_boot(provision_db, area, cache, raster, ready).await;
         });
     }
 
@@ -409,8 +412,10 @@ async fn serve(
             Ok(s) if s >= 60 => {
                 let refresh_db = db.clone();
                 let cache = mvt_cache.clone();
+                let raster = raster_cache.clone();
                 tokio::spawn(async move {
-                    refresh_loop(refresh_db, std::time::Duration::from_secs(s), cache).await;
+                    refresh_loop(refresh_db, std::time::Duration::from_secs(s), cache, raster)
+                        .await;
                 });
             }
             _ => tracing::warn!(
@@ -437,6 +442,7 @@ async fn maybe_provision_on_boot(
     serving_db: turbo_tiles_db::DbPool,
     area: String,
     mvt_cache: turbo_tiles_api::mvt_tile_cache::MvtTileCache,
+    raster_cache: turbo_tiles_api::mvt_tile_cache::MvtTileCache,
     basemap_ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     // Cheap emptiness probe on the serving pool (short timeout is fine here).
@@ -485,6 +491,7 @@ async fn maybe_provision_on_boot(
             // Tiles requested while the DB was empty got cached empty; drop them
             // so the now-populated data is served.
             mvt_cache.bump_version();
+            raster_cache.bump_version();
             // Data has landed — flip the basemap endpoint from 503 to serving.
             basemap_ready.store(true, std::sync::atomic::Ordering::Relaxed);
             tracing::info!(rows = o.rows_upserted, "boot-provision: complete");
@@ -502,6 +509,7 @@ async fn refresh_loop(
     serving_db: turbo_tiles_db::DbPool,
     interval: std::time::Duration,
     mvt_cache: turbo_tiles_api::mvt_tile_cache::MvtTileCache,
+    raster_cache: turbo_tiles_api::mvt_tile_cache::MvtTileCache,
 ) {
     tracing::info!(
         secs = interval.as_secs(),
@@ -556,9 +564,10 @@ async fn refresh_loop(
             // tick when Kartverket hasn't republished.
             Ok(o) if o.rows_upserted > 0 => {
                 mvt_cache.bump_version();
+                raster_cache.bump_version();
                 tracing::info!(
                     rows = o.rows_upserted,
-                    "provision-refresh: updated, mvt cache invalidated"
+                    "provision-refresh: updated, tile caches invalidated"
                 );
             }
             Ok(_) => {}

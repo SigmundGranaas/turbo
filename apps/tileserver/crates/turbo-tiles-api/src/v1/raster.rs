@@ -38,21 +38,33 @@ pub async fn tile(
     }
     let coord = TileCoord::new(z, x, y).map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-    let png = turbo_tiles_raster::render_tile(
-        &state.db,
-        &state.basemap,
-        &state.raster_style,
-        coord,
-        TILE_PX,
-        // Composite hillshade when the DEM artifact is loaded; flat otherwise.
-        state.dem.as_deref(),
-    )
-    .await
-    .map_err(|e| ApiError::Db(e.to_string()))?;
+    // Serve from the rendered-raster cache (RAM → SSD) when warm; otherwise
+    // render once under a permit and cache through both tiers. `get_or_render`
+    // collapses a thundering herd for one cold tile to a single DB render, and
+    // the render runs with a longer statement-timeout budget (see
+    // `turbo_tiles_raster`) so a low-zoom tile can complete + cache instead of
+    // re-timing-out on every request.
+    let key = format!("n50/{z}/{x}/{y}");
+    let png = state
+        .raster_tiles
+        .get_or_render(key, || async {
+            turbo_tiles_raster::render_tile(
+                &state.db,
+                &state.basemap,
+                &state.raster_style,
+                coord,
+                TILE_PX,
+                // Composite hillshade when the DEM artifact is loaded; flat otherwise.
+                state.dem.as_deref(),
+            )
+            .await
+            .map_err(|e| ApiError::Db(e.to_string()))
+        })
+        .await?;
 
     let mut resp = Response::builder()
         .status(StatusCode::OK)
-        .body(Body::from(png))
+        .body(Body::from(png.to_vec()))
         .unwrap();
     let headers = resp.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
