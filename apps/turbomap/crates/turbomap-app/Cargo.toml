@@ -30,7 +30,9 @@ crossbeam-channel.workspace = true
 rayon.workspace = true
 pollster.workspace = true
 dirs.workspace = true
-image.workspace = true
+# JPEG on top of the workspace's PNG: the scenario harness's satellite basemap
+# (Esri World Imagery) serves JPEG tiles, which won't decode with png-only.
+image = { workspace = true, features = ["jpeg"] }
 egui.workspace = true
 egui-wgpu.workspace = true
 egui-winit.workspace = true

@@ -290,13 +290,26 @@ impl HttpTiles {
     }
 }
 
+/// Detect the image format from the magic bytes — servers vary (Kartverket
+/// returns PNG, Esri World Imagery returns JPEG). Declaring the wrong format
+/// makes the decoder reject the tile → a blank/grey basemap.
+fn sniff_raster_format(bytes: &[u8]) -> RasterFormat {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        RasterFormat::Jpeg
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        RasterFormat::Webp
+    } else {
+        RasterFormat::Png
+    }
+}
+
 impl TileSource for HttpTiles {
     fn request(&self, tile: TileId) -> Result<RasterTile, TileError> {
         if let Some(hit) = self.cache.lock().unwrap().get(&tile) {
             return match hit {
                 Some(bytes) => Ok(RasterTile {
+                    format: sniff_raster_format(bytes),
                     bytes: bytes.clone(),
-                    format: RasterFormat::Png,
                 }),
                 None => Err(TileError::Network("cached miss".into())),
             };
@@ -325,8 +338,8 @@ impl TileSource for HttpTiles {
             Ok(bytes) => {
                 cache.insert(tile, Some(bytes.clone()));
                 Ok(RasterTile {
+                    format: sniff_raster_format(&bytes),
                     bytes,
-                    format: RasterFormat::Png,
                 })
             }
             Err(e) => {
@@ -496,12 +509,24 @@ fn drain_tiles(
         for req in pending {
             match req {
                 PendingTile::Raster { layer_id, tile } => {
-                    if let Ok(raw) = basemap.request(tile) {
-                        if let Ok(img) = image::load_from_memory(&raw.bytes) {
-                            let img = img.to_rgba8();
-                            let (w, h) = img.dimensions();
-                            map.ingest_raster(&layer_id, tile, img.as_raw(), w, h);
-                            progressed = true;
+                    match basemap.request(tile) {
+                        Ok(raw) => match image::load_from_memory(&raw.bytes) {
+                            Ok(img) => {
+                                let img = img.to_rgba8();
+                                let (w, h) = img.dimensions();
+                                map.ingest_raster(&layer_id, tile, img.as_raw(), w, h);
+                                progressed = true;
+                            }
+                            Err(e) => {
+                                if std::env::var("TURBO_DEBUG_RASTER").is_ok() {
+                                    eprintln!("RASTER decode FAIL {tile:?}: {e} ({} bytes)", raw.bytes.len());
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            if std::env::var("TURBO_DEBUG_RASTER").is_ok() {
+                                eprintln!("RASTER fetch FAIL {tile:?}: {e}");
+                            }
                         }
                     }
                 }
@@ -750,22 +775,38 @@ fn main() {
     // Hillshade over the basemap: sun-relit relief shadows from the shared DEM
     // — exercises the hillshade pipeline + the terrain self-shadowing the sun
     // drives. Drawn between basemap and vectors so roads/labels sit on top.
-    map.add_hillshade_layer(
-        "hillshade",
-        HillshadeStyle {
-            encoding: DemEncoding::MapboxRgb,
-            sun_azimuth_deg: 315.0,
-            sun_altitude_deg: 45.0,
-            exaggeration: 1.4,
-            shadow_color: Color::rgb(0x2A, 0x33, 0x40),
-            highlight_color: Color::rgb(0xFF, 0xFB, 0xF0),
-            opacity: 0.55,
-        },
-    );
+    // Hillshade greys out the basemap (0.55 opacity over it) and is irrelevant to
+    // the water look, so the water test-bed skips it — letting the satellite
+    // basemap show through for the shallow bed-reveal.
+    if !real_water {
+        map.add_hillshade_layer(
+            "hillshade",
+            HillshadeStyle {
+                encoding: DemEncoding::MapboxRgb,
+                sun_azimuth_deg: 315.0,
+                sun_altitude_deg: 45.0,
+                exaggeration: 1.4,
+                shadow_color: Color::rgb(0x2A, 0x33, 0x40),
+                highlight_color: Color::rgb(0xFF, 0xFB, 0xF0),
+                opacity: 0.55,
+            },
+        );
+    }
     map.add_vector_layer("osm", vector.clone(), demo_style());
     // Fixed sun so frames are deterministic (no wall-clock dependence). The
     // time-of-day sweep below overrides this per-step.
-    map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
+    if real_water {
+        // Water test-bed lighting: a LOW sun placed in front of the camera
+        // (azimuth = camera bearing) so the glitter streak + sun reflection land
+        // in frame and the analytic sky is warm/contrasty — the conditions the
+        // water look actually needs, which a high muted sun never shows.
+        map.set_sun_position(Some(SunPosition {
+            azimuth_deg: cli.bearing as f32,
+            altitude_deg: 14.0,
+        }));
+    } else {
+        map.set_sun_position(Some(SunPosition { azimuth_deg: 145.0, altitude_deg: 30.0 }));
+    }
     // Realistic AAA water (Gerstner vertex displacement + wave normals + Fresnel
     // reflection + glitter) for the water dev loop (TURBO_WATER=1). Off by default
     // so the other probes keep the flat fill. The synthetic `water` rect above
