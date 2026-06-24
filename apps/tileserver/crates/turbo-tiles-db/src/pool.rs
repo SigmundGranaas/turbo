@@ -65,6 +65,23 @@ impl DbConfig {
             .max_connections(self.max_connections)
             .min_connections(self.min_connections)
             .acquire_timeout(Duration::from_secs(10))
+            // Connections MUST be recycled. Without these, a connection lives
+            // forever; one network blip (conntrack drop, DB failover) on the
+            // single-node cluster turns every pooled socket into a half-open
+            // zombie, sqlx's pre-acquire health check hangs on each until the
+            // acquire timeout, and the pool stays wedged until a human restarts
+            // the pod (the failure this guards against). With recycling, stale
+            // connections are dropped and replaced, so the pool self-heals.
+            //   - max_lifetime: hard cap on connection age → the whole pool
+            //     rotates through fresh sockets within 10 min no matter what, so
+            //     a wedge self-heals within that window with no human action.
+            //   - idle_timeout: a connection unused for 5 min is closed, so a
+            //     zombie that went idle is reaped long before it's handed out.
+            //   - test_before_acquire: ping (bounded by acquire_timeout) before
+            //     lending a connection, so a dead one is discarded, not returned.
+            .max_lifetime(Duration::from_secs(600))
+            .idle_timeout(Duration::from_secs(300))
+            .test_before_acquire(true)
             .after_connect(move |conn, _meta| {
                 Box::pin(async move {
                     sqlx::query(&format!("SET statement_timeout = {statement_timeout_ms}"))

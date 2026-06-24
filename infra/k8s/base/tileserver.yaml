@@ -212,11 +212,21 @@ spec:
           # failure budget (≈20 min) so the one-time restore can finish. Once the
           # tiles-db is populated, provision is a no-op and the pod is responsive
           # again, so this generous window only matters on first/empty boot.
+          # Readiness exercises the DB (/readyz does SELECT 1), so a wedged
+          # connection pool — the failure mode where every tile 500s with
+          # "pool timed out waiting for an open connection" — takes the pod OUT
+          # of the Service endpoints (clients get a fast 503, not a 14s-then-500)
+          # and it rejoins automatically once the pool recycles itself (see the
+          # max_lifetime/idle_timeout in turbo-tiles-db::pool). Liveness stays on
+          # the DB-FREE /healthz on purpose: a DB-dependent liveness probe would
+          # SIGKILL the pod mid-restore during the CPU-pegged provisioning window
+          # above → the exact crash loop we fixed. So readiness detects+sheds the
+          # wedge, the pool self-heals, and liveness never false-kills on boot.
           readinessProbe:
-            httpGet: { path: /healthz, port: 8080 }
+            httpGet: { path: /readyz, port: 8080 }
             periodSeconds: 15
             timeoutSeconds: 8
-            failureThreshold: 6
+            failureThreshold: 4
           livenessProbe:
             httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 30
