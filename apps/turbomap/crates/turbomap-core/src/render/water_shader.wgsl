@@ -81,6 +81,46 @@ struct WaterGlobals {
 @group(3) @binding(1) var height_tex: texture_2d<f32>;
 const HF_DIM: i32 = 256;
 
+// ---- Ocean Field cascades (group 3, bindings 2..5) ------------------------
+// Three mip-filtered cascade textures: RGBA = (displacement.x, displacement.y,
+// height, foam), all in metres, periodic over their patch size. Sampled at the
+// fragment's world position to build the surface — mip filtering is what kills
+// the zoom-out tiling/aliasing the procedural waves suffered.
+@group(3) @binding(2) var ocean_c0: texture_2d<f32>;
+@group(3) @binding(3) var ocean_c1: texture_2d<f32>;
+@group(3) @binding(4) var ocean_c2: texture_2d<f32>;
+@group(3) @binding(5) var ocean_samp: sampler;
+// Patch sizes (metres) — MUST match PATCH_M in ocean.rs.
+const OCEAN_PATCH0: f32 = 457.0;
+const OCEAN_PATCH1: f32 = 97.0;
+const OCEAN_PATCH2: f32 = 23.0;
+
+/// Sum the cascades' displacement (xy choppiness, z height) + foam at metre
+/// position `p`, at an explicit mip `lod` (for the vertex stage, which has no
+/// screen derivatives). Returns vec4(disp.x, disp.y, height, foam).
+fn ocean_sample_lod(p: vec2<f32>, lod: f32) -> vec4<f32> {
+    var acc = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    acc += textureSampleLevel(ocean_c0, ocean_samp, p / OCEAN_PATCH0, lod);
+    acc += textureSampleLevel(ocean_c1, ocean_samp, p / OCEAN_PATCH1, lod);
+    acc += textureSampleLevel(ocean_c2, ocean_samp, p / OCEAN_PATCH2, lod);
+    return acc;
+}
+
+/// Same, but with automatic mip selection (fragment stage) — proper distance
+/// anti-aliasing via the hardware derivative.
+fn ocean_sample(p: vec2<f32>) -> vec4<f32> {
+    var acc = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    acc += textureSample(ocean_c0, ocean_samp, p / OCEAN_PATCH0);
+    acc += textureSample(ocean_c1, ocean_samp, p / OCEAN_PATCH1);
+    acc += textureSample(ocean_c2, ocean_samp, p / OCEAN_PATCH2);
+    return acc;
+}
+
+/// Summed wave HEIGHT (metres) at metre position `p`, fragment-mip-filtered.
+fn ocean_height(p: vec2<f32>) -> f32 {
+    return ocean_sample(p).z;
+}
+
 fn decode_elevation(enc: u32, rgb: vec3<f32>) -> f32 {
     let r = rgb.r * 255.0;
     let g = rgb.g * 255.0;
@@ -133,39 +173,25 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         }
     }
     var world_pos = vec3<f32>(world, wz);
-    var wave_n = vec3<f32>(0.0, 0.0, 1.0);
-    // Gerstner swell: displace the (refined) grid into real 3-D crests. Work in
-    // metres so the waves are physically sized + zoom-stable, then convert back —
-    // xy with the true world-per-metre scale, z with the terrain drape z-scale so
-    // wave height matches the relief's vertical exaggeration. Damp toward flat with
-    // distance: far/coarse tiles can't resolve crests, so calm them (no aliasing).
-    // Skipped entirely when the realistic path is off (flat fill).
+    // Ocean Field displacement: sample the cascade textures at this vertex's
+    // metre position and offset the grid into real 3-D crests (xy = Gerstner
+    // choppiness, z = wave height). Mip choice scales with view distance so far
+    // vertices read a coarse, calm field (no per-vertex aliasing on the coarse
+    // grid — the texture's own mips solve what the procedural path couldn't).
     if (water.realistic > 0.5) {
         let inv_m = 1.0 / max(water.meters_to_world, 1e-12);
         let p_m = world * inv_m;
         let dist_m = length(water.eye - world_pos) * inv_m;
-        // CRITICAL anti-alias gate: displace ONLY when the grid can resolve the
-        // ~28 m waves. A refined cell is ~tile_width/8; at map zoom that is many
-        // hundreds of metres ≫ wavelength, so sampling the wave at those vertices
-        // produces random per-vertex normals → faceted triangle garbage. Fade the
-        // displacement in only for small (very-high-zoom) tiles; flat otherwise,
-        // and the per-pixel fragment wave-normal (which can't alias) carries the
-        // look at map zoom.
-        let tile_m = tile.span * inv_m;
-        let res_gate = clamp(1.0 - smoothstep(120.0, 400.0, tile_m), 0.0, 1.0);
-        let dist_lod = clamp(1.0 - smoothstep(2200.0, 12000.0, dist_m), 0.0, 1.0);
-        let amp_scale = dist_lod * res_gate;
-        let gw = gerstner(p_m, water.time, amp_scale);
-        world_pos += vec3<f32>(
-            gw.offset.xy * water.meters_to_world,
-            gw.offset.z * zscale,
-        );
-        wave_n = gw.normal;
+        // Coarser mip the farther the vertex: ~level per doubling of distance,
+        // so the vertex-sampled displacement stays resolvable for the grid.
+        let lod = clamp(log2(max(dist_m, 1.0) / 60.0), 0.0, 7.0);
+        let s = ocean_sample_lod(p_m, lod);
+        world_pos += vec3<f32>(s.xy * water.meters_to_world, s.z * zscale);
     }
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.color = in.color;
     out.world_pos = world_pos;
-    out.wave_normal = wave_n;
+    out.wave_normal = vec3<f32>(0.0, 0.0, 1.0);
     out.shore = in.dist;
     return out;
 }
@@ -401,29 +427,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (water.realistic < 0.5) {
         return vec4<f32>(in.color.rgb, in.color.a * tile.tile_alpha);
     }
-    // Ground-metre position (RTC) for physically-sized, zoom-stable waves.
+    // Ground-metre position for sampling the Ocean Field.
     let inv = 1.0 / max(water.meters_to_world, 1e-12);
     let p_m = in.world_pos.xy * inv;
-    // Eye→surface distance in real metres → zoom-matched wave scale. Far water
-    // becomes long gentle swells (anti-aliased, still alive); close water is
-    // crisp chop. This is what keeps the surface looking like the SAME ocean at
-    // every map zoom instead of sub-pixel noise.
     let dist_m = length(water.eye - in.world_pos) * inv;
-    // Mild zoom-scale (keeps waves near real-scale ocean texture) + per-octave
-    // LOD: far away only the coarse ripples resolve, close up the full chop. This
-    // anti-aliases by dropping the finest octaves, NOT by flattening the surface —
-    // so the normals keep rippling the reflection (no clay) at every zoom.
-    // ZOOM-STABLE wavelength: wave size scales with view distance so a wave is
-    // always ~the same number of pixels on screen at EVERY zoom. This is what
-    // keeps the chop visible up close AND resolvable (never sub-pixel → no
-    // aliasing grid) when zoomed out — no distance fade needed (a fade killed the
-    // waves everywhere, since at map zoom the camera is always km away).
-    let zoom = max(dist_m / 700.0, 1.0);
-    let lod = mix(2.0, 7.0, clamp(1.0 - smoothstep(500.0, 9000.0, dist_m), 0.0, 1.0));
-    let surf = wave_surface(p_m, water.time, zoom, lod);
-    let swell_n = normalize(in.wave_normal);
-    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 1.2);
-    let crest = surf.w;
+
+    // Surface normal from the Ocean Field height gradient (finite difference in
+    // metres). Because the cascade textures are mip-filtered, the gradient — and
+    // thus the normal — anti-aliases smoothly with distance instead of shimmering
+    // into a tiling grid (the failure of the per-fragment procedural waves). The
+    // gradient step widens with distance so far water reads calm, not noisy.
+    // Small gradient step so fine ripples register; the cascade mips (auto-
+    // selected by `ocean_sample`) handle the far-distance anti-aliasing, so the
+    // step itself stays tight rather than pre-smoothing the slope.
+    let e = max(dist_m * 0.0006, 0.5);
+    let fld = ocean_sample(p_m);
+    let wh = fld.z;
+    let whx = ocean_height(p_m + vec2<f32>(e, 0.0));
+    let why = ocean_height(p_m + vec2<f32>(0.0, e));
+    // Slope gain ramps HARD with distance. Up close the real slopes read as
+    // waves; far away (km up at map zoom) the waves are physically sub-pixel and
+    // the mips have smoothed the field to gentle low-frequency swell — so we
+    // amplify that smoothed slope a lot to keep the sea visibly alive (the
+    // accepted non-physical exaggeration). Because the far field is already
+    // mip-smoothed (no high frequencies), amplifying it yields visible rolling
+    // undulation, NOT a high-frequency grid.
+    let steep = mix(5.0, 30.0, clamp(smoothstep(300.0, 6000.0, dist_m), 0.0, 1.0));
+    let n = normalize(vec3<f32>(-(whx - wh) / e * steep, -(why - wh) / e * steep, 1.0));
+    // Foam coverage from the field's Jacobian (where waves fold/break).
+    let crest = clamp(fld.w, 0.0, 1.0);
 
     // View vector (surface → eye).
     let v = normalize(water.eye - in.world_pos);
@@ -449,26 +481,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         reflection = mix(reflection, terr.rgb, 0.7 * terr.w);
     }
 
-    // Depth-based absorption (Beer-Lambert, proxied by distance to shore — the
-    // shallowness cue baked into `shore`). Near an edge the bed is close, so the
-    // water is bright + turquoise and lets the basemap show through; toward the
-    // interior light is absorbed → dark, saturated blue and opaque. `shore` is in
-    // tile-local units; `span / meters_to_world` converts it to ground metres.
-    let shore_m = in.shore * tile.span / max(water.meters_to_world, 1e-12);
-    let depth01 = smoothstep(0.0, 55.0, shore_m);
-    // Physically-styled absorption palette (NOT the pale style colour darkened,
-    // which read as dull grey). Shallow water has a short light path → bright
-    // turquoise; deep water absorbs everything but blue → saturated navy. A
-    // VIVID body colour so the sea reads as water even under a muted/grey sky
-    // reflection. Faintly tinted by the style colour so per-source styling still
-    // nudges it.
-    let shallow_col = mix(vec3<f32>(0.12, 0.45, 0.48), in.color.rgb, 0.20);
-    let deep_col = mix(vec3<f32>(0.01, 0.07, 0.17), in.color.rgb, 0.12);
-    let deep = mix(shallow_col, deep_col, depth01);
-    // Subtle subsurface glow on crests. A TINT only — water is reflection-dominated.
+    // Body colour: a uniform vivid deep-sea tint for now. (P3 replaces this with
+    // Beer-Lambert depth colour + refraction driven by a CONTINUOUS shallowness
+    // field — the per-tile shore-distance term used here previously produced
+    // tile-aligned colour blocks at low zoom, so it's disabled until P3.)
+    let deep_col = mix(vec3<f32>(0.015, 0.09, 0.19), in.color.rgb, 0.12);
+    // Subtle subsurface glow on foamy crests. A TINT only — reflection-dominated.
     let sss_col = vec3<f32>(0.03, 0.13, 0.16);
     let sss = sss_col * (0.5 + 0.7 * crest) * (0.3 + 0.7 * water.sun_intensity);
-    let body = deep + sss;
+    let body = deep_col + sss;
 
     var col = mix(body, reflection, fres);
 
@@ -509,9 +530,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let foam_band = shoreline_foam(in.world_pos, water.time);
     col = mix(col, foam_lit, foam_band);
 
-    // Shallow + looking-down water lets the bed (basemap under the water) show
-    // through; grazing angles stay an opaque mirror (high Fresnel). Foam is opaque.
-    let bed_reveal = (1.0 - depth01) * (1.0 - fres) * (1.0 - foam_band);
-    let alpha = in.color.a * tile.tile_alpha * (1.0 - 0.45 * bed_reveal);
+    // Opaque for now; P3 adds shallow-water transparency / refraction (revealing
+    // the seabed) driven by the continuous shallowness field.
+    let alpha = in.color.a * tile.tile_alpha;
     return vec4<f32>(col, alpha);
 }

@@ -149,6 +149,21 @@ impl WaterConditions {
     }
 }
 
+/// A filterable 2-D float texture binding entry (an Ocean cascade), visible to
+/// both stages (vertex samples displacement; fragment derives normal + foam).
+fn ocean_tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
 pub(crate) struct WaterPipeline {
     pipeline: wgpu::RenderPipeline,
     globals_buffer: wgpu::Buffer,
@@ -168,6 +183,11 @@ impl WaterPipeline {
         // across `ShadowMap::upload_heights` (contents-only rewrites). Bound here
         // rather than as a 5th group because devices cap `max_bind_groups` at 4.
         height_view: &wgpu::TextureView,
+        // The Ocean Field cascade textures (group 3, bindings 2..) + their
+        // linear+mip sampler (binding 5). The vertex stage samples displacement
+        // to displace the grid; the fragment derives the normal + reads foam.
+        cascade_views: &[wgpu::TextureView],
+        ocean_sampler: &wgpu::Sampler,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("turbomap-water-shader"),
@@ -233,6 +253,18 @@ impl WaterPipeline {
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
+                    count: None,
+                },
+                // Ocean cascade textures (RGBA16F, filterable, mipped) — bindings
+                // 2,3,4. VERTEX_FRAGMENT: the vertex samples displacement.
+                ocean_tex_entry(2),
+                ocean_tex_entry(3),
+                ocean_tex_entry(4),
+                // Ocean field sampler (linear + mips), binding 5.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -340,6 +372,22 @@ impl WaterPipeline {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(height_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&cascade_views[0]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&cascade_views[1]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&cascade_views[2]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(ocean_sampler),
                 },
             ],
         });

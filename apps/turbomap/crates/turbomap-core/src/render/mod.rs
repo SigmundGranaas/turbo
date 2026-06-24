@@ -14,6 +14,7 @@ pub(crate) mod gpu_timestamps;
 pub(crate) mod hillshade;
 pub(crate) mod icon;
 pub(crate) mod marker;
+pub(crate) mod ocean;
 pub(crate) mod post;
 pub(crate) mod raster;
 pub(crate) mod route;

@@ -32,6 +32,7 @@ use crate::{
         hillshade::{HillshadePipeline, PreparedHillshade},
         icon::{IconPipeline, PreparedIcons},
         marker::{MarkerPipeline, PreparedMarkers},
+        ocean::OceanField,
         post::PostProcess,
         raster::{PreparedRaster, RasterPipeline},
         route::{build_tube, RoutePipeline, RouteVertex},
@@ -519,6 +520,10 @@ struct Renderer {
     /// vector mesh so roads/buildings paint over the water. See
     /// [`crate::render::water`].
     water_pipeline: WaterPipeline,
+    /// The spectral Ocean Field (cascade displacement/normal/foam textures),
+    /// regenerated each frame and sampled by the water pipeline. See
+    /// [`crate::render::ocean`].
+    ocean: OceanField,
     /// Optional GPU-side frame timing — `Some` only when the device negotiated
     /// `Features::TIMESTAMP_QUERY`.
     gpu_timestamps: Option<GpuTimestamps>,
@@ -559,6 +564,8 @@ impl Renderer {
         // Built before the struct so the water pipeline can borrow its DEM
         // bind-group layout (group 2) for draping.
         let terrain_shared = TerrainShared::new(device, queue);
+        // Built before the water pipeline so it can bind the cascade textures.
+        let ocean = OceanField::new(device.clone(), queue.clone());
         Self {
             text_pipeline: TextPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
             icon_pipeline: IconPipeline::new(device.clone(), queue.clone(), HDR_FORMAT),
@@ -572,7 +579,10 @@ impl Renderer {
                 HDR_FORMAT,
                 &terrain_shared.bind_group_layout,
                 &shadow_map.height_view(),
+                ocean.cascade_views(),
+                ocean.sampler(),
             ),
+            ocean,
             gpu_timestamps: GpuTimestamps::new(device, queue),
             terrain_shared,
             shadow_map,
@@ -1100,6 +1110,14 @@ impl Map {
             wind_speed_ms,
             wind_from_deg,
         );
+        // Drive the spectral Ocean Field from the same forecast: wind speed sets
+        // the energy + peak wavelength, the wave/wind bearing the dominant
+        // direction, and the derived ferocity the steepness.
+        let wind = wind_speed_ms.unwrap_or(8.0).max(1.0);
+        let from = wave_from_deg.or(wind_from_deg).unwrap_or(270.0);
+        self.renderer
+            .ocean
+            .set_sea_state(wind, from, self.water.wave_amp);
     }
 
     /// Select the realistic-water (AAA) render path for the water layer. When
@@ -2603,6 +2621,15 @@ impl Map {
             }
             _ => BACKGROUND_CLEAR,
         };
+
+        // Regenerate the spectral Ocean Field for this frame (its own fullscreen
+        // passes; must run before the water pass that samples it). Realistic
+        // path only.
+        if self.realistic_water {
+            self.renderer
+                .ocean
+                .generate(encoder, frame.water_globals.time);
+        }
 
         // ---- Phase C: the render pass(es) ------------------------
         // Flat path: ONE MSAA pass, water interleaved under the vector mesh,
