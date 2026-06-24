@@ -434,10 +434,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let v = normalize(water.eye - in.world_pos);
     let ndotv = max(dot(n, v), 1e-3);
 
-    // Fresnel with a high FLOOR — real water is strongly reflective at ALL angles
-    // (the "wet mirror"). Without the floor, looking down shows only the body
-    // colour and the surface reads as matte clay. F0 0.02, floor 0.30.
-    let fres = clamp(0.18 + 0.82 * pow(1.0 - ndotv, 5.0), 0.0, 1.0);
+    // Fresnel: low floor so top-down/mid angles show the VIVID body colour
+    // (turquoise/navy) rather than a constant grey sky mirror — the earlier high
+    // floor washed the sea grey. Grazing angles still ramp to a near-full mirror
+    // (the wet look) via the pow term.
+    let fres = clamp(0.10 + 0.85 * pow(1.0 - ndotv, 5.0), 0.0, 1.0);
 
     // Reflection — the heart of the wet look. The FULL wave normal ripples the
     // sky reflection so the surface shimmers (sky is a smooth gradient → no
@@ -460,9 +461,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // tile-local units; `span / meters_to_world` converts it to ground metres.
     let shore_m = in.shore * tile.span / max(water.meters_to_world, 1e-12);
     let depth01 = smoothstep(0.0, 55.0, shore_m);
-    let shallow_tint = in.color.rgb * 1.30 + vec3<f32>(0.03, 0.09, 0.09);
-    let deep_tint = in.color.rgb * 0.30;
-    let deep = mix(shallow_tint, deep_tint, depth01);
+    // Physically-styled absorption palette (NOT the pale style colour darkened,
+    // which read as dull grey). Shallow water has a short light path → bright
+    // turquoise; deep water absorbs everything but blue → saturated navy. A
+    // VIVID body colour so the sea reads as water even under a muted/grey sky
+    // reflection. Faintly tinted by the style colour so per-source styling still
+    // nudges it.
+    let shallow_col = mix(vec3<f32>(0.12, 0.45, 0.48), in.color.rgb, 0.20);
+    let deep_col = mix(vec3<f32>(0.01, 0.07, 0.17), in.color.rgb, 0.12);
+    let deep = mix(shallow_col, deep_col, depth01);
     // Subtle subsurface glow on crests. A TINT only — water is reflection-dominated.
     let sss_col = vec3<f32>(0.03, 0.13, 0.16);
     let sss = sss_col * (0.5 + 0.7 * crest) * (0.3 + 0.7 * water.sun_intensity);
