@@ -294,7 +294,10 @@ impl OceanField {
     /// `amplitude_scale` the overall steepness (from forecast wave height).
     /// Cheap; call only when the forecast changes.
     pub(crate) fn set_sea_state(&mut self, wind_speed_ms: f32, wind_from_deg: f32, amplitude_scale: f32) {
-        self.choppiness = (0.6 + amplitude_scale * 0.5).clamp(0.4, 2.2);
+        // Moderate choppiness: enough to pinch the steepest crests (→ occasional
+        // whitecap foam via the Jacobian) without folding the whole surface into
+        // froth. Scales gently with sea state.
+        self.choppiness = (0.5 + amplitude_scale * 0.4).clamp(0.4, 1.8);
         let wind = wind_speed_ms.max(1.0);
         // Direction the wind blows TOWARD (compass `from` + 180°), world x=E y=S.
         let to = (wind_from_deg + 180.0).to_radians();

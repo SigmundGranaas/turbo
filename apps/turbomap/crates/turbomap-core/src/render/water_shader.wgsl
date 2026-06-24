@@ -520,10 +520,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let sparkle = pow(ndoth, 300.0) * 4.0;
     col += water.sun_color * sparkle * water.sun_intensity;
 
-    // Whitecaps: the top band of each wave crest breaks white when the sea
-    // state is extreme (forecast-driven). Sharpened so only the very tops break.
-    let breaking = water.whitecap * smoothstep(0.66, 0.90, crest);
-    let foam_lit = vec3<f32>(1.0) * (0.40 + 0.60 * water.sun_intensity);
+    // Whitecaps from the FIELD: `crest` is the Jacobian fold-mask (where the wave
+    // geometry pinches/breaks), so foam appears on the actual steep crests — a
+    // base presence in any sea, ramped up when the forecast reports a rough sea.
+    // This is the big "alive ocean" cue (driven by the wave shape, not a guess).
+    let breaking = smoothstep(0.5, 0.92, crest) * (0.4 + 0.9 * water.whitecap);
+    let foam_lit = vec3<f32>(0.95, 0.97, 1.0) * (0.45 + 0.55 * water.sun_intensity);
     col = mix(col, foam_lit, clamp(breaking, 0.0, 1.0));
 
     // Shoreline foam: a thin lively band where the water meets rising land.
