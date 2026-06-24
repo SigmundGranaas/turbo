@@ -30,7 +30,7 @@ replicas:
 images:
   - name: turbo-modulith
     newName: ghcr.io/sigmundgranaas/turbo-modulith
-    newTag: latest
+    newTag: "46a0654d38813456c94f6c802de0186b6a7835ae"
   - name: turbo-places
     newName: ghcr.io/sigmundgranaas/turbo-places
     newTag: latest
