@@ -10,7 +10,11 @@
 
 # ── Stage 1: turbomap-core/-engine → wasm-bindgen pkg ───────────────────────
 FROM rust:1.92-bookworm AS wasm
-RUN rustup target add wasm32-unknown-unknown \
+# protobuf-compiler: turbomap-mvt's build script (prost) needs `protoc`.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends protobuf-compiler \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup target add wasm32-unknown-unknown \
  && cargo install wasm-pack --locked
 WORKDIR /src
 COPY turbomap turbomap
