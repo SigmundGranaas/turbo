@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import init, { TurboMap } from 'turbomap-web';
 import { buildBaseScene, type BaseLayerId } from './scene';
-import { defaultTemplates } from './templates';
+import { templatesFor } from './templates';
 import { TileLoader } from './tileFetcher';
 
 export interface CameraInit {
@@ -37,6 +37,10 @@ function ensureWasm(): Promise<unknown> {
  *  it input + tiles and pumps frames. */
 export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mapRef = useRef<TurboMap | null>(null);
+  const loaderRef = useRef<TileLoader | null>(null);
+  const baseRef = useRef<BaseLayerId>(base);
+  baseRef.current = base;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,10 +90,12 @@ export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }
         return;
       }
 
-      const tileBase = defaultTemplates.raster.basemap;
-      map.apply_scene(JSON.stringify(buildBaseScene(base, tileBase)));
+      const b0 = baseRef.current;
+      map.apply_scene(JSON.stringify(buildBaseScene(b0)));
 
-      const loader = new TileLoader(map, defaultTemplates);
+      const loader = new TileLoader(map, templatesFor(b0));
+      mapRef.current = map;
+      loaderRef.current = loader;
       onReady?.(map);
 
       const frame = () => {
@@ -152,11 +158,26 @@ export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
+      mapRef.current = null;
+      loaderRef.current = null;
       map?.free?.();
     };
-    // Re-create the map only when the base layer or initial camera identity
-    // changes; gestures + tiles are handled internally.
-  }, [base, camera, onReady, onError]);
+    // Init the GPU map once per mount (+ on initial-camera identity change).
+    // Base-layer switches are handled in place by the effect below — no
+    // re-init, so the camera position is preserved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camera, onReady, onError]);
+
+  // Switch base layer in place: repoint the tile fetcher + re-apply the scene
+  // (same `basemap` source id → the engine re-ingests from the new URL),
+  // keeping the current camera. No-op until the map has booted.
+  useEffect(() => {
+    const map = mapRef.current;
+    const loader = loaderRef.current;
+    if (!map || !loader) return;
+    loader.setTemplates(templatesFor(base));
+    map.apply_scene(JSON.stringify(buildBaseScene(base)));
+  }, [base]);
 
   const isWebGpu = error?.toLowerCase().includes('webgpu');
   return (

@@ -23,9 +23,15 @@ export class TileLoader {
 
   constructor(
     private readonly map: TurboMap,
-    private readonly templates: Templates,
+    private templates: Templates,
     private readonly maxConcurrent = 24,
   ) {}
+
+  /** Swap the URL templates (e.g. on a base-layer change). Subsequent
+   *  `pending_tiles()` for `raster/basemap` then fetch the new source. */
+  setTemplates(t: Templates): void {
+    this.templates = t;
+  }
 
   /** Kick off fetches for tiles the engine wants and isn't already loading.
    *  Cheap to call every frame — it no-ops once everything is in flight. */

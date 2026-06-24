@@ -10,7 +10,10 @@ import { usePaths } from '../store/pathsStore';
 import { reverseGeocode } from '../api/markers';
 import type { Track } from '../api/tracks';
 import { planStream } from '../api/routing';
+import { searchPlaces, type PlaceHit } from '../api/places';
+import { parseCoord } from '../geo';
 import { TurboMapCanvas } from './TurboMapCanvas';
+import { LayerPicker } from './LayerPicker';
 import { useMarkers, useDeleteMarker } from './markers/useMarkers';
 import { useTracks, useDeleteTrack } from './paths/useTracks';
 import { MarkerPins } from './markers/MarkerPins';
@@ -72,10 +75,38 @@ export function MapScreen() {
   const qc = useQueryClient();
   const [ready, setReady] = useState(false);
   const [query, setQuery] = useState('');
+  const [results, setResults] = useState<PlaceHit[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
   const mapRef = useRef<TurboMap | null>(null);
   const downPos = useRef<{ x: number; y: number } | null>(null);
+
+  // Search: debounced place-name lookup (tileserver anchors) + "lat, lng"
+  // coordinate parse. Results render in a dropdown under the search field;
+  // selecting one eases the camera there.
+  useEffect(() => {
+    const coord = parseCoord(query);
+    if (coord) {
+      setResults([{ name: `${coord.lat.toFixed(4)}, ${coord.lng.toFixed(4)}`, kind: 'coordinate', ...coord }]);
+      return;
+    }
+    if (query.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      void searchPlaces(query).then(setResults).catch(() => setResults([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const flyTo = (lat: number, lng: number) => {
+    const m = mapRef.current;
+    if (!m) return;
+    m.ease_to(lat, lng, 14, 0, 800);
+    setQuery('');
+    setResults([]);
+  };
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -419,6 +450,51 @@ export function MapScreen() {
         </Glass>
       </div>
 
+      {/* search results dropdown */}
+      {results.length > 0 && query.trim().length >= 2 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: isMobile ? 58 : 62,
+            left: isMobile ? 8 : 96,
+            width: isMobile ? 'calc(100% - 16px)' : 420,
+            zIndex: 12,
+          }}
+        >
+          <Glass dark={dark} radius={16} style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 360, overflowY: 'auto' }}>
+            {results.map((r, i) => (
+              <button
+                key={`${r.name}-${i}`}
+                onClick={() => flyTo(r.lat, r.lng)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  border: 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  color: 'var(--on-surface)',
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--primary)' }}>
+                  {r.kind === 'coordinate' ? 'my_location' : 'place'}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ font: '500 15px/19px var(--font-sans)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
+                  <div style={{ font: '400 12px/15px var(--font-sans)', color: 'var(--on-surface-variant)', textTransform: 'capitalize' }}>
+                    {r.kind.replace(/_/g, ' ')}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </Glass>
+        </div>
+      )}
+
       {/* bottom-right: map control cluster (hidden on mobile when a sheet is up) */}
       <div
         style={{
@@ -430,6 +506,18 @@ export function MapScreen() {
           display: isMobile && panelShown ? 'none' : undefined,
         }}
       >
+        {layers && (
+          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end' }}>
+            <LayerPicker
+              dark={dark}
+              active={base}
+              onSelect={(id) => {
+                useUiStore.getState().setBaseLayer(id);
+                useUiStore.getState().setLayers(false);
+              }}
+            />
+          </div>
+        )}
         <MapRail
           dark={dark}
           state={{ layers, is3d: threeD, sun, water, following }}

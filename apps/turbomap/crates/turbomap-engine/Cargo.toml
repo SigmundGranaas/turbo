@@ -19,7 +19,10 @@ gpu-tests = []
 turbomap-core = { path = "../turbomap-core" }
 turbomap-scene = { path = "../turbomap-scene" }
 wgpu.workspace = true
-image.workspace = true
+# jpeg on top of the workspace's png: external basemaps (Google satellite,
+# Esri imagery) serve JPEG; without it `ingest_raster_encoded` fails to decode
+# and the host re-fetches forever. png+jpeg covers every base layer we offer.
+image = { workspace = true, features = ["jpeg"] }
 log.workspace = true
 serde_json.workspace = true
 web-time.workspace = true

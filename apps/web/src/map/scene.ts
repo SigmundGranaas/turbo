@@ -35,27 +35,74 @@ export interface Scene {
   layers: Layer[];
 }
 
-/** The base map a scene is built around. Each maps to a tileserver endpoint
- *  (see `templates.ts`). Phase 1 ships the Kartverket N50 topo raster. */
-export type BaseLayerId = 'norgeskart';
+import { API_BASE } from '../config';
 
-/** Build the base scene for a given base layer. Overlays (markers, routes,
- *  tracks, vector layers) get composed on top in Phase 2. */
-export function buildBaseScene(base: BaseLayerId, tileUrl: string): Scene {
-  switch (base) {
-    case 'norgeskart':
-      return {
-        sources: {
-          basemap: {
-            type: 'raster-xyz',
-            tiles: [tileUrl],
-            tile_size: 256,
-            min_zoom: 0,
-            max_zoom: 18,
-            attribution: '© Kartverket',
-          },
-        },
-        layers: [{ type: 'raster', id: 'basemap', source: 'basemap' }],
-      };
-  }
+/** The base map a scene is built around. */
+export type BaseLayerId = 'norgeskart' | 'topo' | 'osm' | 'satellite';
+
+export interface BaseLayerDef {
+  label: string;
+  /** Material Symbols icon for the layer picker. */
+  icon: string;
+  /** `{z}/{x}/{y}` XYZ template (host fetches + ingests; no `{s}` — the engine
+   *  only substitutes z/x/y, so we pin a single subdomain). */
+  url: string;
+  maxZoom: number;
+  attribution: string;
+}
+
+/** All selectable base layers. The Kartverket N50 raster is served by our own
+ *  tileserver (`/v1/raster`); the rest are public XYZ sources that send
+ *  `Access-Control-Allow-Origin: *`, so the WASM host can `fetch()` + ingest
+ *  them cross-origin. 3D terrain (the DEM) is independent of the imagery, so it
+ *  stays the Kartverket DEM for every base. */
+export const BASE_LAYERS: Record<BaseLayerId, BaseLayerDef> = {
+  norgeskart: {
+    label: 'Topo (Norge)',
+    icon: 'terrain',
+    url: `${API_BASE}/v1/raster/n50/{z}/{x}/{y}.png`,
+    maxZoom: 18,
+    attribution: '© Kartverket',
+  },
+  topo: {
+    label: 'Topo (world)',
+    icon: 'landscape',
+    url: 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+    maxZoom: 17,
+    attribution: '© OpenTopoMap (CC-BY-SA)',
+  },
+  osm: {
+    label: 'Street (OSM)',
+    icon: 'map',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    maxZoom: 19,
+    attribution: '© OpenStreetMap contributors',
+  },
+  satellite: {
+    label: 'Satellite',
+    icon: 'satellite_alt',
+    url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    maxZoom: 20,
+    attribution: '© Google',
+  },
+};
+
+/** Build the base scene for a given base layer. The source id stays `basemap`
+ *  across layers so a switch is a same-id source-URL swap (the engine
+ *  re-ingests); overlays compose on top. */
+export function buildBaseScene(base: BaseLayerId): Scene {
+  const def = BASE_LAYERS[base];
+  return {
+    sources: {
+      basemap: {
+        type: 'raster-xyz',
+        tiles: [def.url],
+        tile_size: 256,
+        min_zoom: 0,
+        max_zoom: def.maxZoom,
+        attribution: def.attribution,
+      },
+    },
+    layers: [{ type: 'raster', id: 'basemap', source: 'basemap' }],
+  };
 }

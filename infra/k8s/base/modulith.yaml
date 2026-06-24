@@ -72,6 +72,10 @@ spec:
               valueFrom: { configMapKeyRef: { name: app-config, key: CORS__AllowedOrigins } }
             - name: FrontendUrl
               value: "https://kart.sandring.no"
+            # Real met.no weather (not the synthetic fallback). met.no's TOS
+            # requires an identifying User-Agent with contact info.
+            - name: MetNo__UserAgent
+              value: "turbo-web/1.0 (https://kart.sandring.no; github.com/sigmundgranaas/turbo)"
             # JWT
             - name: Jwt__Key
               valueFrom: { secretKeyRef: { name: auth-secrets, key: jwt-key } }
