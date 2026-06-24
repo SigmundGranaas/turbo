@@ -9,7 +9,12 @@
 //! it's held by `Scene` and ticked at frame time, never inside `Camera`
 //! itself.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+// `web_time::Instant` is `std::time::Instant` on native and a `performance.now()`
+// shim on wasm32 (std's `Instant::now()` panics in the browser). Camera animation
+// timestamps cross into the engine, so the whole stack must use the same type.
+use web_time::Instant;
 
 use glam::{Mat3, Mat4, Vec3};
 

@@ -621,7 +621,7 @@ impl TurbomapEngine {
     /// Advance any running camera animation. Returns `true` while the
     /// animation is still in flight (i.e. keep rendering frames).
     pub fn tick_now(&mut self) -> bool {
-        self.map.tick(std::time::Instant::now())
+        self.map.tick(web_time::Instant::now())
     }
 
     /// Terrain-aware screen→ground hit: `(lat, lng, world_z, hit_terrain)`.

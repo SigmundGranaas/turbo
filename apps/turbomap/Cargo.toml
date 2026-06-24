@@ -14,6 +14,7 @@ members = [
     "crates/turbomap-engine",
     "crates/turbomap-ffi",
     "crates/turbomap-sim",
+    "crates/turbomap-web",
 ]
 
 [workspace.package]
@@ -44,6 +45,11 @@ rustybuzz = "0.20"
 unicode-bidi = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Drop-in `Instant`/`SystemTime` that works on wasm32 (backed by
+# `performance.now()` in the browser); a zero-cost re-export of `std::time`
+# on native. Lets camera-animation timing in core/engine compile + run in the
+# WASM web host without panicking ("time not implemented on this platform").
+web-time = "1"
 # FFI bindings for Kotlin/Swift hosts. "cli" is needed by the bundled
 # uniffi-bindgen binary that generates the foreign-language sources.
 uniffi = { version = "0.29", features = ["cli"] }

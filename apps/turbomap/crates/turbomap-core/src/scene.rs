@@ -14,7 +14,8 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use crate::{
     camera::{Camera, CameraAnimation},

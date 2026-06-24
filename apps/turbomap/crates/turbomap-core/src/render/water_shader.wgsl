@@ -425,7 +425,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // slope so the surface shimmers on top of the real 3-D crests instead of
     // replacing them. Detail weight backs off so it perturbs, not dominates.
     let swell_n = normalize(in.wave_normal);
-    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 1.15);
+    // 0.85 (was 1.15): enough ripple to read as waves, not so much the finest
+    // octaves turn the surface into uniform stipple/noise.
+    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 0.85);
     let crest = surf.w;
 
     // View vector (surface → eye).
@@ -493,8 +495,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // that gives the whole sunward side life (not just pinpricks). Fades at night.
     let h = normalize(v + water.sun_dir);
     let ndoth = max(dot(n, h), 0.0);
-    let sparkle = pow(ndoth, 220.0) * 11.0;
-    let sheen = pow(ndoth, 32.0) * 0.6;
+    // Tighter + dimmer than before: a high-power lobe sparks only on micro-normals
+    // exactly facing the reflected sun → scattered sea-sparkle, not a blown-out
+    // white sheet. Plus a gentle broad sheen for sunward warmth.
+    let sparkle = pow(ndoth, 320.0) * 5.5;
+    let sheen = pow(ndoth, 40.0) * 0.45;
     col += water.sun_color * (sparkle + sheen) * water.sun_intensity;
 
     // Whitecaps: the top band of each wave crest breaks white when the sea

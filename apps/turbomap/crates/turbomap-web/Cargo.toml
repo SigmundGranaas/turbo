@@ -1,0 +1,41 @@
+[package]
+name = "turbomap-web"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "wasm-bindgen web host for the turbomap engine — drives turbomap-core/-engine on WebGPU from a browser <canvas>. The third host after Android (JNI) and the desktop winit app."
+
+[lints]
+workspace = true
+
+[lib]
+# cdylib for the wasm-bindgen artifact consumed by the JS bundle; rlib so the
+# crate can still be unit-tested from Rust if needed.
+crate-type = ["cdylib", "rlib"]
+
+# The whole crate is wasm-only (browser GPU + DOM). On native targets it builds
+# as an empty lib, so `cargo build --workspace` stays green without special-
+# casing it; the real artifact comes from `wasm-pack build --target web`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+turbomap-core = { path = "../turbomap-core" }
+turbomap-engine = { path = "../turbomap-engine" }
+turbomap-scene = { path = "../turbomap-scene" }
+# WebGPU backend is on by default for wgpu on wasm32; "webgl" adds the WebGL2
+# fallback so a non-WebGPU browser at least attempts to run (degraded — the
+# advanced terrain/water/cloud shaders may exceed WebGL2; WebGPU is the target).
+wgpu = { workspace = true, features = ["webgl"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Window",
+    "Element",
+    "HtmlCanvasElement",
+    "console",
+] }
+console_error_panic_hook = "0.1"
+log.workspace = true
+serde_json.workspace = true

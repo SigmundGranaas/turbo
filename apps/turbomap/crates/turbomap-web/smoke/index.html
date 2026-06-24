@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>turbomap-web · smoke</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e13; }
+    #map { width: 100vw; height: 100vh; display: block; touch-action: none; cursor: grab; }
+    #map:active { cursor: grabbing; }
+    #hud {
+      position: fixed; top: 8px; left: 8px; z-index: 10;
+      font: 12px/1.4 ui-monospace, monospace; color: #cfe;
+      background: rgba(0,0,0,.55); padding: 6px 9px; border-radius: 6px; white-space: pre;
+      pointer-events: none;
+    }
+    #err {
+      position: fixed; inset: 0; display: none; place-items: center; z-index: 20;
+      font: 14px/1.5 system-ui, sans-serif; color: #fdd; background: rgba(20,0,0,.85);
+      text-align: center; padding: 2rem;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <div id="hud">booting…</div>
+  <div id="err"></div>
+
+  <script type="module">
+    // The turbomap engine compiled to WASM (turbomap-core/-engine on WebGPU).
+    // This page is the *web host*: it owns gestures, the render loop, and
+    // host-driven tile IO (pendingTiles → fetch → ingest) — exactly like the
+    // Android/iOS native hosts, just behind a <canvas> instead of a Surface.
+    import init, { TurboMap } from '../pkg/turbomap_web.js';
+
+    const API = 'https://kart-api.sandring.no';
+    // Host-side layer-id → URL template map. The engine reports *which* tiles it
+    // wants ({kind, layer, z, x, y}); the host decides the URL (it owns auth /
+    // caching / offline). Mirrors the scene's source `tiles` templates below.
+    const TEMPLATES = {
+      raster: { basemap: `${API}/api/tiles/raster/n50/{z}/{x}/{y}.png` },
+      terrain: { __terrain: `${API}/api/tiles/dem/rgb/{z}/{x}/{y}.png` },
+      vector: {},
+      hillshade: {},
+    };
+
+    const SCENE = {
+      sources: {
+        basemap: {
+          type: 'raster-xyz',
+          tiles: [TEMPLATES.raster.basemap],
+          tile_size: 256,
+          min_zoom: 0,
+          max_zoom: 18,
+        },
+      },
+      layers: [
+        { type: 'raster', id: 'basemap', source: 'basemap' },
+      ],
+    };
+
+    const hud = document.getElementById('hud');
+    const errBox = document.getElementById('err');
+    const fail = (msg) => { errBox.style.display = 'grid'; errBox.textContent = String(msg); hud.style.display = 'none'; };
+
+    async function main() {
+      if (!('gpu' in navigator)) {
+        fail('WebGPU is not available in this browser.\nUse Chrome/Edge, Safari 18+, or Firefox with WebGPU enabled.');
+        return;
+      }
+      await init();
+
+      const canvas = document.getElementById('map');
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+
+      let map;
+      try {
+        // Bergen, Norway — where the Kartverket N50 basemap has coverage.
+        map = await TurboMap.create(canvas, canvas.width, canvas.height, 60.39, 5.32, 12);
+      } catch (e) { fail('GPU init failed:\n' + e); return; }
+
+      map.apply_scene(JSON.stringify(SCENE));
+
+      // ---- host-driven tile fetch ------------------------------------------
+      const inflight = new Set();
+      let stored = 0, failed = 0;
+      const fetchPending = () => {
+        let pend;
+        try { pend = JSON.parse(map.pending_tiles()); } catch { return; }
+        for (const t of pend) {
+          const key = `${t.kind}/${t.layer}/${t.z}/${t.x}/${t.y}`;
+          if (inflight.has(key)) continue;
+          const tmpl = (TEMPLATES[t.kind] || {})[t.layer];
+          if (!tmpl) continue;
+          if (inflight.size > 24) break; // cap concurrency on the host side
+          inflight.add(key);
+          const url = tmpl.replace('{z}', t.z).replace('{x}', t.x).replace('{y}', t.y);
+          fetch(url).then(async (r) => {
+            if (!r.ok) { failed++; return; }
+            const bytes = new Uint8Array(await r.arrayBuffer());
+            if (t.kind === 'raster') map.ingest_raster_tile(t.layer, t.z, t.x, t.y, bytes);
+            else if (t.kind === 'terrain') map.ingest_terrain_tile(t.z, t.x, t.y, bytes);
+            else if (t.kind === 'vector') map.ingest_vector_tile(t.layer, t.z, t.x, t.y, bytes);
+            stored++;
+          }).catch(() => { failed++; }).finally(() => inflight.delete(key));
+        }
+      };
+
+      // ---- render loop ------------------------------------------------------
+      let frames = 0;
+      const frame = () => {
+        fetchPending();
+        map.pump_local_tiles();
+        map.render();
+        frames++;
+        if ((frames & 31) === 0) {
+          let cam = {};
+          try { cam = JSON.parse(map.camera_json()); } catch {}
+          hud.textContent =
+            `frame ${frames}  fps≈${Math.round(60)}\n` +
+            `cam ${cam.lat?.toFixed(4)}, ${cam.lng?.toFixed(4)}  z${cam.zoom?.toFixed(2)}\n` +
+            `tiles stored ${stored}  failed ${failed}  inflight ${inflight.size}`;
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+
+      // ---- input: drag to pan, wheel to zoom -------------------------------
+      let dragging = false, lastX = 0, lastY = 0;
+      canvas.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
+      canvas.addEventListener('pointerup', () => { dragging = false; });
+      canvas.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        map.pan_by_pixels((e.clientX - lastX) * dpr, (e.clientY - lastY) * dpr);
+        lastX = e.clientX; lastY = e.clientY;
+      });
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        map.zoom_around(factor, e.clientX * dpr, e.clientY * dpr);
+      }, { passive: false });
+
+      window.addEventListener('resize', () => {
+        const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+        canvas.width = w; canvas.height = h;
+        map.resize(w, h);
+      });
+    }
+
+    main().catch(fail);
+  </script>
+</body>
+</html>

@@ -97,8 +97,15 @@ impl VectorTileSource for SyntheticVectors {
         // continuous sea (every edge is a tile-clip edge) — this reproduces the
         // open-water case where Gerstner aliasing faceting + the clip-edge tile
         // grid show up. Otherwise the small lake rect (a real interior shore).
-        let water_geom = if std::env::var("TURBO_WATER").is_ok() {
+        let water_geom = if std::env::var("TURBO_WATER_SEA").is_ok() {
+            // Whole-tile sea (continuous across tiles) — for the open-water
+            // artifact repro (faceting / tile-grid).
             rect(0, 0, e, e)
+        } else if std::env::var("TURBO_WATER").is_ok() {
+            // Bottom ~70% water, top ~30% land — a shoreline with terrain rising
+            // behind it, so the surface look + mountain reflection + shore foam
+            // can all be evaluated in one tilted frame.
+            rect(0, e * 6 / 20, e, e)
         } else {
             rect(e / 20, e * 11 / 20, e * 9 / 20, e * 19 / 20)
         };

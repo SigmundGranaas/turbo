@@ -230,7 +230,7 @@ pub(crate) struct RasterPipeline {
     /// tile and a freshly-fetched one transition identically — killing the
     /// "fresh fades, cached snaps" inconsistency. Pruned each frame to the
     /// drawn set, so it stays bounded by viewport coverage.
-    first_seen: std::collections::HashMap<TileId, std::time::Instant>,
+    first_seen: std::collections::HashMap<TileId, web_time::Instant>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
 }
@@ -563,7 +563,7 @@ impl RasterPipeline {
         if window_secs <= 0.0 {
             return false;
         }
-        let now = std::time::Instant::now();
+        let now = web_time::Instant::now();
         self.first_seen
             .values()
             .any(|t| now.duration_since(*t).as_secs_f32() < window_secs)
@@ -668,7 +668,7 @@ impl RasterPipeline {
         //   • draw the finer/exact tiles on top, each crossfading in from when it
         //     FIRST appeared on screen (`first_seen`) — so a cache-served tile and
         //     a freshly-fetched one fade identically (no instant cache "snap").
-        let now = std::time::Instant::now();
+        let now = web_time::Instant::now();
         let mut batches: Vec<DrawBatch> = Vec::new();
         {
             let resident = |t: TileId| cache.peek(t).is_some();
