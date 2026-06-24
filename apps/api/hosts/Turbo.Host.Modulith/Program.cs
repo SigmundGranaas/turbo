@@ -25,6 +25,29 @@ builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddEndpointsApiExplorer();
 
+// CORS for the browser SPAs that call this host cross-origin with credentials:
+// the turbomap web app (kart.sandring.no) and the Vite dev server (5173). Both
+// are same-site (sandring.no) so the Lax auth cookies flow; CORS gates only the
+// browser's ability to read the response. Without this the modulith emits no
+// ACAO header and every cross-origin call is blocked (dev hides it behind the
+// Vite same-origin proxy). Mirrors Turbo.Host.Auth's standalone policy.
+const string webAppCors = "WebApp";
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(webAppCors, policy =>
+    {
+        policy
+            .WithOrigins(
+                "http://localhost:3000",
+                "http://localhost:8080",
+                "http://localhost:5173",
+                "https://kart.sandring.no")
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
 // All modules in one process. AuthModule owns the Cookie+JwtBearer
 // scheme; the other modules use it as the default authentication scheme
 // (their [Authorize] attributes don't pin a specific scheme name).
@@ -86,6 +109,7 @@ await app.Services.MigrateFreedivingActivityModuleAsync(activitiesConn);
 await app.Services.BackfillSharingResourcesAsync(builder.Configuration);
 
 app.UseRouting();
+app.UseCors(webAppCors);
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
