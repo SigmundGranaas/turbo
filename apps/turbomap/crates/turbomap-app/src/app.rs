@@ -392,21 +392,22 @@ impl ApplicationHandler for TurbomapApp {
             }
         }
 
-        // Procedural cloud overlay — enabled on startup so the debug scene
-        // shows weather immediately. The synthetic storm is the same one the
-        // headless `render_clouds`/`diagnose_clouds` harnesses use, so the
-        // window reproduces those artifacts interactively. We geo-register
-        // the radar to a generous box around the initial camera so panning /
-        // zooming exercises world-lock, and the pitch slider exercises the
-        // camera-ray 3D parallax — all without booting a device.
-        let storm = SyntheticStorm::default();
-        let cloud_frames = storm.generate();
-        map.enable_clouds(storm.width, storm.height);
-        let last = cloud_frames.len().saturating_sub(1);
-        map.ingest_radar_frame(0, &cloud_frames[0]);
-        map.ingest_radar_frame(1, &cloud_frames[1.min(last)]);
-        let c = self.initial_camera.center;
-        map.set_cloud_geo_bounds(c.lng - 4.0, c.lat - 2.0, c.lng + 4.0, c.lat + 2.0);
+        // Procedural cloud overlay — OFF by default for the clean water-debug
+        // base (it rendered as a confounding blob grid over the sea). Set
+        // TURBO_CLOUDS=1 to set up the synthetic-storm debug scene again.
+        let cloud_frames: Vec<RadarFrame> = if std::env::var("TURBO_CLOUDS").is_ok() {
+            let storm = SyntheticStorm::default();
+            let frames = storm.generate();
+            map.enable_clouds(storm.width, storm.height);
+            let last = frames.len().saturating_sub(1);
+            map.ingest_radar_frame(0, &frames[0]);
+            map.ingest_radar_frame(1, &frames[1.min(last)]);
+            let c = self.initial_camera.center;
+            map.set_cloud_geo_bounds(c.lng - 4.0, c.lat - 2.0, c.lng + 4.0, c.lat + 2.0);
+            frames
+        } else {
+            Vec::new()
+        };
 
         let host = crate::map_host::build(
             map,
@@ -432,8 +433,12 @@ impl ApplicationHandler for TurbomapApp {
             ui_state: UiState::default(),
             egui_wants_pointer: false,
             frame_counter: 0,
+            cloud_uploaded: if cloud_frames.is_empty() {
+                None
+            } else {
+                Some((0, 1.min(cloud_frames.len().saturating_sub(1))))
+            },
             cloud_frames,
-            cloud_uploaded: Some((0, 1.min(last))),
         });
         window.request_redraw();
     }

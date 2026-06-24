@@ -199,7 +199,7 @@ const FOG_FLOOR_M: f32 = 120.0;      // full fog at/below this elevation
 const FOG_TOP_M: f32 = 420.0;        // fog gone above this elevation
 const FOG_SELECT_LO: f32 = 0.48;     // field value where fog begins to appear (higher = less coverage)
 const FOG_SELECT_HI: f32 = 0.74;     // field value of full fog presence
-const FOG_STRENGTH: f32 = 0.5;       // max opacity of the valley fog
+const FOG_STRENGTH: f32 = 0.0;       // valley fog DISABLED for the clean water base (restore to 0.5)
 
 // --- Ambient occlusion (cheap, per-vertex) ---------------------------------
 // Sampled from a ring of DEM taps around each vertex: the more the neighbours
