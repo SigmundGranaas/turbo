@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use turbomap_core::{
     Camera, CloudParams, Color, Filter, HitResult, LatLng, Map, MapOptions, Marker, MarkerId,
-    Paint, RadarFrame, Rule, TileSource, VectorStyle, VectorTileSource,
+    Paint, RadarFrame, RasterFormat, Rule, SunPosition, TileSource, VectorStyle, VectorTileSource,
 };
 use turbomap_clouds::{DebugView, SyntheticStorm};
 
@@ -106,6 +106,27 @@ struct UiState {
     metrics_display: MetricsDisplay,
     /// Procedural cloud-overlay debug controls. See [`CloudUiState`].
     clouds: CloudUiState,
+    /// Realistic-water (AAA) debug controls. See [`WaterUiState`].
+    water: WaterUiState,
+}
+
+/// Live water + sun debug controls — the levers that previously needed an
+/// on-device build to evaluate (realistic-water path, sun position for
+/// glitter/reflection, sea state). Pushed into the Map each frame from
+/// `build_ui`.
+#[derive(Debug, Clone)]
+struct WaterUiState {
+    /// Realistic AAA water path vs the flat fill (Map::set_realistic_water).
+    realistic: bool,
+    /// Sun azimuth/altitude (deg) → Map::set_sun_position. Drives the sky,
+    /// terrain light AND the water reflection/glitter.
+    sun_az: f32,
+    sun_alt: f32,
+    /// Sea state → Map::set_water_conditions: wave height (m) + the bearing the
+    /// swell runs FROM (deg), plus whitecap-driving wind speed (m/s).
+    wave_height_m: f32,
+    wave_from_deg: f32,
+    wind_speed_ms: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -230,6 +251,15 @@ impl Default for UiState {
             fade_in_secs: 0.0,
             metrics_display: MetricsDisplay::new(),
             clouds: CloudUiState::default(),
+            water: WaterUiState {
+                realistic: true,
+                // Low sun toward the default view → glitter/reflection in frame.
+                sun_az: 145.0,
+                sun_alt: 18.0,
+                wave_height_m: 0.8,
+                wave_from_deg: 270.0,
+                wind_speed_ms: 4.0,
+            },
         }
     }
 }
@@ -308,6 +338,22 @@ impl ApplicationHandler for TurbomapApp {
             crate::map_host::VECTOR_LAYER_ID,
             self.vector_source.clone(),
             self.style.clone(),
+        );
+
+        // Apply the initial water/sun debug state (mirrors UiState::default().water)
+        // so the realistic-water path, sun and sea state are live from the first
+        // frame — not only after the user first nudges a panel slider.
+        let water0 = UiState::default().water;
+        map.set_realistic_water(water0.realistic);
+        map.set_sun_position(Some(SunPosition {
+            azimuth_deg: water0.sun_az,
+            altitude_deg: water0.sun_alt,
+        }));
+        map.set_water_conditions(
+            Some(water0.wave_from_deg),
+            Some(water0.wave_height_m),
+            Some(water0.wind_speed_ms),
+            None,
         );
 
         // Drop a couple of demo markers on Norwegian cities so the user can
@@ -872,7 +918,79 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
             });
 
             panel.separator();
+            build_water_controls(panel, &mut ui.water, map);
+
+            panel.separator();
             build_cloud_controls(panel, &mut ui.clouds, cloud_frame_count);
+        });
+}
+
+/// Live realistic-water + sun + sea-state controls. Applies straight to the Map
+/// on change (cheap setters), so the water look — the realistic path, the sun
+/// position that drives reflection/glitter, and the forecast-driven sea state —
+/// can be tuned interactively on the Mac instead of via an on-device build.
+fn build_water_controls(panel: &mut egui::Ui, w: &mut WaterUiState, map: &mut Map) {
+    egui::CollapsingHeader::new("realistic water")
+        .default_open(true)
+        .show(panel, |ui| {
+            if ui
+                .checkbox(&mut w.realistic, "realistic water (AAA path)")
+                .changed()
+            {
+                map.set_realistic_water(w.realistic);
+            }
+
+            ui.separator();
+            ui.label("sun — sky + water reflection/glitter");
+            let mut sun_changed = false;
+            ui.horizontal(|row| {
+                row.label("azimuth");
+                sun_changed |= row
+                    .add(egui::Slider::new(&mut w.sun_az, 0.0..=360.0).suffix("°"))
+                    .changed();
+            });
+            ui.horizontal(|row| {
+                row.label("altitude");
+                sun_changed |= row
+                    .add(egui::Slider::new(&mut w.sun_alt, -5.0..=85.0).suffix("°"))
+                    .changed();
+            });
+            if sun_changed {
+                map.set_sun_position(Some(SunPosition {
+                    azimuth_deg: w.sun_az,
+                    altitude_deg: w.sun_alt,
+                }));
+            }
+
+            ui.separator();
+            ui.label("sea state (MET-style forecast)");
+            let mut sea_changed = false;
+            ui.horizontal(|row| {
+                row.label("wave height");
+                sea_changed |= row
+                    .add(egui::Slider::new(&mut w.wave_height_m, 0.0..=8.0).suffix(" m"))
+                    .changed();
+            });
+            ui.horizontal(|row| {
+                row.label("wave from");
+                sea_changed |= row
+                    .add(egui::Slider::new(&mut w.wave_from_deg, 0.0..=360.0).suffix("°"))
+                    .changed();
+            });
+            ui.horizontal(|row| {
+                row.label("wind");
+                sea_changed |= row
+                    .add(egui::Slider::new(&mut w.wind_speed_ms, 0.0..=25.0).suffix(" m/s"))
+                    .changed();
+            });
+            if sea_changed {
+                map.set_water_conditions(
+                    Some(w.wave_from_deg),
+                    Some(w.wave_height_m),
+                    Some(w.wind_speed_ms),
+                    None,
+                );
+            }
         });
 }
 
@@ -1347,12 +1465,33 @@ pub fn run() {
         ),
     };
 
-    // Raster basemap: Kartverket Norgeskart in the grey topo style — a
-    // light, neutral basemap that lets the vector overlay's colours pop.
-    let raster_source: Arc<dyn TileSource> = Arc::new(
-        turbomap_tiles_http::HttpRasterSource::kartverket_topo_grey()
-            .expect("build Kartverket grey source"),
-    );
+    // Raster basemap: Kartverket grey topo by default (neutral, lets the vector
+    // colours pop). Override with TURBO_RASTER_URL=<{z}/{y}/{x} template> for a
+    // satellite/aerial bed under the water — e.g. Esri World Imagery:
+    //   https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}
+    let raster_source: Arc<dyn TileSource> = match std::env::var("TURBO_RASTER_URL").ok() {
+        Some(tmpl) => {
+            let lower = tmpl.to_lowercase();
+            let fmt = if lower.contains("arcgis")
+                || lower.contains("imagery")
+                || lower.ends_with(".jpg")
+                || lower.ends_with(".jpeg")
+            {
+                RasterFormat::Jpeg
+            } else {
+                RasterFormat::Png
+            };
+            log::info!("raster basemap from TURBO_RASTER_URL ({fmt:?}): {tmpl}");
+            Arc::new(
+                turbomap_tiles_http::HttpRasterSource::new(tmpl, "turbomap-app/0.1", 0, 19, fmt)
+                    .expect("build raster source from TURBO_RASTER_URL"),
+            )
+        }
+        None => Arc::new(
+            turbomap_tiles_http::HttpRasterSource::kartverket_topo_grey()
+                .expect("build Kartverket grey source"),
+        ),
+    };
 
     // Optional GPU hillshade from our own tileserver's
     // `/v1/dem/rgb/{z}/{x}/{y}.png` endpoint. Set TURBO_API_URL to
