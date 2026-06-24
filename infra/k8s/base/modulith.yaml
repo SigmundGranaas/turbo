@@ -13,10 +13,12 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0      # zero-downtime: new pod ready before old terminates
-      maxSurge: 1
+    # Recreate, not surge: the namespace ResourceQuota (limits.memory 6Gi) has
+    # no headroom for a 2nd 1Gi modulith pod, so maxSurge:1 deadlocks the
+    # rollout (FailedCreate: exceeded quota). With one replica on a quota-tight
+    # single node, replace in place — brief unavailability during the new pod's
+    # boot (DB migrations) is the only option without raising the quota.
+    type: Recreate
   selector:
     matchLabels:
       app: turbo-modulith
