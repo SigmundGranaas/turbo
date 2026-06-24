@@ -699,6 +699,9 @@ pub struct Map {
     /// normal-mapped fill. Toggled from the map rail; gated per
     /// `docs/architecture/2026-06-aaa-water-implementation-plan.md`.
     realistic_water: bool,
+    /// Draw the analytic sky behind the scene (when tilted). Off lets the debug
+    /// viewer isolate the water/terrain against a plain backdrop.
+    sky_enabled: bool,
     /// Route/track rendered as raised 3D tubes (replaces the flat draped line).
     /// See [`Map::set_route_tube`] and the route block in [`Map::render`].
     route_tubes: RouteTubeState,
@@ -847,6 +850,7 @@ impl Map {
             shadow: TerrainShadowState::default(),
             water: WaterConditions::default(),
             realistic_water: false,
+            sky_enabled: true,
             route_tubes: RouteTubeState::default(),
             start: Instant::now(),
         })
@@ -1087,6 +1091,11 @@ impl Map {
     /// Select the realistic-water (AAA) render path for the water layer. When
     /// off, water uses the flat normal-mapped fill. Cheap toggle; the gated path
     /// is built in phases (see the AAA water implementation plan).
+    /// Enable/disable the analytic sky pass (debug isolation).
+    pub fn set_sky_enabled(&mut self, enabled: bool) {
+        self.sky_enabled = enabled;
+    }
+
     pub fn set_realistic_water(&mut self, enabled: bool) {
         self.realistic_water = enabled;
         log::info!("turbomap: realistic water = {enabled}");
@@ -2264,6 +2273,7 @@ impl Map {
                     .unwrap_or(crate::dem::DemEncoding::MapboxRgb),
                 halo_px: self.terrain.as_ref().map(|t| t.cache.halo_px()).unwrap_or(0),
             },
+            self.sky_enabled,
         );
         // Stamp the renderer wall clock so the procedural low haze drifts ("rolls
         // in") and its patchiness moves over time, and so the water waves animate.

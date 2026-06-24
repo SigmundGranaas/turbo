@@ -485,17 +485,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // reads as waves. Driven by the same fragment wave field (no vertex aliasing).
     col *= (0.78 + 0.42 * crest);
 
-    // Large-scale swell mottle: a very long-wavelength brightness roll that stays
-    // visible when the fine ripples go sub-pixel (zoomed out, where the fjord is
-    // km-wide on screen). Wavelength scales with view distance so it's always a
-    // visible fraction of the screen — gentle rolling light/dark instead of dead
-    // flat. Two crossed travelling waves so it doesn't read as parallel stripes.
-    let swell_wl = max(dist_m * 0.16, 50.0);
-    let sd = water.wave_dir;
-    let sp = vec2<f32>(-sd.y, sd.x);
-    let roll = sin(dot(p_m, sd) / swell_wl * 6.2831853 + water.time * 0.35)
-        + sin(dot(p_m, sp) / (swell_wl * 1.6) * 6.2831853 - water.time * 0.22);
-    col *= (1.0 + 0.13 * roll);
+    // (Removed the crossed-sine "swell mottle": sin(x)+sin(y) over perpendicular
+    // directions is a regular grid of peaks, which over dark deep water rendered
+    // as a hideous lattice of bright blobs. Distance liveliness must come from a
+    // non-periodic source, not crossed sines — revisit with domain-warped noise.)
 
     // Sun glitter: TWO lobes on the rippling normal — a tight HDR sparkle that
     // bloom scatters into sea-sparkle across the crests, plus a broader sun sheen

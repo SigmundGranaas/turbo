@@ -95,6 +95,8 @@ struct RunningState {
 struct UiState {
     raster_visible: bool,
     hillshade_visible: bool,
+    /// Analytic sky pass (Map::set_sky_enabled). Off by default for water debug.
+    sky_visible: bool,
     vector_visible: bool,
     fade_in_secs: f32,
     /// Smoothed + sampled frame-timing display. The raw
@@ -172,7 +174,10 @@ struct CloudUiState {
 impl Default for CloudUiState {
     fn default() -> Self {
         Self {
-            enabled: true,
+            // Off by default: the cloud overlay rendered as a grid of white blobs
+            // over open water and confounded water debugging. Re-enable in the
+            // "weather clouds" panel section.
+            enabled: false,
             animate: true,
             speed: 1.0,
             time: 0.0,
@@ -238,7 +243,11 @@ impl Default for UiState {
     fn default() -> Self {
         Self {
             raster_visible: true,
-            hillshade_visible: true,
+            // Off by default — water debug isolates the surface; the DEM source
+            // stays registered (drives the water terrain-reflection) but the grey
+            // relief overlay is hidden. Re-enable via the layers checkbox.
+            hillshade_visible: false,
+            sky_visible: false,
             vector_visible: true,
             // DIAG: was 0.4. With fade-in active, each newly
             // loaded tile's alpha animates from 0→1 over this
@@ -355,24 +364,32 @@ impl ApplicationHandler for TurbomapApp {
             Some(water0.wind_speed_ms),
             None,
         );
+        // Minimal water-debug scene by default: no sky, no hillshade overlay
+        // (DEM stays for the water reflection). Mirrors UiState defaults.
+        map.set_sky_enabled(false);
+        if self.dem_source.is_some() {
+            map.set_layer_visibility(crate::map_host::HILLSHADE_LAYER_ID, false);
+        }
 
-        // Drop a couple of demo markers on Norwegian cities so the user can
-        // see hit-testing fire for both features and markers.
-        for (name, lat, lng, color) in [
-            ("Bergen", 60.39, 5.32, Color::rgb(0xE5, 0x39, 0x35)),
-            ("Oslo", 59.91, 10.75, Color::rgb(0x1E, 0x88, 0xE5)),
-            ("Trondheim", 63.43, 10.39, Color::rgb(0x43, 0xA0, 0x47)),
-            ("Tromsø", 69.65, 18.96, Color::rgb(0xFD, 0xD8, 0x35)),
-        ] {
-            let mut data = std::collections::HashMap::new();
-            data.insert("name".to_owned(), name.to_owned());
-            map.add_marker(Marker {
-                id: MarkerId(0),
-                lng_lat: LatLng::new(lat, lng),
-                radius_px: 10.0,
-                color,
-                data,
-            });
+        // Demo city markers — off by default (clutter for water debug); set
+        // TURBO_MARKERS=1 to drop them for hit-test testing.
+        if std::env::var("TURBO_MARKERS").is_ok() {
+            for (name, lat, lng, color) in [
+                ("Bergen", 60.39, 5.32, Color::rgb(0xE5, 0x39, 0x35)),
+                ("Oslo", 59.91, 10.75, Color::rgb(0x1E, 0x88, 0xE5)),
+                ("Trondheim", 63.43, 10.39, Color::rgb(0x43, 0xA0, 0x47)),
+                ("Tromsø", 69.65, 18.96, Color::rgb(0xFD, 0xD8, 0x35)),
+            ] {
+                let mut data = std::collections::HashMap::new();
+                data.insert("name".to_owned(), name.to_owned());
+                map.add_marker(Marker {
+                    id: MarkerId(0),
+                    lng_lat: LatLng::new(lat, lng),
+                    radius_px: 10.0,
+                    color,
+                    data,
+                });
+            }
         }
 
         // Procedural cloud overlay — enabled on startup so the debug scene
@@ -809,12 +826,24 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
     let frame = egui::Frame::window(&ctx.style())
         .shadow(egui::epaint::Shadow::NONE)
         .fill(egui::Color32::from_rgb(28, 28, 30));
+    // Bound the panel to a FIXED width and scroll its contents within the
+    // window height. Without this the window auto-sized to its (now tall)
+    // content — overflowing the screen and reflowing per frame, which read as
+    // heavy flicker. A fixed width + capped scroll area keeps the geometry
+    // stable frame-to-frame.
+    let max_h = (ctx.screen_rect().height() - 48.0).max(200.0);
     egui::Window::new("turbomap")
         .default_pos([12.0, 12.0])
         .resizable(false)
         .collapsible(true)
+        .default_width(270.0)
+        .max_width(270.0)
         .frame(frame)
         .show(ctx, |panel| {
+          egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .max_height(max_h)
+            .show(panel, |panel| {
             // Frame-metric label removed. Updating the label
             // every frame (or even every second) made the
             // panel — and the map blended underneath through
@@ -887,9 +916,12 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
             let prev_raster = ui.raster_visible;
             let prev_hill = ui.hillshade_visible;
             let prev_vec = ui.vector_visible;
-            panel.checkbox(&mut ui.raster_visible, "basemap (Kartverket grey topo)");
+            panel.checkbox(&mut ui.raster_visible, "basemap (raster)");
             panel.checkbox(&mut ui.hillshade_visible, "hillshade (turbo DEM)");
-            panel.checkbox(&mut ui.vector_visible, "vector (VersaTiles OSM)");
+            panel.checkbox(&mut ui.vector_visible, "vector (roads/water)");
+            if panel.checkbox(&mut ui.sky_visible, "sky (atmosphere)").changed() {
+                map.set_sky_enabled(ui.sky_visible);
+            }
             if ui.raster_visible != prev_raster {
                 map.set_layer_visibility(RASTER_LAYER_ID_PUB, ui.raster_visible);
             }
@@ -922,6 +954,7 @@ fn build_ui(ctx: &egui::Context, ui: &mut UiState, map: &mut Map, cloud_frame_co
 
             panel.separator();
             build_cloud_controls(panel, &mut ui.clouds, cloud_frame_count);
+            });
         });
 }
 
@@ -999,7 +1032,7 @@ fn build_water_controls(panel: &mut egui::Ui, w: &mut WaterUiState, map: &mut Ma
 /// Lives in its own fn so the giant `build_ui` closure stays readable.
 fn build_cloud_controls(panel: &mut egui::Ui, c: &mut CloudUiState, frame_count: usize) {
     egui::CollapsingHeader::new("weather clouds")
-        .default_open(true)
+        .default_open(false)
         .show(panel, |ui| {
             ui.checkbox(&mut c.enabled, "enabled");
             if !c.enabled {
@@ -1211,6 +1244,31 @@ fn save_dump_to_png(
 /// A minimal but readable style for VersaTiles' OpenMapTiles schema. Tuned
 /// for "looks like a map" — water blue, parks green, roads grey with
 /// motorways slightly emphasised, buildings light grey, boundaries dark.
+/// Water-only style for debugging the realistic-water surface in isolation:
+/// just the water-body fills (which feed the water pipeline), nothing else.
+/// Covers both schemas — OMT/kart-api "water" and VersaTiles "ocean" +
+/// "water_polygons" (see `is_water_source_layer`).
+fn water_only_style() -> VectorStyle {
+    let water = |layer: &str| Rule {
+        source_layer: layer.into(),
+        filter: Filter::Always,
+        paint: Paint::Fill {
+            color: Color::rgb(0x9E, 0xC2, 0xDF),
+        },
+        min_zoom: 0,
+        max_zoom: 22,
+        interactive: false,
+    };
+    VectorStyle {
+        background: Color::rgba(0, 0, 0, 0),
+        rules: vec![
+            water("water"),
+            water("ocean"),
+            water("water_polygons"),
+        ],
+    }
+}
+
 fn versatiles_demo_style() -> VectorStyle {
     // VersaTiles uses the "Shortbread" schema, not OpenMapTiles. Layer
     // names are pluralised (streets, buildings, boundaries, place_labels),
@@ -1442,17 +1500,25 @@ pub fn run() {
     // tileserver's served MapLibre style — the self-hosted path. Without it,
     // the VersaTiles OSM overlay + built-in demo style (the original MVP).
     let basemap_base = std::env::var("TURBO_BASEMAP_URL").ok();
+    // Default to a WATER-ONLY style so the realistic-water surface can be debugged
+    // in isolation (no roads/labels/buildings). Set TURBO_FULL_STYLE=1 for the
+    // full road/label overlay.
+    let full_style = std::env::var("TURBO_FULL_STYLE").is_ok();
     let (vector_source, style): (Arc<dyn VectorTileSource>, VectorStyle) = match &basemap_base {
         Some(base) => {
-            log::info!("vector basemap from {base}/v1/basemap (style.json + MVT)");
+            log::info!("vector basemap from {base}/v1/basemap (MVT)");
             let src = turbomap_tiles_http::HttpVectorTileSource::turbo_basemap(base)
                 .expect("build turbo basemap source")
                 .with_cache_dir(cache_root.join("turbo-basemap"));
-            let style_json =
-                turbomap_tiles_http::fetch_text(&format!("{base}/v1/basemap/style.json"))
-                    .expect("fetch /v1/basemap/style.json");
-            let style = turbomap_style_maplibre::parse_style(&style_json)
-                .expect("parse served MapLibre style");
+            let style = if full_style {
+                let style_json =
+                    turbomap_tiles_http::fetch_text(&format!("{base}/v1/basemap/style.json"))
+                        .expect("fetch /v1/basemap/style.json");
+                turbomap_style_maplibre::parse_style(&style_json)
+                    .expect("parse served MapLibre style")
+            } else {
+                water_only_style()
+            };
             (Arc::new(src), style)
         }
         None => (
@@ -1461,7 +1527,11 @@ pub fn run() {
                     .expect("build VersaTiles source")
                     .with_cache_dir(cache_root.join("versatiles-osm")),
             ),
-            versatiles_demo_style(),
+            if full_style {
+                versatiles_demo_style()
+            } else {
+                water_only_style()
+            },
         ),
     };
 

@@ -72,6 +72,7 @@ impl RenderFrame {
         viewport_px: (u32, u32),
         sun: SunPosition,
         terrain: TerrainFrameInputs,
+        sky_enabled: bool,
     ) -> Self {
         // Mercator metres→world units at the camera latitude:
         //   metres_per_world = 2π·R / cos(lat); meters_to_world = 1/that.
@@ -106,8 +107,9 @@ impl RenderFrame {
         let altitude_world = camera.altitude_world(viewport_px).max(1e-9);
         let haze_density = aerial_haze_density(altitude_world, camera.pitch_deg);
 
-        // Sky: only when tilted enough to expose the horizon.
-        let draw_sky = camera.pitch_deg > 0.5;
+        // Sky: only when tilted enough to expose the horizon, and not suppressed
+        // (the debug viewer can turn it off to isolate the water/terrain).
+        let draw_sky = sky_enabled && camera.pitch_deg > 0.5;
         let sky_globals = if draw_sky {
             let origin = camera.center.to_world();
             let vp = camera.view_projection_matrix_rtc(origin, viewport_px);

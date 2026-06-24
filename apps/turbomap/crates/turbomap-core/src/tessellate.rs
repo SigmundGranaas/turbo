@@ -149,7 +149,9 @@ pub struct TessellationOutput {
 /// OpenMapTiles convention (`"water"`); waterway *rivers* are `Line` paint and
 /// stay in the ordinary vector mesh, so only fills land here.
 pub fn is_water_source_layer(name: &str) -> bool {
-    name == "water"
+    // OMT/kart-api use "water"; VersaTiles (Shortbread) splits the sea into
+    // "ocean" and inland bodies into "water_polygons".
+    matches!(name, "water" | "ocean" | "water_polygons")
 }
 
 /// Tessellation tolerance in **tile units** (one tile = 1.0). One tile is
