@@ -278,7 +278,7 @@ fn wave_surface(p: vec2<f32>, t: f32, zoom: f32, lod: f32) -> vec4<f32> {
     let h = getwaves(p, t, zoom, lod);
     let hx = getwaves(p + vec2<f32>(e, 0.0), t, zoom, lod);
     let hy = getwaves(p + vec2<f32>(0.0, e), t, zoom, lod);
-    let steep = 2.2;
+    let steep = 3.0;
     let n = normalize(vec3<f32>(-(hx - h) / e * steep, -(hy - h) / e * steep, 1.0));
     let crest = clamp(h / amp_m * 0.5 + 0.5, 0.0, 1.0);
     return vec4<f32>(n, crest);
@@ -413,18 +413,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // LOD: far away only the coarse ripples resolve, close up the full chop. This
     // anti-aliases by dropping the finest octaves, NOT by flattening the surface —
     // so the normals keep rippling the reflection (no clay) at every zoom.
-    let zoom = clamp(dist_m / 700.0, 1.0, 18.0);
+    // ZOOM-STABLE wavelength: wave size scales with view distance so a wave is
+    // always ~the same number of pixels on screen at EVERY zoom. This is what
+    // keeps the chop visible up close AND resolvable (never sub-pixel → no
+    // aliasing grid) when zoomed out — no distance fade needed (a fade killed the
+    // waves everywhere, since at map zoom the camera is always km away).
+    let zoom = max(dist_m / 700.0, 1.0);
     let lod = mix(2.0, 7.0, clamp(1.0 - smoothstep(500.0, 9000.0, dist_m), 0.0, 1.0));
     let surf = wave_surface(p_m, water.time, zoom, lod);
-    // Combine the big-swell geometric normal with the fine ripple detail. CRUCIAL:
-    // fade the ripple to flat as the water recedes — far away the waves go
-    // sub-pixel and any residual pattern reads as a tiling grid / washes white.
-    // Better to dissolve to a clean flat surface (its colour + sky reflection)
-    // than to show a broken-down lattice when zoomed out.
-    let detail_fade = clamp(1.0 - smoothstep(4000.0, 14000.0, dist_m), 0.0, 1.0);
     let swell_n = normalize(in.wave_normal);
-    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 0.8 * detail_fade);
-    let crest = surf.w * detail_fade;
+    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 1.2);
+    let crest = surf.w;
 
     // View vector (surface → eye).
     let v = normalize(water.eye - in.world_pos);
@@ -479,8 +478,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // colour (the "underwhelming dead-calm" look). Crests catch more light and sit
     // brighter, troughs darker — environment-independent structure that always
     // reads as waves. Driven by the same fragment wave field (no vertex aliasing).
-    // Gentle (was 0.78+0.42) — the strong boost washed the surface near-white.
-    col *= (0.90 + 0.16 * crest);
+    // Directional wave shading: now that the chop runs with the wind (not
+    // isotropic cells), visible light/dark BANDS read as waves. Moderate so it
+    // doesn't wash white.
+    col *= (0.82 + 0.34 * crest);
 
     // (Removed the crossed-sine "swell mottle": sin(x)+sin(y) over perpendicular
     // directions is a regular grid of peaks, which over dark deep water rendered
@@ -495,7 +496,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Tight HDR sparkle only (no broad sheen — the sheen washed the whole sunward
     // half white). Fades with the ripple detail so far water doesn't fizz, and
     // scaled by sun intensity so it's a scattered sea-sparkle, not a sheet.
-    let sparkle = pow(ndoth, 300.0) * 4.0 * detail_fade;
+    let sparkle = pow(ndoth, 300.0) * 4.0;
     col += water.sun_color * sparkle * water.sun_intensity;
 
     // Whitecaps: the top band of each wave crest breaks white when the sea
