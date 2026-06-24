@@ -236,33 +236,33 @@ fn wavedx(p: vec2<f32>, dir: vec2<f32>, freq: f32, t: f32) -> vec2<f32> {
     return vec2<f32>(wave, -wave * cos(x));
 }
 
-// Domain-warped sum of exp(sin) wavelets over pseudo-randomly rotated directions
-// (Alekseev "Seascape" technique). Each octave warps the sample position by the
-// previous derivative, clustering ripples on crests and breaking the regular
-// interference — natural, non-repeating chop. Returns wave HEIGHT in metres.
+// Sum of exp(sin) wavelets running DIRECTIONALLY with the wind. The octaves'
+// directions fan only ±~25° around `wave_dir` (NOT the old golden-angle spread,
+// which made isotropic foam cells/bubble-wrap instead of waves) and each travels
+// at the deep-water phase speed, so the surface reads as directional chop. A
+// mild domain warp adds texture + breaks exact tiling without forming cells.
+// Returns wave HEIGHT in metres.
 fn getwaves(p_in: vec2<f32>, t: f32, zoom: f32, lod: f32) -> f32 {
     var p = p_in;
-    var iter = 0.0;
+    let base = normalize(water.wave_dir + vec2<f32>(1e-4, 0.0));
     var freq = 6.2831853 / (11.0 * zoom); // base wavelength ~11·zoom m
-    var tmul = 1.0;
     var weight = 1.0;
     var sum = 0.0;
     var tw = 0.0;
-    for (var i = 0; i < 8; i = i + 1) {
-        // Per-octave LOD: the finest octaves fade in only when they're
-        // resolvable (lod high = close). This anti-aliases by dropping detail
-        // that would shimmer, WITHOUT flattening the whole surface — the coarse
-        // ripples stay alive so the reflection keeps moving (no clay).
+    let g = 9.81;
+    for (var i = 0; i < 6; i = i + 1) {
+        // Per-octave distance LOD: finest octaves fade out far away (anti-alias).
         let oct = clamp(lod - f32(i), 0.0, 1.0);
-        let d = vec2<f32>(sin(iter), cos(iter));
-        let res = wavedx(p, d, freq, t * tmul);
-        p = p + d * res.y * weight * oct * 0.42; // domain warp
+        // Narrow directional fan: i=0..5 → ±0.45 rad (±26°) around the wind.
+        let ang = (f32(i) - 2.5) * 0.18;
+        let d = rot2(base, ang);
+        let speed = sqrt(g * freq); // ω = √(g·k) deep-water dispersion
+        let res = wavedx(p, d, freq, speed * t);
+        p = p + d * res.y * weight * oct * 0.30; // mild warp (texture, not cells)
         sum = sum + res.x * weight * oct;
         tw = tw + weight * oct;
-        weight = weight * 0.82;
-        freq = freq * 1.18;
-        tmul = tmul * 1.07;
-        iter = iter + 2.39996; // golden-angle direction spread
+        weight = weight * 0.78;
+        freq = freq * 1.32;
     }
     return (sum / max(tw, 1e-4)) * water.wave_amp * 0.5;
 }
@@ -278,7 +278,7 @@ fn wave_surface(p: vec2<f32>, t: f32, zoom: f32, lod: f32) -> vec4<f32> {
     let h = getwaves(p, t, zoom, lod);
     let hx = getwaves(p + vec2<f32>(e, 0.0), t, zoom, lod);
     let hy = getwaves(p + vec2<f32>(0.0, e), t, zoom, lod);
-    let steep = 3.4;
+    let steep = 2.2;
     let n = normalize(vec3<f32>(-(hx - h) / e * steep, -(hy - h) / e * steep, 1.0));
     let crest = clamp(h / amp_m * 0.5 + 0.5, 0.0, 1.0);
     return vec4<f32>(n, crest);
@@ -414,21 +414,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // anti-aliases by dropping the finest octaves, NOT by flattening the surface —
     // so the normals keep rippling the reflection (no clay) at every zoom.
     let zoom = clamp(dist_m / 700.0, 1.0, 18.0);
-    // High LOD FLOOR: even far water keeps several ripple octaves alive (at high-
-    // altitude map zoom *all* visible water is "far" by dist_m, so a low floor
-    // flattened the whole surface — the underwhelming dead-calm look). The finest
-    // octaves still fade with distance to avoid sub-pixel specular noise.
-    let lod = mix(5.0, 8.0, clamp(1.0 - smoothstep(500.0, 9000.0, dist_m), 0.0, 1.0));
+    let lod = mix(2.0, 7.0, clamp(1.0 - smoothstep(500.0, 9000.0, dist_m), 0.0, 1.0));
     let surf = wave_surface(p_m, water.time, zoom, lod);
-    // Combine the big-swell geometric normal (from the displaced vertices) with
-    // the fine ripple detail: tilt the interpolated swell normal by the detail
-    // slope so the surface shimmers on top of the real 3-D crests instead of
-    // replacing them. Detail weight backs off so it perturbs, not dominates.
+    // Combine the big-swell geometric normal with the fine ripple detail. CRUCIAL:
+    // fade the ripple to flat as the water recedes — far away the waves go
+    // sub-pixel and any residual pattern reads as a tiling grid / washes white.
+    // Better to dissolve to a clean flat surface (its colour + sky reflection)
+    // than to show a broken-down lattice when zoomed out.
+    let detail_fade = clamp(1.0 - smoothstep(4000.0, 14000.0, dist_m), 0.0, 1.0);
     let swell_n = normalize(in.wave_normal);
-    // 0.85 (was 1.15): enough ripple to read as waves, not so much the finest
-    // octaves turn the surface into uniform stipple/noise.
-    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 0.85);
-    let crest = surf.w;
+    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 0.8 * detail_fade);
+    let crest = surf.w * detail_fade;
 
     // View vector (surface → eye).
     let v = normalize(water.eye - in.world_pos);
@@ -483,7 +479,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // colour (the "underwhelming dead-calm" look). Crests catch more light and sit
     // brighter, troughs darker — environment-independent structure that always
     // reads as waves. Driven by the same fragment wave field (no vertex aliasing).
-    col *= (0.78 + 0.42 * crest);
+    // Gentle (was 0.78+0.42) — the strong boost washed the surface near-white.
+    col *= (0.90 + 0.16 * crest);
 
     // (Removed the crossed-sine "swell mottle": sin(x)+sin(y) over perpendicular
     // directions is a regular grid of peaks, which over dark deep water rendered
@@ -495,12 +492,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // that gives the whole sunward side life (not just pinpricks). Fades at night.
     let h = normalize(v + water.sun_dir);
     let ndoth = max(dot(n, h), 0.0);
-    // Tighter + dimmer than before: a high-power lobe sparks only on micro-normals
-    // exactly facing the reflected sun → scattered sea-sparkle, not a blown-out
-    // white sheet. Plus a gentle broad sheen for sunward warmth.
-    let sparkle = pow(ndoth, 320.0) * 5.5;
-    let sheen = pow(ndoth, 40.0) * 0.45;
-    col += water.sun_color * (sparkle + sheen) * water.sun_intensity;
+    // Tight HDR sparkle only (no broad sheen — the sheen washed the whole sunward
+    // half white). Fades with the ripple detail so far water doesn't fizz, and
+    // scaled by sun intensity so it's a scattered sea-sparkle, not a sheet.
+    let sparkle = pow(ndoth, 300.0) * 4.0 * detail_fade;
+    col += water.sun_color * sparkle * water.sun_intensity;
 
     // Whitecaps: the top band of each wave crest breaks white when the sea
     // state is extreme (forecast-driven). Sharpened so only the very tops break.

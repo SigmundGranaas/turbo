@@ -765,6 +765,12 @@ impl RunningState {
         if self.ui_state.clouds.enabled && self.ui_state.clouds.animate {
             self.window.request_redraw();
         }
+        // Realistic water animates off the renderer clock (wave phase), which
+        // also isn't tracked by `Map::is_animating` — keep redrawing so the
+        // waves actually move instead of freezing when the camera is idle.
+        if self.ui_state.water.realistic {
+            self.window.request_redraw();
+        }
     }
 
     /// Push the cloud debug-panel state into the Map for this frame.
