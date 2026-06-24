@@ -217,6 +217,10 @@ impl RenderFrame {
         // shadow/AO heightfield is assembled. `cos²lat` converts that field's
         // steeper world-z into the mesh's: `meters_to_world·circ = cos(lat)`.
         let coslat = meters_to_world * earth_circumference_m;
+        // Same RTC view-proj the water vertex stage uses (group 0) — the fragment
+        // projects SSR march hits to screen with it to read the real Scene Colour.
+        let water_view_proj =
+            camera.view_projection_matrix_rtc(camera.center.to_world(), viewport_px);
         let water_globals = WaterGlobals {
             sun_dir: sun.world_dir(),
             sun_intensity,
@@ -239,7 +243,20 @@ impl RenderFrame {
             // Off by default; `Map::render` sets it from the `realistic_water`
             // flag the rail toggle drives.
             realistic: 0.0,
-            _pad: [0.0; 3],
+            // P3 shallowness: shore→deep colour ramp over ~120 m of shore
+            // proximity (continuous, sampled from the terrain heightfield).
+            shallow_scale: 120.0,
+            // P3 refraction: screen-UV bend of the underlying scene colour in
+            // shallow water (the wobbling sea-bed look).
+            refract: 0.014,
+            // P6 quality tier: full SSR + refraction by default; lowered on
+            // weaker GPUs via `Map::set_water_quality`.
+            quality: 1.0,
+            viewport: [viewport_px.0 as f32, viewport_px.1 as f32],
+            // P3 clarity: moderately clear coastal water by default.
+            clarity: 0.62,
+            zscale: vec_terrain_zscale,
+            view_proj: water_view_proj,
         };
 
         Self {

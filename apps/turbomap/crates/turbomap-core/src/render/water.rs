@@ -74,9 +74,32 @@ pub(crate) struct WaterGlobals {
     /// + Fresnel reflection + sun glitter); 0.0 ⇒ a flat matte body-colour fill
     /// (the rail toggle off — matches the pre-AAA flat water look).
     pub realistic: f32,
-    /// Pads the struct to a 16-byte multiple (128 B) so the Rust `size_of` matches
-    /// the WGSL uniform's rounded stride.
-    pub _pad: [f32; 3],
+    /// Metres over which the shore→deep colour ramp resolves (P3 shallowness). The
+    /// shore-proximity field, sampled continuously from the terrain heightfield,
+    /// drives a Beer-Lambert blend from a bright shallow tint to the deep body.
+    pub shallow_scale: f32,
+    /// Refraction strength (P3): how far, in screen UV, the shallow water bends
+    /// the underlying scene-colour sample (the wobbling sea-bed look). 0 = off.
+    pub refract: f32,
+    /// Quality tier scalar (P6): scales the SSR march budget + gates refraction.
+    /// 1.0 = high (full SSR + refraction), 0.5 = medium, 0.0 = low (sky only).
+    pub quality: f32,
+    /// Viewport resolution in pixels — turns `@builtin(position)` into a screen
+    /// UV (refraction base sample) and projects SSR march hits to screen.
+    pub viewport: [f32; 2],
+    /// Water clarity 0..1 (P3/P5): low = murky green coastal/lake water (strong
+    /// absorption), high = clear blue. Shifts the shallow + deep tints.
+    pub clarity: f32,
+    /// Combined drape z-scale (`meters_to_world × exaggeration`, = the vertex
+    /// stage's `camera.params.y`) — converts a mesh world-z delta to metres so the
+    /// shore-proximity test ("does land rise N metres above the surface?") is
+    /// unit-correct. Also fills the slot that aligns `view_proj` to offset 144.
+    pub zscale: f32,
+    /// RTC view-projection matrix (same one the vertex stage uses via group 0) —
+    /// carried here because the fragment projects the SSR march hit to a screen
+    /// UV to read the real Scene Colour, and group 0 (camera) is VERTEX-only +
+    /// shared with the vector pipeline, so it can't be made fragment-visible.
+    pub view_proj: [[f32; 4]; 4],
 }
 
 /// Sea state for the water surface, derived from the MET wave/wind forecast.
@@ -167,7 +190,19 @@ fn ocean_tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
 pub(crate) struct WaterPipeline {
     pipeline: wgpu::RenderPipeline,
     globals_buffer: wgpu::Buffer,
+    /// Group-3 bind group. Rebuilt every frame in [`Self::prepare`] because it
+    /// now also binds the *Scene Colour* (the opaque pass's resolved HDR) for
+    /// SSR + refraction, which is a resize-recreated target view. Following the
+    /// post-process's pattern (cheap, keeps the pipeline stateless w.r.t. size).
     globals_bind_group: wgpu::BindGroup,
+    /// Everything needed to rebuild `globals_bind_group` each frame.
+    globals_bgl: wgpu::BindGroupLayout,
+    height_view: wgpu::TextureView,
+    cascade_views: Vec<wgpu::TextureView>,
+    ocean_sampler: wgpu::Sampler,
+    /// Clamp+linear sampler for the Scene-Colour SSR/refraction reads.
+    scene_sampler: wgpu::Sampler,
+    device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
 }
 
@@ -267,6 +302,29 @@ impl WaterPipeline {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // Scene Colour (binding 6): the opaque pass's resolved HDR image
+                // (`hdr_resolve`), single-sample, filterable. The fragment marches
+                // the reflected ray against the terrain heightfield, projects the
+                // hit to screen and reads the REAL lit basemap colour here (true
+                // mirrored mountains), and also samples it at a refracted offset
+                // for shallow-water see-through. Fragment-only.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Scene-Colour sampler (binding 7): clamp + linear.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
 
@@ -361,9 +419,68 @@ impl WaterPipeline {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let globals_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+
+        // Clamp+linear sampler for the Scene-Colour reads (SSR hit + refraction).
+        let scene_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("turbomap-water-scene-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        // Own copies of the stable views so the group-3 bind group can be rebuilt
+        // each frame with the current (resize-recreated) Scene-Colour view.
+        let height_view = height_view.clone();
+        let cascade_views = cascade_views.to_vec();
+
+        // Initial bind group: use a cascade view as a Scene-Colour placeholder
+        // (right format/usage); `prepare` overwrites it with `hdr_resolve` frame 1.
+        let globals_bind_group = Self::build_globals_bg(
+            &device,
+            &globals_bgl,
+            &globals_buffer,
+            &height_view,
+            &cascade_views,
+            ocean_sampler,
+            &cascade_views[0],
+            &scene_sampler,
+        );
+
+        Self {
+            pipeline,
+            globals_buffer,
+            globals_bind_group,
+            globals_bgl,
+            height_view,
+            cascade_views,
+            ocean_sampler: ocean_sampler.clone(),
+            scene_sampler,
+            device,
+            queue,
+        }
+    }
+
+    /// Assemble the group-3 bind group: water globals (0) + heightfield (1) +
+    /// ocean cascades (2,3,4) + ocean sampler (5) + Scene Colour (6) + its
+    /// sampler (7).
+    #[allow(clippy::too_many_arguments)]
+    fn build_globals_bg(
+        device: &wgpu::Device,
+        bgl: &wgpu::BindGroupLayout,
+        globals_buffer: &wgpu::Buffer,
+        height_view: &wgpu::TextureView,
+        cascade_views: &[wgpu::TextureView],
+        ocean_sampler: &wgpu::Sampler,
+        scene_view: &wgpu::TextureView,
+        scene_sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("turbomap-water-globals-bg"),
-            layout: &globals_bgl,
+            layout: bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -389,22 +506,34 @@ impl WaterPipeline {
                     binding: 5,
                     resource: wgpu::BindingResource::Sampler(ocean_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(scene_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(scene_sampler),
+                },
             ],
-        });
-
-        Self {
-            pipeline,
-            globals_buffer,
-            globals_bind_group,
-            queue,
-        }
+        })
     }
 
-    /// Upload this frame's water lighting + animation globals. Called once per
-    /// frame before the draw(s).
-    pub(crate) fn prepare(&self, globals: &WaterGlobals) {
+    /// Upload this frame's water lighting + animation globals and rebuild the
+    /// group-3 bind group against the current Scene-Colour view (the opaque
+    /// pass's resolved HDR). Called once per frame before the water draw(s).
+    pub(crate) fn prepare(&mut self, globals: &WaterGlobals, scene_view: &wgpu::TextureView) {
         self.queue
             .write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(globals));
+        self.globals_bind_group = Self::build_globals_bg(
+            &self.device,
+            &self.globals_bgl,
+            &self.globals_buffer,
+            &self.height_view,
+            &self.cascade_views,
+            &self.ocean_sampler,
+            scene_view,
+            &self.scene_sampler,
+        );
     }
 
     /// Draw a layer's water meshes, replaying `prepared`'s tile list and

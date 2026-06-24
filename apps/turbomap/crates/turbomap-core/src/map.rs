@@ -709,6 +709,10 @@ pub struct Map {
     /// normal-mapped fill. Toggled from the map rail; gated per
     /// `docs/architecture/2026-06-aaa-water-implementation-plan.md`.
     realistic_water: bool,
+    /// Water quality tier (P6): 1.0 = high (full SSR + refraction), 0.5 = medium
+    /// (cheaper SSR march, no refraction), 0.0 = low (analytic sky reflection
+    /// only). Set from device capability; default high. See [`Map::set_water_quality`].
+    water_quality: f32,
     /// Draw the analytic sky behind the scene (when tilted). Off lets the debug
     /// viewer isolate the water/terrain against a plain backdrop.
     sky_enabled: bool,
@@ -874,6 +878,7 @@ impl Map {
             shadow: TerrainShadowState::default(),
             water: WaterConditions::default(),
             realistic_water: false,
+            water_quality: 1.0,
             sky_enabled: true,
             route_tubes: RouteTubeState::default(),
             start: Instant::now(),
@@ -1136,6 +1141,14 @@ impl Map {
     /// Whether the realistic-water path is selected (read by the water draw).
     pub fn realistic_water(&self) -> bool {
         self.realistic_water
+    }
+
+    /// Set the water quality tier (P6): `1.0` high (full SSR + refraction),
+    /// `0.5` medium (cheaper SSR march, no refraction), `0.0` low (analytic sky
+    /// reflection only — no scene-colour reads). Clamped to [0, 1]. Wire from
+    /// device capability so weaker GPUs drop the expensive screen-space work.
+    pub fn set_water_quality(&mut self, quality: f32) {
+        self.water_quality = quality.clamp(0.0, 1.0);
     }
 
     // ---- Sun / time-of-day --------------------------------------------
@@ -2480,9 +2493,18 @@ impl Map {
         frame.water_globals.foam = self.water.foam;
         // Rail toggle: realistic AAA water vs a flat matte fill.
         frame.water_globals.realistic = if self.realistic_water { 1.0 } else { 0.0 };
+        // P6 quality tier (full SSR + refraction … sky-only) for weaker GPUs.
+        frame.water_globals.quality = self.water_quality;
         // Upload the water lighting/animation/reflection globals once for the
-        // frame; the per-layer water draws reuse the bound group.
-        self.renderer.water_pipeline.prepare(&frame.water_globals);
+        // frame and rebuild the group-3 bind group against this frame's Scene
+        // Colour (`hdr_resolve`, the opaque pass's resolved HDR) so the water can
+        // sample it for SSR + refraction. The view is stable across the frame;
+        // the GPU orders the opaque→water passes (clone sidesteps the borrow of
+        // `self.renderer` by both the pipeline and the targets).
+        let scene_view = self.renderer.targets.hdr_resolve_view().clone();
+        self.renderer
+            .water_pipeline
+            .prepare(&frame.water_globals, &scene_view);
 
         let first_visible = self.first_visible_layer_index();
 

@@ -73,6 +73,24 @@ struct WaterGlobals {
     // 1 ⇒ realistic AAA water (Gerstner displacement + waves + reflection +
     // glitter); 0 ⇒ flat matte body-colour fill (rail toggle off).
     realistic: f32,
+    // P3: metres of shore-proximity over which the shallow→deep colour ramp
+    // resolves (Beer-Lambert absorption).
+    shallow_scale: f32,
+    // P3: refraction strength (screen-UV bend of the underlying scene colour in
+    // shallow water). 0 = off.
+    refract: f32,
+    // P6 quality: 1 high (full SSR + refraction), 0.5 medium (cheap SSR, no
+    // refraction), 0 low (analytic sky reflection only).
+    quality: f32,
+    // Viewport resolution (px) — `@builtin(position)`/resolution = screen UV.
+    viewport: vec2<f32>,
+    // P3/P5 clarity 0..1: low = murky green coastal/lake water, high = clear blue.
+    clarity: f32,
+    // Drape z-scale (mesh world-z → metres) for the shore-proximity test.
+    zscale: f32,
+    // RTC view-projection (group 0 is VERTEX-only) — projects the SSR hit to a
+    // screen UV for the real Scene-Colour read.
+    view_proj: mat4x4<f32>,
 };
 @group(3) @binding(0) var<uniform> water: WaterGlobals;
 // Terrain heightfield (world-z elevations, R32Float, non-filterable) — the same
@@ -90,6 +108,12 @@ const HF_DIM: i32 = 256;
 @group(3) @binding(3) var ocean_c1: texture_2d<f32>;
 @group(3) @binding(4) var ocean_c2: texture_2d<f32>;
 @group(3) @binding(5) var ocean_samp: sampler;
+// Scene Colour (binding 6): the opaque pass's resolved HDR image — the lit
+// basemap/terrain BEFORE water. The reflected-ray march projects its terrain hit
+// to screen and reads the real colour here (true mirrored mountains); shallow
+// water also samples it at a refracted offset (see-through to the sea bed).
+@group(3) @binding(6) var scene_tex: texture_2d<f32>;
+@group(3) @binding(7) var scene_samp: sampler;
 // Patch sizes (metres) — MUST match PATCH_M in ocean.rs.
 const OCEAN_PATCH0: f32 = 457.0;
 const OCEAN_PATCH1: f32 = 97.0;
@@ -154,6 +178,9 @@ struct VertexOutput {
     // Distance to the nearest shore edge, tile-local units (baked into `dist`).
     // The FS turns it into a depth-based absorption tint (shallow → deep).
     @location(3) shore: f32,
+    // Draped surface elevation in metres (sea ≈ 0, inland lakes higher) — the FS
+    // uses it to pick sea vs lake treatment without needing group 0 (camera).
+    @location(4) elev_m: f32,
 };
 
 @vertex
@@ -193,6 +220,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.world_pos = world_pos;
     out.wave_normal = vec3<f32>(0.0, 0.0, 1.0);
     out.shore = in.dist;
+    // Draped base elevation in metres (before wave displacement) for sea/lake.
+    out.elev_m = select(0.0, wz / max(zscale, 1e-9), zscale > 0.0);
     return out;
 }
 
@@ -359,27 +388,62 @@ fn hf_uv(world_xy: vec2<f32>) -> vec2<f32> {
     return (world_xy - water.hf_origin) * water.hf_inv_size;
 }
 
-// Terrain elevation in MESH world-z at a heightfield UV (clamped to the field).
-fn terrain_mesh_z(uv: vec2<f32>) -> f32 {
-    let t = uv * f32(HF_DIM);
-    let xi = clamp(i32(t.x), 0, HF_DIM - 1);
-    let yi = clamp(i32(t.y), 0, HF_DIM - 1);
-    let h = textureLoad(height_tex, vec2<i32>(xi, yi), 0).r;
-    return h * water.hf_to_mesh_z;
+// One heightfield texel (nearest), in MESH world-z.
+fn terrain_texel_z(xi: i32, yi: i32) -> f32 {
+    let cx = clamp(xi, 0, HF_DIM - 1);
+    let cy = clamp(yi, 0, HF_DIM - 1);
+    return textureLoad(height_tex, vec2<i32>(cx, cy), 0).r * water.hf_to_mesh_z;
 }
 
-// March the reflected ray against the heightfield to mirror the surrounding
-// terrain. Returns `vec4(reflected_colour, hit)` where `hit` is 1.0 on a terrain
-// intersection inside the field, else 0.0 (caller falls back to the sky).
+// Terrain elevation in MESH world-z at a heightfield UV, BILINEARLY filtered.
+// The heightfield is R32Float (non-filterable, `textureLoad` only), so we do the
+// 2×2 lerp by hand — this removes the texel-quantization stepping that made the
+// shore/reflection fields band into hatching.
+fn terrain_mesh_z(uv: vec2<f32>) -> f32 {
+    let t = uv * f32(HF_DIM) - vec2<f32>(0.5, 0.5);
+    let i0 = vec2<i32>(i32(floor(t.x)), i32(floor(t.y)));
+    let f = fract(t);
+    let z00 = terrain_texel_z(i0.x, i0.y);
+    let z10 = terrain_texel_z(i0.x + 1, i0.y);
+    let z01 = terrain_texel_z(i0.x, i0.y + 1);
+    let z11 = terrain_texel_z(i0.x + 1, i0.y + 1);
+    return mix(mix(z00, z10, f.x), mix(z01, z11, f.x), f.y);
+}
+
+// Project an RTC world point to a screen UV (origin top-left, y-down to match
+// texture space). `.z` is 1.0 when the point is in front of the camera and on
+// screen, else 0.0 — the caller falls back when the reflected geometry isn't
+// actually visible in the Scene-Colour buffer (off-screen / behind camera).
+fn world_to_screen_uv(p: vec3<f32>) -> vec3<f32> {
+    let clip = water.view_proj * vec4<f32>(p, 1.0);
+    if (clip.w <= 1e-4) {
+        return vec3<f32>(0.0, 0.0, 0.0);
+    }
+    let ndc = clip.xy / clip.w;
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    let on = select(0.0, 1.0,
+        uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0);
+    return vec3<f32>(uv, on);
+}
+
+// March the reflected ray against the terrain heightfield to mirror the
+// surrounding mountains, then read the REAL lit basemap colour by projecting the
+// hit point into the opaque Scene-Colour buffer (true screen-space reflection of
+// the terrain — the headline "real" cue). Where the hit isn't on screen (behind
+// the camera / outside the frame) it falls back to a sun-lit hillshade of the
+// reflected slope so distant mountains still read. Returns `vec4(colour, weight)`
+// where `weight` is a 0..1 edge fade (0 = miss → caller keeps the sky).
 fn reflect_terrain(p: vec3<f32>, r: vec3<f32>) -> vec4<f32> {
     // One heightfield texel in world units — the march step + gradient epsilon.
     let texel_world = 1.0 / (water.hf_inv_size * f32(HF_DIM));
     // Cover ~1.5 fields; bias the start off the surface to avoid self-hit.
     let span = 1.5 / water.hf_inv_size;
-    let steps = 48;
+    // P6 quality: fewer march steps on the medium tier.
+    let steps = i32(select(24.0, 48.0, water.quality > 0.75));
     let dt = span / f32(steps);
     var t = dt;
     var hit_uv = vec2<f32>(0.0);
+    var hit_world = vec3<f32>(0.0);
     var found = false;
     for (var i = 0; i < steps; i = i + 1) {
         let s = p + r * t;
@@ -394,6 +458,7 @@ fn reflect_terrain(p: vec3<f32>, r: vec3<f32>) -> vec4<f32> {
             let s0 = p + r * (t - dt);
             let mid = (s0 + s) * 0.5;
             hit_uv = hf_uv(mid.xy);
+            hit_world = vec3<f32>(mid.xy, terrain_mesh_z(hit_uv));
             found = true;
             break;
         }
@@ -402,9 +467,7 @@ fn reflect_terrain(p: vec3<f32>, r: vec3<f32>) -> vec4<f32> {
     if (!found) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
-    // Shade the reflected terrain: a hillshade from the heightfield gradient,
-    // lit by the same sun. Approximate colour (no basemap texture in this pass),
-    // but the lit/shadowed slopes read as mountains mirrored in the water.
+    // Hillshade fallback colour (used off-screen): lit/shadowed reflected slope.
     let du = vec2<f32>(1.0 / f32(HF_DIM), 0.0);
     let dv = vec2<f32>(0.0, 1.0 / f32(HF_DIM));
     let zx = terrain_mesh_z(hit_uv + du) - terrain_mesh_z(hit_uv - du);
@@ -412,13 +475,55 @@ fn reflect_terrain(p: vec3<f32>, r: vec3<f32>) -> vec4<f32> {
     let nrm = normalize(vec3<f32>(-zx, -zy, 2.0 * texel_world));
     let lambert = max(dot(nrm, water.sun_dir), 0.0);
     let albedo = vec3<f32>(0.20, 0.23, 0.18);
-    let lit = albedo * (0.40 + 0.85 * lambert * water.sun_intensity);
+    var lit = albedo * (0.40 + 0.85 * lambert * water.sun_intensity);
+    // Real screen-space colour: project the hit into the Scene-Colour buffer.
+    // This is the genuine mirrored terrain (lit basemap + shading), not a guess.
+    let su = world_to_screen_uv(hit_world);
+    if (su.z > 0.5) {
+        let real = textureSampleLevel(scene_tex, scene_samp, su.xy, 0.0).rgb;
+        // Fade to the hillshade near the screen border so a reflection sliding
+        // off-frame doesn't pop (the classic SSR edge artefact).
+        let b = min(min(su.x, 1.0 - su.x), min(su.y, 1.0 - su.y));
+        let screen_edge = smoothstep(0.0, 0.06, b);
+        lit = mix(lit, real, screen_edge);
+    }
     // Fade the mirror out as the hit nears the heightfield border, so the field's
     // edge doesn't draw a hard diagonal line across open water (beyond it we
     // simply can't resolve terrain → fall back to sky).
     let edge = min(min(hit_uv.x, 1.0 - hit_uv.x), min(hit_uv.y, 1.0 - hit_uv.y));
     let edge_fade = smoothstep(0.0, 0.10, edge);
     return vec4<f32>(lit, edge_fade);
+}
+
+// Continuous shore-proximity shallowness (P3): ~1.0 right at a shoreline,
+// fading to 0.0 by `shallow_scale` metres offshore. A 16-tap spiral with a
+// CONTINUOUSLY growing radius (golden-angle), each tap reading the BILINEAR
+// heightfield — so the field is smooth in world space (no discrete-radius
+// banding, no texel hatching). For each tap we measure how far land rises above
+// the surface (in metres) and weight by closeness; the smooth max is the
+// proximity. 0 when no heightfield is bound (open sea / no terrain).
+fn shore_shallow(world_pos: vec3<f32>) -> f32 {
+    if (water.ssr_enabled < 0.5) {
+        return 0.0;
+    }
+    let m2w = max(water.meters_to_world, 1e-12);
+    let max_r = water.shallow_scale * m2w;
+    let inv_z = 1.0 / max(water.zscale, 1e-9);
+    var prox = 0.0;
+    for (var i = 0; i < 16; i = i + 1) {
+        let f = (f32(i) + 0.5) / 16.0;        // 0..1 fractional radius
+        let r = max_r * f;
+        let a = f32(i) * 2.39996323;          // golden angle → even coverage
+        let off = vec2<f32>(cos(a), sin(a)) * r;
+        let bed_z = terrain_mesh_z(hf_uv(world_pos.xy + off));
+        let rise_m = (bed_z - world_pos.z) * inv_z; // metres land rises above us
+        // Clearly land once it rises ~1→6 m above the surface (a coastline jumps
+        // far more than that); smooth so the band edge isn't hard.
+        let land = smoothstep(1.0, 6.0, rise_m);
+        // Closer land → shallower; (1-f) is the smooth closeness weight.
+        prox = max(prox, land * (1.0 - f));
+    }
+    return clamp(prox, 0.0, 1.0);
 }
 
 @fragment
@@ -457,9 +562,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Foam coverage from the field's Jacobian (where waves fold/break).
     let crest = clamp(fld.w, 0.0, 1.0);
 
+    // --- P5: sea vs lake, one system, decided per-fragment from elevation ----
+    // The draped surface sits at its real elevation; inland lakes/tarns are well
+    // above sea level. `lakeness` 0 (sea, ~0 m) → 1 (mountain lake) makes the
+    // surface calmer and glassier and recolours it toward dark alpine teal, with
+    // no ocean whitecaps — a continuous transition, not a separate preset.
+    let lakeness = clamp(smoothstep(2.0, 30.0, in.elev_m), 0.0, 1.0);
+    // Lakes are calmer: damp the wave normal toward flat so they mirror sharply.
+    let up = vec3<f32>(0.0, 0.0, 1.0);
+    let nf = normalize(mix(n, up, 0.55 * lakeness));
+
+    // P3: continuous shore shallowness (1 at the shore, fading offshore).
+    let shallow = shore_shallow(in.world_pos);
+
     // View vector (surface → eye).
     let v = normalize(water.eye - in.world_pos);
-    let ndotv = max(dot(n, v), 1e-3);
+    let ndotv = max(dot(nf, v), 1e-3);
 
     // Fresnel: low floor so top-down/mid angles show the VIVID body colour
     // (turquoise/navy) rather than a constant grey sky mirror — the earlier high
@@ -467,73 +585,89 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // (the wet look) via the pow term.
     let fres = clamp(0.10 + 0.85 * pow(1.0 - ndotv, 5.0), 0.0, 1.0);
 
-    // Reflection — the heart of the wet look. The FULL wave normal ripples the
-    // sky reflection so the surface shimmers (sky is a smooth gradient → no
-    // aliasing from rippling it). The terrain mirror march uses a smoothed normal
-    // so the reflected mountains stay coherent, then blends in.
-    let r_sky = reflect(-v, n);
+    // ---- Reflection: analytic sky + TRUE screen-space terrain mirror (P2) ----
+    // The full wave normal ripples the sky reflection (a smooth gradient → no
+    // aliasing). The terrain mirror march uses a calmer normal so the reflected
+    // mountains stay coherent; lakes (already calm) mirror almost flat. The march
+    // projects its hit into the opaque Scene Colour, so the reflection is the REAL
+    // lit basemap/terrain — genuine mirrored mountains, not a hillshade guess.
+    let r_sky = reflect(-v, nf);
     var reflection = sky_color(r_sky);
-    let n_terr = normalize(mix(vec3<f32>(0.0, 0.0, 1.0), n, 0.30));
+    let n_terr = normalize(mix(up, nf, mix(0.30, 0.12, lakeness)));
     let r_terr = reflect(-v, n_terr);
-    if (water.ssr_enabled > 0.5 && r_terr.z > 0.02) {
+    if (water.ssr_enabled > 0.5 && water.quality > 0.25 && r_terr.z > 0.02) {
         let terr = reflect_terrain(in.world_pos, r_terr);
-        // terr.w is now a 0..1 edge-fade (not a hard hit flag) → no field-edge line.
-        reflection = mix(reflection, terr.rgb, 0.7 * terr.w);
+        // Sharper/stronger mirror on glassy lakes; terr.w is a 0..1 edge fade.
+        let mstr = mix(0.7, 0.9, lakeness);
+        reflection = mix(reflection, terr.rgb, mstr * terr.w);
     }
 
-    // Body colour: a uniform vivid deep-sea tint for now. (P3 replaces this with
-    // Beer-Lambert depth colour + refraction driven by a CONTINUOUS shallowness
-    // field — the per-tile shore-distance term used here previously produced
-    // tile-aligned colour blocks at low zoom, so it's disabled until P3.)
-    let deep_col = mix(vec3<f32>(0.015, 0.09, 0.19), in.color.rgb, 0.12);
-    // Subtle subsurface glow on foamy crests. A TINT only — reflection-dominated.
-    let sss_col = vec3<f32>(0.03, 0.13, 0.16);
-    let sss = sss_col * (0.5 + 0.7 * crest) * (0.3 + 0.7 * water.sun_intensity);
-    let body = deep_col + sss;
+    // ---- P3: depth + clarity body colour (Beer-Lambert shore→deep) ----------
+    // Deep tint runs murky-green (low clarity) → clear blue (high clarity);
+    // shallow tint teal → bright cyan. Lakes pull toward a darker alpine teal.
+    // The shore→deep ramp is driven by the CONTINUOUS shore-proximity field
+    // (sampled from the heightfield), so there are no tile-aligned colour blocks.
+    let deep_sea = mix(vec3<f32>(0.010, 0.055, 0.115), vec3<f32>(0.015, 0.10, 0.205), water.clarity);
+    let shallow_sea = mix(vec3<f32>(0.06, 0.26, 0.28), vec3<f32>(0.10, 0.42, 0.47), water.clarity);
+    let deep_col = mix(deep_sea, vec3<f32>(0.015, 0.07, 0.085), lakeness);
+    let shallow_col = mix(shallow_sea, vec3<f32>(0.05, 0.20, 0.20), lakeness);
+    // Curve the shore→deep ramp so the bright shallow tint hugs the actual
+    // coastline (a thin turquoise fringe) and the body goes deep quickly offshore.
+    let shore_t = shallow * shallow * (3.0 - 2.0 * shallow); // smoothstep(shallow)
+    var water_body = mix(deep_col, shallow_col, shore_t);
+    // Respect the basemap palette a touch (the baked style colour).
+    water_body = mix(water_body, in.color.rgb, 0.08);
+
+    // NOTE (P3 refraction, deferred): true refraction would sample the sea bed
+    // behind the surface, but this renderer has no bathymetry/seabed pass — the
+    // only thing "behind" the water is the tiled satellite basemap, and sampling
+    // it through the wave normal just reveals per-tile JPEG seams as hatching
+    // (verified in the harness). Refraction is therefore intentionally OFF until a
+    // real depth/seabed source exists; the shallow-water cue is delivered as the
+    // Beer-Lambert depth COLOUR above + the shoreline foam band below, which read
+    // correctly without a seabed. The `refract` uniform is retained for that future.
+
+    // Subsurface scattering (P4): back-lit crests glow with a teal-green tint as
+    // light passes through the thin pinched crest — strongest when the sun is low
+    // and behind the wave. A tint added under the reflection, not over it.
+    let back = clamp(dot(-v, water.sun_dir) * 0.5 + 0.5, 0.0, 1.0);
+    let sss_col = mix(vec3<f32>(0.02, 0.11, 0.13), vec3<f32>(0.03, 0.16, 0.12), lakeness);
+    let sss = sss_col * (0.35 + 0.9 * crest) * back * (0.3 + 0.7 * water.sun_intensity);
+    let body = water_body + sss;
 
     var col = mix(body, reflection, fres);
 
-    // Direct wave shading — the key to looking ALIVE at map zoom. Reflection only
-    // modulates the surface where the reflected environment varies; over open sea
-    // / overcast the sky is uniform, so without this the waves vanish into flat
-    // colour (the "underwhelming dead-calm" look). Crests catch more light and sit
-    // brighter, troughs darker — environment-independent structure that always
-    // reads as waves. Driven by the same fragment wave field (no vertex aliasing).
-    // Directional wave shading: now that the chop runs with the wind (not
-    // isotropic cells), visible light/dark BANDS read as waves. Moderate so it
-    // doesn't wash white.
+    // Direct wave shading — crests bright, troughs dark — so the sea reads alive
+    // even where the reflected environment is uniform (open sea / overcast).
     col *= (0.82 + 0.34 * crest);
 
-    // (Removed the crossed-sine "swell mottle": sin(x)+sin(y) over perpendicular
-    // directions is a regular grid of peaks, which over dark deep water rendered
-    // as a hideous lattice of bright blobs. Distance liveliness must come from a
-    // non-periodic source, not crossed sines — revisit with domain-warped noise.)
-
-    // Sun glitter: TWO lobes on the rippling normal — a tight HDR sparkle that
-    // bloom scatters into sea-sparkle across the crests, plus a broader sun sheen
-    // that gives the whole sunward side life (not just pinpricks). Fades at night.
-    let h = normalize(v + water.sun_dir);
-    let ndoth = max(dot(n, h), 0.0);
-    // Tight HDR sparkle only (no broad sheen — the sheen washed the whole sunward
-    // half white). Fades with the ripple detail so far water doesn't fizz, and
-    // scaled by sun intensity so it's a scattered sea-sparkle, not a sheet.
+    // Sun glitter (P4): a tight HDR sparkle on the rippling normal that bloom
+    // scatters into sea-sparkle, plus a soft sunward sheen (kept modest so it
+    // doesn't sheet-white). Both fade at night and on glassy lakes (which get the
+    // sharp terrain mirror instead).
+    let hvec = normalize(v + water.sun_dir);
+    let ndoth = max(dot(nf, hvec), 0.0);
     let sparkle = pow(ndoth, 300.0) * 4.0;
-    col += water.sun_color * sparkle * water.sun_intensity;
+    let sheen = pow(ndoth, 40.0) * 0.25 * (1.0 - lakeness);
+    col += water.sun_color * (sparkle + sheen) * water.sun_intensity;
 
-    // Whitecaps from the FIELD: `crest` is the Jacobian fold-mask (where the wave
-    // geometry pinches/breaks), so foam appears on the actual steep crests — a
-    // base presence in any sea, ramped up when the forecast reports a rough sea.
-    // This is the big "alive ocean" cue (driven by the wave shape, not a guess).
-    let breaking = smoothstep(0.5, 0.92, crest) * (0.4 + 0.9 * water.whitecap);
+    // Whitecaps from the FIELD Jacobian (`crest` = fold-mask where geometry
+    // pinches/breaks) — open sea only (lakes get no ocean whitecaps), ramped by
+    // the forecast sea state. The big "alive ocean" cue, driven by wave shape.
+    let breaking = smoothstep(0.5, 0.92, crest) * (0.4 + 0.9 * water.whitecap) * (1.0 - lakeness);
     let foam_lit = vec3<f32>(0.95, 0.97, 1.0) * (0.45 + 0.55 * water.sun_intensity);
+    // Spray lift (P6, in-shader): the strongest breaking crests lift a faint mist
+    // that bloom blows into spray at the scale we view the sea — a cheap, robust
+    // stand-in for a particle system (a true GPU spray pass is deferred; it can't
+    // be validated headlessly and risks mobile perf for little gain here).
+    let spray = smoothstep(0.8, 1.0, crest) * water.whitecap * (1.0 - lakeness);
     col = mix(col, foam_lit, clamp(breaking, 0.0, 1.0));
+    col += foam_lit * spray * 0.5;
 
     // Shoreline foam: a thin lively band where the water meets rising land.
     let foam_band = shoreline_foam(in.world_pos, water.time);
     col = mix(col, foam_lit, foam_band);
 
-    // Opaque for now; P3 adds shallow-water transparency / refraction (revealing
-    // the seabed) driven by the continuous shallowness field.
     let alpha = in.color.a * tile.tile_alpha;
     return vec4<f32>(col, alpha);
 }
