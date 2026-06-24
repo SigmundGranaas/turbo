@@ -210,9 +210,10 @@ impl PostProcess {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         targets: &FrameTargets,
+        scene_view: &wgpu::TextureView,
         surface_target: &wgpu::TextureView,
     ) {
-        let scene_bg = self.tex_bind(device, targets.hdr_resolve_view());
+        let scene_bg = self.tex_bind(device, scene_view);
         let bloom_a_bg = self.tex_bind(device, targets.bloom_a_view());
         let bloom_b_bg = self.tex_bind(device, targets.bloom_b_view());
 

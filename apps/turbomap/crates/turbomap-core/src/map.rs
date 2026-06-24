@@ -31,7 +31,7 @@ use crate::{
         gpu_timestamps::GpuTimestamps,
         hillshade::{HillshadePipeline, PreparedHillshade},
         icon::{IconPipeline, PreparedIcons},
-        marker::MarkerPipeline,
+        marker::{MarkerPipeline, PreparedMarkers},
         post::PostProcess,
         raster::{PreparedRaster, RasterPipeline},
         route::{build_tube, RoutePipeline, RouteVertex},
@@ -821,6 +821,20 @@ struct ShadowKey {
     /// Monotonic DEM-insert count — bumps when new terrain tiles ingest, so a
     /// freshly-filled region recomputes its shadows.
     dem_inserts: u64,
+}
+
+/// How the per-layer water fill is drawn within a pass — selects between the
+/// flat single-pass path (water interleaved under the vector mesh) and the
+/// realistic two-pass restructure (water drawn in its own pass after the opaque
+/// scene, so it can sample the opaque Scene Colour).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WaterDraw {
+    /// Flat path: draw water then the vector mesh on top, in one pass.
+    Inline,
+    /// Realistic opaque pass: draw the vector mesh only (skip water).
+    Skip,
+    /// Realistic water pass: draw ONLY the water fills.
+    Only,
 }
 
 impl Map {
@@ -2205,6 +2219,116 @@ impl Map {
         assemble
     }
 
+    /// Draw the per-layer ground content (raster / vector mesh + water /
+    /// hillshade) into `pass`. `water` selects flat-inline vs the realistic
+    /// restructure's opaque (Skip) / water-only (Only) passes. Shared by both
+    /// render paths so the draw logic lives in exactly one place.
+    fn draw_layers(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        prepared_layers: &[(usize, PreparedLayer)],
+        terrain_cache: Option<&crate::render::terrain::TerrainCache>,
+        placeholder_dem: &wgpu::BindGroup,
+        shadow_bg: &wgpu::BindGroup,
+        water: WaterDraw,
+    ) {
+        for (i, prepared) in prepared_layers {
+            match (&self.layers[*i], prepared) {
+                (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
+                    if water != WaterDraw::Only {
+                        r.pipeline.draw(p, &r.cache, terrain_cache, placeholder_dem, shadow_bg, pass);
+                    }
+                }
+                (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
+                    // Water first (Inline/Only) so roads/buildings paint over it
+                    // in the flat path; in the realistic path the water pass is
+                    // Only and the opaque pass is Skip.
+                    if water == WaterDraw::Inline || water == WaterDraw::Only {
+                        self.renderer.water_pipeline.draw(
+                            p,
+                            &v.cache,
+                            terrain_cache,
+                            placeholder_dem,
+                            &v.pipeline,
+                            pass,
+                        );
+                    }
+                    if water != WaterDraw::Only {
+                        v.pipeline.draw(p, &v.cache, terrain_cache, placeholder_dem, pass);
+                    }
+                }
+                (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
+                    if water != WaterDraw::Only {
+                        if let Some(tc) = terrain_cache {
+                            h.pipeline.draw(p, tc, pass);
+                        }
+                    }
+                }
+                _ => unreachable!("prepared layer kind mismatch"),
+            }
+        }
+    }
+
+    /// Draw the route/track 3-D tubes into `pass` (after ground layers so the
+    /// terrain occludes them, before screen-space overlays).
+    fn draw_route_tubes(&self, pass: &mut wgpu::RenderPass<'_>, frame: &RenderFrame) {
+        let cam_origin = self.cam.camera.center.to_world();
+        let vp = self
+            .cam
+            .camera
+            .view_projection_matrix_rtc(cam_origin, self.viewport_px);
+        let origin_delta = [
+            (self.route_tubes.origin.0 - cam_origin.x) as f32,
+            (self.route_tubes.origin.1 - cam_origin.y) as f32,
+        ];
+        let cfg = &frame.raster_terrain_cfg;
+        let sun = cfg.sun_dir;
+        let sun_dir = if sun[0] == 0.0 && sun[1] == 0.0 && sun[2] == 0.0 {
+            [0.4, 0.4, 0.82]
+        } else {
+            sun
+        };
+        let lc = cfg.light_color;
+        let light = if lc[0] + lc[1] + lc[2] < 0.01 { [1.0, 1.0, 1.0] } else { lc };
+        let ppw = (256.0 * 2f64.powf(self.cam.camera.zoom)) as f32;
+        let radius_px = if self.route_tubes.radius_px > 0.0 {
+            self.route_tubes.radius_px
+        } else {
+            7.0
+        };
+        self.renderer.route_pipeline.draw(
+            vp,
+            origin_delta,
+            ppw,
+            radius_px,
+            1.3,
+            sun_dir,
+            cfg.ambient.max(0.4),
+            light,
+            pass,
+        );
+    }
+
+    /// Draw the screen-space overlays (icons under labels, then labels, then
+    /// markers) into `pass`.
+    fn draw_overlays(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        prepared_icons: &[PreparedIcons],
+        prepared_text: &[PreparedText],
+        prepared_markers: &Option<PreparedMarkers>,
+    ) {
+        for p in prepared_icons {
+            self.renderer.icon_pipeline.draw(p, pass);
+        }
+        for p in prepared_text {
+            self.renderer.text_pipeline.draw(p, pass);
+        }
+        if let Some(p) = prepared_markers {
+            self.renderer.marker_pipeline.draw(p, pass);
+        }
+    }
+
     pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
         let started = Instant::now();
 
@@ -2480,155 +2604,159 @@ impl Map {
             _ => BACKGROUND_CLEAR,
         };
 
-        // ---- Phase C: the single render pass ---------------------
+        // ---- Phase C: the render pass(es) ------------------------
+        // Flat path: ONE MSAA pass, water interleaved under the vector mesh,
+        // resolved to hdr_resolve. Realistic-water path: an OPAQUE pass (no
+        // water) that STORES its MSAA colour and resolves to hdr_resolve (the
+        // Scene Colour), then a WATER pass that LOADS that MSAA colour, draws
+        // water on top (still 4× MSAA — same pipeline, edges stay AA'd) and
+        // resolves into `composite`. Splitting it lets the water sample the
+        // opaque scene (reflection/refraction, later phases); post reads
+        // `composite` instead of `hdr_resolve`.
         let pass_started = Instant::now();
         {
             let terrain_cache = self.terrain.as_ref().map(|t| &t.cache);
             let placeholder_dem = &self.renderer.terrain_shared.placeholder_bind_group;
             let shadow_bg = &self.renderer.shadow_map.bind_group;
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("turbomap-frame-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    // Render multisampled into the HDR target, then resolve down
-                    // to the single-sample HDR texture the post-process reads.
-                    // (The sRGB surface is written later, by the tonemap pass.)
-                    view: self.renderer.targets.color_view(),
-                    resolve_target: Some(self.renderer.targets.hdr_resolve_view()),
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear),
-                        // The multisampled buffer is transient — we only keep
-                        // the resolved HDR texture, so it needn't be stored.
-                        store: wgpu::StoreOp::Discard,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self.renderer.targets.depth_view(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
+            let targets = &self.renderer.targets;
 
-            // Atmosphere first, behind everything: a depth-disabled
-            // full-screen triangle. Terrain/vectors overdraw it, so it
-            // shows only at the horizon when the camera is tilted.
-            if let Some(g) = &frame.sky_globals {
-                self.renderer.sky_pipeline.draw(g, &mut pass);
-            }
-
-            // Sub-sea-level ground floor, after the sky and before the terrain:
-            // it depth-writes, so real terrain overdraws it, but it fills any
-            // not-yet-streamed gap with neutral sea-grey instead of see-through.
-            if let Some(g) = &frame.floor_globals {
-                self.renderer.floor_pipeline.draw(g, &mut pass);
-            }
-
-            for (i, prepared) in &prepared_layers {
-                match (&self.layers[*i], prepared) {
-                    (LayerEntry::Raster(r), PreparedLayer::Raster(p)) => {
-                        r.pipeline.draw(
-                            p,
-                            &r.cache,
-                            terrain_cache,
-                            placeholder_dem,
-                            shadow_bg,
-                            &mut pass,
-                        );
+            if self.realistic_water {
+                // -- Opaque pass: everything except water; STORE MSAA colour.
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("turbomap-opaque-pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: targets.color_view(),
+                            resolve_target: Some(targets.hdr_resolve_view()),
+                            depth_slice: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(clear),
+                                // STORE: the water pass loads this MSAA colour.
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: targets.depth_view(),
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    if let Some(g) = &frame.sky_globals {
+                        self.renderer.sky_pipeline.draw(g, &mut pass);
                     }
-                    (LayerEntry::Vector(v), PreparedLayer::Vector(p)) => {
-                        // Realistic water first (it reuses this layer's vector
-                        // camera/tile bind groups + draw list), so roads,
-                        // buildings and labels in the vector mesh paint over it.
-                        self.renderer.water_pipeline.draw(
-                            p,
-                            &v.cache,
-                            terrain_cache,
-                            placeholder_dem,
-                            &v.pipeline,
-                            &mut pass,
-                        );
-                        v.pipeline.draw(p, &v.cache, terrain_cache, placeholder_dem, &mut pass);
+                    if let Some(g) = &frame.floor_globals {
+                        self.renderer.floor_pipeline.draw(g, &mut pass);
                     }
-                    (LayerEntry::Hillshade(h), PreparedLayer::Hillshade(p)) => {
-                        if let Some(tc) = terrain_cache {
-                            h.pipeline.draw(p, tc, &mut pass);
-                        }
-                    }
-                    // prepare tagged each item with its own layer's
-                    // index, and `self.layers` is not mutated between
-                    // the phases.
-                    _ => unreachable!("prepared layer kind mismatch"),
+                    self.draw_layers(
+                        &mut pass,
+                        &prepared_layers,
+                        terrain_cache,
+                        placeholder_dem,
+                        shadow_bg,
+                        WaterDraw::Skip,
+                    );
+                    self.draw_route_tubes(&mut pass, &frame);
+                    self.draw_overlays(&mut pass, &prepared_icons, &prepared_text, &prepared_markers);
                 }
-            }
-
-            // Route/track 3D tubes: after the ground layers (so terrain occludes
-            // them like real objects), before the screen-space overlays.
-            {
-                let cam_origin = self.cam.camera.center.to_world();
-                let vp = self
-                    .cam
-                    .camera
-                    .view_projection_matrix_rtc(cam_origin, self.viewport_px);
-                let origin_delta = [
-                    (self.route_tubes.origin.0 - cam_origin.x) as f32,
-                    (self.route_tubes.origin.1 - cam_origin.y) as f32,
-                ];
-                let cfg = &frame.raster_terrain_cfg;
-                let sun = cfg.sun_dir;
-                let sun_dir = if sun[0] == 0.0 && sun[1] == 0.0 && sun[2] == 0.0 {
-                    [0.4, 0.4, 0.82]
-                } else {
-                    sun
-                };
-                let lc = cfg.light_color;
-                let light = if lc[0] + lc[1] + lc[2] < 0.01 { [1.0, 1.0, 1.0] } else { lc };
-                let ppw = (256.0 * 2f64.powf(self.cam.camera.zoom)) as f32;
-                let radius_px = if self.route_tubes.radius_px > 0.0 {
-                    self.route_tubes.radius_px
-                } else {
-                    7.0
-                };
-                self.renderer.route_pipeline.draw(
-                    vp,
-                    origin_delta,
-                    ppw,
-                    radius_px,
-                    1.3, // lift: centerline 1.3 radii up → underside floats just above terrain
-                    sun_dir,
-                    cfg.ambient.max(0.4),
-                    light,
+                // -- Water pass: load opaque MSAA colour, draw water on top,
+                //    resolve → composite. Depth read-only (terrain occludes water).
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("turbomap-water-pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: targets.color_view(),
+                            resolve_target: Some(targets.composite_view()),
+                            depth_slice: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Discard,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: targets.depth_view(),
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Discard,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    self.draw_layers(
+                        &mut pass,
+                        &prepared_layers,
+                        terrain_cache,
+                        placeholder_dem,
+                        shadow_bg,
+                        WaterDraw::Only,
+                    );
+                }
+            } else {
+                // -- Flat path: single MSAA pass, water interleaved (unchanged).
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("turbomap-frame-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: targets.color_view(),
+                        resolve_target: Some(targets.hdr_resolve_view()),
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear),
+                            store: wgpu::StoreOp::Discard,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: targets.depth_view(),
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                if let Some(g) = &frame.sky_globals {
+                    self.renderer.sky_pipeline.draw(g, &mut pass);
+                }
+                if let Some(g) = &frame.floor_globals {
+                    self.renderer.floor_pipeline.draw(g, &mut pass);
+                }
+                self.draw_layers(
                     &mut pass,
+                    &prepared_layers,
+                    terrain_cache,
+                    placeholder_dem,
+                    shadow_bg,
+                    WaterDraw::Inline,
                 );
-            }
-
-            // Icons under labels, so a name centred on a shield reads on top.
-            for p in &prepared_icons {
-                self.renderer.icon_pipeline.draw(p, &mut pass);
-            }
-
-            for p in &prepared_text {
-                self.renderer.text_pipeline.draw(p, &mut pass);
-            }
-
-            if let Some(p) = &prepared_markers {
-                self.renderer.marker_pipeline.draw(p, &mut pass);
+                self.draw_route_tubes(&mut pass, &frame);
+                self.draw_overlays(&mut pass, &prepared_icons, &prepared_text, &prepared_markers);
             }
         }
         let pass_time = pass_started.elapsed();
 
         // ---- Phase C2: HDR post-process ---------------------------
-        // Bloom + filmic tonemap the resolved HDR scene down to the sRGB
-        // surface. After this the surface holds the final tonemapped image;
-        // the weather-cloud overlay (below) then composites over it in SDR.
+        // Bloom + filmic tonemap the resolved HDR scene → sRGB surface. The
+        // realistic-water path reads `composite` (opaque+water); the flat path
+        // reads `hdr_resolve`. The weather-cloud overlay (below) then composites
+        // over the surface in SDR.
+        let scene_view = if self.realistic_water {
+            self.renderer.targets.composite_view()
+        } else {
+            self.renderer.targets.hdr_resolve_view()
+        };
         self.renderer
             .post
-            .run(&self.device, encoder, &self.renderer.targets, target);
+            .run(&self.device, encoder, &self.renderer.targets, scene_view, target);
 
         // Weather-cloud overlay: a separate, single-sampled, depth-less
         // fullscreen composite over the already-resolved surface. It can't
