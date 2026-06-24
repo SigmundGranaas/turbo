@@ -278,7 +278,7 @@ fn wave_surface(p: vec2<f32>, t: f32, zoom: f32, lod: f32) -> vec4<f32> {
     let h = getwaves(p, t, zoom, lod);
     let hx = getwaves(p + vec2<f32>(e, 0.0), t, zoom, lod);
     let hy = getwaves(p + vec2<f32>(0.0, e), t, zoom, lod);
-    let steep = 2.6;
+    let steep = 3.4;
     let n = normalize(vec3<f32>(-(hx - h) / e * steep, -(hy - h) / e * steep, 1.0));
     let crest = clamp(h / amp_m * 0.5 + 0.5, 0.0, 1.0);
     return vec4<f32>(n, crest);
@@ -387,7 +387,12 @@ fn reflect_terrain(p: vec3<f32>, r: vec3<f32>) -> vec4<f32> {
     let lambert = max(dot(nrm, water.sun_dir), 0.0);
     let albedo = vec3<f32>(0.20, 0.23, 0.18);
     let lit = albedo * (0.40 + 0.85 * lambert * water.sun_intensity);
-    return vec4<f32>(lit, 1.0);
+    // Fade the mirror out as the hit nears the heightfield border, so the field's
+    // edge doesn't draw a hard diagonal line across open water (beyond it we
+    // simply can't resolve terrain → fall back to sky).
+    let edge = min(min(hit_uv.x, 1.0 - hit_uv.x), min(hit_uv.y, 1.0 - hit_uv.y));
+    let edge_fade = smoothstep(0.0, 0.10, edge);
+    return vec4<f32>(lit, edge_fade);
 }
 
 @fragment
@@ -409,14 +414,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // anti-aliases by dropping the finest octaves, NOT by flattening the surface —
     // so the normals keep rippling the reflection (no clay) at every zoom.
     let zoom = clamp(dist_m / 700.0, 1.0, 18.0);
-    let lod = mix(2.5, 8.0, clamp(1.0 - smoothstep(500.0, 9000.0, dist_m), 0.0, 1.0));
+    // High LOD FLOOR: even far water keeps several ripple octaves alive (at high-
+    // altitude map zoom *all* visible water is "far" by dist_m, so a low floor
+    // flattened the whole surface — the underwhelming dead-calm look). The finest
+    // octaves still fade with distance to avoid sub-pixel specular noise.
+    let lod = mix(5.0, 8.0, clamp(1.0 - smoothstep(500.0, 9000.0, dist_m), 0.0, 1.0));
     let surf = wave_surface(p_m, water.time, zoom, lod);
     // Combine the big-swell geometric normal (from the displaced vertices) with
     // the fine ripple detail: tilt the interpolated swell normal by the detail
     // slope so the surface shimmers on top of the real 3-D crests instead of
     // replacing them. Detail weight backs off so it perturbs, not dominates.
     let swell_n = normalize(in.wave_normal);
-    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 0.6);
+    let n = normalize(swell_n + vec3<f32>(surf.x, surf.y, 0.0) * 1.15);
     let crest = surf.w;
 
     // View vector (surface → eye).
@@ -426,7 +435,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Fresnel with a high FLOOR — real water is strongly reflective at ALL angles
     // (the "wet mirror"). Without the floor, looking down shows only the body
     // colour and the surface reads as matte clay. F0 0.02, floor 0.30.
-    let fres = clamp(0.14 + 0.86 * pow(1.0 - ndotv, 5.0), 0.0, 1.0);
+    let fres = clamp(0.18 + 0.82 * pow(1.0 - ndotv, 5.0), 0.0, 1.0);
 
     // Reflection — the heart of the wet look. The FULL wave normal ripples the
     // sky reflection so the surface shimmers (sky is a smooth gradient → no
@@ -438,9 +447,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let r_terr = reflect(-v, n_terr);
     if (water.ssr_enabled > 0.5 && r_terr.z > 0.02) {
         let terr = reflect_terrain(in.world_pos, r_terr);
-        if (terr.w > 0.5) {
-            reflection = mix(reflection, terr.rgb, 0.85);
-        }
+        // terr.w is now a 0..1 edge-fade (not a hard hit flag) → no field-edge line.
+        reflection = mix(reflection, terr.rgb, 0.7 * terr.w);
     }
 
     // Depth-based absorption (Beer-Lambert, proxied by distance to shore — the
@@ -460,11 +468,34 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var col = mix(body, reflection, fres);
 
-    // Sun glitter: a tight HDR specular lobe on the rippling normal — bloom turns
-    // it into sparkle scattered across the wave crests. Fades at night.
+    // Direct wave shading — the key to looking ALIVE at map zoom. Reflection only
+    // modulates the surface where the reflected environment varies; over open sea
+    // / overcast the sky is uniform, so without this the waves vanish into flat
+    // colour (the "underwhelming dead-calm" look). Crests catch more light and sit
+    // brighter, troughs darker — environment-independent structure that always
+    // reads as waves. Driven by the same fragment wave field (no vertex aliasing).
+    col *= (0.78 + 0.42 * crest);
+
+    // Large-scale swell mottle: a very long-wavelength brightness roll that stays
+    // visible when the fine ripples go sub-pixel (zoomed out, where the fjord is
+    // km-wide on screen). Wavelength scales with view distance so it's always a
+    // visible fraction of the screen — gentle rolling light/dark instead of dead
+    // flat. Two crossed travelling waves so it doesn't read as parallel stripes.
+    let swell_wl = max(dist_m * 0.16, 50.0);
+    let sd = water.wave_dir;
+    let sp = vec2<f32>(-sd.y, sd.x);
+    let roll = sin(dot(p_m, sd) / swell_wl * 6.2831853 + water.time * 0.35)
+        + sin(dot(p_m, sp) / (swell_wl * 1.6) * 6.2831853 - water.time * 0.22);
+    col *= (1.0 + 0.13 * roll);
+
+    // Sun glitter: TWO lobes on the rippling normal — a tight HDR sparkle that
+    // bloom scatters into sea-sparkle across the crests, plus a broader sun sheen
+    // that gives the whole sunward side life (not just pinpricks). Fades at night.
     let h = normalize(v + water.sun_dir);
-    let spec = pow(max(dot(n, h), 0.0), 200.0);
-    col += water.sun_color * spec * water.sun_intensity * 6.0;
+    let ndoth = max(dot(n, h), 0.0);
+    let sparkle = pow(ndoth, 220.0) * 11.0;
+    let sheen = pow(ndoth, 32.0) * 0.6;
+    col += water.sun_color * (sparkle + sheen) * water.sun_intensity;
 
     // Whitecaps: the top band of each wave crest breaks white when the sea
     // state is extreme (forecast-driven). Sharpened so only the very tops break.
