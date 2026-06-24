@@ -1,0 +1,53 @@
+/* Base layout. Design tokens live in theme/tokens.css; the app chrome is built
+   from the src/ui kit (glass-over-map). This file only owns the root frame and
+   the map canvas surface. */
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font-sans);
+  color: var(--on-surface);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* The map fills the viewport; all UI floats over it (positioned by MapScreen). */
+.map-root { position: absolute; inset: 0; }
+.map-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+.map-canvas:active { cursor: grabbing; }
+
+.map-error,
+.booting {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 2rem;
+}
+.map-error {
+  background: var(--surface);
+}
+.map-error-card {
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-container-high);
+  border-radius: var(--radius-2xl);
+  padding: 32px 28px;
+  box-shadow: var(--elevation-3);
+}
+.map-error-title { font: var(--type-title-large); color: var(--on-surface); }
+.map-error-body { font: var(--type-body-medium); color: var(--on-surface-variant); }
+.booting { color: var(--on-surface-variant); font: var(--type-body-medium); }

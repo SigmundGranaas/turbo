@@ -1,0 +1,581 @@
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import type { TurboMap } from 'turbomap-web';
+import { useSession } from '../api/auth';
+import { createShareLink, redeemLink, shareUrl } from '../api/sharing';
+import { useUiStore } from '../store/uiStore';
+import { useSelection } from '../store/selectionStore';
+import { useRouting } from '../store/routingStore';
+import { usePaths } from '../store/pathsStore';
+import { reverseGeocode } from '../api/markers';
+import type { Track } from '../api/tracks';
+import { planStream } from '../api/routing';
+import { TurboMapCanvas } from './TurboMapCanvas';
+import { useMarkers, useDeleteMarker } from './markers/useMarkers';
+import { useTracks, useDeleteTrack } from './paths/useTracks';
+import { MarkerPins } from './markers/MarkerPins';
+import { MarkerDetailPanel } from './markers/MarkerDetailPanel';
+import { MarkerEditorPanel } from './markers/MarkerEditorPanel';
+import { RouteOverlay } from './routing/RouteOverlay';
+import { RoutePlannerPanel } from './routing/RoutePlannerPanel';
+import { PathsListPanel } from './paths/PathsListPanel';
+import { PathDetailPanel } from './paths/PathDetailPanel';
+import { useCollections } from './collections/useCollections';
+import { CollectionsListPanel } from './collections/CollectionsListPanel';
+import { CollectionDetailPanel } from './collections/CollectionDetailPanel';
+import { CollectionPicker } from './collections/CollectionPicker';
+import type { CollectionItem } from '../api/collections';
+import { AccountSettingsPanel } from '../account/AccountSettingsPanel';
+import { ConditionsPanel } from './conditions/ConditionsPanel';
+import { useConditionsPanel } from '../store/conditionsStore';
+import { useResolvedDark } from '../theme/useTheme';
+import { useIsMobile } from '../theme/useMedia';
+import { NavRail } from '../ui/NavRail';
+import { SearchField } from '../ui/SearchField';
+import { Glass, GlassIconBtn } from '../ui/Glass';
+import { MapRail, MapReadout } from '../ui/MapControls';
+
+const DPR = () => Math.min(window.devicePixelRatio || 1, 2);
+
+interface Cam {
+  lat: number;
+  lng: number;
+  zoom: number;
+  pitch: number;
+  bearing: number;
+}
+
+/** The map home — full-bleed map with the design's glass chrome, the marker
+ *  overlay + side panels, and the routing tool. */
+export function MapScreen() {
+  const base = useUiStore((s) => s.baseLayer);
+  const threeD = useUiStore((s) => s.threeD);
+  const layers = useUiStore((s) => s.layers);
+  const sun = useUiStore((s) => s.sun);
+  const water = useUiStore((s) => s.water);
+  const following = useUiStore((s) => s.following);
+  const accountOpen = useUiStore((s) => s.accountOpen);
+
+  const session = useSession();
+  const markersQ = useMarkers();
+  const del = useDeleteMarker();
+  const sel = useSelection();
+  const routing = useRouting();
+  const paths = usePaths();
+  const tracksQ = useTracks();
+  const delTrack = useDeleteTrack();
+  const collectionsQ = useCollections();
+  const conditions = useConditionsPanel();
+
+  const dark = useResolvedDark();
+  const isMobile = useIsMobile();
+  const qc = useQueryClient();
+  const [ready, setReady] = useState(false);
+  const [query, setQuery] = useState('');
+  const [toast, setToast] = useState<string | null>(null);
+  const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
+  const mapRef = useRef<TurboMap | null>(null);
+  const downPos = useRef<{ x: number; y: number } | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 2600);
+  };
+
+  const shareResource = async (id: string) => {
+    try {
+      const token = await createShareLink(id);
+      await navigator.clipboard.writeText(shareUrl(token));
+      showToast('Share link copied to clipboard');
+    } catch {
+      showToast('Sign in to share');
+    }
+  };
+
+  // Mobile bottom-sheet detents (peek / half / full), drag the grab handle.
+  const DETENTS = ['40vh', '64vh', '88vh'];
+  const [detent, setDetent] = useState(1);
+  const [dragH, setDragH] = useState<number | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null);
+  const onHandleDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const h = sheetRef.current?.getBoundingClientRect().height ?? 0;
+    dragRef.current = { startY: e.clientY, startH: h };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onHandleMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    const dy = dragRef.current.startY - e.clientY;
+    setDragH(Math.max(140, Math.min(window.innerHeight * 0.92, dragRef.current.startH + dy)));
+  };
+  const onHandleUp = () => {
+    if (!dragRef.current) return;
+    const h = dragH ?? dragRef.current.startH;
+    const targets = [0.4, 0.64, 0.88].map((f) => f * window.innerHeight);
+    let best = 0;
+    let bd = Infinity;
+    targets.forEach((t, i) => {
+      const d = Math.abs(t - h);
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    });
+    setDetent(best);
+    setDragH(null);
+    dragRef.current = null;
+  };
+
+  const markers = markersQ.data ?? [];
+  const tracks = tracksQ.data ?? [];
+  const collections = collectionsQ.data ?? [];
+  const selectedMarker = sel.selectedId ? markers.find((m) => m.id === sel.selectedId) : undefined;
+  const selectedTrack = paths.selectedId ? tracks.find((t) => t.id === paths.selectedId) : undefined;
+  const selectedCollection = paths.selectedCollectionId ? collections.find((c) => c.id === paths.selectedCollectionId) : undefined;
+  const resolveItemName = (item: CollectionItem) =>
+    item.type === 'marker'
+      ? markers.find((m) => m.id === item.uuid)?.name || 'Marker'
+      : tracks.find((t) => t.id === item.uuid)?.name || 'Path';
+  const accountPanel = accountOpen;
+  const conditionsPanel = !accountPanel && Boolean(conditions.target);
+  const routePanel = !accountPanel && !conditionsPanel && routing.active;
+  const markerPanel = !accountPanel && !conditionsPanel && !routePanel && sel.mode !== 'none';
+  const pathsPanel = !accountPanel && !conditionsPanel && !routePanel && !markerPanel && paths.open;
+  const panelShown = accountPanel || conditionsPanel || routePanel || markerPanel || pathsPanel;
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (dark) root.setAttribute('data-theme', 'dark');
+    else root.removeAttribute('data-theme');
+  }, [dark]);
+
+  // Redeem a ?share=<token> link on open. Requires sign-in (the grant is
+  // materialised for the current user), so prompt the account panel if needed;
+  // once signed in, redeem → the resource flows in via sync → open it.
+  useEffect(() => {
+    if (!shareToken) return;
+    if (!session.data) {
+      useUiStore.getState().openAccount();
+      return;
+    }
+    redeemLink(shareToken)
+      .then((res) => {
+        qc.invalidateQueries({ queryKey: ['tracks'] });
+        qc.invalidateQueries({ queryKey: ['markers'] });
+        qc.invalidateQueries({ queryKey: ['collections'] });
+        window.history.replaceState({}, '', window.location.pathname);
+        showToast('Added to your library');
+        const rt = (res.resourceType ?? '').toLowerCase();
+        if (rt.includes('track') || rt.includes('path')) usePaths.getState().openDetail(res.resourceId);
+        else useSelection.getState().openDetail(res.resourceId);
+      })
+      .catch(() => showToast('That share link is invalid or expired'));
+  }, [shareToken, session.data, qc]);
+
+  // Run the SSE solver whenever the route inputs change; cancel stale streams.
+  useEffect(() => {
+    if (!routing.active || routing.waypoints.length < 2) {
+      useRouting.getState().setPreview(null);
+      return;
+    }
+    const ac = new AbortController();
+    useRouting.getState().setStatus('solving');
+    planStream(
+      routing.waypoints,
+      routing.preset,
+      routing.profile,
+      {
+        onProgress: (c) => useRouting.getState().setPreview(c),
+        onResult: (p) => useRouting.getState().setPlan(p),
+        onError: (msg) => useRouting.getState().setStatus('error', msg),
+      },
+      ac.signal,
+    ).catch((e: Error) => {
+      if (e.name !== 'AbortError') useRouting.getState().setStatus('error', 'Routing failed');
+    });
+    return () => ac.abort();
+  }, [routing.active, routing.waypoints, routing.preset, routing.profile]);
+
+  const frameTrack = (t: Track) => {
+    const m = mapRef.current;
+    if (!m || t.points.length === 0) return;
+    const lats = t.points.map((p) => p.lat);
+    const lngs = t.points.map((p) => p.lng);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const span = Math.max(maxLat - minLat, maxLng - minLng) || 0.01;
+    const zoom = Math.max(8, Math.min(15, Math.log2(360 / span) - 1));
+    m.ease_to((minLat + maxLat) / 2, (minLng + maxLng) / 2, zoom, 0, 700);
+  };
+
+  // Frame the camera to a track when it's selected from the list.
+  useEffect(() => {
+    if (selectedTrack) frameTrack(selectedTrack);
+  }, [paths.selectedId, selectedTrack]);
+
+  const onReady = useCallback((m: TurboMap) => {
+    mapRef.current = m;
+    setReady(true);
+  }, []);
+
+  const cam = (): Cam | null => {
+    const m = mapRef.current;
+    if (!m) return null;
+    try {
+      return JSON.parse(m.camera_json()) as Cam;
+    } catch {
+      return null;
+    }
+  };
+
+  const ensure3d = (m: TurboMap, c: Cam) => {
+    if (!threeD) {
+      m.set_camera(c.lat, c.lng, c.zoom, 60, c.bearing);
+      useUiStore.getState().setThreeD(true);
+    }
+  };
+
+  const zoom = (factor: number) => {
+    const m = mapRef.current;
+    if (!m) return;
+    const dpr = DPR();
+    m.zoom_around(factor, (window.innerWidth * dpr) / 2, (window.innerHeight * dpr) / 2);
+  };
+  const toggle3d = () => {
+    const m = mapRef.current;
+    const c = cam();
+    if (!m || !c) return;
+    const next = !threeD;
+    m.set_camera(c.lat, c.lng, c.zoom, next ? 60 : 0, c.bearing);
+    useUiStore.getState().setThreeD(next);
+  };
+  const toggleSun = () => {
+    const m = mapRef.current;
+    const c = cam();
+    if (!m || !c) return;
+    const next = !sun;
+    if (next) ensure3d(m, c);
+    m.set_sun_time(next ? Date.now() / 1000 : undefined);
+    useUiStore.getState().setSun(next);
+  };
+  const toggleWater = () => {
+    const m = mapRef.current;
+    const c = cam();
+    if (!m || !c) return;
+    const next = !water;
+    if (next) ensure3d(m, c);
+    m.set_realistic_water(next);
+    useUiStore.getState().setWater(next);
+  };
+  const recenter = () => {
+    const m = mapRef.current;
+    if (!m || !('geolocation' in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        m.ease_to(pos.coords.latitude, pos.coords.longitude, 15, 0, 800);
+        useUiStore.getState().setFollowing(true);
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
+  const resetNorth = () => {
+    const m = mapRef.current;
+    const c = cam();
+    if (!m || !c) return;
+    m.ease_to(c.lat, c.lng, c.zoom, 0, 500);
+  };
+
+  // Right-click → drop a new marker (with reverse-geocoded name).
+  const onContextMenu = async (e: ReactMouseEvent<HTMLDivElement>) => {
+    const m = mapRef.current;
+    if (!m || !(e.target as HTMLElement).closest('.map-canvas')) return;
+    e.preventDefault();
+    const dpr = DPR();
+    const g = m.unproject(e.clientX * dpr, e.clientY * dpr);
+    if (!g) return;
+    const [lat, lng] = g;
+    const name = await reverseGeocode(lat, lng);
+    useUiStore.getState().closeAccount();
+    useConditionsPanel.getState().close();
+    usePaths.getState().close();
+    useSelection.getState().openNew(lat, lng, name);
+  };
+
+  const onNav = (id: string) => {
+    useUiStore.getState().closeAccount();
+    useConditionsPanel.getState().close();
+    useRouting.getState().close();
+    useSelection.getState().close();
+    if (id === 'saved') {
+      usePaths.getState().openList();
+    } else if (id === 'conditions') {
+      usePaths.getState().close();
+      const c = cam();
+      if (c) useConditionsPanel.getState().open(c.lat, c.lng, 'Map centre');
+    } else {
+      usePaths.getState().close();
+    }
+  };
+
+  // Left-click (a click, not a pan-drag) while routing → add a waypoint.
+  const onClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const m = mapRef.current;
+    if (!m || !useRouting.getState().active) return;
+    if (!(e.target as HTMLElement).closest('.map-canvas')) return;
+    const d = downPos.current;
+    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return; // was a pan
+    const dpr = DPR();
+    const g = m.unproject(e.clientX * dpr, e.clientY * dpr);
+    if (!g) return;
+    useRouting.getState().addWaypoint({ lat: g[0], lng: g[1] });
+  };
+
+  const onPinSelect = (id: string) => {
+    if (useRouting.getState().active) {
+      const mk = markers.find((x) => x.id === id);
+      if (mk) useRouting.getState().addWaypoint({ lat: mk.lat, lng: mk.lng });
+    } else {
+      useUiStore.getState().closeAccount();
+      useConditionsPanel.getState().close();
+      usePaths.getState().close();
+      useSelection.getState().openDetail(id);
+    }
+  };
+
+  const toggleRouting = () => {
+    if (routing.active) useRouting.getState().close();
+    else {
+      useUiStore.getState().closeAccount();
+      useConditionsPanel.getState().close();
+      useSelection.getState().close();
+      usePaths.getState().close();
+      useRouting.getState().open();
+    }
+  };
+
+  const routeHere = (lat: number, lng: number) => {
+    useUiStore.getState().closeAccount();
+    useConditionsPanel.getState().close();
+    useSelection.getState().close();
+    usePaths.getState().close();
+    useRouting.getState().open({ lat, lng });
+  };
+
+  const onAccount = () => {
+    useRouting.getState().close();
+    useConditionsPanel.getState().close();
+    useSelection.getState().close();
+    usePaths.getState().close();
+    useUiStore.getState().openAccount();
+  };
+  const avatar = session.data ? (session.data.name ?? session.data.email ?? 'S').trim().charAt(0).toUpperCase() : undefined;
+
+  const routeCoords = routing.plan?.coords ?? routing.preview ?? [];
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: 'var(--surface)' }}
+      onContextMenu={onContextMenu}
+      onClick={onClick}
+      onPointerDownCapture={(e) => {
+        downPos.current = { x: e.clientX, y: e.clientY };
+      }}
+    >
+      <TurboMapCanvas base={base} onReady={onReady} />
+      {(routeCoords.length > 0 || routing.waypoints.length > 0) && (
+        <RouteOverlay mapRef={mapRef} coords={routeCoords} waypoints={routing.waypoints} dashed={!routing.plan} />
+      )}
+      {pathsPanel && selectedTrack && selectedTrack.points.length > 0 && (
+        <RouteOverlay
+          mapRef={mapRef}
+          coords={selectedTrack.points}
+          waypoints={[selectedTrack.points[0], selectedTrack.points[selectedTrack.points.length - 1]]}
+        />
+      )}
+      <MarkerPins mapRef={mapRef} markers={markers} selectedId={sel.selectedId} onSelect={onPinSelect} />
+
+      {/* left: app-shell nav rail (desktop) */}
+      {!isMobile && (
+        <div style={{ position: 'absolute', top: 16, left: 16, bottom: 16, zIndex: 10 }}>
+          <NavRail dark={dark} active={paths.open ? 'saved' : 'explore'} signedIn={Boolean(session.data)} avatar={avatar ?? 'S'} onNav={onNav} onAccount={onAccount} />
+        </div>
+      )}
+
+      {/* top: search pill + route-tool toggle (+ Saved on mobile, where there's no nav rail) */}
+      <div
+        style={
+          isMobile
+            ? { position: 'absolute', top: 8, left: 8, right: 8, zIndex: 10, display: 'flex', gap: 8 }
+            : { position: 'absolute', top: 16, left: 96, zIndex: 10, display: 'flex', gap: 12 }
+        }
+      >
+        <SearchField dark={dark} value={query} onChange={setQuery} width={isMobile ? '100%' : 420} avatar={avatar} onAvatar={onAccount} />
+        <Glass dark={dark} radius={9999} style={{ padding: 4, display: 'flex' }}>
+          <GlassIconBtn icon="directions" active={routing.active} title="Plan a route" onClick={toggleRouting} />
+          {isMobile && <GlassIconBtn icon="bookmark" active={paths.open} title="Saved" onClick={() => onNav('saved')} />}
+        </Glass>
+      </div>
+
+      {/* bottom-right: map control cluster (hidden on mobile when a sheet is up) */}
+      <div
+        style={{
+          position: 'absolute',
+          right: !isMobile && panelShown ? 416 : 16,
+          bottom: 16,
+          zIndex: 10,
+          transition: 'right .25s var(--ease-out)',
+          display: isMobile && panelShown ? 'none' : undefined,
+        }}
+      >
+        <MapRail
+          dark={dark}
+          state={{ layers, is3d: threeD, sun, water, following }}
+          on={{
+            onLayers: () => useUiStore.getState().setLayers(!layers),
+            onToggle3d: toggle3d,
+            onSun: toggleSun,
+            onWater: toggleWater,
+            onRecenter: recenter,
+            onCompass: resetNorth,
+            onZoomIn: () => zoom(1.4),
+            onZoomOut: () => zoom(1 / 1.4),
+          }}
+        />
+      </div>
+
+      {/* bottom-left: coordinate / scale readout (desktop only) */}
+      {!isMobile && (
+        <div style={{ position: 'absolute', left: 96, bottom: 22, zIndex: 10 }}>
+          <MapReadout />
+        </div>
+      )}
+
+      {/* right column (desktop) / bottom sheet (mobile): routing / detail / editor */}
+      {panelShown && (
+        <div
+          ref={sheetRef}
+          style={
+            isMobile
+              ? { position: 'absolute', left: 8, right: 8, bottom: 8, height: dragH != null ? `${dragH}px` : DETENTS[detent], zIndex: 11 }
+              : { position: 'absolute', top: 16, right: 16, bottom: 16, width: 384, zIndex: 11 }
+          }
+        >
+          {isMobile && (
+            <div
+              onPointerDown={onHandleDown}
+              onPointerMove={onHandleMove}
+              onPointerUp={onHandleUp}
+              title="Drag to resize"
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 22, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2, cursor: 'ns-resize', touchAction: 'none' }}
+            >
+              <div style={{ width: 36, height: 5, borderRadius: 3, background: 'var(--outline-variant)' }} />
+            </div>
+          )}
+          {accountPanel && <AccountSettingsPanel dark={dark} onClose={() => useUiStore.getState().closeAccount()} />}
+          {conditionsPanel && conditions.target && (
+            <ConditionsPanel
+              dark={dark}
+              lat={conditions.target.lat}
+              lng={conditions.target.lng}
+              name={conditions.target.name}
+              onClose={() => useConditionsPanel.getState().close()}
+            />
+          )}
+          {routePanel && <RoutePlannerPanel dark={dark} />}
+          {markerPanel && sel.mode === 'detail' && selectedMarker && (
+            <MarkerDetailPanel
+              dark={dark}
+              marker={selectedMarker}
+              onEdit={() => useSelection.getState().openEdit(selectedMarker.id)}
+              onRoute={() => routeHere(selectedMarker.lat, selectedMarker.lng)}
+              onSave={() => usePaths.getState().openPicker({ type: 'marker', uuid: selectedMarker.id })}
+              onShare={() => void shareResource(selectedMarker.id)}
+              onConditions={() => useConditionsPanel.getState().open(selectedMarker.lat, selectedMarker.lng, selectedMarker.name)}
+              onDelete={() => del.mutate(selectedMarker, { onSuccess: () => useSelection.getState().close() })}
+              onClose={() => useSelection.getState().close()}
+            />
+          )}
+          {markerPanel && sel.mode === 'edit' && selectedMarker && (
+            <MarkerEditorPanel dark={dark} marker={selectedMarker} onClose={() => useSelection.getState().close()} onSaved={(m) => useSelection.getState().openDetail(m.id)} />
+          )}
+          {markerPanel && sel.mode === 'new' && sel.draft && (
+            <MarkerEditorPanel
+              key={`${sel.draft.lat},${sel.draft.lng}`}
+              dark={dark}
+              point={sel.draft}
+              onClose={() => useSelection.getState().close()}
+              onSaved={(m) => useSelection.getState().openDetail(m.id)}
+            />
+          )}
+          {pathsPanel &&
+            (selectedTrack ? (
+              <PathDetailPanel
+                dark={dark}
+                track={selectedTrack}
+                onShow={() => frameTrack(selectedTrack)}
+                onSave={() => usePaths.getState().openPicker({ type: 'path', uuid: selectedTrack.id })}
+                onShare={() => void shareResource(selectedTrack.id)}
+                onDelete={() => delTrack.mutate(selectedTrack, { onSuccess: () => usePaths.getState().openList() })}
+                onBack={() => usePaths.getState().openList()}
+                onClose={() => usePaths.getState().close()}
+              />
+            ) : selectedCollection ? (
+              <CollectionDetailPanel
+                dark={dark}
+                collection={selectedCollection}
+                resolveName={resolveItemName}
+                onBack={() => usePaths.getState().openList()}
+                onClose={() => usePaths.getState().close()}
+              />
+            ) : paths.tab === 'collections' ? (
+              <CollectionsListPanel
+                dark={dark}
+                collections={collections}
+                loading={collectionsQ.isLoading}
+                onOpen={(id) => usePaths.getState().openCollection(id)}
+                onClose={() => usePaths.getState().close()}
+              />
+            ) : (
+              <PathsListPanel
+                dark={dark}
+                tracks={tracks}
+                loading={tracksQ.isLoading}
+                onSelect={(id) => usePaths.getState().openDetail(id)}
+                onClose={() => usePaths.getState().close()}
+              />
+            ))}
+        </div>
+      )}
+
+      {/* add-to-collection picker (modal over everything) */}
+      {paths.pickerItem && (
+        <CollectionPicker dark={dark} item={paths.pickerItem} onClose={() => usePaths.getState().closePicker()} />
+      )}
+
+      {toast && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 40,
+            background: 'var(--inverse-surface)',
+            color: 'var(--surface)',
+            padding: '12px 20px',
+            borderRadius: 9999,
+            font: '500 14px/1 var(--font-sans)',
+            boxShadow: 'var(--elevation-3)',
+          }}
+        >
+          {toast}
+        </div>
+      )}
+
+      {!ready && <div className="booting">Starting the map…</div>}
+    </div>
+  );
+}

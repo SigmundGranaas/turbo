@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Native web app for Turbo — React + the turbomap wgpu renderer (WASM). Replaces the Flutter app.",
+  "packageManager": "pnpm@9.15.0",
   "scripts": {
     "wasm": "../turbomap/crates/turbomap-web/build.sh",
     "wasm:release": "../turbomap/crates/turbomap-web/build.sh --release",
@@ -22,10 +23,12 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.17.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.17.0",
+    "globals": "^15.14.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0",
     "vite": "^6.0.5"

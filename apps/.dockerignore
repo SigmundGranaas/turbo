@@ -1,0 +1,20 @@
+# Build context for apps/web/Dockerfile is `apps/` — it needs only `web/` and
+# `turbomap/` (the WASM renderer, a file: dependency of the web app). Exclude the
+# heavy siblings + all build artifacts so the context upload stays small.
+# (This only applies when `apps/` itself is the build context; the other apps
+# build from their own subdir, with their own .dockerignore.)
+android/
+ios/
+flutter/
+api/
+tileserver/
+
+# Build artifacts anywhere under the context.
+**/target/
+**/node_modules/
+**/dist/
+**/build/
+**/.dart_tool/
+**/.gradle/
+**/pkg/
+**/.git/

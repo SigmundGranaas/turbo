@@ -1,0 +1,181 @@
+/* ============================================================
+   Turbo Design System — Tokens
+   Ported verbatim from the claude_design "Turbo Design System" project
+   (colors_and_type.css), itself generated from the Android M3 ColorScheme
+   (lib/core/theme/theme.dart). Do not hand-edit values — re-sync from design.
+   ============================================================ */
+
+/* Roboto + Material Symbols, via Google Fonts CDN. */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap');
+
+:root {
+  /* ---------- LIGHT SCHEME (default) ---------- */
+  --primary:                      #8f4c38;
+  --on-primary:                   #ffffff;
+  --primary-container:            #ffdbd1;
+  --on-primary-container:         #723523;
+
+  --secondary:                    #77574e;
+  --on-secondary:                 #ffffff;
+  --secondary-container:          #ffdbd1;
+  --on-secondary-container:       #5d4037;
+
+  --tertiary:                     #6c5d2f;
+  --on-tertiary:                  #ffffff;
+  --tertiary-container:           #f5e1a7;
+  --on-tertiary-container:        #534619;
+
+  --error:                        #ba1a1a;
+  --on-error:                     #ffffff;
+  --error-container:              #ffdad6;
+  --on-error-container:           #93000a;
+
+  --surface:                      #fff8f6;
+  --on-surface:                   #231917;
+  --on-surface-variant:           #53433f;
+
+  --outline:                      #85736e;
+  --outline-variant:              #d8c2bc;
+  --shadow:                       #000000;
+  --scrim:                        #000000;
+
+  --inverse-surface:              #392e2b;
+  --inverse-primary:              #ffb5a0;
+
+  --surface-dim:                  #e8d6d2;
+  --surface-bright:               #fff8f6;
+  --surface-container-lowest:     #ffffff;
+  --surface-container-low:        #fff1ed;
+  --surface-container:            #fceae5;
+  --surface-container-high:       #f7e4e0;
+  --surface-container-highest:    #f1dfda;
+
+  /* ---------- SEMANTIC FOREGROUND ALIASES ---------- */
+  --fg-1: var(--on-surface);
+  --fg-2: var(--on-surface-variant);
+  --fg-3: var(--outline);
+  --fg-accent: var(--primary);
+  --fg-danger: var(--error);
+
+  /* ---------- PATH PALETTE (user-drawn path colors) ---------- */
+  --path-blue:        #1976D2;
+  --path-red:         #D32F2F;
+  --path-green:       #388E3C;
+  --path-orange:      #F57C00;
+  --path-purple:      #7B1FA2;
+  --path-teal:        #00897B;
+  --path-pink:        #C2185B;
+  --path-blue-grey:   #546E7A;
+  --path-brown:       #5D4037;
+  --path-lime:        #9E9D24;
+
+  /* ---------- SPACING ---------- */
+  --space-xxs: 2px;
+  --space-xs:  4px;
+  --space-s:   8px;
+  --space-m:   12px;
+  --space-l:   16px;
+  --space-xl:  24px;
+  --space-2xl: 32px;
+  --space-3xl: 48px;
+
+  /* ---------- RADIUS ---------- */
+  --radius-s:   8px;
+  --radius-m:   12px;
+  --radius-l:   16px;
+  --radius-xl:  20px;
+  --radius-2xl: 24px;
+  --radius-pill: 28px;
+  --radius-full: 9999px;
+
+  /* ---------- ELEVATION ---------- */
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px rgba(0,0,0,.10), 0 1px 3px rgba(0,0,0,.06);
+  --elevation-3: 0 2px 6px rgba(0,0,0,.12), 0 4px 10px rgba(0,0,0,.08);
+  --elevation-4: 0 2px 4px rgba(0,0,0,.14), 0 6px 14px rgba(0,0,0,.10);
+
+  /* ---------- MOTION ---------- */
+  --ease-out:  cubic-bezier(.22, 1, .36, 1);
+  --ease-emph: cubic-bezier(.4, 0, .2, 1);
+  --dur-fast:   200ms;
+  --dur-base:   300ms;
+  --dur-slow:   500ms;
+
+  /* ---------- TYPE ---------- */
+  --font-sans: 'Roboto', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+
+  --type-display-large:  400 57px/64px var(--font-sans);
+  --type-display-medium: 400 45px/52px var(--font-sans);
+  --type-display-small:  400 36px/44px var(--font-sans);
+  --type-headline-large:  400 32px/40px var(--font-sans);
+  --type-headline-medium: 400 28px/36px var(--font-sans);
+  --type-headline-small:  400 24px/32px var(--font-sans);
+  --type-title-large:  400 22px/28px var(--font-sans);
+  --type-title-medium: 500 16px/24px var(--font-sans);
+  --type-title-small:  500 14px/20px var(--font-sans);
+  --type-body-large:  400 16px/24px var(--font-sans);
+  --type-body-medium: 400 14px/20px var(--font-sans);
+  --type-body-small:  400 12px/16px var(--font-sans);
+  --type-label-large:  500 14px/20px var(--font-sans);
+  --type-label-medium: 500 12px/16px var(--font-sans);
+  --type-label-small:  500 11px/16px var(--font-sans);
+}
+
+/* ---------- DARK SCHEME ---------- */
+:root[data-theme="dark"],
+.theme-dark {
+  --primary:                      #ffb5a0;
+  --on-primary:                   #561f0f;
+  --primary-container:            #723523;
+  --on-primary-container:         #ffdbd1;
+
+  --secondary:                    #e7bdb2;
+  --on-secondary:                 #442a22;
+  --secondary-container:          #5d4037;
+  --on-secondary-container:       #ffdbd1;
+
+  --tertiary:                     #d8c58d;
+  --on-tertiary:                  #3b2f05;
+  --tertiary-container:           #534619;
+  --on-tertiary-container:        #f5e1a7;
+
+  --error:                        #ffb4ab;
+  --on-error:                     #690005;
+  --error-container:              #93000a;
+  --on-error-container:           #ffdad6;
+
+  --surface:                      #1a110f;
+  --on-surface:                   #f1dfda;
+  --on-surface-variant:           #d8c2bc;
+
+  --outline:                      #a08c87;
+  --outline-variant:              #53433f;
+
+  --inverse-surface:              #f1dfda;
+  --inverse-primary:              #8f4c38;
+
+  --surface-dim:                  #1a110f;
+  --surface-bright:               #423734;
+  --surface-container-lowest:     #140c0a;
+  --surface-container-low:        #231917;
+  --surface-container:            #271d1b;
+  --surface-container-high:       #322825;
+  --surface-container-highest:    #3d322f;
+}
+
+/* ---------- ICON BASE (Material Symbols Outlined) ---------- */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-variation-settings: 'opsz' 24, 'wght' 400, 'FILL' 0, 'GRAD' 0;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}

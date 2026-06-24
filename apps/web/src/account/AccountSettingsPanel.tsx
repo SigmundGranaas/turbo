@@ -1,0 +1,128 @@
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useSession, loginWithPassword, registerWithPassword, loginWithGoogle, logout } from '../api/auth';
+import { getProfile } from '../api/sharing';
+import { ApiError } from '../api/client';
+import { useUiStore, type ThemeMode, type Units } from '../store/uiStore';
+import { SidePanel, Eyebrow, Tabs, FilledField } from '../ui/Panel';
+import { Btn } from '../ui/Glass';
+import { Icon } from '../ui/Icon';
+import { Cookie } from '../ui/Cookie';
+
+const THEME_ORDER: ThemeMode[] = ['system', 'light', 'dark'];
+
+/** Account + settings side panel. Account: signed-in identity / sign-out, or an
+ *  email-password + Google sign-in form. Settings: theme + units. Ports the
+ *  design's SignIn + AccountSettings. */
+export function AccountSettingsPanel({ dark, onClose }: { dark: boolean; onClose: () => void }) {
+  const session = useSession();
+  const profile = useQuery({ queryKey: ['profile'], queryFn: getProfile, enabled: Boolean(session.data), staleTime: 60_000 });
+  const theme = useUiStore((s) => s.theme);
+  const units = useUiStore((s) => s.units);
+
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    if (mode === 'register' && password !== confirm) {
+      setError('Passwords don’t match.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (mode === 'login') await loginWithPassword(email, password);
+      else await registerWithPassword(email, password, confirm);
+      await session.refetch();
+    } catch (e) {
+      setError(e instanceof ApiError && e.status === 401 ? 'Wrong email or password.' : 'Sign-in failed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signedIn = Boolean(session.data);
+  const who = session.data?.name ?? session.data?.email ?? '';
+
+  return (
+    <SidePanel dark={dark} title="Account" onClose={onClose}>
+      <div style={{ paddingTop: 8, paddingBottom: 16 }}>
+        {signedIn ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <Cookie size={52} lobes={8} fill="var(--primary)">
+              <span style={{ font: '700 20px/1 var(--font-sans)', color: 'var(--on-primary)' }}>{who.trim().charAt(0).toUpperCase() || 'S'}</span>
+            </Cookie>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ font: '600 16px/20px var(--font-sans)', color: 'var(--on-surface)' }}>{session.data?.name ?? 'Signed in'}</div>
+              <div style={{ font: '400 13px/18px var(--font-sans)', color: 'var(--on-surface-variant)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.data?.email}</div>
+              {profile.data?.friendCode && (
+                <div style={{ font: '500 12px/16px var(--font-sans)', color: 'var(--primary)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+                  Friend code · {profile.data.friendCode}
+                </div>
+              )}
+            </div>
+            <Btn label="Sign out" tone="surface" onClick={() => void logout().then(() => session.refetch())} />
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <FilledField label="Email" value={email} onChange={setEmail} placeholder="you@example.com" type="email" />
+            <FilledField label="Password" value={password} onChange={setPassword} type="password" />
+            {mode === 'register' && <FilledField label="Confirm password" value={confirm} onChange={setConfirm} type="password" />}
+            {error && <div style={{ font: '400 13px/18px var(--font-sans)', color: 'var(--error)' }}>{error}</div>}
+            <Btn label={busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'} full onClick={busy ? undefined : submit} />
+            <button
+              onClick={() => void loginWithGoogle()}
+              style={{
+                height: 48,
+                border: '1px solid var(--outline-variant)',
+                background: 'var(--surface-container-low)',
+                color: 'var(--on-surface)',
+                borderRadius: 9999,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                font: '600 15px/1 var(--font-sans)',
+              }}
+            >
+              <Icon name="login" size={20} color="var(--primary)" weight={500} /> Continue with Google
+            </button>
+            <button
+              onClick={() => {
+                setMode(mode === 'login' ? 'register' : 'login');
+                setError(null);
+              }}
+              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--primary)', font: '600 13px/1 var(--font-sans)', padding: 4 }}
+            >
+              {mode === 'login' ? 'New here? Create an account' : 'Have an account? Sign in'}
+            </button>
+          </div>
+        )}
+
+        <Eyebrow style={{ margin: '24px 0 10px' }}>Appearance</Eyebrow>
+        <Tabs
+          items={[{ label: 'System' }, { label: 'Light' }, { label: 'Dark' }]}
+          active={Math.max(0, THEME_ORDER.indexOf(theme))}
+          onPick={(i) => useUiStore.getState().setTheme(THEME_ORDER[i])}
+        />
+
+        <Eyebrow style={{ margin: '20px 0 10px' }}>Units</Eyebrow>
+        <Tabs
+          items={[{ label: 'Metric' }, { label: 'Imperial' }]}
+          active={units === 'metric' ? 0 : 1}
+          onPick={(i) => useUiStore.getState().setUnits((i === 0 ? 'metric' : 'imperial') as Units)}
+        />
+
+        <Eyebrow style={{ margin: '24px 0 8px' }}>About</Eyebrow>
+        <div style={{ font: '400 13px/19px var(--font-sans)', color: 'var(--on-surface-variant)' }}>
+          Turbo for Web · the turbomap wgpu renderer in the browser.
+        </div>
+      </div>
+    </SidePanel>
+  );
+}
