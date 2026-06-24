@@ -144,7 +144,17 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         let inv_m = 1.0 / max(water.meters_to_world, 1e-12);
         let p_m = world * inv_m;
         let dist_m = length(water.eye - world_pos) * inv_m;
-        let amp_scale = clamp(1.0 - smoothstep(2200.0, 12000.0, dist_m), 0.0, 1.0);
+        // CRITICAL anti-alias gate: displace ONLY when the grid can resolve the
+        // ~28 m waves. A refined cell is ~tile_width/8; at map zoom that is many
+        // hundreds of metres ≫ wavelength, so sampling the wave at those vertices
+        // produces random per-vertex normals → faceted triangle garbage. Fade the
+        // displacement in only for small (very-high-zoom) tiles; flat otherwise,
+        // and the per-pixel fragment wave-normal (which can't alias) carries the
+        // look at map zoom.
+        let tile_m = tile.span * inv_m;
+        let res_gate = clamp(1.0 - smoothstep(120.0, 400.0, tile_m), 0.0, 1.0);
+        let dist_lod = clamp(1.0 - smoothstep(2200.0, 12000.0, dist_m), 0.0, 1.0);
+        let amp_scale = dist_lod * res_gate;
         let gw = gerstner(p_m, water.time, amp_scale);
         world_pos += vec3<f32>(
             gw.offset.xy * water.meters_to_world,

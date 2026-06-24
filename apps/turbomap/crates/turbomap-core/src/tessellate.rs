@@ -206,6 +206,25 @@ fn edge_midpoint(
     idx
 }
 
+/// Shore distance (tile-local) for water vertices with no real shoreline in
+/// their tile — open sea, or the interior of a body whose banks lie in other
+/// tiles. 1.0 ⇒ a full tile from shore ⇒ unambiguously deep at every zoom.
+const WATER_DEEP_DEFAULT: f32 = 1.0;
+
+/// A water-polygon edge lying along the tile boundary is an MVT *clipping*
+/// artefact, not a real shoreline; baking shore distance from it paints a false
+/// shallow band at every tile seam (and makes all-water tiles read shallow).
+/// Detect axis-aligned segments on — or just outside, allowing for the tile
+/// buffer — the `[0, 1]` tile border.
+fn is_tile_border_edge(a: [f32; 2], b: [f32; 2]) -> bool {
+    const EPS: f32 = 0.02;
+    let vertical = (a[0] - b[0]).abs() < EPS;
+    let horizontal = (a[1] - b[1]).abs() < EPS;
+    let x_border = a[0] <= EPS || a[0] >= 1.0 - EPS;
+    let y_border = a[1] <= EPS || a[1] >= 1.0 - EPS;
+    (vertical && x_border) || (horizontal && y_border)
+}
+
 /// Squared distance from point `p` to segment `a`→`b` (tile-local units).
 fn point_seg_dist2(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
     let ab = [b[0] - a[0], b[1] - a[1]];
@@ -227,6 +246,11 @@ fn point_seg_dist2(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
 /// vertex stays at `dist = 0` (treated as shallow — the safe, brighter default).
 fn bake_shore_distance(mesh: &mut Mesh, segments: &[[f32; 4]]) {
     if segments.is_empty() {
+        // No real shoreline in this tile ⇒ deep everywhere (NOT the shallow
+        // `dist = 0` default), so open water doesn't read as a bright shallows.
+        for v in &mut mesh.vertices {
+            v.dist = WATER_DEEP_DEFAULT;
+        }
         return;
     }
     for v in &mut mesh.vertices {
@@ -328,8 +352,16 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                         // ordinary vector mesh.
                         let is_water = is_water_source_layer(&layer.name);
                         if is_water {
-                            // Collect this body's shoreline edges (tile-local) for
-                            // the post-refinement shore-distance bake.
+                            // Collect this body's REAL shoreline edges (tile-local)
+                            // for the post-refinement shore-distance bake, skipping
+                            // tile-clip edges (see is_tile_border_edge).
+                            let mut push_edge = |a: lyon::math::Point, b: lyon::math::Point| {
+                                let pa = [a.x, a.y];
+                                let pb = [b.x, b.y];
+                                if !is_tile_border_edge(pa, pb) {
+                                    water_boundary.push([pa[0], pa[1], pb[0], pb[1]]);
+                                }
+                            };
                             for ring in rings {
                                 if ring.len() < 2 {
                                     continue;
@@ -337,12 +369,12 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
                                 let mut prev = project(tile_id, extent, ring[0]);
                                 for &pt in &ring[1..] {
                                     let cur = project(tile_id, extent, pt);
-                                    water_boundary.push([prev.x, prev.y, cur.x, cur.y]);
+                                    push_edge(prev, cur);
                                     prev = cur;
                                 }
                                 // Close the ring (last → first).
                                 let first = project(tile_id, extent, ring[0]);
-                                water_boundary.push([prev.x, prev.y, first.x, first.y]);
+                                push_edge(prev, first);
                             }
                         }
                         let target = if is_water {
@@ -851,13 +883,25 @@ mod tests {
             (mesh.vertices[1].dist - 0.5).abs() < 1e-6,
             "centre is the deepest point (0.5 from every edge)"
         );
-        // No boundary ⇒ left at the shallow default (0).
+        // No real shoreline ⇒ deep default (open sea is deep, not shallow).
         let mut bare = Mesh {
             vertices: vec![fill_vertex(0.3, 0.7)],
             indices: vec![],
         };
         bake_shore_distance(&mut bare, &[]);
-        assert_eq!(bare.vertices[0].dist, 0.0);
+        assert_eq!(bare.vertices[0].dist, WATER_DEEP_DEFAULT);
+    }
+
+    #[test]
+    fn tile_border_edges_are_not_shoreline() {
+        // Clip edges along the tile border are rejected; a real interior shore is
+        // kept.
+        assert!(is_tile_border_edge([0.0, 0.0], [0.0, 1.0]), "left border");
+        assert!(is_tile_border_edge([1.0, 0.0], [1.0, 1.0]), "right border");
+        assert!(is_tile_border_edge([0.0, 1.0], [1.0, 1.0]), "top border");
+        assert!(is_tile_border_edge([-0.05, 0.2], [-0.05, 0.8]), "buffer overhang");
+        assert!(!is_tile_border_edge([0.3, 0.3], [0.7, 0.6]), "interior coastline");
+        assert!(!is_tile_border_edge([0.5, 0.0], [0.6, 0.4]), "diagonal off the border");
     }
 
     #[test]

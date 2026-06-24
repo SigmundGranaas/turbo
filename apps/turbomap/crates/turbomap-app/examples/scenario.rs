@@ -93,6 +93,15 @@ impl VectorTileSource for SyntheticVectors {
                 (x0, y0),
             ]])
         };
+        // Under TURBO_WATER, fill the WHOLE tile so adjacent tiles form one
+        // continuous sea (every edge is a tile-clip edge) — this reproduces the
+        // open-water case where Gerstner aliasing faceting + the clip-edge tile
+        // grid show up. Otherwise the small lake rect (a real interior shore).
+        let water_geom = if std::env::var("TURBO_WATER").is_ok() {
+            rect(0, 0, e, e)
+        } else {
+            rect(e / 20, e * 11 / 20, e * 9 / 20, e * 19 / 20)
+        };
         let water = VectorTileLayer {
             name: "water".into(),
             version: 2,
@@ -100,7 +109,7 @@ impl VectorTileSource for SyntheticVectors {
             features: vec![Feature {
                 id: 10,
                 geom_type: GeomType::Polygon,
-                geometry: rect(e / 20, e * 11 / 20, e * 9 / 20, e * 19 / 20),
+                geometry: water_geom,
                 properties: HashMap::new(),
             }],
         };
