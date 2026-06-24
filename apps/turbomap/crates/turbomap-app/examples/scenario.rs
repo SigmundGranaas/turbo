@@ -706,15 +706,39 @@ fn main() {
     )
     .expect("map");
 
-    let basemap: Arc<dyn TileSource> =
-        Arc::new(HttpTiles::new(cli.basemap_url.clone(), 0, 18, 0));
+    // Water dev loop (TURBO_WATER): use REAL data so the harness reproduces the
+    // device — real kart-api vector water (with its ST_Subdivide blocks + real
+    // coastlines) + a SATELLITE basemap (so reflections, glitter and shallows
+    // are actually visible instead of being washed out by the white Kartverket
+    // topo raster). Everything else keeps the synthetic fixtures.
+    let real_water = std::env::var("TURBO_WATER").is_ok();
+    let api_url = std::env::var("TURBO_API_URL")
+        .unwrap_or_else(|_| "https://kart-api.sandring.no".into());
+    let basemap_url = if real_water && std::env::var("TURBO_BASEMAP_URL").is_err() {
+        // Esri World Imagery — public satellite tiles ({z}/{y}/{x}).
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}".to_string()
+    } else {
+        cli.basemap_url.clone()
+    };
+    let basemap: Arc<dyn TileSource> = Arc::new(HttpTiles::new(basemap_url, 0, 19, 0));
     let dem: Arc<dyn TileSource> =
         Arc::new(HttpTiles::new(cli.dem_url.clone(), 6, 14, 1));
-    // Public OSM vector tiles (no auth) + a minimal line/fill style, so the
-    // vector pipeline runs WITH terrain — exercising the draping vertex
-    // shader's DEM sample (the path that never executes in the sim, since the
-    // sim has no terrain → zscale 0 → the sample is branched out).
-    let vector: Arc<dyn VectorTileSource> = Arc::new(SyntheticVectors);
+    let vector: Arc<dyn VectorTileSource> = if real_water {
+        // Default to VersaTiles OSM (free, no-auth, real coastlines, `water`
+        // layer) so the look can be evaluated even when kart-api is down; opt
+        // into kart-api (real ST_Subdivide blocks) with TURBO_KART=1.
+        let src = if std::env::var("TURBO_KART").is_ok() {
+            turbomap_tiles_http::HttpVectorTileSource::turbo_basemap(&api_url)
+                .expect("turbo basemap vector source")
+        } else {
+            turbomap_tiles_http::HttpVectorTileSource::versatiles_osm()
+                .expect("versatiles osm vector source")
+        };
+        Arc::new(src.with_cache_dir("/tmp/turbomap-vec-cache"))
+    } else {
+        // Synthetic OSM-ish vectors: line/fill over terrain for the other probes.
+        Arc::new(SyntheticVectors)
+    };
     map.add_raster_layer("basemap", basemap.clone());
     map.set_terrain_source(dem.clone(), turbomap_core::TerrainOptions::default());
     // Terrain CAST shadows on for the whole run: a peak occludes the valley

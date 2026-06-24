@@ -244,6 +244,35 @@ fn point_seg_dist2(p: [f32; 2], a: [f32; 2], b: [f32; 2]) -> f32 {
 /// units) into its `dist` attribute. `segments` are the water polygons' boundary
 /// edges, `[x0,y0,x1,y1]`. With no boundary (shouldn't happen for water) every
 /// vertex stays at `dist = 0` (treated as shallow — the safe, brighter default).
+/// Keep only the water-boundary edges that appear exactly once. An ST_Subdivide
+/// cut between two water blocks contributes the SAME segment from each block
+/// (water on both sides → not shore); a real coastline edge borders land and so
+/// appears once. Endpoints are quantised before comparison because adjacent
+/// blocks share identical integer MVT coords, but float projection is exact only
+/// up to rounding.
+fn unique_shore_edges(edges: &[[f32; 4]]) -> Vec<[f32; 4]> {
+    use std::collections::HashMap;
+    let q = |v: f32| (v * 100_000.0).round() as i64;
+    let key = |e: &[f32; 4]| {
+        let a = (q(e[0]), q(e[1]));
+        let b = (q(e[2]), q(e[3]));
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    };
+    let mut counts: HashMap<((i64, i64), (i64, i64)), u32> = HashMap::new();
+    for e in edges {
+        *counts.entry(key(e)).or_insert(0) += 1;
+    }
+    edges
+        .iter()
+        .filter(|e| counts.get(&key(e)) == Some(&1))
+        .copied()
+        .collect()
+}
+
 fn bake_shore_distance(mesh: &mut Mesh, segments: &[[f32; 4]]) {
     if segments.is_empty() {
         // No real shoreline in this tile ⇒ deep everywhere (NOT the shallow
@@ -651,9 +680,16 @@ pub fn tessellate(tile_id: TileId, tile: &VectorTile, style: &VectorStyle) -> Te
         WATER_GRID_VERT_BUDGET,
         WATER_GRID_MAX_ROUNDS,
     );
+    // Keep only REAL shoreline edges before baking: prod runs ST_Subdivide on
+    // the sea polygons, whose interior cut edges are shared by two adjacent water
+    // blocks. Treating those as shore painted a false shallow band around every
+    // block ("coastal blocks"). A genuine coast edge borders land, so it belongs
+    // to exactly ONE water polygon; a subdivide cut appears TWICE. Drop the
+    // duplicates → only true coastlines remain.
+    let shore_edges = unique_shore_edges(&water_boundary);
     // Bake distance-to-shore (tile-local units) into each water vertex's `dist`
     // so the shader can shade shallows (near an edge) brighter than deeps.
-    bake_shore_distance(&mut water_mesh, &water_boundary);
+    bake_shore_distance(&mut water_mesh, &shore_edges);
     TessellationOutput {
         mesh: Mesh {
             vertices: buffers.vertices,
@@ -890,6 +926,28 @@ mod tests {
         };
         bake_shore_distance(&mut bare, &[]);
         assert_eq!(bare.vertices[0].dist, WATER_DEEP_DEFAULT);
+    }
+
+    #[test]
+    fn unique_shore_edges_drops_shared_subdivide_cuts() {
+        // Two water blocks sharing the cut edge (1,0)->(1,1): that edge appears
+        // twice (once per block, possibly reversed) → dropped. The outer real
+        // coastline edges appear once → kept.
+        let edges = [
+            [0.0, 0.0, 1.0, 0.0], // block A outer
+            [1.0, 0.0, 1.0, 1.0], // shared cut (A side)
+            [1.0, 1.0, 0.0, 1.0], // block A outer
+            [1.0, 1.0, 1.0, 0.0], // shared cut (B side, reversed)
+            [1.0, 0.0, 2.0, 0.0], // block B outer
+            [2.0, 0.0, 2.0, 1.0], // block B outer
+        ];
+        let kept = unique_shore_edges(&edges);
+        // 6 edges − 2 shared-cut instances = 4 real coast edges.
+        assert_eq!(kept.len(), 4);
+        // The cut (x=1 vertical) must be gone.
+        assert!(!kept
+            .iter()
+            .any(|e| (e[0] - 1.0).abs() < 1e-6 && (e[2] - 1.0).abs() < 1e-6));
     }
 
     #[test]
