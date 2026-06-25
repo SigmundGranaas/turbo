@@ -35,8 +35,6 @@ export interface Scene {
   layers: Layer[];
 }
 
-import { API_BASE } from '../config';
-
 /** The base map a scene is built around. */
 export type BaseLayerId = 'norgeskart' | 'topo' | 'osm' | 'satellite';
 
@@ -51,16 +49,21 @@ export interface BaseLayerDef {
   attribution: string;
 }
 
-/** All selectable base layers. The Kartverket N50 raster is served by our own
- *  tileserver (`/v1/raster`); the rest are public XYZ sources that send
- *  `Access-Control-Allow-Origin: *`, so the WASM host can `fetch()` + ingest
- *  them cross-origin. 3D terrain (the DEM) is independent of the imagery, so it
- *  stays the Kartverket DEM for every base. */
+/** All selectable base layers — every one is an official public XYZ/WMTS
+ *  service that sends `Access-Control-Allow-Origin: *`, so the WASM host can
+ *  `fetch()` + ingest them cross-origin. We deliberately do NOT use our own
+ *  tileserver's `/v1/raster` here: it only pre-renders a limited area, so it
+ *  showed blank outside that box. Kartverket's national cache covers all of
+ *  Norway at full zoom. 3D terrain (the DEM) is independent of the imagery, so
+ *  it stays the Kartverket DEM for every base.
+ *
+ *  Note the Kartverket WMTS path order is `{z}/{y}/{x}` (TileMatrix/Row/Col);
+ *  `tileUrl` substitutes by name, so the order in the string is honoured. */
 export const BASE_LAYERS: Record<BaseLayerId, BaseLayerDef> = {
   norgeskart: {
     label: 'Topo (Norge)',
     icon: 'terrain',
-    url: `${API_BASE}/v1/raster/n50/{z}/{x}/{y}.png`,
+    url: 'https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png',
     maxZoom: 18,
     attribution: '© Kartverket',
   },
@@ -87,14 +90,22 @@ export const BASE_LAYERS: Record<BaseLayerId, BaseLayerDef> = {
   },
 };
 
-/** Build the base scene for a given base layer. The source id stays `basemap`
- *  across layers so a switch is a same-id source-URL swap (the engine
- *  re-ingests); overlays compose on top. */
+/** The engine source/layer id for a base. Crucially this is *per base* (not a
+ *  shared `basemap`): a switch then targets a fresh layer id with no cached
+ *  tiles, so the engine re-requests imagery from the new URL. Reusing one id
+ *  left the previously-ingested raster on screen — the "layers don't render"
+ *  bug — because the engine never re-fetched for an id it already had. */
+export function baseSourceId(base: BaseLayerId): string {
+  return `basemap-${base}`;
+}
+
+/** Build the base scene for a given base layer. */
 export function buildBaseScene(base: BaseLayerId): Scene {
   const def = BASE_LAYERS[base];
+  const id = baseSourceId(base);
   return {
     sources: {
-      basemap: {
+      [id]: {
         type: 'raster-xyz',
         tiles: [def.url],
         tile_size: 256,
@@ -103,6 +114,6 @@ export function buildBaseScene(base: BaseLayerId): Scene {
         attribution: def.attribution,
       },
     },
-    layers: [{ type: 'raster', id: 'basemap', source: 'basemap' }],
+    layers: [{ type: 'raster', id, source: id }],
   };
 }

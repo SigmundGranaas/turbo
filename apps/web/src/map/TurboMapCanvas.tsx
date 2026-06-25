@@ -96,6 +96,7 @@ export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }
       const loader = new TileLoader(map, templatesFor(b0));
       mapRef.current = map;
       loaderRef.current = loader;
+      if (import.meta.env.DEV) (window as unknown as { __map?: TurboMap }).__map = map;
       onReady?.(map);
 
       const frame = () => {
@@ -110,26 +111,71 @@ export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }
 
     // --- gestures: 1 pointer drags to pan, 2 pointers pinch to zoom (touch),
     // wheel to zoom (desktop). Tracking every active pointer is what makes
-    // pinch work on mobile (the old single-pointer handler ignored it). ---
+    // pinch work on mobile. On release we hand the gesture's velocity to the
+    // engine's inertial fling (pan momentum) / zoom-fling (pinch momentum) —
+    // the "physics swipe". A fresh touch cancels any running momentum
+    // (touch-to-stop) by issuing a zero pan, which the engine treats as a new
+    // gesture. ---
     const pointers = new Map<number, { x: number; y: number }>();
     let pinchDist = 0;
+    // Velocity windows (CSS px + ms) — last few samples, used at release.
+    let panV: { t: number; x: number; y: number }[] = [];
+    let pinchV: { t: number; z: number }[] = []; // z = cumulative zoom levels
+    let pinchZoom = 0;
+    const now = () => performance.now();
     const twoPoints = () => [...pointers.values()] as [{ x: number; y: number }, { x: number; y: number }];
+    // Velocity over the trailing `windowMs` of samples, in CSS px/ms.
+    const velFrom = (s: { t: number; x: number; y: number }[]) => {
+      if (s.length < 2) return { vx: 0, vy: 0 };
+      const last = s[s.length - 1];
+      let i = s.length - 1;
+      while (i > 0 && last.t - s[i - 1].t < 60) i--;
+      const a = s[i];
+      const dt = last.t - a.t;
+      if (dt <= 0) return { vx: 0, vy: 0 };
+      return { vx: (last.x - a.x) / dt, vy: (last.y - a.y) / dt };
+    };
     const onDown = (e: PointerEvent) => {
+      if (map) map.pan_by_pixels(0, 0); // touch-to-stop any running fling
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       canvas.setPointerCapture(e.pointerId);
+      panV = [{ t: now(), x: e.clientX, y: e.clientY }];
       if (pointers.size === 2) {
         const [a, b] = twoPoints();
         pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+        pinchZoom = 0;
+        pinchV = [{ t: now(), z: 0 }];
       }
     };
     const onUp = (e: PointerEvent) => {
+      const wasPinch = pointers.size >= 2;
+      const center = wasPinch ? twoPoints() : null;
       pointers.delete(e.pointerId);
       try {
         canvas.releasePointerCapture(e.pointerId);
       } catch {
         /* pointer already released */
       }
-      if (pointers.size < 2) pinchDist = 0;
+      if (!map) return;
+      if (wasPinch) {
+        // Pinch ended: hand zoom-rate (levels/sec) to the zoom fling.
+        const last = pinchV[pinchV.length - 1];
+        let i = pinchV.length - 1;
+        while (i > 0 && last && last.t - pinchV[i - 1].t < 60) i--;
+        const a = pinchV[i];
+        const dt = last && a ? last.t - a.t : 0;
+        const zv = dt > 0 ? ((last.z - a.z) / dt) * 1000 : 0;
+        if (center && Math.abs(zv) > 0.3) {
+          const [p, q] = center;
+          map.zoom_fling(zv, ((p.x + q.x) / 2) * dpr, ((p.y + q.y) / 2) * dpr);
+        }
+        pinchDist = 0;
+      } else if (pointers.size === 0) {
+        // Last finger lifted off a drag: fling by release velocity (px/s).
+        const { vx, vy } = velFrom(panV);
+        const speed = Math.hypot(vx, vy) * 1000; // px/s
+        if (speed > 80) map.fling(vx * 1000 * dpr, vy * 1000 * dpr);
+      }
     };
     const onMove = (e: PointerEvent) => {
       if (!map || !pointers.has(e.pointerId)) return;
@@ -139,11 +185,17 @@ export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }
         const [a, b] = twoPoints();
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         if (pinchDist > 0 && d > 0) {
-          map.zoom_around(d / pinchDist, ((a.x + b.x) / 2) * dpr, ((a.y + b.y) / 2) * dpr);
+          const factor = d / pinchDist;
+          map.zoom_around(factor, ((a.x + b.x) / 2) * dpr, ((a.y + b.y) / 2) * dpr);
+          pinchZoom += Math.log2(factor);
+          pinchV.push({ t: now(), z: pinchZoom });
+          if (pinchV.length > 8) pinchV.shift();
         }
         pinchDist = d;
       } else {
         map.pan_by_pixels((e.clientX - prev.x) * dpr, (e.clientY - prev.y) * dpr);
+        panV.push({ t: now(), x: e.clientX, y: e.clientY });
+        if (panV.length > 8) panV.shift();
       }
     };
     const onWheel = (e: WheelEvent) => {

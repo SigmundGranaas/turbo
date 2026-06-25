@@ -1,5 +1,5 @@
 import { API_BASE } from '../config';
-import { BASE_LAYERS, type BaseLayerId } from './scene';
+import { BASE_LAYERS, baseSourceId, type BaseLayerId } from './scene';
 
 /** Tile kinds the engine asks for via `pending_tiles()`. */
 export type TileKind = 'raster' | 'terrain' | 'vector' | 'hillshade';
@@ -16,7 +16,7 @@ export type Templates = Record<TileKind, Record<string, string>>;
 export function templatesFor(base: BaseLayerId): Templates {
   return {
     raster: {
-      basemap: BASE_LAYERS[base].url,
+      [baseSourceId(base)]: BASE_LAYERS[base].url,
     },
     terrain: {
       __terrain: `${API_BASE}/v1/dem/rgb/{z}/{x}/{y}.png`,

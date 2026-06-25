@@ -322,6 +322,20 @@ impl TurboMap {
         self.engine.zoom_around(factor, (fx, fy));
     }
 
+    /// Start an inertial pan fling at drag-release velocity `(vx, vy)` in
+    /// screen px/s (same sign convention as [`pan_by_pixels`](Self::pan_by_pixels)).
+    /// Driven by `render`/`tick`; a subsequent pan/zoom cancels it. This is the
+    /// physics-swipe momentum, matching Android's tuned fling.
+    pub fn fling(&mut self, vx: f64, vy: f64) {
+        self.engine.fling((vx, vy));
+    }
+
+    /// Start a zoom fling (pinch-release momentum) at `zoom_velocity`
+    /// (zoom-levels/s) about screen pixel `(fx, fy)`. Driven by `render`/`tick`.
+    pub fn zoom_fling(&mut self, zoom_velocity: f64, fx: f64, fy: f64) {
+        self.engine.zoom_fling(zoom_velocity, (fx, fy));
+    }
+
     /// One 3D-mode orbit step: rotate bearing by `d_bearing_deg` + tilt by
     /// `d_pitch_deg`, both pivoting about focus pixel `(fx, fy)`.
     pub fn orbit_around(&mut self, d_bearing_deg: f64, d_pitch_deg: f64, fx: f64, fy: f64) {
