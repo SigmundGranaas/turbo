@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Turbo.Outbox;
@@ -154,7 +155,19 @@ public static class AuthModule
                 };
             });
 
-        services.AddAuthorization();
+        // Plain [Authorize] across the modules (Tracks/Geo/Collections/Sharing)
+        // otherwise authenticates against the DefaultScheme only (JwtBearer =
+        // header), so the cookie-based web client gets 401 on every data call
+        // even with a valid session cookie. Make the default policy accept EITHER
+        // the Cookie or the Bearer scheme so both clients work.
+        services.AddAuthorization(options =>
+        {
+            options.DefaultPolicy = new AuthorizationPolicyBuilder(
+                    CookieAuthenticationDefaults.AuthenticationScheme,
+                    JwtBearerDefaults.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .Build();
+        });
         return services;
     }
 
