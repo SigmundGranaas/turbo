@@ -19,6 +19,7 @@ import { useTracks, useDeleteTrack } from './paths/useTracks';
 import { MarkerPins } from './markers/MarkerPins';
 import { MarkerDetailPanel } from './markers/MarkerDetailPanel';
 import { MarkerEditorPanel } from './markers/MarkerEditorPanel';
+import { SunSlider } from './SunSlider';
 import { RouteOverlay } from './routing/RouteOverlay';
 import { RoutePlannerPanel } from './routing/RoutePlannerPanel';
 import { PathsListPanel } from './paths/PathsListPanel';
@@ -79,6 +80,11 @@ export function MapScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
   const mapRef = useRef<TurboMap | null>(null);
+  // Time-of-day (hours past local midnight) for the sun slider; seeded to now.
+  const [sunHour, setSunHour] = useState(() => {
+    const d = new Date();
+    return d.getHours() + d.getMinutes() / 60;
+  });
 
   // Search: debounced place-name lookup (tileserver anchors) + "lat, lng"
   // coordinate parse. Results render in a dropdown under the search field;
@@ -282,14 +288,33 @@ export function MapScreen() {
     m.set_camera(c.lat, c.lng, c.zoom, next ? 60 : 0, c.bearing);
     useUiStore.getState().setThreeD(next);
   };
+  // Apply a time-of-day (hours past local midnight) as the engine sun time.
+  const applySunHour = (h: number) => {
+    const m = mapRef.current;
+    if (!m) return;
+    const d = new Date();
+    d.setHours(Math.floor(h), Math.round((h - Math.floor(h)) * 60), 0, 0);
+    m.set_sun_time(d.getTime() / 1000);
+  };
   const toggleSun = () => {
     const m = mapRef.current;
     const c = cam();
     if (!m || !c) return;
     const next = !sun;
-    if (next) ensure3d(m, c);
-    m.set_sun_time(next ? Date.now() / 1000 : undefined);
+    if (next) {
+      ensure3d(m, c);
+      const d = new Date();
+      const h = d.getHours() + d.getMinutes() / 60;
+      setSunHour(h); // start at the real clock, then the slider sweeps it
+      applySunHour(h);
+    } else {
+      m.set_sun_time(undefined);
+    }
     useUiStore.getState().setSun(next);
+  };
+  const onSunHour = (h: number) => {
+    setSunHour(h);
+    applySunHour(h);
   };
   const recenter = () => {
     const m = mapRef.current;
@@ -561,6 +586,27 @@ export function MapScreen() {
             onNav={onNav}
             onAccount={onAccount}
           />
+        </div>
+      )}
+
+      {/* sun time-of-day slider — only while Sun mode is on; bottom-centred,
+          lifted clear of the mobile nav. Hidden under a mobile sheet. */}
+      {sun && !(isMobile && panelShown) && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: isMobile ? 150 : 24,
+            display: 'flex',
+            justifyContent: 'center',
+            zIndex: 10,
+            pointerEvents: 'none',
+          }}
+        >
+          <div style={{ pointerEvents: 'auto' }}>
+            <SunSlider dark={dark} hour={sunHour} onChange={onSunHour} />
+          </div>
         </div>
       )}
 
