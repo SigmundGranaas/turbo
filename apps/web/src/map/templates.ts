@@ -19,7 +19,9 @@ export function templatesFor(base: BaseLayerId): Templates {
       [baseSourceId(base)]: BASE_LAYERS[base].url,
     },
     terrain: {
-      __terrain: `${API_BASE}/v1/dem/rgb/{z}/{x}/{y}.png`,
+      // `?halo=1` MUST match the scene's DEM `halo` (scene.ts TERRAIN_HALO) so
+      // the engine gets the 258px haloed tiles it meshes crack-free.
+      __terrain: `${API_BASE}/v1/dem/rgb/{z}/{x}/{y}.png?halo=1`,
     },
     vector: {},
     hillshade: {},

@@ -28,12 +28,30 @@ export type SourceDef =
 
 export type Layer =
   | { type: 'raster'; id: string; source: string }
-  | { type: 'hillshade'; id: string; source: string };
+  | {
+      type: 'hillshade';
+      id: string;
+      source: string;
+      exaggeration?: number;
+      /** true = the DEM is height-only (displaces the ground; no relief overlay
+       *  drawn — the basemap raster lights itself from the sun). */
+      height_only?: boolean;
+    };
 
 export interface Scene {
   sources: Record<string, SourceDef>;
   layers: Layer[];
 }
+
+import { API_BASE } from '../config';
+
+/** Shared Kartverket DEM for 3D terrain — independent of the chosen imagery, so
+ *  it's in every scene. `?halo=1` makes the server bake a 1px elevation ring so
+ *  adjacent terrain tiles mesh crack-free; the scene `halo` MUST match it. Same
+ *  values as Android (`TurbomapScene`: mapbox-rgb, halo 1, exaggeration 6). */
+const TERRAIN_DEM_URL = `${API_BASE}/v1/dem/rgb/{z}/{x}/{y}.png?halo=1`;
+const TERRAIN_HALO = 1;
+const TERRAIN_EXAGGERATION = 6.0;
 
 /** The base map a scene is built around. */
 export type BaseLayerId = 'norgeskart' | 'topo' | 'osm' | 'satellite';
@@ -113,7 +131,22 @@ export function buildBaseScene(base: BaseLayerId): Scene {
         max_zoom: def.maxZoom,
         attribution: def.attribution,
       },
+      // The shared DEM heightmap. Without this source the engine has no
+      // elevation, so 3D mode just tilts a flat plane (no relief). Host-driven:
+      // the bytes come from the `__terrain` template (templates.ts), but the
+      // engine needs the source declared to know encoding/halo + to request it.
+      dem: {
+        type: 'dem-xyz',
+        tiles: [TERRAIN_DEM_URL],
+        encoding: 'mapbox-rgb',
+        halo: TERRAIN_HALO,
+      },
     },
-    layers: [{ type: 'raster', id, source: id }],
+    layers: [
+      { type: 'raster', id, source: id },
+      // height_only: displace the ground, no relief overlay — the basemap
+      // lights itself from the sun (one lit 3D surface), same as Android.
+      { type: 'hillshade', id: 'hillshade', source: 'dem', exaggeration: TERRAIN_EXAGGERATION, height_only: true },
+    ],
   };
 }

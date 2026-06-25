@@ -498,8 +498,11 @@ export function MapScreen() {
           display: isMobile && panelShown ? 'none' : undefined,
         }}
       >
+        {/* The picker pops to the LEFT of the rail, top-aligned with the
+            layers button (the rail's top button) — absolute so it doesn't
+            reflow/shove the rail. `right:64` = rail width (~52) + gap. */}
         {layers && (
-          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ position: 'absolute', right: 64, top: 0 }}>
             <LayerPicker
               dark={dark}
               active={base}
