@@ -45,6 +45,8 @@ pub struct TurboMap {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
+    /// sRGB view format the engine renders to (surface itself may be non-sRGB).
+    render_format: wgpu::TextureFormat,
     engine: TurbomapEngine,
     width: u32,
     height: u32,
@@ -105,24 +107,37 @@ impl TurboMap {
         let queue = Arc::new(queue);
 
         let caps = surface.get_capabilities(&adapter);
-        // Prefer an sRGB surface format (colours blend in linear, re-encoded by
-        // the *Srgb target) — same choice as the Android surface path.
-        let format = caps
+        // The renderer blends in linear and relies on an **sRGB target** to
+        // gamma-encode its result. Browsers expose the canvas surface as a
+        // NON-sRGB format (Chrome WebGPU offers only `Bgra8Unorm`), so we
+        // configure the surface with that base format but render through an
+        // sRGB **view** (a permitted format reinterpretation). Without this the
+        // frame is presented un-encoded (linear) and looks much darker than the
+        // native (Vulkan/Metal) sRGB surfaces — the "darker than mobile" bug.
+        let surface_format = caps
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb())
+            .find(|f| {
+                matches!(
+                    f.remove_srgb_suffix(),
+                    wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
+                )
+            })
             .unwrap_or(caps.formats[0]);
+        // The view format we actually render to (always sRGB so the encode runs).
+        let render_format = surface_format.add_srgb_suffix();
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
+            format: surface_format,
             width: width.max(1),
             height: height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
+            // Allow creating the sRGB view of the (possibly non-sRGB) surface.
+            view_formats: vec![render_format],
         };
         surface.configure(&device, &config);
 
@@ -142,7 +157,7 @@ impl TurboMap {
         let engine = TurbomapEngine::new(
             device.clone(),
             queue.clone(),
-            format,
+            render_format,
             (config.width, config.height),
             camera,
             options,
@@ -154,6 +169,7 @@ impl TurboMap {
             surface,
             device,
             queue,
+            render_format,
             engine,
             width: config.width,
             height: config.height,
@@ -244,9 +260,12 @@ impl TurboMap {
             }
             _ => return,
         };
-        let view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        // Render through an sRGB view so the engine's linear output is
+        // gamma-encoded on write (the surface itself may be non-sRGB on web).
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(self.render_format),
+            ..Default::default()
+        });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

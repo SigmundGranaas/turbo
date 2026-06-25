@@ -354,8 +354,21 @@ export function attachMapGestures(
     e.preventDefault();
     const map = cb.getMap();
     if (!map) return;
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    map.zoom_around_animated(factor, ...focusPx(e.clientX, e.clientY), 180);
+    // Scale the zoom by the ACTUAL wheel delta (normalised across deltaMode),
+    // not a fixed step — otherwise a trackpad (which fires many tiny events)
+    // zooms wildly. Mouse wheels send large deltas (one notch ≈ ±100), so they
+    // still feel snappy; a trackpad's small deltas give smooth fine zoom.
+    // ctrl+wheel is the trackpad pinch gesture → treat as fine.
+    let dy = e.deltaY;
+    if (e.deltaMode === 1) dy *= 16; // lines → px
+    else if (e.deltaMode === 2) dy *= 400; // pages → px
+    const fine = e.ctrlKey || Math.abs(dy) < 60;
+    const k = fine ? 0.0022 : 0.0055;
+    // factor = 2^(zoom-level delta); clamp per-event so a jumbo delta can't leap.
+    const factor = Math.pow(2, Math.max(-1.5, Math.min(1.5, (-dy * k))));
+    // Instant (not animated) so continuous trackpad scroll tracks smoothly;
+    // the engine's tile fade keeps it visually clean. Focus stays under cursor.
+    map.zoom_around(factor, ...focusPx(e.clientX, e.clientY));
   };
 
   // Native double-click is the reliable desktop double — touch goes through

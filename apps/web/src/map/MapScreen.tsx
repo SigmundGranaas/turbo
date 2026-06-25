@@ -317,8 +317,12 @@ export function MapScreen() {
       const h = d.getHours() + d.getMinutes() / 60;
       setSunHour(h); // start at the real clock, then the slider sweeps it
       applySunHour(h);
+      // Cast shadows (peaks shadow the valleys) — what makes the relief read as
+      // distinct, like the native app. Off by default; only on in sun mode.
+      m.set_terrain_shadows(0.7);
     } else {
       m.set_sun_time(undefined);
+      m.set_terrain_shadows(0);
     }
     useUiStore.getState().setSun(next);
   };
