@@ -34,6 +34,7 @@ import { useConditionsPanel } from '../store/conditionsStore';
 import { useResolvedDark } from '../theme/useTheme';
 import { useIsMobile } from '../theme/useMedia';
 import { NavRail } from '../ui/NavRail';
+import { MobileNav } from '../ui/MobileNav';
 import { SearchField } from '../ui/SearchField';
 import { Glass, GlassIconBtn } from '../ui/Glass';
 import { MapRail, MapReadout } from '../ui/MapControls';
@@ -500,7 +501,8 @@ export function MapScreen() {
         style={{
           position: 'absolute',
           right: !isMobile && panelShown ? 416 : 16,
-          bottom: 16,
+          // lift above the mobile bottom nav so the zoom buttons aren't covered
+          bottom: isMobile ? 80 : 16,
           zIndex: 10,
           transition: 'right .25s var(--ease-out)',
           display: isMobile && panelShown ? 'none' : undefined,
@@ -538,6 +540,22 @@ export function MapScreen() {
       {!isMobile && (
         <div style={{ position: 'absolute', left: 96, bottom: 22, zIndex: 10 }}>
           <MapReadout />
+        </div>
+      )}
+
+      {/* mobile bottom nav — the destinations the desktop NavRail holds
+          (Conditions/Activities/Account have no other entry point on a phone).
+          Hidden while a sheet is up, like the control cluster. */}
+      {isMobile && !panelShown && (
+        <div style={{ position: 'absolute', left: 8, right: 8, bottom: 8, zIndex: 10 }}>
+          <MobileNav
+            dark={dark}
+            active="explore"
+            signedIn={Boolean(session.data)}
+            avatar={avatar ?? 'S'}
+            onNav={onNav}
+            onAccount={onAccount}
+          />
         </div>
       )}
 

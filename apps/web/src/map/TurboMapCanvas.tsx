@@ -108,24 +108,43 @@ export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }
       raf = requestAnimationFrame(frame);
     };
 
-    // --- gestures: drag to pan, wheel to zoom ---
-    let dragging = false;
-    let lastX = 0;
-    let lastY = 0;
+    // --- gestures: 1 pointer drags to pan, 2 pointers pinch to zoom (touch),
+    // wheel to zoom (desktop). Tracking every active pointer is what makes
+    // pinch work on mobile (the old single-pointer handler ignored it). ---
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinchDist = 0;
+    const twoPoints = () => [...pointers.values()] as [{ x: number; y: number }, { x: number; y: number }];
     const onDown = (e: PointerEvent) => {
-      dragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       canvas.setPointerCapture(e.pointerId);
+      if (pointers.size === 2) {
+        const [a, b] = twoPoints();
+        pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      }
     };
-    const onUp = () => {
-      dragging = false;
+    const onUp = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      try {
+        canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        /* pointer already released */
+      }
+      if (pointers.size < 2) pinchDist = 0;
     };
     const onMove = (e: PointerEvent) => {
-      if (!dragging || !map) return;
-      map.pan_by_pixels((e.clientX - lastX) * dpr, (e.clientY - lastY) * dpr);
-      lastX = e.clientX;
-      lastY = e.clientY;
+      if (!map || !pointers.has(e.pointerId)) return;
+      const prev = pointers.get(e.pointerId)!;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size >= 2) {
+        const [a, b] = twoPoints();
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinchDist > 0 && d > 0) {
+          map.zoom_around(d / pinchDist, ((a.x + b.x) / 2) * dpr, ((a.y + b.y) / 2) * dpr);
+        }
+        pinchDist = d;
+      } else {
+        map.pan_by_pixels((e.clientX - prev.x) * dpr, (e.clientY - prev.y) * dpr);
+      }
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -144,6 +163,7 @@ export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }
 
     canvas.addEventListener('pointerdown', onDown);
     canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointercancel', onUp);
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('resize', onResize);
@@ -155,6 +175,7 @@ export function TurboMapCanvas({ base = 'norgeskart', camera, onReady, onError }
       cancelAnimationFrame(raf);
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onUp);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
