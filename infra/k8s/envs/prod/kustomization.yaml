@@ -30,7 +30,11 @@ replicas:
 images:
   - name: turbo-modulith
     newName: ghcr.io/sigmundgranaas/turbo-modulith
-    newTag: latest
+    # Immutable, git-traceable tag (api_image_build pushes 0.0.0-<sha7> + :latest;
+    # the modulith hosts have no csproj <Version>). Pinning the sha7 makes ArgoCD
+    # sync the rollout instead of relying on a manual `:latest` restart. Bump to a
+    # green build's 0.0.0-<sha7> and push. (Deployment strategy is Recreate.)
+    newTag: "0.0.0-9e64583"
   - name: turbo-places
     newName: ghcr.io/sigmundgranaas/turbo-places
     newTag: latest
