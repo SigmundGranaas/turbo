@@ -121,6 +121,13 @@ public static class AuthModule
                 options.Cookie.HttpOnly = true;
                 options.Cookie.SameSite = SameSiteMode.Lax;
                 options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+                // The login/OAuth flow stores a RAW JWT in this cookie (not an
+                // encrypted ASP.NET ticket), so the cookie handler must decode it
+                // with our JWT validator instead of the default data protector.
+                // Without this the Cookie scheme can't read the cookie and every
+                // cookie-authed request (the web app) 401s — the bearer-header
+                // JwtBearer scheme that the native apps use is unaffected.
+                options.TicketDataFormat = new JwtDataFormat(jwtConfig);
                 options.Events.OnRedirectToLogin = context =>
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
