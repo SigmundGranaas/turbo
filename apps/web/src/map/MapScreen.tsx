@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { TurboMap } from 'turbomap-web';
 import { useSession } from '../api/auth';
@@ -79,7 +79,6 @@ export function MapScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const [shareToken] = useState(() => new URLSearchParams(window.location.search).get('share'));
   const mapRef = useRef<TurboMap | null>(null);
-  const downPos = useRef<{ x: number; y: number } | null>(null);
 
   // Search: debounced place-name lookup (tileserver anchors) + "lat, lng"
   // coordinate parse. Results render in a dropdown under the search field;
@@ -327,27 +326,46 @@ export function MapScreen() {
     }
   };
 
-  // Single left-click on the map (a click, not a pan/orbit drag): while routing
-  // it adds a waypoint, otherwise it drops a new marker at that point with a
-  // reverse-geocoded name. The >6px guard means a drag (pan/orbit) never fires
-  // this, and `.map-canvas` means clicks on panels/rails are ignored.
-  const onClick = async (e: ReactMouseEvent<HTMLDivElement>) => {
+  // Drop a new marker at a screen point (reverse-geocoded name). Shared by the
+  // desktop click-to-add and the mobile long-press-to-add paths.
+  const createMarkerAt = async (x: number, y: number) => {
     const m = mapRef.current;
-    if (!m || !(e.target as HTMLElement).closest('.map-canvas')) return;
-    const d = downPos.current;
-    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return; // was a drag
-    const dpr = DPR();
-    const g = m.unproject(e.clientX * dpr, e.clientY * dpr);
+    if (!m) return;
+    const g = m.unproject(x * DPR(), y * DPR());
     if (!g) return;
     const [lat, lng] = g;
-    if (useRouting.getState().active) {
-      useRouting.getState().addWaypoint({ lat, lng });
-      return;
-    }
     useUiStore.getState().closeAccount();
     useConditionsPanel.getState().close();
     usePaths.getState().close();
     useSelection.getState().openNew(lat, lng, await reverseGeocode(lat, lng));
+  };
+
+  // A tap/click on the map (the gesture controller already filtered out drags,
+  // doubles, and long-presses). While routing, any tap adds a waypoint. Else
+  // we follow platform convention: mouse-click adds a marker; a touch tap
+  // selects/deselects (its add gesture is long-press) so it doesn't fight
+  // double-tap-zoom or drop pins when dismissing a panel.
+  const onMapTap = (x: number, y: number, pointerType: string) => {
+    const m = mapRef.current;
+    if (!m) return;
+    if (useRouting.getState().active) {
+      const g = m.unproject(x * DPR(), y * DPR());
+      if (g) useRouting.getState().addWaypoint({ lat: g[0], lng: g[1] });
+      return;
+    }
+    if (pointerType === 'mouse') {
+      void createMarkerAt(x, y);
+      return;
+    }
+    // Touch tap on empty map → dismiss any open panel (select happens on pins).
+    useUiStore.getState().closeAccount();
+    useConditionsPanel.getState().close();
+    usePaths.getState().close();
+    useSelection.getState().close();
+  };
+
+  const onMapLongPress = (x: number, y: number) => {
+    if (!useRouting.getState().active) void createMarkerAt(x, y);
   };
 
   const onPinSelect = (id: string) => {
@@ -393,18 +411,14 @@ export function MapScreen() {
   const routeCoords = routing.plan?.coords ?? routing.preview ?? [];
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: 'var(--surface)' }}
-      onClick={onClick}
-      onPointerDownCapture={(e) => {
-        downPos.current = { x: e.clientX, y: e.clientY };
-      }}
-    >
+    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: 'var(--surface)' }}>
       <TurboMapCanvas
         base={base}
         threeD={threeD}
         onReady={onReady}
         onEnter3d={() => useUiStore.getState().setThreeD(true)}
+        onTap={onMapTap}
+        onLongPress={onMapLongPress}
       />
       {(routeCoords.length > 0 || routing.waypoints.length > 0) && (
         <RouteOverlay mapRef={mapRef} coords={routeCoords} waypoints={routing.waypoints} dashed={!routing.plan} />
