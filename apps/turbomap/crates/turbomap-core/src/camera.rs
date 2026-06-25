@@ -220,6 +220,11 @@ pub struct Camera {
     /// Default 0 (no inset) — the offscreen/golden path never sets it, so its
     /// projection + matrix are unchanged.
     pub viewport_inset_px: f64,
+    /// Right viewport inset in pixels (e.g. a desktop side panel over the right
+    /// of the map). Shifts the projection's principal point left by `inset/2`,
+    /// so the camera centre + everything projected/rendered sits in the visible
+    /// band left of the panel. Default 0 (no inset) — golden path unchanged.
+    pub viewport_inset_right_px: f64,
     /// The zoom range this camera may occupy. Interactive zoom
     /// ([`zoomed_around`](Self::zoomed_around)) clamps to it, so the camera
     /// can be locked to the active map's accuracy. Defaults to
@@ -236,6 +241,7 @@ impl Camera {
             pitch_deg: 0.0,
             bearing_deg: 0.0,
             viewport_inset_px: 0.0,
+            viewport_inset_right_px: 0.0,
             zoom_bounds: ZoomBounds::DEFAULT,
         }
     }
@@ -291,6 +297,8 @@ impl Camera {
             // garbage value can't shift the projection's principal point out of
             // f32 range.
             viewport_inset_px: FiniteF64::or(self.viewport_inset_px, 0.0).clamp(0.0, 100_000.0),
+            viewport_inset_right_px: FiniteF64::or(self.viewport_inset_right_px, 0.0)
+                .clamp(0.0, 100_000.0),
             zoom_bounds: self.zoom_bounds,
         }
     }
@@ -320,6 +328,12 @@ impl Camera {
     /// Set the bottom viewport inset (px). See [`Camera::viewport_inset_px`].
     pub fn with_viewport_inset(mut self, bottom_px: f64) -> Self {
         self.viewport_inset_px = bottom_px.max(0.0);
+        self
+    }
+
+    /// Set the right viewport inset (px). See [`Camera::viewport_inset_right_px`].
+    pub fn with_viewport_inset_right(mut self, right_px: f64) -> Self {
+        self.viewport_inset_right_px = right_px.max(0.0);
         self
     }
 
@@ -541,11 +555,15 @@ impl Camera {
         // px), that's +inset/vh on y. Left-multiplying a clip-space translation
         // adds `t·w` to clip.y, i.e. ndc.y += t after the perspective divide.
         // inset=0 → identity translation → matrix byte-identical (goldens hold).
-        if self.viewport_inset_px == 0.0 {
+        if self.viewport_inset_px == 0.0 && self.viewport_inset_right_px == 0.0 {
             proj * view
         } else {
-            let ndc_shift = (self.viewport_inset_px / vh as f64) as f32;
-            Mat4::from_translation(Vec3::new(0.0, ndc_shift, 0.0)) * proj * view
+            // Bottom inset shifts content up by inset/2 px (+y NDC); a right
+            // inset shifts content left by inset/2 px (−x NDC). NDC spans 2 over
+            // the viewport, so px→NDC is `inset/dim`.
+            let ndc_shift_y = (self.viewport_inset_px / vh as f64) as f32;
+            let ndc_shift_x = -(self.viewport_inset_right_px / vw as f64) as f32;
+            Mat4::from_translation(Vec3::new(ndc_shift_x, ndc_shift_y, 0.0)) * proj * view
         }
     }
 
@@ -585,11 +603,12 @@ impl Camera {
         // Bottom inset shifts the principal point up by inset/2 px (so the camera
         // centre lands in the visible band above the inset). Default 0 = no shift.
         let inset_y = self.viewport_inset_px * 0.5;
+        let inset_x = self.viewport_inset_right_px * 0.5;
         if self.pitch_deg == 0.0 && self.bearing_deg == 0.0 {
             let ppw = self.pixels_per_world_unit();
             let centre = self.center.to_world();
             return Some((
-                (world.x - centre.x) * ppw + viewport_px.0 * 0.5,
+                (world.x - centre.x) * ppw + viewport_px.0 * 0.5 - inset_x,
                 (world.y - centre.y) * ppw + viewport_px.1 * 0.5 - inset_y,
             ));
         }
@@ -669,7 +688,7 @@ impl Camera {
             // by inset/2). The matrix path below inherits the inset for free via
             // the inset-aware `view_projection` it inverts.
             return WorldPoint::new(
-                center.x + (pixel.0 - viewport_px.0 * 0.5) / ppw,
+                center.x + (pixel.0 - viewport_px.0 * 0.5 + self.viewport_inset_right_px * 0.5) / ppw,
                 center.y + (pixel.1 - viewport_px.1 * 0.5 + self.viewport_inset_px * 0.5) / ppw,
             );
         }
@@ -751,6 +770,7 @@ impl Camera {
             bearing_deg: (self.bearing_deg + delta_bearing * t).rem_euclid(360.0),
             // The inset is a viewport property, not a pose — keep it, don't interpolate.
             viewport_inset_px: self.viewport_inset_px,
+            viewport_inset_right_px: self.viewport_inset_right_px,
             // Bounds are a constraint on the camera, not an interpolated pose
             // value; the start and target share them in practice (the Map
             // stamps both), so carry the start's.

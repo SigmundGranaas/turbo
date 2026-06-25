@@ -185,6 +185,16 @@ export function MapScreen() {
     else root.removeAttribute('data-theme');
   }, [dark]);
 
+  // Desktop: reserve the side panel's width as a right viewport inset so the
+  // map renders/centres in the visible band left of the panel (the focus point
+  // never hides behind it). The engine shifts the projection — the camera isn't
+  // moved — so markers/taps stay correct. Mobile sheets are handled separately.
+  useEffect(() => {
+    const m = mapRef.current;
+    if (!m) return;
+    m.set_viewport_inset_right(!isMobile && panelShown ? 400 : 0);
+  }, [panelShown, isMobile]);
+
   // Redeem a ?share=<token> link on open. Requires sign-in (the grant is
   // materialised for the current user), so prompt the account panel if needed;
   // once signed in, redeem → the resource flows in via sync → open it.

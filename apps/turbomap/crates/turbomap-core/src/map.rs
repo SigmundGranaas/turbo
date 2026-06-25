@@ -589,6 +589,9 @@ struct CameraState {
     /// Bottom viewport inset (px), re-stamped onto `camera` on every update so
     /// projection + render stay inset-aware. 0 = none.
     viewport_inset_px: f64,
+    /// Right viewport inset (px) — e.g. a desktop side panel; re-stamped like
+    /// the bottom inset. 0 = none.
+    viewport_inset_right_px: f64,
     /// The zoom range the camera is locked to (+ optional host override),
     /// re-stamped onto `camera` on every update. See [`ZoomLock`].
     zoom: ZoomLock,
@@ -600,6 +603,7 @@ impl CameraState {
             camera: initial,
             active: None,
             viewport_inset_px: initial.viewport_inset_px,
+            viewport_inset_right_px: initial.viewport_inset_right_px,
             zoom: ZoomLock::new(initial.zoom_bounds),
         }
     }
@@ -609,6 +613,7 @@ impl CameraState {
     /// the map's inset / accuracy bounds.
     fn restamp(&mut self) {
         self.camera.viewport_inset_px = self.viewport_inset_px;
+        self.camera.viewport_inset_right_px = self.viewport_inset_right_px;
         self.camera.set_zoom_bounds(self.zoom.active());
     }
 
@@ -1341,6 +1346,15 @@ impl Map {
     pub fn set_viewport_inset(&mut self, bottom_px: f64) {
         self.cam.viewport_inset_px = bottom_px.max(0.0);
         self.cam.camera.viewport_inset_px = self.cam.viewport_inset_px;
+        self.sync_scenes();
+    }
+
+    /// Reserve `right_px` at the right of the viewport (e.g. a desktop side
+    /// panel). Shifts the principal point left by `right_px/2` for projection,
+    /// unprojection, and rendering alike. Persisted across camera changes.
+    pub fn set_viewport_inset_right(&mut self, right_px: f64) {
+        self.cam.viewport_inset_right_px = right_px.max(0.0);
+        self.cam.camera.viewport_inset_right_px = self.cam.viewport_inset_right_px;
         self.sync_scenes();
     }
 

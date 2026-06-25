@@ -50,6 +50,8 @@ pub struct TurboMap {
     height: u32,
     /// Bottom viewport inset (px) — reserved for a UI sheet, same as Android.
     inset: f64,
+    /// Right viewport inset (px) — reserved for a desktop side panel.
+    inset_right: f64,
 }
 
 #[wasm_bindgen]
@@ -157,6 +159,7 @@ impl TurboMap {
             height: config.height,
             config,
             inset: 0.0,
+            inset_right: 0.0,
         })
     }
 
@@ -280,6 +283,14 @@ impl TurboMap {
         self.engine.set_viewport_inset(self.inset);
     }
 
+    /// Reserve `right_px` at the right of the viewport (a desktop side panel) so
+    /// the projection + rendered frame shift left into the visible band — keeps
+    /// the focus from hiding behind the panel.
+    pub fn set_viewport_inset_right(&mut self, right_px: f64) {
+        self.inset_right = right_px.max(0.0);
+        self.engine.set_viewport_inset_right(self.inset_right);
+    }
+
     pub fn set_camera(&mut self, lat: f64, lng: f64, zoom: f64, pitch_deg: f64, bearing_deg: f64) {
         self.engine.set_camera(CameraState {
             center: LatLng::new(lat, lng),
@@ -306,10 +317,17 @@ impl TurboMap {
         let cam = CoreCamera::new(CoreLatLng::new(cs.center.lat, cs.center.lng), cs.zoom)
             .with_pitch(cs.pitch_deg)
             .with_bearing(cs.bearing_deg)
-            .with_viewport_inset(self.inset);
+            .with_viewport_inset(self.inset)
+            .with_viewport_inset_right(self.inset_right);
         let vp = (self.config.width as f64, self.config.height as f64);
+        // Pan relative to where the camera centre actually projects (the inset
+        // shifts the principal point), so the inset cancels and a drag is a pure
+        // screen-space delta regardless of any open panel/sheet.
         let target = cam
-            .pixel_to_world((vp.0 / 2.0 - dx, vp.1 / 2.0 - dy), vp)
+            .pixel_to_world(
+                (vp.0 / 2.0 - self.inset_right / 2.0 - dx, vp.1 / 2.0 - self.inset / 2.0 - dy),
+                vp,
+            )
             .to_lat_lng();
         let mut c = cs;
         c.center = LatLng::new(target.lat, target.lng);

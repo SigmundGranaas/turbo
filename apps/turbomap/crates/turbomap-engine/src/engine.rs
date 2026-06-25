@@ -455,6 +455,12 @@ impl TurbomapEngine {
         self.map.set_viewport_inset(bottom_px);
     }
 
+    /// Reserve `right_px` at the right of the viewport (desktop side panel) —
+    /// shifts projection/unprojection/render left by `right_px/2`.
+    pub fn set_viewport_inset_right(&mut self, right_px: f64) {
+        self.map.set_viewport_inset_right(right_px);
+    }
+
     /// Lock the camera's zoom so the user can't zoom past the map's
     /// accuracy. Pass an explicit `(min, max)` to override, or `None` to
     /// track the active tile sources automatically (the default — bounds
