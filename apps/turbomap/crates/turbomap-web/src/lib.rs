@@ -322,6 +322,17 @@ impl TurboMap {
         self.engine.zoom_around(factor, (fx, fy));
     }
 
+    /// Animated focus-invariant zoom by `factor` about `(fx, fy)` over
+    /// `duration_ms` (eased). The smooth wheel / +/- button zoom — driven by
+    /// `render`/`tick`; the focus world-point stays put, like `zoom_around`.
+    pub fn zoom_around_animated(&mut self, factor: f64, fx: f64, fy: f64, duration_ms: u32) {
+        self.engine.zoom_around_animated(
+            factor,
+            (fx, fy),
+            std::time::Duration::from_millis(duration_ms as u64),
+        );
+    }
+
     /// Start an inertial pan fling at drag-release velocity `(vx, vy)` in
     /// screen px/s (same sign convention as [`pan_by_pixels`](Self::pan_by_pixels)).
     /// Driven by `render`/`tick`; a subsequent pan/zoom cancels it. This is the

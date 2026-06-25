@@ -117,36 +117,33 @@ export function baseSourceId(base: BaseLayerId): string {
   return `basemap-${base}`;
 }
 
-/** Build the base scene for a given base layer. */
-export function buildBaseScene(base: BaseLayerId): Scene {
+/** Build the base scene for a given base layer. `terrain` adds the DEM
+ *  heightmap + height-only hillshade so 3D shows relief — gated to 3D ONLY:
+ *  in 2D the hillshade would sun-shade the flat basemap (wrecking satellite —
+ *  it goes near-black) and the engine would unproject against displaced
+ *  terrain, so markers/overlays land off the true ground point. 2D must be a
+ *  flat, bright, perfectly-registered map; 3D opts terrain in. */
+export function buildBaseScene(base: BaseLayerId, terrain = false): Scene {
   const def = BASE_LAYERS[base];
   const id = baseSourceId(base);
-  return {
-    sources: {
-      [id]: {
-        type: 'raster-xyz',
-        tiles: [def.url],
-        tile_size: 256,
-        min_zoom: 0,
-        max_zoom: def.maxZoom,
-        attribution: def.attribution,
-      },
-      // The shared DEM heightmap. Without this source the engine has no
-      // elevation, so 3D mode just tilts a flat plane (no relief). Host-driven:
-      // the bytes come from the `__terrain` template (templates.ts), but the
-      // engine needs the source declared to know encoding/halo + to request it.
-      dem: {
-        type: 'dem-xyz',
-        tiles: [TERRAIN_DEM_URL],
-        encoding: 'mapbox-rgb',
-        halo: TERRAIN_HALO,
-      },
+  const sources: Scene['sources'] = {
+    [id]: {
+      type: 'raster-xyz',
+      tiles: [def.url],
+      tile_size: 256,
+      min_zoom: 0,
+      max_zoom: def.maxZoom,
+      attribution: def.attribution,
     },
-    layers: [
-      { type: 'raster', id, source: id },
-      // height_only: displace the ground, no relief overlay — the basemap
-      // lights itself from the sun (one lit 3D surface), same as Android.
-      { type: 'hillshade', id: 'hillshade', source: 'dem', exaggeration: TERRAIN_EXAGGERATION, height_only: true },
-    ],
   };
+  const layers: Layer[] = [{ type: 'raster', id, source: id }];
+  if (terrain) {
+    // Host-driven: bytes come from the `__terrain` template (templates.ts), but
+    // the engine needs the source declared to know encoding/halo + request it.
+    sources.dem = { type: 'dem-xyz', tiles: [TERRAIN_DEM_URL], encoding: 'mapbox-rgb', halo: TERRAIN_HALO };
+    // height_only: displace the ground, no relief overlay — the basemap lights
+    // itself from the sun (one lit 3D surface), same as Android.
+    layers.push({ type: 'hillshade', id: 'hillshade', source: 'dem', exaggeration: TERRAIN_EXAGGERATION, height_only: true });
+  }
+  return { sources, layers };
 }

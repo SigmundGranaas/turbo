@@ -272,7 +272,8 @@ export function MapScreen() {
     const m = mapRef.current;
     if (!m) return;
     const dpr = DPR();
-    m.zoom_around(factor, (window.innerWidth * dpr) / 2, (window.innerHeight * dpr) / 2);
+    // Eased zoom about the viewport centre so the +/- buttons glide.
+    m.zoom_around_animated(factor, (window.innerWidth * dpr) / 2, (window.innerHeight * dpr) / 2, 260);
   };
   const toggle3d = () => {
     const m = mapRef.current;
@@ -310,22 +311,6 @@ export function MapScreen() {
     m.ease_to(c.lat, c.lng, c.zoom, 0, 500);
   };
 
-  // Right-click → drop a new marker (with reverse-geocoded name).
-  const onContextMenu = async (e: ReactMouseEvent<HTMLDivElement>) => {
-    const m = mapRef.current;
-    if (!m || !(e.target as HTMLElement).closest('.map-canvas')) return;
-    e.preventDefault();
-    const dpr = DPR();
-    const g = m.unproject(e.clientX * dpr, e.clientY * dpr);
-    if (!g) return;
-    const [lat, lng] = g;
-    const name = await reverseGeocode(lat, lng);
-    useUiStore.getState().closeAccount();
-    useConditionsPanel.getState().close();
-    usePaths.getState().close();
-    useSelection.getState().openNew(lat, lng, name);
-  };
-
   const onNav = (id: string) => {
     useUiStore.getState().closeAccount();
     useConditionsPanel.getState().close();
@@ -342,17 +327,27 @@ export function MapScreen() {
     }
   };
 
-  // Left-click (a click, not a pan-drag) while routing → add a waypoint.
-  const onClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+  // Single left-click on the map (a click, not a pan/orbit drag): while routing
+  // it adds a waypoint, otherwise it drops a new marker at that point with a
+  // reverse-geocoded name. The >6px guard means a drag (pan/orbit) never fires
+  // this, and `.map-canvas` means clicks on panels/rails are ignored.
+  const onClick = async (e: ReactMouseEvent<HTMLDivElement>) => {
     const m = mapRef.current;
-    if (!m || !useRouting.getState().active) return;
-    if (!(e.target as HTMLElement).closest('.map-canvas')) return;
+    if (!m || !(e.target as HTMLElement).closest('.map-canvas')) return;
     const d = downPos.current;
-    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return; // was a pan
+    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return; // was a drag
     const dpr = DPR();
     const g = m.unproject(e.clientX * dpr, e.clientY * dpr);
     if (!g) return;
-    useRouting.getState().addWaypoint({ lat: g[0], lng: g[1] });
+    const [lat, lng] = g;
+    if (useRouting.getState().active) {
+      useRouting.getState().addWaypoint({ lat, lng });
+      return;
+    }
+    useUiStore.getState().closeAccount();
+    useConditionsPanel.getState().close();
+    usePaths.getState().close();
+    useSelection.getState().openNew(lat, lng, await reverseGeocode(lat, lng));
   };
 
   const onPinSelect = (id: string) => {
@@ -400,13 +395,17 @@ export function MapScreen() {
   return (
     <div
       style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: 'var(--surface)' }}
-      onContextMenu={onContextMenu}
       onClick={onClick}
       onPointerDownCapture={(e) => {
         downPos.current = { x: e.clientX, y: e.clientY };
       }}
     >
-      <TurboMapCanvas base={base} onReady={onReady} />
+      <TurboMapCanvas
+        base={base}
+        threeD={threeD}
+        onReady={onReady}
+        onEnter3d={() => useUiStore.getState().setThreeD(true)}
+      />
       {(routeCoords.length > 0 || routing.waypoints.length > 0) && (
         <RouteOverlay mapRef={mapRef} coords={routeCoords} waypoints={routing.waypoints} dashed={!routing.plan} />
       )}
