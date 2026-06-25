@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTrack, deleteTrack, listTracks, type Track, type TrackInput } from '../../api/tracks';
+import { createTrack, deleteTrack, listTracks, updateTrack, type Track, type TrackChanges, type TrackInput } from '../../api/tracks';
 
 const KEY = ['tracks'];
 
@@ -11,6 +11,14 @@ export function useCreateTrack() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: TrackInput) => createTrack(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}
+
+export function useUpdateTrack() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ track, changes }: { track: Track; changes: TrackChanges }) => updateTrack(track, changes),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   });
 }

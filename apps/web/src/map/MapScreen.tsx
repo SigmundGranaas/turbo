@@ -26,6 +26,7 @@ import { RouteOverlay } from './routing/RouteOverlay';
 import { RoutePlannerPanel } from './routing/RoutePlannerPanel';
 import { PathsListPanel } from './paths/PathsListPanel';
 import { PathDetailPanel } from './paths/PathDetailPanel';
+import { TrackEditorPanel } from './paths/TrackEditorPanel';
 import { useCollections } from './collections/useCollections';
 import { CollectionsListPanel } from './collections/CollectionsListPanel';
 import { CollectionDetailPanel } from './collections/CollectionDetailPanel';
@@ -472,6 +473,7 @@ export function MapScreen() {
           mapRef={mapRef}
           coords={selectedTrack.points}
           waypoints={[selectedTrack.points[0], selectedTrack.points[selectedTrack.points.length - 1]]}
+          color={selectedTrack.colorHex || 'var(--primary)'}
         />
       )}
       <MarkerPins mapRef={mapRef} markers={markers} selectedId={sel.selectedId} onSelect={onPinSelect} />
@@ -692,11 +694,19 @@ export function MapScreen() {
             />
           )}
           {pathsPanel &&
-            (selectedTrack ? (
+            (selectedTrack && paths.editingId === selectedTrack.id ? (
+              <TrackEditorPanel
+                dark={dark}
+                track={selectedTrack}
+                onClose={() => usePaths.getState().closeEdit()}
+                onSaved={(t) => usePaths.getState().openDetail(t.id)}
+              />
+            ) : selectedTrack ? (
               <PathDetailPanel
                 dark={dark}
                 track={selectedTrack}
                 onShow={() => frameTrack(selectedTrack)}
+                onEdit={() => usePaths.getState().openEdit(selectedTrack.id)}
                 onSave={() => usePaths.getState().openPicker({ type: 'path', uuid: selectedTrack.id })}
                 onShare={() => void shareResource(selectedTrack.id)}
                 onDelete={() => delTrack.mutate(selectedTrack, { onSuccess: () => usePaths.getState().openList() })}

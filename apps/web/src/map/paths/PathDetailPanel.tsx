@@ -1,4 +1,5 @@
-import { type Track, toGpx } from '../../api/tracks';
+import { useState } from 'react';
+import { type ExportFormat, type Track, serializeTrack } from '../../api/tracks';
 import { kindForIcon } from '../../activities/kinds';
 import { SidePanel, Eyebrow, StatTile } from '../../ui/Panel';
 import { Btn } from '../../ui/Glass';
@@ -10,12 +11,13 @@ import { formatDistance, formatElev } from '../../format';
 
 const hm = (s?: number) => (s ? `${Math.floor(s / 3600)}:${String(Math.round((s % 3600) / 60)).padStart(2, '0')}` : '—');
 
-function downloadGpx(t: Track) {
-  const blob = new Blob([toGpx(t)], { type: 'application/gpx+xml' });
+function downloadTrack(t: Track, fmt: ExportFormat) {
+  const { text, ext, mime } = serializeTrack(t, fmt);
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${(t.name || 'track').replace(/[^\w-]+/g, '_')}.gpx`;
+  a.download = `${(t.name || 'track').replace(/[^\w-]+/g, '_')}.${ext}`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -26,6 +28,7 @@ export function PathDetailPanel({
   dark,
   track,
   onShow,
+  onEdit,
   onSave,
   onShare,
   onDelete,
@@ -35,6 +38,7 @@ export function PathDetailPanel({
   dark: boolean;
   track: Track;
   onShow: () => void;
+  onEdit: () => void;
   onSave: () => void;
   onShare: () => void;
   onDelete: () => void;
@@ -42,6 +46,7 @@ export function PathDetailPanel({
   onClose: () => void;
 }) {
   const units = useUiStore((s) => s.units);
+  const [exportOpen, setExportOpen] = useState(false);
   const km = (m: number) => formatDistance(m, units);
   const kind = kindForIcon(track.iconKey);
   const high = track.elevations?.length ? Math.max(...track.elevations) : null;
@@ -95,7 +100,18 @@ export function PathDetailPanel({
 
         <div style={{ display: 'flex', gap: 10, margin: '20px 0' }}>
           <Btn label="Show on map" icon="my_location" full onClick={onShow} />
-          <Btn label="Export GPX" icon="download" tone="surface" full onClick={() => downloadGpx(track)} />
+          <Btn label="Edit" icon="edit" tone="surface" full onClick={onEdit} />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <Btn label="Export" icon="download" trailingIcon={exportOpen ? 'expand_less' : 'expand_more'} tone="surface" full onClick={() => setExportOpen((v) => !v)} />
+          {exportOpen && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              {(['gpx', 'geojson', 'kml'] as const).map((fmt) => (
+                <Btn key={fmt} label={fmt.toUpperCase()} size="sm" tone="tonal" full onClick={() => { downloadTrack(track, fmt); setExportOpen(false); }} />
+              ))}
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 16 }}>

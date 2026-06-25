@@ -23,11 +23,14 @@ export function RouteOverlay({
   coords,
   waypoints,
   dashed,
+  color = 'var(--primary)',
 }: {
   mapRef: RefObject<TurboMap | null>;
   coords: LatLng[];
   waypoints: LatLng[];
   dashed?: boolean;
+  /** Line + waypoint stroke colour (defaults to the theme primary). */
+  color?: string;
 }) {
   const haloRef = useRef<SVGPathElement>(null);
   const lineRef = useRef<SVGPathElement>(null);
@@ -76,7 +79,7 @@ export function RouteOverlay({
       <path
         ref={lineRef}
         fill="none"
-        stroke="var(--primary)"
+        stroke={color}
         strokeWidth={5}
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -90,7 +93,7 @@ export function RouteOverlay({
           }}
           r={8}
           fill="var(--surface)"
-          stroke="var(--primary)"
+          stroke={color}
           strokeWidth={3.5}
         />
       ))}
